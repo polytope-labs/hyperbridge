@@ -266,6 +266,222 @@ fn test_accumulate_fees() {
 	})
 }
 
+/// `accumulate` only stores one delivery address per batch, so a
+/// batch whose receipts resolve to more than one address must be
+/// rejected before any fee credit or claimed-flag mutation. This
+/// matches the official relayer's behaviour and keeps the
+/// per-batch fee accounting unambiguous.
+#[test]
+fn test_accumulate_fees_rejects_mixed_delivery_addresses() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp::<Test>(10_000_000_000);
+
+		// Two request commitments with receipts from two distinct relayer
+		// addresses, chosen so they sort to different positions in the
+		// fee-accumulator's `BTreeMap`.
+		let requests = (0u64..2)
+			.into_iter()
+			.map(|nonce| {
+				let post = PostRequest {
+					source: StateMachine::Kusama(2000),
+					dest: StateMachine::Kusama(2001),
+					nonce,
+					from: vec![],
+					to: vec![],
+					timeout_timestamp: 0,
+					body: vec![],
+				};
+				hash_request::<Ismp>(&Request::Post(post))
+			})
+			.collect::<Vec<_>>();
+
+		let relayer_a: Vec<u8> = vec![0x11; 32];
+		let relayer_b: Vec<u8> = vec![0xff; 32];
+
+		let mut source_root = H256::default();
+		let mut source_db = MemoryDB::<KeccakHasher>::default();
+		let mut source_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut source_db, &mut source_root)
+				.build();
+		let mut dest_root = H256::default();
+		let mut dest_db = MemoryDB::<KeccakHasher>::default();
+		let mut dest_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
+
+		// Two commitments, one delivery receipt per relayer.
+		for (index, request) in requests.iter().enumerate() {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
+			let leaf_meta = RequestMetadata {
+				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+				fee: fee_metadata,
+				claimed: false,
+			};
+			RequestCommitments::<Test>::insert(*request, leaf_meta.clone());
+			source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
+
+			let relayer = if index == 0 { &relayer_a } else { &relayer_b };
+			dest_trie.insert(&request_receipt_key, &relayer.encode()).unwrap();
+		}
+		drop(source_trie);
+		drop(dest_trie);
+
+		let mut source_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let mut dest_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let source_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&source_db, &source_root)
+			.with_recorder(&mut source_recorder)
+			.build();
+		let dest_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&dest_db, &dest_root)
+			.with_recorder(&mut dest_recorder)
+			.build();
+
+		let mut keys = vec![];
+		for request in &requests {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			source_trie.get(&request_commitment_key).unwrap();
+			dest_trie.get(&request_receipt_key).unwrap();
+			keys.push(Key::Request(*request));
+		}
+
+		let source_keys_proof =
+			source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+		let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+
+		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: source_keys_proof,
+		});
+		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: dest_keys_proof,
+		});
+
+		let host = Ismp::default();
+		host.store_state_machine_commitment(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2000),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			StateCommitment {
+				timestamp: 100,
+				overlay_root: Some(source_root),
+				state_root: Default::default(),
+			},
+		)
+		.unwrap();
+		host.store_state_machine_commitment(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2001),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			StateCommitment {
+				timestamp: 100,
+				overlay_root: Some(dest_root),
+				state_root: Default::default(),
+			},
+		)
+		.unwrap();
+		host.store_state_machine_update_time(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2000),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			Duration::from_secs(100),
+		)
+		.unwrap();
+		host.store_state_machine_update_time(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2001),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			Duration::from_secs(100),
+		)
+		.unwrap();
+		host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
+		host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2001),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2000),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+
+		let withdrawal_proof = WithdrawalProof {
+			commitments: keys,
+			source_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2000),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: source_state_proof.encode(),
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2001),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: dest_state_proof.encode(),
+			},
+			beneficiary_details: None,
+		};
+
+		let err = pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+			RuntimeOrigin::none(),
+			withdrawal_proof,
+		)
+		.expect_err("mixed-delivery-address batch must be rejected");
+
+		assert_eq!(err, pallet_ismp_relayer::Error::<Test>::MixedDeliveryAddressesInBatch.into(),);
+
+		// Neither delivery address should have been credited.
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), &relayer_a),
+			U256::zero(),
+		);
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), &relayer_b),
+			U256::zero(),
+		);
+
+		// And neither commitment should have been marked claimed.
+		assert!(!RequestCommitments::<Test>::get(requests[0]).unwrap().claimed);
+		assert!(!RequestCommitments::<Test>::get(requests[1]).unwrap().claimed);
+	})
+}
+
 #[test]
 fn test_accumulate_fees_evm_signatures() {
 	let mut ext = new_test_ext();

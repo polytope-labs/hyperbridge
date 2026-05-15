@@ -141,8 +141,7 @@ fn scale_decoding_duplicate_requests_into_btreeset_dedupes_before_dispatch() {
 	proof_at(DEST_CHAIN, PROOF_HEIGHT).encode_to(&mut encoded);
 	(vec![0u8; 32]).encode_to(&mut encoded);
 
-	let decoded =
-		GetRequestsWithProof::decode(&mut &encoded[..]).expect("decode should succeed");
+	let decoded = GetRequestsWithProof::decode(&mut &encoded[..]).expect("decode should succeed");
 
 	// The duplicate collapsed at decode time — the BTreeSet holds one entry.
 	assert_eq!(decoded.requests.len(), 1);

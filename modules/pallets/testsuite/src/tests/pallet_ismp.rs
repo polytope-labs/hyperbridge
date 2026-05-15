@@ -36,8 +36,7 @@ use ismp::{
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, create_relayer_signer,
-	missing_state_commitment_check, post_request_timeout_check,
-	write_outgoing_commitments,
+	missing_state_commitment_check, post_request_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},

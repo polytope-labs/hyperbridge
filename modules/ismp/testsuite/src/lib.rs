@@ -27,7 +27,7 @@ use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
-	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+	dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	handlers::handle_incoming_message,
 	host::{IsmpHost, StateMachine},
@@ -35,7 +35,7 @@ use ismp::{
 		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
 		RequestMessage, TimeoutMessage,
 	},
-	router::{PostRequest, Request},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -314,6 +314,61 @@ where
 	assert!(matches!(res, Err(..)));
 	Ok(())
 }
+
+fn dispatch_get_request<H>(host: &H, intermediate_state: &IntermediateState, timeout: u64) -> GetRequest
+where
+	H: IsmpHost + IsmpDispatcher,
+	H::Account: From<[u8; 32]>,
+	H::Balance: From<u32> + Default,
+{
+	let dispatch_get = DispatchGet {
+		dest: intermediate_state.height.id.state_id,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: intermediate_state.height.height,
+		context: vec![],
+		timeout,
+	};
+	host.dispatch_request(
+		DispatchRequest::Get(dispatch_get),
+		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+	)
+	.unwrap();
+
+	GetRequest {
+		source: host.host_state_machine(),
+		dest: intermediate_state.height.id.state_id,
+		nonce: 0,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: intermediate_state.height.height,
+		context: vec![],
+		timeout_timestamp: timeout,
+	}
+}
+
+/// Reject a GET timeout when the request has already received a response. The request's timeout
+/// hasn't elapsed either, so without the response-receipt guard the handler would have failed
+/// with `RequestTimeoutNotElapsed` — proving the response check runs first.
+pub fn get_response_already_received_check<H>(host: &H) -> Result<(), &'static str>
+where
+	H: IsmpHost + IsmpDispatcher,
+	H::Account: From<[u8; 32]>,
+	H::Balance: From<u32> + Default,
+{
+	let intermediate_state = setup_mock_client(host);
+	let get = dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
+
+	let response = GetResponse { get: get.clone(), values: Default::default() };
+	host.store_response_receipt(&response, &vec![0u8; 32]).unwrap();
+
+	let timeout_message = Message::Timeout(TimeoutMessage::Get { requests: vec![get] });
+
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::GetResponseAlreadyReceived { .. })));
+	Ok(())
+}
+
 
 pub fn fraud_proof_checks<H>(host: &H)
 where

@@ -21,7 +21,7 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, TimeoutMessage},
-	router::Request,
+	router::{GetResponse, Request},
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -121,6 +121,12 @@ where
 				// if we have a commitment, it came from us
 				if host.request_commitment(commitment).is_err() {
 					Err(Error::UnknownRequest { meta: get.into() })?
+				}
+
+				// Reject the timeout if a response has already been received for this request
+				let response = GetResponse { get: get.clone(), values: Default::default() };
+				if host.response_receipt(&response).is_some() {
+					Err(Error::GetResponseAlreadyReceived { meta: get.into() })?
 				}
 
 				// Ensure the get timeout has elapsed on the host

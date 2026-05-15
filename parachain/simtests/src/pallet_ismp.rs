@@ -62,7 +62,6 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_id = 3000u32;
-	let slot_duration = 6000u64;
 	let source = StateMachine::Kusama(para_id);
 	// Bytes used as the `from` field of the POST request below. Pre-computed
 	// here so the same value can be added to the bandwidth allowlist during
@@ -74,7 +73,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		let add_parachain_call = subxt::dynamic::tx(
 			"IsmpParachain",
 			"add_parachain",
-			vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
+			vec![vec![parachain_data_to_value(&ParachainData { id: para_id })]],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
@@ -361,7 +360,6 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	// tests can run back-to-back against the same simnode without colliding
 	// on the parachain-registration step.
 	let para_id = 3001u32;
-	let slot_duration = 6000u64;
 	let source = StateMachine::Kusama(para_id);
 	let from = H256::random().as_bytes().to_vec();
 
@@ -370,7 +368,7 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 		let add_parachain_call = subxt::dynamic::tx(
 			"IsmpParachain",
 			"add_parachain",
-			vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
+			vec![vec![parachain_data_to_value(&ParachainData { id: para_id })]],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;

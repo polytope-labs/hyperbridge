@@ -70,7 +70,7 @@ contract DeployScript is BaseScript {
 
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
-            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy)), IConsensus(address(address(0)))
+            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy))
         );
         consensusClient = address(consensusRouter);
 

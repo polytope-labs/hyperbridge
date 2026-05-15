@@ -6,8 +6,7 @@ This directory contains the [TronBox](https://developers.tron.network/docs/tronb
 
 | Contract | Description | Nile Testnet Address |
 |---|---|---|
-| **BeefyV1FiatShamir** | Fiat-Shamir sampled BEEFY consensus client | [`TH8oxJmHaLSXVHxvM7s4bEEED1yHPG9PYy`](https://nile.tronscan.org/#/contract/TH8oxJmHaLSXVHxvM7s4bEEED1yHPG9PYy) |
-| **ConsensusRouter** | Consensus proof router (only FiatShamir active on TRON) | [`TPXBv4ALJKKRPSVDKygPja4EoE25e96yew`](https://nile.tronscan.org/#/contract/TPXBv4ALJKKRPSVDKygPja4EoE25e96yew) |
+| **ConsensusRouter** | Consensus proof router | [`TPXBv4ALJKKRPSVDKygPja4EoE25e96yew`](https://nile.tronscan.org/#/contract/TPXBv4ALJKKRPSVDKygPja4EoE25e96yew) |
 | **HandlerV1** | ISMP message handler — verifies cryptographic proofs for cross-chain messages | [`TVu5adsYw2CRHrgXwKKdfPR1qYdtA4hFRG`](https://nile.tronscan.org/#/contract/TVu5adsYw2CRHrgXwKKdfPR1qYdtA4hFRG) |
 | **HostManager** | Cross-chain governance module for updating host params and withdrawing revenue | [`TUyim7389oUZVyZBz1cpFJ63BBWwBEeFKe`](https://nile.tronscan.org/#/contract/TUyim7389oUZVyZBz1cpFJ63BBWwBEeFKe) |
 | **TronHost** | The `IsmpHost` and `IsmpDispatcher` implementation for TRON (`chainId = 728126428`) | [`TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc`](https://nile.tronscan.org/#/contract/TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc) |
@@ -105,7 +104,6 @@ This creates individual flattened files in `flattened/` directory:
 - `TronHost_flat.sol`
 - `HandlerV1_flat.sol`
 - `HostManager_flat.sol`
-- `BeefyV1FiatShamir_flat.sol`
 - `ConsensusRouter_flat.sol`
 - `CallDispatcher_flat.sol`
 - `IntentGatewayV2_flat.sol`
@@ -135,10 +133,7 @@ This creates individual flattened files in `flattened/` directory:
 The migration script (`migrations/2_deploy_ismp.js`) handles the full deployment lifecycle:
 
 ```
-BeefyV1FiatShamir
-       │
-       ▼
-ConsensusRouter(address(0), address(0), beefyV1FiatShamir)
+ConsensusRouter(address(0), address(0))
        │
        ▼
 HandlerV1
@@ -162,7 +157,7 @@ IntentGatewayV2(admin)
        └──► IntentGatewayV2.setParams(host, dispatcher, ...)
 ```
 
-The `ConsensusRouter` is deployed with `address(0)` for both `sp1Beefy` and `beefyV1` since only the **BeefyV1FiatShamir** consensus client is used on TRON. Attempting to submit a proof with type `Naive` (0x00) or `ZK` (0x01) will revert.
+The `ConsensusRouter` is deployed with `address(0)` for both `sp1Beefy` and `ecdsaBeefy` since neither is currently active on TRON.
 
 ## Project Structure
 

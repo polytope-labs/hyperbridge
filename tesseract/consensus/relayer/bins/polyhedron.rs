@@ -1,7 +1,7 @@
-//! Polyhedron: BEEFY Fiat-Shamir Proof Relayer for Tron
+//! Polyhedron: BEEFY Proof Relayer for Tron
 //!
 //! This binary combines both the BEEFY prover and consensus relayer functionality,
-//! specifically for relaying BEEFY Fiat-Shamir proofs to Tron only.
+//! specifically for relaying BEEFY proofs to Tron only.
 //!
 //! Architecture:
 //! ```text
@@ -54,7 +54,7 @@ use tesseract_tron::TronConfig;
 
 /// CLI arguments for Polyhedron
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Polyhedron: BEEFY Fiat-Shamir Proof Relayer for Tron")]
+#[command(author, version, about = "Polyhedron: BEEFY Proof Relayer for Tron")]
 pub struct Cli {
 	/// Path to the polyhedron config file
 	#[arg(short, long)]
@@ -109,13 +109,6 @@ impl PolyhedronConfig {
 
 	/// Validate the configuration
 	fn validate(&self) -> anyhow::Result<()> {
-		// Ensure proof variant is Fiat-Shamir for Tron
-		if !matches!(self.prover.proof_variant, tesseract_beefy::prover::ProofVariant::FiatShamir) {
-			anyhow::bail!(
-				"Polyhedron requires proof_variant = \"fiat_shamir\" for Tron compatibility"
-			);
-		}
-
 		// Ensure backend is set to in-memory — Polyhedron builds its own in-memory backend.
 		if !matches!(self.beefy.backend, tesseract_beefy::backend::ProofBackendConfig::InMemory) {
 			log::warn!("Non-in-memory backend configured in beefy config but will be ignored - Polyhedron uses in-memory backend");
@@ -153,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
 	// 	.install_default()
 	// 	.expect("Failed to install rustls crypto provider");
 
-	log::info!("Initializing Polyhedron: BEEFY Fiat-Shamir Proof Relayer for Tron");
+	log::info!("Initializing Polyhedron: BEEFY Proof Relayer for Tron");
 
 	// Parse CLI and load config
 	let cli = Cli::parse();
@@ -288,7 +281,7 @@ async fn main() -> anyhow::Result<()> {
 		.boxed(),
 	);
 
-	log::info!("Polyhedron initialized - relaying BEEFY proofs to Tron");
+	log::info!("Polyhedron initialized - relaying BEEFY proofs to Tron (Ecdsa/SP1)");
 	log::info!("Monitoring tasks (press Ctrl+C to stop)...");
 
 	// Wait for all tasks (will exit if any essential task fails)

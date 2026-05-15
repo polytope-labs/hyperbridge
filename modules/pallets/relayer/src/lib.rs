@@ -240,6 +240,9 @@ pub mod pallet {
 		MissingCommitments,
 		/// Fee accumulation proof contains no address
 		IncompleteProof,
+		/// Withdrawal batch contains commitments delivered by more than one
+		/// relayer address.
+		MixedDeliveryAddressesInBatch,
 		/// Signature Decoding Error
 		SignatureDecodingError,
 		/// `(destination, set_id)` has already been claimed by some relayer.
@@ -713,14 +716,9 @@ where
 			Err(Error::<T>::IncompleteProof)?
 		}
 
-		let mut total_fee = U256::zero();
-		// We expect the relayer used the same address for all deliveries in this batch
-		// That's the only behaviour supported by tesseract relayer
-		let mut delivery_address = Default::default();
-		for (address, fee) in result.clone().into_iter() {
-			delivery_address = address;
-			total_fee += fee;
-		}
+		// Every commitment in the batch must share a single delivery address.
+		ensure!(result.len() == 1, Error::<T>::MixedDeliveryAddressesInBatch);
+		let (delivery_address, total_fee) = result.into_iter().next().expect("len == 1; qed");
 
 		// Let's verify the beneficiary address
 		let beneficiary_address = if let Some((beneficiary_address, signature)) =

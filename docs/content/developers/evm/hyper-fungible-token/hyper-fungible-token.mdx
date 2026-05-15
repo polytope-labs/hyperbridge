@@ -81,7 +81,7 @@ IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
     data: new bytes(0)
 });
 // Quote the native fee required for dispatching the transfer
-uint256 nativeFee = IHyperFungibleToken(token).quoteNative(params);
+uint256 nativeFee = IHyperFungibleToken(token).quote(params);
 // Pay fees in native token
 IHyperFungibleToken(token).send{value: nativeFee}(params);
 ```

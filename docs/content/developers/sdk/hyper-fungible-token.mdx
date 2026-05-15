@@ -81,7 +81,7 @@ console.log(fee.totalFeeTokenCost)     // cost if paying in fee token
 console.log(fee.relayerFeeInFeeToken)  // relayer fee component
 ```
 
-The fee estimation pipeline estimates gas for delivering the message on the destination chain, converts the destination gas cost to the destination fee token via Uniswap, scales decimals between source and destination fee tokens, then calls the on-chain `quote()` and `quoteNative()` methods to get the final cost.
+The fee estimation pipeline estimates gas for delivering the message on the destination chain, converts the destination gas cost to the destination fee token via Uniswap, scales decimals between source and destination fee tokens, then calls the on-chain `quote()` and `quote()` methods to get the final cost.
 
 <Callout type="info">
 `totalNativeCost` may be `0n` on chains without a Uniswap router. In this case, use `payInFeeToken: true` when bridging.

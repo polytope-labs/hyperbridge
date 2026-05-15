@@ -20,7 +20,7 @@ use crate::{
 	events::{Event, TimeoutHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, TimeoutMessage},
+	messaging::{dedup_requests, hash_request, TimeoutMessage},
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -44,6 +44,8 @@ where
 		TimeoutMessage::Post { requests, timeout_proof } => {
 			let state_machine = validate_state_machine(host, timeout_proof.height)?;
 			let state = host.state_machine_commitment(timeout_proof.height)?;
+
+			dedup_requests::<H>(&requests)?;
 
 			for request in &requests {
 				let dest_chain = request.dest_chain();
@@ -113,6 +115,8 @@ where
 				.collect::<Result<Vec<_>, _>>()?
 		},
 		TimeoutMessage::Get { requests } => {
+			dedup_requests::<H>(&requests)?;
+
 			for request in &requests {
 				let commitment = hash_request::<H>(request);
 				// if we have a commitment, it came from us

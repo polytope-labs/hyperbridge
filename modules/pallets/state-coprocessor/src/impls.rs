@@ -18,14 +18,14 @@
 use polkadot_sdk::*;
 
 use super::{Config, Pallet};
-use alloc::{collections::BTreeSet, string::ToString, vec, vec::Vec};
+use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use evm_state_machine::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	events::RequestResponseHandled,
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_get_response, hash_request, Proof},
+	messaging::{dedup_requests, hash_get_response, hash_request, Proof},
 	router::{GetRequest, GetResponse, Request, RequestResponse, StorageValue},
 	Error,
 };
@@ -42,10 +42,8 @@ use sp_core::U256;
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, scale_info::TypeInfo,
 )]
 pub struct GetRequestsWithProof {
-	/// The associated Get requests. A `BTreeSet` structurally rejects
-	/// duplicates within a batch — SCALE-decoded payloads that contain
-	/// repeats are silently collapsed before the pallet sees them.
-	pub requests: BTreeSet<GetRequest>,
+	/// The associated Get requests
+	pub requests: Vec<GetRequest>,
 	/// Proof of these requests on the source chain
 	pub source: Proof,
 	/// State proof of the requested values in the Get requests.
@@ -68,6 +66,11 @@ where
 		// 4. insert GetResponse into mmr and request receipts
 		// 5. emit Response events
 		let host = <<T as Config>::IsmpHost>::default();
+
+		// Reject duplicate requests within the batch.
+		let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Get).collect();
+		dedup_requests::<<T as Config>::IsmpHost>(&wrapped)?;
+
 		for req in requests.iter() {
 			let full = Request::Get(req.clone());
 
@@ -214,8 +217,7 @@ where
 			req_commitment,
 		};
 
-		let leaf_index_and_pos =
-			<T as Config>::Mmr::push(Leaf::GetResponse(get_response));
+		let leaf_index_and_pos = <T as Config>::Mmr::push(Leaf::GetResponse(get_response));
 		let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(
@@ -243,10 +245,7 @@ where
 }
 
 /// Returns the storage keys for
-fn get_request_keys<T: Config>(
-	requests: &BTreeSet<GetRequest>,
-	source: StateMachine,
-) -> Vec<Vec<u8>> {
+fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	for req in requests {
 		let full = Request::Get(req.clone());

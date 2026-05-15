@@ -18,7 +18,7 @@
 use crate::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{GetRequest, GetResponse, PostRequest, Request, Response},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -143,8 +143,8 @@ impl From<&Request> for Meta {
 	}
 }
 
-impl From<&Response> for Meta {
-	fn from(value: &Response) -> Self {
+impl From<&GetResponse> for Meta {
+	fn from(value: &GetResponse) -> Self {
 		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
 	}
 }
@@ -155,8 +155,8 @@ impl From<Request> for Meta {
 	}
 }
 
-impl From<Response> for Meta {
-	fn from(value: Response) -> Self {
+impl From<GetResponse> for Meta {
+	fn from(value: GetResponse) -> Self {
 		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
 	}
 }

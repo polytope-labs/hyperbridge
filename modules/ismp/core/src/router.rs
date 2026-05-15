@@ -294,6 +294,36 @@ impl GetResponse {
 	pub fn encode(&self) -> Vec<u8> {
 		abi::encode_get_response(self)
 	}
+
+	/// Return the underlying request in the response
+	pub fn request(&self) -> Request {
+		Request::Get(self.get.clone())
+	}
+
+	/// Module that this response will be routed to on destination chain
+	pub fn destination_module(&self) -> Vec<u8> {
+		self.get.from.clone()
+	}
+
+	/// Get the source chain for this response
+	pub fn source_chain(&self) -> StateMachine {
+		self.get.dest
+	}
+
+	/// Get the destination chain for this response
+	pub fn dest_chain(&self) -> StateMachine {
+		self.get.source
+	}
+
+	/// Get the request nonce
+	pub fn nonce(&self) -> u64 {
+		self.get.nonce
+	}
+
+	/// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.get.timeout()
+	}
 }
 
 /// The verfied key-values for a GetResponse
@@ -319,76 +349,6 @@ pub struct StorageValue {
 	pub value: Option<Vec<u8>>,
 }
 
-/// The ISMP response
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	PartialEq,
-	Eq,
-	scale_info::TypeInfo,
-	derive_more::From,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-pub enum Response {
-	/// The response to a GET request
-	Get(GetResponse),
-}
-
-impl Response {
-	/// Return the underlying request in the response
-	pub fn request(&self) -> Request {
-		match self {
-			Response::Get(res) => Request::Get(res.get.clone()),
-		}
-	}
-
-	/// Module that this response will be routed to on destination chain
-	pub fn destination_module(&self) -> Vec<u8> {
-		match self {
-			Response::Get(get) => get.get.from.clone(),
-		}
-	}
-
-	/// Get the source chain for this response
-	pub fn source_chain(&self) -> StateMachine {
-		match self {
-			Response::Get(res) => res.get.dest,
-		}
-	}
-
-	/// Get the destination chain for this response
-	pub fn dest_chain(&self) -> StateMachine {
-		match self {
-			Response::Get(res) => res.get.source,
-		}
-	}
-
-	/// Get the request nonce
-	pub fn nonce(&self) -> u64 {
-		match self {
-			Response::Get(res) => res.get.nonce,
-		}
-	}
-
-	/// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
-	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
-		match self {
-			Response::Get(res) => proof_timestamp >= res.get.timeout(),
-		}
-	}
-
-	/// Returns the encoded response
-	pub fn encode(&self) -> Vec<u8> {
-		match self {
-			Response::Get(res) => res.encode(),
-		}
-	}
-}
-
 /// Convenience enum for membership verification.
 #[derive(
 	Debug,
@@ -405,14 +365,7 @@ pub enum RequestResponse {
 	/// A batch of requests
 	Request(Vec<Request>),
 	/// A batch of responses
-	Response(Vec<Response>),
-}
-
-/// Timeout message
-#[derive(derive_more::From, Clone)]
-pub enum Timeout {
-	/// A request timed out
-	Request(Request),
+	Response(Vec<GetResponse>),
 }
 
 /// The Ismp router dictates how messsages are routed to [`IsmpModule`]

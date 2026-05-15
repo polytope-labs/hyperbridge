@@ -85,7 +85,7 @@ pub struct FeeMetadata<A, B> {
 
 /// The Ismp dispatcher provides an [`IsmpModule`](crate::module::IsmpModule) with the required
 /// interface for dispatching out outgoing [`Request`](crate::router::Request)s or
-/// [`Response`](crate::router::Response)s.
+/// [`Response`](crate::router::GetResponse)s.
 ///
 /// An [`Event`](crate::events::Event) should be emitted after successful dispatch
 pub trait IsmpDispatcher: Default {

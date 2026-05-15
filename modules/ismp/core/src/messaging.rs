@@ -26,7 +26,7 @@ use crate::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{GetResponse, PostRequest, Request, RequestResponse, Response},
+	router::{GetResponse, PostRequest, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -252,10 +252,8 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 }
 
 /// Return the keccak256 of a response
-pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
-	match res {
-		Response::Get(res) => hash_get_response::<H>(res),
-	}
+pub fn hash_response<H: Keccak256>(res: &GetResponse) -> H256 {
+	hash_get_response::<H>(res)
 }
 
 /// Return the keccak256 of a get response

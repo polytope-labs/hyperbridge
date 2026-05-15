@@ -15,7 +15,7 @@ use ismp::{
 		CreateConsensusState, Message, Proof, ResponseMessage, StateCommitmentHeight,
 		TimeoutMessage,
 	},
-	router::{GetRequest, PostRequest, Request, RequestResponse, Response},
+	router::{GetRequest, PostRequest, Request, RequestResponse, GetResponse},
 };
 use ismp_parachain::ParachainData;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
@@ -139,27 +139,22 @@ fn request_to_value(req: &Request) -> Value<()> {
 	}
 }
 
-fn response_to_value(resp: &Response) -> Value<()> {
-	match resp {
-		Response::Get(get) => Value::variant(
-			"Get",
-			Composite::named(vec![
-				("get".to_string(), get_request_to_value(&get.get)),
-				(
-					"values".to_string(),
-					Value::unnamed_composite(get.values.iter().map(|v| {
-						Value::named_composite(vec![
-							("key".to_string(), Value::from_bytes(v.key.clone())),
-							(
-								"value".to_string(),
-								Value::from_bytes(v.value.clone().unwrap_or_default()),
-							),
-						])
-					})),
-				),
-			]),
+fn response_to_value(resp: &GetResponse) -> Value<()> {
+	Value::named_composite(vec![
+		("get".to_string(), get_request_to_value(&resp.get)),
+		(
+			"values".to_string(),
+			Value::unnamed_composite(resp.values.iter().map(|v| {
+				Value::named_composite(vec![
+					("key".to_string(), Value::from_bytes(v.key.clone())),
+					(
+						"value".to_string(),
+						Value::from_bytes(v.value.clone().unwrap_or_default()),
+					),
+				])
+			})),
 		),
-	}
+	])
 }
 
 fn post_request_to_value(post: &PostRequest) -> Value<()> {

@@ -21,7 +21,7 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::IsmpHost,
 	messaging::{hash_request, ResponseMessage},
-	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
+	router::{GetResponse, Request, RequestResponse, StorageValue},
 };
 use alloc::{vec, vec::Vec};
 use sp_weights::Weight;
@@ -60,10 +60,10 @@ where
 				}
 
 				let res =
-					Response::Get(GetResponse { get: get.clone(), values: Default::default() });
+					GetResponse { get: get.clone(), values: Default::default() };
 
 				if host.response_receipt(&res).is_some() {
-					Err(Error::DuplicateResponse { meta: res.into() })?
+					Err(Error::DuplicateResponse { meta: (&res).into() })?
 				}
 
 				get_requests.push(get.clone());
@@ -90,13 +90,13 @@ where
 
 					let router = host.ismp_router();
 					let cb = router.module_for_id(request.from.clone())?;
-					let response = Response::Get(GetResponse {
+					let response = GetResponse {
 						get: request.clone(),
 						values: Default::default(),
-					});
+					};
 					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb
-						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
+						.on_response(GetResponse { get: request.clone(), values })
 						.map(|weight| {
 							total_weights.saturating_accrue(weight);
 							let commitment = hash_request::<H>(&wrapped_req);

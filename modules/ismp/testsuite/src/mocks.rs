@@ -20,8 +20,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
 	router::{
-		GetRequest, IsmpRouter, PostRequest, Request, RequestResponse, Response,
-		Timeout,
+		GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse,
 	},
 };
 
@@ -247,7 +246,7 @@ impl IsmpHost for Host {
 		self.receipts.borrow().get(&hash).map(|_| ())
 	}
 
-	fn response_receipt(&self, res: &Response) -> Option<()> {
+	fn response_receipt(&self, res: &GetResponse) -> Option<()> {
 		let hash = hash_request::<Self>(&res.request());
 		self.receipts.borrow().get(&hash).map(|_| ())
 	}
@@ -333,7 +332,7 @@ impl IsmpHost for Host {
 		Ok(val.encode())
 	}
 
-	fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
+	fn delete_response_receipt(&self, res: &GetResponse) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
 		let val = self.receipts.borrow_mut().remove(&hash);
 		Ok(val.encode())
@@ -345,7 +344,7 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
 		let hash = hash_response::<Self>(res);
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])
@@ -407,11 +406,11 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }

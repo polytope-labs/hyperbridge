@@ -2,7 +2,7 @@ use super::utils::*;
 use alloy_primitives::{FixedBytes, U256};
 use ismp::{
 	host::StateMachine,
-	router::{self, Response, StorageValue},
+	router::{self, StorageValue},
 };
 use ismp_abi::handler::{GetResponseLeaf, GetResponseMessage, Proof};
 use mmr_primitives::DataOrHash;
@@ -31,7 +31,7 @@ fn test_get_response() {
 	let values = vec![StorageValue { key, value: Some(H256::random().as_bytes().to_vec()) }];
 	let response = router::GetResponse { get: get.clone(), values };
 
-	let leaf = DataOrHash::Data(Leaf::Response(Response::Get(response.clone())));
+	let leaf = DataOrHash::Data(Leaf::GetResponse(response.clone()));
 	let (overlay_root, proof) = initialize_mmr_tree(leaf, 10).unwrap();
 
 	let consensus_proof = TestEnv::encode_consensus_proof(

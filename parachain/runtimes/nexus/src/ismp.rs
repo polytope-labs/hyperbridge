@@ -31,7 +31,7 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, Response, Timeout},
+	router::{IsmpRouter, PostRequest, Request, GetResponse},
 };
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 #[cfg(feature = "runtime-benchmarks")]
@@ -354,27 +354,20 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
-		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
-		// and module that produced the response pay for the bytes they
-		// deliver.
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
-			Ismp::dispatch_response(
-				response,
-				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
-			)?;
 			return Ok(Weight::from_parts(0, 0));
 		}
 
 		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		// Permanently reject Post-request timeouts whose originating module is a
 		// deprecated TokenGateway deployment, before any other handling runs. Only
 		// Post requests are subject to this — Get requests and Response timeouts
 		// are untouched.
-		if let Timeout::Request(Request::Post(post)) = &timeout {
+		if let Request::Post(post) = &timeout {
 			if is_deprecated_token_gateway(&post.from) {
 				return Err(anyhow!(
 					"rejecting Post-request timeout from deprecated TokenGateway address {:?}",
@@ -384,8 +377,8 @@ impl IsmpModule for ProxyModule {
 		}
 
 		let source = match &timeout {
-			Timeout::Request(Request::Post(post)) => &post.source,
-			Timeout::Request(Request::Get(get)) => &get.source,
+			Request::Post(post) => &post.source,
+			Request::Get(get) => &get.source,
 		};
 
 		if *source != HostStateMachine::get() {

@@ -21,7 +21,7 @@ use crate::{
 	dispatcher::{FeeMetadata, RequestMetadata},
 	fee_handler::FeeHandler,
 	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider},
-	Config, Error, Event, Pallet, Responded,
+	Config, Error, Event, Pallet,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
@@ -29,8 +29,8 @@ use frame_system::Phase;
 use ismp::{
 	events,
 	handlers::{handle_incoming_message, MessageResult},
-	messaging::{hash_request, hash_response, Message, MessageWithWeight},
-	router::{Request, Response},
+	messaging::{hash_request, Message, MessageWithWeight},
+	router::{Request, GetResponse},
 };
 use sp_core::{offchain::StorageKind, H256};
 
@@ -120,47 +120,6 @@ impl<T: Config> Pallet<T> {
 		Ok(commitment)
 	}
 
-	/// Dispatch an outgoing response, returns the response commitment
-	pub fn dispatch_response(
-		response: Response,
-		meta: FeeMetadata<T>,
-	) -> Result<H256, ismp::Error> {
-		let req_commitment = hash_request::<Pallet<T>>(&response.request());
-
-		if Responded::<T>::contains_key(req_commitment) {
-			Err(ismp::Error::Custom("Request has been responded to".to_string()))?
-		}
-
-		let commitment = hash_response::<Pallet<T>>(&response);
-
-		let (dest_chain, source_chain, nonce) =
-			(response.dest_chain(), response.source_chain(), response.nonce());
-
-		let leaf_index_and_pos = T::OffchainDB::push(Leaf::Response(response));
-
-		Pallet::<T>::deposit_event(Event::Response {
-			request_nonce: nonce,
-			dest_chain,
-			source_chain,
-			commitment,
-			req_commitment,
-		});
-		ResponseCommitments::<T>::insert(
-			commitment,
-			RequestMetadata {
-				offchain: LeafIndexAndPos {
-					leaf_index: leaf_index_and_pos.index,
-					pos: leaf_index_and_pos.position,
-				},
-				fee: meta,
-				claimed: false,
-			},
-		);
-		Responded::<T>::insert(req_commitment, true);
-
-		Ok(commitment)
-	}
-
 	/// Gets the request from the offchain storage
 	pub fn request(commitment: H256) -> Option<Request> {
 		let pos = RequestCommitments::<T>::get(commitment)?.offchain.pos;
@@ -181,10 +140,10 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Gets the response from the offchain storage
-	pub fn response(commitment: H256) -> Option<Response> {
+	pub fn response(commitment: H256) -> Option<GetResponse> {
 		let pos = ResponseCommitments::<T>::get(commitment)?.offchain.pos;
 		match T::OffchainDB::leaf(pos) {
-			Ok(Some(Leaf::Response(res))) => Some(res),
+			Ok(Some(Leaf::GetResponse(res))) => Some(res),
 			_ => {
 				let key = offchain::leaf_default_key(commitment);
 				let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key)
@@ -192,7 +151,7 @@ impl<T: Config> Pallet<T> {
 					None?
 				};
 				match Leaf::decode(&mut &*elem).ok() {
-					Some(Leaf::Response(res)) => Some(res),
+					Some(Leaf::GetResponse(res)) => Some(res),
 					_ => None,
 				}
 			},
@@ -241,7 +200,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Fetches the full responses from the offchain for the given commitments.
-	pub fn responses(commitments: Vec<H256>) -> Vec<Response> {
+	pub fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 		commitments.into_iter().filter_map(|cm| Self::response(cm)).collect()
 	}
 }

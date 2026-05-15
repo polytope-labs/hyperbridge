@@ -30,7 +30,7 @@ use frame_support::traits::{
 use frame_system::RawOrigin;
 use ismp::{
 	module::IsmpModule,
-	router::{PostRequest, Request, Response, Timeout},
+	router::{PostRequest, Request, GetResponse},
 };
 use polkadot_sdk::*;
 use sp_core::{Get, H160, U256};
@@ -205,13 +205,13 @@ where
 		Ok(T::DbWeight::get().reads_writes(5, 2))
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(HftError::ResponsesNotSupported)?
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, request: Request) -> Result<Weight, anyhow::Error> {
 		match request {
-			Timeout::Request(Request::Post(PostRequest { body, to, dest, .. })) => {
+			Request::Post(PostRequest { body, to, dest, .. }) => {
 				let message = Message::abi_decode_params(&body).map_err(HftError::DecodeError)?;
 
 				// Refund the original sender
@@ -285,7 +285,7 @@ where
 				});
 				Ok(T::DbWeight::get().reads_writes(5, 2))
 			},
-			Timeout::Request(Request::Get(_)) => Err(HftError::UnsupportedTimeoutType)?,
+			Request::Get(_) => Err(HftError::UnsupportedTimeoutType)?,
 		}
 	}
 }

@@ -66,7 +66,7 @@ use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, Response, Timeout},
+	router::{GetResponse, PostRequest, Request},
 };
 pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
@@ -295,12 +295,12 @@ where
 		Ok(weight)
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		// this module does not expect responses
 		Err(ismp::Error::CannotHandleMessage.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		// this module does not dispatch requests
 		Err(ismp::Error::CannotHandleMessage.into())
 	}

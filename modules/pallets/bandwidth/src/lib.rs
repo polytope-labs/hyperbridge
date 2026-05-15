@@ -59,7 +59,7 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 		module::IsmpModule,
-		router::{PostRequest, Response, Timeout},
+		router::{GetResponse, PostRequest, Request},
 	};
 	use primitive_types::{H160, U256};
 	use sp_core::H256;
@@ -488,13 +488,13 @@ pub mod pallet {
 			Ok(Weight::zero())
 		}
 
-		fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+		fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 			Err(ismp::Error::CannotHandleMessage.into())
 		}
 
 		/// Purchases dispatch with `timeout = 0`. If `on_timeout` ever
 		/// fires it's an invariant violation, not a noop.
-		fn on_timeout(&self, _timeout: Timeout) -> Result<Weight, anyhow::Error> {
+		fn on_timeout(&self, _timeout: Request) -> Result<Weight, anyhow::Error> {
 			Err(anyhow::anyhow!("pallet-bandwidth purchases are non-timeouting"))
 		}
 	}

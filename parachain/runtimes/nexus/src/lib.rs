@@ -63,7 +63,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{Request, GetResponse},
 };
 use frame_support::{
 	dispatch::DispatchClass,
@@ -1356,7 +1356,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}

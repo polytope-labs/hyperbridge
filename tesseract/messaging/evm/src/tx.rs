@@ -19,7 +19,7 @@ use codec::Decode;
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
-	router::{Request, RequestResponse, Response},
+	router::{Request, RequestResponse, GetResponse},
 };
 use ismp_abi::{
 	evm_host::PostRequestHandled,

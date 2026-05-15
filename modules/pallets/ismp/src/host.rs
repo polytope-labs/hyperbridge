@@ -38,7 +38,7 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response},
-	router::{IsmpRouter, Request, Response},
+	router::{IsmpRouter, Request, GetResponse},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -113,7 +113,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn response_commitment(&self, commitment: H256) -> Result<(), Error> {
 		let _ = child_trie::ResponseCommitments::<T>::get(commitment)
-			.ok_or_else(|| Error::Custom("Response commitment not found".to_string()))?;
+			.ok_or_else(|| Error::Custom("GetResponse commitment not found".to_string()))?;
 
 		Ok(())
 	}
@@ -134,11 +134,11 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Some(())
 	}
 
-	fn response_receipt(&self, res: &Response) -> Option<()> {
+	fn response_receipt(&self, res: &GetResponse) -> Option<()> {
 		let commitment = hash_request::<Self>(&res.request());
 
 		let _ = child_trie::ResponseReceipts::<T>::get(commitment)
-			.ok_or_else(|| Error::Custom("Response receipt not found".to_string()))
+			.ok_or_else(|| Error::Custom("GetResponse receipt not found".to_string()))
 			.ok()?;
 
 		Some(())
@@ -246,10 +246,10 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(relayer)
 	}
 
-	fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
+	fn delete_response_receipt(&self, res: &GetResponse) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
 		let meta = child_trie::ResponseReceipts::<T>::get(hash)
-			.ok_or_else(|| Error::Custom("Response receipt not found".to_string()))?;
+			.ok_or_else(|| Error::Custom("GetResponse receipt not found".to_string()))?;
 		child_trie::ResponseReceipts::<T>::remove(hash);
 		Ok(meta.relayer)
 	}
@@ -262,7 +262,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(signer)
 	}
 
-	fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(&self, res: &GetResponse, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
 		let signer = extract_signer(signer)?;
 
 		let hash = hash_request::<Self>(&res.request());

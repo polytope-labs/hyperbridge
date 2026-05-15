@@ -26,7 +26,7 @@ use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_get_response, hash_request, Proof},
-	router::{GetRequest, GetResponse, Request, RequestResponse, Response, StorageValue},
+	router::{GetRequest, GetResponse, Request, RequestResponse, StorageValue},
 	Error,
 };
 use pallet_bandwidth::BandwidthGate;
@@ -211,7 +211,7 @@ where
 		};
 
 		let leaf_index_and_pos =
-			<T as Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+			<T as Config>::Mmr::push(Leaf::GetResponse(get_response));
 		let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(

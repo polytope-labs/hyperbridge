@@ -6,7 +6,7 @@ use hex_literal::hex;
 use ismp::{
 	host::StateMachine,
 	messaging::hash_response,
-	router::{self, Request, Response},
+	router::{self, Request, GetResponse},
 };
 use ismp_abi::{
 	evm_host::EvmHost::StateMachineHeight,
@@ -39,7 +39,7 @@ fn test_post_response_proof() {
 
 	let post_response =
 		router::PostResponse { post: post.clone(), response: vec![1u8; 64], timeout_timestamp: 0 };
-	let response = DataOrHash::Data(Leaf::Response(router::Response::Post(post_response.clone())));
+	let response = DataOrHash::Data(Leaf::GetResponse(router::GetResponse::Post(post_response.clone())));
 
 	// create the mmr tree and insert it
 	let mut mmr = Mmr::default();

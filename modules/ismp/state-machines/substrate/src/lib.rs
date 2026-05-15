@@ -29,7 +29,7 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response, Proof},
-	router::{Request, RequestResponse, Response},
+	router::{Request, RequestResponse, GetResponse},
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},

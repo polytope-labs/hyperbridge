@@ -20,7 +20,7 @@ use crate::{Config, Event as PalletEvent, Pallet};
 use frame_support::BoundedVec;
 use ismp::{
 	events::{StateCommitmentVetoed, StateMachineUpdated},
-	router::{Request, Response},
+	router::Request,
 };
 
 impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
@@ -34,11 +34,8 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 					latest_height,
 				})),
 			PalletEvent::Response { commitment, .. } => {
-				let event = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {
-					Response::Get(response) => ismp::events::Event::GetResponse(response),
-				};
-
-				Ok(event)
+				let response = Pallet::<T>::response(commitment).ok_or_else(|| ())?;
+				Ok(ismp::events::Event::GetResponse(response))
 			},
 			PalletEvent::Request { commitment, .. } => {
 				let event = match Pallet::<T>::request(commitment).ok_or_else(|| ())? {

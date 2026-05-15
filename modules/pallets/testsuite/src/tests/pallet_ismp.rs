@@ -32,7 +32,7 @@ use ismp::{
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, Request, RequestResponse},
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, create_relayer_signer,
@@ -271,7 +271,7 @@ fn should_handle_get_request_responses_correctly() {
 
 		for request in requests {
 			let Request::Get(get) = request else { panic!("Shouldn't be possible") };
-			let response = Response::Get(GetResponse { get, values: Default::default() });
+			let response = GetResponse { get, values: Default::default() };
 			assert!(host.response_receipt(&response).is_some())
 		}
 	})
@@ -319,7 +319,7 @@ fn test_dispatch_fees_and_refunds() {
 		host.ismp_router()
 			.module_for_id(vec![])
 			.unwrap()
-			.on_timeout(Timeout::Request(request.clone()))
+			.on_timeout(request.clone())
 			.unwrap();
 
 		// money should've been refunded to the account
@@ -343,7 +343,7 @@ fn test_dispatch_fees_and_refunds() {
 		host.ismp_router()
 			.module_for_id(ERROR_MODULE_ID.to_vec())
 			.unwrap()
-			.on_timeout(Timeout::Request(request.clone()))
+			.on_timeout(request.clone())
 			.unwrap_err();
 
 		// pallet-ismp still has it

@@ -34,7 +34,7 @@ use ismp::{
 	host::IsmpHost,
 	messaging::hash_request,
 	module::IsmpModule,
-	router::{GetRequest, IsmpRouter, PostRequest, Request, Response, Timeout},
+	router::{GetRequest, IsmpRouter, PostRequest, Request, GetResponse},
 };
 use sp_core::H256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -176,20 +176,18 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
 		self.inner.on_accept(request)
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
 		self.inner.on_response(response)
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		let result = self.inner.on_timeout(timeout.clone());
 
 		// only refund if module returns Ok(())
 		if result.is_ok() {
-			let fee_metadata = match timeout {
-				Timeout::Request(request) => {
-					let commitment = hash_request::<Pallet<T>>(&request);
-					RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
-				},
+			let fee_metadata = {
+				let commitment = hash_request::<Pallet<T>>(&timeout);
+				RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
 			};
 
 			if let Some(fee) = fee_metadata {

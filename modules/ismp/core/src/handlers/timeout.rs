@@ -20,7 +20,7 @@ use crate::{
 	events::{Event, TimeoutHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, TimeoutMessage},
+	messaging::{dedup_requests, hash_request, TimeoutMessage},
 	router::{GetResponse, Request},
 };
 use alloc::vec::Vec;
@@ -45,6 +45,9 @@ where
 		TimeoutMessage::Post { requests, timeout_proof } => {
 			let state_machine = validate_state_machine(host, timeout_proof.height)?;
 			let state = host.state_machine_commitment(timeout_proof.height)?;
+
+			let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Post).collect();
+			dedup_requests::<H>(&wrapped)?;
 
 			for post in &requests {
 				let dest_chain = post.dest;
@@ -74,7 +77,6 @@ where
 				}
 			}
 
-			let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Post).collect();
 			let keys = state_machine.receipts_state_trie_key(wrapped.into());
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
@@ -116,6 +118,9 @@ where
 				.collect::<Result<Vec<_>, _>>()?
 		},
 		TimeoutMessage::Get { requests } => {
+			let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Get).collect();
+			dedup_requests::<H>(&wrapped)?;
+
 			for get in &requests {
 				let commitment = hash_request::<H>(&Request::Get(get.clone()));
 				// if we have a commitment, it came from us

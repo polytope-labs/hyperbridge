@@ -35,9 +35,10 @@ use ismp::{
 	router::{GetResponse, PostRequest, Request, RequestResponse},
 };
 use ismp_testsuite::{
-	check_challenge_period, check_client_expiry, create_relayer_signer,
-	get_response_already_received_check, missing_state_commitment_check,
-	post_request_timeout_check, write_outgoing_commitments,
+	check_challenge_period, check_client_expiry, check_get_timeout_message_dedup,
+	check_post_timeout_message_dedup, check_request_message_dedup,
+	check_response_message_dedup, create_relayer_signer, get_response_already_received_check,
+	missing_state_commitment_check, post_request_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
@@ -124,6 +125,66 @@ fn should_reject_expired_check_clients() {
 		};
 		host.store_challenge_period(id, 1_000_000).unwrap();
 		check_client_expiry(&host).unwrap()
+	})
+}
+
+#[test]
+fn should_reject_duplicate_post_requests_in_request_message() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp(None);
+		let host = Ismp::default();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
+		check_request_message_dedup(&host).unwrap()
+	})
+}
+
+#[test]
+fn should_reject_duplicate_get_requests_in_response_message() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp(None);
+		let host = Ismp::default();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
+		check_response_message_dedup(&host).unwrap()
+	})
+}
+
+#[test]
+fn should_reject_duplicate_requests_in_post_timeout_message() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp(None);
+		let host = Ismp::default();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
+		check_post_timeout_message_dedup(&host).unwrap()
+	})
+}
+
+#[test]
+fn should_reject_duplicate_requests_in_get_timeout_message() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp(None);
+		let host = Ismp::default();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
+		check_get_timeout_message_dedup(&host).unwrap()
 	})
 }
 

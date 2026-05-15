@@ -20,7 +20,7 @@ use crate::{
 	events::{Event, RequestResponseHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::IsmpHost,
-	messaging::{hash_request, ResponseMessage},
+	messaging::{dedup_requests, hash_request, ResponseMessage},
 	router::{GetResponse, Request, RequestResponse, StorageValue},
 };
 use alloc::{vec, vec::Vec};
@@ -40,6 +40,9 @@ where
 		RequestResponse::Response(_) =>
 			Err(Error::Custom("PostResponse has been removed from the protocol".into()))?,
 		RequestResponse::Request(requests) => {
+			// Reject duplicate Get requests within the batch.
+			dedup_requests::<H>(requests)?;
+
 			let mut get_requests = vec![];
 			for req in requests.iter() {
 				let Request::Get(get) = req else {
@@ -59,8 +62,7 @@ where
 					Err(Error::UnknownRequest { meta: req.into() })?
 				}
 
-				let res =
-					GetResponse { get: get.clone(), values: Default::default() };
+				let res = GetResponse { get: get.clone(), values: Default::default() };
 
 				if host.response_receipt(&res).is_some() {
 					Err(Error::DuplicateResponse { meta: (&res).into() })?
@@ -90,21 +92,18 @@ where
 
 					let router = host.ismp_router();
 					let cb = router.module_for_id(request.from.clone())?;
-					let response = GetResponse {
-						get: request.clone(),
-						values: Default::default(),
-					};
+					let response = GetResponse { get: request.clone(), values: Default::default() };
 					let signer = host.store_response_receipt(&response, &msg.signer)?;
-					let res = cb
-						.on_response(GetResponse { get: request.clone(), values })
-						.map(|weight| {
+					let res = cb.on_response(GetResponse { get: request.clone(), values }).map(
+						|weight| {
 							total_weights.saturating_accrue(weight);
 							let commitment = hash_request::<H>(&wrapped_req);
 							Event::GetRequestHandled(RequestResponseHandled {
 								commitment,
 								relayer: signer,
 							})
-						});
+						},
+					);
 					// Delete receipt if module callback failed so it can be timed out
 					if res.is_err() {
 						host.delete_response_receipt(&response)?;

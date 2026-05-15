@@ -253,6 +253,22 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 	H::keccak256(&encoded)
 }
 
+/// Reject duplicate requests within a batch. Each request's ISMP
+/// canonical commitment (via `hash_request`) is tracked in a `BTreeSet`;
+/// the first repeat short-circuits with `DuplicateRequest` and names the
+/// offending request in the error meta. Wire format for batches is a
+/// `Vec`, so this is the line of defence against an attacker padding a
+/// batch with identical requests to inflate its apparent size.
+pub fn dedup_requests<H: Keccak256>(requests: &[Request]) -> Result<(), Error> {
+	let mut seen = alloc::collections::BTreeSet::new();
+	for req in requests {
+		if !seen.insert(hash_request::<H>(req)) {
+			return Err(Error::DuplicateRequest { meta: req.clone().into() });
+		}
+	}
+	Ok(())
+}
+
 /// Return the keccak256 of a response
 pub fn hash_response<H: Keccak256>(res: &GetResponse) -> H256 {
 	hash_get_response::<H>(res)

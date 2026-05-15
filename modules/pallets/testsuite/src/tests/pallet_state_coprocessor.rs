@@ -20,8 +20,6 @@
 
 #![cfg(test)]
 
-use std::collections::BTreeSet;
-
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
@@ -78,10 +76,14 @@ fn build_request(
 /// Standard message that would pass every per-request check; tweak one
 /// field per test to assert the corresponding rejection.
 fn valid_message() -> GetRequestsWithProof {
-	let mut requests = BTreeSet::new();
-	requests.insert(build_request(0, SOURCE_CHAIN, DEST_CHAIN, PROOF_HEIGHT, FAR_FUTURE_TIMEOUT));
 	GetRequestsWithProof {
-		requests,
+		requests: vec![build_request(
+			0,
+			SOURCE_CHAIN,
+			DEST_CHAIN,
+			PROOF_HEIGHT,
+			FAR_FUTURE_TIMEOUT,
+		)],
 		source: proof_at(SOURCE_CHAIN, PROOF_HEIGHT),
 		response: proof_at(DEST_CHAIN, PROOF_HEIGHT),
 		address: vec![0u8; 32],
@@ -93,9 +95,9 @@ fn with_mutated_request(
 	mut msg: GetRequestsWithProof,
 	mutate: impl FnOnce(&mut GetRequest),
 ) -> GetRequestsWithProof {
-	let mut req = msg.requests.iter().next().cloned().expect("valid_message has one request");
+	let mut req = msg.requests[0].clone();
 	mutate(&mut req);
-	msg.requests = BTreeSet::from([req]);
+	msg.requests = vec![req];
 	msg
 }
 
@@ -117,36 +119,23 @@ fn rejects_timed_out_get_requests() {
 	});
 }
 
-/// SCALE-encodes a `GetRequestsWithProof` payload that contains a
-/// duplicate `GetRequest` (constructed by hand: a `Vec` length prefix
-/// of 2 with the same request body twice), then decodes it into the
-/// real `BTreeSet`-backed struct. The decoder's `BTreeSet::insert` call
-/// drops the duplicate before the pallet sees it, so an adversary
-/// cannot smuggle repeats through the SCALE layer — and the pallet
-/// never has to perform a separate batch-dedup check.
+/// Two identical `GetRequest`s in the batch must be rejected with
+/// `DuplicateRequest`. The wire format is `Vec`; `dedup_requests`
+/// catches the repeat by tracking ISMP commitments in a `BTreeSet`.
 #[test]
-fn scale_decoding_duplicate_requests_into_btreeset_dedupes_before_dispatch() {
-	use codec::{Compact, Decode, Encode};
+fn rejects_duplicate_get_requests_in_batch() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		setup_mock_client::<_, Test>(&host);
 
-	let req = build_request(7, SOURCE_CHAIN, DEST_CHAIN, PROOF_HEIGHT, FAR_FUTURE_TIMEOUT);
+		let req = build_request(7, SOURCE_CHAIN, DEST_CHAIN, PROOF_HEIGHT, FAR_FUTURE_TIMEOUT);
+		let mut msg = valid_message();
+		msg.requests = vec![req.clone(), req];
 
-	// Hand-rolled SCALE payload: compact-encoded len=2, then the request bytes twice,
-	// followed by the rest of the GetRequestsWithProof fields. This is the shape an
-	// attacker would produce if they swapped a `BTreeSet` for a `Vec` on the wire.
-	let mut encoded = Vec::new();
-	Compact(2u32).encode_to(&mut encoded);
-	req.encode_to(&mut encoded);
-	req.encode_to(&mut encoded);
-	proof_at(SOURCE_CHAIN, PROOF_HEIGHT).encode_to(&mut encoded);
-	proof_at(DEST_CHAIN, PROOF_HEIGHT).encode_to(&mut encoded);
-	(vec![0u8; 32]).encode_to(&mut encoded);
-
-	let decoded =
-		GetRequestsWithProof::decode(&mut &encoded[..]).expect("decode should succeed");
-
-	// The duplicate collapsed at decode time — the BTreeSet holds one entry.
-	assert_eq!(decoded.requests.len(), 1);
-	assert!(decoded.requests.contains(&req));
+		let err = StateCoprocessor::handle_get_requests(msg).expect_err("must fail");
+		assert!(matches!(err, Error::DuplicateRequest { .. }), "unexpected error: {err:?}");
+	});
 }
 
 #[test]
@@ -219,10 +208,10 @@ fn rejects_when_request_height_does_not_match_response_proof_height() {
 
 		// Two requests at different heights — only one matches the proof.
 		let mut msg = valid_message();
-		msg.requests = BTreeSet::from([
+		msg.requests = vec![
 			build_request(0, SOURCE_CHAIN, DEST_CHAIN, PROOF_HEIGHT, FAR_FUTURE_TIMEOUT),
 			build_request(1, SOURCE_CHAIN, DEST_CHAIN, PROOF_HEIGHT + 1, FAR_FUTURE_TIMEOUT),
-		]);
+		];
 
 		let err = StateCoprocessor::handle_get_requests(msg).expect_err("must fail");
 		assert!(matches!(err, Error::InsufficientProofHeight), "unexpected error: {err:?}");

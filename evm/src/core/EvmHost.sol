@@ -258,7 +258,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         // The destination chain for this response
         string dest,
         // The contract that initiated this response
-        address indexed from,
+        bytes from,
         // The requested storage keys
         bytes[] keys,
         // The height for the requested keys
@@ -845,7 +845,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success,) = address(response.request.from)
+        (bool success,) = _bytesToAddress(response.request.from)
             .call(abi.encodeWithSelector(IApp.onGetResponse.selector, IncomingGetResponse(response, relayer)));
 
         if (!success) {
@@ -868,7 +868,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success,) = address(request.from).call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
+        (bool success,) = _bytesToAddress(request.from).call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1012,7 +1012,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
             source: host(),
             dest: get.dest,
             nonce: uint64(_nextNonce()),
-            from: _msgSender(),
+            from: abi.encodePacked(_msgSender()),
             timeoutTimestamp: timeoutTimestamp,
             keys: get.keys,
             height: get.height,

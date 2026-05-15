@@ -290,11 +290,9 @@ pub struct GetResponse {
 }
 
 impl GetResponse {
-	/// Returns the ABI-encoded get response, matching Solidity's
-	/// `abi.encode(encode(request), values)` semantics.
+	/// Returns the ABI-encoded get response as `abi.encode(res)`.
 	pub fn encode(&self) -> Vec<u8> {
-		let request_encoding = Request::Get(self.get.clone()).encode();
-		abi::encode_get_response(&request_encoding, &self.values)
+		abi::encode_get_response(self)
 	}
 }
 

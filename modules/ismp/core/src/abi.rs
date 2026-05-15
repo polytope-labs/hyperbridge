@@ -15,7 +15,7 @@ use crate::{
 	router,
 };
 use alloc::string::{String, ToString};
-use alloy_primitives::{Bytes, FixedBytes};
+use alloy_primitives::FixedBytes;
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use core::str::FromStr;
@@ -29,43 +29,26 @@ use ismp_abi::{
 		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated,
 	},
 };
-use primitive_types::{H160, H256};
+use primitive_types::H256;
 
 // ── Encoding ──────────────────────────────────────────────────────────
 
-/// Encode a [`router::PostRequest`] identically to Solidity's
-/// `abi.encode(req.source, req.dest, req.nonce, req.timeoutTimestamp, req.from, req.to, req.body)`.
+/// Encode a [`router::PostRequest`] as `abi.encode(req)`.
 pub fn encode_post_request(req: &router::PostRequest) -> Vec<u8> {
 	let sol: PostRequest = req.clone().into();
-	sol.abi_encode_params()
+	sol.abi_encode()
 }
 
-/// Encode a [`router::GetRequest`] identically to Solidity's
-/// `abi.encode(req.source, req.dest, req.nonce, req.height, req.timeoutTimestamp,
-///             abi.encodePacked(req.from), req.keys, req.context)`.
+/// Encode a [`router::GetRequest`] as `abi.encode(req)`.
 pub fn encode_get_request(req: &router::GetRequest) -> Vec<u8> {
 	let sol: GetRequest = req.clone().into();
-	sol.abi_encode_params()
+	sol.abi_encode()
 }
 
-/// Encode a [`router::GetResponse`] identically to Solidity's
-/// `abi.encode(encode(res.request), res.values)`.
-///
-/// The Solidity hash function passes the pre-encoded request bytes (not the struct),
-/// so this encodes as `(bytes, StorageValue[])`.
-pub fn encode_get_response(
-	request_encoding: &[u8],
-	values: &[router::StorageValue],
-) -> Vec<u8> {
-	let sol_values: Vec<ismp_abi::evm_host::StorageValue> = values
-		.iter()
-		.map(|sv| ismp_abi::evm_host::StorageValue {
-			key: sv.key.clone().into(),
-			value: sv.value.as_ref().cloned().unwrap_or_default().into(),
-		})
-		.collect();
-	let request_bytes = Bytes::from(request_encoding.to_vec());
-	(request_bytes, sol_values).abi_encode_params()
+/// Encode a [`router::GetResponse`] as `abi.encode(res)`.
+pub fn encode_get_response(res: &router::GetResponse) -> Vec<u8> {
+	let sol: GetResponse = res.clone().into();
+	sol.abi_encode()
 }
 
 // ── Router type conversions (moved from ismp-abi) ───────────
@@ -73,22 +56,6 @@ pub fn encode_get_response(
 impl From<router::PostRequest> for PostRequest {
 	fn from(value: router::PostRequest) -> Self {
 		PostRequest {
-			source: value.source.to_string().into_bytes().into(),
-			dest: value.dest.to_string().into_bytes().into(),
-			nonce: value.nonce,
-			from: value.from.into(),
-			to: value.to.into(),
-			timeoutTimestamp: value.timeout_timestamp,
-			body: value.body.into(),
-		}
-	}
-}
-
-impl From<router::PostRequest>
-	for ismp_abi::handler::Handler::PostRequest
-{
-	fn from(value: router::PostRequest) -> Self {
-		Self {
 			source: value.source.to_string().into_bytes().into(),
 			dest: value.dest.to_string().into_bytes().into(),
 			nonce: value.nonce,
@@ -143,12 +110,8 @@ impl From<router::GetRequest> for GetRequest {
 			source: value.source.to_string().into_bytes().into(),
 			dest: value.dest.to_string().into_bytes().into(),
 			nonce: value.nonce,
+			from: value.from.into(),
 			keys: value.keys.into_iter().map(Into::into).collect(),
-			from: {
-				let mut address = H160::default();
-				address.0.copy_from_slice(&value.from);
-				alloy_primitives::Address::from(address.0)
-			},
 			context: value.context.into(),
 			timeoutTimestamp: value.timeout_timestamp,
 			height: value.height,

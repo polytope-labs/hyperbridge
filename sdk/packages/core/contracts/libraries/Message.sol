@@ -67,7 +67,7 @@ struct GetRequest {
     /// @notice Unique nonce for this request on the source chain
     uint64 nonce;
     /// @notice Address of the application that initiated this query
-    address from;
+    bytes from;
     /// @notice Unix timestamp when this query expires
     uint64 timeoutTimestamp;
     /// @notice Storage keys to retrieve from the destination chain
@@ -205,23 +205,21 @@ library Message {
      * @dev Encode the given post request for commitment
      */
     function encode(PostRequest memory req) internal pure returns (bytes memory) {
-        return abi.encode(req.source, req.dest, req.nonce, req.timeoutTimestamp, req.from, req.to, req.body);
+        return abi.encode(req);
     }
 
     /**
      * @dev Encode the given get request for commitment
      */
     function encode(GetRequest memory req) internal pure returns (bytes memory) {
-        return abi.encode(
-            req.source,
-            req.dest,
-            req.nonce,
-            req.height,
-            req.timeoutTimestamp,
-            abi.encodePacked(req.from),
-            req.keys,
-            req.context
-        );
+        return abi.encode(req);
+    }
+
+    /**
+     * @dev Encode the given get response for commitment
+     */
+    function encode(GetResponse memory res) internal pure returns (bytes memory) {
+        return abi.encode(res);
     }
 
     /**
@@ -242,6 +240,6 @@ library Message {
      * @dev Returns the commitment for the given get response
      */
     function hash(GetResponse memory res) internal pure returns (bytes32) {
-        return keccak256(abi.encode(encode(res.request), res.values));
+        return keccak256(encode(res));
     }
 }

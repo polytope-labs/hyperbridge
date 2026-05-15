@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {FrozenStatus} from "../libraries/Message.sol";
+import {PostRequest, FrozenStatus} from "../libraries/Message.sol";
 
 /**
  * @title DispatchPost

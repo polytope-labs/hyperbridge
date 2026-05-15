@@ -67,7 +67,7 @@ use frame_system::{
 };
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
-	router::{Request, Response},
+	router::{Request, GetResponse},
 };
 use pallet_ismp::offchain::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -963,7 +963,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}

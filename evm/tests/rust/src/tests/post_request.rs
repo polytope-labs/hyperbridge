@@ -6,7 +6,7 @@ use ismp::{
 	messaging::hash_request,
 	router::{PostRequest, Request},
 };
-use ismp_solidity_abi::handler::{PostRequestLeaf, PostRequestMessage};
+use ismp_abi::handler::{PostRequestLeaf, PostRequestMessage};
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::Leaf;
 use polkadot_sdk::*;

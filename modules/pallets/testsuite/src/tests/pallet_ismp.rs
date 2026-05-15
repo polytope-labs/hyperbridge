@@ -32,11 +32,11 @@ use ismp::{
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, Request, RequestResponse},
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, create_relayer_signer,
-	missing_state_commitment_check, post_request_timeout_check, post_response_timeout_check,
+	missing_state_commitment_check, post_request_timeout_check,
 	write_outgoing_commitments,
 };
 use pallet_ismp::{
@@ -140,22 +140,6 @@ fn should_handle_post_request_timeouts_correctly() {
 		};
 		host.store_challenge_period(id, 0).unwrap();
 		post_request_timeout_check(&host).unwrap()
-	})
-}
-
-#[test]
-fn should_handle_post_response_timeouts_correctly() {
-	let mut ext = new_test_ext();
-
-	ext.execute_with(|| {
-		set_timestamp(None);
-		let host = Ismp::default();
-		let id = StateMachineId {
-			state_id: StateMachine::Evm(11155111),
-			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-		};
-		host.store_challenge_period(id, 1_000_000).unwrap();
-		post_response_timeout_check(&host).unwrap()
 	})
 }
 
@@ -287,7 +271,7 @@ fn should_handle_get_request_responses_correctly() {
 
 		for request in requests {
 			let Request::Get(get) = request else { panic!("Shouldn't be possible") };
-			let response = Response::Get(GetResponse { get, values: Default::default() });
+			let response = GetResponse { get, values: Default::default() };
 			assert!(host.response_receipt(&response).is_some())
 		}
 	})
@@ -335,7 +319,7 @@ fn test_dispatch_fees_and_refunds() {
 		host.ismp_router()
 			.module_for_id(vec![])
 			.unwrap()
-			.on_timeout(Timeout::Request(request.clone()))
+			.on_timeout(request.clone())
 			.unwrap();
 
 		// money should've been refunded to the account
@@ -359,7 +343,7 @@ fn test_dispatch_fees_and_refunds() {
 		host.ismp_router()
 			.module_for_id(ERROR_MODULE_ID.to_vec())
 			.unwrap()
-			.on_timeout(Timeout::Request(request.clone()))
+			.on_timeout(request.clone())
 			.unwrap_err();
 
 		// pallet-ismp still has it

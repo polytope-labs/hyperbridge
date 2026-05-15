@@ -1,30 +1,26 @@
 use alloy::{
 	primitives::{Address, U256 as AlloyU256},
-	providers::{Provider, ProviderBuilder},
+	providers::ProviderBuilder,
 	signers::local::PrivateKeySigner,
 };
-use pallet_ismp::offchain::LeafIndexQuery;
 use std::{
 	sync::Arc,
 	time::{SystemTime, UNIX_EPOCH},
 };
 use substrate_state_machine::HashAlgorithm;
-use subxt::ext::subxt_rpcs::rpc_params;
 use subxt_utils::Hyperbridge;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 use anyhow::Context;
 use futures::TryStreamExt;
 use hex_literal::hex;
-use ismp::{events::Event, host::StateMachine, router::Request};
-use ismp_solidity_abi::{
+use ismp::host::StateMachine;
+use ismp_abi::{
 	erc20::ERC20Instance,
 	evm_host::EvmHostInstance,
-	ping_module::{PingMessage, PingModuleInstance, PostRequest as SolPostRequest, PostResponse},
+	ping_module::{PingMessage, PingModuleInstance, PostRequest as SolPostRequest},
 };
-use sp_core::{Pair, H160, H256};
-use tesseract_evm::EvmConfig;
-use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
+use sp_core::{Pair, H256};
 
 const PING_ADDR: Address = Address::new(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"));
 
@@ -37,8 +33,6 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 	// let _arb_url = std::env::var("ARBITRUM_URL").expect("ARB_URL was missing in env variables");
 	let _sepolia_url = std::env::var("SEPOLIA_URL").expect("GETH_URL was missing in env variables");
 	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
-	let respond = option_env!("RESPOND");
-
 	// println!("{_arb_url}\n{_sepolia_url}\n{_bsc_url}");
 
 	let signing_key =
@@ -93,88 +87,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 					Address::from(ping.host().call().await.context(format!("Error in {chain}"))?.0);
 				dbg!((&chain, &host_addr));
 
-				if respond.is_some() {
-					let config = EvmConfig {
-						rpc_urls: vec![url.clone()],
-						ismp_host: Some(H160::from_slice(host_addr.as_slice())),
-						state_machine: Some(chain.clone()),
-						consensus_state_id: Some("PAS0".to_string()),
-						signer: Some(signing_key.clone()),
-						tracing_batch_size: Default::default(),
-						query_batch_size: Default::default(),
-						poll_interval: Default::default(),
-						initial_height: None,
-						gas_price_buffer: Default::default(),
-						client_type: None,
-						transport: tesseract_evm::transport::RpcTransport::Standard,
-					};
-					let client = config.into_client().await?;
-					let latest_height = StateMachineUpdated {
-						latest_height: Provider::get_block_number(&*client.client).await?,
-						state_machine_id: client.state_machine_id(),
-					};
-					let events = client.query_ismp_events(_previous_height, latest_height).await?;
-					for event in events {
-						let commitment = match event {
-							Event::PostRequestHandled(handled) => handled.commitment,
-							_ => continue,
-						};
-
-						let request = hyperbridge
-							.rpc_client
-							.request::<Vec<Request>>(
-								"ismp_queryRequests",
-								rpc_params![vec![LeafIndexQuery { commitment }]],
-							)
-							.await?
-							.remove(0);
-						// should be a request
-						let Request::Post(post) = request else {
-							println!("Found {:?} instead of post request", request);
-							continue;
-						};
-
-						if matches!(post.source, StateMachine::Kusama(_)) {
-							continue;
-						}
-
-						let start = SystemTime::now();
-						let now = start
-							.duration_since(UNIX_EPOCH)
-							.expect("Time went backwards")
-							.as_secs();
-						let response = PostResponse {
-							request: SolPostRequest {
-								source: post.source.to_string().into_bytes().into(),
-								dest: post.dest.to_string().into_bytes().into(),
-								nonce: post.nonce,
-								from: post.from.into(),
-								to: post.to.into(),
-								timeoutTimestamp: post.timeout_timestamp,
-								body: post.body.into(),
-							},
-							response: format!("Hello from {}", chain.to_owned())
-								.as_bytes()
-								.to_vec()
-								.into(),
-							timeoutTimestamp: now + (60 * 60 * 2),
-						};
-						let call = ping.dispatchPostResponse(response);
-						let gas = call
-							.estimate_gas()
-							.await
-							.context(format!("Failed to estimate gas in {chain}"))?;
-						let receipt = call
-							.gas(gas)
-							.send()
-							.await?
-							.get_receipt()
-							.await
-							.context(format!("Failed to execute ping message on {chain}"))?;
-
-						assert!(receipt.status());
-					}
-				} else {
+				{
 					let host = EvmHostInstance::new(host_addr, client.clone());
 					let fee_token = Address::from(
 						host.feeToken().call().await.context(format!("Error in {chain}"))?.0,

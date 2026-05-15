@@ -19,9 +19,9 @@ use crate::{
 	error::Error,
 	events::{Event, RequestResponseHandled},
 	handlers::{validate_state_machine, MessageResult},
-	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, hash_response, ResponseMessage},
-	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
+	host::IsmpHost,
+	messaging::{hash_request, ResponseMessage},
+	router::{GetResponse, Request, RequestResponse, StorageValue},
 };
 use alloc::{vec, vec::Vec};
 use sp_weights::Weight;
@@ -35,78 +35,10 @@ where
 	let state_machine = validate_state_machine(host, proof.height)?;
 	let state = host.state_machine_commitment(proof.height)?;
 
-	let consensus_clients = host.consensus_clients();
-	let check_state_machine_client = |state_machine: StateMachine| {
-		consensus_clients
-			.iter()
-			.find_map(|client| client.state_machine(state_machine).ok())
-			.is_none()
-	};
-
 	let mut total_weights = Weight::zero();
 	let result = match &msg.datagram {
-		RequestResponse::Response(responses) => {
-			for response in responses.iter() {
-				let request = response.request();
-				let commitment = hash_request::<H>(&request);
-
-				if host.request_commitment(commitment).is_err() {
-					Err(Error::UnsolicitedResponse { meta: response.into() })?
-				}
-
-				if host.response_receipt(&response).is_some() {
-					Err(Error::DuplicateResponse { meta: response.into() })?
-				}
-
-				if response.timed_out(host.timestamp()) {
-					Err(Error::ResponseTimeout { response: response.into() })?
-				}
-
-				let source_chain = response.source_chain();
-
-				// in order to allow proxies, the host must configure the given state machine
-				// as it's proxy and must not have a state machine client for the source chain
-				let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-					check_state_machine_client(source_chain);
-
-				// check if the response is allowed to be proxied
-				if response.source_chain() != msg.proof.height.id.state_id && !allow_proxy {
-					Err(Error::ResponseProxyProhibited { meta: response.into() })?
-				}
-			}
-
-			// Verify membership proof
-			state_machine.verify_membership(
-				host,
-				RequestResponse::Response(responses.clone()),
-				state,
-				&proof,
-			)?;
-
-			let router = host.ismp_router();
-			responses
-				.clone()
-				.into_iter()
-				.map(|response| {
-					let cb = router.module_for_id(response.destination_module())?;
-					// Store response receipt to prevent reentrancy attack
-					let signer = host.store_response_receipt(&response, &msg.signer)?;
-					let res = cb.on_response(response.clone()).map(|weight| {
-						total_weights.saturating_accrue(weight);
-						let commitment = hash_response::<H>(&response);
-						Event::PostResponseHandled(RequestResponseHandled {
-							commitment,
-							relayer: signer,
-						})
-					});
-					// Delete receipt if module callback failed so it can be timed out
-					if res.is_err() {
-						host.delete_response_receipt(&response)?;
-					}
-					Ok::<_, anyhow::Error>(res)
-				})
-				.collect::<Result<Vec<_>, _>>()?
-		},
+		RequestResponse::Response(_) =>
+			Err(Error::Custom("PostResponse has been removed from the protocol".into()))?,
 		RequestResponse::Request(requests) => {
 			let mut get_requests = vec![];
 			for req in requests.iter() {
@@ -128,10 +60,10 @@ where
 				}
 
 				let res =
-					Response::Get(GetResponse { get: get.clone(), values: Default::default() });
+					GetResponse { get: get.clone(), values: Default::default() };
 
 				if host.response_receipt(&res).is_some() {
-					Err(Error::DuplicateResponse { meta: res.into() })?
+					Err(Error::DuplicateResponse { meta: (&res).into() })?
 				}
 
 				get_requests.push(get.clone());
@@ -158,13 +90,13 @@ where
 
 					let router = host.ismp_router();
 					let cb = router.module_for_id(request.from.clone())?;
-					let response = Response::Get(GetResponse {
+					let response = GetResponse {
 						get: request.clone(),
 						values: Default::default(),
-					});
+					};
 					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb
-						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
+						.on_response(GetResponse { get: request.clone(), values })
 						.map(|weight| {
 							total_weights.saturating_accrue(weight);
 							let commitment = hash_request::<H>(&wrapped_req);

@@ -13,9 +13,9 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PostRequest, PostResponse, GetRequest} from "../libraries/Message.sol";
-import {DispatchPost, DispatchPostResponse, DispatchGet, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IApp, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "../interfaces/IApp.sol";
+import {PostRequest, GetRequest} from "../libraries/Message.sol";
+import {DispatchPost, DispatchGet, IDispatcher} from "../interfaces/IDispatcher.sol";
+import {IApp, IncomingPostRequest, IncomingGetResponse} from "../interfaces/IApp.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -82,14 +82,6 @@ abstract contract HyperApp is IApp {
     }
 
     /**
-     * @dev returns the quoted fee in the feeToken for dispatching a POST response
-     */
-    function quote(DispatchPostResponse memory response) public view returns (uint256) {
-        uint256 len = 32 > response.response.length ? 32 : response.response.length;
-        return response.fee + (len * IDispatcher(host()).perByteFee(response.request.source));
-    }
-
-    /**
      * @dev returns the quoted fee in the native token for dispatching a POST request
      */
     function quoteNative(DispatchPost memory request) public view returns (uint256) {
@@ -116,19 +108,6 @@ abstract contract HyperApp is IApp {
     }
 
     /**
-     * @dev returns the quoted fee in the native token for dispatching a POST response
-     */
-    function quoteNative(DispatchPostResponse memory request) public view returns (uint256) {
-        uint256 fee = quote(request);
-        address _host = host();
-        address _uniswap = IDispatcher(_host).uniswapV2Router();
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_uniswap).WETH();
-        path[1] = IDispatcher(_host).feeToken();
-        return IUniswapV2Router02(_uniswap).getAmountsIn(fee, path)[0];
-    }
-
-    /**
      * @notice Dispatches a POST request using the fee token for payment
      * @dev Handles fee token approval and transfer before dispatching the request to the Host.
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
@@ -143,23 +122,6 @@ abstract contract HyperApp is IApp {
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
         IERC20(feeToken).forceApprove(hostAddr, fee);
         return IDispatcher(hostAddr).dispatch(request);
-    }
-
-    /**
-     * @notice Dispatches a POST response using the fee token for payment
-     * @dev Handles fee token approval and transfer before dispatching the response to the Host.
-     * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
-     * @param response The POST response to dispatch containing the original request, response data, timeout, and fee parameters
-     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
-     * @return commitment The unique identifier for the dispatched response
-     */
-    function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32) {
-        address hostAddr = host();
-        address feeToken = IDispatcher(hostAddr).feeToken();
-        uint256 fee = quote(response);
-        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).forceApprove(hostAddr, fee);
-        return IDispatcher(hostAddr).dispatch(response);
     }
 
     /**
@@ -194,24 +156,6 @@ abstract contract HyperApp is IApp {
      * Override this method to implement cleanup or retry logic. The default implementation reverts.
      */
     function onPostRequestTimeout(PostRequest memory) external virtual onlyHost {
-        revert UnexpectedCall();
-    }
-
-    /**
-     * @notice Callback for receiving POST responses
-     * @dev Called by the Host when a response is received for a previously dispatched POST request.
-     * Override this method to process response data. The default implementation reverts.
-     */
-    function onPostResponse(IncomingPostResponse memory) external virtual onlyHost {
-        revert UnexpectedCall();
-    }
-
-    /**
-     * @notice Callback for handling POST response timeouts
-     * @dev Called by the Host when a POST response that was sent has timed out.
-     * Override this method to handle response timeout scenarios. The default implementation reverts.
-     */
-    function onPostResponseTimeout(PostResponse memory) external virtual onlyHost {
         revert UnexpectedCall();
     }
 

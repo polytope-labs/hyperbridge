@@ -10,7 +10,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HandlerV1} from "../../src/core/HandlerV1.sol";
+import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
 import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 
@@ -252,7 +252,7 @@ contract BandwidthManagerTest is Test {
 
     function _deployHost(address feeTokenAddr) internal returns (TestHost h) {
         TestConsensusClient cc = new TestConsensusClient();
-        HandlerV1 handler = new HandlerV1();
+        HandlerV2 handler = new HandlerV2();
         HostManager hm = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
 
         uint256[] memory stateMachines = new uint256[](1);

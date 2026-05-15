@@ -18,7 +18,7 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../../src/utils/PingModule.sol";
-import {HandlerV1} from "../../src/core/HandlerV1.sol";
+import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
@@ -43,7 +43,7 @@ contract BaseTest is Test {
 
     TestConsensusClient internal consensusClient;
     TestHost internal host;
-    HandlerV1 internal handler;
+    HandlerV2 internal handler;
     PingModule internal testModule;
     FeeToken internal feeToken;
     MockUSCDC internal mockUSDC;
@@ -56,7 +56,7 @@ contract BaseTest is Test {
 
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
+        handler = new HandlerV2();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
 
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");

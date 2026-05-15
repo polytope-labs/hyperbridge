@@ -230,7 +230,7 @@ async fn test_verify_consensus() {
 fn dump_sp1_fixture_scale_bytes() {
 	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, PROOF_TYPE_SP1, Sp1BeefyProof};
-	use ismp_solidity_abi::{
+	use ismp_abi::{
 		ecdsa_beefy::Beefy::BeefyConsensusState,
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
@@ -283,14 +283,14 @@ fn dump_sp1_fixture_scale_bytes() {
 /// ```
 ///
 /// The test decodes the solidity-ABI-encoded `BeefyConsensusState` and tuple-encoded
-/// `SP1BeefyProof` fields using the bindings in `ismp-solidity-abi`, converts them via
+/// `SP1BeefyProof` fields using the bindings in `ismp-abi`, converts them via
 /// the existing `From` impls in `evm/abi/src/conversions.rs`, and runs them through
 /// our Rust [`crate::sp1::verify_sp1_consensus`].
 #[test]
 fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, Sp1BeefyProof};
-	use ismp_solidity_abi::{
+	use ismp_abi::{
 		ecdsa_beefy::Beefy::BeefyConsensusState,
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};

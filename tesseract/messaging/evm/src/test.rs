@@ -7,7 +7,7 @@ use ismp::{
 	messaging::{hash_request, Proof},
 	router::{PostRequest, Request, RequestResponse},
 };
-use ismp_solidity_abi::evm_host::EvmHostInstance;
+use ismp_abi::evm_host::EvmHostInstance;
 use ismp_testsuite::mocks::Keccak256Hasher;
 use primitive_types::{H160, H256};
 use tesseract_primitives::{IsmpProvider, Query};

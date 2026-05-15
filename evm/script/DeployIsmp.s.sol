@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import "../src/core/HandlerV1.sol";
+import "../src/core/HandlerV2.sol";
 import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
@@ -109,7 +109,7 @@ contract DeployScript is BaseScript {
         }
 
         // handler
-        HandlerV1 handler = new HandlerV1{salt: salt}();
+        HandlerV2 handler = new HandlerV2{salt: salt}();
 
         // Host manager
         HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));

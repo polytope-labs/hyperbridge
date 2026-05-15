@@ -60,7 +60,7 @@ function sendMessage(
         body: message,
         dest: StateMachine.evm(1),
         timeout: timeout,
-        to: abi.encodePacked(to),
+        to: abi.encode(to),
         fee: relayerFee,
         payer: msg.sender
     });
@@ -73,7 +73,7 @@ function sendMessage(
 
 1. **Create the DispatchPost struct** - Populate all required fields including destination, recipient, message body, timeout, and fees
 2. **Set the destination** - Use `StateMachine.evm(1)` for Ethereum Mainnet (or appropriate chain ID)
-3. **Encode the recipient** - Convert the destination contract address to bytes using `abi.encodePacked(to)`
+3. **Encode the recipient** - Convert the destination contract address to bytes using `abi.encode(to)`
 4. **Dispatch the request** - Call `IDispatcher(_host).dispatch()` with the POST request and any required native token value
 5. **Return commitment hash** - The function returns a unique identifier for tracking the request
 
@@ -182,7 +182,7 @@ contract MyApp is HyperApp {
             body: message,
             dest: dest,
             timeout: timeout,
-            to: abi.encodePacked(to),
+            to: abi.encode(to),
             fee: relayerFee,
             payer: msg.sender
         });
@@ -214,7 +214,7 @@ contract MyApp is HyperApp {
             body: message,
             dest: dest,
             timeout: timeout,
-            to: abi.encodePacked(to),
+            to: abi.encode(to),
             fee: relayerFee,
             payer: msg.sender
         });
@@ -330,7 +330,7 @@ The SDK automatically generates the [`PostRequestMessage`](/developers/evm/api/i
 
 When a POST request times out (exceeds its specified `timeout` period), The request will be **rejected on the destination** if delivery is attempted.
 
-```solidity lineNumbers=159 title="hyperbridge/evm/src/core/HandlerV1.sol"
+```solidity lineNumbers=159 title="hyperbridge/evm/src/core/HandlerV2.sol"
 for (uint256 i = 0; i < requestsLen; ++i) {
     PostRequestLeaf memory leaf = request.requests[i];
     // check destination

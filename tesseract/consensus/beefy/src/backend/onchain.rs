@@ -239,7 +239,7 @@ fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
 	let header_bytes: Vec<u8> = match proof_type {
 		PROOF_TYPE_SP1 => {
 			let proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+				<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.ok()?;
@@ -247,7 +247,7 @@ fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
 		},
 		PROOF_TYPE_NAIVE => {
 			let proof =
-				<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+				<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.ok()?;

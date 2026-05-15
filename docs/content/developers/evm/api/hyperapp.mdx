@@ -74,22 +74,6 @@ function quote(DispatchGet memory request) public view returns (uint256)
 
 ---
 
-### quote(DispatchPostResponse)
-
-Returns the fee in the fee token for dispatching a POST response.
-
-```solidity lineNumbers
-function quote(DispatchPostResponse memory response) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to quote |
-
-**Returns:** Fee amount in the fee token
-
----
-
 ### quoteNative(DispatchPost)
 
 Returns the fee in the native token (e.g., ETH) for dispatching a POST request.
@@ -127,22 +111,6 @@ function quoteNative(DispatchGet memory request) public view returns (uint256)
 
 ---
 
-### quoteNative(DispatchPostResponse)
-
-Returns the fee in the native token for dispatching a POST response.
-
-```solidity lineNumbers
-function quoteNative(DispatchPostResponse memory response) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to quote |
-
-**Returns:** Fee amount in the native token
-
----
-
 ### dispatchWithFeeToken(DispatchPost)
 
 Dispatches a POST request using the fee token for payment, handling approvals automatically.
@@ -167,23 +135,6 @@ function dispatchWithFeeToken(DispatchPost memory request, address payer) intern
 **Requirements:**
 - If payer is not this contract, payer must have approved this contract to spend fee tokens
 - Payer must have sufficient fee token balance
-
----
-
-### dispatchWithFeeToken(DispatchPostResponse)
-
-Dispatches a POST response using the fee token for payment, handling approvals automatically.
-
-```solidity lineNumbers
-function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
-
-**Returns:** Commitment hash identifying the dispatched response
 
 ---
 
@@ -235,38 +186,6 @@ function onPostRequestTimeout(PostRequest memory request) external virtual onlyH
 **Access:** Only callable by Host
 
 **Important:** Must be idempotent as it can be called multiple times
-
----
-
-### onPostResponse()
-
-Called when a POST response is received. Override to handle responses. Default implementation reverts with `UnexpectedCall()`.
-
-```solidity lineNumbers
-function onPostResponse(IncomingPostResponse memory incoming) external virtual onlyHost
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `incoming` | `IncomingPostResponse` | The incoming POST response |
-
-**Access:** Only callable by Host
-
----
-
-### onPostResponseTimeout()
-
-Called when a POST response you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
-
-```solidity lineNumbers
-function onPostResponseTimeout(PostResponse memory response) external virtual onlyHost
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `PostResponse` | The timed-out response |
-
-**Access:** Only callable by Host
 
 ---
 

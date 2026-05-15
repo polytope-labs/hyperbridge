@@ -60,7 +60,7 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment,
 };
-use ismp_solidity_abi::ecdsa_beefy::{
+use ismp_abi::ecdsa_beefy::{
 	BeefyConsensusProof as SolBeefyConsensusProof, BeefyConsensusState as SolBeefyConsensusState,
 };
 use primitive_types::H256;
@@ -100,7 +100,7 @@ fn sp1_fixture() -> Sp1Fixture {
 fn fixture_state_scale(latest_beefy_height: u32) -> Vec<u8> {
 	use alloy_sol_types::SolValue;
 	use beefy_verifier_primitives::ConsensusState;
-	use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 
 	let fx = sp1_fixture();
 	let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
@@ -116,7 +116,7 @@ fn trusted_state_scale() -> Vec<u8> {
 	let fx = sp1_fixture();
 	let prev_height = {
 		use alloy_sol_types::SolValue;
-		use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+		use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 		let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
 		let sol = <SolBeefyConsensusState as SolValue>::abi_decode(&raw).expect("abi state");
 		u32::try_from(sol.latestHeight).expect("latest height fits u32")

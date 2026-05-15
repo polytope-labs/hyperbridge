@@ -48,7 +48,7 @@ use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
-use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof;
+use ismp_abi::ecdsa_beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
@@ -252,12 +252,9 @@ where
 			.filter_map(|event| {
 				let dest = match &event.event {
 					Event::PostRequest(post) => post.dest.clone(),
-					Event::PostResponse(resp) => resp.dest_chain(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
 					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge =>
 						req.source,
-					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge =>
-						res.source,
 					_ => None?,
 				};
 
@@ -531,14 +528,10 @@ where
 					.filter_map(|e| {
 						let event = match &e.event {
 							Event::PostRequest(req) => req.dest,
-							Event::PostResponse(res) => res.dest_chain(),
 							Event::GetResponse(res) => res.get.source,
 							Event::PostRequestTimeoutHandled(req)
 								if req.source != hyperbridge =>
 								req.source,
-							Event::PostResponseTimeoutHandled(res)
-								if res.source != hyperbridge =>
-								res.source,
 							_ => None?,
 						};
 						Some(event)

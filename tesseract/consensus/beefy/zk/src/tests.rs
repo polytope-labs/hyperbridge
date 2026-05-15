@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::{ecdsa_beefy::BeefyConsensusState, sp1_beefy::SP1BeefyProof};
+use ismp_abi::{ecdsa_beefy::BeefyConsensusState, sp1_beefy::SP1BeefyProof};
 use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use polkadot_sdk::*;
 use serde::Deserialize;

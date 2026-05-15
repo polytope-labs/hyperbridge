@@ -28,8 +28,8 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, hash_response, Proof},
-	router::{Request, RequestResponse, Response},
+	messaging::{hash_request, hash_response, Proof},
+	router::{Request, RequestResponse, GetResponse},
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
@@ -207,17 +207,7 @@ where
 						Request::Get(_) => continue,
 					}
 				},
-			RequestResponse::Response(responses) =>
-				for res in responses {
-					match res {
-						Response::Post(post_response) => {
-							let commitment =
-								hash_post_response::<pallet_ismp::Pallet<T>>(&post_response);
-							keys.push(ResponseReceipts::<T>::storage_key(commitment));
-						},
-						Response::Get(_) => continue,
-					}
-				},
+			RequestResponse::Response(_) => {},
 		};
 
 		keys

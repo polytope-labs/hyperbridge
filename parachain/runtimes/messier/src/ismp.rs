@@ -30,7 +30,7 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, Response},
+	router::{IsmpRouter, PostRequest, Request, GetResponse},
 };
 use pallet_xcm_gateway::AssetGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
@@ -38,7 +38,6 @@ use pallet_assets::BenchmarkHelper;
 use sp_core::crypto::AccountId32;
 use sp_runtime::Permill;
 
-use ismp::router::Timeout;
 use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
@@ -194,23 +193,18 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: GetResponse) -> Result<(), anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
-			Ismp::dispatch_response(
-				response,
-				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
-			)?;
 			return Ok(());
 		}
 
 		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<(), anyhow::Error> {
 		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
-			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
-			Timeout::Response(res) => (&res.post.to, &res.post.dest),
+			Request::Post(post) => (&post.from, &post.source),
+			Request::Get(get) => (&get.from, &get.source),
 		};
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;

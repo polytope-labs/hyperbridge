@@ -1,4 +1,4 @@
-//! SP1Beefy contract bindings generated with alloy sol! macro.
+//! ERC20 contract bindings generated with alloy sol! macro.
 //!
 //! See `beefy.rs` for why the std / no_std variants are distinct `sol!` invocations.
 
@@ -7,19 +7,18 @@ use alloy_sol_macro::sol;
 #[cfg(feature = "std")]
 sol!(
 	#[allow(missing_docs)]
-	#[sol(rpc, ignore_unlinked)]
+	#[sol(rpc)]
 	#[derive(Debug, PartialEq, Eq)]
-	SP1Beefy,
-	"../out/SP1Beefy.sol/SP1Beefy.json"
+	ERC20,
+	"abi/ERC20.json"
 );
 
 #[cfg(not(feature = "std"))]
 sol!(
 	#[allow(missing_docs)]
-	#[sol(ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
-	SP1Beefy,
-	"../out/SP1Beefy.sol/SP1Beefy.json"
+	ERC20,
+	"abi/ERC20.json"
 );
 
-pub use SP1Beefy::*;
+pub use ERC20::*;

@@ -95,7 +95,7 @@ pub async fn retry_unprofitable_messages(
 							.await?;
 
 						let _msg = RequestMessage {
-							requests: vec![post.clone()],
+							requests: BTreeSet::from([post.clone()]),
 							proof: Proof { height: proof_height, proof },
 							signer: dest.address(),
 						};
@@ -127,7 +127,7 @@ pub async fn retry_unprofitable_messages(
 							.await?;
 
 						let _msg = ResponseMessage {
-							datagram: RequestResponse::Response(vec![resp.clone()]),
+							datagram: RequestResponse::Response(BTreeSet::from([resp.clone()])),
 							proof: Proof { height: batch_proof.height, proof },
 							signer: dest.address(),
 						};
@@ -152,7 +152,7 @@ pub async fn retry_unprofitable_messages(
 			unbatched_messages.into_iter().for_each(|(message, id)| {
 				match message {
 					Message::Request(msg) => {
-						let post = msg.requests.get(0).cloned().expect(
+						let post = msg.requests.iter().next().cloned().expect(
 							"Inconsistent Database, withdraw all fees and  restart relayer with a fresh database",
 						);
 						let query = {
@@ -180,7 +180,7 @@ pub async fn retry_unprofitable_messages(
 					},
 					Message::Response(msg) => match &msg.datagram {
 						ismp::router::RequestResponse::Response(responses) => {
-							let post_response = match responses.get(0).cloned().expect(
+							let post_response = match responses.iter().next().cloned().expect(
 								"Inconsistent Database, withdraw all fees and restart relayer with a fresh database",
 							) {
 								Response::Post(post_response) => post_response,
@@ -272,7 +272,7 @@ pub async fn retry_unprofitable_messages(
 									.await
 								{
 									let msg = RequestMessage {
-										requests: post_requests.to_vec(),
+										requests: post_requests.iter().cloned().collect(),
 										proof: Proof {
 											height: state_machine_height,
 											proof: requests_proof,
@@ -346,7 +346,7 @@ pub async fn retry_unprofitable_messages(
 								{
 									let msg = ResponseMessage {
 										datagram: RequestResponse::Response(
-											post_responses.to_vec(),
+											post_responses.iter().cloned().collect(),
 										),
 										proof: Proof {
 											height: state_machine_height,
@@ -425,7 +425,14 @@ pub async fn retry_unprofitable_messages(
 					.into_iter()
 					.filter_map(|msg| match &msg {
 						Message::Request(req_msg) => {
-							let req = Request::Post(req_msg.requests[0].clone());
+							let req = Request::Post(
+								req_msg
+									.requests
+									.iter()
+									.next()
+									.cloned()
+									.expect("Retry batch has at least one request"),
+							);
 							if req.timed_out(dest_timestamp) {
 								None
 							} else {
@@ -437,7 +444,11 @@ pub async fn retry_unprofitable_messages(
 								RequestResponse::Request(_) => unreachable!(
 									"Relayer only ever processes post requests and post responses"
 								),
-								RequestResponse::Response(responses) => responses[0].clone(),
+								RequestResponse::Response(responses) => responses
+									.iter()
+									.next()
+									.cloned()
+									.expect("Retry batch has at least one response"),
 							};
 							if res.timed_out(dest_timestamp) {
 								None

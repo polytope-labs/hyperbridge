@@ -21,9 +21,9 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_post_response, hash_request, TimeoutMessage},
-	router::Response,
+	router::{RequestResponse, Response},
 };
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 use sp_weights::Weight;
 
 /// This function handles timeouts
@@ -74,7 +74,8 @@ where
 				}
 			}
 
-			let keys = state_machine.receipts_state_trie_key(requests.clone().into());
+			let keys =
+				state_machine.receipts_state_trie_key(RequestResponse::Request(requests.clone()));
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
 				Err(Error::Custom("Some Requests in the batch have been delivered".into()))?
@@ -146,8 +147,9 @@ where
 				}
 			}
 
-			let items = responses.iter().map(|r| Into::into(r.clone())).collect::<Vec<Response>>();
-			let keys = state_machine.receipts_state_trie_key(items.into());
+			let items =
+				responses.iter().map(|r| Response::from(r.clone())).collect::<BTreeSet<_>>();
+			let keys = state_machine.receipts_state_trie_key(RequestResponse::Response(items));
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
 				Err(Error::Custom("Some responses in the batch have been delivered".into()))?

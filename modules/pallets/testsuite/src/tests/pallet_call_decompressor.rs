@@ -53,7 +53,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 				};
 				Request::Get(get)
 			})
-			.collect::<Vec<_>>();
+			.collect::<std::collections::BTreeSet<_>>();
 
 		let response = ResponseMessage {
 			datagram: RequestResponse::Request(requests.clone()),
@@ -120,7 +120,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 				};
 				Request::Get(get)
 			})
-			.collect::<Vec<_>>();
+			.collect::<std::collections::BTreeSet<_>>();
 
 		let msg = TimeoutMessage::Get { requests };
 
@@ -172,7 +172,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 				};
 				post
 			})
-			.collect::<Vec<_>>();
+			.collect::<std::collections::BTreeSet<_>>();
 
 		let msg = RequestMessage {
 			requests,
@@ -241,7 +241,7 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 					timeout_timestamp: 200000,
 				})
 			})
-			.collect::<Vec<_>>();
+			.collect::<std::collections::BTreeSet<_>>();
 
 		let msg = ResponseMessage {
 			datagram: RequestResponse::Response(responses),

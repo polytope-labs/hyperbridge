@@ -102,7 +102,7 @@ async fn test_ismp_state_proof() {
 		proof: proof.clone(),
 	};
 	evm_state_machine::verify_membership::<Keccak256Hasher>(
-		RequestResponse::Request(vec![request]),
+		RequestResponse::Request(std::collections::BTreeSet::from([request])),
 		state_commitment,
 		&membership_proof,
 		ISMP_HOST,

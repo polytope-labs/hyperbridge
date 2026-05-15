@@ -77,7 +77,9 @@ async fn relay_get_response_message(
 			proof: proof_of_value.encode(),
 		};
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(vec![Request::Get(get_request.clone())]),
+			datagram: RequestResponse::Request(std::collections::BTreeSet::from([Request::Get(
+				get_request.clone(),
+			)])),
 			proof,
 			signer: chain_a_client.address(), // both A&B have same relayer address
 		};

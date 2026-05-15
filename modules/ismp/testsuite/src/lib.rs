@@ -21,7 +21,7 @@ use polkadot_sdk::{
 	sp_core::{sr25519, Pair},
 	sp_io,
 };
-use std::vec;
+use std::{collections::BTreeSet, vec};
 
 use ismp::{
 	consensus::{
@@ -133,7 +133,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![post.clone()],
+		requests: BTreeSet::from([post.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -142,11 +142,12 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
-	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
-		post,
-		response: vec![],
-		timeout_timestamp: 0,
-	})]);
+	let response_message =
+		RequestResponse::Response(BTreeSet::from([Response::Post(PostResponse {
+			post,
+			response: vec![],
+			timeout_timestamp: 0,
+		})]));
 
 	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
 
@@ -162,7 +163,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: BTreeSet::from([request]),
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -216,7 +217,7 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![post.clone()],
+		requests: BTreeSet::from([post.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -254,7 +255,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![post.clone()],
+		requests: BTreeSet::from([post.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -267,11 +268,12 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 			Err(ismp::error::Error::Custom(_))
 	));
 
-	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
-		post,
-		response: vec![],
-		timeout_timestamp: 0,
-	})]);
+	let response_message =
+		RequestResponse::Response(BTreeSet::from([Response::Post(PostResponse {
+			post,
+			response: vec![],
+			timeout_timestamp: 0,
+		})]));
 	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
 
 	// Response message handling check
@@ -290,7 +292,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: BTreeSet::from([request]),
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -344,7 +346,7 @@ where
 
 	// Timeout message handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -407,7 +409,7 @@ where
 	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
 
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -424,7 +426,7 @@ where
 	.unwrap();
 
 	let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
-		responses: vec![response.clone()],
+		responses: BTreeSet::from([response.clone()]),
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -578,7 +580,7 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	.unwrap();
 
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 
@@ -651,7 +653,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
 
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -664,7 +666,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 	host.dispatch_response(response.clone(), Default::default()).unwrap();
 
 	let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
-		responses: vec![response.clone()],
+		responses: BTreeSet::from([response.clone()]),
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 
@@ -733,7 +735,7 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 
 	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		proof: Proof { height: proxy.height, proof: vec![] },
 		signer: signature,
 	});
@@ -773,7 +775,7 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
 
 	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
+		requests: BTreeSet::from([request.clone()]),
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -827,7 +829,7 @@ pub fn check_response_source() -> Result<(), &'static str> {
 
 	let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 
-	let response_message = RequestResponse::Response(vec![Response::Post(response)]);
+	let response_message = RequestResponse::Response(BTreeSet::from([Response::Post(response)]));
 
 	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
 

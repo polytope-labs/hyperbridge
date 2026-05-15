@@ -454,7 +454,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		.await?;
 	log::info!(target: crate::LOG_TARGET, "Successfully queried request proof from hyperbridge");
 	let msg = RequestMessage {
-		requests,
+		requests: requests.into_iter().collect(),
 		proof: Proof {
 			height: StateMachineHeight {
 				id: hyperbridge.state_machine_id(),

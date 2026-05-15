@@ -329,7 +329,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 			.query_requests_proof(delivery_height, queries.clone(), dest_state_machine)
 			.await?;
 		let request_msg = RequestMessage {
-			requests: requests.clone(),
+			requests: requests.iter().cloned().collect(),
 			proof: Proof {
 				height: StateMachineHeight { id: hb_state_machine_id, height: delivery_height },
 				proof,
@@ -440,7 +440,7 @@ async fn deliver_post_request_substrate<D: IsmpProvider>(
 		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
 		.await?;
 	let msg = RequestMessage {
-		requests,
+		requests: requests.into_iter().collect(),
 		proof: Proof {
 			height: StateMachineHeight {
 				id: hyperbridge.state_machine_id(),

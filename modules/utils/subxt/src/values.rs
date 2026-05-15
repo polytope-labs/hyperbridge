@@ -647,8 +647,5 @@ pub fn storage_kv_list_to_value(kv_list: &Vec<(Vec<u8>, Vec<u8>)>) -> Value<()> 
 }
 
 pub fn parachain_data_to_value(data: &ParachainData) -> Value<()> {
-	Value::named_composite(vec![
-		("id".to_string(), Value::u128(data.id.into())),
-		("slot_duration".to_string(), Value::u128(data.slot_duration.into())),
-	])
+	Value::named_composite(vec![("id".to_string(), Value::u128(data.id.into()))])
 }

@@ -16,7 +16,7 @@
 //! Message router definitions
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
-use alloc::{boxed::Box, collections::BTreeSet, string::ToString, vec};
+use alloc::{boxed::Box, string::ToString, vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Formatter, time::Duration};
 
@@ -29,8 +29,6 @@ use core::{fmt::Formatter, time::Duration};
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -94,8 +92,6 @@ impl core::fmt::Display for PostRequest {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -164,8 +160,6 @@ fn get_timeout(timeout_timestamp: u64) -> Duration {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	derive_more::From,
 	serde::Deserialize,
@@ -298,8 +292,6 @@ impl Request {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -382,8 +374,6 @@ impl PostResponse {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -421,8 +411,6 @@ impl GetResponse {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -446,8 +434,6 @@ pub struct StorageValue {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
-	PartialOrd,
-	Ord,
 	scale_info::TypeInfo,
 	derive_more::From,
 	serde::Deserialize,
@@ -540,9 +526,9 @@ impl Response {
 )]
 pub enum RequestResponse {
 	/// A batch of requests
-	Request(BTreeSet<Request>),
+	Request(Vec<Request>),
 	/// A batch of responses
-	Response(BTreeSet<Response>),
+	Response(Vec<Response>),
 }
 
 /// Timeout message

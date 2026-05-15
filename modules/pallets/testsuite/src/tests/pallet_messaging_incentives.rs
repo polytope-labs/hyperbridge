@@ -52,7 +52,7 @@ fn signed_request(relayer: &sr25519::Pair, body: Vec<u8>) -> MessageWithWeight {
 
 	MessageWithWeight {
 		message: Message::Request(RequestMessage {
-			requests: requests.into_iter().collect(),
+			requests,
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId { state_id: SOURCE, consensus_state_id: *b"mock" },

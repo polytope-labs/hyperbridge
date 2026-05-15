@@ -18,7 +18,7 @@
 // Messages are processed in batches, all messages in a batch should
 // originate from the same chain
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 
 use crate::{
 	consensus::{
@@ -118,10 +118,8 @@ pub struct CreateConsensusState {
 	Debug, Clone, Encode, DecodeWithMemTracking, Decode, scale_info::TypeInfo, PartialEq, Eq,
 )]
 pub struct RequestMessage {
-	/// Requests from source chain. A `BTreeSet` structurally rejects
-	/// duplicates within the batch — repeats in a SCALE-encoded `Vec`
-	/// payload collapse at decode time before the handler sees them.
-	pub requests: BTreeSet<PostRequest>,
+	/// Requests from source chain
+	pub requests: Vec<PostRequest>,
 	/// Membership batch proof for these requests
 	pub proof: Proof,
 	/// Signer information. Ideally should be their account identifier
@@ -147,7 +145,7 @@ impl ResponseMessage {
 		match &self.datagram {
 			RequestResponse::Response(responses) =>
 				responses.iter().map(|res| res.request()).collect(),
-			RequestResponse::Request(requests) => requests.iter().cloned().collect(),
+			RequestResponse::Request(requests) => requests.clone(),
 		}
 	}
 
@@ -164,26 +162,23 @@ impl ResponseMessage {
 pub enum TimeoutMessage {
 	/// A non memership proof for POST requests
 	Post {
-		/// Request timeouts. `BTreeSet` so duplicates are stripped at
-		/// SCALE-decode time.
-		requests: BTreeSet<Request>,
+		/// Request timeouts
+		requests: Vec<Request>,
 		/// Non membership batch proof for these requests
 		timeout_proof: Proof,
 	},
 	/// A non memership proof for POST requests
 	PostResponse {
-		/// Request timeouts. `BTreeSet` so duplicates are stripped at
-		/// SCALE-decode time.
-		responses: BTreeSet<PostResponse>,
+		/// Request timeouts
+		responses: Vec<PostResponse>,
 		/// Non membership batch proof for these requests
 		timeout_proof: Proof,
 	},
 	/// There are no proofs for Get timeouts, we only need to
 	/// ensure that the timeout timestamp has elapsed on the host
 	Get {
-		/// Requests that have timed out. `BTreeSet` so duplicates are
-		/// stripped at SCALE-decode time.
-		requests: BTreeSet<Request>,
+		/// Requests that have timed out
+		requests: Vec<Request>,
 	},
 }
 
@@ -192,9 +187,9 @@ impl TimeoutMessage {
 	pub fn requests(&self) -> Vec<Request> {
 		match self {
 			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
-				requests.iter().cloned().collect(),
+				requests.clone(),
 			TimeoutMessage::PostResponse { responses, .. } =>
-				responses.iter().map(|res| res.request()).collect(),
+				responses.clone().into_iter().map(|res| res.request()).collect(),
 		}
 	}
 	/// Returns the associated proof

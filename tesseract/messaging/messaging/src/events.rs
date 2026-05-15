@@ -11,10 +11,7 @@ use ismp::{
 	router::{PostRequest, Request, RequestResponse, Response},
 };
 use sp_core::{H160, U256};
-use std::{
-	collections::{BTreeSet, HashMap},
-	sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
@@ -167,7 +164,7 @@ pub async fn translate_events_to_messages(
 								.await?;
 
 							let _msg = RequestMessage {
-								requests: BTreeSet::from([post.clone()]),
+								requests: vec![post.clone()],
 								proof: Proof { height: state_machine_height, proof },
 								signer: sink.address(),
 							};
@@ -214,7 +211,7 @@ pub async fn translate_events_to_messages(
 								.await?;
 
 							let _msg = ResponseMessage {
-								datagram: RequestResponse::Response(BTreeSet::from([resp.clone()])),
+								datagram: RequestResponse::Response(vec![resp.clone()]),
 								proof: Proof { height: state_machine_height, proof },
 								signer: sink.address(),
 							};
@@ -235,8 +232,7 @@ pub async fn translate_events_to_messages(
 					post_requests.push(
 						req_msg
 							.requests
-							.iter()
-							.next()
+							.get(0)
 							.cloned()
 							.ok_or_else(|| anyhow!("Expected a post to be present"))?,
 					);
@@ -246,8 +242,7 @@ pub async fn translate_events_to_messages(
 					response_queries.push(query);
 					let response = match resp_msg.datagram {
 						RequestResponse::Response(ref resps) => resps
-							.iter()
-							.next()
+							.get(0)
 							.cloned()
 							.ok_or_else(|| anyhow!("Expected a response to be present"))?,
 						_ => Err(anyhow!("Expected Response found posts"))?,
@@ -362,7 +357,7 @@ pub async fn translate_events_to_messages(
 				)
 				.await?;
 			let msg = RequestMessage {
-				requests: post_requests.iter().cloned().collect(),
+				requests: post_requests.to_vec(),
 				proof: Proof { height: state_machine_height, proof: requests_proof },
 				signer: sink.address(),
 			};
@@ -384,7 +379,7 @@ pub async fn translate_events_to_messages(
 				)
 				.await?;
 			let msg = ResponseMessage {
-				datagram: RequestResponse::Response(post_responses.iter().cloned().collect()),
+				datagram: RequestResponse::Response(post_responses.to_vec()),
 				proof: Proof { height: state_machine_height, proof: responses_proof },
 				signer: sink.address(),
 			};

@@ -200,7 +200,7 @@ fn should_handle_get_request_timeouts_correctly() {
 				};
 				ismp::router::Request::Get(get)
 			})
-			.collect::<std::collections::BTreeSet<_>>();
+			.collect::<Vec<_>>();
 
 		let timeout_msg = TimeoutMessage::Get { requests: requests.clone() };
 
@@ -257,7 +257,7 @@ fn should_handle_get_request_responses_correctly() {
 				};
 				Request::Get(get)
 			})
-			.collect::<std::collections::BTreeSet<_>>();
+			.collect::<Vec<_>>();
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 
@@ -453,7 +453,7 @@ fn should_charge_fee_for_request() {
 		};
 
 		let request_message = RequestMessage {
-			requests: requests.into_iter().collect(),
+			requests,
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId { state_id: id.state_id, consensus_state_id: *b"mock" },

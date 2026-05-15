@@ -25,7 +25,7 @@ use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
 	messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{PostResponse, Request, RequestResponse},
+	router::{Request, RequestResponse},
 };
 use sp_core::{H256, H512};
 use sp_runtime::{DispatchError, ModuleError};
@@ -191,75 +191,6 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 
 		let call = RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned {
 			messages: vec![Message::Request(msg)],
-		})
-		.encode();
-		let mut buffer = vec![0u8; 1_000_000];
-		let compressed = zstd_safe::compress(&mut buffer[..], &call, 3).unwrap();
-		let final_compressed_call = buffer[..compressed].to_vec();
-
-		let res = pallet_call_decompressor::Pallet::<Test>::decompress_call(
-			RuntimeOrigin::none(),
-			final_compressed_call.to_vec(),
-			call.len() as u32,
-		)
-		.err()
-		.unwrap();
-
-		// Decoding the call was completed without errors
-		assert_eq!(
-			res,
-			DispatchError::Module(ModuleError {
-				index: 11,
-				error: [1, 0, 0, 0],
-				message: Some("ErrorExecutingCall")
-			})
-		);
-	})
-}
-
-#[test]
-fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
-	let mut ext = new_test_ext();
-	ext.execute_with(|| {
-		let host = Ismp::default();
-		let responses = (0..1000)
-			.into_iter()
-			.map(|i| {
-				let post = ismp::router::PostRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					to: H256::random().0.to_vec(),
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-					body: H512::random().0.to_vec(),
-				};
-				ismp::router::Response::Post(PostResponse {
-					post,
-					response: H512::random().0.to_vec(),
-					timeout_timestamp: 200000,
-				})
-			})
-			.collect::<Vec<_>>();
-
-		let msg = ResponseMessage {
-			datagram: RequestResponse::Response(responses),
-			proof: Proof {
-				height: StateMachineHeight {
-					id: StateMachineId {
-						state_id: StateMachine::Evm(1),
-						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-					},
-					height: 3,
-				},
-				proof: H512::random().0.to_vec(),
-			},
-			signer: H512::random().0.to_vec(),
-		};
-
-		let call = RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned {
-			messages: vec![Message::Response(msg)],
 		})
 		.encode();
 		let mut buffer = vec![0u8; 1_000_000];

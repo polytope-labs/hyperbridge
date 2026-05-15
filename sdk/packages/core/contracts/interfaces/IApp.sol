@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PostRequest, PostResponse, GetResponse, GetRequest} from "../libraries/Message.sol";
+import {PostRequest, GetResponse, GetRequest} from "../libraries/Message.sol";
 
 /**
  * @title IncomingPostRequest
@@ -24,18 +24,6 @@ struct IncomingPostRequest {
     // The Post request containing source, dest, nonce, from, to, timeout, and body
     PostRequest request;
     // Relayer responsible for delivering the request
-    address relayer;
-}
-
-/**
- * @title IncomingPostResponse
- * @notice Encapsulates an incoming POST response with relayer information
- * @dev Used by the Host to deliver POST responses to applications
- */
-struct IncomingPostResponse {
-    // The Post response containing the original request, response data, and timeout
-    PostResponse response;
-    // Relayer responsible for delivering the response
     address relayer;
 }
 
@@ -67,12 +55,6 @@ interface IApp {
     function onAccept(IncomingPostRequest memory incoming) external;
 
     /**
-     * @dev Called by the `Host` to notify an app of a post response to a previously sent out request
-     * @param incoming post response
-     */
-    function onPostResponse(IncomingPostResponse memory incoming) external;
-
-    /**
      * @dev Called by the `Host` to notify an app of a get response to a previously sent out request
      * @param incoming get response
      */
@@ -83,12 +65,6 @@ interface IApp {
      * @param request post request
      */
     function onPostRequestTimeout(PostRequest memory request) external;
-
-    /**
-     * @dev Called by the `Host` to notify an app of post responses that were previously sent but have now timed-out
-     * @param response post response
-     */
-    function onPostResponseTimeout(PostResponse memory response) external;
 
     /**
      * @dev Called by the `Host` to notify an app of get requests that were previously sent but have now timed-out

@@ -33,9 +33,9 @@ use ismp::{
 	error::Error as IsmpError,
 	events::Meta,
 	host::IsmpHost,
-	messaging::{hash_post_response, hash_request},
+	messaging::hash_request,
 	module::IsmpModule,
-	router::{GetRequest, IsmpRouter, PostRequest, PostResponse, Request, Response, Timeout},
+	router::{GetRequest, IsmpRouter, PostRequest, Request, Response, Timeout},
 };
 use sp_core::H256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -130,38 +130,6 @@ where
 		Ok(commitment)
 	}
 
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		fee: FeeMetadata<T>,
-	) -> Result<H256, anyhow::Error> {
-		// collect payment for the response
-		if fee.fee != Zero::zero() {
-			T::Currency::transfer(
-				&fee.payer,
-				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
-				fee.fee,
-				Preservation::Expendable,
-			)
-			.map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
-		}
-
-		let req_commitment = hash_request::<Pallet<T>>(&response.request());
-		if !RequestReceipts::<T>::contains_key(req_commitment) {
-			Err(IsmpError::UnknownRequest {
-				meta: Meta {
-					source: response.request().source_chain(),
-					dest: response.request().dest_chain(),
-					nonce: response.request().nonce(),
-				},
-			})?
-		}
-
-		let response = Response::Post(response);
-		let commitment = Pallet::<T>::dispatch_response(response, fee)?;
-
-		Ok(commitment)
-	}
 }
 
 /// An [`IsmpRouter`] implementation that delegates to an inner module which always refunds
@@ -222,10 +190,6 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
 				Timeout::Request(request) => {
 					let commitment = hash_request::<Pallet<T>>(&request);
 					RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
-				},
-				Timeout::Response(response) => {
-					let commitment = hash_post_response::<Pallet<T>>(&response);
-					ResponseCommitments::<T>::get(commitment).map(|meta| meta.fee)
 				},
 			};
 

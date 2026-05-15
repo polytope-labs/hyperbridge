@@ -7,17 +7,17 @@ use std::{
 use crate::{DataOrHash, Mmr};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{SolCall, SolValue};
-use ismp_solidity_abi::{
+use ismp_abi::{
 	ecdsa_beefy::Beefy::{IntermediateState, StateCommitment},
 	evm_host::EvmHost::{
-		requestCommitmentsCall, requestReceiptsCall, responseCommitmentsCall, responseReceiptsCall,
+		requestCommitmentsCall, requestReceiptsCall, responseReceiptsCall,
 		FeeMetadata, ResponseReceipt,
 	},
 	handler::{
 		handleConsensusCall, handleGetRequestTimeoutsCall, handleGetResponsesCall,
-		handlePostRequestTimeoutsCall, handlePostRequestsCall, handlePostResponseTimeoutsCall,
-		handlePostResponsesCall, GetResponseMessage, GetTimeoutMessage, PostRequestMessage,
-		PostRequestTimeoutMessage, PostResponseMessage, PostResponseTimeoutMessage, Proof,
+		handlePostRequestTimeoutsCall, handlePostRequestsCall,
+		GetResponseMessage, GetTimeoutMessage, PostRequestMessage,
+		PostRequestTimeoutMessage, Proof,
 		StateMachineHeight,
 	},
 };
@@ -397,13 +397,6 @@ impl TestEnv {
 		);
 	}
 
-	pub fn handle_post_responses(&mut self, message: PostResponseMessage) {
-		self.call(
-			self.handler,
-			handlePostResponsesCall { host: self.host, response: message }.abi_encode(),
-		);
-	}
-
 	pub fn handle_get_responses(&mut self, message: GetResponseMessage) {
 		self.call(self.handler, handleGetResponsesCall { host: self.host, message }.abi_encode());
 	}
@@ -412,13 +405,6 @@ impl TestEnv {
 		self.call(
 			self.handler,
 			handlePostRequestTimeoutsCall { host: self.host, message }.abi_encode(),
-		);
-	}
-
-	pub fn handle_post_response_timeouts(&mut self, message: PostResponseTimeoutMessage) {
-		self.call(
-			self.handler,
-			handlePostResponseTimeoutsCall { host: self.host, message }.abi_encode(),
 		);
 	}
 
@@ -453,61 +439,36 @@ impl TestEnv {
 		<requestCommitmentsCall as SolCall>::abi_decode_returns(&result).unwrap()
 	}
 
-	pub fn response_commitment(&mut self, commitment: [u8; 32]) -> FeeMetadata {
-		let result = self.call(
-			self.host,
-			responseCommitmentsCall { commitment: FixedBytes(commitment) }.abi_encode(),
-		);
-		<responseCommitmentsCall as SolCall>::abi_decode_returns(&result).unwrap()
-	}
-
 	pub fn dispatch_post_request(
 		&mut self,
-		request: ismp_solidity_abi::evm_host::EvmHost::PostRequest,
+		request: ismp_abi::evm_host::EvmHost::PostRequest,
 	) {
 		// Convert EvmHost::PostRequest to PingModule::PostRequest via ABI encoding
 		let encoded = SolValue::abi_encode(&request);
 		let ping_request =
-			<ismp_solidity_abi::ping_module::PingModule::PostRequest as SolValue>::abi_decode(
+			<ismp_abi::ping_module::PingModule::PostRequest as SolValue>::abi_decode(
 				&encoded,
 			)
 			.unwrap();
 		let calldata =
-			ismp_solidity_abi::ping_module::PingModule::dispatch_0Call { request: ping_request }
+			ismp_abi::ping_module::PingModule::dispatch_0Call { request: ping_request }
 				.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
 	pub fn dispatch_get_request(
 		&mut self,
-		request: ismp_solidity_abi::evm_host::EvmHost::GetRequest,
+		request: ismp_abi::evm_host::EvmHost::GetRequest,
 	) {
 		let encoded = SolValue::abi_encode(&request);
 		let ping_request =
-			<ismp_solidity_abi::ping_module::PingModule::GetRequest as SolValue>::abi_decode(
+			<ismp_abi::ping_module::PingModule::GetRequest as SolValue>::abi_decode(
 				&encoded,
 			)
 			.unwrap();
 		let calldata =
-			ismp_solidity_abi::ping_module::PingModule::dispatch_1Call { request: ping_request }
+			ismp_abi::ping_module::PingModule::dispatch_1Call { request: ping_request }
 				.abi_encode();
-		self.call(self.test_module, calldata);
-	}
-
-	pub fn dispatch_post_response(
-		&mut self,
-		response: ismp_solidity_abi::evm_host::EvmHost::PostResponse,
-	) {
-		let encoded = SolValue::abi_encode(&response);
-		let ping_response =
-			<ismp_solidity_abi::ping_module::PingModule::PostResponse as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
-		let calldata = ismp_solidity_abi::ping_module::PingModule::dispatchPostResponseCall {
-			response: ping_response,
-		}
-		.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
@@ -580,24 +541,24 @@ fn load_and_link_artifact(runner: &mut TestEnv, out_dir: &Path, artifact_name: &
 
 pub fn to_handler_get_response(
 	response: ismp::router::GetResponse,
-) -> ismp_solidity_abi::handler::GetResponse {
-	let evm_response: ismp_solidity_abi::evm_host::EvmHost::GetResponse = response.into();
+) -> ismp_abi::handler::GetResponse {
+	let evm_response: ismp_abi::evm_host::EvmHost::GetResponse = response.into();
 	let encoded = SolValue::abi_encode(&evm_response);
-	<ismp_solidity_abi::handler::GetResponse as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::GetResponse as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 pub fn to_handler_get_request(
-	request: ismp_solidity_abi::evm_host::EvmHost::GetRequest,
-) -> ismp_solidity_abi::handler::GetRequest {
+	request: ismp_abi::evm_host::EvmHost::GetRequest,
+) -> ismp_abi::handler::GetRequest {
 	let encoded = SolValue::abi_encode(&request);
-	<ismp_solidity_abi::handler::GetRequest as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::GetRequest as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 pub fn to_handler_post_request(
-	request: ismp_solidity_abi::evm_host::EvmHost::PostRequest,
-) -> ismp_solidity_abi::handler::PostRequest {
+	request: ismp_abi::evm_host::EvmHost::PostRequest,
+) -> ismp_abi::handler::PostRequest {
 	let encoded = SolValue::abi_encode(&request);
-	<ismp_solidity_abi::handler::PostRequest as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::PostRequest as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 // ---------------------------------------------------------------------------

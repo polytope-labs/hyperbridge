@@ -23,7 +23,7 @@ use crate::{
 	error::Error,
 	messaging::Keccak256,
 	prelude::Vec,
-	router::{IsmpRouter, PostResponse, Request, Response},
+	router::{IsmpRouter, Request, Response},
 };
 use alloc::{
 	boxed::Box,
@@ -151,12 +151,6 @@ pub trait IsmpHost: Keccak256 {
 	/// Returns the scale encoded commitment metadata
 	fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error>;
 
-	/// Delete a request commitment from storage, used when a response is timed out.
-	/// Make sure to refund the user their relayer fee here.
-	/// Also delete the request from the responded map.
-	/// Returns the scale encoded commitment metadata
-	fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error>;
-
 	/// Delete a request receipt from storage, used when a request is timed out.
 	/// Should only ever be called by a routing state machine
 	/// Returns the signer
@@ -178,9 +172,6 @@ pub trait IsmpHost: Keccak256 {
 
 	/// Stores a commitment for an outgoing request alongside some scale encoded metadata
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error>;
-
-	/// Stores a commitment for an outgoing response alongside some scale encoded metadata
-	fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error>;
 
 	/// Should return a handle to the consensus client based on the id
 	fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {

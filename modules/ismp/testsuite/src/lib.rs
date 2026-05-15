@@ -32,10 +32,10 @@ use ismp::{
 	handlers::handle_incoming_message,
 	host::{IsmpHost, StateMachine},
 	messaging::{
-		hash_post_response, hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
-		RequestMessage, ResponseMessage, TimeoutMessage,
+		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
+		RequestMessage, TimeoutMessage,
 	},
-	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
+	router::{PostRequest, Request},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -140,24 +140,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 
-	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
-
-	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
-		post,
-		response: vec![],
-		timeout_timestamp: 0,
-	})]);
-
-	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
-
-	// Response message handling check
-	let response_message = Message::Response(ResponseMessage {
-		datagram: response_message,
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: signature,
-	});
-
-	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
 	// Timeout mesaage handling check
@@ -267,27 +249,6 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 			Err(ismp::error::Error::Custom(_))
 	));
 
-	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
-		post,
-		response: vec![],
-		timeout_timestamp: 0,
-	})]);
-	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
-
-	// Response message handling check
-	let response_message = Message::Response(ResponseMessage {
-		datagram: response_message,
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: signature,
-	});
-
-	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
-	assert!(matches!(
-		res,
-		Err(ismp::error::Error::StateCommitmentNotFound { .. }) |
-			Err(ismp::error::Error::Custom(_))
-	));
-
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
 		requests: vec![request],
@@ -379,64 +340,6 @@ where
 	));
 }
 
-/// Ensure post request timeouts are handled properly
-pub fn post_response_timeout_check<H>(host: &H) -> Result<(), &'static str>
-where
-	H: IsmpHost + IsmpDispatcher,
-	H::Account: From<[u8; 32]>,
-	H::Balance: From<u32> + Default,
-{
-	let intermediate_state = setup_mock_client(host);
-	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-		.unwrap();
-	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-		.unwrap();
-
-	let request = PostRequest {
-		source: intermediate_state.height.id.state_id,
-		dest: host.host_state_machine(),
-		nonce: 0,
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout_timestamp: 0,
-		body: vec![0u8; 64],
-	};
-
-	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
-
-	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: signature,
-	});
-
-	handle_incoming_message(host, request_message).unwrap();
-	// Assert that request was acknowledged
-	assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
-
-	let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
-	host.dispatch_response(
-		response.clone(),
-		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-	)
-	.unwrap();
-
-	let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
-		responses: vec![response.clone()],
-		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
-	});
-
-	handle_incoming_message(host, timeout_message).unwrap();
-
-	// Assert that response commitment was deleted
-	let commitment = hash_post_response::<H>(&response);
-	let res = host.response_commitment(commitment);
-	assert!(matches!(res, Err(..)));
-	Ok(())
-}
-
 /*
 	Check correctness of router implementation
 */
@@ -477,28 +380,6 @@ where
 	let commitment = hash_request::<H>(&request);
 	host.request_commitment(commitment)
 		.map_err(|_| "Expected Request commitment to be found in storage")?;
-	let post = PostRequest {
-		source: StateMachine::Kusama(2000),
-		dest: host.host_state_machine(),
-		nonce: 0,
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout_timestamp: 0,
-		body: vec![0u8; 64],
-	};
-	let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
-	// Dispatch the outgoing response for the first time
-	host.dispatch_response(
-		response.clone(),
-		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-	)
-	.map_err(|_| "Router failed to dispatch request")?;
-	// Dispatch the same response a second time
-	let err = host.dispatch_response(
-		response,
-		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-	);
-	assert!(err.is_err(), "Expected router to return error for duplicate response");
 
 	Ok(())
 }
@@ -585,92 +466,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
-
-	Ok(())
-}
-
-/// This should prevent a response from timing out on a proxy when there exists a consensus client
-/// for the request destination
-pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
-	direct_conn_state_machine: StateMachine,
-) -> Result<(), &'static str> {
-	let proxy_state_machine = StateMachine::Kusama(2000);
-	let mut host = Host::default();
-	host.proxy = Some(proxy_state_machine);
-
-	let intermediate_state = setup_mock_client(&host);
-	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-		.unwrap();
-	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-		.unwrap();
-
-	let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
-
-	host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
-		.unwrap();
-	host.store_state_machine_update_time(proxy.height, previous_update_time)
-		.unwrap();
-
-	// check for the two consensus clients and also add the clinet the other one
-	//assert that one consensus client is for the proxy and the other is for the destination chain
-
-	let consensus_clients = host.consensus_clients();
-	assert!(consensus_clients.len() > 1);
-
-	// assert that destination chain concensus client is in the Host list of clients
-	// destination chain concensus in this test is assumed to be MOCK_CONSENSUS_CLIENT_ID
-
-	let proxy_consensus_client_id = consensus_clients
-		.iter()
-		.find(|client| client.state_machine(proxy_state_machine).ok().is_some())
-		.expect("The proxy consensus client should be set for this test")
-		.consensus_client_id();
-	let destination_consensus_client_id = consensus_clients
-		.iter()
-		.find(|client| client.state_machine(direct_conn_state_machine).ok().is_some())
-		.expect("The proxy destination chain's consensus client should be set for this test")
-		.consensus_client_id();
-
-	// For our test case we assert that there exists distinct consensus clients for the proxy and
-	// the direct connection
-
-	assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
-
-	let request = PostRequest {
-		source: direct_conn_state_machine,
-		dest: host.host_state_machine(),
-		nonce: 0,
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout_timestamp: 0,
-		body: vec![0u8; 64],
-	};
-
-	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
-
-	let request_message = Message::Request(RequestMessage {
-		requests: vec![request.clone()],
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: signature,
-	});
-
-	handle_incoming_message(&host, request_message).unwrap();
-	// Assert that request was acknowledged
-	assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
-
-	let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
-	host.dispatch_response(response.clone(), Default::default()).unwrap();
-
-	let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
-		responses: vec![response.clone()],
-		timeout_proof: Proof { height: proxy.height, proof: vec![] },
-	});
-
-	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
-
-	assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
 	Ok(())
 }
@@ -781,66 +576,6 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 	let res = handle_incoming_message(&host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
-
-	Ok(())
-}
-
-/// This should check that if a proxy isn't configured, responses are not valid if they don't come
-/// from the state machine claimed in the proof
-pub fn check_response_source() -> Result<(), &'static str> {
-	let host = Host::default();
-	let intermediate_state = setup_mock_client(&host);
-	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-		.unwrap();
-	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-		.unwrap();
-
-	// We assert that no proxy is configured
-	assert!(host.allowed_proxy().is_none());
-
-	let post = PostRequest {
-		source: host.host_state_machine(),
-		dest: StateMachine::Polkadot(900),
-		nonce: 0,
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout_timestamp: 0,
-		body: vec![0u8; 64],
-	};
-
-	let dispatch_post = DispatchPost {
-		dest: StateMachine::Polkadot(900),
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout: 0,
-		body: vec![0u8; 64],
-	};
-
-	let dispatch_request = DispatchRequest::Post(dispatch_post);
-	host.dispatch_request(
-		dispatch_request,
-		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-	)
-	.unwrap();
-
-	let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
-
-	let response_message = RequestResponse::Response(vec![Response::Post(response)]);
-
-	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
-
-	let timeout_message = Message::Response(ResponseMessage {
-		datagram: response_message,
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: signature,
-	});
-
-	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
-
-	dbg!(&res);
-	assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
 	Ok(())
 }

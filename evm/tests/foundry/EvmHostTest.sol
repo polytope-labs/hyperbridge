@@ -19,7 +19,7 @@ import "../../src/core/EvmHost.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
-import {DispatchPost, DispatchPostResponse, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {DispatchPost, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
 import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensus.sol";
@@ -118,22 +118,6 @@ contract EvmHostTest is BaseTest {
             })
         );
 
-        PostRequest memory request = PostRequest({
-            source: host.hyperbridge(),
-            dest: host.host(),
-            nonce: 0,
-            from: new bytes(0),
-            to: abi.encodePacked(address(this)),
-            timeoutTimestamp: 0,
-            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
-        });
-        vm.expectRevert(EvmHost.FrozenHost.selector);
-        host.dispatch(
-            DispatchPostResponse({
-                request: request, response: abi.encode(bytes32(0)), fee: 0, timeout: 0, payer: address(this)
-            })
-        );
-
         bytes[] memory keys = new bytes[](1);
         keys[0] = abi.encode(address(this));
         vm.expectRevert(EvmHost.FrozenHost.selector);
@@ -226,31 +210,6 @@ contract EvmHostTest is BaseTest {
         );
         // charges minimum fee
         assert(host.requestCommitments(commitment).sender == msg.sender);
-
-        PostRequest memory request = PostRequest({
-            source: host.hyperbridge(),
-            dest: host.host(),
-            nonce: 0,
-            from: new bytes(0),
-            to: abi.encodePacked(address(manager)),
-            timeoutTimestamp: 0,
-            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
-        });
-        vm.prank(address(handler));
-        host.dispatchIncoming(request, address(this));
-        assert(host.requestReceipts(request.hash()) == address(this));
-
-        feeToken.mint(address(manager), host.perByteFee(StateMachine.evm(97)) * 32);
-        vm.prank(address(manager));
-        feeToken.approve(address(host), type(uint256).max);
-        vm.prank(address(manager));
-        bytes32 resp = host.dispatch(
-            DispatchPostResponse({
-                request: request, response: new bytes(0), fee: 0, timeout: 0, payer: address(manager)
-            })
-        );
-        assert(host.responseCommitments(resp).sender == address(manager));
-        assert(feeToken.balanceOf(address(host)) == host.perByteFee(StateMachine.evm(97)) * 32 * 2);
     }
 
     function testCanAddwhitelistedStateMachines() public {

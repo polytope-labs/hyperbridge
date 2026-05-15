@@ -15,7 +15,7 @@
 
 //! Message dispatcher definitions
 
-use crate::{host::StateMachine, router::PostResponse};
+use crate::host::StateMachine;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use primitive_types::H256;
@@ -106,11 +106,4 @@ pub trait IsmpDispatcher: Default {
 		fee: FeeMetadata<Self::Account, Self::Balance>,
 	) -> Result<H256, anyhow::Error>;
 
-	/// Dispatches an outgoing response, the dispatcher should commit them to host's state trie or
-	/// overlay tree. Returns the response commitment
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, anyhow::Error>;
 }

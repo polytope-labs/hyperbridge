@@ -35,7 +35,6 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 				})),
 			PalletEvent::Response { commitment, .. } => {
 				let event = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {
-					Response::Post(response) => ismp::events::Event::PostResponse(response),
 					Response::Get(response) => ismp::events::Event::GetResponse(response),
 				};
 
@@ -55,12 +54,8 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 				Ok(ismp::events::Event::GetRequestHandled(handled)),
 			PalletEvent::PostRequestHandled(handled) =>
 				Ok(ismp::events::Event::PostRequestHandled(handled)),
-			PalletEvent::PostResponseHandled(handled) =>
-				Ok(ismp::events::Event::PostResponseHandled(handled)),
 			PalletEvent::PostRequestTimeoutHandled(handled) =>
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(handled)),
-			PalletEvent::PostResponseTimeoutHandled(handled) =>
-				Ok(ismp::events::Event::PostResponseTimeoutHandled(handled)),
 			PalletEvent::StateCommitmentVetoed { fisherman, height } =>
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					fisherman: fisherman.into_inner(),
@@ -80,12 +75,8 @@ impl<T: Config> From<ismp::events::Event> for PalletEvent<T> {
 		match event {
 			ismp::events::Event::PostRequestHandled(handled) =>
 				PalletEvent::<T>::PostRequestHandled(handled),
-			ismp::events::Event::PostResponseHandled(handled) =>
-				PalletEvent::<T>::PostResponseHandled(handled),
 			ismp::events::Event::PostRequestTimeoutHandled(handled) =>
 				PalletEvent::<T>::PostRequestTimeoutHandled(handled),
-			ismp::events::Event::PostResponseTimeoutHandled(handled) =>
-				PalletEvent::<T>::PostResponseTimeoutHandled(handled),
 			ismp::events::Event::GetRequestHandled(handled) =>
 				PalletEvent::<T>::GetRequestHandled(handled),
 			ismp::events::Event::GetRequestTimeoutHandled(handled) =>
@@ -102,7 +93,6 @@ impl<T: Config> From<ismp::events::Event> for PalletEvent<T> {
 			// These events are only deposited when messages are dispatched, they should never
 			// be deposited when a message is handled
 			ismp::events::Event::PostRequest(_) |
-			ismp::events::Event::PostResponse(_) |
 			ismp::events::Event::GetRequest(_) |
 			ismp::events::Event::GetResponse(_) => {
 				unimplemented!("These events should not originate from handler")

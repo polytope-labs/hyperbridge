@@ -17,6 +17,7 @@ pragma solidity ^0.8.17;
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
 import {PolkadotTrie} from "@polytope-labs/solidity-merkle-trees/src/PolkadotTrie.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 import {IHandlerV2} from "@hyperbridge/core/interfaces/IHandlerV2.sol";
 import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
@@ -30,18 +31,14 @@ import {IHost, FeeMetadata, FrozenStatus} from "@hyperbridge/core/interfaces/IHo
 import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
 import {
     Message,
-    PostResponse,
     PostRequest,
     GetRequest,
     GetResponse,
     PostRequestMessage,
-    PostResponseMessage,
     GetResponseMessage,
     PostRequestTimeoutMessage,
-    PostResponseTimeoutMessage,
     GetTimeoutMessage,
     PostRequestLeaf,
-    PostResponseLeaf,
     GetResponseLeaf
 } from "@hyperbridge/core/libraries/Message.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
@@ -63,7 +60,6 @@ bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569
  */
 contract HandlerV2 is IHandlerV2, ERC165, Context {
     using Bytes for bytes;
-    using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
     using Message for GetResponse;
@@ -246,46 +242,6 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
     }
 
     /**
-     * @dev Checks the provided responses and their proofs, before dispatching them to their relevant destination modules
-     * @param host - `IsmpHost`
-     * @param response - batch post responses
-     */
-    function handlePostResponses(IHost host, PostResponseMessage calldata response) external notFrozen(host) {
-        uint256 timestamp = block.timestamp;
-        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(response.proof.height);
-        uint256 challengePeriod = host.challengePeriod();
-        if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
-
-        uint256 responsesLength = response.responses.length;
-        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](responsesLength);
-
-        for (uint256 i = 0; i < responsesLength; ++i) {
-            PostResponseLeaf memory leaf = response.responses[i];
-            // check time-out
-            if (timestamp >= leaf.response.timeout()) revert MessageTimedOut();
-
-            // known request? also serves as a source check
-            bytes32 requestCommitment = leaf.response.request.hash();
-            FeeMetadata memory meta = host.requestCommitments(requestCommitment);
-            if (meta.sender == address(0)) revert InvalidProof();
-
-            // duplicate response?
-            if (host.responseReceipts(leaf.response.hash()).relayer != address(0)) revert DuplicateMessage();
-            leaves[i] = MerkleMountainRange.Leaf(leaf.index, leaf.response.hash());
-        }
-
-        bytes32 root = host.stateMachineCommitment(response.proof.height).overlayRoot;
-        if (root == bytes32(0)) revert StateCommitmentNotFound();
-        bool valid = MerkleMountainRange.VerifyProof(root, response.proof.multiproof, leaves, response.proof.leafCount);
-        if (!valid) revert InvalidProof();
-
-        for (uint256 i = 0; i < responsesLength; ++i) {
-            PostResponseLeaf memory leaf = response.responses[i];
-            host.dispatchIncoming(leaf.response, _msgSender());
-        }
-    }
-
-    /**
      * @dev check response proofs, message delay and timeouts, then dispatch get responses to modules
      * @param host - Ismp host
      * @param message - batch get responses
@@ -360,45 +316,6 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(request, meta, requestCommitment);
-        }
-    }
-
-    /**
-     * @dev Check the provided timeouts and their proofs before dispatching them to their relevant modules
-     * @param host - Ismp host
-     * @param message - batch post response timeouts
-     */
-    function handlePostResponseTimeouts(IHost host, PostResponseTimeoutMessage calldata message)
-        external
-        notFrozen(host)
-    {
-        uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
-        uint256 challengePeriod = host.challengePeriod();
-        if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
-
-        // fetch the state commitment
-        StateCommitment memory state = host.stateMachineCommitment(message.height);
-        if (state.stateRoot == bytes32(0)) revert StateCommitmentNotFound();
-        uint256 timeoutsLength = message.timeouts.length;
-
-        for (uint256 i = 0; i < timeoutsLength; ++i) {
-            PostResponse memory response = message.timeouts[i];
-            // timed-out?
-            if (response.timeout() > state.timestamp) revert MessageNotTimedOut();
-
-            // known response? also serves as source check
-            bytes32 responseCommitment = response.hash();
-            FeeMetadata memory meta = host.responseCommitments(responseCommitment);
-            if (meta.sender == address(0)) revert UnknownMessage();
-
-            bytes[] memory keys = new bytes[](1);
-            keys[0] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, bytes.concat(responseCommitment));
-
-            // verify state trie non-membership proofs
-            PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
-            if (entry.value.length != 0) revert InvalidProof();
-
-            host.dispatchTimeOut(response, meta, responseCommitment);
         }
     }
 

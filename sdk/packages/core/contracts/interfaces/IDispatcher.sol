@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PostRequest, FrozenStatus} from "../libraries/Message.sol";
+import {FrozenStatus} from "../libraries/Message.sol";
 
 /**
  * @title DispatchPost
@@ -65,29 +65,6 @@ struct DispatchGet {
     /// @notice Application-specific metadata
     /// @dev Can be used to track the query purpose or pass additional context
     bytes context;
-}
-
-/**
- * @title DispatchPostResponse
- * @notice Parameters for dispatching a response to a previously received POST request
- * @dev Used by applications to respond to cross-chain requests
- */
-struct DispatchPostResponse {
-    /// @notice The original request being responded to
-    /// @dev Must be a valid request that was previously received
-    PostRequest request;
-    /// @notice Response payload
-    /// @dev Data to send back to the requesting application
-    bytes response;
-    /// @notice Timeout duration in seconds for the response
-    /// @dev Response will be considered timed out after this duration
-    uint64 timeout;
-    /// @notice Fee paid to relayers for delivery & execution
-    /// @dev Paid in the fee token specified by IHost.feeToken()
-    uint256 fee;
-    /// @notice Account responsible for paying the fees
-    /// @dev If different from msg.sender, must have approved the Host contract
-    address payer;
 }
 
 /**
@@ -176,21 +153,6 @@ interface IDispatcher {
     function dispatch(DispatchGet memory request) external payable returns (bytes32 commitment);
 
     /**
-     * @dev Dispatch a POST response to Hyperbridge
-     *
-     * @notice Payment for the request can be made with either the native token or the IHost.feeToken.
-     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
-     * Will revert if enough native tokens are not provided.
-     *
-     * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
-     * @param response - post response
-     * @return commitment - the request commitment
-     */
-    function dispatch(DispatchPostResponse memory response) external payable returns (bytes32 commitment);
-
-    /**
      * @dev Increase the relayer fee for a previously dispatched request.
      * This is provided for use only on pending requests, such that when they timeout,
      * the user can recover the entire relayer fee.
@@ -208,21 +170,4 @@ interface IDispatcher {
      */
     function fundRequest(bytes32 commitment, uint256 amount) external payable;
 
-    /**
-     * @dev Increase the relayer fee for a previously dispatched response.
-     * This is provided for use only on pending responses, such that when they timeout,
-     * the user can recover the entire relayer fee.
-     *
-     * @notice Payment can be made with either the native token or the IHost.feeToken.
-     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
-     * Will revert if enough native tokens are not provided.
-     *
-     * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
-     * If called on an already delivered response, these funds will be seen as a donation to the hyperbridge protocol.
-     * @param commitment - The response commitment
-     * @param amount - The amount to be provided in `IHost.feeToken()`
-     */
-    function fundResponse(bytes32 commitment, uint256 amount) external payable;
 }

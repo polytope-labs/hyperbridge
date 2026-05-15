@@ -3,15 +3,14 @@
 
 pragma solidity ^0.8.17;
 
-import {IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
-import {Message, PostRequest, PostResponse, GetRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {Message, PostRequest, GetRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {
     IDispatcher,
     DispatchPost,
-    DispatchPostResponse,
     DispatchGet
 } from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -31,14 +30,11 @@ interface ITokenFaucet {
 }
 
 contract PingModule is HyperApp {
-    using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
 
-    event PostResponseReceived();
     event GetResponseReceived(StorageValue[] message);
     event PostRequestTimeoutReceived();
-    event PostResponseTimeoutReceived();
     event GetTimeoutReceived();
     event PostReceived(string message);
     event MessageDispatched();
@@ -79,23 +75,6 @@ contract PingModule is HyperApp {
     // returns the current ismp host set
     function host() public view override returns (address) {
         return _host;
-    }
-
-    function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
-        uint256 perByteFee = IHost(_host).perByteFee(response.request.source);
-        address feeToken = IHost(_host).feeToken();
-        uint256 length = 32 > response.response.length ? 32 : response.response.length;
-        uint256 fee = perByteFee * length;
-
-        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        DispatchPostResponse memory post = DispatchPostResponse({
-            request: response.request,
-            response: response.response,
-            timeout: response.timeoutTimestamp,
-            fee: 0,
-            payer: tx.origin
-        });
-        return IDispatcher(_host).dispatch(post);
     }
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
@@ -173,10 +152,6 @@ contract PingModule is HyperApp {
         emit GetResponseReceived(incoming.response.values);
     }
 
-    function onPostResponse(IncomingPostResponse memory) external override onlyHost {
-        emit PostResponseReceived();
-    }
-
     function onGetTimeout(GetRequest memory) external override onlyHost {
         emit GetTimeoutReceived();
     }
@@ -185,7 +160,4 @@ contract PingModule is HyperApp {
         emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory) external override onlyHost {
-        emit PostResponseTimeoutReceived();
-    }
 }

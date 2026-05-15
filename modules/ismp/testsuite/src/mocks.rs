@@ -17,10 +17,10 @@ use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, hash_response, Keccak256, Proof},
+	messaging::{hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
 	router::{
-		GetRequest, IsmpRouter, PostRequest, PostResponse, Request, RequestResponse, Response,
+		GetRequest, IsmpRouter, PostRequest, Request, RequestResponse, Response,
 		Timeout,
 	},
 };
@@ -327,12 +327,6 @@ impl IsmpHost for Host {
 		Ok(val.encode())
 	}
 
-	fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error> {
-		let hash = hash_post_response::<Self>(res);
-		let val = self.responses.borrow_mut().remove(&hash);
-		Ok(val.encode())
-	}
-
 	fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(req);
 		let val = self.receipts.borrow_mut().remove(&hash);
@@ -360,12 +354,6 @@ impl IsmpHost for Host {
 	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
 		let hash = hash_request::<Self>(req);
 		self.requests.borrow_mut().insert(hash);
-		Ok(())
-	}
-
-	fn store_response_commitment(&self, res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
-		let hash = hash_request::<Self>(&Request::Post(res.post.clone()));
-		self.responses.borrow_mut().insert(hash);
 		Ok(())
 	}
 
@@ -491,20 +479,6 @@ impl IsmpDispatcher for Host {
 		Ok(hash)
 	}
 
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		_fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, anyhow::Error> {
-		let host = self.clone();
-		let response = Response::Post(response);
-		let hash = hash_response::<Host>(&response);
-		if host.responses.borrow().contains(&hash) {
-			return Err(Error::Custom("Duplicate response".to_string()).into());
-		}
-		host.responses.borrow_mut().insert(hash);
-		Ok(hash)
-	}
 }
 
 pub struct Keccak256Hasher;

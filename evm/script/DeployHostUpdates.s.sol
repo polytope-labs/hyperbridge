@@ -34,8 +34,7 @@ contract DeployScript is BaseScript {
 
         ConsensusRouter consensusClient = new ConsensusRouter{salt: salt}(
             IConsensus(sp1),
-            IConsensus(ecdsaBeefy),
-            IConsensus(address(0))
+            IConsensus(ecdsaBeefy)
         );
         console.log("ConsensusRouter deployed at:", address(consensusClient));
 

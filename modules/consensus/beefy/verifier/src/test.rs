@@ -275,7 +275,7 @@ fn dump_sp1_fixture_scale_bytes() {
 }
 
 /// One-off SP1 verifier smoke test using the Groth16 fixture produced by
-/// `zk-beefy::tests::test_sp1_beefy` (live tesseract-prover run on polyhedron),
+/// `zk-beefy::tests::test_sp1_beefy` (live tesseract-prover run),
 /// also consumed by `SP1BeefyForkTest` in `evm/tests/foundry/`. Regenerate via:
 ///
 /// ```text

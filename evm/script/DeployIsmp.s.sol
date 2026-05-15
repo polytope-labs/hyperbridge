@@ -22,7 +22,6 @@ import "../src/hosts/Sei.sol";
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 
-import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotHost} from "../src/hosts/Polkadot.sol";
@@ -71,7 +70,7 @@ contract DeployScript is BaseScript {
 
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
-            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy)), IConsensus(address(address(0)))
+            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy))
         );
         consensusClient = address(consensusRouter);
 
@@ -154,9 +153,6 @@ contract DeployScript is BaseScript {
         intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
 
         if (!isMainnet) {
-            PingModule ping = new PingModule{salt: salt}(admin);
-            ping.setIsmpHost(hostAddress, address(faucet));
-            config.set("PING", address(ping));
             config.set("TOKEN_FAUCET", address(faucet));
         }
 

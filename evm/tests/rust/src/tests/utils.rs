@@ -45,7 +45,7 @@ alloy_sol_macro::sol! {
 	function grantMinterRole(address account) external;
 	function grantBurnerRole(address account) external;
 
-	// PingModule.setIsmpHost(address, address)
+	// TestDispatcher.setIsmpHost(address, address)
 	function setIsmpHost(address hostAddr, address tokenFaucet) external;
 }
 
@@ -103,8 +103,8 @@ pub struct TestEnv {
 	pub host: Address,
 	pub consensus_client: Address,
 	pub fee_token: Address,
-	pub test_module: Address,
 	pub manager: Address,
+	pub test_module: Address,
 }
 
 impl TestEnv {
@@ -151,8 +151,8 @@ impl TestEnv {
 			host: Address::ZERO,
 			consensus_client: Address::ZERO,
 			fee_token: Address::ZERO,
-			test_module: Address::ZERO,
 			manager: Address::ZERO,
+			test_module: Address::ZERO,
 		};
 
 		let out_dir = Self::evm_out_dir();
@@ -195,12 +195,12 @@ impl TestEnv {
 		let constructor_args = SolValue::abi_encode(&host_params);
 		env.host = env.deploy_raw([bytecode, constructor_args].concat());
 
-		// 6. Deploy PingModule: constructor(address admin)
-		let bytecode = load_and_link_artifact(&mut env, &out_dir, "PingModule");
+		// 6. Deploy TestDispatcher: constructor(address admin)
+		let bytecode = load_and_link_artifact(&mut env, &out_dir, "TestDispatcher");
 		let constructor_args = (env.sender,).abi_encode_params();
 		env.test_module = env.deploy_raw([bytecode, constructor_args].concat());
 
-		// 7. Configure: setIsmpHost on PingModule (needs warped timestamp)
+		// 7. Configure: setIsmpHost on TestDispatcher (needs warped timestamp)
 		env.evm.ctx.block.timestamp = U256::from(100_000);
 		env.call(
 			env.test_module,
@@ -443,16 +443,12 @@ impl TestEnv {
 		&mut self,
 		request: ismp_abi::evm_host::EvmHost::PostRequest,
 	) {
-		// Convert EvmHost::PostRequest to PingModule::PostRequest via ABI encoding
+		// Re-encode through ABI to convert into TestDispatcher's PostRequest type (same fields).
 		let encoded = SolValue::abi_encode(&request);
-		let ping_request =
-			<ismp_abi::ping_module::PingModule::PostRequest as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
+		let test_request =
+			<test_dispatcher::PostRequest as SolValue>::abi_decode(&encoded).unwrap();
 		let calldata =
-			ismp_abi::ping_module::PingModule::dispatch_0Call { request: ping_request }
-				.abi_encode();
+			test_dispatcher::dispatchPostRequestCall { request: test_request }.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
@@ -461,14 +457,10 @@ impl TestEnv {
 		request: ismp_abi::evm_host::EvmHost::GetRequest,
 	) {
 		let encoded = SolValue::abi_encode(&request);
-		let ping_request =
-			<ismp_abi::ping_module::PingModule::GetRequest as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
+		let test_request =
+			<test_dispatcher::GetRequest as SolValue>::abi_decode(&encoded).unwrap();
 		let calldata =
-			ismp_abi::ping_module::PingModule::dispatch_1Call { request: ping_request }
-				.abi_encode();
+			test_dispatcher::dispatchGetRequestCall { request: test_request }.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
@@ -483,6 +475,37 @@ impl TestEnv {
 	pub fn fee_token_balance(&mut self, account: Address) -> U256 {
 		let result = self.call(self.fee_token, balanceOfCall { account }.abi_encode());
 		<balanceOfCall as SolCall>::abi_decode_returns(&result).unwrap()
+	}
+}
+
+// TestDispatcher ABI — mirrors the canonical Message.sol struct shapes.
+mod test_dispatcher {
+	alloy_sol_macro::sol! {
+		#[derive(Debug)]
+		struct PostRequest {
+			bytes source;
+			bytes dest;
+			uint64 nonce;
+			bytes from;
+			bytes to;
+			uint64 timeoutTimestamp;
+			bytes body;
+		}
+
+		#[derive(Debug)]
+		struct GetRequest {
+			bytes source;
+			bytes dest;
+			uint64 nonce;
+			bytes from;
+			uint64 timeoutTimestamp;
+			bytes[] keys;
+			uint64 height;
+			bytes context;
+		}
+
+		function dispatchPostRequest(PostRequest request) external returns (bytes32);
+		function dispatchGetRequest(GetRequest request) external returns (bytes32);
 	}
 }
 

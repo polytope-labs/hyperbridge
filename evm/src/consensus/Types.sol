@@ -16,7 +16,7 @@ pragma solidity ^0.8.17;
 
 /**
  * @notice Shared type definitions for the BEEFY consensus client suite. Contains all structs
- * used across EcdsaBeefy, FiatShamirBeefy, SP1Beefy, and the ConsensusRouter, as well as
+ * used across EcdsaBeefy, SP1Beefy, and the ConsensusRouter, as well as
  * the HeaderImpl library for extracting state commitments from Substrate block headers.
  */
 

@@ -111,15 +111,6 @@ jobs:
         working-directory: evm
         run: pnpm install
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Build Foundry artifacts
-        working-directory: evm
-        run: forge build
-
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
         with:

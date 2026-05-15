@@ -1,11 +1,6 @@
 import "log-timestamp"
 
 import type { HexString, IEvmConfig, ISubstrateConfig } from "@/types"
-import { http, createPublicClient, getContract } from "viem"
-
-import { bscTestnet } from "viem/chains"
-import PING_MODULE from "@/abis/pingModule"
-
 import { EvmChain, SubstrateChain } from "@/chain"
 
 describe.sequential("State Queries", () => {
@@ -127,20 +122,7 @@ describe.sequential("State Queries", () => {
 })
 
 async function bscSetup() {
-	const bscTestnetClient = createPublicClient({
-		chain: bscTestnet,
-		transport: http(process.env.BSC_CHAPEL),
-	})
-
-	const bscPing = getContract({
-		address: process.env.PING_MODULE_ADDRESS! as HexString,
-		abi: PING_MODULE.ABI,
-		client: { public: bscTestnetClient },
-	})
-
-	const bscIsmpHostAddress = await bscPing.read.host()
-
 	return {
-		bscIsmpHostAddress,
+		bscIsmpHostAddress: process.env.BSC_ISMP_HOST_ADDRESS! as HexString,
 	}
 }

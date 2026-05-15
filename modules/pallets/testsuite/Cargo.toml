@@ -67,7 +67,7 @@ beefy-verifier-primitives = { workspace = true }
 subxt-core = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
-ismp-solidity-abi = { workspace = true, features = ["std"] }
+ismp-abi = { workspace = true, features = ["std"] }
 
 [dependencies.alloy]
 workspace = true

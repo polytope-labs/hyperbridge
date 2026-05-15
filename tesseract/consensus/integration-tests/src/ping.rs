@@ -17,7 +17,7 @@ use anyhow::Context;
 use futures::TryStreamExt;
 use hex_literal::hex;
 use ismp::{events::Event, host::StateMachine, router::Request};
-use ismp_solidity_abi::{
+use ismp_abi::{
 	erc20::ERC20Instance,
 	evm_host::EvmHostInstance,
 	ping_module::{PingMessage, PingModuleInstance, PostRequest as SolPostRequest, PostResponse},

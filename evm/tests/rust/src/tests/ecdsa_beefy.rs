@@ -16,7 +16,7 @@ use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState};
+use ismp_abi::ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState};
 use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use polkadot_sdk::*;
 use primitive_types::H256;

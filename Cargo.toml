@@ -79,7 +79,7 @@ members = [
 
     # evm stuff
     "evm/tests/rust",
-    "evm/abi",
+    "evm/rust",
 
     # hyperclient
     # "modules/hyperclient",
@@ -271,7 +271,7 @@ substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-mac
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
-ismp-solidity-abi = { path = "./evm/abi", default-features = false }
+ismp-abi = { path = "./evm/rust", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
 integration-tests = { path = "parachain/integration-tests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }

@@ -48,7 +48,7 @@ use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
-use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof;
+use ismp_abi::ecdsa_beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;

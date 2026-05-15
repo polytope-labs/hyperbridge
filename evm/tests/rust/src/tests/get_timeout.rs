@@ -7,7 +7,7 @@ use ismp::{
 	messaging::hash_request,
 	router::{self, Request},
 };
-use ismp_solidity_abi::handler::GetTimeoutMessage;
+use ismp_abi::handler::GetTimeoutMessage;
 use polkadot_sdk::*;
 use primitive_types::H256;
 use sp_trie::StorageProof;
@@ -45,7 +45,7 @@ fn test_get_timeout() {
 	// The value should be None since it's a non-membership proof
 	assert!(result.get(&trie_key).unwrap().is_none());
 
-	let timeout_height = ismp_solidity_abi::handler::StateMachineHeight {
+	let timeout_height = ismp_abi::handler::StateMachineHeight {
 		stateMachineId: U256::from(2000),
 		height: U256::from(10),
 	};
@@ -58,7 +58,7 @@ fn test_get_timeout() {
 		U256::ZERO,
 	);
 
-	let mut sol_get: ismp_solidity_abi::evm_host::EvmHost::GetRequest = get.into();
+	let mut sol_get: ismp_abi::evm_host::EvmHost::GetRequest = get.into();
 
 	let message = GetTimeoutMessage {
 		proof: proof.into_iter().map(Into::into).collect(),

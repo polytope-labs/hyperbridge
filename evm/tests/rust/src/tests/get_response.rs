@@ -4,7 +4,7 @@ use ismp::{
 	host::StateMachine,
 	router::{self, Response, StorageValue},
 };
-use ismp_solidity_abi::handler::{GetResponseLeaf, GetResponseMessage, Proof};
+use ismp_abi::handler::{GetResponseLeaf, GetResponseMessage, Proof};
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::Leaf;
 use polkadot_sdk::*;
@@ -43,7 +43,7 @@ fn test_get_response() {
 		U256::ZERO,
 	);
 
-	let mut sol_get: ismp_solidity_abi::evm_host::EvmHost::GetRequest = get.into();
+	let mut sol_get: ismp_abi::evm_host::EvmHost::GetRequest = get.into();
 
 	let message = GetResponseMessage {
 		proof,

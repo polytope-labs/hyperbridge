@@ -2869,7 +2869,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -7142,7 +7142,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "mmr-primitives",
  "pallet-ismp",
  "pallet-ismp-host-executive",
@@ -10368,10 +10368,13 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 name = "ismp"
 version = "2512.0.0"
 dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-sol-types 1.5.7",
  "anyhow",
  "derive_more 1.0.0",
  "displaydoc",
  "hex",
+ "ismp-abi",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "scale-info",
@@ -10379,6 +10382,23 @@ dependencies = [
  "serde-hex-utils",
  "sp-weights",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ismp-abi"
+version = "0.1.1"
+dependencies = [
+ "alloy-contract",
+ "alloy-network",
+ "alloy-primitives 1.5.7",
+ "alloy-provider",
+ "alloy-sol-macro 1.5.7",
+ "alloy-sol-types 1.5.7",
+ "alloy-transport",
+ "anyhow",
+ "beefy-verifier-primitives",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
 ]
 
 [[package]]
@@ -10543,24 +10563,6 @@ dependencies = [
  "tendermint-primitives",
  "tendermint-verifier",
  "tracing-subscriber 0.3.22",
-]
-
-[[package]]
-name = "ismp-solidity-abi"
-version = "0.1.1"
-dependencies = [
- "alloy-contract",
- "alloy-network",
- "alloy-primitives 1.5.7",
- "alloy-provider",
- "alloy-sol-macro 1.5.7",
- "alloy-sol-types 1.5.7",
- "alloy-transport",
- "anyhow",
- "beefy-verifier-primitives",
- "ismp",
- "polkadot-sdk",
- "primitive-types 0.13.1",
 ]
 
 [[package]]
@@ -12238,7 +12240,7 @@ dependencies = [
  "futures",
  "hex",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "itertools 0.13.0",
  "pallet-ismp",
  "pallet-ismp-relayer",
@@ -14486,8 +14488,8 @@ dependencies = [
  "beefy-verifier-primitives",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-abi",
  "ismp-beefy",
- "ismp-solidity-abi",
  "log",
  "pallet-ismp",
  "parity-scale-codec",
@@ -15411,12 +15413,12 @@ dependencies = [
  "hex",
  "hyperbridge-client-machine",
  "ismp",
+ "ismp-abi",
  "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-parachain",
  "ismp-pharos",
- "ismp-solidity-abi",
  "ismp-sync-committee",
  "ismp-testsuite",
  "log",
@@ -24120,8 +24122,8 @@ dependencies = [
  "hyperbridge-fisherman",
  "indicatif 0.17.11",
  "ismp",
+ "ismp-abi",
  "ismp-parachain",
- "ismp-solidity-abi",
  "jsonrpsee-core 0.24.10",
  "mmr-primitives",
  "mockito",
@@ -28050,7 +28052,7 @@ dependencies = [
  "futures",
  "hex",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -28085,8 +28087,8 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-abi",
  "ismp-beefy",
- "ismp-solidity-abi",
  "log",
  "pallet-beefy-consensus-proofs",
  "pallet-ismp",
@@ -28225,7 +28227,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ics23",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "ismp-sync-committee",
  "ismp-testsuite",
  "jsonrpsee 0.24.10",
@@ -28342,9 +28344,9 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-abi",
  "ismp-grandpa",
  "ismp-pharos",
- "ismp-solidity-abi",
  "log",
  "messaging",
  "mmr-primitives",
@@ -28486,7 +28488,7 @@ dependencies = [
  "async-trait",
  "futures",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "log",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
@@ -31994,7 +31996,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-solidity-abi",
+ "ismp-abi",
  "log",
  "pallet-ismp",
  "parity-scale-codec",

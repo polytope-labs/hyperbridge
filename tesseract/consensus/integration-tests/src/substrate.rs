@@ -8,7 +8,7 @@ use ismp::{
 	messaging::{hash_request, Keccak256},
 	router::{PostRequest, Request},
 };
-use ismp_solidity_abi::handler::HandlePostRequestsCall;
+use ismp_abi::handler::HandlePostRequestsCall;
 use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, util::MemMMR, MerkleProof};
 use mmr_primitives::DataOrHash;
 use pallet_ismp::mmr::{Leaf, Proof as MmrProof};

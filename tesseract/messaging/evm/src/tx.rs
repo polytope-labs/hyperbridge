@@ -21,7 +21,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
-use ismp_solidity_abi::{
+use ismp_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::handler_v2::{
 		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,

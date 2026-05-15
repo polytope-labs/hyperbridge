@@ -24,7 +24,7 @@ use alloy::{
 use alloy_sol_types::{sol, SolCall, SolValue};
 use anyhow::{anyhow, Context};
 use ismp::messaging::ConsensusMessage;
-use ismp_solidity_abi::{evm_host::EvmHost, handler::Handler};
+use ismp_abi::{evm_host::EvmHost, handler::Handler};
 use primitive_types::H256;
 use tesseract_evm::EvmClient;
 

@@ -10,7 +10,7 @@ sol!(
 	#[sol(rpc, ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
 	Handler,
-	"../out/HandlerV1.sol/HandlerV1.json"
+	"abi/HandlerV1.json"
 );
 
 #[cfg(not(feature = "std"))]
@@ -19,7 +19,7 @@ sol!(
 	#[sol(ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
 	Handler,
-	"../out/HandlerV1.sol/HandlerV1.json"
+	"abi/HandlerV1.json"
 );
 
 pub use Handler::*;
@@ -36,7 +36,7 @@ pub mod handler_v2 {
 		#[sol(rpc, ignore_unlinked)]
 		#[derive(Debug, PartialEq, Eq)]
 		HandlerV2,
-		"../out/HandlerV2.sol/HandlerV2.json"
+		"abi/HandlerV2.json"
 	);
 
 	#[cfg(not(feature = "std"))]
@@ -45,7 +45,7 @@ pub mod handler_v2 {
 		#[sol(ignore_unlinked)]
 		#[derive(Debug, PartialEq, Eq)]
 		HandlerV2,
-		"../out/HandlerV2.sol/HandlerV2.json"
+		"abi/HandlerV2.json"
 	);
 
 	pub use HandlerV2::{

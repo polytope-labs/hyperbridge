@@ -21,7 +21,7 @@ use ismp::{
 	events::{Event, StateCommitmentVetoed},
 	messaging::{Message, StateCommitmentHeight},
 };
-use ismp_solidity_abi::evm_host::{PostRequestHandled, PostResponseHandled};
+use ismp_abi::evm_host::{PostRequestHandled, PostResponseHandled};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 
 use crate::{
@@ -43,7 +43,7 @@ use tesseract_primitives::{
 	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
 
-use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState;
+use ismp_abi::ecdsa_beefy::BeefyConsensusState;
 
 #[async_trait::async_trait]
 impl IsmpProvider for EvmClient {
@@ -769,7 +769,7 @@ impl IsmpProvider for EvmClient {
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
 		// let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		// if let Some(_) = contract
-		// 	.veto_state_commitment(ismp_solidity_abi::ecdsa_beefy::StateMachineHeight {
+		// 	.veto_state_commitment(ismp_abi::ecdsa_beefy::StateMachineHeight {
 		// 		state_machine_id: match height.id.state_id {
 		// 			StateMachine::Kusama(id) | StateMachine::Polkadot(id) => id.into(),
 		// 			_ => Err(anyhow!("Unexpected State machine"))?,

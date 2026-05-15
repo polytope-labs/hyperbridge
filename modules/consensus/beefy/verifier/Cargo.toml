@@ -34,7 +34,7 @@ features = [
 hex-literal = { workspace = true }
 hex = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }

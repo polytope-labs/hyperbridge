@@ -21,7 +21,6 @@ members = [
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
     "modules/pallets/hyper-fungible-token",
-    "modules/pallets/hyperbridge",
     "modules/pallets/bandwidth",
     "modules/pallets/intents-coprocessor",
     "modules/pallets/intents-coprocessor/rpc",
@@ -261,7 +260,6 @@ ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clie
 pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
 pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
 
 pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }

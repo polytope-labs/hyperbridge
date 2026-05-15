@@ -11,7 +11,6 @@ publish = false
 pallet-ismp = { workspace = true }
 evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
-pallet-hyperbridge = { workspace = true }
 ismp = { workspace = true }
 crypto-utils = { workspace = true }
 
@@ -53,7 +52,6 @@ std = [
     "scale-info/std",
     "ismp/std",
     "pallet-ismp/std",
-    "pallet-hyperbridge/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
     "ethabi/std",

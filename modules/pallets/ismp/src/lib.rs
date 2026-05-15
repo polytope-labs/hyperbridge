@@ -786,6 +786,14 @@ pub mod pallet {
 		PostRequestTimeoutHandled(TimeoutHandled),
 		/// Get request timeout handled
 		GetRequestTimeoutHandled(TimeoutHandled),
+		/// A relayer has withdrawn some fees owed by the protocol via the built-in
+		/// hyperbridge withdrawal handler.
+		RelayerFeeWithdrawn {
+			/// The amount that was withdrawn
+			amount: <T as Config>::Balance,
+			/// The withdrawal beneficiary
+			account: T::AccountId,
+		},
 	}
 
 	/// Pallet errors

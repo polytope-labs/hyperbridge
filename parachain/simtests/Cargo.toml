@@ -27,7 +27,6 @@ ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-demo = { workspace = true, default-features = true }
-pallet-hyperbridge = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }

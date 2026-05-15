@@ -90,7 +90,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -144,7 +144,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -209,7 +209,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -250,7 +250,7 @@ fn decompress_stack_exhaustion_poc() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [3, 0, 0, 0],
 				message: Some("ErrorDecodingCall")
 			})

@@ -41,7 +41,6 @@ pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
-pallet-hyperbridge = { workspace = true }
 pallet-bandwidth = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -154,7 +153,6 @@ std = [
     "mmr-primitives/std",
     "simnode-runtime-api/std",
     "anyhow/std",
-    "pallet-hyperbridge/std",
     "pallet-bandwidth/std",
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",

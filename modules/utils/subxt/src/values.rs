@@ -15,12 +15,11 @@ use ismp::{
 		CreateConsensusState, Message, Proof, ResponseMessage, StateCommitmentHeight,
 		TimeoutMessage,
 	},
-	router::{GetRequest, PostRequest, Request, RequestResponse, GetResponse},
+	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
 };
 use ismp_parachain::ParachainData;
-use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 use pallet_ismp_demo::{EvmParams, GetRequest as GetRequestIsmpDemo, TransferParams};
-use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
@@ -147,10 +146,7 @@ fn response_to_value(resp: &GetResponse) -> Value<()> {
 			Value::unnamed_composite(resp.values.iter().map(|v| {
 				Value::named_composite(vec![
 					("key".to_string(), Value::from_bytes(v.key.clone())),
-					(
-						"value".to_string(),
-						Value::from_bytes(v.value.clone().unwrap_or_default()),
-					),
+					("value".to_string(), Value::from_bytes(v.value.clone().unwrap_or_default())),
 				])
 			})),
 		),
@@ -276,46 +272,12 @@ fn state_commitment_to_value(sc: &StateCommitment) -> Value<()> {
 	])
 }
 
-fn versioned_host_params_to_composite(params: &VersionedHostParams<u128>) -> Composite<()> {
-	match params {
-		VersionedHostParams::V1(p) => {
-			let inner_struct_as_value = Value::named_composite(substrate_host_params_to_vec(p));
-
-			Composite::unnamed(vec![inner_struct_as_value])
-		},
-	}
-}
-
-fn substrate_host_params_to_vec(params: &SubstrateHostParams<u128>) -> Vec<(String, Value<()>)> {
-	let per_byte_fees_value =
-		Value::unnamed_composite(params.per_byte_fees.iter().map(|(sm, fee)| {
-			Value::unnamed_composite(vec![state_machine_to_value(sm), Value::u128(*fee)])
-		}));
-
-	vec![
-		("default_per_byte_fee".to_string(), Value::u128(params.default_per_byte_fee)),
-		("per_byte_fees".to_string(), per_byte_fees_value),
-		("asset_registration_fee".to_string(), Value::u128(params.asset_registration_fee)),
-	]
-}
-
 fn evm_host_param_to_composite(param: &EvmHostParam) -> Composite<()> {
-	let per_byte_fees_value =
-		Value::unnamed_composite(param.per_byte_fees.iter().map(per_byte_fee_to_value));
 	let state_machines_value =
 		Value::unnamed_composite(param.state_machines.iter().map(|id| Value::u128((*id).into())));
 	let hyperbridge_value = Value::from_bytes(param.hyperbridge.as_slice());
 
 	Composite::named(vec![
-		("default_timeout".to_string(), Value::u128(param.default_timeout)),
-		(
-			"default_per_byte_fee".to_string(),
-			Value::from_bytes(param.default_per_byte_fee.encode()),
-		),
-		(
-			"state_commitment_fee".to_string(),
-			Value::from_bytes(param.state_commitment_fee.encode()),
-		),
 		("fee_token".to_string(), Value::from_bytes(param.fee_token.0.to_vec())),
 		("admin".to_string(), Value::from_bytes(param.admin.0.to_vec())),
 		("handler".to_string(), Value::from_bytes(param.handler.0.to_vec())),
@@ -325,15 +287,7 @@ fn evm_host_param_to_composite(param: &EvmHostParam) -> Composite<()> {
 		("challenge_period".to_string(), Value::u128(param.challenge_period)),
 		("consensus_client".to_string(), Value::from_bytes(param.consensus_client.0.to_vec())),
 		("state_machines".to_string(), state_machines_value),
-		("per_byte_fees".to_string(), per_byte_fees_value),
 		("hyperbridge".to_string(), hyperbridge_value),
-	])
-}
-
-fn per_byte_fee_to_value(fee: &PerByteFee) -> Value<()> {
-	Value::named_composite(vec![
-		("state_id".to_string(), Value::from_bytes(fee.state_id.as_bytes().to_vec())),
-		("per_byte_fee".to_string(), Value::from_bytes(fee.per_byte_fee.encode())),
 	])
 }
 
@@ -507,7 +461,7 @@ pub fn compact_u32_to_value(compact_int: Compact<u32>) -> Value<()> {
 
 pub fn host_param_tuple_to_value(
 	state_machine: &StateMachine,
-	host_param: &HostParam<u128>,
+	host_param: &HostParam,
 ) -> Value<()> {
 	let state_machine_value = state_machine_to_value(state_machine);
 	let host_param_value = host_param_to_value(host_param);
@@ -515,51 +469,10 @@ pub fn host_param_tuple_to_value(
 	Value::unnamed_composite(vec![state_machine_value, host_param_value])
 }
 
-fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
+fn host_param_to_value(param: &HostParam) -> Value<()> {
 	match param {
-		HostParam::SubstrateHostParam(p) => {
-			let versioned_host_params_value = match p {
-				VersionedHostParams::V1(params_v1) => {
-					let per_byte_fees_value = Value::unnamed_composite(
-						params_v1.per_byte_fees.iter().map(|(sm, fee)| {
-							Value::unnamed_composite(vec![
-								state_machine_to_value(sm),
-								Value::u128(*fee),
-							])
-						}),
-					);
-
-					let substrate_host_params_value = Value::named_composite(vec![
-						(
-							"default_per_byte_fee".to_string(),
-							Value::u128(params_v1.default_per_byte_fee),
-						),
-						("per_byte_fees".to_string(), per_byte_fees_value),
-						(
-							"asset_registration_fee".to_string(),
-							Value::u128(params_v1.asset_registration_fee),
-						),
-					]);
-
-					Value::variant("V1", Composite::unnamed(vec![substrate_host_params_value]))
-				},
-			};
-			Value::variant(
-				"SubstrateHostParam",
-				Composite::unnamed(vec![versioned_host_params_value]),
-			)
-		},
 		HostParam::EvmHostParam(p) => {
 			let evm_host_param_value = Value::named_composite(vec![
-				("default_timeout".to_string(), Value::u128(p.default_timeout)),
-				(
-					"default_per_byte_fee".to_string(),
-					Value::from_bytes(p.default_per_byte_fee.encode()),
-				),
-				(
-					"state_commitment_fee".to_string(),
-					Value::from_bytes(p.state_commitment_fee.encode()),
-				),
 				("fee_token".to_string(), Value::from_bytes(p.fee_token.0.to_vec())),
 				("admin".to_string(), Value::from_bytes(p.admin.0.to_vec())),
 				("handler".to_string(), Value::from_bytes(p.handler.0.to_vec())),
@@ -574,10 +487,6 @@ fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
 						p.state_machines.iter().map(|id| Value::u128((*id).into())),
 					),
 				),
-				(
-					"per_byte_fees".to_string(),
-					Value::unnamed_composite(p.per_byte_fees.iter().map(per_byte_fee_to_value)),
-				),
 				("hyperbridge".to_string(), Value::from_bytes(p.hyperbridge.clone())),
 			]);
 			Value::variant("EvmHostParam", Composite::unnamed(vec![evm_host_param_value]))
@@ -585,9 +494,7 @@ fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
 	}
 }
 
-pub fn host_params_btreemap_to_value(
-	params: &BTreeMap<StateMachine, HostParam<u128>>,
-) -> Value<()> {
+pub fn host_params_btreemap_to_value(params: &BTreeMap<StateMachine, HostParam>) -> Value<()> {
 	let value_pairs: Vec<Value<()>> = params
 		.iter()
 		.map(|(state_machine, host_param)| {

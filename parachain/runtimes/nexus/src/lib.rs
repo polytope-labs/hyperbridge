@@ -63,7 +63,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, GetResponse},
+	router::{GetResponse, Request},
 };
 use frame_support::{
 	dispatch::DispatchClass,
@@ -1038,8 +1038,6 @@ mod runtime {
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(62)]
 	pub type IsmpBsc = ismp_bsc::pallet;
-	#[runtime::pallet_index(63)]
-	pub type Hyperbridge = pallet_hyperbridge;
 
 	// Governance
 	#[runtime::pallet_index(80)]

@@ -18,7 +18,7 @@ interface IHost is IDispatcher
 The Host contract is responsible for:
 - Storing and managing consensus states
 - Tracking state machine commitments
-- Managing request and response lifecycles
+- Managing request lifecycles
 - Dispatching incoming messages to applications
 - Handling timeouts and fee refunds
 - Maintaining the frozen state of the protocol
@@ -222,24 +222,6 @@ function vetoes(uint256 paraId, uint256 height) external view returns (address)
 
 ---
 
-### responded()
-
-Checks if a request has received a response.
-
-```solidity lineNumbers
-function responded(bytes32 commitment) external view returns (bool)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | The request commitment hash |
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `bool` | True if request has been responded to |
-
----
-
 ### requestReceipts()
 
 Returns the relayer address that delivered the request.
@@ -287,24 +269,6 @@ function requestCommitments(bytes32 commitment) external view returns (FeeMetada
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `commitment` | `bytes32` | The request commitment hash |
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `FeeMetadata` | Contains relayer fee and sender address |
-
----
-
-### responseCommitments()
-
-Returns fee metadata for an outgoing response.
-
-```solidity lineNumbers
-function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | The response commitment hash |
 
 | Returns | Type | Description |
 |---------|------|-------------|
@@ -407,23 +371,6 @@ function dispatchIncoming(PostRequest memory request, address relayer) external
 
 ---
 
-### dispatchIncoming(PostResponse)
-
-Dispatches an incoming POST response to the source application's `onPostResponse()` callback.
-
-```solidity lineNumbers
-function dispatchIncoming(PostResponse memory response, address relayer) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `PostResponse` | The POST response |
-| `relayer` | `address` | The relayer who delivered the response |
-
-**Access:** Restricted to handler
-
----
-
 ### dispatchIncoming(GetResponse)
 
 Dispatches an incoming GET response to the source application's `onGetResponse()` callback.
@@ -489,33 +436,9 @@ function dispatchTimeOut(
 
 ---
 
-### dispatchTimeOut(PostResponse)
-
-Dispatches a timed-out POST response to the source application's `onPostResponseTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
-
-```solidity lineNumbers
-function dispatchTimeOut(
-    PostResponse memory timeout, 
-    FeeMetadata memory meta, 
-    bytes32 commitment
-) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `timeout` | `PostResponse` | The timed-out POST response |
-| `meta` | `FeeMetadata` | Fee metadata (contains payer and relayer fee) |
-| `commitment` | `bytes32` | Response commitment hash |
-
-**Access:** Restricted to handler
-
-**Important:** Fee refund only happens if the application's timeout callback succeeds.
-
----
-
 ## Events
 
-**Note:** IHost extends IDispatcher and inherits all dispatch-related events. See [IDispatcher Events](/developers/evm/api/idispatcher#events) for `PostRequestEvent`, `PostResponseEvent`, `GetRequestEvent`, `RequestFunded`, and `PostResponseFunded`.
+**Note:** IHost extends IDispatcher and inherits all dispatch-related events. See [IDispatcher Events](/developers/evm/api/idispatcher#events) for `PostRequestEvent`, `GetRequestEvent`, and `RequestFunded`.
 
 ---
 
@@ -552,42 +475,6 @@ event PostRequestTimeoutHandled(
 |-----------|------|-------------|
 | `commitment` | `bytes32` | Commitment of the timed out request |
 | `dest` | `string` | Destination chain for this request |
-
----
-
-### PostResponseHandled
-
-Emitted when an incoming POST response is delivered to an application.
-
-```solidity lineNumbers
-event PostResponseHandled(
-    bytes32 indexed commitment,
-    address relayer
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | Commitment of the incoming response |
-| `relayer` | `address` | Relayer responsible for the delivery |
-
----
-
-### PostResponseTimeoutHandled
-
-Emitted when an outgoing POST response timeout is handled.
-
-```solidity lineNumbers
-event PostResponseTimeoutHandled(
-    bytes32 indexed commitment,
-    string dest
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | Commitment of the timed out response |
-| `dest` | `string` | Destination chain for this response |
 
 ---
 

@@ -39,7 +39,7 @@ mod benchmarks {
 		let origin =
 			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let parachains: Vec<ParachainData> =
-			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
+			(0..n).map(|i| ParachainData { id: i }).collect();
 
 		#[block]
 		{
@@ -61,7 +61,7 @@ mod benchmarks {
 			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let parachains: Vec<ParachainData> =
-			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
+			(0..n).map(|i| ParachainData { id: i }).collect();
 
 		Pallet::<T>::add_parachain(origin.clone(), parachains)?;
 

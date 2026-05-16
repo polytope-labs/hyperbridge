@@ -350,25 +350,6 @@ pub struct StorageValue {
 	pub value: Option<Vec<u8>>,
 }
 
-/// Convenience enum for membership verification.
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	scale_info::TypeInfo,
-	PartialEq,
-	Eq,
-	derive_more::From,
-)]
-pub enum RequestResponse {
-	/// A batch of requests
-	Request(Vec<Request>),
-	/// A batch of responses
-	Response(Vec<GetResponse>),
-}
-
 /// The Ismp router dictates how messsages are routed to [`IsmpModule`]
 pub trait IsmpRouter {
 	/// Return an instance of a configured [`IsmpModule`] associated with the provided module

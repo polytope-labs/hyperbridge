@@ -26,7 +26,7 @@ use ismp::{
 	handlers::validate_state_machine,
 	host::IsmpHost,
 	messaging::{dedup_requests, hash_get_response, hash_request, Proof},
-	router::{GetRequest, GetResponse, Request, RequestResponse, StorageValue},
+	router::{GetRequest, GetResponse, Request, StorageValue},
 	Error,
 };
 use pallet_bandwidth::BandwidthGate;
@@ -108,13 +108,11 @@ where
 		let state_root = host.state_machine_commitment(source.height)?;
 
 		// Verify membership proof to ensure that requests where committed on source chain
-		let all_requests = requests.clone().into_iter().map(|req| Request::Get(req)).collect();
-		source_state_machine.verify_membership(
-			&host,
-			RequestResponse::Request(all_requests),
-			state_root,
-			&source,
-		)?;
+		let commitments = requests
+			.iter()
+			.map(|get| hash_request::<<T as Config>::IsmpHost>(&Request::Get(get.clone())))
+			.collect();
+		source_state_machine.verify_membership(&host, commitments, state_root, &source)?;
 
 		// Verify response proof
 		let dest_state_machine = validate_state_machine(&host, response.height)?;

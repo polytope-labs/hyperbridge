@@ -106,7 +106,6 @@ use ismp::{
 	router::PostRequest,
 };
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
@@ -202,28 +201,25 @@ pub struct Query {
 	pub commitment: H256,
 }
 
-/// A type tha should be returned when messages are submitted successfully
+/// A type that should be returned when messages are submitted successfully.
+///
+/// Only requests are represented since the protocol no longer carries
+/// `PostResponse`s (removed in #840) and `GetResponse` deliveries are
+/// dispatched on-chain rather than surfaced back to the relayer for fee
+/// accumulation.
 #[derive(Debug, Clone, Copy)]
-pub enum TxReceipt {
-	/// Request variant
-	Request { query: Query, height: u64 },
-	/// Response variant
-	Response { query: Query, request_commitment: H256, height: u64 },
+pub struct TxReceipt {
+	pub query: Query,
+	pub height: u64,
 }
 
 impl TxReceipt {
 	pub fn height(&self) -> u64 {
-		match self {
-			TxReceipt::Request { height, .. } => *height,
-			TxReceipt::Response { height, .. } => *height,
-		}
+		self.height
 	}
 
 	pub fn source(&self) -> StateMachine {
-		match self {
-			TxReceipt::Request { query, .. } => query.source_chain,
-			TxReceipt::Response { query, .. } => query.source_chain,
-		}
+		self.query.source_chain
 	}
 }
 
@@ -356,15 +352,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
-	/// Query a responses proof
-	/// Return the scale encoded proof
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error>;
-
 	/// Query state proof for some keys, return scaled encoded proof
 	async fn query_state_proof(
 		&self,
@@ -458,11 +445,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// if it has been delivered
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error>;
 
-	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
-	/// (message commiment)
-	/// Should return Erc20 standard type with 18 decimals value
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
-
 	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
 	/// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
 	async fn state_machine_update_notification(
@@ -510,14 +492,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// This method should return the key used to be used to query the state proof for the request
 	/// receipt
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
-
-	/// This method should return the key used to be used to query the state proof for the response
-	/// commitment
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
-
-	/// This method should return the key used to be used to query the state proof for the response
-	/// receipt
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
 	/// Relayer's address on this chain
 	fn address(&self) -> Vec<u8>;
@@ -610,8 +584,8 @@ pub trait HyperbridgeClaim {
 		client: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<Vec<WithdrawFundsResult>>;
-	/// Check if this key has been claimed
-	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;
+	/// Check if this commitment has been claimed
+	async fn check_claimed(&self, commitment: H256) -> anyhow::Result<bool>;
 }
 
 #[async_trait::async_trait]

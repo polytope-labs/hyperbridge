@@ -109,15 +109,6 @@ impl IsmpProvider for TronClient {
 		self.evm.query_requests_proof(at, keys, counterparty).await
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		self.evm.query_responses_proof(at, keys, counterparty).await
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -182,10 +173,6 @@ impl IsmpProvider for TronClient {
 		self.evm.query_response_receipt(hash).await
 	}
 
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error> {
-		self.evm.query_response_fee_metadata(hash).await
-	}
-
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
@@ -233,14 +220,6 @@ impl IsmpProvider for TronClient {
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		self.evm.request_receipt_full_key(commitment)
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

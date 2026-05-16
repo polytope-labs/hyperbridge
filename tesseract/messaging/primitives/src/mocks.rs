@@ -11,7 +11,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
+use pallet_ismp_relayer::withdrawal::WithdrawalProof;
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
 use std::{
@@ -28,8 +28,6 @@ pub struct MockHost<C> {
 	pub submitted: Arc<Mutex<Vec<Vec<Message>>>>,
 	/// When false, [`IsmpProvider::query_requests_proof`] returns an error.
 	pub request_proof_ok: Arc<Mutex<bool>>,
-	/// When false, [`IsmpProvider::query_responses_proof`] returns an error.
-	pub response_proof_ok: Arc<Mutex<bool>>,
 	/// The address returned by [`IsmpProvider::address`].
 	pub address: Arc<Mutex<Vec<u8>>>,
 	/// The name returned by [`IsmpProvider::name`].
@@ -46,7 +44,6 @@ impl<C> MockHost<C> {
 			state_machine,
 			submitted: Arc::new(Mutex::new(Vec::new())),
 			request_proof_ok: Arc::new(Mutex::new(true)),
-			response_proof_ok: Arc::new(Mutex::new(true)),
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
@@ -60,11 +57,6 @@ impl<C> MockHost<C> {
 
 	pub fn with_request_proof_fail(self) -> Self {
 		*self.request_proof_ok.lock().unwrap() = false;
-		self
-	}
-
-	pub fn with_response_proof_fail(self) -> Self {
-		*self.response_proof_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -98,7 +90,7 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 		Err(anyhow!("Unimplemented"))
 	}
 
-	async fn check_claimed(&self, _key: Key) -> anyhow::Result<bool> {
+	async fn check_claimed(&self, _commitment: H256) -> anyhow::Result<bool> {
 		Ok(false)
 	}
 }
@@ -187,19 +179,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 			Ok(Default::default())
 		} else {
 			Err(anyhow!("mock: request proof failure"))
-		}
-	}
-
-	async fn query_responses_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		if *self.response_proof_ok.lock().unwrap() {
-			Ok(Default::default())
-		} else {
-			Err(anyhow!("mock: response proof failure"))
 		}
 	}
 
@@ -294,14 +273,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Default::default()
 	}
 
-	fn response_commitment_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
-		Default::default()
-	}
-
-	fn response_receipt_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
-		Default::default()
-	}
-
 	fn address(&self) -> Vec<u8> {
 		self.address.lock().unwrap().clone()
 	}
@@ -322,10 +293,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		_message: CreateConsensusState,
 	) -> Result<(), Error> {
 		todo!()
-	}
-
-	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
-		Ok(U256::from(1))
 	}
 
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
@@ -360,7 +327,6 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			state_machine: self.state_machine.clone(),
 			submitted: self.submitted.clone(),
 			request_proof_ok: self.request_proof_ok.clone(),
-			response_proof_ok: self.response_proof_ok.clone(),
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),

@@ -21,7 +21,7 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
 	messaging::{dedup_requests, hash_request, RequestMessage},
-	router::{Request, RequestResponse},
+	router::Request,
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -81,12 +81,12 @@ where
 
 	// Verify membership proof
 	let state = host.state_machine_commitment(msg.proof.height)?;
-	state_machine.verify_membership(
-		host,
-		RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
-		state,
-		&msg.proof,
-	)?;
+	let commitments = msg
+		.requests
+		.iter()
+		.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+		.collect();
+	state_machine.verify_membership(host, commitments, state, &msg.proof)?;
 
 	let mut total_weights = Weight::zero();
 	let result = msg

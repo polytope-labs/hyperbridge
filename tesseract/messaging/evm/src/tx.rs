@@ -18,8 +18,8 @@ use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, ResponseMessage},
-	router::{Request, RequestResponse},
+	messaging::{hash_request, Message},
+	router::Request,
 };
 use ismp_abi::{
 	evm_host::{NewEpoch, PostRequestHandled},
@@ -661,7 +661,7 @@ fn build_tx_receipts(
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
 					if receipts.contains(&commitment) {
-						results.push(TxReceipt::Request {
+						results.push(TxReceipt {
 							query: Query {
 								source_chain: req.source_chain(),
 								dest_chain: req.dest_chain(),
@@ -672,26 +672,8 @@ fn build_tx_receipts(
 						});
 					}
 				},
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Response(resp),
-				..
-			}) =>
-				for res in resp {
-					let commitment = hash_response::<Hasher>(&res);
-					let request_commitment = hash_request::<Hasher>(&res.request());
-					if receipts.contains(&commitment) {
-						results.push(TxReceipt::Response {
-							query: Query {
-								source_chain: res.source_chain(),
-								dest_chain: res.dest_chain(),
-								nonce: res.nonce(),
-								commitment,
-							},
-							request_commitment,
-							height,
-						});
-					}
-				},
+			// `Message::Response` carries only GetRequests being responded to post-#840.
+			// GetResponse delivery is on-chain via dispatch; no relayer receipt to record here.
 			_ => {},
 		}
 	}

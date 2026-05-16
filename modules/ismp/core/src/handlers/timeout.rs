@@ -77,7 +77,11 @@ where
 				}
 			}
 
-			let keys = state_machine.receipts_state_trie_key(wrapped.into());
+			let commitments = requests
+				.iter()
+				.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+				.collect();
+			let keys = state_machine.receipts_state_trie_key(commitments);
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
 				Err(Error::Custom("Some Requests in the batch have been delivered".into()))?

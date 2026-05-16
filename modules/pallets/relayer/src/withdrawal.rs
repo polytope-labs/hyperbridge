@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::vec::Vec;
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 pub use crypto_utils::verification::Signature;
@@ -25,31 +25,16 @@ use sp_core::H256;
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
 )]
-pub enum Key {
-	Request(H256),
-	Response { request_commitment: H256, response_commitment: H256 },
-}
-
-#[derive(
-	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
-)]
 pub struct WithdrawalProof {
-	/// Request and response commitments delivered from source to destination
-	pub commitments: Vec<Key>,
-	/// Request and response commitments on source chain
+	/// Request commitments delivered from source to destination
+	pub commitments: Vec<H256>,
+	/// Request commitments on source chain
 	pub source_proof: Proof,
-	/// Request and response receipts on destination chain
+	/// Request receipts on destination chain
 	pub dest_proof: Proof,
 	/// Beneficiary address and Signature from the account that delivered the message
 	///  over the keccak hash of the beneficiary address
 	pub beneficiary_details: Option<(Vec<u8>, Signature)>,
-}
-
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-#[rlp(trailing)]
-pub struct ResponseReceipt {
-	pub response_commitment: B256,
-	pub relayer: Address,
 }
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]

@@ -366,7 +366,9 @@ pub async fn return_successful_queries(
 
 						let fee_metadata = match msg {
 							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?,
-							Message::Response(_) => og_source.query_response_fee_metadata(query.commitment).await?,
+							// `Message::Response` carries GetResponses, which never accrue
+							// relayer fees (state-coprocessor writes `fee: Default::default()`).
+							Message::Response(_) => U256::zero(),
 							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
 						};
 

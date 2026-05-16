@@ -32,7 +32,7 @@ use pallet_ismp::{
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
 	self as pallet_ismp_relayer, message,
-	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
 };
 use sp_core::{keccak_256, Pair, H256, U256};
@@ -119,7 +119,7 @@ fn test_accumulate_fees() {
 				let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
-				keys.push(Key::Request(*request));
+				keys.push(*request);
 			}
 		}
 
@@ -343,7 +343,7 @@ fn test_accumulate_fees_rejects_mixed_delivery_addresses() {
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
 			source_trie.get(&request_commitment_key).unwrap();
 			dest_trie.get(&request_receipt_key).unwrap();
-			keys.push(Key::Request(*request));
+			keys.push(*request);
 		}
 
 		let source_keys_proof =
@@ -492,7 +492,7 @@ fn test_accumulate_fees_rejects_duplicate_commitments() {
 	ext.execute_with(|| {
 		let request = H256::repeat_byte(0xab);
 		let withdrawal_proof = WithdrawalProof {
-			commitments: vec![Key::Request(request), Key::Request(request)],
+			commitments: vec![request, request],
 			source_proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
@@ -598,7 +598,7 @@ fn test_accumulate_fees_evm_signatures() {
 				let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
-				keys.push(Key::Request(*request));
+				keys.push(*request);
 			}
 		}
 

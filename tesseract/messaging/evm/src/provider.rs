@@ -211,34 +211,6 @@ impl IsmpProvider for EvmClient {
 		Ok(proof.encode())
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		let host_addr = Address::from_slice(&self.ismp_host.0);
-		let keys: Vec<B256> = keys
-			.into_iter()
-			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1 .0))
-			.collect();
-
-		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
-		let proof = EvmStateProof {
-			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.to_vec()).collect(),
-			storage_proof: {
-				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
-					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.to_vec()))
-				});
-				let merged_proofs = StorageProof::merge(storage_proofs);
-				vec![(self.ismp_host.0.to_vec(), merged_proofs.into_nodes().into_iter().collect())]
-					.into_iter()
-					.collect()
-			},
-		};
-		Ok(proof.encode())
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -440,11 +412,6 @@ impl IsmpProvider for EvmClient {
 			.await?;
 		// erc20 tokens are formatted in 18 decimals
 		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
-	}
-
-	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
-		// PostResponse has been removed from the protocol, no response commitments exist
-		Ok(U256::zero())
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -708,16 +675,6 @@ impl IsmpProvider for EvmClient {
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		vec![self.request_receipt_key(commitment).0.to_vec()]
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		let key_1 = self.response_commitment_key(commitment).0 .0.to_vec();
-		let key_2 = self.response_commitment_key(commitment).1 .0.to_vec();
-		vec![key_1, key_2]
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.response_receipt_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

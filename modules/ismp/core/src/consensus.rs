@@ -20,7 +20,6 @@ use crate::{
 	host::{IsmpHost, StateMachine},
 	messaging::{Proof, StateCommitmentHeight},
 	prelude::Vec,
-	router::RequestResponse,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -162,19 +161,28 @@ pub trait ConsensusClient {
 }
 
 /// A state machine client. An abstraction for the mechanism of state proof verification for state
-/// machines
+/// machines.
+///
+/// All trie-key derivation methods take `Vec<H256>` request commitment hashes rather than the
+/// full request/response objects. Callers compute the commitment via `hash_request` at the
+/// boundary so the trait stays agnostic to ISMP message types and just maps commitment hashes
+/// onto the per-chain storage layout.
 pub trait StateMachineClient {
-	/// Verify the overlay membership proof of a batch of requests/responses.
+	/// Verify the overlay membership proof of a batch of request commitments against `root`.
 	fn verify_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error>;
 
-	/// Transform the requests/responses into the underlying storage key in the state trie.
-	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+	/// Storage trie key for a request commitment (source-chain `RequestCommitments` slot).
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
+
+	/// Storage trie key for a request delivery receipt (destination-chain `RequestReceipts` slot).
+	/// Used by the timeout handler to prove non-delivery.
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
 
 	/// Verify the state of proof of some arbitrary data. Should return the verified data
 	fn verify_state_proof(

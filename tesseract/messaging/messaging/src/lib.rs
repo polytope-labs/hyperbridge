@@ -517,12 +517,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 					},
 				};
 
-				let fee = match receipt {
-					TxReceipt::Request { query, .. } =>
-						source_chain.query_request_fee_metadata(query.commitment).await,
-					TxReceipt::Response { query, .. } =>
-						source_chain.query_response_fee_metadata(query.commitment).await,
-				};
+				let fee = source_chain.query_request_fee_metadata(receipt.query.commitment).await;
 
 				match fee {
 					Ok(fee_amount) if fee_amount > U256::zero() => Some(receipt),
@@ -569,15 +564,9 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 			.max_by(|a, b| a.height().cmp(&b.height()))
 			.map(|tx| tx.height())
 			.expect("Infallible");
-		receipts.iter().for_each(|receipt| match receipt {
-			TxReceipt::Request { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
-			TxReceipt::Response { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
+		receipts.iter().for_each(|receipt| {
+			let entry = groups.entry(receipt.query.source_chain).or_insert(vec![]);
+			entry.push(*receipt);
 		});
 
 		// Wait for destination chain's state machine update on hyperbridge

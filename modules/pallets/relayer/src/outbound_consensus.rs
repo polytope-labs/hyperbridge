@@ -145,8 +145,13 @@ where
 		key.extend_from_slice(&evm_host.0);
 		key.extend_from_slice(&slot_hash.0);
 
-		let proof_results = Self::verify_withdrawal_proof(&state_proof, vec![key.clone()])
-			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let host = <T as Config>::IsmpHost::default();
+		let state_machine =
+			ismp::handlers::validate_state_machine(&host, state_proof.height)
+				.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let proof_results =
+			Self::verify_withdrawal_proof(&*state_machine, &state_proof, vec![key.clone()])
+				.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
 		let raw = proof_results
 			.get(&key)
 			.cloned()

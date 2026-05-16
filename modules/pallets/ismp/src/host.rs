@@ -111,13 +111,6 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(())
 	}
 
-	fn response_commitment(&self, commitment: H256) -> Result<(), Error> {
-		let _ = child_trie::ResponseCommitments::<T>::get(commitment)
-			.ok_or_else(|| Error::Custom("GetResponse commitment not found".to_string()))?;
-
-		Ok(())
-	}
-
 	fn next_nonce(&self) -> u64 {
 		let nonce = Nonce::<T>::get();
 		Nonce::<T>::put(nonce + 1);

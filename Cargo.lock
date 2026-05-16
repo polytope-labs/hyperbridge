@@ -15416,6 +15416,7 @@ dependencies = [
  "pharos-primitives",
  "pharos-prover",
  "pharos-state-machine",
+ "pharos-verifier",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",

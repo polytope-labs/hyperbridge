@@ -47,15 +47,6 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - name: Build
               run: |
                   sudo apt-get update -y

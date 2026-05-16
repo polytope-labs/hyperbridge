@@ -296,7 +296,7 @@ fn known_relay_heights_storage_key() -> Vec<u8> {
 /// (`StateMachineUpdated`, `PostRequestHandled`, ...) don't require a new
 /// consensus proof on their own.
 fn has_relay_worthy_events(events: &[Event]) -> bool {
-	events.iter().any(|ev| {
-		matches!(ev, Event::PostRequest(_) | Event::GetRequest(_))
-	})
+	events
+		.iter()
+		.any(|ev| matches!(ev, Event::PostRequest(_) | Event::GetRequest(_)))
 }

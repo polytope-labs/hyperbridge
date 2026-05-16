@@ -4,7 +4,6 @@ cargo release \
 -p serde-hex-utils \
 -p crypto-utils \
 -p ismp \
--p pallet-hyperbridge \
 -p pallet-ismp \
 -p pallet-ismp-runtime-api \
 -p pallet-ismp-rpc \

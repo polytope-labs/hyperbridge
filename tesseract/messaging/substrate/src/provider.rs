@@ -1079,7 +1079,7 @@ where
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		let key = host_params_storage_key(state_machine);
 		let block_hash = self
 			.rpc

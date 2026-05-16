@@ -419,10 +419,7 @@ where
 		self.evm.veto_state_commitment(height).await
 	}
 
-	async fn query_host_params(
-		&self,
-		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, Error> {
+	async fn query_host_params(&self, state_machine: StateMachine) -> Result<HostParam, Error> {
 		self.evm.query_host_params(state_machine).await
 	}
 

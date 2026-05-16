@@ -23,7 +23,7 @@ use crate::{
 	error::Error,
 	messaging::Keccak256,
 	prelude::Vec,
-	router::{IsmpRouter, Request, GetResponse},
+	router::{GetResponse, IsmpRouter, Request},
 };
 use alloc::{
 	boxed::Box,
@@ -168,7 +168,8 @@ pub trait IsmpHost: Keccak256 {
 	/// Stores a receipt that shows that the given request has received a response. Includes the
 	/// relayer account
 	/// Implementors should map the request commitment to the response object commitment.
-	fn store_response_receipt(&self, req: &GetResponse, signer: &Vec<u8>) -> Result<Vec<u8>, Error>;
+	fn store_response_receipt(&self, req: &GetResponse, signer: &Vec<u8>)
+		-> Result<Vec<u8>, Error>;
 
 	/// Stores a commitment for an outgoing request alongside some scale encoded metadata
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error>;

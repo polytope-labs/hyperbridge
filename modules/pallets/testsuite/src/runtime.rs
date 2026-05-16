@@ -59,7 +59,6 @@ use sp_runtime::{
 	AccountId32, BuildStorage,
 };
 
-use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
@@ -82,7 +81,6 @@ frame_support::construct_runtime!(
 		Timestamp: pallet_timestamp,
 		Mmr: pallet_mmr_tree,
 		Ismp: pallet_ismp,
-		Hyperbridge: pallet_hyperbridge,
 		Balances: pallet_balances,
 		Relayer: pallet_ismp_relayer,
 		Fishermen: pallet_fishermen,
@@ -262,10 +260,7 @@ impl pallet_ismp::Config for Test {
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Test,
-			HyperbridgeClientMachine<Test, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Test>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 		ismp_beefy::consensus::BeefyConsensusClient<
@@ -287,10 +282,6 @@ impl pallet_ismp::Config for Test {
 		>,
 	);
 	type MigrationWeightInfo = ();
-}
-
-impl pallet_hyperbridge::Config for Test {
-	type IsmpHost = Ismp;
 }
 
 impl pallet_bandwidth::Config for Test {

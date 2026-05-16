@@ -9,6 +9,7 @@ repository = "https://github.com/polytope-labs/hyperbridge"
 [dependencies]
 primitive-types = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false }
 
 alloy-sol-types = { workspace = true, default-features = false }
 alloy-sol-macro = { workspace = true }
@@ -22,10 +23,15 @@ alloy-transport = { workspace = true, optional = true }
 
 beefy-verifier-primitives = { workspace = true, default-features = false }
 
+# SCALE codec for the host-params SCALE representation that lives alongside the
+# ABI types so the cross-language conversion impls have a single home.
+codec = { workspace = true }
+scale-info = { workspace = true }
+
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = false
-features = ["sp-consensus-beefy", "sp-mmr-primitives"]
+features = ["sp-consensus-beefy", "sp-mmr-primitives", "frame-support", "sp-runtime"]
 
 [features]
 default = ["std"]
@@ -40,4 +46,6 @@ std = [
     "alloy-primitives/std",
     "beefy-verifier-primitives/std",
     "polkadot-sdk/std",
+    "codec/std",
+    "scale-info/std",
 ]

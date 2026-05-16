@@ -90,7 +90,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -105,20 +105,17 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		let host = Ismp::default();
 		let requests = (0..100)
 			.into_iter()
-			.map(|i| {
-				let get = ismp::router::GetRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
-					height: 3,
-					context: Default::default(),
+			.map(|i| ismp::router::GetRequest {
+				source: host.host_state_machine(),
+				dest: StateMachine::Evm(1),
+				nonce: i,
+				from: H256::random().0.to_vec(),
+				keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
+				height: 3,
+				context: Default::default(),
 
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-				};
-				Request::Get(get)
+				timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
+					2_000_000_000,
 			})
 			.collect::<Vec<_>>();
 
@@ -144,7 +141,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -209,7 +206,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -250,7 +247,7 @@ fn decompress_stack_exhaustion_poc() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [3, 0, 0, 0],
 				message: Some("ErrorDecodingCall")
 			})

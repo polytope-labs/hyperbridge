@@ -115,37 +115,37 @@ pub async fn retry_unprofitable_messages(
 			let mut post_requests = vec![];
 			// Store the highest proof height in this variable
 			let mut state_machine_height: Option<StateMachineHeight> = None;
-			unbatched_messages.into_iter().for_each(|(message, id)| {
-				match message {
-					Message::Request(msg) => {
-						let post = msg.requests.get(0).cloned().expect(
+			unbatched_messages.into_iter().for_each(|(message, id)| match message {
+				Message::Request(msg) => {
+					let post = msg.requests.get(0).cloned().expect(
 							"Inconsistent Database, withdraw all fees and  restart relayer with a fresh database",
 						);
-						let query = {
-							let req = Request::Post(post.clone());
-							let hash = hash_request::<Hasher>(&req);
+					let query = {
+						let req = Request::Post(post.clone());
+						let hash = hash_request::<Hasher>(&req);
 
-							Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment: hash,
-							}
-						};
-						if let Some(state_machine_height) = state_machine_height.as_mut() {
-							if msg.proof.height.height > state_machine_height.height {
-								*state_machine_height = msg.proof.height
-							}
-						} else {
-							state_machine_height = Some(msg.proof.height)
+						Query {
+							source_chain: req.source_chain(),
+							dest_chain: req.dest_chain(),
+							nonce: req.nonce(),
+							commitment: hash,
 						}
-						post_requests.push(post);
-						request_messages.push(Message::Request(msg));
-						request_queries.push(query);
-						ids.insert(id);
-					},
-					_ => panic!("Inconsistent Db, withdraw all fees and restart relayer with a fresh database"),
-				}
+					};
+					if let Some(state_machine_height) = state_machine_height.as_mut() {
+						if msg.proof.height.height > state_machine_height.height {
+							*state_machine_height = msg.proof.height
+						}
+					} else {
+						state_machine_height = Some(msg.proof.height)
+					}
+					post_requests.push(post);
+					request_messages.push(Message::Request(msg));
+					request_queries.push(query);
+					ids.insert(id);
+				},
+				_ => panic!(
+					"Inconsistent Db, withdraw all fees and restart relayer with a fresh database"
+				),
 			});
 
 			let mut outgoing_messages = vec![];

@@ -97,7 +97,7 @@ Quotes the fee for a cross-chain send. The fee estimation pipeline:
 1. Estimates gas for delivering the message on the destination chain
 2. Converts the dest gas cost to the dest chain's fee token via Uniswap
 3. Scales decimals if source and dest fee tokens differ in precision
-4. Calls the on-chain `quote()` and `quoteNative()` methods on the token contract
+4. Calls the on-chain `quote()` and `quote()` methods on the token contract
 
 ```typescript lineNumbers
 async quote(params: BridgeParams): Promise<QuoteResult>

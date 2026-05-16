@@ -13,19 +13,17 @@ pragma solidity ^0.8.17;
 // ── Core ────────────────────────────────────────────────────────────────────
 
 import {TronHost} from "../../src/hosts/Tron.sol";
-import {EvmHost, HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {EvmHost} from "../../src/core/EvmHost.sol";
 import {HandlerV1} from "../../src/core/HandlerV1.sol";
 import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 
 // ── Consensus ───────────────────────────────────────────────────────────────
 
 import {BeefyV1} from "../../src/consensus/BeefyV1.sol";
-import {BeefyV1FiatShamir} from "../../src/consensus/BeefyV1FiatShamir.sol";
 // SP1Beefy excluded — depends on @sp1-contracts not available in TronBox
 import {ConsensusRouter} from "../../src/consensus/ConsensusRouter.sol";
 import {HeaderImpl} from "../../src/consensus/Header.sol";
 import {Codec} from "../../src/consensus/Codec.sol";
-import {Transcript} from "../../src/consensus/Transcript.sol";
 
 // ── Libraries ───────────────────────────────────────────────────────────────
 

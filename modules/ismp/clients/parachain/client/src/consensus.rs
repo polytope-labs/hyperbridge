@@ -32,7 +32,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use pallet_ismp::{ConsensusDigest, ISMP_ID, ISMP_TIMESTAMP_ID, TimestampDigest};
+use pallet_ismp::{ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID};
 use primitive_types::H256;
 use sp_runtime::{
 	app_crypto::sp_core::storage::StorageKey,
@@ -239,7 +239,7 @@ where
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
 		// There are no fraud proofs for the parachain client
-		Ok(())
+		Err(Error::CannotHandleMessage)
 	}
 
 	fn consensus_client_id(&self) -> [u8; 4] {

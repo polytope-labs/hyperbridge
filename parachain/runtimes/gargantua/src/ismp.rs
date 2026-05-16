@@ -30,14 +30,14 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, GetResponse},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 };
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 
-use ismp::{consensus::StateMachineClient};
+use ismp::consensus::StateMachineClient;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;

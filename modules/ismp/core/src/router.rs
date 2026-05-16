@@ -15,13 +15,7 @@
 
 //! Message router definitions
 
-use crate::{
-	abi,
-	error::Error,
-	host::StateMachine,
-	module::IsmpModule,
-	prelude::Vec,
-};
+use crate::{abi, error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Formatter, time::Duration};
@@ -146,6 +140,11 @@ impl GetRequest {
 	/// Get the timeout for this request
 	pub fn timeout(&self) -> Duration {
 		get_timeout(self.timeout_timestamp)
+	}
+
+	/// Returns true if the host timestamp has exceeded the request timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.timeout()
 	}
 }
 

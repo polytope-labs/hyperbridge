@@ -23,7 +23,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @title ConsensusRouterTest
  * @notice Comprehensive test suite for the ConsensusRouter contract
  * @dev This test suite verifies the consensus router's ability to route
- *      consensus proofs to the appropriate verifier (SP1Beefy, EcdsaBeefy, or FiatShamirBeefy)
+ *      consensus proofs to the appropriate verifier (SP1Beefy, EcdsaBeefy)
  *      based on the first byte of the proof.
  *
  * Test Coverage:
@@ -37,12 +37,11 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * 3. Proof Routing:
  *    - Tests routing to EcdsaBeefy (proof type 0x00)
  *    - Tests routing to SP1Beefy (proof type 0x01)
- *    - Tests routing to FiatShamirBeefy (proof type 0x02)
  *    - Validates proof data is correctly stripped of type byte before forwarding
  *
  * 4. Error Handling:
  *    - Empty proof rejection
- *    - Invalid proof type rejection (0x03-0xFF)
+ *    - Invalid proof type rejection (0x02-0xFF)
  *    - Proper error messages and revert reasons
  *
  * 5. Edge Cases:
@@ -59,7 +58,6 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * --------------
  * - MockSP1Beefy: Simulates ZK proof verification
  * - MockEcdsaBeefy: Simulates naive proof verification
- * - MockFiatShamirBeefy: Simulates Fiat-Shamir sampled proof verification
  */
 
 /// Mock SP1Beefy consensus client for testing
@@ -110,37 +108,10 @@ contract MockEcdsaBeefy is IConsensus, ERC165 {
     }
 }
 
-/// Mock FiatShamirBeefy consensus client for testing
-contract MockFiatShamirBeefy is IConsensus, ERC165 {
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
-    }
-
-    function verifyConsensus(bytes memory encodedState, bytes memory proof)
-        external
-        view
-        returns (bytes memory, IntermediateState[] memory)
-    {
-        StateCommitment memory commitment = StateCommitment({
-            timestamp: block.timestamp,
-            overlayRoot: keccak256("fiat_shamir_overlay"),
-            stateRoot: keccak256("fiat_shamir_state")
-        });
-        IntermediateState memory intermediate =
-            IntermediateState({stateMachineId: 3, height: 300, commitment: commitment});
-
-        IntermediateState[] memory intermediates = new IntermediateState[](1);
-        intermediates[0] = intermediate;
-
-        return (encodedState, intermediates);
-    }
-}
-
 contract ConsensusRouterTest is Test {
     ConsensusRouter public client;
     MockSP1Beefy public mockSP1Beefy;
     MockEcdsaBeefy public mockEcdsaBeefy;
-    MockFiatShamirBeefy public mockFiatShamirBeefy;
 
     bytes public testEncodedState = hex"deadbeef";
     bytes public testProofData = hex"cafebabe";
@@ -148,11 +119,9 @@ contract ConsensusRouterTest is Test {
     function setUp() public {
         mockSP1Beefy = new MockSP1Beefy();
         mockEcdsaBeefy = new MockEcdsaBeefy();
-        mockFiatShamirBeefy = new MockFiatShamirBeefy();
         client = new ConsensusRouter(
             IConsensus(address(mockSP1Beefy)),
-            IConsensus(address(mockEcdsaBeefy)),
-            IConsensus(address(mockFiatShamirBeefy))
+            IConsensus(address(mockEcdsaBeefy))
         );
     }
 
@@ -162,15 +131,10 @@ contract ConsensusRouterTest is Test {
         assertTrue(client.supportsInterface(type(ERC165).interfaceId), "Should support ERC165 interface");
     }
 
-    /// Test that the client correctly stores the SP1Beefy, EcdsaBeefy, and FiatShamirBeefy addresses
+    /// Test that the client correctly stores the SP1Beefy and EcdsaBeefy addresses
     function testConstructor() public view {
         assertEq(address(client.sp1Beefy()), address(mockSP1Beefy), "SP1Beefy address should match");
         assertEq(address(client.ecdsaBeefy()), address(mockEcdsaBeefy), "EcdsaBeefy address should match");
-        assertEq(
-            address(client.fiatShamirBeefy()),
-            address(mockFiatShamirBeefy),
-            "FiatShamirBeefy address should match"
-        );
     }
 
     /// Test successful routing to EcdsaBeefy with 0x00 proof type
@@ -205,22 +169,6 @@ contract ConsensusRouterTest is Test {
         assertEq(intermediates[0].height, 100, "Height should match SP1Beefy mock");
     }
 
-    /// Test successful routing to FiatShamirBeefy with 0x02 proof type
-    function testVerifyConsensusWithFiatShamirProof() public view {
-        // Prepare proof with 0x02 prefix (FiatShamir)
-        bytes memory proofWithType = bytes.concat(hex"02", testProofData);
-
-        // Call verifyConsensus
-        (bytes memory returnedState, IntermediateState[] memory intermediates) =
-            client.verifyConsensus(testEncodedState, proofWithType);
-
-        // Verify routing by checking return values (FiatShamir returns stateMachineId=3, height=300)
-        assertEq(returnedState, testEncodedState, "Returned state should match");
-        assertEq(intermediates.length, 1, "Should return one intermediate state");
-        assertEq(intermediates[0].stateMachineId, 3, "State machine ID should match FiatShamir mock");
-        assertEq(intermediates[0].height, 300, "Height should match FiatShamir mock");
-    }
-
     /// Test that empty proof reverts with EmptyProof error
     function testVerifyConsensusWithEmptyProof() public {
         bytes memory emptyProof = "";
@@ -229,12 +177,12 @@ contract ConsensusRouterTest is Test {
         client.verifyConsensus(testEncodedState, emptyProof);
     }
 
-    /// Test that invalid proof type (0x03) reverts with InvalidProofType error
+    /// Test that invalid proof type (0x02) reverts with InvalidProofType error
     function testVerifyConsensusWithInvalidProofType() public {
-        // Prepare proof with 0x03 prefix (invalid)
-        bytes memory proofWithInvalidType = bytes.concat(hex"03", testProofData);
+        // Prepare proof with 0x02 prefix (invalid)
+        bytes memory proofWithInvalidType = bytes.concat(hex"02", testProofData);
 
-        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(3)));
+        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(2)));
         client.verifyConsensus(testEncodedState, proofWithInvalidType);
     }
 
@@ -289,15 +237,10 @@ contract ConsensusRouterTest is Test {
         (, IntermediateState[] memory intermediates1) = client.verifyConsensus(testEncodedState, proof1);
         assertEq(intermediates1[0].stateMachineId, 1, "Should route to SP1Beefy for type 0x01");
 
-        // Test valid boundary: 0x02
+        // Test invalid boundary: 0x02
         bytes memory proof2 = bytes.concat(hex"02", testProofData);
-        (, IntermediateState[] memory intermediates2) = client.verifyConsensus(testEncodedState, proof2);
-        assertEq(intermediates2[0].stateMachineId, 3, "Should route to FiatShamirBeefy for type 0x02");
-
-        // Test invalid boundary: 0x03
-        bytes memory proof3 = bytes.concat(hex"03", testProofData);
-        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(3)));
-        client.verifyConsensus(testEncodedState, proof3);
+        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(2)));
+        client.verifyConsensus(testEncodedState, proof2);
     }
 
     /// Test that both clients can be called in sequence
@@ -316,17 +259,9 @@ contract ConsensusRouterTest is Test {
 
         assertEq(intermediates2[0].stateMachineId, 1, "Second call should route to SP1Beefy");
 
-        // Third call with FiatShamirBeefy
-        bytes memory fsProof = bytes.concat(hex"02", testProofData);
-        (bytes memory state3, IntermediateState[] memory intermediates3) =
-            client.verifyConsensus(testEncodedState, fsProof);
-
-        assertEq(intermediates3[0].stateMachineId, 3, "Third call should route to FiatShamirBeefy");
-
         // Verify all returned the encoded state
         assertEq(state1, testEncodedState, "First call should return correct state");
         assertEq(state2, testEncodedState, "Second call should return correct state");
-        assertEq(state3, testEncodedState, "Third call should return correct state");
     }
 
     /// Fuzz test with random proof types
@@ -341,10 +276,6 @@ contract ConsensusRouterTest is Test {
             // Should route to SP1Beefy
             (, IntermediateState[] memory intermediates) = client.verifyConsensus(testEncodedState, proofWithType);
             assertEq(intermediates[0].stateMachineId, 1, "Should route to SP1Beefy for type 1");
-        } else if (proofType == 2) {
-            // Should route to FiatShamirBeefy
-            (, IntermediateState[] memory intermediates) = client.verifyConsensus(testEncodedState, proofWithType);
-            assertEq(intermediates[0].stateMachineId, 3, "Should route to FiatShamirBeefy for type 2");
         } else {
             // Should revert with InvalidProofType
             vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", proofType));
@@ -360,7 +291,7 @@ contract ConsensusRouterTest is Test {
         // Extract the first byte as proof type
         uint8 proofType = uint8(proofData[0]);
 
-        if (proofType <= 2) {
+        if (proofType <= 1) {
             // Valid proof type - should succeed
             (bytes memory returnedState,) = client.verifyConsensus(testEncodedState, proofData);
             assertEq(returnedState, testEncodedState, "Should return correct state");

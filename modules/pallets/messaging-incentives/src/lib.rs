@@ -46,7 +46,7 @@ use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
 	messaging::{Message, MessageWithWeight},
-	router::{RequestResponse, GetResponse},
+	router::RequestResponse,
 };
 use pallet_ismp::fee_handler::FeeHandler;
 
@@ -128,7 +128,11 @@ where
 				RequestResponse::Response(responses) => responses
 					.iter()
 					.map(|r| {
-						r.values.iter().filter_map(|v| v.value.as_ref()).map(|b| b.len()).sum::<usize>()
+						r.values
+							.iter()
+							.filter_map(|v| v.value.as_ref())
+							.map(|b| b.len())
+							.sum::<usize>()
 					})
 					.sum::<usize>(),
 				RequestResponse::Request(_) => 0,

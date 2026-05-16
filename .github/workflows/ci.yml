@@ -149,15 +149,6 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
@@ -244,15 +235,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -416,15 +398,6 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -509,15 +482,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -604,15 +568,6 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -685,15 +640,6 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -765,15 +711,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

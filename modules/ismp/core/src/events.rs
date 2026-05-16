@@ -160,3 +160,15 @@ impl From<GetResponse> for Meta {
 		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
 	}
 }
+
+impl From<&crate::router::PostRequest> for Meta {
+	fn from(value: &crate::router::PostRequest) -> Self {
+		Self { source: value.source, dest: value.dest, nonce: value.nonce }
+	}
+}
+
+impl From<&crate::router::GetRequest> for Meta {
+	fn from(value: &crate::router::GetRequest) -> Self {
+		Self { source: value.source, dest: value.dest, nonce: value.nonce }
+	}
+}

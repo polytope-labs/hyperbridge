@@ -31,7 +31,7 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, GetResponse},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 };
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 #[cfg(feature = "runtime-benchmarks")]
@@ -284,10 +284,6 @@ impl pallet_assets::Config for Runtime {
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }
 
-impl pallet_hyperbridge::Config for Runtime {
-	type IsmpHost = Ismp;
-}
-
 impl pallet_bandwidth::Config for Runtime {
 	type Dispatcher = Ismp;
 }
@@ -346,8 +342,6 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		match pallet_id {
-			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
-				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
 			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
 				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),

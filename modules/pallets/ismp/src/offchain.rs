@@ -17,7 +17,7 @@
 use polkadot_sdk::*;
 
 use codec::{Decode, Encode};
-use ismp::router::{Request, GetResponse};
+use ismp::router::{GetResponse, Request};
 use scale_info::TypeInfo;
 use sp_core::{RuntimeDebug, H256};
 use sp_mmr_primitives::NodeIndex;

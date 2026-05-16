@@ -27,15 +27,15 @@ use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
-	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+	dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	handlers::handle_incoming_message,
 	host::{IsmpHost, StateMachine},
 	messaging::{
-		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
-		RequestMessage, TimeoutMessage,
+		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof, RequestMessage,
+		ResponseMessage, TimeoutMessage,
 	},
-	router::{PostRequest, Request},
+	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -127,7 +127,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		timeout_timestamp: 0,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post.clone());
 
 	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
 
@@ -144,7 +143,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: vec![post],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -230,7 +229,6 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		timeout_timestamp: 0,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post.clone());
 
 	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
 
@@ -251,7 +249,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: vec![post],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -295,7 +293,6 @@ where
 		timeout_timestamp: intermediate_state.commitment.timestamp,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post);
 	let dispatch_request = DispatchRequest::Post(dispatch_post);
 	host.dispatch_request(
 		dispatch_request,
@@ -305,18 +302,73 @@ where
 
 	// Timeout message handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: vec![post.clone()],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
 	handle_incoming_message(host, timeout_message).unwrap();
 
 	// Assert that request commitment was deleted
-	let commitment = hash_request::<H>(&request);
+	let commitment = hash_request::<H>(&Request::Post(post));
 	let res = host.request_commitment(commitment);
 	assert!(matches!(res, Err(..)));
 	Ok(())
 }
+
+fn dispatch_get_request<H>(host: &H, intermediate_state: &IntermediateState, timeout: u64) -> GetRequest
+where
+	H: IsmpHost + IsmpDispatcher,
+	H::Account: From<[u8; 32]>,
+	H::Balance: From<u32> + Default,
+{
+	let dispatch_get = DispatchGet {
+		dest: intermediate_state.height.id.state_id,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: intermediate_state.height.height,
+		context: vec![],
+		timeout,
+	};
+	host.dispatch_request(
+		DispatchRequest::Get(dispatch_get),
+		FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+	)
+	.unwrap();
+
+	GetRequest {
+		source: host.host_state_machine(),
+		dest: intermediate_state.height.id.state_id,
+		nonce: 0,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: intermediate_state.height.height,
+		context: vec![],
+		timeout_timestamp: timeout,
+	}
+}
+
+/// Reject a GET timeout when the request has already received a response. The request's timeout
+/// hasn't elapsed either, so without the response-receipt guard the handler would have failed
+/// with `RequestTimeoutNotElapsed` — proving the response check runs first.
+pub fn get_response_already_received_check<H>(host: &H) -> Result<(), &'static str>
+where
+	H: IsmpHost + IsmpDispatcher,
+	H::Account: From<[u8; 32]>,
+	H::Balance: From<u32> + Default,
+{
+	let intermediate_state = setup_mock_client(host);
+	let get = dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
+
+	let response = GetResponse { get: get.clone(), values: Default::default() };
+	host.store_response_receipt(&response, &vec![0u8; 32]).unwrap();
+
+	let timeout_message = Message::Timeout(TimeoutMessage::Get { requests: vec![get] });
+
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::GetResponseAlreadyReceived { .. })));
+	Ok(())
+}
+
 
 pub fn fraud_proof_checks<H>(host: &H)
 where
@@ -449,8 +501,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 		body: vec![0u8; 64],
 	};
 
-	let request = Request::Post(post.clone());
-
 	let dispatch_request = DispatchRequest::Post(dispatch_post);
 	host.dispatch_request(
 		dispatch_request,
@@ -459,7 +509,7 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	.unwrap();
 
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: vec![post],
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 
@@ -589,4 +639,131 @@ pub fn create_relayer_signer(data: Vec<u8>, seed: &[u8; 32]) -> (Vec<u8>, Vec<u8
 		signature: signature.0.to_vec(),
 	};
 	(signer.encode(), signer_keypair.public().to_vec())
+}
+
+// Helper that elapses the challenge period for the mock client so
+// `validate_state_machine` succeeds and the dedup checks inside each
+// handler are the first failure point.
+fn setup_with_elapsed_challenge_period<H: IsmpHost>(host: &H) -> IntermediateState {
+	let intermediate_state = setup_mock_client(host);
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
+	let previous_update_time = host.timestamp().saturating_sub(challenge_period * 2);
+	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+		.unwrap();
+	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+		.unwrap();
+	intermediate_state
+}
+
+/// `RequestMessage` with two identical `PostRequest`s must be rejected
+/// by `dedup_requests` with `DuplicateRequest` before any per-request
+/// processing runs.
+pub fn check_request_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+	let intermediate_state = setup_with_elapsed_challenge_period(host);
+
+	let post = PostRequest {
+		source: intermediate_state.height.id.state_id,
+		dest: host.host_state_machine(),
+		nonce: 0,
+		from: vec![0u8; 32],
+		to: vec![0u8; 32],
+		timeout_timestamp: 0,
+		body: vec![0u8; 64],
+	};
+
+	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
+
+	let request_message = Message::Request(RequestMessage {
+		requests: vec![post.clone(), post],
+		proof: Proof { height: intermediate_state.height, proof: vec![] },
+		signer: signature,
+	});
+
+	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");
+	Ok(())
+}
+
+/// `ResponseMessage` whose datagram is a `RequestResponse::Request`
+/// (Get-request batch) with two identical Get requests must be rejected
+/// with `DuplicateRequest`.
+pub fn check_response_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+	let intermediate_state = setup_with_elapsed_challenge_period(host);
+
+	let get = GetRequest {
+		source: host.host_state_machine(),
+		dest: intermediate_state.height.id.state_id,
+		nonce: 0,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: intermediate_state.height.height,
+		context: Default::default(),
+		timeout_timestamp: 0,
+	};
+	let req = Request::Get(get);
+
+	let datagram = RequestResponse::Request(vec![req.clone(), req]);
+	let (signature, ..) = create_relayer_signer(datagram.encode(), &[1u8; 32]);
+
+	let response_message = Message::Response(ResponseMessage {
+		datagram,
+		proof: Proof { height: intermediate_state.height, proof: vec![] },
+		signer: signature,
+	});
+
+	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");
+	Ok(())
+}
+
+/// `TimeoutMessage::Post` with two identical requests must be rejected
+/// with `DuplicateRequest`.
+pub fn check_post_timeout_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+	let intermediate_state = setup_with_elapsed_challenge_period(host);
+
+	let post = PostRequest {
+		source: host.host_state_machine(),
+		dest: intermediate_state.height.id.state_id,
+		nonce: 0,
+		from: vec![0u8; 32],
+		to: vec![0u8; 32],
+		timeout_timestamp: 0,
+		body: vec![0u8; 64],
+	};
+
+	let timeout_message = Message::Timeout(TimeoutMessage::Post {
+		requests: vec![post.clone(), post],
+		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+	});
+
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");
+	Ok(())
+}
+
+/// `TimeoutMessage::Get` with two identical requests must be rejected
+/// with `DuplicateRequest`. Get-timeouts skip `validate_state_machine`
+/// so no mock-client setup is strictly required, but we run it for
+/// parity with the other variants.
+pub fn check_get_timeout_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+	let _ = setup_with_elapsed_challenge_period(host);
+
+	let get = GetRequest {
+		source: host.host_state_machine(),
+		dest: StateMachine::Evm(11155111),
+		nonce: 0,
+		from: vec![0u8; 32],
+		keys: vec![vec![1u8; 32]],
+		height: 1,
+		context: Default::default(),
+		timeout_timestamp: 0,
+	};
+
+	let timeout_message = Message::Timeout(TimeoutMessage::Get {
+		requests: vec![get.clone(), get],
+	});
+
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
+	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");
+	Ok(())
 }

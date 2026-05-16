@@ -51,7 +51,7 @@ trait IsmpDispatcher  {
 | `to` | Receiving module/contract address on the destination chain. |
 | `body` | Serialized byte representation of the message (to be decoded by the receiving contract). |
 | `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
-| `fee` | Optional relayer fees, should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. This can be set to zero if the application developers or users prefer to self-relay. If not this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`. |
+| `fee` | Optional relayer fee. Can be set to zero if the application developers or users prefer to self-relay. If non-zero, this is withdrawn from the `Currency` implementation configured on `pallet-ismp` and escrowed for the relayer that delivers the message (or refunded to the payer on timeout). |
 | `payer` | The account that should receive a refund of the relayer fees if the request times out. |
 
 ```rust showLineNumbers
@@ -122,7 +122,7 @@ trait IsmpDispatcher  {
 | `keys` | Storage keys whose values should be fetched and verified. See the Storage Keys section below for detailed guidance on deriving keys for different chain types. |
 | `context` | Application-specific metadata relating to this request. This can be used to pass additional context that will be available in the response callback. |
 | `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
-| `fee` | Hyperbridge protocol fees for processing the request. This should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. If non-zero this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`. |
+| `fee` | Optional relayer fee for delivering the GET response back to the source chain. Set to zero if self-relaying the response. If non-zero, this is withdrawn from the `Currency` implementation configured on `pallet-ismp` and escrowed for the relayer. |
 | `payer` | The account initiating this request. |
 
 ### Storage Keys

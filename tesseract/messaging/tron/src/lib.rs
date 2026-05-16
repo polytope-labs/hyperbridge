@@ -338,7 +338,12 @@ mod tests {
 	use tesseract_evm::{transport::RpcTransport, EvmConfig};
 	use tesseract_primitives::IsmpProvider;
 
+	// Ignored by default: exercises a deployed Tron Nile contract over a live
+	// public RPC. Run manually with `cargo test -p tesseract-tron -- --ignored
+	// test_tron_queries` after the on-chain `EvmHost` has been upgraded to the
+	// slimmed `hostParams()` ABI; otherwise it fails with an ABI decode error.
 	#[tokio::test]
+	#[ignore]
 	async fn test_tron_queries() {
 		// TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc
 		let decoded = bs58::decode("TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc").into_vec().unwrap();

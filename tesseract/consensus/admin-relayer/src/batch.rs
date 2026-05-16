@@ -80,9 +80,11 @@ pub async fn submit_mandatory_batch(
 	let handler = resolve_handler(client).await?;
 
 	let unfreeze = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
-	let consensus =
-		HandlerV2::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
-			.abi_encode();
+	let consensus = HandlerV2::handleConsensusCall {
+		host,
+		proof: Bytes::from(message.consensus_proof.clone()),
+	}
+	.abi_encode();
 	let freeze = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
 	let calls = vec![
@@ -113,9 +115,11 @@ pub async fn submit_mandatory_sequential(
 	let chain = client.state_machine;
 
 	let _unfreeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
-	let consensus_cd =
-		HandlerV2::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
-			.abi_encode();
+	let consensus_cd = HandlerV2::handleConsensusCall {
+		host,
+		proof: Bytes::from(message.consensus_proof.clone()),
+	}
+	.abi_encode();
 	let _freeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
 	// log::info!("[{chain}] sequential step 1/3: unfreeze");

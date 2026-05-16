@@ -287,7 +287,7 @@ impl IsmpProvider for TronClient {
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		self.evm.query_host_params(state_machine).await
 	}
 

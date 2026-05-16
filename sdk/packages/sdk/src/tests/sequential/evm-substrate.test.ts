@@ -1,6 +1,5 @@
 import { RequestStatus, TimeoutStatus, type HexString } from "@/types"
 import EVM_HOST from "@/abis/evmHost"
-import PING_MODULE from "@/abis/pingModule"
 import ERC6160 from "@/abis/erc6160"
 import HANDLER from "@/abis/handlerV2"
 import TOKEN_GATEWAY from "@/abis/tokenGateway"
@@ -273,13 +272,7 @@ async function createHelpers(params: { chain: Chain; account: PrivateKeyAccount;
 
 	const sharedClient = { public: publicClient, wallet: walletClient }
 
-	const ping = getContract({
-		address: process.env.PING_MODULE_ADDRESS as HexString,
-		abi: PING_MODULE.ABI,
-		client: sharedClient,
-	})
-
-	const hostAddress = await ping.read.host()
+	const hostAddress = process.env.BSC_ISMP_HOST_ADDRESS as HexString
 
 	const host = getContract({
 		address: hostAddress,
@@ -313,7 +306,6 @@ async function createHelpers(params: { chain: Chain; account: PrivateKeyAccount;
 		tokenGateway,
 		walletClient: walletClient,
 		host,
-		ping,
 		handler,
 		feeToken: feeToken,
 	}

@@ -103,7 +103,7 @@ IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
     data: new bytes(0)
 });
 // Quote the native fee required for dispatching the transfer
-uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quoteNative(params);
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quote(params);
 // Lock tokens and dispatch cross-chain transfer
 IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(params);
 ```
@@ -147,7 +147,7 @@ IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
     data: new bytes(0)
 });
 // Quote the native fee
-uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quoteNative(params);
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quote(params);
 // msg.value = amount + nativeFee
 // The contract wraps `amount` via WETH.deposit() and forwards the remainder as fee payment
 IHyperFungibleToken(address(wrapper)).send{value: amount + nativeFee}(params);

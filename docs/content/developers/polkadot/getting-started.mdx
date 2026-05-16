@@ -49,14 +49,6 @@ Solochains that want to connect to Hyperbridge will do so by means of the GRANDP
 cargo add ismp-grandpa
 ```
 
-## Pallet Hyperbridge
-
-The Pallet Hyperbridge provides an implementation of the `IsmpDispatcher` which collects the Hyperbridge protocol fees, as well as an `IsmpModule` for processing cross-chain messages from Hyperbridge. These cross-chain messages may either be withdrawal requests may be for either relayer fees, or protocol fees. The IsmpModule may also receive cross-chain messages from Hyperbridge to adjust it's protocol fees as decided by governance. This module is optional and is only needed if Polkadot-SDK chains opt to pay Hyperbridge protocol fees onchain, they may also do so offchain by running their own relayers and paying Hyperbridge it's native token when they relay messages to Hyperbridge. You can add the [`pallet-hyperbridge`](https://docs.rs/pallet-hyperbridge) to your runtime like so
-
-```bash lineNumbers
-cargo add pallet-hyperbridge
-```
-
 ## Pallet Token Gateway
 
 The Pallet Token Gateway is an application-layer module that leverages Hyperbridge for token bridging. It works with any implementation of the `fungibles::*` traits eg. [`pallet-assets`](https://docs.rs/pallet-assets) and [`orml-tokens`](https://docs.rs/orml-tokens). Allowing runtimes to send and receive assets from any of Hyperbridge's connected chains even EVM ones. You can add the [`pallet-token-gateway`](https://docs.rs/pallet-token-gateway) to your runtime like so

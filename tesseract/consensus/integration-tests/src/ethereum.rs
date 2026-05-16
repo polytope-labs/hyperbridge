@@ -509,8 +509,6 @@ use tesseract_sync_committee::{HostConfig as SyncHostConfig, SyncCommitteeHost};
 // 		})
 // 		.await?;
 
-// 	let mock_contract = PingModule::new(MOCK_MODULE, evm_client.client.clone());
-// 	let _events = mock_contract.event::<PostReceivedFilter>();
 // 	// let events = events.subscribe().await.unwrap();
 // 	// let _ = timeout_future(
 // 	// 	events.take(1).into_stream().next(),

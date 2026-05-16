@@ -22,7 +22,7 @@ use ismp::{
 	messaging::{Message, StateCommitmentHeight},
 };
 use ismp_abi::evm_host::PostRequestHandled;
-use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 
 use crate::{
 	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
@@ -781,14 +781,11 @@ impl IsmpProvider for EvmClient {
 	async fn query_host_params(
 		&self,
 		_state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		let evm_params = EvmHostParam {
-			default_timeout: params.defaultTimeout.try_into().unwrap_or(0),
-			default_per_byte_fee: alloy_u256_to_primitive(params.defaultPerByteFee),
-			state_commitment_fee: alloy_u256_to_primitive(params.stateCommitmentFee),
 			fee_token: H160::from_slice(params.feeToken.as_slice()),
 			admin: H160::from_slice(params.admin.as_slice()),
 			handler: H160::from_slice(params.handler.as_slice()),
@@ -801,16 +798,6 @@ impl IsmpProvider for EvmClient {
 				.stateMachines
 				.into_iter()
 				.map(|id| id.try_into().unwrap_or(0))
-				.collect::<Vec<_>>()
-				.try_into()
-				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
-			per_byte_fees: params
-				.perByteFees
-				.into_iter()
-				.map(|p| PerByteFee {
-					per_byte_fee: alloy_u256_to_primitive(p.perByteFee),
-					state_id: H256::from_slice(p.stateIdHash.as_slice()),
-				})
 				.collect::<Vec<_>>()
 				.try_into()
 				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,

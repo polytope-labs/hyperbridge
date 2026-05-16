@@ -411,11 +411,6 @@ where
 		None
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		// Same as `ismp_host_contract`: substrate has no HandlerV2 contract.
-		None
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		Default::default()
 	}

@@ -146,14 +146,6 @@ impl IsmpProvider for TronClient {
 		self.evm.ismp_host_contract()
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		// Tron's IsmpHost mirrors the EVM ABI surface, so delegating to
-		// the inner EVM client picks up `hostParams().handler` if Tron's
-		// host contract exposes it. If HandlerV2 isn't deployed the call
-		// fails gracefully and returns `None`.
-		self.evm.handler_v2_address().await
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}

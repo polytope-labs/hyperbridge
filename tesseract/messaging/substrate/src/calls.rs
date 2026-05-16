@@ -116,7 +116,7 @@ where
 	/// on Hyperbridge. The extrinsic is unsigned (validated via
 	/// `validate_unsigned`); the claim itself carries the relayer's ECDSA
 	/// signature which the pallet recovers and matches against the
-	/// destination's `HandlerV2._epochs[set_id]` slot.
+	/// destination's `EvmHost._epochs[set_id]` slot.
 	pub async fn submit_outbound_consensus_delivery_claim(
 		&self,
 		claim: OutboundConsensusDeliveryClaim,

@@ -51,7 +51,7 @@ use pallet_ismp::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{Message, WithdrawalRequest, HYPERBRIDGE_MODULE_ID},
 };
-use pallet_ismp_host_executive::{HostParam, HostParams, WithdrawalParams};
+use pallet_ismp_host_executive::{EvmHosts, HostParam, HostParams, WithdrawalParams};
 use polkadot_sdk::*;
 use sp_core::{Get, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
@@ -65,25 +65,25 @@ use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
 /// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-incentives`).
 pub type BalanceOf<T> = <T as pallet_ismp::Config>::Balance;
 
-/// Storage slot of `_epochs` in `HandlerV2`. `_epochs` is HandlerV2's first
-/// declared instance variable and HandlerV1 has no instance storage, so the
-/// slot is 0. Kept as a constant so a future HandlerV2 layout change is a
-/// single-line edit here. Verified via `forge inspect HandlerV2 storage`.
-pub const HANDLER_V2_EPOCHS_SLOT: u64 = 0;
+/// Storage slot of `_epochs` on the `EvmHost`. `_epochs` is declared after
+/// `_consensusUpdateTimestamp` (slot 20) on `EvmHost`, putting it at slot 21.
+/// Kept as a constant so a future `EvmHost` layout change is a single-line edit
+/// here. Verified via `forge inspect EvmHost storage`.
+pub const EVM_HOST_EPOCHS_SLOT: u64 = 21;
 
 /// Claim payload for [`Pallet::claim_outbound_consensus_delivery_reward`].
 ///
 /// A relayer who delivered a mandatory (authority-set rotation) consensus
 /// proof to an EVM destination uses this to collect the per-chain
 /// `OutboundConsensusDeliveryReward`. The on-chain attribution is in the
-/// destination's `HandlerV2._epochs[set_id]` slot — the contract assigns
-/// it to `msg.sender` the first time a consensus proof brings the new set
-/// id on chain. Verifying the relayer:
+/// destination's `EvmHost._epochs[set_id]` slot — `HandlerV2.handleConsensus`
+/// forwards to `EvmHost.recordEpoch(set_id, msg.sender)` the first time a
+/// consensus proof brings the new set id on chain. Verifying the relayer:
 ///
 /// 1. `(destination, set_id)` has not already been claimed.
 /// 2. State proof against Hyperbridge's stored commitment for `(destination, height)` yields an
-///    `address` at the slot `keccak256(set_id || HANDLER_V2_EPOCHS_SLOT)` of the destination's
-///    HandlerV2 contract.
+///    `address` at the slot `keccak256(set_id || EVM_HOST_EPOCHS_SLOT)` of the destination's
+///    `EvmHost` contract.
 /// 3. The `signature` (`Signature::Evm`) recovers exactly that `address`, signing the
 ///    [`outbound_consensus_delivery_message`] payload over `(set_id, destination, payee)`.
 ///
@@ -257,7 +257,7 @@ pub mod pallet {
 		/// landing.
 		OutboundDestinationStateNotKnown,
 		/// The state proof did not produce an entry at the destination's
-		/// `HandlerV2._epochs[set_id]` slot, or the slot is the zero
+		/// `EvmHost._epochs[set_id]` slot, or the slot is the zero
 		/// address.
 		OutboundDeliveryNotProven,
 		/// Treasury → relayer transfer failed (typically because the
@@ -266,20 +266,20 @@ pub mod pallet {
 		/// No reward is configured for the destination
 		/// (`OutboundConsensusDeliveryReward` is `0`).
 		OutboundNoRewardConfigured,
-		/// No `HostParams` entry recorded for the destination, so we can't
-		/// derive the HandlerV2 contract address to scope the storage key.
-		OutboundHostParamsNotKnown,
+		/// No `EvmHost` address recorded for the destination, so we can't
+		/// scope the storage key. Set via `pallet-ismp-host-executive`.
+		OutboundHostNotKnown,
 		/// Per-destination `HostParams` entry is not the EVM variant. The
 		/// outbound consensus delivery reward is EVM-only.
 		OutboundDestinationNotEvm,
 		/// The address recovered from `signature` does not match the
-		/// EVM relayer recorded in `HandlerV2._epochs[set_id]`.
+		/// EVM relayer recorded in `EvmHost._epochs[set_id]`.
 		OutboundSignerMismatch,
 		/// The signature provided on the outbound consensus delivery claim
 		/// is not the [`Signature::Evm`] variant. The attribution is keyed
 		/// by an EVM address recovered from a secp256k1 signature, so
 		/// substrate-style signatures cannot be matched against the
-		/// `HandlerV2._epochs[set_id]` slot.
+		/// `EvmHost._epochs[set_id]` slot.
 		OutboundSignatureNotEvm,
 	}
 
@@ -370,7 +370,7 @@ pub mod pallet {
 		}
 
 		/// Pay the configured `OutboundConsensusDeliveryReward` to the EVM
-		/// relayer attributed in the destination's `HandlerV2._epochs[set_id]`.
+		/// relayer attributed in the destination's `EvmHost._epochs[set_id]`.
 		///
 		/// Unsigned. Spam-protected by `validate_unsigned` (the encoded
 		/// payload becomes a unique tag, so a duplicate submission with the
@@ -469,7 +469,7 @@ where
 		let destination = state_proof.height.id.state_id;
 
 		// The attribution mechanism recovers an EVM address from the
-		// signature and matches it against the `HandlerV2._epochs[set_id]`
+		// signature and matches it against the `EvmHost._epochs[set_id]`
 		// slot, so only secp256k1/EVM signatures are meaningful here.
 		// Reject the substrate variants up front to avoid burning the rest
 		// of the verification pipeline on a claim that can never match.
@@ -480,21 +480,21 @@ where
 			Error::<T>::OutboundRotationAlreadyClaimed,
 		);
 
-		// HandlerV2 lookup. The address lives in `HostParams` alongside
-		// `host_manager`; non-EVM destinations are rejected since the
-		// attribution mechanism is HandlerV2-specific.
-		let HostParam::EvmHostParam(evm_params) =
-			HostParams::<T>::get(destination).ok_or(Error::<T>::OutboundHostParamsNotKnown)?;
-		let handler_v2 = evm_params.handler;
+		// EvmHost lookup. The per-chain host address is tracked by
+		// `pallet-ismp-host-executive` in `EvmHosts`. Non-EVM destinations
+		// are absent from that map and are rejected here, since the
+		// attribution mechanism is EVM-specific.
+		let evm_host =
+			EvmHosts::<T>::get(destination).ok_or(Error::<T>::OutboundHostNotKnown)?;
 
 		// 52-byte storage key the EVM state proof verifier expects:
-		// `handler_v2 (20) || keccak256(set_id || HANDLER_V2_EPOCHS_SLOT) (32)`.
+		// `evm_host (20) || keccak256(set_id || EVM_HOST_EPOCHS_SLOT) (32)`.
 		let slot_hash = evm_state_machine::utils::derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 			U256::from(set_id).to_big_endian().to_vec(),
-			HANDLER_V2_EPOCHS_SLOT,
+			EVM_HOST_EPOCHS_SLOT,
 		);
 		let mut key = Vec::with_capacity(52);
-		key.extend_from_slice(&handler_v2.0);
+		key.extend_from_slice(&evm_host.0);
 		key.extend_from_slice(&slot_hash.0);
 
 		let proof_results = Self::verify_withdrawal_proof(&state_proof, vec![key.clone()])
@@ -505,7 +505,7 @@ where
 			.flatten()
 			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
-		// `raw` is the trie-level value of `HandlerV2._epochs[set_id]`;
+		// `raw` is the trie-level value of `EvmHost._epochs[set_id]`;
 		// `decode_epochs_slot_address` handles the RLP-encoded form the
 		// Ethereum trie stores. Returns `None` for an unset / zero-address
 		// slot, which we surface as `OutboundDeliveryNotProven` (logically
@@ -806,7 +806,7 @@ where
 		Ok(())
 	}
 	/// Decode the EVM `address` value stored at
-	/// `HandlerV2._epochs[set_id]`, as returned by
+	/// `EvmHost._epochs[set_id]`, as returned by
 	/// `EvmStateMachine::verify_state_proof`.
 	pub fn decode_epochs_slot_address(raw: &[u8]) -> Option<Address> {
 		use alloy_rlp::Decodable;

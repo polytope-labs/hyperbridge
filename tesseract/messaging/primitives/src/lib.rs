@@ -85,7 +85,7 @@ pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
 /// claim task consumes these and, mirroring the fee accumulation pattern,
 /// waits for Hyperbridge's consensus client for `destination` to verify a
 /// destination block at or past `delivery_height`, then builds a state
-/// proof of `HandlerV2._epochs[set_id]`, signs with the EVM key, and
+/// proof of `EvmHost._epochs[set_id]`, signs with the EVM key, and
 /// submits `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
 #[derive(Debug, Clone)]
 pub struct PendingConsensusDeliveryClaim {
@@ -280,12 +280,12 @@ impl Keccak256 for Hasher {
 	}
 }
 
-/// One `HandlerV2::NewEpoch(set_id, relayer)` log emitted by the destination
+/// One `EvmHost::NewEpoch(set_id, relayer)` log emitted by the destination
 /// chain in response to a consensus delivery, attributed to this relayer.
 ///
 /// `block_number` is the destination's block in which the log was emitted —
 /// i.e. the block at which `_epochs[set_id]` was actually written to the
-/// HandlerV2 contract. The outbound-claim task uses it as `delivery_height`
+/// EvmHost contract. The outbound-claim task uses it as `delivery_height`
 /// so the storage proof we build is over a height the destination has
 /// already mined past, eliminating the prior race where we'd query the
 /// destination's `finalized` head before the outbound tx had even landed.
@@ -299,7 +299,7 @@ pub struct NewEpochEvent {
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
 	pub unsuccessful: Vec<Message>,
-	/// Every `HandlerV2::NewEpoch(set_id, relayer)` log in this submission's
+	/// Every `EvmHost::NewEpoch(set_id, relayer)` log in this submission's
 	/// receipts whose `relayer` matches `self.address()`. A single tx can
 	/// carry several consensus messages (catch-up batches), and each one
 	/// that lands a new authority set on chain emits its own log — each
@@ -410,15 +410,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
 	/// what the pallet's state proof verifier looks up.
 	fn ismp_host_contract(&self) -> Option<sp_core::H160>;
-
-	/// The HandlerV2 contract address on this chain (only meaningful on
-	/// EVM destinations that have HandlerV2 deployed). The EVM impl reads
-	/// `EvmHost.hostParams().handler` so the relayer doesn't have to be
-	/// told the address out of band — it stays in sync with whatever
-	/// governance has set on chain. Defaults to `None` for non-EVM chains
-	/// (mirroring [`Self::ismp_host_contract`]); the outbound-consensus
-	/// claim task is EVM-only and skips destinations that report `None`.
-	async fn handler_v2_address(&self) -> Option<sp_core::H160>;
 
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;

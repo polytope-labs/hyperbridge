@@ -96,7 +96,7 @@ fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 		.collect()
 }
 
-/// Scan a receipt's logs for `HandlerV2::NewEpoch(set_id, relayer)`
+/// Scan a receipt's logs for `EvmHost::NewEpoch(set_id, relayer)`
 /// events addressed to `self_address`. Returns every `set_id` we won
 /// the race for in this submission — a single tx can carry multiple
 /// consensus messages (catch-up batches) and each one that lands a new
@@ -610,7 +610,7 @@ pub async fn submit_messages(
 ///
 /// Returns `Some((commitments, new_epochs))` on success — `commitments`
 /// from `PostRequestHandled` logs, `new_epochs` from
-/// every `HandlerV2::NewEpoch(set_id, relayer)` log that names this
+/// every `EvmHost::NewEpoch(set_id, relayer)` log that names this
 /// client as the relayer (empty when no such logs are present, multiple
 /// entries when a single tx batched multiple consensus messages). Each
 /// `NewEpochEvent` carries the destination block in which the log was

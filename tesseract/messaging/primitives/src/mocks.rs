@@ -234,10 +234,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		None
 	}
 
-	async fn handler_v2_address(&self) -> Option<sp_core::H160> {
-		None
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		todo!()
 	}

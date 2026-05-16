@@ -399,10 +399,6 @@ impl IsmpProvider for EvmClient {
 		Some(self.ismp_host)
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		self.handler().await.ok()
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		get_chain_gas_limit(self.state_machine)
 	}

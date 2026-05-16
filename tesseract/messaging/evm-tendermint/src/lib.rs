@@ -269,10 +269,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		self.inner.ismp_host_contract()
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		self.inner.handler_v2_address().await
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		self.inner.block_max_gas()
 	}

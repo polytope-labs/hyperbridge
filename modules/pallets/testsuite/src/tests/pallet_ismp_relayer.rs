@@ -839,12 +839,12 @@ fn test_withdrawal_fees_evm() {
 // Outbound consensus delivery reward tests.
 //
 // The pallet attributes a mandatory rotation to the EVM relayer recorded in
-// the destination's `HandlerV2._epochs[set_id]` slot.
+// the destination's `EvmHost._epochs[set_id]` slot.
 mod outbound_consensus_delivery {
 	use super::*;
 	use crate::runtime::Balances;
 	use crypto_utils::verification::Signature;
-	use pallet_ismp_host_executive::HostParams;
+	use pallet_ismp_host_executive::EvmHosts;
 	use pallet_ismp_relayer::{
 		Error, OutboundConsensusDeliveryReward, OutboundConsensusRotationsClaimed,
 	};
@@ -859,7 +859,7 @@ mod outbound_consensus_delivery {
 	const REWARD: u128 = 1_000_000_000_000;
 	const SET_ID: u64 = 4;
 	const HEIGHT: u64 = 100;
-	const HANDLER: [u8; 20] = [0xCAu8; 20];
+	const HOST: [u8; 20] = [0xCAu8; 20];
 
 	/// Build a claim with a placeholder empty state proof. Most tests fire
 	/// pre-verification errors, so the proof bytes don't need to be real.
@@ -881,13 +881,10 @@ mod outbound_consensus_delivery {
 		}
 	}
 
-	/// Register an EVM HostParams entry with `HANDLER` as the HandlerV2
-	/// address. Other fields default — only `handler` is consulted by the
-	/// pallet under test.
+	/// Register the destination's `EvmHost` address. The pallet under test
+	/// reads this from `pallet-ismp-host-executive::EvmHosts`.
 	fn register_evm_host() {
-		let mut params = EvmHostParam::default();
-		params.handler = sp_core::H160::from(HANDLER);
-		HostParams::<Test>::insert(DEST, HostParam::EvmHostParam(params));
+		EvmHosts::<Test>::insert(DEST, sp_core::H160::from(HOST));
 	}
 
 	#[test]
@@ -906,8 +903,8 @@ mod outbound_consensus_delivery {
 	}
 
 	#[test]
-	fn missing_host_params_is_rejected() {
-		// No HostParams entry for DEST → the lookup fails before any proof
+	fn missing_host_is_rejected() {
+		// No `EvmHosts` entry for DEST → the lookup fails before any proof
 		// verification runs.
 		new_test_ext().execute_with(|| {
 			let err =
@@ -916,7 +913,7 @@ mod outbound_consensus_delivery {
 					placeholder_claim(),
 				)
 				.unwrap_err();
-			assert_eq!(err, Error::<Test>::OutboundHostParamsNotKnown.into());
+			assert_eq!(err, Error::<Test>::OutboundHostNotKnown.into());
 		})
 	}
 
@@ -1036,7 +1033,7 @@ mod outbound_consensus_delivery {
 
 	#[test]
 	fn placeholder_proof_reaches_verification_stage() {
-		// HostParams registered, claim is otherwise valid pre-verification.
+		// EvmHost address registered, claim is otherwise valid pre-verification.
 		// Empty proof → the verifier rejects; HB has no commitment for DEST
 		// at HEIGHT either, so we get OutboundDestinationStateNotKnown.
 		// This is the smoke test that confirms the pipeline reaches the

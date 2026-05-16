@@ -34,8 +34,46 @@ use primitive_types::H160;
 use tendermint_ics23_primitives::ICS23HostFunctions;
 use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
-use crate::{alloc::string::ToString, req_res_commitment_key, req_res_receipt_keys};
-use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
+use crate::{req_res_commitment_key, req_res_receipt_keys};
+use alloc::{
+	collections::BTreeMap,
+	string::{String, ToString},
+	vec,
+	vec::Vec,
+};
+use thiserror::Error as ThisError;
+
+/// Errors produced by the Tendermint EVM state machine client.
+#[derive(Debug, ThisError)]
+pub enum TendermintEvmError {
+	/// No ISMP host contract is registered for the requested state machine id.
+	#[error("Ismp contract address not found")]
+	IsmpContractNotFound,
+	/// The number of supplied ICS23 proofs doesn't match the number of queried keys.
+	#[error("mismatched proofs/keys")]
+	MismatchedProofsAndKeys,
+	/// A query key length didn't match any supported layout (32 or 52 bytes).
+	#[error("Only 32-byte or 52-byte keys are supported")]
+	UnsupportedKeyLength,
+	/// A non-membership proof contained at least one delivered request.
+	#[error("Some Requests in the batch have been delivered")]
+	DeliveredRequestsInBatch,
+	/// SCALE decoding the EVM KV proof bundle failed.
+	#[error("Failed to decode proof bundle: {0}")]
+	ProofDecodeError(String),
+	/// The ICS23 commitment bytes were malformed.
+	#[error("Invalid commitment proof bytes: {0}")]
+	InvalidCommitmentProof(String),
+	/// The ICS23 merkle proof failed to verify.
+	#[error("Merkle proof verification failed: {0}")]
+	MerkleProofVerificationFailed(String),
+}
+
+impl From<TendermintEvmError> for Error {
+	fn from(e: TendermintEvmError) -> Error {
+		Error::Custom(e.to_string())
+	}
+}
 
 /// Tendermint EVM State Machine client verifying ICS23 KV proofs against app hash
 pub struct TendermintEvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(
@@ -67,21 +105,21 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
 
 		let slot_keys = req_res_commitment_key::<ICS23HostFunctions, _>(item, |k| {
 			ICS23HostFunctions::keccak256(k).0.to_vec()
 		});
 
 		let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
 
 		let app_hash: [u8; 32] = root.state_root.0;
 		let store_key_str = store_key_for(proof.height.id.state_id);
 		let store_key = store_key_str.as_bytes();
 
 		if proofs.len() != slot_keys.len() {
-			return Err(Error::Custom("mismatched proofs/keys".to_string()));
+			return Err(TendermintEvmError::MismatchedProofsAndKeys.into());
 		}
 
 		for (slot, ev) in slot_keys.into_iter().zip(proofs.into_iter()) {
@@ -93,9 +131,9 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			);
 
 			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
-				.map_err(|e| Error::Custom(e.to_string()))?;
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
 			let merkle_proof = MerkleProof::try_from(&commitment_proof)
-				.map_err(|e| Error::Custom(e.to_string()))?;
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
 			let specs = ProofSpecs::cosmos();
 			let root_hash = MerkleRoot { hash: app_hash.to_vec() };
 			let merkle_path = MerklePath::new(vec![
@@ -110,7 +148,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 					ev.value,
 					0,
 				)
-				.map_err(|e| Error::Custom(e.to_string()))?;
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
 		}
 		Ok(())
 	}
@@ -129,7 +167,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let keys = self.receipts_state_trie_key(item);
 		let values = self.verify_state_proof(host, keys, root, proof)?;
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
-			return Err(Error::Custom("Some Requests in the batch have been delivered".to_string()));
+			return Err(TendermintEvmError::DeliveredRequestsInBatch.into());
 		}
 		Ok(())
 	}
@@ -142,7 +180,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
 
 		verify_evm_kv_proofs(keys, contract_address, root, proof)
 	}
@@ -158,15 +196,15 @@ pub fn verify_evm_kv_proofs(
 	let store_key_str = store_key_for(proof.height.id.state_id);
 	let store_key = store_key_str.as_bytes();
 	let app_hash: [u8; 32] = root.state_root.0;
-	let proofs: Vec<crate::types::EvmKVProof> =
-		codec::Decode::decode(&mut &proof.proof[..]).map_err(|e| Error::Custom(e.to_string()))?;
+	let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
+		.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
 	// Only support 32-byte or 52-byte keys
 	if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
-		return Err(Error::Custom("Only 32-byte or 52-byte keys are supported".to_string()));
+		return Err(TendermintEvmError::UnsupportedKeyLength.into());
 	}
 
 	if proofs.len() != keys.len() {
-		return Err(Error::Custom("mismatched proofs/keys".to_string()));
+		return Err(TendermintEvmError::MismatchedProofsAndKeys.into());
 	}
 
 	let mut out = BTreeMap::new();
@@ -186,9 +224,9 @@ pub fn verify_evm_kv_proofs(
 		let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
 
 		let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
-			.map_err(|e| Error::Custom(e.to_string()))?;
-		let merkle_proof =
-			MerkleProof::try_from(&commitment_proof).map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
+		let merkle_proof = MerkleProof::try_from(&commitment_proof)
+			.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
 		let specs = ProofSpecs::cosmos();
 		let root_hash = MerkleRoot { hash: app_hash.to_vec() };
 		let merkle_path =
@@ -201,7 +239,7 @@ pub fn verify_evm_kv_proofs(
 				ev.value.clone(),
 				0,
 			)
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
 
 		out.insert(key_bytes, Some(ev.value));
 	}

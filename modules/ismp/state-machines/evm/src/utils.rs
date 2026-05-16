@@ -20,8 +20,9 @@ use crate::{
 		RESPONSE_RECEIPTS_SLOT,
 	},
 	types::{Account, EvmStateProof, KeccakHasher},
+	EvmStateMachineError,
 };
-use alloc::{format, string::ToString};
+use alloc::format;
 use alloy_rlp::Decodable;
 use codec::Decode;
 use ethereum_triedb::{EIP1186Layout, StorageProof};
@@ -62,7 +63,7 @@ pub fn construct_intermediate_state(
 
 pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	let evm_state_proof = EvmStateProof::decode(&mut &proof.proof[..])
-		.map_err(|_| Error::Custom(format!("Cannot decode evm state proof")))?;
+		.map_err(|_| EvmStateMachineError::StateProofDecodeError)?;
 
 	Ok(evm_state_proof)
 }
@@ -147,10 +148,7 @@ pub fn req_res_receipt_keys<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>>
 
 pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
 	if bytes.len() != 32 {
-		return Err(Error::Custom(format!(
-			"Input vector must have exactly 32 elements {:?}",
-			bytes
-		)));
+		return Err(EvmStateMachineError::BadByteLength(bytes.len()).into());
 	}
 
 	let mut array = [0u8; 32];
@@ -170,12 +168,11 @@ pub fn get_contract_account<H: Keccak256 + Send + Sync>(
 	let key = H::keccak256(contract_address).0;
 	let result = trie
 		.get(&key)
-		.map_err(|_| Error::Custom("Invalid contract account proof".to_string()))?
-		.ok_or_else(|| Error::Custom("Contract account is not present in proof".to_string()))?;
+		.map_err(|_| EvmStateMachineError::InvalidContractAccountProof)?
+		.ok_or(EvmStateMachineError::ContractAccountNotPresent)?;
 
-	let contract_account = <Account as Decodable>::decode(&mut &*result).map_err(|_| {
-		Error::Custom(format!("Error decoding contract account from value {:?}", &result))
-	})?;
+	let contract_account = <Account as Decodable>::decode(&mut &*result)
+		.map_err(|_| EvmStateMachineError::ContractAccountDecodeError)?;
 
 	Ok(contract_account)
 }
@@ -222,7 +219,9 @@ pub fn get_values_from_proof<H: Keccak256 + Send + Sync>(
 	let proof_db = StorageProof::new(proof).into_memory_db::<KeccakHasher<H>>();
 	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
 	for key in keys {
-		let val = trie.get(&key).map_err(|_| Error::Custom(format!("Error reading proof db")))?;
+		let val = trie
+			.get(&key)
+			.map_err(|e| EvmStateMachineError::TrieReadError(format!("{e:?}")))?;
 		values.push(val);
 	}
 
@@ -238,7 +237,7 @@ pub fn get_value_from_proof<H: Keccak256 + Send + Sync>(
 	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
 	let val = trie
 		.get(&key)
-		.map_err(|e| Error::Custom(format!("Error reading proof db {:?}", e)))?;
+		.map_err(|e| EvmStateMachineError::TrieReadError(format!("{e:?}")))?;
 
 	Ok(val)
 }

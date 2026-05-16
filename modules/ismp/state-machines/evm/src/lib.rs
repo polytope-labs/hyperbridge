@@ -20,7 +20,10 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
+use alloc::{
+	collections::BTreeMap,
+	string::{String, ToString},
+};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
@@ -29,6 +32,54 @@ use ismp::{
 	router::RequestResponse,
 };
 use primitive_types::{H160, H256};
+use thiserror::Error as ThisError;
+
+/// Errors produced by the EVM state machine client and its proof helpers.
+#[derive(Debug, ThisError)]
+pub enum EvmStateMachineError {
+	/// No ISMP host contract is registered for the requested state machine id.
+	#[error("Ismp contract address not found")]
+	IsmpContractNotFound,
+	/// The encoded state proof has no entry for the requested contract.
+	#[error("Ismp contract account trie proof is missing")]
+	ContractAccountProofMissing,
+	/// At least one membership key has no value in the supplied proof.
+	#[error("Missing values for some keys in the proof")]
+	MissingMembershipValues,
+	/// A non-membership proof contained at least one delivered request.
+	#[error("Some Requests in the batch have been delivered")]
+	DeliveredRequestsInBatch,
+	/// A query key length didn't match any supported layout (20, 32, or 52 bytes).
+	#[error("Unsupported Key type, found a key whose length is not one of 20, 32 or 52")]
+	UnsupportedKeyLength,
+	/// The proof is missing the storage trie for at least one referenced contract.
+	#[error("The storage proof is incomplete, missing some contract proofs")]
+	IncompleteStorageProof,
+	/// Failed to SCALE-decode the EVM state proof from the proof bytes.
+	#[error("Cannot decode evm state proof")]
+	StateProofDecodeError,
+	/// A 32-byte input had the wrong length.
+	#[error("Input vector must have exactly 32 elements, got {0}")]
+	BadByteLength(usize),
+	/// The contract account proof was malformed or invalid.
+	#[error("Invalid contract account proof")]
+	InvalidContractAccountProof,
+	/// The proof is missing the contract account leaf.
+	#[error("Contract account is not present in proof")]
+	ContractAccountNotPresent,
+	/// The contract account leaf failed to RLP-decode.
+	#[error("Error decoding contract account from value")]
+	ContractAccountDecodeError,
+	/// The trie backend returned an error while reading a key.
+	#[error("Error reading proof db: {0}")]
+	TrieReadError(String),
+}
+
+impl From<EvmStateMachineError> for Error {
+	fn from(e: EvmStateMachineError) -> Error {
+		Error::Custom(e.to_string())
+	}
+}
 
 pub mod prelude {
 	pub use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
@@ -57,7 +108,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 	let storage_proof = evm_state_proof
 		.storage_proof
 		.remove(&contract_address.0.to_vec())
-		.ok_or_else(|| Error::Custom("Ismp contract account trie proof is missing".to_string()))?;
+		.ok_or(EvmStateMachineError::ContractAccountProofMissing)?;
 	let keys = req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec());
 	let root = H256::from_slice(&root.state_root[..]);
 	let contract_root = get_contract_account::<H>(
@@ -71,7 +122,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 	let values = get_values_from_proof::<H>(keys, contract_root, storage_proof)?;
 
 	if values.into_iter().any(|val| val.is_none()) {
-		Err(Error::Custom("Missing values for some keys in the proof".to_string()))?
+		return Err(EvmStateMachineError::MissingMembershipValues.into());
 	}
 
 	Ok(())
@@ -103,10 +154,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			contract_account_queries.push(H160::from_slice(&key));
 			continue;
 		} else {
-			Err(Error::Custom(
-				"Unsupported Key type, found a key whose length is not one of 20, 32 or 52"
-					.to_string(),
-			))?
+			return Err(EvmStateMachineError::UnsupportedKeyLength.into());
 		};
 		let entry = contract_to_keys.entry(contract_address.0.to_vec()).or_insert(vec![]);
 
@@ -125,9 +173,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		.into_keys()
 		.all(|contract| evm_state_proof.storage_proof.contains_key(&contract));
 	if !result {
-		Err(Error::Custom(
-			"The storage proof is incomplete, missing some contract proofs".to_string(),
-		))?
+		return Err(EvmStateMachineError::IncompleteStorageProof.into());
 	}
 
 	for (contract_address, storage_proof) in evm_state_proof.storage_proof {
@@ -192,7 +238,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(EvmStateMachineError::IsmpContractNotFound)?;
 		verify_membership::<H>(item, root, proof, contract_address)
 	}
 
@@ -212,7 +258,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let keys = self.receipts_state_trie_key(item);
 		let values = self.verify_state_proof(host, keys, root, proof)?;
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
-			return Err(Error::Custom("Some Requests in the batch have been delivered".to_string()));
+			return Err(EvmStateMachineError::DeliveredRequestsInBatch.into());
 		}
 		Ok(())
 	}
@@ -225,7 +271,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(EvmStateMachineError::IsmpContractNotFound)?;
 		verify_state_proof::<H>(keys, root, proof, ismp_address)
 	}
 }

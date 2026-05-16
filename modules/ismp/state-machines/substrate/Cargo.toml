@@ -22,6 +22,7 @@ serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hash-db = { workspace = true }
 trie-db = { workspace = true }
+thiserror = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -437,3 +437,142 @@ fn validator_registration_returns_false_after_controller_changed_without_new_key
 		assert!(CollatorManager::is_registered(&stash));
 	});
 }
+
+#[test]
+fn update_bond_fails_when_new_deposit_exceeds_account_balance() {
+	new_test_ext().execute_with(|| {
+		let stash = CHARLIE;
+		let controller = DAVE;
+
+		let account_balance = 100 * UNIT;
+		let initial_bond = 50 * UNIT;
+		let first_update = 100 * UNIT;
+		let over_balance = 150 * UNIT;
+
+		Balances::set_balance(&stash, account_balance);
+
+		assert_ok!(Sudo::sudo(
+			RuntimeOrigin::root(),
+			Box::new(crate::runtime::RuntimeCall::CollatorSelection(
+				pallet_collator_selection::Call::set_candidacy_bond { bond: initial_bond }
+			))
+		));
+
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+		set_session_keys(controller);
+
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(stash.clone())));
+		assert_eq!(CollatorManager::reserved_balance(&stash), initial_bond);
+
+		assert_ok!(CollatorSelection::update_bond(
+			RuntimeOrigin::signed(stash.clone()),
+			first_update
+		));
+		assert_eq!(CollatorManager::reserved_balance(&stash), first_update);
+
+		assert_err!(
+			CollatorSelection::update_bond(
+				RuntimeOrigin::signed(stash.clone()),
+				over_balance
+			),
+			Error::<Test>::InsufficientBalance
+		);
+
+		assert_eq!(CollatorManager::reserved_balance(&stash), first_update);
+		let lock = get_collator_bond_lock(&stash).expect("bond lock should exist");
+		assert_eq!(lock.amount, first_update);
+		assert_eq!(Balances::free_balance(&stash), account_balance);
+	});
+}
+
+#[test]
+fn take_candidate_slot_replaces_a_fully_bonded_candidate() {
+	new_test_ext().execute_with(|| {
+		let min_bond = 50 * UNIT;
+		let target_balance = 100 * UNIT;
+		let challenger_balance = 120 * UNIT;
+		let over_balance = 150 * UNIT;
+
+		assert_ok!(Sudo::sudo(
+			RuntimeOrigin::root(),
+			Box::new(crate::runtime::RuntimeCall::CollatorSelection(
+				pallet_collator_selection::Call::set_candidacy_bond { bond: min_bond }
+			))
+		));
+
+		let target_stash = AccountId32::new([31u8; 32]);
+		let target_controller = AccountId32::new([32u8; 32]);
+		let challenger_stash = AccountId32::new([33u8; 32]);
+		let challenger_controller = AccountId32::new([34u8; 32]);
+
+		Balances::set_balance(&target_stash, target_balance);
+		Balances::set_balance(&challenger_stash, challenger_balance);
+
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(target_stash.clone()),
+			target_controller.clone()
+		));
+		set_session_keys(target_controller);
+
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(
+			target_stash.clone()
+		)));
+		assert_ok!(CollatorSelection::update_bond(
+			RuntimeOrigin::signed(target_stash.clone()),
+			target_balance
+		));
+
+		assert_err!(
+			CollatorSelection::update_bond(
+				RuntimeOrigin::signed(target_stash.clone()),
+				over_balance
+			),
+			Error::<Test>::InsufficientBalance
+		);
+
+		let target_info = pallet_collator_selection::CandidateList::<Test>::get()
+			.into_iter()
+			.find(|info| info.who == target_stash)
+			.expect("target should still be a candidate");
+		assert_eq!(target_info.deposit, target_balance);
+
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(challenger_stash.clone()),
+			challenger_controller.clone()
+		));
+		set_session_keys(challenger_controller);
+
+		assert_ok!(CollatorSelection::take_candidate_slot(
+			RuntimeOrigin::signed(challenger_stash.clone()),
+			challenger_balance,
+			target_stash.clone()
+		));
+
+		let final_candidates = pallet_collator_selection::CandidateList::<Test>::get();
+		assert!(final_candidates
+			.iter()
+			.any(|info| info.who == challenger_stash && info.deposit == challenger_balance));
+		assert!(!final_candidates.iter().any(|info| info.who == target_stash));
+	});
+}
+
+#[test]
+fn repeated_reserve_calls_respect_total_balance() {
+	new_test_ext().execute_with(|| {
+		Balances::set_balance(&CHARLIE, 100 * UNIT);
+
+		assert_ok!(CollatorManager::reserve(&CHARLIE, 60 * UNIT));
+		assert_ok!(CollatorManager::reserve(&CHARLIE, 40 * UNIT));
+
+		assert_err!(
+			CollatorManager::reserve(&CHARLIE, 1),
+			Error::<Test>::InsufficientBalance
+		);
+
+		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), 100 * UNIT);
+		assert_eq!(Balances::free_balance(&CHARLIE), 100 * UNIT);
+	});
+}

@@ -91,9 +91,14 @@ where
 				Err(Error::RequestProofMetadataNotValid { meta: full.clone().into() })?
 			}
 
-			// This request has already been previously processed
-			if host.request_receipt(&full).is_some() {
-				Err(Error::DuplicateResponse { meta: full.into() })?
+			// This request has already been responded to. Mirror `handlers/response.rs:61`:
+			// dedup against `response_receipt`, which the dispatch path writes for this exact
+			// GetRequest hash after producing a response. The receipt also binds the response
+			// commitment, so external auditors can attest "Hyperbridge produced response X for
+			// request Y" from one map.
+			let probe = GetResponse { get: req.clone(), values: Default::default() };
+			if host.response_receipt(&probe).is_some() {
+				Err(Error::DuplicateResponse { meta: (&probe).into() })?
 			}
 		}
 
@@ -182,8 +187,7 @@ where
 		}
 
 		for get_response in get_responses {
-			let full = Request::Get(get_response.get.clone());
-			host.store_request_receipt(&full, &address)?;
+			host.store_response_receipt(&get_response, &address)?;
 			Self::dispatch_get_response(get_response, address.clone())
 				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?;
 		}

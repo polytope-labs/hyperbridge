@@ -482,6 +482,50 @@ fn test_accumulate_fees_rejects_mixed_delivery_addresses() {
 	})
 }
 
+/// `accumulate_fees` is unsigned, so anyone can submit a `WithdrawalProof`.
+/// A batch padded with identical commitments must be rejected outright
+/// before any proof verification or fee credit, so an attacker cannot
+/// double-claim a single delivery.
+#[test]
+fn test_accumulate_fees_rejects_duplicate_commitments() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let request = H256::repeat_byte(0xab);
+		let withdrawal_proof = WithdrawalProof {
+			commitments: vec![Key::Request(request), Key::Request(request)],
+			source_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2000),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2001),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			beneficiary_details: None,
+		};
+
+		let err = pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+			RuntimeOrigin::none(),
+			withdrawal_proof,
+		)
+		.expect_err("duplicate-commitment batch must be rejected");
+
+		assert_eq!(err, pallet_ismp_relayer::Error::<Test>::DuplicateCommitment.into());
+	})
+}
+
 #[test]
 fn test_accumulate_fees_evm_signatures() {
 	let mut ext = new_test_ext();

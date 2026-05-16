@@ -240,6 +240,8 @@ pub mod pallet {
 		ErrorCompletingCall,
 		/// Missing commitments
 		MissingCommitments,
+		/// The withdrawal proof's commitments batch contains a duplicate key.
+		DuplicateCommitment,
 		/// Fee accumulation proof contains no address
 		IncompleteProof,
 		/// Withdrawal batch contains commitments delivered by more than one
@@ -657,7 +659,16 @@ where
 	}
 
 	pub fn accumulate(mut withdrawal_proof: WithdrawalProof) -> DispatchResult {
-		// Filter out duplicate commitments
+		// Reject duplicate commitments within the batch. The wire format is a
+		// `Vec` and this extrinsic is unsigned, so this is the line of defence
+		// against an attacker padding the batch with identical commitments to
+		// double-claim fees.
+		let mut seen = alloc::collections::BTreeSet::new();
+		for key in withdrawal_proof.commitments.iter() {
+			ensure!(seen.insert(key.encode()), Error::<T>::DuplicateCommitment);
+		}
+
+		// Filter out already-claimed / missing commitments
 		withdrawal_proof.commitments = withdrawal_proof
 			.commitments
 			.into_iter()

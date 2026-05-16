@@ -10,14 +10,13 @@ use alloy_sol_types::{SolCall, SolValue};
 use ismp_abi::{
 	ecdsa_beefy::Beefy::{IntermediateState, StateCommitment},
 	evm_host::EvmHost::{
-		requestCommitmentsCall, requestReceiptsCall, responseReceiptsCall,
-		FeeMetadata, ResponseReceipt,
+		requestCommitmentsCall, requestReceiptsCall, responseReceiptsCall, FeeMetadata,
+		ResponseReceipt,
 	},
 	handler::{
 		handleConsensusCall, handleGetRequestTimeoutsCall, handleGetResponsesCall,
-		handlePostRequestTimeoutsCall, handlePostRequestsCall,
-		GetResponseMessage, GetTimeoutMessage, PostRequestMessage,
-		PostRequestTimeoutMessage, Proof,
+		handlePostRequestTimeoutsCall, handlePostRequestsCall, GetResponseMessage,
+		GetTimeoutMessage, PostRequestMessage, PostRequestTimeoutMessage, Proof,
 		StateMachineHeight,
 	},
 };
@@ -67,15 +66,7 @@ alloy_sol_macro::sol! {
 		address host;
 	}
 
-	struct PerByteFee {
-		bytes32 stateIdHash;
-		uint256 perByteFee;
-	}
-
 	struct HostParams {
-		uint256 defaultTimeout;
-		uint256 defaultPerByteFee;
-		uint256 stateCommitmentFee;
 		address feeToken;
 		address admin;
 		address handler;
@@ -85,7 +76,6 @@ alloy_sol_macro::sol! {
 		uint256 challengePeriod;
 		address consensusClient;
 		uint256[] stateMachines;
-		PerByteFee[] perByteFees;
 		bytes hyperbridge;
 	}
 }
@@ -177,9 +167,6 @@ impl TestEnv {
 		// 5. Deploy TestHost: constructor(HostParams)
 		let bytecode = load_and_link_artifact(&mut env, &out_dir, "TestHost");
 		let host_params = HostParams {
-			defaultTimeout: U256::ZERO,
-			defaultPerByteFee: U256::from(1_000_000_000_000_000_000u128),
-			stateCommitmentFee: U256::from(10u128) * U256::from(10u128.pow(18)),
 			feeToken: env.fee_token,
 			admin: env.sender,
 			handler: env.handler,
@@ -189,7 +176,6 @@ impl TestEnv {
 			challengePeriod: U256::ZERO,
 			consensusClient: env.consensus_client,
 			stateMachines: vec![U256::from(2000)],
-			perByteFees: vec![],
 			hyperbridge: Bytes::from(b"KUSAMA-2000".to_vec()),
 		};
 		let constructor_args = SolValue::abi_encode(&host_params);
@@ -452,10 +438,7 @@ impl TestEnv {
 		self.call(self.test_module, calldata);
 	}
 
-	pub fn dispatch_get_request(
-		&mut self,
-		request: ismp_abi::evm_host::EvmHost::GetRequest,
-	) {
+	pub fn dispatch_get_request(&mut self, request: ismp_abi::evm_host::EvmHost::GetRequest) {
 		let encoded = SolValue::abi_encode(&request);
 		let test_request =
 			<test_dispatcher::GetRequest as SolValue>::abi_decode(&encoded).unwrap();

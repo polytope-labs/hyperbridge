@@ -10,17 +10,13 @@ publish = false
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-pallet-hyperbridge = { workspace = true }
+ismp-abi = { workspace = true }
 
 # crates.io
 codec = { workspace = true }
 scale-info = { workspace = true }
 anyhow = { workspace = true }
 primitive-types = { workspace = true }
-alloy-primitives = { workspace = true }
-alloy-sol-macro = { workspace = true }
-alloy-sol-types = { workspace = true }
-ethabi = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -32,12 +28,10 @@ std = [
     "codec/std",
     "scale-info/std",
     "polkadot-sdk/std",
-    "alloy-primitives/std",
     "ismp/std",
     "anyhow/std",
     "pallet-ismp/std",
-    "pallet-hyperbridge/std",
+    "ismp-abi/std",
     "primitive-types/std",
-    "ethabi/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

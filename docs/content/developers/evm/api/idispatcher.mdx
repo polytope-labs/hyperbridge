@@ -109,27 +109,6 @@ function nonce() external view returns (uint256)
 
 ---
 
-### perByteFee()
-
-Returns the per-byte protocol fee for messages to a destination chain.
-
-```solidity lineNumbers
-function perByteFee(bytes memory dest) external view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `dest` | `bytes` | The destination state machine identifier |
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `uint256` | Fee in fee token per byte of message body |
-
-**Fee Calculation:**
-`protocolFee = feePerByte * max(32, messageBody.length)`
-
----
-
 ### dispatch(DispatchPost)
 
 Dispatches a POST request to another chain.
@@ -198,7 +177,6 @@ function fundRequest(bytes32 commitment, uint256 amount) external payable
 - **Fee token**: Transferred from caller (requires prior approval)
 
 **Behavior:**
-- Only increases **relayer fee** (protocol fee cannot be changed)
 - Additional fee refunded to `payer` if request times out
 - Can be called multiple times for incremental increases
 - If request already delivered, funds donated to protocol
@@ -265,7 +243,7 @@ event GetRequestEvent(
 | `nonce` | `uint256` | Monotonically increasing nonce |
 | `timeoutTimestamp` | `uint256` | The timestamp at which this request will be considered as timed out |
 | `context` | `bytes` | Some application-specific metadata relating to this request |
-| `fee` | `uint256` | The associated protocol fee |
+| `fee` | `uint256` | The associated relayer fee |
 
 ---
 
@@ -336,7 +314,7 @@ struct DispatchGet {
 | `height` | `uint64` | Block height to query (0 for latest) |
 | `keys` | `bytes[]` | Storage keys to read |
 | `timeout` | `uint64` | Timeout in seconds from dispatch time |
-| `fee` | `uint256` | Total protocol fee |
+| `fee` | `uint256` | Optional relayer fee for delivering the response back to the source chain |
 | `context` | `bytes` | Application-specific metadata |
 
 ---

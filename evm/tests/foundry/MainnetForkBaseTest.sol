@@ -20,7 +20,7 @@ import {TestHost} from "./TestHost.sol";
 import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {HostParams} from "../../src/core/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../../src/core/HostManager.sol";
 
 import {HyperFungibleTokenImpl} from "../../src/utils/HyperFungibleTokenImpl.sol";
@@ -75,20 +75,15 @@ contract MainnetForkBaseTest is Test {
         manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
-        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(_uniswapV2Router),
-            perByteFees: perByteFees,
             admin: address(0),
             hostManager: address(manager),
             handler: address(handler),
-            defaultTimeout: 0,
             unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 3 * 1e15, // $0.003/byte
-            stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachines: stateMachines

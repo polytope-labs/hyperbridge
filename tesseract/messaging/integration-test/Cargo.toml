@@ -11,7 +11,6 @@ tesseract-substrate = { path = "../substrate", features = ["testing"] }
 tesseract-messaging = { path = "../relayer" }
 substrate-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
-pallet-hyperbridge = { workspace = true }
 pallet-ismp-demo = { workspace = true }
 
 anyhow = { workspace = true }

@@ -39,9 +39,8 @@ import {HyperFungibleToken} from "./HyperFungibleToken.sol";
  * The owner configures which chains this wrapper can communicate with, the address of the
  * corresponding deployment on each chain, and the underlying ERC20 token.
  *
- * Also supports native token wrapping: if `msg.value >= params.amount` during send, the
- * contract wraps the native token by treating the underlying ERC20 as WETH. This reverts
- * naturally if the underlying is not a WETH contract.
+ * Also supports native token wrapping: if isWeth is true during send, the
+ * contract wraps the native token by treating the underlying ERC20 as WETH.
  *
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
@@ -221,21 +220,12 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Returns the fee in the host's fee token for sending a cross-chain transfer.
-     * @param params The send parameters
-     * @return The fee amount in the fee token
-     */
-    function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
-        return quote(_buildDispatchPost(params));
-    }
-
-    /**
      * @notice Returns the fee in native currency for sending a cross-chain transfer.
      * @param params The send parameters
      * @return The fee amount in native currency
      */
-    function quoteNative(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
-        return quoteNative(_buildDispatchPost(params));
+    function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
     }
 
     /**
@@ -264,11 +254,11 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
 
     /**
      * @notice Locks underlying tokens and dispatches a cross-chain transfer message
-     * @dev If `msg.value >= params.amount`, wraps native tokens via the underlying's WETH
+     * @dev If `_isWeth` is true, wraps native tokens via the underlying's WETH
      * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
      * after wrapping is forwarded as native payment for dispatch fees.
      *
-     * If `msg.value < params.amount`, locks ERC20 tokens via safeTransferFrom and pays
+     * If `_isWeth` is false, locks ERC20 tokens via safeTransferFrom and pays
      * dispatch fees in the host's fee token (pulled from msg.sender).
      *
      * @param params The send parameters including destination, recipient, amount, and optional calldata
@@ -329,8 +319,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     /**
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
-     * Attempts to unwrap WETH and refund native tokens. If that fails (underlying is not
-     * WETH or native transfer rejected), falls back to transferring the underlying ERC20.
+     * Attempts to unwrap WETH and refund native tokens.
      * @param request The timed-out POST request
      */
     function onPostRequestTimeout(PostRequest calldata request) external override onlyHost whenNotPaused {

@@ -4,9 +4,8 @@ use ismp::host::StateMachine;
 
 use crate::{
 	check_challenge_period, check_client_expiry, check_request_source_and_destination,
-	fraud_proof_checks, frozen_consensus_client_check, missing_state_commitment_check,
-	mocks::Host, post_request_timeout_check,
-	prevent_request_processing_on_proxy_with_known_state_machine,
+	fraud_proof_checks, frozen_consensus_client_check, missing_state_commitment_check, mocks::Host,
+	post_request_timeout_check, prevent_request_processing_on_proxy_with_known_state_machine,
 	prevent_request_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
 };
 
@@ -67,4 +66,3 @@ fn should_prevent_request_processing_through_proxy_with_known_state_machine() {
 fn should_prevent_request_processing_when_proof_metadata_is_mismatched() {
 	check_request_source_and_destination().unwrap()
 }
-

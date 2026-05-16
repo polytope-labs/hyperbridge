@@ -876,36 +876,6 @@ mod outbound_consensus_delivery {
 		})
 	}
 
-	#[test]
-	fn substrate_destination_is_rejected() {
-		// HostParams::SubstrateHostParam variant should reject before key
-		// derivation. The reward is HandlerV2-specific so non-EVM
-		// destinations have no path through.
-		new_test_ext().execute_with(|| {
-			use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-			let substrate_dest = StateMachine::Kusama(2001);
-			HostParams::<Test>::insert(
-				substrate_dest,
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-					default_per_byte_fee: 0u128,
-					per_byte_fees: Default::default(),
-					asset_registration_fee: 0u128,
-				})),
-			);
-
-			let mut claim = placeholder_claim();
-			claim.state_proof.height.id.state_id = substrate_dest;
-
-			let err =
-				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-					RuntimeOrigin::none(),
-					claim,
-				)
-				.unwrap_err();
-			assert_eq!(err, Error::<Test>::OutboundDestinationNotEvm.into());
-		})
-	}
-
 	mod decode_epochs_slot_address {
 		//! Regression cases for `Pallet::decode_epochs_slot_address`,
 		//! the RLP-aware decoder behind the `_epochs[set_id]` slot

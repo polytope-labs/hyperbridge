@@ -143,23 +143,9 @@ function unStakingPeriod() external view returns (uint256)
 
 ---
 
-### stateCommitmentFee()
-
-Returns the fee charged to 3rd party applications for accessing Hyperbridge state commitments.
-
-```solidity lineNumbers
-function stateCommitmentFee() external view returns (uint256)
-```
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `uint256` | State commitment fee in fee token |
-
----
-
 ### stateMachineCommitment()
 
-Retrieves the state commitment at a specific height. Charges the `stateCommitmentFee`.
+Retrieves the state commitment at a specific height.
 
 ```solidity lineNumbers
 function stateMachineCommitment(StateMachineHeight memory height) 
@@ -175,11 +161,6 @@ function stateMachineCommitment(StateMachineHeight memory height)
 | Returns | Type | Description |
 |---------|------|-------------|
 | - | `StateCommitment` | Contains overlay root, timestamp, and state root |
-
-**Payment:**
-- Can pay with native tokens (automatically swapped via Uniswap) or fee token
-- Must provide sufficient funds to cover `stateCommitmentFee`
-- If no native tokens provided, transfers from caller in fee token
 
 ---
 
@@ -598,33 +579,15 @@ Emitted when the host processes a withdrawal.
 event HostWithdrawal(
     uint256 amount,
     address beneficiary,
-    bool native
+    address token
 )
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `amount` | `uint256` | Amount that was withdrawn from the host's feeToken balance |
+| `amount` | `uint256` | Amount that was withdrawn |
 | `beneficiary` | `address` | The beneficiary address for this withdrawal |
-| `native` | `bool` | Flag for if the native token was withdrawn |
-
----
-
-### StateCommitmentRead
-
-Emitted when an application accesses the Hyperbridge state commitment.
-
-```solidity lineNumbers
-event StateCommitmentRead(
-    address indexed caller,
-    uint256 fee
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `caller` | `address` | The application responsible |
-| `fee` | `uint256` | The fee that was paid |
+| `token` | `address` | The token that was withdrawn (`address(0)` for native token) |
 
 ---
 

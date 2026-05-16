@@ -19,9 +19,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Keccak256, Proof},
 	module::IsmpModule,
-	router::{
-		GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse,
-	},
+	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
 };
 
 #[derive(Default)]
@@ -477,7 +475,6 @@ impl IsmpDispatcher for Host {
 		host.requests.borrow_mut().insert(hash);
 		Ok(hash)
 	}
-
 }
 
 pub struct Keccak256Hasher;

@@ -32,8 +32,8 @@ use ismp::{
 	handlers::handle_incoming_message,
 	host::{IsmpHost, StateMachine},
 	messaging::{
-		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
-		RequestMessage, ResponseMessage, TimeoutMessage,
+		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof, RequestMessage,
+		ResponseMessage, TimeoutMessage,
 	},
 	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
 };

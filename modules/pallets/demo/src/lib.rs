@@ -29,7 +29,7 @@ use ismp::{
 	error::Error as IsmpError,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, Request, GetResponse},
+	router::{GetResponse, PostRequest, Request},
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;

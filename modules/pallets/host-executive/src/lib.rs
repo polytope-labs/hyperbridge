@@ -17,19 +17,24 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod params;
-pub mod withdrawal;
+pub mod migrations;
 
 extern crate alloc;
 
+// SCALE-encoded host-param and withdrawal types live in `ismp-abi` alongside
+// their ABI counterparts so the cross-format conversions live in one place.
+// Re-exported here for backwards compatibility with existing call sites.
+pub use ismp_abi::{
+	encode_host_params,
+	evm_host::EvmHost::{HostParams as EvmHostParamsAbi, WithdrawParams as WithdrawParamsAbi},
+	EvmHostParam, EvmHostParamUpdate, HostParam, HostParamUpdate, WithdrawalParams,
+};
 pub use pallet::*;
-pub use params::*;
 use polkadot_sdk::*;
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use crate::withdrawal::WithdrawalParams;
 	use alloc::collections::BTreeMap;
 	use frame_support::{
 		pallet_prelude::{OptionQuery, *},
@@ -40,14 +45,19 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_hyperbridge::{Message, PALLET_HYPERBRIDGE};
 	use pallet_ismp::ModuleId;
 	use primitive_types::{H160, U256};
 
 	/// ISMP module identifier
 	pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
 
+	/// Bumped to v2 by [`crate::migrations::ClearLegacyHostParams`] when the
+	/// legacy [`HostParams`] entries (encoded with the old `HostParam` enum
+	/// that still carried `SubstrateHostParam`) are wiped.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
@@ -64,13 +74,8 @@ pub mod pallet {
 	/// Host Params for all connected chains
 	#[pallet::storage]
 	#[pallet::getter(fn host_params)]
-	pub type HostParams<T: Config> = StorageMap<
-		_,
-		Twox64Concat,
-		StateMachine,
-		HostParam<<T as pallet_ismp::Config>::Balance>,
-		OptionQuery,
-	>;
+	pub type HostParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, HostParam, OptionQuery>;
 
 	/// EvmHost addresses of all connected Evm chains
 	#[pallet::storage]
@@ -92,9 +97,9 @@ pub mod pallet {
 			/// State machine's whose host params should be updated
 			state_machine: StateMachine,
 			/// The old host params
-			old: HostParam<<T as pallet_ismp::Config>::Balance>,
+			old: HostParam,
 			/// The new host params
-			new: HostParam<<T as pallet_ismp::Config>::Balance>,
+			new: HostParam,
 		},
 		/// `HostExecutiveOrigin` has set the initial host parameters for the mentioned state
 		/// machine
@@ -102,7 +107,7 @@ pub mod pallet {
 			/// State machine's whose host params should be updated
 			state_machine: StateMachine,
 			/// The new host params
-			params: HostParam<<T as pallet_ismp::Config>::Balance>,
+			params: HostParam,
 		},
 		/// The address for some EvmHost has been set
 		HostAddressSet {
@@ -148,6 +153,8 @@ pub mod pallet {
 		MismatchedHostParams,
 		/// The provided state machine is not a Substrate-based chain
 		UnsupportedStateMachine,
+		/// The beneficiary address in `WithdrawalParams` was not a valid 20-byte EVM address
+		InvalidBeneficiaryAddress,
 	}
 
 	#[pallet::call]
@@ -160,7 +167,7 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		pub fn set_host_params(
 			origin: OriginFor<T>,
-			params: BTreeMap<StateMachine, HostParam<<T as pallet_ismp::Config>::Balance>>,
+			params: BTreeMap<StateMachine, HostParam>,
 		) -> DispatchResult {
 			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
@@ -178,48 +185,30 @@ pub mod pallet {
 		pub fn update_host_params(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
-			update: HostParamUpdate<T::Balance>,
+			update: HostParamUpdate,
 		) -> DispatchResult {
 			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
 			let params = HostParams::<T>::get(&state_machine)
 				.ok_or_else(|| Error::<T>::UnknownStateMachine)?;
 
-			let (post, updated) = match (params.clone(), update) {
-				(HostParam::EvmHostParam(mut inner), HostParamUpdate::EvmHostParam(update)) => {
-					inner.update(update);
+			let (HostParam::EvmHostParam(mut inner), HostParamUpdate::EvmHostParam(update)) =
+				(params.clone(), update);
+			inner.update(update);
 
-					let body = EvmHostParamsAbi::try_from(inner.clone())
-						.expect("u128 will always fit inside a U256; qed")
-						.encode();
+			let body = inner
+				.abi_encode_with_variant()
+				.expect("u128 will always fit inside a U256; qed");
 
-					let post = DispatchPost {
-						dest: state_machine,
-						from: PALLET_ID.to_bytes(),
-						to: inner.host_manager.0.to_vec(),
-						timeout: 0,
-						body,
-					};
-
-					(post, HostParam::EvmHostParam(inner))
-				},
-				(HostParam::SubstrateHostParam(_), HostParamUpdate::SubstrateHostParam(update)) => {
-					let body =
-						Message::<T::AccountId, T::Balance>::UpdateHostParams(update.clone())
-							.encode();
-
-					let post = DispatchPost {
-						dest: state_machine,
-						from: PALLET_ID.to_bytes(),
-						to: PALLET_HYPERBRIDGE.0.to_vec(),
-						timeout: 0,
-						body,
-					};
-
-					(post, HostParam::SubstrateHostParam(update))
-				},
-				_ => return Err(Error::<T>::MismatchedHostParams.into()),
+			let post = DispatchPost {
+				dest: state_machine,
+				from: PALLET_ID.to_bytes(),
+				to: inner.host_manager.0.to_vec(),
+				timeout: 0,
+				body,
 			};
+
+			let updated = HostParam::EvmHostParam(inner);
 
 			let dispatcher = <T as Config>::IsmpHost::default();
 			dispatcher
@@ -296,12 +285,11 @@ pub mod pallet {
 			ensure!(state_machine.is_evm(), Error::<T>::UnsupportedStateMachine);
 
 			let HostParam::EvmHostParam(params) = HostParams::<T>::get(state_machine)
-				.ok_or_else(|| Error::<T>::UnknownStateMachine)?
-			else {
-				Err(Error::<T>::UnknownStateMachine)?
-			};
+				.ok_or_else(|| Error::<T>::UnknownStateMachine)?;
 
-			let data = withdrawal_params.abi_encode();
+			let data = withdrawal_params
+				.abi_encode()
+				.map_err(|_| Error::<T>::InvalidBeneficiaryAddress)?;
 
 			let post = DispatchPost {
 				dest: state_machine,

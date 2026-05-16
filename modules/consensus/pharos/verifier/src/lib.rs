@@ -39,8 +39,9 @@ pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 /// The proven epoch (from a storage proof of `currentEpoch` against the header's
 /// state root) drives rotation: same epoch keeps the trusted set, an increment of
 /// one rotates to the set proved in `validator_set_proof`, anything else is
-/// rejected. The BLS aggregate signature is verified against the post-rotation
-/// set because Pharos signs the boundary block with the new validators.
+/// rejected. The BLS aggregate signature is always verified against the trusted
+/// validator set, so adopting a new set requires the existing set's blessing on
+/// the boundary header.
 pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	trusted_state: VerifierState,
 	update: VerifierStateUpdate,
@@ -111,7 +112,11 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 				observed_epoch,
 			)?;
 
-			verify_block_signature(&new_validator_set, &update.block_proof, computed_hash)?;
+			verify_block_signature(
+				&trusted_state.current_validator_set,
+				&update.block_proof,
+				computed_hash,
+			)?;
 
 			Ok(VerifierState {
 				current_validator_set: new_validator_set,

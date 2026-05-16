@@ -26,7 +26,7 @@ use crate::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -163,7 +163,7 @@ pub enum TimeoutMessage {
 	/// A non memership proof for POST requests
 	Post {
 		/// Request timeouts
-		requests: Vec<Request>,
+		requests: Vec<PostRequest>,
 		/// Non membership batch proof for these requests
 		timeout_proof: Proof,
 	},
@@ -171,7 +171,7 @@ pub enum TimeoutMessage {
 	/// ensure that the timeout timestamp has elapsed on the host
 	Get {
 		/// Requests that have timed out
-		requests: Vec<Request>,
+		requests: Vec<GetRequest>,
 	},
 }
 
@@ -179,8 +179,10 @@ impl TimeoutMessage {
 	/// Get all the inner requests
 	pub fn requests(&self) -> Vec<Request> {
 		match self {
-			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
-				requests.clone(),
+			TimeoutMessage::Post { requests, .. } =>
+				requests.iter().cloned().map(Request::Post).collect(),
+			TimeoutMessage::Get { requests } =>
+				requests.iter().cloned().map(Request::Get).collect(),
 		}
 	}
 	/// Returns the associated proof

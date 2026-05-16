@@ -17,7 +17,7 @@ use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, hash_response, Keccak256, Proof},
+	messaging::{hash_request, Keccak256, Proof},
 	module::IsmpModule,
 	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
 };
@@ -342,12 +342,8 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(
-		&self,
-		res: &GetResponse,
-		_signer: &Vec<u8>,
-	) -> Result<Vec<u8>, Error> {
-		let hash = hash_response::<Self>(res);
+	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+		let hash = hash_request::<Self>(&res.request());
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])
 	}

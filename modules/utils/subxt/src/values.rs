@@ -90,7 +90,7 @@ fn timeout_message_to_value(msg: &TimeoutMessage) -> Value<()> {
 			Composite::named(vec![
 				(
 					"requests".to_string(),
-					Value::unnamed_composite(requests.iter().map(request_to_value)),
+					Value::unnamed_composite(requests.iter().map(post_request_to_value)),
 				),
 				("timeout_proof".to_string(), proof_to_value(timeout_proof)),
 			]),
@@ -99,7 +99,7 @@ fn timeout_message_to_value(msg: &TimeoutMessage) -> Value<()> {
 			"Get",
 			Composite::named(vec![(
 				"requests".to_string(),
-				Value::unnamed_composite(requests.iter().map(request_to_value)),
+				Value::unnamed_composite(requests.iter().map(get_request_to_value)),
 			)]),
 		),
 	}

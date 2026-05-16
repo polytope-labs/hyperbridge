@@ -37,8 +37,8 @@ use ismp::{
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, check_get_timeout_message_dedup,
 	check_post_timeout_message_dedup, check_request_message_dedup,
-	check_response_message_dedup, create_relayer_signer, missing_state_commitment_check,
-	post_request_timeout_check, write_outgoing_commitments,
+	check_response_message_dedup, create_relayer_signer, get_response_already_received_check,
+	missing_state_commitment_check, post_request_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
@@ -205,6 +205,84 @@ fn should_handle_post_request_timeouts_correctly() {
 }
 
 #[test]
+fn should_reject_get_timeout_with_existing_response() {
+	let mut ext = new_test_ext();
+
+	ext.execute_with(|| {
+		set_timestamp(Some(0));
+		let host = Ismp::default();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 0).unwrap();
+		get_response_already_received_check(&host).unwrap()
+	})
+}
+
+#[test]
+fn should_reject_get_timeout_batch_when_any_request_has_response() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		setup_mock_client::<_, Test>(&host);
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 0).unwrap();
+
+		let requests = (0..2)
+			.into_iter()
+			.map(|i| {
+				host.dispatch_request(
+					DispatchRequest::Get(DispatchGet {
+						dest: StateMachine::Evm(1),
+						from: vec![0u8; 32],
+						keys: vec![vec![1u8; 32], vec![1u8; 32]],
+						context: Default::default(),
+						height: 2,
+						timeout: 1000,
+					}),
+					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+				)
+				.unwrap();
+				ismp::router::GetRequest {
+					source: host.host_state_machine(),
+					dest: StateMachine::Evm(1),
+					nonce: i,
+					from: vec![0u8; 32],
+					keys: vec![vec![1u8; 32], vec![1u8; 32]],
+					height: 2,
+					context: Default::default(),
+					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
+				}
+			})
+			.collect::<Vec<_>>();
+
+		// store a response receipt for one of the requests
+		let responded = GetResponse { get: requests[1].clone(), values: Default::default() };
+		host.store_response_receipt(&responded, &vec![0u8; 32]).unwrap();
+
+		// advance past every request's timeout so each request would otherwise be timed-out
+		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
+
+		let res = ismp::handlers::handle_incoming_message(
+			&host,
+			Message::Timeout(TimeoutMessage::Get { requests: requests.clone() }),
+		)
+		.map_err(|e| e.downcast::<ismp::Error>().unwrap());
+		assert!(matches!(res, Err(ismp::Error::GetResponseAlreadyReceived { .. })));
+
+		// the batch was rejected, so no request commitments should have been deleted
+		for get in requests {
+			let commitment = hash_request::<Ismp>(&ismp::router::Request::Get(get));
+			assert!(host.request_commitment(commitment).is_ok());
+		}
+	})
+}
+
+#[test]
 fn should_handle_get_request_timeouts_correctly() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
@@ -232,7 +310,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.unwrap();
-				let get = ismp::router::GetRequest {
+				ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Evm(1),
 					nonce: i,
@@ -242,8 +320,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					context: Default::default(),
 
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
-				};
-				ismp::router::Request::Get(get)
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -251,9 +328,9 @@ fn should_handle_get_request_timeouts_correctly() {
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 		pallet_ismp::Pallet::<Test>::execute(vec![Message::Timeout(timeout_msg)]).unwrap();
-		for request in requests {
+		for get in requests {
 			// commitments should not be found in storage after timeout has been processed
-			let commitment = hash_request::<Ismp>(&request);
+			let commitment = hash_request::<Ismp>(&ismp::router::Request::Get(get));
 			assert!(host.request_commitment(commitment).is_err())
 		}
 	})

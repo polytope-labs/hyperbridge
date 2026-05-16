@@ -141,6 +141,11 @@ impl GetRequest {
 	pub fn timeout(&self) -> Duration {
 		get_timeout(self.timeout_timestamp)
 	}
+
+	/// Returns true if the host timestamp has exceeded the request timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.timeout()
+	}
 }
 
 /// Get the timeout in seconds

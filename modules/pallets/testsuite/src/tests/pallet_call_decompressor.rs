@@ -105,20 +105,17 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		let host = Ismp::default();
 		let requests = (0..100)
 			.into_iter()
-			.map(|i| {
-				let get = ismp::router::GetRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
-					height: 3,
-					context: Default::default(),
+			.map(|i| ismp::router::GetRequest {
+				source: host.host_state_machine(),
+				dest: StateMachine::Evm(1),
+				nonce: i,
+				from: H256::random().0.to_vec(),
+				keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
+				height: 3,
+				context: Default::default(),
 
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-				};
-				Request::Get(get)
+				timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
+					2_000_000_000,
 			})
 			.collect::<Vec<_>>();
 

@@ -72,10 +72,6 @@ impl IsmpHost for ArbHost {
 								match self.fetch_arbitrum_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
-											state_machine_id: StateMachineId {
-												state_id: self.state_machine,
-												consensus_state_id: self.consensus_state_id,
-											},
 											l1_height: current_height,
 											proof: ArbitrumConsensusProof::ArbitrumOrbit(payload),
 										};
@@ -115,10 +111,6 @@ impl IsmpHost for ArbHost {
 								match self.fetch_arbitrum_bold_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
-											state_machine_id: StateMachineId {
-												state_id: self.state_machine,
-												consensus_state_id: self.consensus_state_id,
-											},
 											l1_height: current_height,
 											proof: ArbitrumConsensusProof::ArbitrumBold(payload),
 										};

@@ -50,7 +50,6 @@ pub struct ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct ArbitrumUpdate {
-	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: ArbitrumConsensusProof,
 }
@@ -105,12 +104,17 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let ArbitrumUpdate { state_machine_id, l1_height, proof } =
+		let ArbitrumUpdate { l1_height, proof } =
 			ArbitrumUpdate::decode(&mut &consensus_proof[..])
 				.map_err(|_| Error::Custom("Cannot decode arbitrum update".to_string()))?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+
+		// The state machine being updated is fixed by the trusted consensus state, never
+		// supplied by the (untrusted) update. This binds verifier-config selection to the
+		// correct Arbitrum chain identity.
+		let state_machine_id = consensus_state.state_machine_id;
 
 		let l1_state_machine_height =
 			StateMachineHeight { id: consensus_state.l1_state_machine_id, height: l1_height };

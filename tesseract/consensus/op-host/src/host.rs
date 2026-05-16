@@ -645,10 +645,6 @@ async fn submit_consensus_update(
 							match client.fetch_op_payload(current_height, event).await {
 								Ok(payload) => {
 									let update = OptimismUpdate {
-										state_machine_id: StateMachineId {
-											state_id: client.state_machine,
-											consensus_state_id: client.consensus_state_id,
-										},
 										l1_height: current_height,
 										proof: OptimismConsensusProof::OpL2Oracle(payload),
 									};
@@ -704,10 +700,6 @@ async fn submit_consensus_update(
 								Ok(maybe_payload) => {
 									if let Some(payload) = maybe_payload {
 										let update = OptimismUpdate {
-											state_machine_id: StateMachineId {
-												state_id: client.state_machine,
-												consensus_state_id: client.consensus_state_id,
-											},
 											l1_height: current_height,
 											proof: OptimismConsensusProof::OpFaultProofGames(payload),
 										};

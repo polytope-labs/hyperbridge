@@ -704,9 +704,9 @@ pub mod pallet {
 		/// 2. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
 		///    which routes to `BeefyConsensusClient::verify_consensus`. That runs the full BEEFY /
 		///    SP1 check and persists consensus state + parachain commitments. The verifier's own
-		///    upfront stale check (`beefy_verifier::error::Error::StaleHeight`) propagates back as
-		///    a `Custom(...)` ismp error here; we surface it as `StaleProof` so the dispatcher can
-		///    route an SP1 uncle to `settle_uncle_proof`.
+		///    upfront stale check (`beefy_verifier::error::Error::StaleHeight`) propagates back
+		///    wrapped in `ismp::Error::AnyHow` here; we surface it as `StaleProof` so the
+		///    dispatcher can route an SP1 uncle to `settle_uncle_proof`.
 		/// 3. Extract the proven parachain height from the returned `StateMachineUpdated` events
 		///    and the new authority-set id from the stored consensus state so the caller can
 		///    classify the proof as rotation / messaging.

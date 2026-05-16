@@ -6,7 +6,7 @@
 //! redefine variants; downstream callers map to `ismp::error::Error`
 //! via the `From` impl below.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use ismp::host::StateMachine;
 use thiserror::Error;
 
@@ -126,10 +126,12 @@ pub enum Error {
 impl From<Error> for ismp::error::Error {
 	fn from(value: Error) -> Self {
 		match value {
-			// Preserve the original ISMP error so callers can match on
-			// it; everything else folds into `Custom`.
+			// Preserve the original ISMP error so callers can match on it.
 			Error::Ismp(err) => err,
-			other => ismp::error::Error::Custom(other.to_string()),
+			// Carry the typed verifier error inside `AnyHow` so dispatchers can
+			// still downcast it — `pallet-beefy-consensus-proofs` matches on
+			// `StaleHeight` to re-route an SP1 uncle proof.
+			other => ismp::error::Error::AnyHow(anyhow::Error::new(other).into()),
 		}
 	}
 }

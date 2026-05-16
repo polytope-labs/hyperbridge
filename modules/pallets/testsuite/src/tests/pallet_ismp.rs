@@ -623,30 +623,24 @@ fn substrate_verify_non_membership_requires_overlay_proof_variant() {
 			state_root: H256::zero(),
 		};
 
-		let state_variant = SubstrateStateProof::StateProof(StateMachineProof {
-			hasher: HashAlgorithm::Blake2,
-			storage_proof: vec![],
-		});
+		let inner = StateMachineProof { hasher: HashAlgorithm::Blake2, storage_proof: vec![] };
+
 		let rejected = state_machine.verify_non_membership(
 			&host,
 			RequestResponse::Request(vec![]),
 			commitment.clone(),
-			&Proof { height, proof: state_variant.encode() },
+			&Proof { height, proof: SubstrateStateProof::StateProof(inner.clone()).encode() },
 		);
 		assert!(matches!(
 			rejected,
 			Err(ismp::error::Error::Custom(ref msg)) if msg == "Expected Overlay Proof"
 		));
 
-		let overlay_variant = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Blake2,
-			storage_proof: vec![],
-		});
 		let accepted = state_machine.verify_non_membership(
 			&host,
 			RequestResponse::Request(vec![]),
 			commitment,
-			&Proof { height, proof: overlay_variant.encode() },
+			&Proof { height, proof: SubstrateStateProof::OverlayProof(inner).encode() },
 		);
 		assert!(accepted.is_ok());
 	})

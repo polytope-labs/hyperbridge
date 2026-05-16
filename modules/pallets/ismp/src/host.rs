@@ -18,18 +18,22 @@ use polkadot_sdk::*;
 
 use crate::{
 	child_trie,
-	dispatcher::{RefundingRouter, RequestMetadata},
+	dispatcher::{IsmpHostRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
 	KnownStateMachineHeights, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
-	UnbondingPeriod,
+	UnbondingPeriod, RELAYER_FEE_ACCOUNT,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use crypto_utils::verification::Signature;
-use frame_support::traits::{Get, UnixTime};
+use frame_support::traits::{
+	fungible::Mutate,
+	tokens::Preservation,
+	Get, UnixTime,
+};
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -41,7 +45,10 @@ use ismp::{
 	router::{GetResponse, IsmpRouter, Request},
 };
 use sp_core::H256;
-use sp_runtime::SaturatedConversion;
+use sp_runtime::{
+	traits::{AccountIdConversion, Zero},
+	SaturatedConversion,
+};
 use sp_std::prelude::*;
 
 impl<T: Config> IsmpHost for Pallet<T> {
@@ -234,6 +241,15 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		// We can't delete actual leaves in the mmr so this serves as a replacement for that
 		let meta = child_trie::RequestCommitments::<T>::get(hash)
 			.ok_or_else(|| Error::Custom("Request Commitment not found".to_string()))?;
+		if meta.fee.fee > Zero::zero() {
+			T::Currency::transfer(
+				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
+				&meta.fee.payer,
+				meta.fee.fee,
+				Preservation::Expendable,
+			)
+			.map_err(|err| Error::Custom(format!("Failed to refund relayer fee: {err:?}")))?;
+		}
 		child_trie::RequestCommitments::<T>::remove(hash);
 		Ok(meta.encode())
 	}
@@ -304,13 +320,24 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-		Box::new(RefundingRouter::<T>::new(Box::new(T::Router::default())))
+		Box::new(IsmpHostRouter::<T>::new(Box::new(T::Router::default())))
 	}
 
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error> {
 		let hash = hash_request::<Self>(req);
 		let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta)
 			.map_err(|_| Error::Custom("Failed to decode leaf metadata".to_string()))?;
+		// Rollback path: `delete_request_commitment` already refunded the payer,
+		// so we must move the fee back into escrow when restoring the commitment.
+		if leaf_meta.fee.fee > Zero::zero() {
+			T::Currency::transfer(
+				&leaf_meta.fee.payer,
+				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
+				leaf_meta.fee.fee,
+				Preservation::Expendable,
+			)
+			.map_err(|err| Error::Custom(format!("Failed to restore relayer fee: {err:?}")))?;
+		}
 		child_trie::RequestCommitments::<T>::insert(hash, leaf_meta);
 		Ok(())
 	}

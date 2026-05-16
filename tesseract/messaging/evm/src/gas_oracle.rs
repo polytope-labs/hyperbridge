@@ -11,7 +11,7 @@ use alloy_sol_macro::sol;
 use anyhow::{anyhow, Error};
 use hex_literal::hex;
 use ismp::host::StateMachine;
-use ismp_solidity_abi::evm_host::EvmHostInstance;
+use ismp_abi::evm_host::EvmHostInstance;
 use primitive_types::U256;
 use serde::Deserialize;
 use sp_core::H160;

@@ -37,19 +37,21 @@ library Codec {
     // @dev SCALE-encodes the BEEFY finality commitment
     function Encode(Commitment memory commitment) internal pure returns (bytes memory) {
         uint256 payloadLen = commitment.payload.length;
-        bytes memory accumulator = bytes("");
+        bytes memory payload = bytes("");
         for (uint256 i = 0; i < payloadLen; i++) {
-            accumulator = bytes.concat(
-                abi.encodePacked(commitment.payload[i].id), ScaleCodec.encodeBytes(commitment.payload[i].data)
+            payload = bytes.concat(
+                payload,
+                abi.encodePacked(commitment.payload[i].id),
+                ScaleCodec.encodeBytes(commitment.payload[i].data)
             );
         }
 
-        bytes memory payload = bytes.concat(ScaleCodec.encodeUintCompact(payloadLen), accumulator);
-        bytes memory rest = bytes.concat(
-            ScaleCodec.encode32(uint32(commitment.blockNumber)), ScaleCodec.encode64(uint64(commitment.validatorSetId))
+        return bytes.concat(
+            ScaleCodec.encodeUintCompact(payloadLen),
+            payload,
+            ScaleCodec.encode32(uint32(commitment.blockNumber)),
+            ScaleCodec.encode64(uint64(commitment.validatorSetId))
         );
-
-        return bytes.concat(payload, rest);
     }
 
     // @dev SCALE-encodes the BEEFY Mmr leaf

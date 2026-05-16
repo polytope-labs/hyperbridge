@@ -17,28 +17,52 @@
 use polkadot_sdk::*;
 
 use crate::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
-	offchain::LeafIndexAndPos,
-	Config, Pallet, RELAYER_FEE_ACCOUNT,
+	child_trie::RequestCommitments, offchain::LeafIndexAndPos, Config, Event, Pallet,
+	RELAYER_FEE_ACCOUNT,
 };
 use alloc::{boxed::Box, format, vec::Vec};
+use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::{
-	traits::{fungible::Mutate, tokens::Preservation, UnixTime},
+	traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
 	weights::Weight,
 };
 use ismp::{
 	dispatcher,
 	dispatcher::{DispatchRequest, IsmpDispatcher},
 	error::Error as IsmpError,
-	events::Meta,
 	host::IsmpHost,
-	messaging::{hash_post_response, hash_request},
+	messaging::hash_request,
 	module::IsmpModule,
-	router::{GetRequest, IsmpRouter, PostRequest, PostResponse, Request, Response, Timeout},
+	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request},
 };
 use sp_core::H256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
+
+/// [`IsmpModule`] module identifier for incoming withdrawal requests from the
+/// hyperbridge coprocessor. The router intercepts this id and routes the
+/// payload to the built-in withdrawal handler — there is no separate pallet.
+pub const HYPERBRIDGE_MODULE_ID: &[u8] = b"HYPR-FEE";
+
+/// A request to withdraw some funds owed to a relayer by the protocol.
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+pub struct WithdrawalRequest<Account, Amount> {
+	/// The amount to be withdrawn
+	pub amount: Amount,
+	/// The withdrawal beneficiary
+	pub account: Account,
+}
+
+/// Cross-chain messages this module accepts. Only messages from the configured
+/// coprocessor are honoured. The SCALE encoding (including the `#[codec(index =
+/// 2)]` discriminator) is preserved from the original standalone withdrawal
+/// pallet so on-the-wire payloads continue to decode.
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+pub enum Message<Account, Balance> {
+	/// Withdraw the fees owed to a relayer
+	#[codec(index = 0)]
+	WithdrawRelayerFees(WithdrawalRequest<Account, Balance>),
+}
 
 /// Metadata about an outgoing request
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
@@ -129,39 +153,6 @@ where
 
 		Ok(commitment)
 	}
-
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		fee: FeeMetadata<T>,
-	) -> Result<H256, anyhow::Error> {
-		// collect payment for the response
-		if fee.fee != Zero::zero() {
-			T::Currency::transfer(
-				&fee.payer,
-				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
-				fee.fee,
-				Preservation::Expendable,
-			)
-			.map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
-		}
-
-		let req_commitment = hash_request::<Pallet<T>>(&response.request());
-		if !RequestReceipts::<T>::contains_key(req_commitment) {
-			Err(IsmpError::UnknownRequest {
-				meta: Meta {
-					source: response.request().source_chain(),
-					dest: response.request().dest_chain(),
-					nonce: response.request().nonce(),
-				},
-			})?
-		}
-
-		let response = Response::Post(response);
-		let commitment = Pallet::<T>::dispatch_response(response, fee)?;
-
-		Ok(commitment)
-	}
 }
 
 /// An [`IsmpRouter`] implementation that delegates to an inner module which always refunds
@@ -182,9 +173,68 @@ impl<T: Config> RefundingRouter<T> {
 
 impl<T: Config> IsmpRouter for RefundingRouter<T> {
 	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
+		// Intercept the well-known module id for protocol withdrawals. The
+		// payload is decoded as [`Message::WithdrawRelayerFees`] and the
+		// amount is transferred from `RELAYER_FEE_ACCOUNT` to the named
+		// account. Only messages originating from the configured coprocessor
+		// are accepted.
+		if id.as_slice() == HYPERBRIDGE_MODULE_ID {
+			return Ok(Box::new(HyperbridgeWithdrawalModule::<T>::default()));
+		}
+
 		let module = self.inner.module_for_id(id)?;
 
 		Ok(Box::new(RefundingModule::<T>::new(module)))
+	}
+}
+
+/// Built-in [`IsmpModule`] that performs relayer-fee withdrawals on behalf of
+/// the hyperbridge coprocessor. Lives inside `pallet-ismp` so the protocol can
+/// pay relayers without a dedicated companion pallet.
+pub(crate) struct HyperbridgeWithdrawalModule<T>(PhantomData<T>);
+
+impl<T> Default for HyperbridgeWithdrawalModule<T> {
+	fn default() -> Self {
+		Self(PhantomData)
+	}
+}
+
+impl<T: Config> IsmpModule for HyperbridgeWithdrawalModule<T> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
+		// Only the configured coprocessor may instruct withdrawals.
+		let source = request.source;
+		if Some(source) != T::Coprocessor::get() {
+			Err(IsmpError::Custom(format!("Invalid request source: {source}")))?
+		}
+
+		let message = Message::<T::AccountId, T::Balance>::decode(&mut &request.body[..])
+			.map_err(|err| IsmpError::Custom(format!("Failed to decode message: {err:?}")))?;
+
+		match message {
+			Message::WithdrawRelayerFees(WithdrawalRequest { account, amount }) => {
+				T::Currency::transfer(
+					&RELAYER_FEE_ACCOUNT.into_account_truncating(),
+					&account,
+					amount,
+					Preservation::Expendable,
+				)
+				.map_err(|err| {
+					IsmpError::Custom(format!("Error withdrawing protocol fees: {err:?}"))
+				})?;
+
+				Pallet::<T>::deposit_event(Event::<T>::RelayerFeeWithdrawn { amount, account });
+			},
+		}
+
+		Ok(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 0))
+	}
+
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
+		Err(IsmpError::CannotHandleMessage.into())
+	}
+
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
+		Err(IsmpError::CannotHandleMessage.into())
 	}
 }
 
@@ -209,24 +259,18 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
 		self.inner.on_accept(request)
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
 		self.inner.on_response(response)
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		let result = self.inner.on_timeout(timeout.clone());
 
 		// only refund if module returns Ok(())
 		if result.is_ok() {
-			let fee_metadata = match timeout {
-				Timeout::Request(request) => {
-					let commitment = hash_request::<Pallet<T>>(&request);
-					RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
-				},
-				Timeout::Response(response) => {
-					let commitment = hash_post_response::<Pallet<T>>(&response);
-					ResponseCommitments::<T>::get(commitment).map(|meta| meta.fee)
-				},
+			let fee_metadata = {
+				let commitment = hash_request::<Pallet<T>>(&timeout);
+				RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
 			};
 
 			if let Some(fee) = fee_metadata {

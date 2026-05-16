@@ -47,9 +47,11 @@ use ismp::{
 	messaging::Proof,
 };
 pub use pallet::*;
-use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
-use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
-use pallet_ismp_host_executive::{withdrawal::*, HostParam, HostParams};
+use pallet_ismp::{
+	child_trie::{RequestCommitments, ResponseCommitments},
+	dispatcher::{Message, WithdrawalRequest, HYPERBRIDGE_MODULE_ID},
+};
+use pallet_ismp_host_executive::{HostParam, HostParams, WithdrawalParams};
 use polkadot_sdk::*;
 use sp_core::{Get, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
@@ -238,8 +240,13 @@ pub mod pallet {
 		ErrorCompletingCall,
 		/// Missing commitments
 		MissingCommitments,
+		/// The withdrawal proof's commitments batch contains a duplicate key.
+		DuplicateCommitment,
 		/// Fee accumulation proof contains no address
 		IncompleteProof,
+		/// Withdrawal batch contains commitments delivered by more than one
+		/// relayer address.
+		MixedDeliveryAddressesInBatch,
 		/// Signature Decoding Error
 		SignatureDecodingError,
 		/// `(destination, set_id)` has already been claimed by some relayer.
@@ -477,10 +484,7 @@ where
 		// `host_manager`; non-EVM destinations are rejected since the
 		// attribution mechanism is HandlerV2-specific.
 		let HostParam::EvmHostParam(evm_params) =
-			HostParams::<T>::get(destination).ok_or(Error::<T>::OutboundHostParamsNotKnown)?
-		else {
-			return Err(Error::<T>::OutboundDestinationNotEvm.into());
-		};
+			HostParams::<T>::get(destination).ok_or(Error::<T>::OutboundHostParamsNotKnown)?;
 		let handler_v2 = evm_params.handler;
 
 		// 52-byte storage key the EVM state proof verifier expects:
@@ -587,19 +591,7 @@ where
 		}
 
 		let dispatcher = <T as Config>::IsmpHost::default();
-		let relayer_manager_address = match withdrawal_data.dest_chain {
-			s if s.is_substrate() => PALLET_HYPERBRIDGE.0.to_vec(),
-			_ => {
-				let HostParam::EvmHostParam(params) =
-					HostParams::<T>::get(withdrawal_data.dest_chain)
-						.ok_or_else(|| Error::<T>::MissingMangerAddress)?
-				else {
-					Err(Error::<T>::MismatchedStateMachine)?
-				};
 
-				params.host_manager.0.to_vec()
-			},
-		};
 		Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
 			*value += 1;
 			Ok::<(), ()>(())
@@ -607,28 +599,43 @@ where
 		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
 
 		let beneficiary_address = withdrawal_data.beneficiary.clone().unwrap_or(address.clone());
-		let params = WithdrawalParams {
-			beneficiary_address: beneficiary_address.clone(),
-			amount: available_amount.into(),
-			native: false,
-		};
+		let (to, body) = match withdrawal_data.dest_chain {
+			s if s.is_substrate() => (
+				HYPERBRIDGE_MODULE_ID.to_vec(),
+				Message::WithdrawRelayerFees(WithdrawalRequest {
+					amount: available_amount.low_u128(),
+					account: AccountId32::try_from(&beneficiary_address[..])
+						.map_err(|_| Error::<T>::InvalidPublicKey)?,
+				})
+				.encode(),
+			),
+			_ => {
+				let HostParam::EvmHostParam(params) =
+					HostParams::<T>::get(withdrawal_data.dest_chain)
+						.ok_or_else(|| Error::<T>::MissingMangerAddress)?;
 
-		let data = match withdrawal_data.dest_chain {
-			s if s.is_evm() => params.abi_encode(),
-			_ => Message::WithdrawRelayerFees(WithdrawalRequest {
-				amount: params.amount.low_u128(),
-				account: AccountId32::try_from(&beneficiary_address[..])
-					.map_err(|_| Error::<T>::InvalidPublicKey)?,
-			})
-			.encode(),
+				let body = WithdrawalParams {
+					beneficiary_address: beneficiary_address.clone(),
+					amount: available_amount.into(),
+					// Withdraw in the EVM host's configured fee token. Address-zero
+					// here is the canonical "use the host's default" sentinel; the
+					// EVM-side host treats it as the chain's native asset and the
+					// fee-token path is taken when this is non-zero.
+					token: Default::default(),
+				}
+				.abi_encode()
+				.map_err(|_| Error::<T>::InvalidPublicKey)?;
+
+				(params.host_manager.0.to_vec(), body)
+			},
 		};
 
 		let post = DispatchPost {
 			dest: withdrawal_data.dest_chain,
 			from: MODULE_ID.to_vec(),
-			to: relayer_manager_address,
+			to,
+			body,
 			timeout: 0,
-			body: data,
 		};
 
 		// Account is not useful in this case
@@ -652,7 +659,16 @@ where
 	}
 
 	pub fn accumulate(mut withdrawal_proof: WithdrawalProof) -> DispatchResult {
-		// Filter out duplicate commitments
+		// Reject duplicate commitments within the batch. The wire format is a
+		// `Vec` and this extrinsic is unsigned, so this is the line of defence
+		// against an attacker padding the batch with identical commitments to
+		// double-claim fees.
+		let mut seen = alloc::collections::BTreeSet::new();
+		for key in withdrawal_proof.commitments.iter() {
+			ensure!(seen.insert(key.encode()), Error::<T>::DuplicateCommitment);
+		}
+
+		// Filter out already-claimed / missing commitments
 		withdrawal_proof.commitments = withdrawal_proof
 			.commitments
 			.into_iter()
@@ -709,18 +725,10 @@ where
 			dest_result,
 		)?;
 
-		if result.is_empty() {
-			Err(Error::<T>::IncompleteProof)?
-		}
-
-		let mut total_fee = U256::zero();
-		// We expect the relayer used the same address for all deliveries in this batch
-		// That's the only behaviour supported by tesseract relayer
-		let mut delivery_address = Default::default();
-		for (address, fee) in result.clone().into_iter() {
-			delivery_address = address;
-			total_fee += fee;
-		}
+		let mut entries = result.into_iter();
+		let (delivery_address, total_fee) = entries.next().ok_or(Error::<T>::IncompleteProof)?;
+		// Every commitment in the batch must share a single delivery address.
+		ensure!(entries.next().is_none(), Error::<T>::MixedDeliveryAddressesInBatch);
 
 		// Let's verify the beneficiary address
 		let beneficiary_address = if let Some((beneficiary_address, signature)) =
@@ -1101,7 +1109,7 @@ impl<T: Config> Pallet<T> {
 
 pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>>) -> [u8; 32] {
 	if let Some(beneficiary) = beneficiary {
-		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
+		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode());
 	}
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
 }

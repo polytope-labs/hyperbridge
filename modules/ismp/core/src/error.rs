@@ -155,6 +155,11 @@ pub enum Error {
 		/// Unknown request metadata
 		meta: Meta,
 	},
+	/// Attempted to time-out a GET request that has already been responded to
+	GetResponseAlreadyReceived {
+		/// The request metadata
+		meta: Meta,
+	},
 	/// Attempted to time-out an unknown response
 	UnknownResponse {
 		/// Unknown response metadata

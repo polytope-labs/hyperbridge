@@ -32,8 +32,8 @@ ismp-bsc = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true, features = [
     "testing",
 ] }
-pallet-hyperbridge = { workspace = true, default-features = true }
 pallet-bandwidth = { workspace = true, default-features = true }
+pallet-state-coprocessor = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
@@ -47,7 +47,6 @@ pallet-consensus-incentives = { workspace = true, default-features = true }
 pallet-messaging-incentives = { workspace = true, default-features = true }
 pallet-collator-manager = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
-hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
@@ -67,7 +66,7 @@ beefy-verifier-primitives = { workspace = true }
 subxt-core = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
-ismp-solidity-abi = { workspace = true, features = ["std"] }
+ismp-abi = { workspace = true, features = ["std"] }
 
 [dependencies.alloy]
 workspace = true

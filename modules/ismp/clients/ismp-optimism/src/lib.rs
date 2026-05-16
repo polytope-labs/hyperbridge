@@ -102,7 +102,6 @@ impl ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct OptimismUpdate {
-	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: OptimismConsensusProof,
 }
@@ -157,12 +156,17 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let OptimismUpdate { state_machine_id, l1_height, proof } =
+		let OptimismUpdate { l1_height, proof } =
 			OptimismUpdate::decode(&mut &consensus_proof[..])
 				.map_err(|_| OptimismError::DecodeOptimismUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
 			.map_err(|_| OptimismError::DecodeConsensusState)?;
+
+		// The state machine being updated is fixed by the trusted consensus state, never
+		// supplied by the (untrusted) update. This binds verifier-config selection to the
+		// correct OP Stack chain identity.
+		let state_machine_id = consensus_state.state_machine_id;
 
 		let l1_state_machine_height =
 			StateMachineHeight { id: consensus_state.l1_state_machine_id, height: l1_height };

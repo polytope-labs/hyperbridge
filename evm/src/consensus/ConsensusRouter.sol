@@ -32,17 +32,13 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  *                        and MMR leaf inclusion to an SP1 zero-knowledge proof. Cheapest on-chain
  *                        verification at the cost of off-chain proving.
  *
- *   0x02 (FiatShamir) -> FiatShamirBeefy: Uses the Fiat-Shamir heuristic to deterministically
- *                        sample a subset of validators to verify on-chain, reducing gas costs
- *                        compared to the naive approach while remaining fully on-chain.
- *
  * The router strips the first byte before forwarding the remaining proof bytes to the
- * selected verifier. All three verifiers implement IConsensus and IConsensusV2, and the
+ * selected verifier. Both verifiers implement IConsensus and IConsensusV2, and the
  * router itself exposes both interfaces.
  *
  * @dev The verifier addresses are set as immutables at construction time and cannot be changed.
  * Reverts with EmptyProof if no proof data is provided, or InvalidProofType if the prefix
- * byte is outside the valid range (0x00-0x02).
+ * byte is outside the valid range (0x00-0x01).
  */
 contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // Proof type enum
@@ -50,9 +46,7 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
         // 0x00 - EcdsaBeefy (full ECDSA signature verification)
         Ecdsa,
         // 0x01 - SP1Beefy (zero-knowledge proof)
-        Sp1,
-        // 0x02 - FiatShamirBeefy (Fiat-Shamir sampled proof)
-        FiatShamir
+        Sp1
     }
 
     // SP1 Beefy consensus client
@@ -61,19 +55,15 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // EcdsaBeefy consensus client
     IConsensus public immutable ecdsaBeefy;
 
-    // FiatShamirBeefy consensus client
-    IConsensus public immutable fiatShamirBeefy;
-
     // Invalid proof type provided
     error InvalidProofType(uint8 proofType);
 
     // Empty proof provided
     error EmptyProof();
 
-    constructor(IConsensus _sp1Beefy, IConsensus _ecdsaBeefy, IConsensus _fiatShamirBeefy) {
+    constructor(IConsensus _sp1Beefy, IConsensus _ecdsaBeefy) {
         sp1Beefy = _sp1Beefy;
         ecdsaBeefy = _ecdsaBeefy;
-        fiatShamirBeefy = _fiatShamirBeefy;
     }
 
     /**
@@ -115,9 +105,6 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
         } else if (proofType == ProofType.Ecdsa) {
             // Route to EcdsaBeefy for naive proof verification
             return IConsensus(address(ecdsaBeefy)).verifyConsensus(encodedState, actualProof);
-        } else if (proofType == ProofType.FiatShamir) {
-            // Route to FiatShamirBeefy for Fiat-Shamir sampled proof verification
-            return IConsensus(address(fiatShamirBeefy)).verifyConsensus(encodedState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }
@@ -152,8 +139,6 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
             return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);
         } else if (proofType == ProofType.Ecdsa) {
             return IConsensusV2(address(ecdsaBeefy)).verify(previousState, actualProof);
-        } else if (proofType == ProofType.FiatShamir) {
-            return IConsensusV2(address(fiatShamirBeefy)).verify(previousState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }

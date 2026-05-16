@@ -68,7 +68,7 @@ use codec::Encode;
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	events::Event,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 use jsonrpsee::{
 	core::RpcResult,
@@ -160,7 +160,7 @@ where
 
 	/// Query full response data from the ismp pallet
 	#[method(name = "ismp_queryResponses")]
-	fn query_responses(&self, query: Vec<LeafIndexQuery>) -> RpcResult<Vec<Response>>;
+	fn query_responses(&self, query: Vec<LeafIndexQuery>) -> RpcResult<Vec<GetResponse>>;
 
 	/// Query state proof from global state trie
 	#[method(name = "ismp_queryStateProof")]
@@ -259,7 +259,7 @@ where
 			.map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))
 	}
 
-	fn query_responses(&self, query: Vec<LeafIndexQuery>) -> RpcResult<Vec<Response>> {
+	fn query_responses(&self, query: Vec<LeafIndexQuery>) -> RpcResult<Vec<GetResponse>> {
 		let mut api = self.client.runtime_api();
 		api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
 		let at = self.client.info().best_hash;

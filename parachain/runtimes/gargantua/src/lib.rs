@@ -56,7 +56,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 
 use alloc::borrow::Cow;
@@ -797,6 +797,11 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 
+impl pallet_messaging_incentives::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -919,6 +924,8 @@ mod runtime {
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(91)]
 	pub type HyperFungibleToken = pallet_hyper_fungible_token;
+	#[runtime::pallet_index(92)]
+	pub type MessagingIncentives = pallet_messaging_incentives;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -1174,7 +1181,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}

@@ -57,7 +57,7 @@ const tokenGateway = new TokenGateway({ source, dest })
 
 ## Methods
 
-### quoteNative(params)
+### quote(params)
 
 Estimates the native-token cost of a teleport: relayer fee (for EVM
 destinations — automatically estimated from gas on the destination chain plus
@@ -68,7 +68,7 @@ the source-chain Uniswap V2 router.
 Returns `0` relayer fee for non-EVM destinations.
 
 ```typescript lineNumbers
-async quoteNative(params: TeleportParams): Promise<QuoteNativeResult>
+async quote(params: TeleportParams): Promise<QuoteNativeResult>
 ```
 
 **Parameters:**

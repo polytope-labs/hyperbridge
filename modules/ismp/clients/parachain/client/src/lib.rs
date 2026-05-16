@@ -99,9 +99,9 @@ pub mod pallet {
 	use frame_support::{pallet_prelude::*, BoundedBTreeSet};
 	use frame_system::pallet_prelude::*;
 	use ismp::{consensus::StateMachineId, host::StateMachine};
-	use migration::StorageV0;
+	use migration::{StorageV0, StorageV1};
 
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
@@ -174,7 +174,7 @@ pub mod pallet {
 
 	/// List of parachains that this state machine is interested in.
 	#[pallet::storage]
-	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, u64>;
+	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
 
 	/// Events emitted by this pallet
 	#[pallet::event]
@@ -206,7 +206,7 @@ pub mod pallet {
 					StateMachine::Polkadot(_) => StateMachine::Polkadot(para.id),
 					_ => continue,
 				};
-				Parachains::<T>::insert(para.id, para.slot_duration);
+				Parachains::<T>::insert(para.id, ());
 				let _ = host.store_challenge_period(
 					StateMachineId {
 						state_id,
@@ -268,7 +268,7 @@ pub mod pallet {
 		}
 
 		fn on_runtime_upgrade() -> Weight {
-			StorageV0::migrate_to_v1::<T>()
+			StorageV0::migrate_to_v1::<T>() + StorageV1::migrate_to_v2::<T>()
 		}
 
 		/// Drains the legacy [`RelayChainStateCommitments`] map using leftover block
@@ -358,7 +358,7 @@ pub mod pallet {
 
 			// insert the parachain ids
 			for para in &self.parachains {
-				Parachains::<T>::insert(para.id, para.slot_duration);
+				Parachains::<T>::insert(para.id, ());
 				let state_id = match host.host_state_machine() {
 					StateMachine::Kusama(_) => StateMachine::Kusama(para.id),
 					StateMachine::Polkadot(_) => StateMachine::Polkadot(para.id),
@@ -454,8 +454,6 @@ impl<T: Config> RelayChainOracle for Pallet<T> {
 pub struct ParachainData {
 	/// parachain id
 	pub id: u32,
-	/// parachain slot duration type
-	pub slot_duration: u64,
 }
 
 /// Returns the consensus state id for The relay chain

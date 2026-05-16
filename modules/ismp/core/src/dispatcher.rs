@@ -15,7 +15,7 @@
 
 //! Message dispatcher definitions
 
-use crate::{host::StateMachine, router::PostResponse};
+use crate::host::StateMachine;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use primitive_types::H256;
@@ -85,7 +85,7 @@ pub struct FeeMetadata<A, B> {
 
 /// The Ismp dispatcher provides an [`IsmpModule`](crate::module::IsmpModule) with the required
 /// interface for dispatching out outgoing [`Request`](crate::router::Request)s or
-/// [`Response`](crate::router::Response)s.
+/// [`Response`](crate::router::GetResponse)s.
 ///
 /// An [`Event`](crate::events::Event) should be emitted after successful dispatch
 pub trait IsmpDispatcher: Default {
@@ -103,14 +103,6 @@ pub trait IsmpDispatcher: Default {
 	fn dispatch_request(
 		&self,
 		request: DispatchRequest,
-		fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, anyhow::Error>;
-
-	/// Dispatches an outgoing response, the dispatcher should commit them to host's state trie or
-	/// overlay tree. Returns the response commitment
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
 		fee: FeeMetadata<Self::Account, Self::Balance>,
 	) -> Result<H256, anyhow::Error>;
 }

@@ -22,13 +22,12 @@ use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, Proof},
+	messaging::{hash_request, Proof},
 	router::{PostRequest, Request},
 };
 use pallet_ismp::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+	child_trie::{RequestCommitments, RequestReceipts},
 	dispatcher::FeeMetadata,
-	ResponseReceipt,
 };
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
@@ -69,27 +68,6 @@ fn test_accumulate_fees() {
 			})
 			.collect::<Vec<_>>();
 
-		let responses = (0u64..10)
-			.into_iter()
-			.map(|nonce| {
-				let post = PostRequest {
-					source: StateMachine::Kusama(2001),
-					dest: StateMachine::Kusama(2000),
-					nonce,
-					from: vec![],
-					to: vec![],
-					timeout_timestamp: 0,
-					body: vec![],
-				};
-				let response = ismp::router::PostResponse {
-					post: post.clone(),
-					response: vec![0; 32],
-					timeout_timestamp: nonce,
-				};
-				(hash_request::<Ismp>(&Request::Post(post)), hash_post_response::<Ismp>(&response))
-			})
-			.collect::<Vec<_>>();
-
 		let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
 		let public_key = pair.public().0.to_vec();
 
@@ -105,7 +83,7 @@ fn test_accumulate_fees() {
 		let mut dest_trie =
 			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
 
-		// Insert requests and responses
+		// Insert requests
 		for request in &requests {
 			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
@@ -120,20 +98,6 @@ fn test_accumulate_fees() {
 			dest_trie.insert(&request_receipt_key, &public_key.encode()).unwrap();
 		}
 
-		for (request, response) in &responses {
-			let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-			let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
-			let leaf_meta = RequestMetadata {
-				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-				fee: fee_metadata,
-				claimed: false,
-			};
-			ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
-			source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
-			let receipt = ResponseReceipt { response: *response, relayer: public_key.clone() };
-			dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
-		}
 		drop(source_trie);
 		drop(dest_trie);
 
@@ -156,19 +120,6 @@ fn test_accumulate_fees() {
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
 				keys.push(Key::Request(*request));
-			}
-		}
-
-		for (index, (request, response)) in responses.iter().enumerate() {
-			if index % 2 == 0 {
-				let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-				let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-				source_trie.get(&response_commitment_key).unwrap();
-				dest_trie.get(&response_receipt_key).unwrap();
-				keys.push(Key::Response {
-					response_commitment: *response,
-					request_commitment: *request,
-				});
 			}
 		}
 
@@ -310,8 +261,268 @@ fn test_accumulate_fees() {
 				StateMachine::Kusama(2000),
 				beneficiary_address.0.to_vec()
 			),
-			U256::from(10000u128)
+			U256::from(5000u128)
 		);
+	})
+}
+
+/// `accumulate` only stores one delivery address per batch, so a
+/// batch whose receipts resolve to more than one address must be
+/// rejected before any fee credit or claimed-flag mutation. This
+/// matches the official relayer's behaviour and keeps the
+/// per-batch fee accounting unambiguous.
+#[test]
+fn test_accumulate_fees_rejects_mixed_delivery_addresses() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp::<Test>(10_000_000_000);
+
+		// Two request commitments with receipts from two distinct relayer
+		// addresses, chosen so they sort to different positions in the
+		// fee-accumulator's `BTreeMap`.
+		let requests = (0u64..2)
+			.into_iter()
+			.map(|nonce| {
+				let post = PostRequest {
+					source: StateMachine::Kusama(2000),
+					dest: StateMachine::Kusama(2001),
+					nonce,
+					from: vec![],
+					to: vec![],
+					timeout_timestamp: 0,
+					body: vec![],
+				};
+				hash_request::<Ismp>(&Request::Post(post))
+			})
+			.collect::<Vec<_>>();
+
+		let relayer_a: Vec<u8> = vec![0x11; 32];
+		let relayer_b: Vec<u8> = vec![0xff; 32];
+
+		let mut source_root = H256::default();
+		let mut source_db = MemoryDB::<KeccakHasher>::default();
+		let mut source_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut source_db, &mut source_root)
+				.build();
+		let mut dest_root = H256::default();
+		let mut dest_db = MemoryDB::<KeccakHasher>::default();
+		let mut dest_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
+
+		// Two commitments, one delivery receipt per relayer.
+		for (index, request) in requests.iter().enumerate() {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
+			let leaf_meta = RequestMetadata {
+				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+				fee: fee_metadata,
+				claimed: false,
+			};
+			RequestCommitments::<Test>::insert(*request, leaf_meta.clone());
+			source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
+
+			let relayer = if index == 0 { &relayer_a } else { &relayer_b };
+			dest_trie.insert(&request_receipt_key, &relayer.encode()).unwrap();
+		}
+		drop(source_trie);
+		drop(dest_trie);
+
+		let mut source_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let mut dest_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let source_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&source_db, &source_root)
+			.with_recorder(&mut source_recorder)
+			.build();
+		let dest_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&dest_db, &dest_root)
+			.with_recorder(&mut dest_recorder)
+			.build();
+
+		let mut keys = vec![];
+		for request in &requests {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			source_trie.get(&request_commitment_key).unwrap();
+			dest_trie.get(&request_receipt_key).unwrap();
+			keys.push(Key::Request(*request));
+		}
+
+		let source_keys_proof =
+			source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+		let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+
+		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: source_keys_proof,
+		});
+		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: dest_keys_proof,
+		});
+
+		let host = Ismp::default();
+		host.store_state_machine_commitment(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2000),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			StateCommitment {
+				timestamp: 100,
+				overlay_root: Some(source_root),
+				state_root: Default::default(),
+			},
+		)
+		.unwrap();
+		host.store_state_machine_commitment(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2001),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			StateCommitment {
+				timestamp: 100,
+				overlay_root: Some(dest_root),
+				state_root: Default::default(),
+			},
+		)
+		.unwrap();
+		host.store_state_machine_update_time(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2000),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			Duration::from_secs(100),
+		)
+		.unwrap();
+		host.store_state_machine_update_time(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Kusama(2001),
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: 1,
+			},
+			Duration::from_secs(100),
+		)
+		.unwrap();
+		host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
+		host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2001),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2000),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+
+		let withdrawal_proof = WithdrawalProof {
+			commitments: keys,
+			source_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2000),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: source_state_proof.encode(),
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2001),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: dest_state_proof.encode(),
+			},
+			beneficiary_details: None,
+		};
+
+		let err = pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+			RuntimeOrigin::none(),
+			withdrawal_proof,
+		)
+		.expect_err("mixed-delivery-address batch must be rejected");
+
+		assert_eq!(err, pallet_ismp_relayer::Error::<Test>::MixedDeliveryAddressesInBatch.into(),);
+
+		// Neither delivery address should have been credited.
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), &relayer_a),
+			U256::zero(),
+		);
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), &relayer_b),
+			U256::zero(),
+		);
+
+		// And neither commitment should have been marked claimed.
+		assert!(!RequestCommitments::<Test>::get(requests[0]).unwrap().claimed);
+		assert!(!RequestCommitments::<Test>::get(requests[1]).unwrap().claimed);
+	})
+}
+
+/// `accumulate_fees` is unsigned, so anyone can submit a `WithdrawalProof`.
+/// A batch padded with identical commitments must be rejected outright
+/// before any proof verification or fee credit, so an attacker cannot
+/// double-claim a single delivery.
+#[test]
+fn test_accumulate_fees_rejects_duplicate_commitments() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let request = H256::repeat_byte(0xab);
+		let withdrawal_proof = WithdrawalProof {
+			commitments: vec![Key::Request(request), Key::Request(request)],
+			source_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2000),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2001),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			beneficiary_details: None,
+		};
+
+		let err = pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+			RuntimeOrigin::none(),
+			withdrawal_proof,
+		)
+		.expect_err("duplicate-commitment batch must be rejected");
+
+		assert_eq!(err, pallet_ismp_relayer::Error::<Test>::DuplicateCommitment.into());
 	})
 }
 
@@ -336,27 +547,6 @@ fn test_accumulate_fees_evm_signatures() {
 			})
 			.collect::<Vec<_>>();
 
-		let responses = (0u64..10)
-			.into_iter()
-			.map(|nonce| {
-				let post = PostRequest {
-					source: StateMachine::Kusama(2001),
-					dest: StateMachine::Kusama(2000),
-					nonce,
-					from: vec![],
-					to: vec![],
-					timeout_timestamp: 0,
-					body: vec![],
-				};
-				let response = ismp::router::PostResponse {
-					post: post.clone(),
-					response: vec![0; 32],
-					timeout_timestamp: nonce,
-				};
-				(hash_request::<Ismp>(&Request::Post(post)), hash_post_response::<Ismp>(&response))
-			})
-			.collect::<Vec<_>>();
-
 		let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
 		let eth_address = pair.public().to_eth_address().unwrap().to_vec();
 
@@ -372,7 +562,7 @@ fn test_accumulate_fees_evm_signatures() {
 		let mut dest_trie =
 			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
 
-		// Insert requests and responses
+		// Insert requests
 		for request in &requests {
 			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
@@ -387,20 +577,6 @@ fn test_accumulate_fees_evm_signatures() {
 			dest_trie.insert(&request_receipt_key, &eth_address.encode()).unwrap();
 		}
 
-		for (request, response) in &responses {
-			let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-			let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
-			let leaf_meta = RequestMetadata {
-				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-				fee: fee_metadata,
-				claimed: false,
-			};
-			ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
-			source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
-			let receipt = ResponseReceipt { response: *response, relayer: eth_address.clone() };
-			dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
-		}
 		drop(source_trie);
 		drop(dest_trie);
 
@@ -423,19 +599,6 @@ fn test_accumulate_fees_evm_signatures() {
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
 				keys.push(Key::Request(*request));
-			}
-		}
-
-		for (index, (request, response)) in responses.iter().enumerate() {
-			if index % 2 == 0 {
-				let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-				let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-				source_trie.get(&response_commitment_key).unwrap();
-				dest_trie.get(&response_receipt_key).unwrap();
-				keys.push(Key::Response {
-					response_commitment: *response,
-					request_commitment: *request,
-				});
 			}
 		}
 
@@ -577,7 +740,7 @@ fn test_accumulate_fees_evm_signatures() {
 				StateMachine::Kusama(2000),
 				beneficiary_address.0.to_vec()
 			),
-			U256::from(10000u128)
+			U256::from(5000u128)
 		);
 	})
 }
@@ -754,36 +917,6 @@ mod outbound_consensus_delivery {
 				)
 				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundHostParamsNotKnown.into());
-		})
-	}
-
-	#[test]
-	fn substrate_destination_is_rejected() {
-		// HostParams::SubstrateHostParam variant should reject before key
-		// derivation. The reward is HandlerV2-specific so non-EVM
-		// destinations have no path through.
-		new_test_ext().execute_with(|| {
-			use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-			let substrate_dest = StateMachine::Kusama(2001);
-			HostParams::<Test>::insert(
-				substrate_dest,
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-					default_per_byte_fee: 0u128,
-					per_byte_fees: Default::default(),
-					asset_registration_fee: 0u128,
-				})),
-			);
-
-			let mut claim = placeholder_claim();
-			claim.state_proof.height.id.state_id = substrate_dest;
-
-			let err =
-				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-					RuntimeOrigin::none(),
-					claim,
-				)
-				.unwrap_err();
-			assert_eq!(err, Error::<Test>::OutboundDestinationNotEvm.into());
 		})
 	}
 

@@ -15,7 +15,7 @@ pragma solidity ^0.8.17;
 
 import {StateCommitment, StateMachineHeight} from "./IConsensus.sol";
 import {IDispatcher} from "./IDispatcher.sol";
-import {PostRequest, PostResponse, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
+import {PostRequest, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
 
 // Some metadata about the request fee
 struct FeeMetadata {
@@ -63,19 +63,6 @@ interface IHost is IDispatcher {
     function vetoes(uint256 paraId, uint256 height) external view returns (address);
 
     /**
-     * @dev Returns the fee required for 3rd party applications to access hyperbridge state commitments.
-     * @return the `stateCommitmentFee`
-     */
-    function stateCommitmentFee() external view returns (uint256);
-
-    /**
-     * @notice Charges the stateCommitmentFee to 3rd party applications.
-     * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
-     * If not enough native tokens are supplied, will revert.
-     *
-     * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
      * @param height - state machine height
      * @return the state commitment at `height`
      */
@@ -108,12 +95,6 @@ interface IHost is IDispatcher {
     function consensusState() external view returns (bytes memory);
 
     /**
-     * @dev Check the response status for a given request.
-     * @return `response` status
-     */
-    function responded(bytes32 commitment) external view returns (bool);
-
-    /**
      * @param commitment - commitment to the request
      * @return relayer address
      */
@@ -130,12 +111,6 @@ interface IHost is IDispatcher {
      * @return existence status of an outgoing request commitment
      */
     function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory);
-
-    /**
-     * @param commitment - commitment to the response
-     * @return existence status of an outgoing response commitment
-     */
-    function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory);
 
     /**
      * @return the challenge period
@@ -178,12 +153,6 @@ interface IHost is IDispatcher {
     function dispatchIncoming(PostRequest memory request, address relayer) external;
 
     /**
-     * @dev Dispatch an incoming post response to source app
-     * @param response - post response
-     */
-    function dispatchIncoming(PostResponse memory response, address relayer) external;
-
-    /**
      * @dev Dispatch an incoming get response to source app
      * @param response - get response
      */
@@ -201,9 +170,4 @@ interface IHost is IDispatcher {
      */
     function dispatchTimeOut(PostRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
 
-    /**
-     * @dev Dispatch an incoming post response timeout to source app
-     * @param timeout - timed-out post response
-     */
-    function dispatchTimeOut(PostResponse memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
 }

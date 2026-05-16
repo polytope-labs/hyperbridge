@@ -2,14 +2,14 @@
 pub const LOG_TARGET: &str = "messaging-evm";
 
 use crate::{
-	abi::{EvmHostInstance, PingModuleInstance},
+	abi::EvmHostInstance,
 	transport::RpcTransport,
 };
 
 use alloy::{
 	eips::BlockId,
 	network::EthereumWallet,
-	primitives::{Address, U256 as AlloyU256},
+	primitives::Address,
 	providers::{
 		fillers::{
 			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -28,7 +28,7 @@ use evm_state_machine::presets::{
 	RESPONSE_RECEIPTS_SLOT,
 };
 
-use ismp_solidity_abi::evm_host::{StateCommitment, StateMachineHeight};
+use ismp_abi::evm_host::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
@@ -433,13 +433,10 @@ impl EvmClient {
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
-		use ismp_solidity_abi::{
-			evm_host::EvmHost::{
-				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
-				PostResponseEvent, PostResponseHandled,
-				StateMachineUpdated as EvmStateMachineUpdated,
-			},
-			EvmHostEvents,
+		use ismp::abi::EvmHostEvents;
+		use ismp_abi::evm_host::EvmHost::{
+			GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
+			StateMachineUpdated as EvmStateMachineUpdated,
 		};
 
 		let host_addr = Address::from_slice(&self.ismp_host.0);
@@ -454,17 +451,11 @@ impl EvmClient {
 				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
 				}
-				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
-				}
 				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
 				}
 				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
-				}
-				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
 				}
 				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();
@@ -490,24 +481,6 @@ impl EvmClient {
 		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let call = contract.setConsensusState(Bytes::from(consensus_state), height, commitment);
-
-		let gas = call.estimate_gas().await?;
-		let pending = call.gas(gas).send().await?;
-		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
-
-		Ok(())
-	}
-
-	/// Dispatch a test request to the parachain.
-	pub async fn dispatch_to_parachain(
-		&self,
-		address: H160,
-		para_id: u32,
-	) -> Result<(), anyhow::Error> {
-		let ping_addr = Address::from_slice(&address.0);
-		let contract = PingModuleInstance::new(ping_addr, self.signer.clone());
-		let call = contract.dispatchToParachain(AlloyU256::from(para_id));
 
 		let gas = call.estimate_gas().await?;
 		let pending = call.gas(gas).send().await?;

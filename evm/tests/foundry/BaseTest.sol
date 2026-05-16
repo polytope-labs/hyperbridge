@@ -17,11 +17,10 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../../src/utils/PingModule.sol";
-import {HandlerV1} from "../../src/core/HandlerV1.sol";
+import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
-import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {HostParams} from "../../src/core/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../../src/core/HostManager.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
@@ -43,8 +42,7 @@ contract BaseTest is Test {
 
     TestConsensusClient internal consensusClient;
     TestHost internal host;
-    HandlerV1 internal handler;
-    PingModule internal testModule;
+    HandlerV2 internal handler;
     FeeToken internal feeToken;
     MockUSCDC internal mockUSDC;
     HostManager internal manager;
@@ -56,7 +54,7 @@ contract BaseTest is Test {
 
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
+        handler = new HandlerV2();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
 
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
@@ -68,20 +66,15 @@ contract BaseTest is Test {
         manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
-        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(0),
-            perByteFees: perByteFees,
             admin: address(this),
             hostManager: address(manager),
             handler: address(handler),
-            defaultTimeout: 0,
             unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 1000000000000000000, // 1FTK
-            stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachines: stateMachines
@@ -95,12 +88,6 @@ contract BaseTest is Test {
         feeToken.grantMinterRole(address(this));
         feeToken.grantBurnerRole(address(this));
 
-        testModule = new PingModule(address(this));
-        uint256 oldTime = block.timestamp;
-        vm.warp(100_000);
-        testModule.setIsmpHost(address(host), address(faucet));
-        vm.warp(oldTime);
-
         manager.setIsmpHost(address(host));
 
         mockUSDC.superApprove(tx.origin, address(host));
@@ -111,9 +98,7 @@ contract BaseTest is Test {
         hyperInu_h.grantBurnerRole(address(this));
 
         // some approvals
-        feeToken.superApprove(address(tx.origin), address(testModule));
         feeToken.superApprove(address(tx.origin), address(host));
-        feeToken.superApprove(address(testModule), address(host));
         feeToken.superApprove(address(this), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));
@@ -121,7 +106,4 @@ contract BaseTest is Test {
         vm.chainId(1);
     }
 
-    function module() public view returns (address) {
-        return address(testModule);
-    }
 }

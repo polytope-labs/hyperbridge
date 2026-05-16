@@ -11,8 +11,9 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
-use pallet_hyperbridge::WithdrawalRequest;
-use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
+use pallet_ismp::{
+	child_trie::CHILD_TRIE_PREFIX, dispatcher::WithdrawalRequest, offchain::LeafIndexAndPos,
+};
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
@@ -96,7 +97,7 @@ where
 
 	pub async fn set_host_params(
 		&self,
-		params: BTreeMap<StateMachine, HostParam<u128>>,
+		params: BTreeMap<StateMachine, HostParam>,
 	) -> anyhow::Result<()> {
 		let host_executive_payload = subxt::dynamic::tx(
 			"HostExecutive",
@@ -377,9 +378,9 @@ where
 				let condition = post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 				match post.dest {
 					s if s.is_substrate() => {
-						if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
+						if let Ok(pallet_ismp::dispatcher::Message::WithdrawRelayerFees(
 							WithdrawalRequest { account, .. },
-						)) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
+						)) = pallet_ismp::dispatcher::Message::<AccountId32, u128>::decode(
 							&mut &*post.body,
 						) {
 							account.0.to_vec() == counterparty.address() && condition

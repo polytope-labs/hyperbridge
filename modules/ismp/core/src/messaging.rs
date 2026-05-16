@@ -26,7 +26,7 @@ use crate::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response},
+	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -163,14 +163,7 @@ pub enum TimeoutMessage {
 	/// A non memership proof for POST requests
 	Post {
 		/// Request timeouts
-		requests: Vec<Request>,
-		/// Non membership batch proof for these requests
-		timeout_proof: Proof,
-	},
-	/// A non memership proof for POST requests
-	PostResponse {
-		/// Request timeouts
-		responses: Vec<PostResponse>,
+		requests: Vec<PostRequest>,
 		/// Non membership batch proof for these requests
 		timeout_proof: Proof,
 	},
@@ -178,7 +171,7 @@ pub enum TimeoutMessage {
 	/// ensure that the timeout timestamp has elapsed on the host
 	Get {
 		/// Requests that have timed out
-		requests: Vec<Request>,
+		requests: Vec<GetRequest>,
 	},
 }
 
@@ -186,10 +179,10 @@ impl TimeoutMessage {
 	/// Get all the inner requests
 	pub fn requests(&self) -> Vec<Request> {
 		match self {
-			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
-				requests.clone(),
-			TimeoutMessage::PostResponse { responses, .. } =>
-				responses.clone().into_iter().map(|res| res.request()).collect(),
+			TimeoutMessage::Post { requests, .. } =>
+				requests.iter().cloned().map(Request::Post).collect(),
+			TimeoutMessage::Get { requests } =>
+				requests.iter().cloned().map(Request::Get).collect(),
 		}
 	}
 	/// Returns the associated proof
@@ -260,17 +253,25 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 	H::keccak256(&encoded)
 }
 
-/// Return the keccak256 of a response
-pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
-	match res {
-		Response::Post(res) => hash_post_response::<H>(res),
-		Response::Get(res) => hash_get_response::<H>(res),
+/// Reject duplicate requests within a batch. Each request's ISMP
+/// canonical commitment (via `hash_request`) is tracked in a `BTreeSet`;
+/// the first repeat short-circuits with `DuplicateRequest` and names the
+/// offending request in the error meta. Wire format for batches is a
+/// `Vec`, so this is the line of defence against an attacker padding a
+/// batch with identical requests to inflate its apparent size.
+pub fn dedup_requests<H: Keccak256>(requests: &[Request]) -> Result<(), Error> {
+	let mut seen = alloc::collections::BTreeSet::new();
+	for req in requests {
+		if !seen.insert(hash_request::<H>(req)) {
+			return Err(Error::DuplicateRequest { meta: req.clone().into() });
+		}
 	}
+	Ok(())
 }
 
-/// Return the keccak256 of a post response
-pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
-	H::keccak256(&res.encode())
+/// Return the keccak256 of a response
+pub fn hash_response<H: Keccak256>(res: &GetResponse) -> H256 {
+	hash_get_response::<H>(res)
 }
 
 /// Return the keccak256 of a get response

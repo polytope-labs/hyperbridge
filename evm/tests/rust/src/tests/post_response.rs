@@ -6,9 +6,9 @@ use hex_literal::hex;
 use ismp::{
 	host::StateMachine,
 	messaging::hash_response,
-	router::{self, Request, Response},
+	router::{self, Request, GetResponse},
 };
-use ismp_solidity_abi::{
+use ismp_abi::{
 	evm_host::EvmHost::StateMachineHeight,
 	handler::{
 		PostRequestLeaf, PostRequestMessage, PostResponseLeaf, PostResponseMessage,
@@ -39,7 +39,7 @@ fn test_post_response_proof() {
 
 	let post_response =
 		router::PostResponse { post: post.clone(), response: vec![1u8; 64], timeout_timestamp: 0 };
-	let response = DataOrHash::Data(Leaf::Response(router::Response::Post(post_response.clone())));
+	let response = DataOrHash::Data(Leaf::GetResponse(router::GetResponse::Post(post_response.clone())));
 
 	// create the mmr tree and insert it
 	let mut mmr = Mmr::default();
@@ -58,7 +58,7 @@ fn test_post_response_proof() {
 		proof.proof_items().iter().map(|h| FixedBytes(h.hash().0)).collect();
 
 	// create consensus proof
-	let height = ismp_solidity_abi::handler::StateMachineHeight {
+	let height = ismp_abi::handler::StateMachineHeight {
 		stateMachineId: U256::from(2000),
 		height: U256::from(10),
 	};
@@ -71,7 +71,7 @@ fn test_post_response_proof() {
 		U256::ZERO,
 	);
 
-	let mut sol_post: ismp_solidity_abi::evm_host::EvmHost::PostRequest =
+	let mut sol_post: ismp_abi::evm_host::EvmHost::PostRequest =
 		post_response.post.clone().into();
 
 	let message = PostResponseMessage {
@@ -144,7 +144,7 @@ fn test_post_response_timeout() {
 		U256::ZERO,
 	);
 
-	let timeout_height = ismp_solidity_abi::handler::StateMachineHeight {
+	let timeout_height = ismp_abi::handler::StateMachineHeight {
 		stateMachineId: U256::from(2000),
 		height: U256::from(20),
 	};
@@ -169,7 +169,7 @@ fn test_post_response_timeout() {
 	let block_ts = env.block_timestamp();
 	adjusted_response.timeout_timestamp =
 		adjusted_response.timeout_timestamp.saturating_sub(block_ts);
-	let sol_response: ismp_solidity_abi::evm_host::EvmHost::PostResponse = adjusted_response.into();
+	let sol_response: ismp_abi::evm_host::EvmHost::PostResponse = adjusted_response.into();
 	env.dispatch_post_response(sol_response);
 
 	// verify we know this response (host stores with original timeout after adding block.timestamp)
@@ -240,7 +240,7 @@ fn test_post_response_malicious_timeout() {
 		U256::ZERO,
 	);
 
-	let timeout_height = ismp_solidity_abi::handler::StateMachineHeight {
+	let timeout_height = ismp_abi::handler::StateMachineHeight {
 		stateMachineId: U256::from(2000),
 		height: U256::from(20),
 	};
@@ -257,7 +257,7 @@ fn test_post_response_malicious_timeout() {
 	env.warp(10);
 	env.handle_post_requests(request_message);
 
-	let sol_response: ismp_solidity_abi::evm_host::EvmHost::PostResponse = response.into();
+	let sol_response: ismp_abi::evm_host::EvmHost::PostResponse = response.into();
 	env.dispatch_post_response(sol_response);
 
 	env.handle_consensus(consensus_proof_2);
@@ -265,7 +265,7 @@ fn test_post_response_malicious_timeout() {
 
 	// The malicious timeout should revert because the proof contains the response
 	use alloy_sol_types::SolCall;
-	let calldata = ismp_solidity_abi::handler::handlePostResponseTimeoutsCall {
+	let calldata = ismp_abi::handler::handlePostResponseTimeoutsCall {
 		host: env.host,
 		message: timeout,
 	}

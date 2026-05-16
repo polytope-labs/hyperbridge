@@ -185,7 +185,7 @@ async fn test_verify_consensus() {
 	let (initial_state, beefy_consensus_proof) = setup().await;
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
-		Parachains::<Test>::insert(3367, 12000);
+		Parachains::<Test>::insert(3367, ());
 
 		let host = Ismp::default();
 		let consensus_client = host.consensus_client(BEEFY_CONSENSUS_ID).unwrap();

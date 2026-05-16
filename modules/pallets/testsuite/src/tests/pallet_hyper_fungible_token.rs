@@ -6,7 +6,7 @@ use codec::Encode;
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, Request, Timeout},
+	router::{PostRequest, Request},
 };
 use pallet_hyper_fungible_token::{
 	impls::convert_to_erc20,
@@ -136,7 +136,7 @@ fn should_timeout_request_correctly() {
 			},
 		};
 
-		module.on_timeout(Timeout::Request(Request::Post(post))).unwrap();
+		module.on_timeout(Request::Post(post)).unwrap();
 		let new_balance = pallet_balances::Pallet::<Test>::free_balance(ALICE);
 		assert_eq!(new_balance, INITIAL_BALANCE);
 	});

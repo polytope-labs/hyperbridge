@@ -37,6 +37,7 @@
 extern crate alloc;
 extern crate core;
 
+pub mod abi;
 pub mod consensus;
 pub mod dispatcher;
 pub mod error;

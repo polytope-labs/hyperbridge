@@ -42,13 +42,11 @@ use ismp::{
 	consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, CreateConsensusState, Message, ResponseMessage},
-	router::{Request, RequestResponse},
+	messaging::{hash_request, CreateConsensusState, Message},
+	router::Request,
 };
 use pallet_ismp::{
-	child_trie::{
-		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
-	},
+	child_trie::{request_commitment_storage_key, CHILD_TRIE_PREFIX},
 	offchain::ProofKeys,
 };
 use pallet_ismp_host_executive::HostParam;
@@ -281,46 +279,6 @@ where
 		}
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		if keys.is_empty() {
-			Err(anyhow!("No queries provided"))?
-		}
-
-		match counterparty {
-			// Use mmr proofs for queries going to EVM chains
-			s if s.is_evm() => {
-				let keys =
-					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
-				let params = rpc_params![at, keys];
-				let response: pallet_ismp_rpc::Proof =
-					self.rpc_client.request("mmr_queryProof", params).await?;
-				Ok(response.proof)
-			},
-			// Use child trie proofs for queries going to substrate chains
-			s if s.is_substrate() => {
-				let keys: Vec<_> = keys
-					.into_iter()
-					.map(|key| response_commitment_storage_key(key.commitment))
-					.collect();
-				let params = rpc_params![at, keys];
-				let response: pallet_ismp_rpc::Proof =
-					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
-				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
-				Ok(proof.encode())
-			},
-			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
-		}
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -408,11 +366,6 @@ where
 		// Substrate hosts ISMP via a pallet, not a contract — there's no
 		// on-chain address. The outbound-consensus claim path is EVM-only
 		// and short-circuits on this `None`.
-		None
-	}
-
-	async fn handler_v2_address(&self) -> Option<H160> {
-		// Same as `ismp_host_contract`: substrate has no HandlerV2 contract.
 		None
 	}
 
@@ -519,19 +472,6 @@ where
 		} else {
 			Ok(H160::zero().0.to_vec())
 		}
-	}
-
-	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
-		let key = self.res_commitments_key(_hash);
-		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
-
-		let response: Option<StorageData> =
-			self.rpc_client.request("childstate_getStorage", params).await?;
-		let data = response.ok_or_else(|| anyhow!("Response fee metadata query returned None"))?;
-		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
-		Ok(leaf_meta.meta.fee.into())
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -935,7 +875,7 @@ where
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
 						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Request {
+							let tx_receipt = TxReceipt {
 								query: Query {
 									source_chain: req.source_chain(),
 									dest_chain: req.dest_chain(),
@@ -948,28 +888,8 @@ where
 							results.push(tx_receipt);
 						}
 					},
-				Message::Response(ResponseMessage {
-					datagram: RequestResponse::Response(resp),
-					..
-				}) =>
-					for res in resp {
-						let commitment = hash_response::<Hasher>(&res);
-						let request_commitment = hash_request::<Hasher>(&res.request());
-						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Response {
-								query: Query {
-									source_chain: res.source_chain(),
-									dest_chain: res.dest_chain(),
-									nonce: res.nonce(),
-									commitment,
-								},
-								request_commitment,
-								height,
-							};
-
-							results.push(tx_receipt);
-						}
-					},
+				// `Message::Response` carries only GetRequests being responded to post-#840;
+				// no relayer receipt to record.
 				_ => {},
 			}
 		}
@@ -1002,14 +922,6 @@ where
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		vec![self.req_receipts_key(commitment)]
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		vec![self.res_commitments_key(commitment)]
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		vec![self.res_receipt_key(commitment)]
 	}
 
 	fn address(&self) -> Vec<u8> {
@@ -1119,7 +1031,7 @@ fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 	return match msg {
 		Message::Request(request_message) => Some(keccak_256(&request_message.requests.encode())),
 		Message::Response(response_message) =>
-			Some(keccak_256(&response_message.datagram.encode())),
+			Some(keccak_256(&response_message.requests.encode())),
 		Message::Consensus(consensus_message) =>
 			Some(keccak_256(&consensus_message.consensus_proof)),
 		Message::FraudProof(_) | Message::Timeout(_) => None,

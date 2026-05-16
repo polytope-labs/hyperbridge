@@ -33,8 +33,8 @@ use std::{collections::BTreeSet, time::Duration};
 use alloy::providers::Provider;
 use anyhow::{anyhow, Context};
 use ismp::{
-	messaging::{hash_request, hash_response, Message, ResponseMessage},
-	router::{Request, RequestResponse},
+	messaging::{hash_request, Message},
+	router::Request,
 };
 use primitive_types::H256;
 use serde::Serialize;
@@ -100,7 +100,7 @@ pub async fn handle_message_submission(
 					log::trace!(target: crate::LOG_TARGET, "Request commitment: {:?}", commitment);
 					if receipts.contains(&commitment) {
 						log::trace!(target: crate::LOG_TARGET, "Adding receipt for request commitment {:?}", commitment);
-						results.push(TxReceipt::Request {
+						results.push(TxReceipt {
 							query: Query {
 								source_chain: req.source_chain(),
 								dest_chain: req.dest_chain(),
@@ -112,36 +112,10 @@ pub async fn handle_message_submission(
 					}
 				}
 			},
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Response(resp),
-				..
-			}) => {
-				log::trace!(target: crate::LOG_TARGET, "Processing Response message with {} responses", resp.len());
-				for res in resp {
-					let commitment = hash_response::<Hasher>(res);
-					let request_commitment = hash_request::<Hasher>(&res.request());
-					log::trace!(
-						target: crate::LOG_TARGET, "Response commitment: {:?}, request commitment: {:?}",
-						commitment,
-						request_commitment
-					);
-					if receipts.contains(&commitment) {
-						log::trace!(target: crate::LOG_TARGET, "Adding receipt for response commitment {:?}", commitment);
-						results.push(TxReceipt::Response {
-							query: Query {
-								source_chain: res.source_chain(),
-								dest_chain: res.dest_chain(),
-								nonce: res.nonce(),
-								commitment,
-							},
-							request_commitment,
-							height,
-						});
-					}
-				}
-			},
+			// `Message::Response` carries only GetRequests being responded to post-#840;
+			// no relayer receipt to record.
 			_ => {
-				log::trace!(target: crate::LOG_TARGET, "Skipping non-request/response message");
+				log::trace!(target: crate::LOG_TARGET, "Skipping non-request message");
 			},
 		}
 	}

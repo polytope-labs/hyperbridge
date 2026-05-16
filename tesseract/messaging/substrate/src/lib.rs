@@ -32,8 +32,7 @@ use subxt::{
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::child_trie::{
-	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
-	response_receipt_storage_key,
+	request_commitment_storage_key, request_receipt_storage_key, response_receipt_storage_key,
 };
 use substrate_state_machine::HashAlgorithm;
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
@@ -252,10 +251,6 @@ where
 
 	pub fn req_commitments_key(&self, commitment: H256) -> Vec<u8> {
 		request_commitment_storage_key(commitment)
-	}
-
-	pub fn res_commitments_key(&self, commitment: H256) -> Vec<u8> {
-		response_commitment_storage_key(commitment)
 	}
 
 	pub fn req_receipts_key(&self, commitment: H256) -> Vec<u8> {

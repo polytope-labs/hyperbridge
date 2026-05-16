@@ -154,6 +154,13 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     // Timestamp for when the consensus was most recently updated
     uint256 private _consensusUpdateTimestamp;
 
+    // Maps an authority set ID (epoch) to the relayer that first submitted
+    // the consensus proof for that epoch.
+    mapping(uint256 => address) private _epochs;
+
+    // The most recent authority set ID for which a consensus proof has been submitted.
+    uint256 private _currentEpoch;
+
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(
         // Commitment of the incoming request
@@ -282,6 +289,14 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         address token
     );
 
+    // Emitted when a consensus proof introduces a new authority set epoch
+    event NewEpoch(
+        // The new authority set ID
+        uint256 indexed authoritySetId,
+        // The address of the relayer that submitted the proof
+        address indexed relayer
+    );
+
     // Account is unauthorized to perform requested action
     error UnauthorizedAccount();
 
@@ -391,6 +406,22 @@ abstract contract EvmHost is IHost, IHostManager, Context {
      */
     function consensusState() external view returns (bytes memory) {
         return _consensusState;
+    }
+
+    /**
+     * @return the most recent authority set ID (epoch) for which a consensus proof has been submitted
+     */
+    function currentEpoch() external view returns (uint256) {
+        return _currentEpoch;
+    }
+
+    /**
+     * @dev Returns the relayer that first submitted the consensus proof for the given epoch.
+     * @param authoritySetId - the authority set / epoch ID
+     * @return the relayer address, or address(0) if not set
+     */
+    function relayerOf(uint256 authoritySetId) external view returns (address) {
+        return _epochs[authoritySetId];
     }
 
     /**
@@ -625,6 +656,19 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     function storeConsensusState(bytes memory state) external restrict(_hostParams.handler) {
         _consensusState = state;
         _consensusUpdateTimestamp = block.timestamp;
+    }
+
+    /**
+     * @dev Record the relayer that first submitted a consensus proof for a new authority set epoch.
+     * Only callable by the configured handler. Stale or duplicate epoch IDs are ignored.
+     * @param authoritySetId the new authority set / epoch ID
+     * @param relayer the relayer that delivered the consensus proof
+     */
+    function recordEpoch(uint256 authoritySetId, address relayer) external restrict(_hostParams.handler) {
+        if (authoritySetId <= _currentEpoch) return;
+        _currentEpoch = authoritySetId;
+        _epochs[authoritySetId] = relayer;
+        emit NewEpoch({authoritySetId: authoritySetId, relayer: relayer});
     }
 
     /**

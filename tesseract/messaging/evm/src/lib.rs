@@ -23,10 +23,7 @@ use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messa
 use polkadot_sdk::frame_support::crypto::ecdsa::ECDSAExt;
 use primitive_types::{H256, U256};
 
-use evm_state_machine::presets::{
-	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-	RESPONSE_RECEIPTS_SLOT,
-};
+use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT};
 
 use ismp_abi::evm_host::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
@@ -514,23 +511,8 @@ impl EvmClient {
 		(key, H256(bytes))
 	}
 
-	pub fn response_commitment_key(&self, key: H256) -> (H256, H256) {
-		let key = derive_map_key(key.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
-		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let bytes = number.to_big_endian();
-		(key, H256(bytes))
-	}
-
 	pub fn request_receipt_key(&self, key: H256) -> H256 {
 		derive_map_key(key.0.to_vec(), REQUEST_RECEIPTS_SLOT)
-	}
-
-	pub fn response_receipt_key(&self, key: H256) -> Vec<Vec<u8>> {
-		let key = derive_map_key(key.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
-		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let bytes = number.to_big_endian();
-
-		vec![key.0.to_vec(), bytes.to_vec()]
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {

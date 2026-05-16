@@ -15,7 +15,7 @@
 
 //! Substrate EVM State Machine client implementation
 
-use crate::{req_res_commitment_key, req_res_receipt_keys, types::SubstrateEvmProof};
+use crate::{req_commitment_key, req_receipt_keys, types::SubstrateEvmProof};
 use alloc::{
 	collections::BTreeMap,
 	format,
@@ -28,7 +28,6 @@ use ismp::{
 	error::Error,
 	host::IsmpHost,
 	messaging::Proof,
-	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
 use polkadot_sdk::*;
@@ -115,7 +114,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
@@ -136,8 +135,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			fetch_child_root_from_main_proof::<H>(&proof.main_proof, state_root, &trie_id)?;
 
 		// verify storage slots in child trie (keys are Blake2b hashed for Substrate storage)
-		let storage_keys =
-			req_res_commitment_key::<H, _>(item, |k| hashing::blake2_256(k).to_vec());
+		let storage_keys = self.commitment_state_trie_key(commitments);
 
 		let storage_proof = proof
 			.storage_proof
@@ -149,8 +147,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>> {
-		req_res_receipt_keys::<H>(request)
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_commitment_key::<H, _>(commitments, |k| hashing::blake2_256(k).to_vec())
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_receipt_keys::<H>(commitments)
 	}
 
 	fn verify_state_proof(

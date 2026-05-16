@@ -23,8 +23,8 @@
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, Proof},
-	router::{GetRequest, Request},
+	messaging::Proof,
+	router::{GetRequest, GetResponse},
 	Error,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
@@ -184,15 +184,15 @@ fn rejects_request_already_processed_previously() {
 		setup_mock_client::<_, Test>(&host);
 
 		let msg = valid_message();
-		// Pre-seed a receipt for the request so the coprocessor sees it as already serviced.
+		// Pre-seed a response receipt for the request so the coprocessor sees it as already
+		// serviced. The dedup is keyed on `hash_request(get)` (the GetResponse's request hash),
+		// which the dispatch path writes via `store_response_receipt` after producing a response.
 		let req = msg.requests.iter().next().cloned().expect("valid_message has one request");
-		let full = Request::Get(req);
+		let probe = GetResponse { get: req, values: Default::default() };
 		let _ = host
-			.store_request_receipt(&full, &vec![0u8; 32])
+			.store_response_receipt(&probe, &vec![0u8; 32])
 			.expect("seeding receipt should succeed");
-		assert!(host.request_receipt(&full).is_some());
-		// Sanity: commitment computation uses the configured hasher.
-		let _ = hash_request::<Ismp>(&full);
+		assert!(host.response_receipt(&probe).is_some());
 
 		let err = StateCoprocessor::handle_get_requests(msg).expect_err("must fail");
 		assert!(matches!(err, Error::DuplicateResponse { .. }), "unexpected error: {err:?}");

@@ -15,13 +15,13 @@ use ismp::{
 		CreateConsensusState, Message, Proof, ResponseMessage, StateCommitmentHeight,
 		TimeoutMessage,
 	},
-	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetRequest, PostRequest, Request},
 };
 use ismp_parachain::ParachainData;
 use pallet_ismp_demo::{EvmParams, GetRequest as GetRequestIsmpDemo, TransferParams};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
-	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
@@ -70,14 +70,11 @@ pub fn messages_to_value(messages: Vec<Message>) -> Value<()> {
 }
 
 fn response_message_to_composite(msg: &ResponseMessage) -> Composite<()> {
-	let datagram_value = match &msg.datagram {
-		RequestResponse::Request(reqs) =>
-			Value::variant("Request", Composite::unnamed(reqs.iter().map(request_to_value))),
-		RequestResponse::Response(resps) =>
-			Value::variant("Response", Composite::unnamed(resps.iter().map(response_to_value))),
-	};
 	Composite::named(vec![
-		("datagram".to_string(), datagram_value),
+		(
+			"requests".to_string(),
+			Value::unnamed_composite(msg.requests.iter().map(get_request_to_value)),
+		),
 		("proof".to_string(), proof_to_value(&msg.proof)),
 		("signer".to_string(), Value::from_bytes(msg.signer.clone())),
 	])
@@ -136,21 +133,6 @@ fn request_to_value(req: &Request) -> Value<()> {
 			]),
 		),
 	}
-}
-
-fn response_to_value(resp: &GetResponse) -> Value<()> {
-	Value::named_composite(vec![
-		("get".to_string(), get_request_to_value(&resp.get)),
-		(
-			"values".to_string(),
-			Value::unnamed_composite(resp.values.iter().map(|v| {
-				Value::named_composite(vec![
-					("key".to_string(), Value::from_bytes(v.key.clone())),
-					("value".to_string(), Value::from_bytes(v.value.clone().unwrap_or_default())),
-				])
-			})),
-		),
-	])
 }
 
 fn post_request_to_value(post: &PostRequest) -> Value<()> {
@@ -292,7 +274,9 @@ fn evm_host_param_to_composite(param: &EvmHostParam) -> Composite<()> {
 }
 
 pub fn withdrawal_proof_to_value(proof: &WithdrawalProof) -> Value<()> {
-	let commitments_value = Value::unnamed_composite(proof.commitments.iter().map(key_to_value));
+	let commitments_value = Value::unnamed_composite(
+		proof.commitments.iter().map(|c| Value::from_bytes(c.as_bytes().to_vec())),
+	);
 
 	let beneficiary_details_value = match &proof.beneficiary_details {
 		Some((address, signature)) => {
@@ -311,28 +295,6 @@ pub fn withdrawal_proof_to_value(proof: &WithdrawalProof) -> Value<()> {
 		("dest_proof".to_string(), proof_to_value(&proof.dest_proof)),
 		("beneficiary_details".to_string(), beneficiary_details_value),
 	])
-}
-
-fn key_to_value(key: &Key) -> Value<()> {
-	match key {
-		Key::Request(commitment) => {
-			let inner_value = Value::from_bytes(commitment.as_bytes().to_vec());
-			Value::variant("Request", Composite::unnamed(vec![inner_value]))
-		},
-		Key::Response { request_commitment, response_commitment } => {
-			let composite = Composite::named(vec![
-				(
-					"request_commitment".to_string(),
-					Value::from_bytes(request_commitment.as_bytes().to_vec()),
-				),
-				(
-					"response_commitment".to_string(),
-					Value::from_bytes(response_commitment.as_bytes().to_vec()),
-				),
-			]);
-			Value::variant("Response", composite)
-		},
-	}
 }
 
 /// Build the `scale_value::Value` for [`OutboundConsensusDeliveryClaim`] so

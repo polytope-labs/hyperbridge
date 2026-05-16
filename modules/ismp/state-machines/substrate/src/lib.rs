@@ -20,7 +20,7 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
+use alloc::{collections::BTreeMap, format, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
 use frame_support::{ensure, traits::Get};
@@ -28,14 +28,14 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, hash_response, Proof},
-	router::{Request, RequestResponse},
+	messaging::Proof,
 };
 use pallet_ismp::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
+	child_trie::{RequestCommitments, RequestReceipts},
 	ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID,
 };
 use polkadot_sdk::*;
+use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
@@ -116,7 +116,7 @@ where
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		state: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
@@ -136,22 +136,7 @@ where
 			})?,
 		};
 
-		let keys = match item {
-			RequestResponse::Request(requests) => requests
-				.into_iter()
-				.map(|request| {
-					let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
-					RequestCommitments::<T>::storage_key(commitment)
-				})
-				.collect::<Vec<Vec<u8>>>(),
-			RequestResponse::Response(responses) => responses
-				.into_iter()
-				.map(|response| {
-					let commitment = hash_response::<pallet_ismp::Pallet<T>>(&response);
-					ResponseCommitments::<T>::storage_key(commitment)
-				})
-				.collect::<Vec<Vec<u8>>>(),
-		};
+		let keys = self.commitment_state_trie_key(commitments);
 		let _ = match state_proof.hasher() {
 			HashAlgorithm::Keccak => {
 				let db =
@@ -193,24 +178,12 @@ where
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		let mut keys = vec![];
-		match items {
-			RequestResponse::Request(requests) =>
-				for req in requests {
-					match req {
-						Request::Post(post) => {
-							let request = Request::Post(post);
-							let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
-							keys.push(RequestReceipts::<T>::storage_key(commitment));
-						},
-						Request::Get(_) => continue,
-					}
-				},
-			RequestResponse::Response(_) => {},
-		};
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		commitments.into_iter().map(RequestCommitments::<T>::storage_key).collect()
+	}
 
-		keys
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		commitments.into_iter().map(RequestReceipts::<T>::storage_key).collect()
 	}
 
 	fn verify_state_proof(

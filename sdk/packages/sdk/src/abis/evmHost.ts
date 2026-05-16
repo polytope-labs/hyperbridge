@@ -164,6 +164,25 @@ export const ABI = [
 		inputs: [
 			{
 				indexed: true,
+				internalType: "uint256",
+				name: "authoritySetId",
+				type: "uint256",
+			},
+			{
+				indexed: true,
+				internalType: "address",
+				name: "relayer",
+				type: "address",
+			},
+		],
+		name: "NewEpoch",
+		type: "event",
+	},
+	{
+		anonymous: false,
+		inputs: [
+			{
+				indexed: true,
 				internalType: "bytes32",
 				name: "commitment",
 				type: "bytes32",
@@ -788,6 +807,56 @@ export const ABI = [
 			},
 		],
 		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [],
+		name: "currentEpoch",
+		outputs: [
+			{
+				internalType: "uint256",
+				name: "",
+				type: "uint256",
+			},
+		],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [
+			{
+				internalType: "uint256",
+				name: "authoritySetId",
+				type: "uint256",
+			},
+		],
+		name: "relayerOf",
+		outputs: [
+			{
+				internalType: "address",
+				name: "",
+				type: "address",
+			},
+		],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [
+			{
+				internalType: "uint256",
+				name: "authoritySetId",
+				type: "uint256",
+			},
+			{
+				internalType: "address",
+				name: "relayer",
+				type: "address",
+			},
+		],
+		name: "recordEpoch",
+		outputs: [],
+		stateMutability: "nonpayable",
 		type: "function",
 	},
 	{

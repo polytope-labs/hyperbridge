@@ -8,7 +8,6 @@ use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{Message, Proof, ResponseMessage},
-	router::{Request, RequestResponse},
 };
 use messaging::inbound;
 use pallet_ismp_demo as IsmpPalletDemo;
@@ -76,7 +75,7 @@ async fn relay_get_response_message(
 			proof: proof_of_value.encode(),
 		};
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(vec![Request::Get(get_request.clone())]),
+			requests: vec![get_request.clone()],
 			proof,
 			signer: chain_a_client.address(), // both A&B have same relayer address
 		};

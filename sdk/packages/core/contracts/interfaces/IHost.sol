@@ -95,6 +95,18 @@ interface IHost is IDispatcher {
     function consensusState() external view returns (bytes memory);
 
     /**
+     * @return the most recent authority set ID (epoch) for which a consensus proof has been submitted
+     */
+    function currentEpoch() external view returns (uint256);
+
+    /**
+     * @dev Returns the relayer that first submitted the consensus proof for the given epoch.
+     * @param authoritySetId - the authority set / epoch ID
+     * @return the relayer address, or address(0) if not set
+     */
+    function relayerOf(uint256 authoritySetId) external view returns (address);
+
+    /**
      * @param commitment - commitment to the request
      * @return relayer address
      */
@@ -133,6 +145,15 @@ interface IHost is IDispatcher {
      * @param state new consensus state
      */
     function storeConsensusState(bytes memory state) external;
+
+    /**
+     * @dev Record the relayer that first submitted a consensus proof for a new authority set epoch.
+     * Only callable by the configured handler. The recorded relayer is the one passed in by the
+     * handler at the call site; the host trusts the handler to identify the relayer.
+     * @param authoritySetId the new authority set / epoch ID
+     * @param relayer the relayer that delivered the consensus proof
+     */
+    function recordEpoch(uint256 authoritySetId, address relayer) external;
 
     /**
      * @dev Store the commitment at `state height`

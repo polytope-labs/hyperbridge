@@ -13,11 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Slot index for requests commitments map
+//! EvmHost storage slot indices. Values must match `forge inspect EvmHost
+//! storage`. Verified for `evm/src/core/EvmHost.sol` after PR #840 removed
+//! `_responseCommitments` (which used to occupy slot 1).
+
+/// Slot index for `_requestCommitments`.
 pub const REQUEST_COMMITMENTS_SLOT: u64 = 0;
-/// Slot index for response commitments map
-pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
-/// Slot index for requests receipts map
-pub const REQUEST_RECEIPTS_SLOT: u64 = 2;
-/// Slot index for response receipts map
-pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
+/// Slot index for `_requestReceipts`.
+pub const REQUEST_RECEIPTS_SLOT: u64 = 1;

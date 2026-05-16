@@ -150,7 +150,8 @@ fn verify_bls_signature(
 		return Err(Error::NoParticipants);
 	}
 
-	let aggregate_pubkey = crypto_utils::aggregate_public_keys(participants);
+	let aggregate_pubkey =
+		crypto_utils::aggregate_public_keys(participants).map_err(Error::BlsError)?;
 
 	// The message signed is the block_proof_hash
 	let message = block_proof_hash.as_bytes().to_vec();

@@ -8,10 +8,12 @@
 
 extern crate alloc;
 
+pub mod error;
+pub use error::Error as PolygonError;
+
 use alloc::{
 	boxed::Box,
 	collections::BTreeMap,
-	format,
 	string::{String, ToString},
 	vec,
 	vec::Vec,
@@ -224,22 +226,22 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), ismp::error::Error> {
 		let polygon_consensus_update: PolygonConsensusUpdate = Decode::decode(&mut &proof[..])
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::DecodeConsensusUpdate(e.to_string()))?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::DecodeConsensusState(e.to_string()))?;
 
 		let consensus_proof = polygon_consensus_update
 			.tendermint_proof
 			.to_consensus_proof()
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::ConvertTendermintProof(e.to_string()))?;
 
 		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
 
 		let time = host.timestamp().as_secs();
 
 		let updated_state = verify_header_update(trusted_state, consensus_proof.clone(), time)
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::VerifyHeaderUpdate(e.to_string()))?;
 
 		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
@@ -251,34 +253,31 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			let milestone_hash = &milestone_update_ref.milestone.hash;
 
 			if &evm_header_hash != milestone_hash {
-				return Err(ismp::error::Error::Custom(format!(
-					"EVM header hash does not match milestone hash: {:?} != {:?}",
-					evm_header_hash, milestone_hash
-				)));
+				return Err(PolygonError::EvmHeaderHashMismatch {
+					evm: evm_header_hash,
+					milestone: milestone_hash.clone(),
+				}
+				.into());
 			}
 
 			if milestone_update_ref.milestone.end_block !=
 				milestone_update_ref.evm_header.number.low_u64()
 			{
-				return Err(ismp::error::Error::Custom(
-					"Milestone end block does not match EVM header number".to_string(),
-				));
+				return Err(PolygonError::MilestoneEndBlockMismatch.into());
 			}
 
 			if milestone_update_ref.evm_header.number.low_u64() <
 				consensus_state.last_finalized_block
 			{
-				return Err(ismp::error::Error::Custom(
-					"EVM header number is less than last finalized block".to_string(),
-				));
+				return Err(PolygonError::EvmHeaderBehindFinalized.into());
 			}
 
 			let commitment_proof =
 				CommitmentProofBytes::try_from(milestone_update_ref.ics23_state_proof.clone())
-					.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+					.map_err(|e| PolygonError::DecodeCommitmentProof(e.to_string()))?;
 
 			let merkle_proof = MerkleProof::try_from(&commitment_proof)
-				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+				.map_err(|e| PolygonError::ConstructMerkleProof(e.to_string()))?;
 
 			let mut key = vec![0x81];
 			key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
@@ -304,7 +303,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 					value,
 					start_index,
 				)
-				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+				.map_err(|e| PolygonError::MembershipProofFailed(e.to_string()))?;
 
 			let evm_header = &milestone_update_ref.evm_header;
 			let state_commitment = StateCommitmentHeight {
@@ -343,22 +342,22 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		proof_1: Vec<u8>,
 		proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		let update_1: PolygonConsensusUpdate =
-			Decode::decode(&mut &proof_1[..]).map_err(|e| Error::Custom(e.to_string()))?;
-		let update_2: PolygonConsensusUpdate =
-			Decode::decode(&mut &proof_2[..]).map_err(|e| Error::Custom(e.to_string()))?;
+		let update_1: PolygonConsensusUpdate = Decode::decode(&mut &proof_1[..])
+			.map_err(|e| PolygonError::DecodeConsensusUpdate(e.to_string()))?;
+		let update_2: PolygonConsensusUpdate = Decode::decode(&mut &proof_2[..])
+			.map_err(|e| PolygonError::DecodeConsensusUpdate(e.to_string()))?;
 
 		let consensus_state: ConsensusState = Decode::decode(&mut &trusted_consensus_state[..])
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::DecodeConsensusState(e.to_string()))?;
 
 		let height_1 = update_1.tendermint_proof.signed_header.header.height;
 		let height_2 = update_2.tendermint_proof.signed_header.header.height;
 		if height_1 != height_2 {
-			return Err(Error::Custom("Fraud proofs must be for the same block height".to_string()));
+			return Err(PolygonError::FraudProofsDifferentHeight.into());
 		}
 
 		if proof_1 == proof_2 {
-			return Err(Error::Custom("Fraud proofs are identical".to_string()));
+			return Err(PolygonError::FraudProofsIdentical.into());
 		}
 
 		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
@@ -368,17 +367,17 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		let consensus_proof_1 = update_1
 			.tendermint_proof
 			.to_consensus_proof()
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::ConvertTendermintProof(e.to_string()))?;
 
 		let consensus_proof_2 = update_2
 			.tendermint_proof
 			.to_consensus_proof()
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::ConvertTendermintProof(e.to_string()))?;
 
 		verify_header_update(trusted_state.clone(), consensus_proof_1, time)
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::VerifyHeaderUpdate(e.to_string()))?;
 		verify_header_update(trusted_state, consensus_proof_2, time)
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			.map_err(|e| PolygonError::VerifyHeaderUpdate(e.to_string()))?;
 
 		Ok(())
 	}
@@ -392,7 +391,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			StateMachine::Evm(chain_id)
 				if chain_id == POLYGON_MAINNET_CHAIN_ID || chain_id == POLYGON_TESTNET_CHAIN_ID =>
 				Ok(Box::new(EvmStateMachine::<H, T>::default())),
-			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
+			_ => Err(PolygonError::UnsupportedStateMachine(id).into()),
 		}
 	}
 }

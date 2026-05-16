@@ -3,11 +3,11 @@
 #[warn(unused_variables)]
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
 	primitives::{compute_epoch, BscClientUpdate},
-	verify_bsc_header, NextValidators, VerificationResult,
+	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -18,14 +18,15 @@ use ismp::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
 		StateMachineId,
 	},
-	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
 use polkadot_sdk::*;
 use sp_core::H256;
 use sync_committee_primitives::constants::BlsPublicKey;
+
 pub mod pallet;
+
 use pallet::Pallet;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
@@ -79,17 +80,19 @@ impl<
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
 		let bsc_client_update = BscClientUpdate::decode(&mut &proof[..])
-			.map_err(|_| Error::Custom("Cannot decode bsc client update".to_string()))?;
+			.map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+			.map_err(|_| Error::DecodeConsensusState)?;
 
 		if consensus_state.finalized_height >= bsc_client_update.source_header.number.low_u64() {
-			Err(Error::Custom("Expired Update".to_string()))?
+			Err(Error::ExpiredUpdate {
+				current: consensus_state.finalized_height,
+				update: bsc_client_update.source_header.number.low_u64(),
+			})?
 		}
 
-		let epoch_length = Pallet::<T>::epoch_length()
-			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
+		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
 			if bsc_client_update.attested_header.number.low_u64() % epoch_length >=
 				(consensus_state.current_validators.len() as u64 / 2)
@@ -102,7 +105,10 @@ impl<
 				let source_header_epoch =
 					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
 				if source_header_epoch != epoch {
-					Err(Error::Custom("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
+					Err(Error::SourceHeaderEpochMismatch {
+						attested_epoch: epoch,
+						source_epoch: source_header_epoch,
+					})?
 				}
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
@@ -115,8 +121,7 @@ impl<
 				&consensus_state.current_validators,
 				bsc_client_update,
 				epoch_length,
-			)
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			)?;
 
 		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
@@ -153,45 +158,40 @@ impl<
 		proof_1: Vec<u8>,
 		proof_2: Vec<u8>,
 	) -> Result<(), ismp::error::Error> {
-		let bsc_client_update_1 = BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| {
-			Error::Custom("Cannot decode bsc client update for proof 1".to_string())
-		})?;
+		let bsc_client_update_1 =
+			BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
-		let bsc_client_update_2 = BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| {
-			Error::Custom("Cannot decode bsc client update for proof 2".to_string())
-		})?;
+		let bsc_client_update_2 =
+			BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let header_1 = bsc_client_update_1.attested_header.clone();
 		let header_2 = bsc_client_update_2.attested_header.clone();
 
 		if header_1.number != header_2.number {
-			Err(Error::Custom("Invalid Fraud proof".to_string()))?
+			Err(Error::InvalidFraudProof)?
 		}
 
 		let header_1_hash = Header::from(&header_1).hash::<H>();
 		let header_2_hash = Header::from(&header_2).hash::<H>();
 
 		if header_1_hash == header_2_hash {
-			return Err(Error::Custom("Invalid Fraud proof".to_string()));
+			return Err(Error::InvalidFraudProof.into());
 		}
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
-		let epoch_length = Pallet::<T>::epoch_length()
-			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
+			.map_err(|_| Error::DecodeConsensusState)?;
+		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_1,
 			epoch_length,
-		)
-		.map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
+		)?;
 
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_2,
 			epoch_length,
-		)
-		.map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
+		)?;
 
 		Ok(())
 	}
@@ -208,8 +208,7 @@ impl<
 			StateMachine::Evm(chain_id)
 				if chain_id == BSC_CHAIN_ID || chain_id == BSC_TESTNET_CHAIN_ID =>
 				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
-			state_machine =>
-				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
+			state_machine => Err(Error::UnsupportedStateMachine(state_machine).into()),
 		}
 	}
 }

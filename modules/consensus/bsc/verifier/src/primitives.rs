@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::vec::Vec;
-use alloy_primitives::{FixedBytes, B256};
+use alloy_primitives::{B256, FixedBytes};
 use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;

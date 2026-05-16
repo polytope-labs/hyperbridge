@@ -7,8 +7,10 @@ publish = false
 
 [dependencies]
 sync-committee-primitives = { workspace = true, default-features = false }
+ismp = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 bls = { workspace = true }
 ark-ec = { workspace = true }
@@ -21,6 +23,8 @@ std = [
     "sync-committee-primitives/std",
     "log/std",
     "anyhow/std",
+    "thiserror/std",
+    "ismp/std",
     "bls/std",
     "ark-ec/std",
 ]

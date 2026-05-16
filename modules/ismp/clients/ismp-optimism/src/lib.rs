@@ -30,7 +30,7 @@ use pallet::{Pallet, SupportedStateMachines};
 pub const STORAGE_VERSION: polkadot_sdk::frame_support::traits::StorageVersion =
 	polkadot_sdk::frame_support::traits::StorageVersion::new(1);
 
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
 use evm_state_machine::EvmStateMachine;
 use ismp::{
@@ -43,7 +43,7 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{
-	GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
+	Error as OptimismError, GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
 	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
 
@@ -158,10 +158,10 @@ impl<
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
 		let OptimismUpdate { l1_height, proof } =
 			OptimismUpdate::decode(&mut &consensus_proof[..])
-				.map_err(|_| Error::Custom("Cannot decode optimism update".to_string()))?;
+				.map_err(|_| OptimismError::DecodeOptimismUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+			.map_err(|_| OptimismError::DecodeConsensusState)?;
 
 		// The state machine being updated is fixed by the trusted consensus state, never
 		// supplied by the (untrusted) update. This binds verifier-config selection to the
@@ -253,7 +253,7 @@ impl<
 		_proof_1: Vec<u8>,
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		Err(Error::Custom("fraud proof verification unimplemented".to_string()))
+		Err(OptimismError::FraudProofUnimplemented.into())
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
@@ -264,7 +264,7 @@ impl<
 		if SupportedStateMachines::<T>::contains_key(id) {
 			Ok(Box::new(<EvmStateMachine<H, T>>::default()))
 		} else {
-			Err(Error::Custom("State machine not supported".to_string()))
+			Err(OptimismError::UnsupportedStateMachine(id).into())
 		}
 	}
 }

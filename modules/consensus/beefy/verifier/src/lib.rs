@@ -91,7 +91,7 @@ impl<H: Keccak256> MmrMerge for KeccakMerge<H> {
 pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	trusted_state: ConsensusState,
 	proof: ConsensusMessage,
-) -> anyhow::Result<(Vec<u8>, Vec<ParachainHeader>)> {
+) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
 	let (state, heads_root) = verify_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
 	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 	Ok((state.encode(), verified_headers))

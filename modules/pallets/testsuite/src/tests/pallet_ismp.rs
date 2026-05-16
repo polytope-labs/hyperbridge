@@ -28,7 +28,7 @@ use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
@@ -36,9 +36,9 @@ use ismp::{
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, check_get_timeout_message_dedup,
-	check_post_timeout_message_dedup, check_request_message_dedup,
-	check_response_message_dedup, create_relayer_signer, get_response_already_received_check,
-	missing_state_commitment_check, post_request_timeout_check, write_outgoing_commitments,
+	check_post_timeout_message_dedup, check_request_message_dedup, check_response_message_dedup,
+	create_relayer_signer, get_response_already_received_check, missing_state_commitment_check,
+	post_request_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
@@ -46,6 +46,9 @@ use pallet_ismp::{
 	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
 use pallet_ismp_relayer::withdrawal::Signature;
+use substrate_state_machine::{
+	HashAlgorithm, StateMachineProof, SubstrateStateMachine, SubstrateStateProof,
+};
 
 use crate::runtime::*;
 
@@ -598,4 +601,53 @@ fn should_charge_fee_for_request() {
 		assert_eq!(final_signer_balance, initial_balance - expected_fee);
 		assert_eq!(final_treasury_balance, initial_treasury_balance + expected_fee);
 	});
+}
+
+#[test]
+fn substrate_verify_non_membership_requires_overlay_proof_variant() {
+	let mut ext = new_test_ext();
+
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let state_machine = SubstrateStateMachine::<Test>::default();
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Kusama(2000),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			height: 1,
+		};
+		let commitment = StateCommitment {
+			timestamp: 0,
+			overlay_root: Some(H256::zero()),
+			state_root: H256::zero(),
+		};
+
+		let state_variant = SubstrateStateProof::StateProof(StateMachineProof {
+			hasher: HashAlgorithm::Blake2,
+			storage_proof: vec![],
+		});
+		let rejected = state_machine.verify_non_membership(
+			&host,
+			RequestResponse::Request(vec![]),
+			commitment.clone(),
+			&Proof { height, proof: state_variant.encode() },
+		);
+		assert!(matches!(
+			rejected,
+			Err(ismp::error::Error::Custom(ref msg)) if msg == "Expected Overlay Proof"
+		));
+
+		let overlay_variant = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Blake2,
+			storage_proof: vec![],
+		});
+		let accepted = state_machine.verify_non_membership(
+			&host,
+			RequestResponse::Request(vec![]),
+			commitment,
+			&Proof { height, proof: overlay_variant.encode() },
+		);
+		assert!(accepted.is_ok());
+	})
 }

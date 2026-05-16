@@ -173,6 +173,17 @@ pub trait StateMachineClient {
 		proof: &Proof,
 	) -> Result<(), Error>;
 
+	/// Verify that none of the given requests/responses appear as receipts in the chain's
+	/// ISMP-scoped storage at the given state commitment. Implementations must bind the proof
+	/// to the ISMP-scoped storage root for that chain.
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		item: RequestResponse,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error>;
+
 	/// Transform the requests/responses into the underlying storage key in the state trie.
 	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
 

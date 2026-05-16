@@ -315,7 +315,11 @@ where
 	Ok(())
 }
 
-fn dispatch_get_request<H>(host: &H, intermediate_state: &IntermediateState, timeout: u64) -> GetRequest
+fn dispatch_get_request<H>(
+	host: &H,
+	intermediate_state: &IntermediateState,
+	timeout: u64,
+) -> GetRequest
 where
 	H: IsmpHost + IsmpDispatcher,
 	H::Account: From<[u8; 32]>,
@@ -357,7 +361,8 @@ where
 	H::Balance: From<u32> + Default,
 {
 	let intermediate_state = setup_mock_client(host);
-	let get = dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
+	let get =
+		dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
 
 	let response = GetResponse { get: get.clone(), values: Default::default() };
 	host.store_response_receipt(&response, &vec![0u8; 32]).unwrap();
@@ -368,7 +373,6 @@ where
 	assert!(matches!(res, Err(Error::GetResponseAlreadyReceived { .. })));
 	Ok(())
 }
-
 
 pub fn fraud_proof_checks<H>(host: &H)
 where
@@ -759,9 +763,8 @@ pub fn check_get_timeout_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'st
 		timeout_timestamp: 0,
 	};
 
-	let timeout_message = Message::Timeout(TimeoutMessage::Get {
-		requests: vec![get.clone(), get],
-	});
+	let timeout_message =
+		Message::Timeout(TimeoutMessage::Get { requests: vec![get.clone(), get] });
 
 	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");

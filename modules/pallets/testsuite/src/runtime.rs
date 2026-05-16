@@ -628,6 +628,16 @@ impl StateMachineClient for MockStateMachine {
 		Ok(())
 	}
 
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_item: RequestResponse,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), IsmpError> {
+		Ok(())
+	}
+
 	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
 		Default::default()
 	}

@@ -213,6 +213,65 @@ where
 		keys
 	}
 
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		item: RequestResponse,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
+			.map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
+		ensure!(
+			matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
+			Error::Custom("Expected Overlay Proof".to_string())
+		);
+
+		let root = match T::Coprocessor::get() {
+			Some(id) if id == proof.height.id.state_id => root.state_root,
+			_ => root.overlay_root.ok_or_else(|| {
+				Error::Custom(
+					"Child trie root is not available for provided state commitment".into(),
+				)
+			})?,
+		};
+
+		let keys = self.receipts_state_trie_key(item);
+
+		match state_proof.hasher() {
+			HashAlgorithm::Keccak => {
+				let db =
+					StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
+				let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?;
+					ensure!(
+						value.is_none(),
+						Error::Custom("Some Requests in the batch have been delivered".to_string())
+					);
+				}
+			},
+			HashAlgorithm::Blake2 => {
+				let db =
+					StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
+				let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?;
+					ensure!(
+						value.is_none(),
+						Error::Custom("Some Requests in the batch have been delivered".to_string())
+					);
+				}
+			},
+		};
+
+		Ok(())
+	}
+
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,

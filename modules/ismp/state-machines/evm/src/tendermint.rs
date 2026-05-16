@@ -119,6 +119,21 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		req_res_receipt_keys::<ICS23HostFunctions>(items)
 	}
 
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		item: RequestResponse,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let keys = self.receipts_state_trie_key(item);
+		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.into_iter().any(|(_key, val)| val.is_some()) {
+			return Err(Error::Custom("Some Requests in the batch have been delivered".to_string()));
+		}
+		Ok(())
+	}
+
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,

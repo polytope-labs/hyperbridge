@@ -25,23 +25,18 @@ pub mod outbound_consensus;
 pub mod withdrawal;
 
 pub use outbound_consensus::*;
+pub use withdrawal::message;
 
-use crate::withdrawal::WithdrawalInputData;
 use alloc::{vec, vec::Vec};
-use codec::Encode;
-use crypto_utils::verification::Signature;
 use frame_support::{dispatch::DispatchResult, PalletId};
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
-	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+	dispatcher::IsmpDispatcher,
 	host::{IsmpHost, StateMachine},
 };
 pub use pallet::*;
-use pallet_ismp::dispatcher::{Message, WithdrawalRequest, HYPERBRIDGE_MODULE_ID};
-use pallet_ismp_host_executive::{HostParam, HostParams, WithdrawalParams};
 use polkadot_sdk::*;
-use sp_core::{Get, H256, U256};
-use sp_runtime::AccountId32;
+use sp_core::{H256, U256};
 
 /// Convenience alias for the configured currency's balance.
 ///
@@ -57,12 +52,10 @@ pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
-	use ismp::host::StateMachine;
-
 	use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
 	use codec::Encode;
+	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -380,126 +373,4 @@ pub mod pallet {
 			})
 		}
 	}
-}
-
-impl<T: Config> Pallet<T>
-where
-	<T as frame_system::Config>::Hash: From<H256>,
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	T::Balance: Into<u128>,
-{
-	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
-		let address = match &withdrawal_data.signature {
-			Signature::Evm { address, .. } => address.clone(),
-			Signature::Sr25519 { public_key, .. } => public_key.clone(),
-			Signature::Ed25519 { public_key, .. } => public_key.clone(),
-		};
-
-		let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-		let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.beneficiary.clone());
-
-		match &withdrawal_data.signature {
-			Signature::Evm { address, .. } => {
-				let eth_address = withdrawal_data
-					.signature
-					.verify(&msg, None)
-					.map_err(|_| Error::<T>::InvalidSignature)?;
-				if &eth_address != address {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
-			},
-			Signature::Sr25519 { .. } => {
-				// Verify signature with public key provided in signature enum
-				withdrawal_data
-					.signature
-					.verify(&msg, None)
-					.map_err(|_| Error::<T>::InvalidSignature)?;
-			},
-			Signature::Ed25519 { .. } => {
-				// Verify signature with public key provided in signature enum
-				withdrawal_data
-					.signature
-					.verify(&msg, None)
-					.map_err(|_| Error::<T>::InvalidSignature)?;
-			},
-		};
-		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
-
-		if available_amount <
-			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
-				.unwrap_or(MinWithdrawal::get())
-		{
-			Err(Error::<T>::NotEnoughBalance)?
-		}
-
-		let dispatcher = <T as Config>::IsmpHost::default();
-
-		Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
-			*value += 1;
-			Ok::<(), ()>(())
-		})
-		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
-
-		let beneficiary_address = withdrawal_data.beneficiary.clone().unwrap_or(address.clone());
-		let (to, body) = match withdrawal_data.dest_chain {
-			s if s.is_substrate() => (
-				HYPERBRIDGE_MODULE_ID.to_vec(),
-				Message::WithdrawRelayerFees(WithdrawalRequest {
-					amount: available_amount.low_u128(),
-					account: AccountId32::try_from(&beneficiary_address[..])
-						.map_err(|_| Error::<T>::InvalidPublicKey)?,
-				})
-				.encode(),
-			),
-			_ => {
-				let HostParam::EvmHostParam(params) =
-					HostParams::<T>::get(withdrawal_data.dest_chain)
-						.ok_or_else(|| Error::<T>::MissingMangerAddress)?;
-
-				let body = WithdrawalParams {
-					beneficiary_address: beneficiary_address.clone(),
-					amount: available_amount.into(),
-					token: params.fee_token,
-				}
-				.abi_encode()
-				.map_err(|_| Error::<T>::InvalidPublicKey)?;
-
-				(params.host_manager.0.to_vec(), body)
-			},
-		};
-
-		let post = DispatchPost {
-			dest: withdrawal_data.dest_chain,
-			from: MODULE_ID.to_vec(),
-			to,
-			body,
-			timeout: 0,
-		};
-
-		// Account is not useful in this case
-		dispatcher
-			.dispatch_request(
-				DispatchRequest::Post(post),
-				FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-			)
-			.map_err(|_| Error::<T>::DispatchFailed)?;
-
-		Fees::<T>::insert(withdrawal_data.dest_chain, address.clone(), U256::zero());
-
-		Self::deposit_event(Event::<T>::Withdraw {
-			address: sp_runtime::BoundedVec::truncate_from(address.clone()),
-			beneficiary_address: sp_runtime::BoundedVec::truncate_from(beneficiary_address),
-			state_machine: withdrawal_data.dest_chain,
-			amount: available_amount,
-		});
-
-		Ok(())
-	}
-}
-
-pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>>) -> [u8; 32] {
-	if let Some(beneficiary) = beneficiary {
-		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode());
-	}
-	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
 }

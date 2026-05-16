@@ -25,8 +25,8 @@ use ismp_abi::{
 		GetRequest, GetRequestEvent, GetRequestHandled, GetRequestTimeoutHandled, GetResponse,
 		HostFrozen, HostParamsUpdated, HostWithdrawal, PostRequest, PostRequestEvent,
 		PostRequestHandled, PostRequestTimeoutHandled, RequestFunded, StateCommitment,
-		StateCommitmentRead, StateCommitmentVetoed as EvmStateCommitmentVetoed,
-		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated,
+		StateCommitmentVetoed as EvmStateCommitmentVetoed, StateMachineHeight,
+		StateMachineUpdated as EvmStateMachineUpdated,
 	},
 };
 use primitive_types::H256;
@@ -67,9 +67,7 @@ impl From<router::PostRequest> for PostRequest {
 	}
 }
 
-impl From<router::PostRequest>
-	for ismp_abi::handler::handler_v2::HandlerV2::PostRequest
-{
+impl From<router::PostRequest> for ismp_abi::handler::handler_v2::HandlerV2::PostRequest {
 	fn from(value: router::PostRequest) -> Self {
 		Self {
 			source: value.source.to_string().into_bytes().into(),
@@ -180,8 +178,6 @@ pub enum EvmHostEvents {
 	GetRequestTimeoutHandled(GetRequestTimeoutHandled),
 	/// A state commitment vetoed event
 	StateCommitmentVetoed(EvmStateCommitmentVetoed),
-	/// A state commitment read event
-	StateCommitmentRead(StateCommitmentRead),
 	/// A host frozen event
 	HostFrozen(HostFrozen),
 	/// A host withdrawal event
@@ -200,20 +196,17 @@ impl TryFrom<EvmHostEvents> for crate::events::Event {
 				Ok(crate::events::Event::GetRequest(get.try_into()?)),
 			EvmHostEvents::PostRequestEvent(post) =>
 				Ok(crate::events::Event::PostRequest(post.try_into()?)),
-			EvmHostEvents::PostRequestHandled(handled) =>
-				Ok(crate::events::Event::PostRequestHandled(
-					crate::events::RequestResponseHandled {
-						commitment: H256(handled.commitment.0),
-						relayer: handled.relayer.0.to_vec(),
-					},
-				)),
+			EvmHostEvents::PostRequestHandled(handled) => Ok(
+				crate::events::Event::PostRequestHandled(crate::events::RequestResponseHandled {
+					commitment: H256(handled.commitment.0),
+					relayer: handled.relayer.0.to_vec(),
+				}),
+			),
 			EvmHostEvents::GetRequestHandled(handled) =>
-				Ok(crate::events::Event::GetRequestHandled(
-					crate::events::RequestResponseHandled {
-						commitment: H256(handled.commitment.0),
-						relayer: handled.relayer.0.to_vec(),
-					},
-				)),
+				Ok(crate::events::Event::GetRequestHandled(crate::events::RequestResponseHandled {
+					commitment: H256(handled.commitment.0),
+					relayer: handled.relayer.0.to_vec(),
+				})),
 			EvmHostEvents::StateMachineUpdated(filter) =>
 				Ok(crate::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: consensus::StateMachineId {
@@ -224,8 +217,7 @@ impl TryFrom<EvmHostEvents> for crate::events::Event {
 					latest_height: filter.height.try_into().map_err(|e| anyhow!("{e}"))?,
 				})),
 			EvmHostEvents::PostRequestTimeoutHandled(handled) => {
-				let dest =
-					StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
+				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(crate::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
 					commitment: H256(handled.commitment.0),
 					dest: dest.clone(),
@@ -233,8 +225,7 @@ impl TryFrom<EvmHostEvents> for crate::events::Event {
 				}))
 			},
 			EvmHostEvents::GetRequestTimeoutHandled(handled) => {
-				let dest =
-					StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
+				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(crate::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
 					commitment: H256(handled.commitment.0),
 					dest: dest.clone(),
@@ -253,7 +244,6 @@ impl TryFrom<EvmHostEvents> for crate::events::Event {
 					},
 					fisherman: vetoed.fisherman.0.to_vec(),
 				})),
-			EvmHostEvents::StateCommitmentRead(_) |
 			EvmHostEvents::HostFrozen(_) |
 			EvmHostEvents::HostWithdrawal(_) |
 			EvmHostEvents::HostParamsUpdated(_) |

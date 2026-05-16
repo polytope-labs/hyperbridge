@@ -63,48 +63,27 @@ abstract contract HyperApp is IApp {
     function host() public view virtual returns (address);
 
     /**
-     * @dev returns the quoted fee in the feeToken for dispatching a POST request
-     */
-    function quote(DispatchPost memory request) public view returns (uint256) {
-        uint256 len = 32 > request.body.length ? 32 : request.body.length;
-        return request.fee + (len * IDispatcher(host()).perByteFee(request.dest));
-    }
-
-    /**
-     * @dev returns the quoted fee in the feeToken for dispatching a GET request
-     */
-    function quote(DispatchGet memory request) public view returns (uint256) {
-        address _host = host();
-        uint256 pbf = IDispatcher(_host).perByteFee(IDispatcher(_host).host());
-        uint256 minimumFee = 32 * pbf;
-        uint256 totalFee = request.fee + (pbf * request.context.length);
-        return minimumFee > totalFee ? minimumFee : totalFee;
-    }
-
-    /**
      * @dev returns the quoted fee in the native token for dispatching a POST request
      */
-    function quoteNative(DispatchPost memory request) public view returns (uint256) {
-        uint256 fee = quote(request);
+    function quote(DispatchPost memory request) public view returns (uint256) {
         address _host = host();
         address _uniswap = IDispatcher(_host).uniswapV2Router();
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(_uniswap).WETH();
         path[1] = IDispatcher(_host).feeToken();
-        return IUniswapV2Router02(_uniswap).getAmountsIn(fee, path)[0];
+        return IUniswapV2Router02(_uniswap).getAmountsIn(request.fee, path)[0];
     }
 
     /**
      * @dev returns the quoted fee in the native token for dispatching a GET request
      */
-    function quoteNative(DispatchGet memory request) public view returns (uint256) {
-        uint256 fee = quote(request);
+    function quote(DispatchGet memory request) public view returns (uint256) {
         address _host = host();
         address _uniswap = IDispatcher(_host).uniswapV2Router();
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(_uniswap).WETH();
         path[1] = IDispatcher(_host).feeToken();
-        return IUniswapV2Router02(_uniswap).getAmountsIn(fee, path)[0];
+        return IUniswapV2Router02(_uniswap).getAmountsIn(request.fee, path)[0];
     }
 
     /**
@@ -118,9 +97,8 @@ abstract contract HyperApp is IApp {
     function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
-        uint256 fee = quote(request);
-        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).forceApprove(hostAddr, fee);
+        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), request.fee);
+        IERC20(feeToken).forceApprove(hostAddr, request.fee);
         return IDispatcher(hostAddr).dispatch(request);
     }
 
@@ -135,9 +113,8 @@ abstract contract HyperApp is IApp {
     function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
-        uint256 fee = quote(request);
-        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).forceApprove(hostAddr, fee);
+        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), request.fee);
+        IERC20(feeToken).forceApprove(hostAddr, request.fee);
         return IDispatcher(hostAddr).dispatch(request);
     }
 

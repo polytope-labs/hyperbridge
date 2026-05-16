@@ -224,10 +224,7 @@ pub async fn translate_events_to_messages(
 			.filter_map(|query| query)
 			.collect();
 
-		(
-			post_request_to_push,
-			post_request_queries_to_push,
-		)
+		(post_request_to_push, post_request_queries_to_push)
 	};
 
 	let mut messages = vec![];

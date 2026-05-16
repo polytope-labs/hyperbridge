@@ -9,8 +9,7 @@ use std::{
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp_parachain::ParachainData;
-use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-use pallet_ismp_host_executive::HostParam;
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, Bytes, KeccakHasher};
@@ -101,13 +100,11 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	// Init the host executive extrinsic
 	{
 		let mut host_params = BTreeMap::new();
-		host_params.insert(
-			source,
-			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-				default_per_byte_fee: 0u128,
-				..Default::default()
-			})),
-		);
+		// Substrate host params have been removed; only EVM host params
+		// remain. Register a default `EvmHostParam` entry so the storage
+		// shape is satisfied — the bandwidth gate doesn't consult the
+		// params during dispatch for substrate sources.
+		host_params.insert(source, HostParam::EvmHostParam(EvmHostParam::default()));
 
 		let host_params_value = host_params_btreemap_to_value(&host_params);
 
@@ -395,13 +392,11 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	// Init the host executive extrinsic
 	{
 		let mut host_params = BTreeMap::new();
-		host_params.insert(
-			source,
-			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-				default_per_byte_fee: 0u128,
-				..Default::default()
-			})),
-		);
+		// Substrate host params have been removed; only EVM host params
+		// remain. Register a default `EvmHostParam` entry so the storage
+		// shape is satisfied — the bandwidth gate doesn't consult the
+		// params during dispatch for substrate sources.
+		host_params.insert(source, HostParam::EvmHostParam(EvmHostParam::default()));
 
 		let host_params_value = host_params_btreemap_to_value(&host_params);
 

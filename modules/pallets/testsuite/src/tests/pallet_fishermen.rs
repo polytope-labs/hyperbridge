@@ -56,7 +56,7 @@ fn test_can_veto_state_commitments() {
 		assert_eq!(
 			result,
 			Err(DispatchError::Module(ModuleError {
-				index: 9,
+				index: 8,
 				error: [0, 0, 0, 0],
 				message: Some("UnauthorizedAction"),
 			}))
@@ -78,7 +78,7 @@ fn test_can_veto_state_commitments() {
 		assert!(matches!(
 			result,
 			Err(sp_runtime::DispatchError::Module(ModuleError {
-				index: 9,
+				index: 8,
 				error: [2, 0, 0, 0,],
 				message: Some("InvalidVeto",),
 			}))

@@ -68,7 +68,7 @@ use codec::Encode;
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	events::Event,
-	router::{Request, GetResponse},
+	router::{GetResponse, Request},
 };
 use jsonrpsee::{
 	core::RpcResult,

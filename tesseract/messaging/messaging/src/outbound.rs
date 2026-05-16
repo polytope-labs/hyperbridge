@@ -336,9 +336,9 @@ async fn submit_for_dest(
 		.into_iter()
 		.filter(|ev| filter_events(&relayer_config, coprocessor, dest_state_machine, ev))
 		.collect::<Vec<_>>();
-	let has_events_for_dest = events.iter().any(|ev| {
-		matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine)
-	});
+	let has_events_for_dest = events
+		.iter()
+		.any(|ev| matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine));
 
 	if !has_events_for_dest && !is_mandatory {
 		// Messaging-only proof with nothing for this chain — skip. Rotation
@@ -1021,9 +1021,7 @@ mod tests {
 		let client_map = client_map_with(hb.clone(), dest.clone());
 
 		// Only DEST_B-targeted events; messaging-only proof for DEST_A.
-		let events = vec![
-			Event::PostRequest(post_req(HB, DEST_B, 1)),
-		];
+		let events = vec![Event::PostRequest(post_req(HB, DEST_B, 1))];
 
 		submit_for_dest(
 			OutboundEventContext {

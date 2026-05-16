@@ -21,7 +21,6 @@ members = [
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
     "modules/pallets/hyper-fungible-token",
-    "modules/pallets/hyperbridge",
     "modules/pallets/bandwidth",
     "modules/pallets/intents-coprocessor",
     "modules/pallets/intents-coprocessor/rpc",
@@ -71,7 +70,6 @@ members = [
     "modules/pallets/mmr/rpc",
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
-    "modules/ismp/state-machines/hyperbridge",
     "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-incentives",
@@ -262,7 +260,6 @@ ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clie
 pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
 pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
 
 pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
@@ -310,7 +307,6 @@ ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features =
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
 pharos-state-machine = { path = "./modules/ismp/state-machines/pharos", default-features = false }
-hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # ismp modules
 pallet-fishermen = { path = "modules/pallets/fishermen", default-features = false }

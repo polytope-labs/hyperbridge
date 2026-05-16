@@ -8250,6 +8250,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
+ "pallet-messaging-incentives",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -9280,21 +9281,6 @@ dependencies = [
  "serde_json",
  "simnode-runtime-api",
  "tokio",
-]
-
-[[package]]
-name = "hyperbridge-client-machine"
-version = "0.1.1"
-dependencies = [
- "hash-db",
- "ismp",
- "log",
- "pallet-hyperbridge",
- "pallet-ismp",
- "pallet-ismp-host-executive",
- "parity-scale-codec",
- "polkadot-sdk",
- "substrate-state-machine",
 ]
 
 [[package]]
@@ -10397,8 +10383,11 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "beefy-verifier-primitives",
+ "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "scale-info",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -13104,7 +13093,6 @@ dependencies = [
  "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
- "pallet-hyperbridge",
  "pallet-intents-coprocessor",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -15168,19 +15156,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-hyperbridge"
-version = "2512.0.0"
-dependencies = [
- "anyhow",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "primitive-types 0.13.1",
- "scale-info",
-]
-
-[[package]]
 name = "pallet-identity"
 version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15314,13 +15289,9 @@ dependencies = [
 name = "pallet-ismp-host-executive"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 1.5.7",
- "alloy-sol-macro 1.5.7",
- "alloy-sol-types 1.5.7",
  "anyhow",
- "ethabi",
  "ismp",
- "pallet-hyperbridge",
+ "ismp-abi",
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -15347,7 +15318,6 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "log",
- "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -15411,7 +15381,6 @@ dependencies = [
  "geth-primitives",
  "hash-db",
  "hex",
- "hyperbridge-client-machine",
  "ismp",
  "ismp-abi",
  "ismp-beefy",
@@ -15430,7 +15399,6 @@ dependencies = [
  "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-hyper-fungible-token",
- "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
@@ -16412,15 +16380,12 @@ dependencies = [
 name = "pallet-state-coprocessor"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 1.5.7",
- "alloy-rlp",
- "evm-state-machine",
  "ismp",
  "log",
  "mmr-primitives",
  "pallet-bandwidth",
  "pallet-ismp",
- "pallet-ismp-relayer",
+ "pallet-messaging-incentives",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -24130,7 +24095,6 @@ dependencies = [
  "mockito",
  "nexus-runtime",
  "pallet-bridge-airdrop",
- "pallet-hyperbridge",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",
@@ -27515,7 +27479,6 @@ dependencies = [
  "futures",
  "ismp",
  "ismp-parachain",
- "pallet-hyperbridge",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
@@ -28531,7 +28494,6 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "log",
- "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",

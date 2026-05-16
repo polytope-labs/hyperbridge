@@ -40,46 +40,10 @@ function host() public view virtual returns (address)
 
 ### quote(DispatchPost)
 
-Returns the fee in the fee token for dispatching a POST request.
-
-```solidity lineNumbers
-function quote(DispatchPost memory request) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `request` | `DispatchPost` | The POST request to quote |
-
-**Returns:** Fee amount in the fee token
-
-**Formula:** `request.fee + (bodyLength * perByteFee)`
-
----
-
-### quote(DispatchGet)
-
-Returns the fee in the fee token for dispatching a GET request.
-
-```solidity lineNumbers
-function quote(DispatchGet memory request) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `request` | `DispatchGet` | The GET request to quote |
-
-**Returns:** Fee amount in the fee token
-
-**Note:** Enforces a minimum fee of 32 bytes worth of data
-
----
-
-### quoteNative(DispatchPost)
-
 Returns the fee in the native token (e.g., ETH) for dispatching a POST request.
 
 ```solidity lineNumbers
-function quoteNative(DispatchPost memory request) public view returns (uint256)
+function quote(DispatchPost memory request) public view returns (uint256)
 ```
 
 | Parameter | Type | Description |
@@ -95,12 +59,12 @@ function quoteNative(DispatchPost memory request) public view returns (uint256)
 
 ---
 
-### quoteNative(DispatchGet)
+### quote(DispatchGet)
 
 Returns the fee in the native token for dispatching a GET request.
 
 ```solidity lineNumbers
-function quoteNative(DispatchGet memory request) public view returns (uint256)
+function quote(DispatchGet memory request) public view returns (uint256)
 ```
 
 | Parameter | Type | Description |

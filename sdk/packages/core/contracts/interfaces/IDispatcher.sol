@@ -59,8 +59,8 @@ struct DispatchGet {
     /// @notice Timeout duration in seconds
     /// @dev Query will be considered timed out after this duration
     uint64 timeout;
-    /// @notice Fee amount for the query operation
-    /// @dev Covers both protocol fees and relayer incentives
+    /// @notice Optional relayer fee for delivering the response back to the source chain
+    /// @dev Paid in the fee token specified by IHost.feeToken(). Set to zero if self-relaying the GetResponse
     uint256 fee;
     /// @notice Application-specific metadata
     /// @dev Can be used to track the query purpose or pass additional context
@@ -111,16 +111,6 @@ interface IDispatcher {
      * @return feeToken - The ERC20 contract address for fees.
      */
     function feeToken() external view returns (address);
-
-    /**
-     * @dev Returns the address of the per byte fee configured for the destination state machine.
-     *
-     * @notice Hyperbridge collects it's dispatch fees per every byte of the outgoing message.
-     *
-     * @param dest - The destination chain for the per byte fee.
-     * @return perByteFee - The per byte fee for outgoing messages.
-     */
-    function perByteFee(bytes memory dest) external view returns (uint256);
 
     /**
      * @dev Dispatch a POST request to Hyperbridge

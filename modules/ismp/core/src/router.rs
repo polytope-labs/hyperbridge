@@ -15,13 +15,7 @@
 
 //! Message router definitions
 
-use crate::{
-	abi,
-	error::Error,
-	host::StateMachine,
-	module::IsmpModule,
-	prelude::Vec,
-};
+use crate::{abi, error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Formatter, time::Duration};

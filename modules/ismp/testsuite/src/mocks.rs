@@ -19,9 +19,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
-	router::{
-		GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse,
-	},
+	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
 };
 
 #[derive(Default)]
@@ -344,7 +342,11 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(
+		&self,
+		res: &GetResponse,
+		_signer: &Vec<u8>,
+	) -> Result<Vec<u8>, Error> {
 		let hash = hash_response::<Self>(res);
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])
@@ -477,7 +479,6 @@ impl IsmpDispatcher for Host {
 		host.requests.borrow_mut().insert(hash);
 		Ok(hash)
 	}
-
 }
 
 pub struct Keccak256Hasher;

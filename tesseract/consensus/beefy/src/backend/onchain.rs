@@ -246,11 +246,10 @@ fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
 			proof.headers.first()?.header.to_vec()
 		},
 		PROOF_TYPE_NAIVE => {
-			let proof =
-				<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
-					abi_payload,
-				)
-				.ok()?;
+			let proof = <ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+				abi_payload,
+			)
+			.ok()?;
 			proof.parachain.parachains.first()?.header.to_vec()
 		},
 		_ => return None,

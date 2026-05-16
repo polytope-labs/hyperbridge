@@ -91,7 +91,8 @@ fn test_post_request_encoding_parity() {
 	assert_eq!(rust_encoded, sol_encoded, "PostRequest encoding mismatch");
 
 	// Solidity can decode Rust-encoded bytes
-	let result = env.call(codec, calldata(DECODE_POST, &Bytes::from(rust_encoded.clone()).abi_encode()));
+	let result =
+		env.call(codec, calldata(DECODE_POST, &Bytes::from(rust_encoded.clone()).abi_encode()));
 	let decoded = EvmHost::PostRequest::abi_decode(&result).unwrap();
 	assert_eq!(decoded.nonce, 42);
 	assert_eq!(decoded.source.to_vec(), b"POLKADOT-2000");

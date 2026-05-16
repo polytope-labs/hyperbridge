@@ -38,7 +38,7 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response},
-	router::{IsmpRouter, Request, GetResponse},
+	router::{GetResponse, IsmpRouter, Request},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -262,7 +262,11 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(signer)
 	}
 
-	fn store_response_receipt(&self, res: &GetResponse, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(
+		&self,
+		res: &GetResponse,
+		signer: &Vec<u8>,
+	) -> Result<Vec<u8>, Error> {
 		let signer = extract_signer(signer)?;
 
 		let hash = hash_request::<Self>(&res.request());

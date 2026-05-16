@@ -224,22 +224,12 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Burns tokens and dispatches a cross-chain transfer message
-     * @notice Returns the fee in the host's fee token for sending a cross-chain transfer.
-     * @param params The send parameters
-     * @return The fee amount in the fee token
-     */
-    function quote(SendParams calldata params) public view returns (uint256) {
-        return quote(_buildDispatchPost(params));
-    }
-
-    /**
      * @notice Returns the fee in native currency for sending a cross-chain transfer.
      * @param params The send parameters
      * @return The fee amount in native currency
      */
-    function quoteNative(SendParams calldata params) public view returns (uint256) {
-        return quoteNative(_buildDispatchPost(params));
+    function quote(SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
     }
 
     /**

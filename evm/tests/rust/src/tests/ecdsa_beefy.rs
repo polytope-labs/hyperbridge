@@ -16,7 +16,13 @@ use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_abi::ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState};
+use ismp_abi::{
+	beefy_test::BeefyConsensusClientTest::{
+		AuthoritySetCommitment, Commitment, DecodeHeaderCall, EncodeCommitmentCall,
+		EncodeLeafCall, PartialBeefyMmrLeaf, Payload,
+	},
+	ecdsa_beefy::{Beefy::verifyCall, BeefyConsensusProof, BeefyConsensusState},
+};
 use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -32,70 +38,6 @@ use subxt::{
 	PolkadotConfig,
 };
 use subxt_utils::Hyperbridge;
-
-alloy_sol_macro::sol! {
-	struct DigestLog {
-		uint8 kind;
-		bytes4 id;
-		bytes data;
-	}
-
-	struct HeaderOut {
-		bytes32 parentHash;
-		uint256 number;
-		bytes32 stateRoot;
-		bytes32 extrinsicRoot;
-		DigestLog[] digests;
-	}
-
-	struct PayloadItem {
-		bytes2 id;
-		bytes data;
-	}
-
-	struct SolCommitment {
-		PayloadItem[] payload;
-		uint32 blockNumber;
-		uint64 validatorSetId;
-	}
-
-	struct AuthoritySetCommitment {
-		uint64 id;
-		uint32 len;
-		bytes32 root;
-	}
-
-	struct PartialBeefyMmrLeaf {
-		uint8 version;
-		uint32 parentNumber;
-		bytes32 parentHash;
-		AuthoritySetCommitment nextAuthoritySet;
-		bytes32 extra;
-	}
-
-	struct IntermediateState {
-		uint256 stateMachineId;
-		uint256 height;
-		StateCommitment commitment;
-	}
-
-	struct StateCommitment {
-		uint256 timestamp;
-		bytes32 overlayRoot;
-		bytes32 stateRoot;
-	}
-
-	function DecodeHeader(bytes encoded) external pure returns (HeaderOut);
-	function EncodeCommitment(SolCommitment commitment) external pure returns (bytes);
-	function EncodeLeaf(PartialBeefyMmrLeaf leaf) external pure returns (bytes);
-
-	// EcdsaBeefy.verify — the canonical entrypoint used by the consensus router.
-	// Returns (new encoded state, finalized intermediate states, next authority set id).
-	function verify(bytes previousState, bytes proof)
-		external
-		pure
-		returns (bytes, IntermediateState[], uint256);
-}
 
 fn deploy_beefy_test(env: &mut TestEnv) -> alloy_primitives::Address {
 	let out_dir = env.evm_out_dir_public();
@@ -132,8 +74,8 @@ fn test_decode_encode() {
 
 	// --- EncodeCommitment ---
 	let mh_payload = commitment.payload.get_raw(b"mh").unwrap().clone();
-	let sol_commitment = SolCommitment {
-		payload: vec![PayloadItem { id: FixedBytes(*b"mh"), data: Bytes::from(mh_payload) }],
+	let sol_commitment = Commitment {
+		payload: vec![Payload { id: FixedBytes(*b"mh"), data: Bytes::from(mh_payload) }],
 		blockNumber: commitment.block_number,
 		validatorSetId: commitment.validator_set_id,
 	};

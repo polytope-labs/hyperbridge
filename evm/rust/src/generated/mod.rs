@@ -15,3 +15,6 @@ pub mod evm_host;
 pub mod handler;
 pub mod host_manager;
 pub mod sp1_beefy;
+
+#[cfg(feature = "test-helpers")]
+pub mod beefy_test;

@@ -12,28 +12,30 @@ The dispatcher is the public interface which `IsmpModule`s use to _dispatch_ req
 pub struct DispatchPost {
     /// The destination state machine of this request.
     pub dest: StateMachine,
-    /// Module Id of the sending module
+    /// Module identifier of the sending module
     pub from: Vec<u8>,
-    /// Module ID of the receiving module
+    /// Module identifier of the receiving module
     pub to: Vec<u8>,
-    /// Timestamp which this request expires in seconds.
-    pub timeout_timestamp: u64,
-    /// Encoded Request.
-    pub data: Vec<u8>,
+    /// Relative from the current timestamp at which this request expires in seconds.
+    pub timeout: u64,
+    /// Encoded request body
+    pub body: Vec<u8>,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
 pub struct DispatchGet {
     /// The destination state machine of this request.
     pub dest: StateMachine,
-    /// Module Id of the sending module
+    /// Module identifier of the sending module
     pub from: Vec<u8>,
     /// Raw Storage keys that would be used to fetch the values from the counterparty
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
     pub height: u64,
-    /// Host timestamp at which this request expires in seconds
-    pub timeout_timestamp: u64,
+    /// Some application-specific metadata relating to this request
+    pub context: Vec<u8>,
+    /// Relative from the current timestamp at which this request expires in seconds.
+    pub timeout: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests
@@ -44,21 +46,61 @@ pub enum DispatchRequest {
     Get(DispatchGet),
 }
 
-pub trait IsmpDispatcher {
-    /// This function should accept requests from modules and commit them to the state
-    /// It should emit the `Request` event after a successful dispatch
-    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;
+/// Fee metadata for a dispatched request. Contains the account who paid for the request and
+/// how much was paid.
+pub struct FeeMetadata<A, B> {
+    /// The account which paid for this request
+    pub payer: A,
+    /// The fee that was paid for relayers.
+    pub fee: B,
+}
+
+/// The Ismp dispatcher provides an `IsmpModule` with the required interface for dispatching
+/// outgoing requests.
+///
+/// An `Event` should be emitted after successful dispatch.
+pub trait IsmpDispatcher: Default {
+    /// Sending account type
+    type Account;
+
+    /// The balance type
+    type Balance;
+
+    /// Dispatches an outgoing request, the dispatcher may commit the request to host's state
+    /// trie or an overlay tree. Returns the request commitment.
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        fee: FeeMetadata<Self::Account, Self::Balance>,
+    ) -> Result<H256, anyhow::Error>;
 }
 ```
 
+The `timeout` field on `DispatchPost`/`DispatchGet` is a relative offset (in seconds) from the current host timestamp, not an absolute unix timestamp. The dispatcher resolves it to an absolute `timeout_timestamp` when constructing the underlying `PostRequest`/`GetRequest`.
+
 ## Events
 
-Events should be emitted when requests are dispatched. This notifies relayers of the new requests to be transmitted.
-The structure of ISMP dispatcher events is described below
+Events should be emitted when requests are dispatched. This notifies relayers of the new requests to be transmitted. The dispatcher emits one of the request-flavoured variants of the ISMP `Event` enum:
 
 ```rust showLineNumbers
 pub enum Event {
-    /// Emitted for an outgoing request
-    Request(Request),
+    /// Emitted when a state machine is successfully updated
+    StateMachineUpdated(StateMachineUpdated),
+    /// A `StateCommitment` has been vetoed by a fisherman
+    StateCommitmentVetoed(StateCommitmentVetoed),
+    /// Emitted when a post request is dispatched
+    PostRequest(PostRequest),
+    /// Emitted when a get response is dispatched
+    GetResponse(GetResponse),
+    /// Emitted when a get request is dispatched
+    GetRequest(GetRequest),
+    /// Emitted when a post request is handled
+    PostRequestHandled(RequestResponseHandled),
+    /// Emitted when a post request timeout is handled
+    PostRequestTimeoutHandled(TimeoutHandled),
+    /// Emitted when a get request is handled
+    GetRequestHandled(RequestResponseHandled),
+    /// Emitted when a get request timeout is handled
+    GetRequestTimeoutHandled(TimeoutHandled),
 }
 ```

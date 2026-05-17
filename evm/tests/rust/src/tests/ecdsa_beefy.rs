@@ -55,19 +55,19 @@ alloy_sol_macro::sol! {
 
 	struct SolCommitment {
 		PayloadItem[] payload;
-		uint256 blockNumber;
-		uint256 validatorSetId;
+		uint32 blockNumber;
+		uint64 validatorSetId;
 	}
 
 	struct AuthoritySetCommitment {
-		uint256 id;
-		uint256 len;
+		uint64 id;
+		uint32 len;
 		bytes32 root;
 	}
 
 	struct PartialBeefyMmrLeaf {
-		uint256 version;
-		uint256 parentNumber;
+		uint8 version;
+		uint32 parentNumber;
 		bytes32 parentHash;
 		AuthoritySetCommitment nextAuthoritySet;
 		bytes32 extra;
@@ -134,8 +134,8 @@ fn test_decode_encode() {
 	let mh_payload = commitment.payload.get_raw(b"mh").unwrap().clone();
 	let sol_commitment = SolCommitment {
 		payload: vec![PayloadItem { id: FixedBytes(*b"mh"), data: Bytes::from(mh_payload) }],
-		blockNumber: AlloyU256::from(commitment.block_number),
-		validatorSetId: AlloyU256::from(commitment.validator_set_id),
+		blockNumber: commitment.block_number,
+		validatorSetId: commitment.validator_set_id,
 	};
 	let call = EncodeCommitmentCall { commitment: sol_commitment };
 	let result = env.call(beefy_test, call.abi_encode());
@@ -144,12 +144,12 @@ fn test_decode_encode() {
 
 	// --- EncodeLeaf ---
 	let sol_leaf = PartialBeefyMmrLeaf {
-		version: AlloyU256::ZERO,
-		parentNumber: AlloyU256::from(mmr_leaf.parent_number_and_hash.0),
+		version: 0,
+		parentNumber: mmr_leaf.parent_number_and_hash.0,
 		parentHash: FixedBytes(mmr_leaf.parent_number_and_hash.1 .0),
 		nextAuthoritySet: AuthoritySetCommitment {
-			id: AlloyU256::from(mmr_leaf.beefy_next_authority_set.id),
-			len: AlloyU256::from(mmr_leaf.beefy_next_authority_set.len),
+			id: mmr_leaf.beefy_next_authority_set.id,
+			len: mmr_leaf.beefy_next_authority_set.len,
 			root: FixedBytes(mmr_leaf.beefy_next_authority_set.keyset_commitment.0),
 		},
 		extra: FixedBytes(mmr_leaf.leaf_extra.0),
@@ -277,16 +277,16 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 			VersionedFinalityProof::<u32, Signature>::decode(&mut &*raw)?;
 
 		// Skip commitments for outdated validator sets
-		if signed_commitment.commitment.validator_set_id <
-			consensus_state.currentAuthoritySet.id.try_into().unwrap_or(u64::MAX)
-		{
+		if signed_commitment.commitment.validator_set_id < consensus_state.currentAuthoritySet.id {
 			continue;
 		}
 
 		let proof: BeefyConsensusProof =
 			prover.consensus_proof(signed_commitment.clone()).await?.into();
 
-		if proof.relay.signedCommitment.commitment.blockNumber == consensus_state.latestHeight {
+		if AlloyU256::from(proof.relay.signedCommitment.commitment.blockNumber) ==
+			consensus_state.latestHeight
+		{
 			continue;
 		}
 

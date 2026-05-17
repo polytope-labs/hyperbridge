@@ -92,13 +92,12 @@ where
 			PROOF_TYPE_SP1 => {
 				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
 					.map_err(|e| BeefyError::DecodeSp1Proof(format!("{e:?}")))?;
-				let vkey_bytes = C::sp1_vkey_hash();
-				let vkey_hash = core::str::from_utf8(&vkey_bytes)
-					.map_err(|_| BeefyError::InvalidSp1VkeyHashEncoding)?;
+				let vkey_hash = C::sp1_vkey_hash();
+				let vkey = alloc::format!("0x{:x}", vkey_hash);
 				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
 					consensus_state,
 					sp1_proof,
-					vkey_hash,
+					&vkey,
 				)?
 			},
 			_ => return Err(BeefyError::UnknownProofType(*proof_type).into()),

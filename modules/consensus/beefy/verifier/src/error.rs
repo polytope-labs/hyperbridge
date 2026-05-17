@@ -76,9 +76,6 @@ pub enum Error {
 	/// The SP1 proof payload failed to SCALE-decode.
 	#[error("Cannot decode SP1 proof: {0}")]
 	DecodeSp1Proof(String),
-	/// The configured SP1 verifying-key hash isn't valid UTF-8.
-	#[error("Invalid SP1 vkey hash encoding")]
-	InvalidSp1VkeyHashEncoding,
 	/// The leading proof byte didn't match either `PROOF_TYPE_NAIVE` or `PROOF_TYPE_SP1`.
 	#[error("Unknown proof type: {0}")]
 	UnknownProofType(u8),

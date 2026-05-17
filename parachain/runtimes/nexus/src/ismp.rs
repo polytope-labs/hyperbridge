@@ -207,7 +207,7 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 		para_id == u32::from(ParachainInfo::get())
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
+	fn sp1_vkey_hash() -> sp_core::H256 {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
 }

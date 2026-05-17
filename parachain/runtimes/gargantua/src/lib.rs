@@ -185,6 +185,7 @@ pub type Executive = frame_executive::Executive<
 pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
+	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -1210,7 +1211,7 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(
-			block: Block,
+			block: <Block as sp_runtime::traits::Block>::LazyBlock,
 			state_root_check: bool,
 			signature_check: bool,
 			select: frame_try_runtime::TryStateSelect,

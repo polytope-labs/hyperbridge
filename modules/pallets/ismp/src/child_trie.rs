@@ -48,7 +48,7 @@ pub struct ResponseReceipts<T: Config>(PhantomData<T>);
 pub struct StateCommitments<T: Config>(PhantomData<T>);
 
 /// Child trie prefix for all substrate chains
-pub const CHILD_TRIE_PREFIX: &'static [u8] = b"ISMP";
+pub const CHILD_TRIE_PREFIX: &'static [u8] = b"ISMPv2";
 
 /// Key prefix for state commitments in the child trie.
 /// Used by the legacy drain migration.

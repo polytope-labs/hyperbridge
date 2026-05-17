@@ -204,7 +204,7 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 	}
 }
 
-/// SCALE-encoded payload for the `withdraw_protocol_fees` extrinsic. Mirrors
+/// SCALE-encoded payload for the `withdraw` extrinsic. Mirrors
 /// the on-EVM `struct WithdrawParams { address beneficiary; uint256 amount;
 /// address token; }`.
 #[derive(

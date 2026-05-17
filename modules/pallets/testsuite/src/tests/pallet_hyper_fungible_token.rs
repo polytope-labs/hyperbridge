@@ -85,7 +85,7 @@ fn should_receive_asset_correctly() {
 					},
 					data: alloy_primitives::Bytes::default(),
 				};
-				Message::abi_encode_params(&msg)
+				Message::abi_encode(&msg)
 			},
 		};
 
@@ -132,7 +132,7 @@ fn should_timeout_request_correctly() {
 					},
 					data: alloy_primitives::Bytes::default(),
 				};
-				Message::abi_encode_params(&msg)
+				Message::abi_encode(&msg)
 			},
 		};
 
@@ -305,7 +305,7 @@ fn should_receive_asset_with_calldata() {
 					},
 					data: alloy_primitives::Bytes::from(substrate_data.encode()),
 				};
-				Message::abi_encode_params(&msg)
+				Message::abi_encode(&msg)
 			},
 		};
 

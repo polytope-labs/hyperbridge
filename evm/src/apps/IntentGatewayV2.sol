@@ -414,16 +414,13 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
-            bytes32 solver;
-            bytes32 storedSessionKey;
-            bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+            bytes32 storedSelectionHash;
             assembly {
-                solver := tload(commitment)
-                storedSessionKey := tload(sessionSlot)
+                storedSelectionHash := tload(commitment)
             }
 
-            if (address(uint160(uint256(solver))) != msg.sender) revert Unauthorized();
-            if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
+            bytes32 expectedSelectionHash = keccak256(abi.encode(msg.sender, order.session));
+            if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;

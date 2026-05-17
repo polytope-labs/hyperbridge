@@ -256,15 +256,15 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 	assert_eq!(on_chain, reward);
 
 	// 2. set_sp1_vkey_hash via Sudo, expect storage updated.
-	let vkey: Vec<u8> =
-		b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c".to_vec();
+	let vkey: [u8; 32] =
+		hex_literal::hex!("0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c");
 	let call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
 		vec![Value::from_bytes(&vkey)],
 	);
 	submit_sudo(&client, &rpc_client, call).await?;
-	let on_chain_vkey: Vec<u8> = fetch_storage::<Vec<u8>>(&client, "Sp1VkeyHash")
+	let on_chain_vkey: [u8; 32] = fetch_storage::<[u8; 32]>(&client, "Sp1VkeyHash")
 		.await?
 		.ok_or_else(|| anyhow!("Sp1VkeyHash unset after set_sp1_vkey_hash"))?;
 	assert_eq!(on_chain_vkey, vkey);

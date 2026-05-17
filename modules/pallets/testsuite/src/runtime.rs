@@ -435,8 +435,8 @@ impl ismp_beefy::BeefyClientConfig for Test {
 		ismp_parachain::Parachains::<Test>::contains_key(para_id)
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
-		Vec::new()
+	fn sp1_vkey_hash() -> primitive_types::H256 {
+		Default::default()
 	}
 }
 

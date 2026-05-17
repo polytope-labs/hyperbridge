@@ -186,6 +186,7 @@ pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the

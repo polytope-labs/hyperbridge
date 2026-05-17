@@ -27,11 +27,12 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
 use crypto_utils::verification::Signature;
+use evm_state_machine::{derive_unhashed_map_key_with_offset, presets::REQUEST_COMMITMENTS_SLOT};
 use frame_support::{dispatch::DispatchResult, ensure};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::Proof,
+	messaging::{Keccak256, Proof},
 };
 use pallet_ismp::child_trie::RequestCommitments;
 use polkadot_sdk::*;
@@ -71,9 +72,30 @@ where
 			.map_err(|_| Error::<T>::ProofValidationError)?;
 		let dest_sm = validate_state_machine(&host, withdrawal_proof.dest_proof.height)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
-		let source_keys = source_sm.commitment_state_trie_key(withdrawal_proof.commitments.clone());
-		let dest_keys = dest_sm.receipts_state_trie_key(withdrawal_proof.commitments.clone());
 		let state_machine = withdrawal_proof.source_proof.height.id.state_id;
+		// Fee accumulation must read the relayer fee from the source-chain request commitment.
+		// On EVM chains the `RequestCommitments` mapping stores a `FeeMetadata { fee, sender }`
+		// struct: `commitment_state_trie_key` addresses the `sender` field (offset 1) so that
+		// membership proofs hit an always-non-zero slot, but the relayer fee lives at offset 0.
+		// Substrate commitment keys already address the full metadata blob, so they are used
+		// as-is.
+		let source_keys = if state_machine.is_evm() {
+			withdrawal_proof
+				.commitments
+				.iter()
+				.map(|commitment| {
+					let slot = derive_unhashed_map_key_with_offset::<<T as Config>::IsmpHost>(
+						commitment.0.to_vec(),
+						REQUEST_COMMITMENTS_SLOT,
+						0,
+					);
+					<T as Config>::IsmpHost::keccak256(&slot.0).0.to_vec()
+				})
+				.collect::<Vec<_>>()
+		} else {
+			source_sm.commitment_state_trie_key(withdrawal_proof.commitments.clone())
+		};
+		let dest_keys = dest_sm.receipts_state_trie_key(withdrawal_proof.commitments.clone());
 
 		let source_result = Self::verify_withdrawal_proof(
 			&*source_sm,

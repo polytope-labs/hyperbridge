@@ -143,8 +143,8 @@ fn sp1_wire_proof() -> Vec<u8> {
 
 /// SP1 verification key the fixture proof was generated against — matches the mainnet
 /// SP1Beefy deployment at `0x82582f85cf370adCB61D97dab3068c0C4102Ccb6`.
-const SP1_FIXTURE_VKEY: &[u8] =
-	b"0x009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf";
+const SP1_FIXTURE_VKEY: [u8; 32] =
+	hex_literal::hex!("009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf");
 
 /// Storage-key builder for a `Twox64Concat` map (`twox_128(pallet) ++ twox_128(item) ++
 /// twox_64(key) ++ key`).
@@ -663,7 +663,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	let vkey_call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(SP1_FIXTURE_VKEY)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&SP1_FIXTURE_VKEY)])],
 	);
 	submit_sudo(&client, &rpc_client, vkey_call).await?;
 

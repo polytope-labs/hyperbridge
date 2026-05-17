@@ -18,6 +18,8 @@ import "forge-std/Test.sol";
 import "../../src/core/EvmHost.sol";
 
 import {BaseTest} from "./BaseTest.sol";
+import {MainnetTestHost} from "./TestHost.sol";
+import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {DispatchPost, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
@@ -30,10 +32,18 @@ contract EvmHostTest is BaseTest {
     using Message for PostRequest;
     using Bytes for bytes;
 
-    // we should only be able to set consensus state multiple times on testnet
+    /// @dev Spin up a fresh strict-mainnet host that wires hostManager →
+    /// the host so cross-chain governance can reach it.
+    function _newMainnetHost() internal returns (MainnetTestHost mainnetHost) {
+        HostManager mainnetManager = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
+        HostParams memory params = host.hostParams();
+        params.hostManager = address(mainnetManager);
+        mainnetHost = new MainnetTestHost(params);
+        mainnetManager.setIsmpHost(address(mainnetHost));
+    }
+
+    // on TestnetHost the admin can set consensus state as many times as they want
     function testSetConsensusState() public {
-        // set chain Id to testnet
-        vm.chainId(host.chainId() + 5);
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         StateCommitment memory commitment =
             StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
@@ -52,43 +62,44 @@ contract EvmHostTest is BaseTest {
         vm.prank(host.hostParams().admin);
         host.setConsensusState(new bytes(0), height, commitment);
         assert(host.consensusState().equals(new bytes(0)));
-
-        // set chain Id to mainnet
-        vm.chainId(host.chainId());
-        // we can set consensus state
-        vm.prank(host.hostParams().admin);
-        host.setConsensusState(hex"beef", height, commitment);
-        assert(host.consensusState().equals(hex"beef"));
-
-        // but not anymore
-        vm.startPrank(host.hostParams().admin);
-        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
-        host.setConsensusState(hex"feeb", height, commitment);
-        assert(host.consensusState().equals(hex"beef"));
     }
 
-    function testSetHostParamsAdmin() public {
-        // set chain Id to testnet
-        vm.chainId(host.chainId() + 5);
-        assert(host.chainId() + 5 == block.chainid);
+    // on mainnet EvmHost the admin can only set consensus state once
+    function testSetConsensusStateMainnet() public {
+        MainnetTestHost mainnetHost = _newMainnetHost();
+        StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
+        StateCommitment memory commitment =
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
 
-        HostParams memory params = host.hostParams();
-        // we can set host params
-        vm.prank(host.hostParams().admin);
-        host.updateHostParams(params);
+        // we can set consensus state once
+        vm.prank(mainnetHost.hostParams().admin);
+        mainnetHost.setConsensusState(hex"beef", height, commitment);
+        assert(mainnetHost.consensusState().equals(hex"beef"));
 
-        // can't set on mainnet
-        vm.chainId(host.chainId());
-        vm.prank(host.hostParams().admin);
+        // but not anymore
+        vm.startPrank(mainnetHost.hostParams().admin);
         vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        mainnetHost.setConsensusState(hex"feeb", height, commitment);
+        assert(mainnetHost.consensusState().equals(hex"beef"));
+    }
+
+    // on TestnetHost the admin can update host params
+    function testSetHostParamsAdmin() public {
+        HostParams memory params = host.hostParams();
+        vm.prank(host.hostParams().admin);
         host.updateHostParams(params);
+    }
+
+    // on mainnet EvmHost the admin cannot update host params
+    function testSetHostParamsAdminMainnet() public {
+        MainnetTestHost mainnetHost = _newMainnetHost();
+        HostParams memory params = mainnetHost.hostParams();
+        vm.prank(mainnetHost.hostParams().admin);
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
+        mainnetHost.updateHostParams(params);
     }
 
     function testSweepFeeTokenBeforeUpdate() public {
-        // set chain Id to testnet
-        vm.chainId(host.chainId() + 5);
-        assert(host.chainId() + 5 == block.chainid);
-
         feeToken.mint(address(host), 1 * 1e18);
         HostParams memory params = host.hostParams();
         params.feeToken = address(this);
@@ -98,7 +109,7 @@ contract EvmHostTest is BaseTest {
         host.updateHostParams(params);
 
         feeToken.burn(address(host), 1 * 1e18);
-        // we can't set host params
+        // we can set host params
         vm.prank(host.hostParams().admin);
         host.updateHostParams(params);
         assert(host.hostParams().feeToken == address(this));

@@ -263,10 +263,7 @@ impl Request {
 	/// Returns the ABI-encoded request, matching Solidity's `abi.encode(...)` semantics.
 	/// This prevents hash malleability vulnerabilities that exist with packed encoding.
 	pub fn encode(&self) -> Vec<u8> {
-		match self {
-			Request::Post(post) => abi::encode_post_request(post),
-			Request::Get(get) => abi::encode_get_request(get),
-		}
+		abi::encode_request(self)
 	}
 }
 

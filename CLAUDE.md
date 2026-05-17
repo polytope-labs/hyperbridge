@@ -22,7 +22,7 @@ ISMP types (PostRequest, GetRequest, GetResponse) are hashed using `keccak256(ab
 ### Where the encoding lives
 
 - **Solidity**: `sdk/packages/core/contracts/libraries/Message.sol` — `encode()` and `hash()` functions
-- **Rust**: `modules/ismp/core/src/abi.rs` — `encode_post_request()`, `encode_get_request()`, `encode_get_response()`
+- **Rust**: `modules/ismp/core/src/abi.rs` — `encode_post_request()`, `encode_get_request()`, `encode_get_response()`, `encode_request()` (enum dispatch)
 - **Rust types**: `evm/rust/` (`ismp-abi` crate) — generated sol types from compiled ABI JSON artifacts
 - **Conversions**: `modules/ismp/core/src/abi.rs` — `From<router::PostRequest> for EvmHost::PostRequest`, etc.
 

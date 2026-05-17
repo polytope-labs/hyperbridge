@@ -64,12 +64,14 @@ contract CrossChainMessenger is HyperApp {
     }
     
     // Optional: Handle timeouts
-    function onPostRequestTimeout(PostRequest memory request) 
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) 
         external 
         override 
         onlyHost 
     {
-        // Cleanup logic when messages timeout
+        // Cleanup logic when messages timeout. `incoming.request` is the
+        // original POST request and `incoming.relayer` is the relayer that
+        // submitted the timeout proof.
     }
 }
 ```

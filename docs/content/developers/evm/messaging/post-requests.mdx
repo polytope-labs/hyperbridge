@@ -331,11 +331,13 @@ Your contract must implement `onPostRequestTimeout` to handle timed-out requests
 
 ```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
-    function onPostRequestTimeout(PostRequest memory request)
+    function onPostRequestTimeout(PostRequestTimeout memory incoming)
         external
         override
         onlyHost
     {
+        // `incoming.request` is the timed-out POST request.
+        // `incoming.relayer` is the relayer that submitted the timeout proof.
         // Handle the timeout - maybe refund user or retry
         emit RequestTimedOut(commitment, user, amount);
     }

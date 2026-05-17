@@ -12,7 +12,12 @@ import {
     DispatchPost,
     DispatchGet
 } from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {
+    IncomingPostRequest,
+    IncomingGetResponse,
+    PostRequestTimeout,
+    GetRequestTimeout
+} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract TestDispatcher is HyperApp {
@@ -55,7 +60,7 @@ contract TestDispatcher is HyperApp {
     }
 
     function onAccept(IncomingPostRequest calldata) external override onlyHost {}
-    function onPostRequestTimeout(PostRequest memory) external override onlyHost {}
+    function onPostRequestTimeout(PostRequestTimeout memory) external override onlyHost {}
     function onGetResponse(IncomingGetResponse memory) external override onlyHost {}
-    function onGetTimeout(GetRequest memory) external override onlyHost {}
+    function onGetTimeout(GetRequestTimeout memory) external override onlyHost {}
 }

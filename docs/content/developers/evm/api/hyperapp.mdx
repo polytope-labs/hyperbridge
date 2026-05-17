@@ -140,12 +140,12 @@ function onAccept(IncomingPostRequest calldata incoming) external virtual onlyHo
 Called when a POST request you sent has timed out. Override to handle cleanup. Default implementation reverts with `UnexpectedCall()`.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external virtual onlyHost
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external virtual onlyHost
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `PostRequest` | The timed-out request |
+| `incoming` | `PostRequestTimeout` | The timed-out POST request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by Host
 
@@ -176,12 +176,12 @@ function onGetResponse(IncomingGetResponse memory incoming) external virtual onl
 Called when a GET request you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
 
 ```solidity lineNumbers
-function onGetTimeout(GetRequest memory request) external virtual onlyHost
+function onGetTimeout(GetRequestTimeout memory incoming) external virtual onlyHost
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `GetRequest` | The timed-out GET request |
+| `incoming` | `GetRequestTimeout` | The timed-out GET request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by Host
 

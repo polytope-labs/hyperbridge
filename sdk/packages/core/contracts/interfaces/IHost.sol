@@ -16,6 +16,7 @@ pragma solidity ^0.8.17;
 import {StateCommitment, StateMachineHeight} from "./IConsensus.sol";
 import {IDispatcher} from "./IDispatcher.sol";
 import {PostRequest, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
+import {PostRequestTimeout, GetRequestTimeout} from "./IApp.sol";
 
 // Some metadata about the request fee
 struct FeeMetadata {
@@ -181,14 +182,26 @@ interface IHost is IDispatcher {
 
     /**
      * @dev Dispatch an incoming get timeout to source app
-     * @param timeout - timed-out get request
+     * @param timeout - timed-out get request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(GetRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        GetRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
     /**
      * @dev Dispatch an incoming post timeout to source app
-     * @param timeout - timed-out post request
+     * @param timeout - timed-out post request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(PostRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        PostRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
 }

@@ -23,7 +23,9 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {
     IApp,
     IncomingPostRequest,
-    IncomingGetResponse
+    IncomingGetResponse,
+    PostRequestTimeout,
+    GetRequestTimeout
 } from "@hyperbridge/core/interfaces/IApp.sol";
 import {DispatchPost, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
@@ -826,16 +828,19 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     /**
      * @dev Dispatch an incoming GET timeout to the source module.
      * @notice Does not refund any protocol fees.
-     * @param request - get request
+     * @param timeout - timed-out get request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchTimeOut(
+        GetRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external restrict(_hostParams.handler) {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success,) = _bytesToAddress(request.from)
-            .call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
+        (bool success,) = _bytesToAddress(timeout.request.from)
+            .call(abi.encodeWithSelector(IApp.onGetTimeout.selector, timeout));
 
         if (!success) {
             // so that it can be retried
@@ -847,21 +852,24 @@ abstract contract EvmHost is IHost, IHostManager, Context {
             // refund relayer fee
             IERC20(feeToken()).safeTransfer(meta.sender, meta.fee);
         }
-        emit GetRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
+        emit GetRequestTimeoutHandled({commitment: commitment, dest: string(timeout.request.dest)});
     }
 
     /**
      * @dev Dispatch an incoming POST timeout to the source module
-     * @param request - post timeout
+     * @param timeout - timed-out post request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchTimeOut(
+        PostRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external restrict(_hostParams.handler) {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success,) = _bytesToAddress(request.from)
-            .call(abi.encodeWithSelector(IApp.onPostRequestTimeout.selector, request));
+        (bool success,) = _bytesToAddress(timeout.request.from)
+            .call(abi.encodeWithSelector(IApp.onPostRequestTimeout.selector, timeout));
 
         if (!success) {
             // so that it can be retried
@@ -873,7 +881,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
             // refund relayer fee
             IERC20(feeToken()).safeTransfer(meta.sender, meta.fee);
         }
-        emit PostRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
+        emit PostRequestTimeoutHandled({commitment: commitment, dest: string(timeout.request.dest)});
     }
 
     /**

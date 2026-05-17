@@ -369,13 +369,13 @@ function dispatchIncoming(GetResponse memory response, address relayer) external
 
 ---
 
-### dispatchTimeOut(GetRequest)
+### dispatchTimeOut(GetRequestTimeout)
 
 Dispatches a timed-out GET request to the source application's `onGetTimeout()` callback.
 
 ```solidity lineNumbers
 function dispatchTimeOut(
-    GetRequest memory timeout, 
+    GetRequestTimeout memory timeout, 
     FeeMetadata memory meta, 
     bytes32 commitment
 ) external
@@ -383,7 +383,7 @@ function dispatchTimeOut(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `timeout` | `GetRequest` | The timed-out GET request |
+| `timeout` | `GetRequestTimeout` | The timed-out GET request bundled with the relayer that submitted the timeout proof |
 | `meta` | `FeeMetadata` | Fee metadata |
 | `commitment` | `bytes32` | Request commitment hash |
 
@@ -393,13 +393,13 @@ function dispatchTimeOut(
 
 ---
 
-### dispatchTimeOut(PostRequest)
+### dispatchTimeOut(PostRequestTimeout)
 
 Dispatches a timed-out POST request to the source application's `onPostRequestTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
 
 ```solidity lineNumbers
 function dispatchTimeOut(
-    PostRequest memory timeout, 
+    PostRequestTimeout memory timeout, 
     FeeMetadata memory meta, 
     bytes32 commitment
 ) external
@@ -407,7 +407,7 @@ function dispatchTimeOut(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `timeout` | `PostRequest` | The timed-out POST request |
+| `timeout` | `PostRequestTimeout` | The timed-out POST request bundled with the relayer that submitted the timeout proof |
 | `meta` | `FeeMetadata` | Fee metadata (contains payer and relayer fee) |
 | `commitment` | `bytes32` | Request commitment hash |
 

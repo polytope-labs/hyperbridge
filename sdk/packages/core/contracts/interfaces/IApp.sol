@@ -40,6 +40,30 @@ struct IncomingGetResponse {
 }
 
 /**
+ * @title PostRequestTimeout
+ * @notice Encapsulates a timed-out POST request with relayer information
+ * @dev Used by the Host to deliver POST request timeout notifications to applications
+ */
+struct PostRequestTimeout {
+    // The Post request that has timed-out
+    PostRequest request;
+    // Relayer responsible for submitting the timeout proof
+    address relayer;
+}
+
+/**
+ * @title GetRequestTimeout
+ * @notice Encapsulates a timed-out GET request with relayer information
+ * @dev Used by the Host to deliver GET request timeout notifications to applications
+ */
+struct GetRequestTimeout {
+    // The Get request that has timed-out
+    GetRequest request;
+    // Relayer responsible for submitting the timeout proof
+    address relayer;
+}
+
+/**
  * @title IApp
  * @author Polytope Labs (hello@polytope.technology)
  * @notice Interface for cross-chain applications built on Hyperbridge
@@ -62,13 +86,13 @@ interface IApp {
 
     /**
      * @dev Called by the `Host` to notify an app of post requests that were previously sent but have now timed-out
-     * @param request post request
+     * @param incoming post request timeout
      */
-    function onPostRequestTimeout(PostRequest memory request) external;
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) external;
 
     /**
      * @dev Called by the `Host` to notify an app of get requests that were previously sent but have now timed-out
-     * @param request get request
+     * @param incoming get request timeout
      */
-    function onGetTimeout(GetRequest memory request) external;
+    function onGetTimeout(GetRequestTimeout memory incoming) external;
 }

@@ -57,12 +57,12 @@ function onAccept(IncomingPostRequest calldata incoming) external
 Called when a POST request you sent has timed out on the destination chain.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `PostRequest` | The timed-out POST request |
+| `incoming` | `PostRequestTimeout` | Struct containing the timed-out POST request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by the Host contract
 
@@ -115,12 +115,12 @@ function onGetResponse(IncomingGetResponse memory incoming) external
 Called when a GET request you sent has timed out.
 
 ```solidity lineNumbers
-function onGetTimeout(GetRequest memory request) external
+function onGetTimeout(GetRequestTimeout memory incoming) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `GetRequest` | The timed-out GET request |
+| `incoming` | `GetRequestTimeout` | Struct containing the timed-out GET request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by the Host contract
 
@@ -171,6 +171,42 @@ struct IncomingGetResponse {
 |-------|------|-------------|
 | `response` | `GetResponse` | The GET response with state data |
 | `relayer` | `address` | Who delivered the response |
+
+---
+
+### PostRequestTimeout
+
+Encapsulates a timed-out POST request with relayer information.
+
+```solidity lineNumbers
+struct PostRequestTimeout {
+    PostRequest request;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The timed-out POST request |
+| `relayer` | `address` | Who submitted the timeout proof |
+
+---
+
+### GetRequestTimeout
+
+Encapsulates a timed-out GET request with relayer information.
+
+```solidity lineNumbers
+struct GetRequestTimeout {
+    GetRequest request;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `GetRequest` | The timed-out GET request |
+| `relayer` | `address` | Who submitted the timeout proof |
 
 ---
 

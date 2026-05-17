@@ -576,19 +576,20 @@ Your contract must implement [`onGetTimeout()`](/developers/evm/api/iapp#ongetti
 
 ```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
-    function onGetTimeout(GetRequest memory request)
+    function onGetTimeout(GetRequestTimeout memory incoming)
         external
         override
         onlyHost
     {
-        // Clean up any pending state associated with the request
-        bytes32 commitment = request.hash();
-        
+        // `incoming.request` is the timed-out GET request.
+        // `incoming.relayer` is the relayer that submitted the timeout proof.
+        bytes32 commitment = incoming.request.hash();
+
         // Remove tracked request
         delete pendingRequests[commitment];
-        
+
         // Emit event for off-chain tracking
-        emit GetRequestTimedOut(commitment, request.dest, request.keys);
+        emit GetRequestTimedOut(commitment, incoming.request.dest, incoming.request.keys);
     }
 }
 ```

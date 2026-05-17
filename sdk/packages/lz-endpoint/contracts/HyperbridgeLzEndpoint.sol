@@ -19,7 +19,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
@@ -313,7 +313,7 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
      * @dev LZ messages don't have a timeout concept — messages are retried, not expired.
      * This is a no-op since we dispatch with timeout=0 (no expiry).
      */
-    function onPostRequestTimeout(PostRequest memory) external override onlyHost {}
+    function onPostRequestTimeout(PostRequestTimeout memory) external override onlyHost {}
 
     // ==================== LZ Endpoint Stubs ====================
 

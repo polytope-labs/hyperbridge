@@ -261,7 +261,7 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 	let call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(&vkey)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&vkey)])],
 	);
 	submit_sudo(&client, &rpc_client, call).await?;
 	let on_chain_vkey: [u8; 32] = fetch_storage::<[u8; 32]>(&client, "Sp1VkeyHash")

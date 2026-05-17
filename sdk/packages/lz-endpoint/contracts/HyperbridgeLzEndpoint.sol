@@ -16,6 +16,8 @@ pragma solidity ^0.8.17;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
@@ -47,6 +49,8 @@ import {SetConfigParam} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interf
  * EID-to-StateMachine mapping is owner-configured via `setEidMapping()`.
  */
 contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpointV2 {
+    using SafeERC20 for IERC20;
+
     /// @notice Thrown when the destination eid has no configured state machine mapping
     error UnknownEid(uint32 eid);
 
@@ -228,8 +232,13 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         if (msg.value > 0) {
             IDispatcher(_host).dispatch{value: msg.value}(request);
         } else {
-            // Fee tokens already transferred to this contract by OFT's _payLzToken
-            dispatchWithFeeToken(request, address(this));
+            // Fee tokens already transferred to this contract by OFT's _payLzToken.
+            // The quoted lzTokenFee includes a buffer above the relayer fee so the
+            // legacy deployed host's per-byte protocol fee can be paid out of it;
+            // approve our full feeToken balance and let the host take what it needs.
+            address feeToken = IDispatcher(_host).feeToken();
+            IERC20(feeToken).forceApprove(_host, IERC20(feeToken).balanceOf(address(this)));
+            IDispatcher(_host).dispatch(request);
         }
 
         return MessagingReceipt({
@@ -261,12 +270,14 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             payer: _sender
         });
 
+        // Apply a generous 2x buffer to absorb the legacy deployed host's
+        // per-byte protocol fee (the in-source host has no such markup). Excess
+        // native is refunded by the uniswap router; excess feeToken approval is
+        // simply unused.
         if (_params.payInLzToken) {
-            // The relayer fee is denominated in the host's fee token.
-            return MessagingFee({nativeFee: 0, lzTokenFee: request.fee});
+            return MessagingFee({nativeFee: 0, lzTokenFee: request.fee * 2});
         } else {
-            // `quote()` returns the fee in the native token.
-            return MessagingFee({nativeFee: quote(request), lzTokenFee: 0});
+            return MessagingFee({nativeFee: quote(request) * 2, lzTokenFee: 0});
         }
     }
 

@@ -75,22 +75,22 @@ struct Payload {
 
 struct Commitment {
     Payload[] payload;
-    uint256 blockNumber;
-    uint256 validatorSetId;
+    uint32 blockNumber;
+    uint64 validatorSetId;
 }
 
 struct AuthoritySetCommitment {
     /// Id of the set.
-    uint256 id;
+    uint64 id;
     /// Number of validators in the set.
-    uint256 len;
+    uint32 len;
     /// Merkle Root Hash built from BEEFY AuthorityIds.
     bytes32 root;
 }
 
 struct BeefyMmrLeaf {
-    uint256 version;
-    uint256 parentNumber;
+    uint8 version;
+    uint32 parentNumber;
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;
@@ -110,8 +110,8 @@ struct BeefyConsensusState {
 }
 
 struct PartialBeefyMmrLeaf {
-    uint256 version;
-    uint256 parentNumber;
+    uint8 version;
+    uint32 parentNumber;
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;

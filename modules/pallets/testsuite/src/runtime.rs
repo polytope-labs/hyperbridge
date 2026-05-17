@@ -636,6 +636,16 @@ impl StateMachineClient for MockStateMachine {
 		Default::default()
 	}
 
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_commitments: Vec<H256>,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), IsmpError> {
+		Ok(())
+	}
+
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,

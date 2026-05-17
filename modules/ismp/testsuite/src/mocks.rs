@@ -122,6 +122,16 @@ impl StateMachineClient for MockStateMachineClient {
 		Default::default()
 	}
 
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_commitments: Vec<H256>,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), Error> {
+		Ok(())
+	}
+
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,
@@ -338,7 +348,11 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(
+		&self,
+		res: &GetResponse,
+		_signer: &Vec<u8>,
+	) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])

@@ -184,6 +184,17 @@ pub trait StateMachineClient {
 	/// Used by the timeout handler to prove non-delivery.
 	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
 
+	/// Verify that none of the given request commitments appear as receipts in the chain's
+	/// ISMP-scoped storage at the given state commitment. Implementations must bind the proof
+	/// to the ISMP-scoped storage root for that chain.
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error>;
+
 	/// Verify the state of proof of some arbitrary data. Should return the verified data
 	fn verify_state_proof(
 		&self,

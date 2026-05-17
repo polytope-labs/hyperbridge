@@ -7170,6 +7170,7 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "anyhow",
  "ethabi",
  "ethereum-triedb",
  "geth-primitives",
@@ -17236,6 +17237,7 @@ dependencies = [
  "pharos-primitives",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -26960,6 +26962,7 @@ dependencies = [
 name = "substrate-state-machine"
 version = "2512.0.0"
 dependencies = [
+ "anyhow",
  "hash-db",
  "ismp",
  "pallet-ismp",
@@ -26968,6 +26971,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "serde",
+ "thiserror 2.0.18",
  "trie-db",
 ]
 

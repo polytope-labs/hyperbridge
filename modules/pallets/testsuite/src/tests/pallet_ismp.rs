@@ -28,7 +28,7 @@ use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
@@ -36,9 +36,9 @@ use ismp::{
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, check_get_timeout_message_dedup,
-	check_post_timeout_message_dedup, check_request_message_dedup,
-	check_response_message_dedup, create_relayer_signer, get_response_already_received_check,
-	missing_state_commitment_check, post_request_timeout_check, write_outgoing_commitments,
+	check_post_timeout_message_dedup, check_request_message_dedup, check_response_message_dedup,
+	create_relayer_signer, get_response_already_received_check, missing_state_commitment_check,
+	post_request_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
@@ -46,6 +46,10 @@ use pallet_ismp::{
 	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
 use pallet_ismp_relayer::withdrawal::Signature;
+use substrate_state_machine::{
+	HashAlgorithm, StateMachineProof, SubstrateStateMachine, SubstrateStateMachineError,
+	SubstrateStateProof,
+};
 
 use crate::runtime::*;
 
@@ -382,8 +386,7 @@ fn should_handle_get_request_responses_correctly() {
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 
-		let (signature, public_key) =
-			create_relayer_signer(requests.encode(), &[1u8; 32]);
+		let (signature, public_key) = create_relayer_signer(requests.encode(), &[1u8; 32]);
 		let initial_balance = 1000 * UNIT;
 		let public_key_array: [u8; 32] =
 			public_key.try_into().expect("Public key should be 32 bytes");
@@ -596,4 +599,51 @@ fn should_charge_fee_for_request() {
 		assert_eq!(final_signer_balance, initial_balance - expected_fee);
 		assert_eq!(final_treasury_balance, initial_treasury_balance + expected_fee);
 	});
+}
+
+#[test]
+fn substrate_verify_non_membership_requires_overlay_proof_variant() {
+	let mut ext = new_test_ext();
+
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let state_machine = SubstrateStateMachine::<Test>::default();
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Kusama(2000),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			height: 1,
+		};
+		let commitment = StateCommitment {
+			timestamp: 0,
+			overlay_root: Some(H256::zero()),
+			state_root: H256::zero(),
+		};
+
+		let inner = StateMachineProof { hasher: HashAlgorithm::Blake2, storage_proof: vec![] };
+
+		let rejected = state_machine.verify_non_membership(
+			&host,
+			vec![],
+			commitment.clone(),
+			&Proof { height, proof: SubstrateStateProof::StateProof(inner.clone()).encode() },
+		);
+		let err = rejected.expect_err("non-membership against a StateProof must be rejected");
+		let ismp::error::Error::AnyHow(anyhow_err) = err else {
+			panic!("expected AnyHow error, got {err:?}");
+		};
+		assert!(matches!(
+			anyhow_err.0.downcast_ref::<SubstrateStateMachineError>(),
+			Some(SubstrateStateMachineError::ExpectedOverlayProof)
+		));
+
+		let accepted = state_machine.verify_non_membership(
+			&host,
+			vec![],
+			commitment,
+			&Proof { height, proof: SubstrateStateProof::OverlayProof(inner).encode() },
+		);
+		assert!(accepted.is_ok());
+	})
 }

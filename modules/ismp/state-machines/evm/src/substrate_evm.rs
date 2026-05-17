@@ -63,6 +63,8 @@ pub enum SubstrateEvmError {
 	InvalidKeyLength(usize),
 	#[error("Storage proof missing for contract {0:?}")]
 	StorageProofMissing(Vec<u8>),
+	#[error("Some Requests in the batch have been delivered")]
+	DeliveredRequestsInBatch,
 }
 
 impl From<SubstrateEvmError> for Error {
@@ -153,6 +155,21 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
 		req_receipt_keys::<H>(commitments)
+	}
+
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let keys = self.receipts_state_trie_key(commitments);
+		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.into_iter().any(|(_key, val)| val.is_some()) {
+			return Err(SubstrateEvmError::DeliveredRequestsInBatch.into());
+		}
+		Ok(())
 	}
 
 	fn verify_state_proof(

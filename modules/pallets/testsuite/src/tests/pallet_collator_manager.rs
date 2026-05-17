@@ -474,10 +474,7 @@ fn update_bond_fails_when_new_deposit_exceeds_account_balance() {
 		assert_eq!(CollatorManager::reserved_balance(&stash), first_update);
 
 		assert_err!(
-			CollatorSelection::update_bond(
-				RuntimeOrigin::signed(stash.clone()),
-				over_balance
-			),
+			CollatorSelection::update_bond(RuntimeOrigin::signed(stash.clone()), over_balance),
 			Error::<Test>::InsufficientBalance
 		);
 
@@ -567,10 +564,7 @@ fn repeated_reserve_calls_respect_total_balance() {
 		assert_ok!(CollatorManager::reserve(&CHARLIE, 60 * UNIT));
 		assert_ok!(CollatorManager::reserve(&CHARLIE, 40 * UNIT));
 
-		assert_err!(
-			CollatorManager::reserve(&CHARLIE, 1),
-			Error::<Test>::InsufficientBalance
-		);
+		assert_err!(CollatorManager::reserve(&CHARLIE, 1), Error::<Test>::InsufficientBalance);
 
 		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), 100 * UNIT);
 		assert_eq!(Balances::free_balance(&CHARLIE), 100 * UNIT);

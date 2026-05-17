@@ -124,11 +124,11 @@ where
 		let state_root = host.state_machine_commitment(response.height)?;
 
 		// Insert GetResponses into mmr
-		let mut get_responses = vec![];
+		let mut responses = vec![];
 		// Total payload bytes across this batch, used to mint reputation to
-		// the relayer named in `address`. Each request contributes the same
-		// `max(payload, 32)` quantity that the bandwidth gate charges so the
-		// mint stays proportional to the work paid for.
+		// the relayer named in `address`. Each response contributes its
+		// abi-encoded size — the same quantity the bandwidth gate charges —
+		// so the mint stays proportional to the work paid for.
 		let mut total_bytes: u32 = 0;
 		for req in requests {
 			let values: Vec<StorageValue> = dest_state_machine
@@ -137,22 +137,21 @@ where
 				.map(|(key, value)| StorageValue { key, value })
 				.collect();
 
-			// Meter the app's bandwidth: query payload (keys + context)
-			// plus the storage values being returned. 32-byte floor
-			// mirrors the on_accept precedent. Charged once per request
-			// after proof verification so the value size is final.
-			let value_bytes: usize =
-				values.iter().map(|sv| sv.value.as_ref().map(|v| v.len()).unwrap_or(0)).sum();
-			let payload_bytes: usize =
-				req.keys.iter().map(|k| k.len()).sum::<usize>() + req.context.len() + value_bytes;
-			let bytes = core::cmp::max(payload_bytes, 32) as u32;
-			<T as Config>::BandwidthGate::try_consume(&req.source, &req.from, bytes)
-				.map_err(|err| Error::Custom(alloc::format!("bandwidth gate: {err}")))?;
+			let response = GetResponse { get: req, values };
+
+			// Meter the app's bandwidth using the full size of the
+			// abi-encoded GetResponse. Charged after proof verification
+			// so the value sizes are final.
+			let bytes = ismp::abi::encode_get_response(&response).len() as u32;
+			<T as Config>::BandwidthGate::try_consume(
+				&response.get.source,
+				&response.get.from,
+				bytes,
+			)
+			.map_err(|err| Error::Custom(alloc::format!("bandwidth gate: {err}")))?;
 			total_bytes = total_bytes.saturating_add(bytes);
 
-			let get_response = GetResponse { get: req, values };
-
-			get_responses.push(get_response);
+			responses.push(response);
 		}
 
 		// Mint reputation tokens to the named relayer. The address is the
@@ -186,7 +185,7 @@ where
 			}
 		}
 
-		for get_response in get_responses {
+		for get_response in responses {
 			host.store_response_receipt(&get_response, &address)?;
 			Self::dispatch_get_response(get_response, address.clone())
 				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?;

@@ -10,40 +10,50 @@ Now that we have a way to verify the consensus proofs of a blockchain in a fully
 The state machine client is an abstraction over the state proof scheme of a given state machine. By decoupling the `ConsensusClient` from the `StateMachineClient` which are typically combined to form a _light client_, the ISMP framework allows a consensus client to support multiple state machines, each potentially using different state proof schemes. This abstraction makes ISMP future-proof, enabling deployment on both monolithic and modular blockchain architectures, including Polkadot, Ethereum, and others.
 
 ```rust showLineNumbers
-/// Convenience enum
-pub enum RequestResponse {
-    /// A batch of requests
-    Request(Vec<Request>),
-    /// A batch of responses
-    Response(Vec<Response>),
-}
-
 /// Proof holds the relevant proof data for the context in which it's used.
 pub struct Proof {
-    /// The state machine identifier
-    pub id: StateMachineId,
-    /// the corresponding block height
-    pub height: u64,
-    /// Serialized proof
+    /// State machine height
+    pub height: StateMachineHeight,
+    /// Scale encoded proof
     pub proof: Vec<u8>,
 }
 
 /// A state machine client. An abstraction for the mechanism of state proof verification for state
-/// machines
+/// machines.
+///
+/// All trie-key derivation methods take `Vec<H256>` request commitment hashes rather than the
+/// full request/response objects. Callers compute the commitment via `hash_request` at the
+/// boundary so the trait stays agnostic to ISMP message types and just maps commitment hashes
+/// onto the per-chain storage layout.
 pub trait StateMachineClient {
-    /// Verify the overlay membership proof of a batch of requests/responses.
+    /// Verify the overlay membership proof of a batch of request commitments against `root`.
     fn verify_membership(
         &self,
         host: &dyn IsmpHost,
-        item: RequestResponse,
+        commitments: Vec<H256>,
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<(), Error>;
 
-    /// Transform the requests/responses into their equivalent key in the state trie.
-    fn state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+    /// Storage trie key for a request commitment (source-chain `RequestCommitments` slot).
+    fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
 
-    /// Verify the state of proof of some arbitrary data. Should return the verified data
+    /// Storage trie key for a request delivery receipt (destination-chain `RequestReceipts` slot).
+    /// Used by the timeout handler to prove non-delivery.
+    fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
+
+    /// Verify that none of the given request commitments appear as receipts in the chain's
+    /// ISMP-scoped storage at the given state commitment. Implementations must bind the proof
+    /// to the ISMP-scoped storage root for that chain.
+    fn verify_non_membership(
+        &self,
+        host: &dyn IsmpHost,
+        commitments: Vec<H256>,
+        root: StateCommitment,
+        proof: &Proof,
+    ) -> Result<(), Error>;
+
+    /// Verify the state of proof of some arbitrary data. Should return the verified data.
     fn verify_state_proof(
         &self,
         host: &dyn IsmpHost,
@@ -54,14 +64,20 @@ pub trait StateMachineClient {
 }
 ```
 
+The `StateMachineClient` operates on **request commitment hashes** (`H256`), not full request/response objects. Callers compute the commitment with `hash_request` at the boundary, keeping the trait agnostic to ISMP message types — it just maps commitment hashes onto each chain's storage layout.
+
 ## `verify_membership`
 
-Since the ISMP framework permits the the `IsmpHost` to persist the outgoing requests and responses in an _overlay tree_. The `StateMachineClient` must provide the verification algorithm for this overlay tree through the `verify_membership` method. If the host is unable to leverage an overlay trie, then this method will simply verify the state proofs of requests and responses.
+Since the ISMP framework permits the `IsmpHost` to persist outgoing request commitments in an _overlay tree_, the `StateMachineClient` must provide the verification algorithm for this overlay tree through the `verify_membership` method. If the host is unable to leverage an overlay trie, then this method will simply verify the state proofs of the request commitments against the global state root.
 
-## `state_trie_key`
+## `commitment_state_trie_key` & `receipts_state_trie_key`
 
-The ISMP framework does not enforce where requests & responses should be persisted in the state trie and allows state machines to store them wherever they like provided that they can describe a path to the request/response committed in storage given the full request/response.
+The ISMP framework does not enforce where request commitments and receipts must be persisted in the state trie; it only requires that the state machine client can describe the storage path for them given a commitment hash. `commitment_state_trie_key` returns the source-chain storage key for the `RequestCommitments` slot, while `receipts_state_trie_key` returns the destination-chain `RequestReceipts` slot — the latter is used by the timeout handler to construct non-membership proofs of non-delivery.
+
+## `verify_non_membership`
+
+Given a `StateCommitment`, a batch of commitment hashes and a non-membership proof, this method verifies that none of those commitments appear as receipts in the chain's ISMP-scoped storage. Implementations must bind the proof to the ISMP-scoped storage root for the chain. This is the primary mechanism by which the timeout handler establishes that a request was never delivered to its destination.
 
 ## `verify_state_proof`
 
-Given a `StateCommitment`, an arbitrary set of keys and a state proof, this method should perform state proof verification and return the verified values for provided storage keys. These keys may point to an empty leaf and as such should be represented with `Option::None`. This signals a non-membership proof for the provided keys which is used in request timeouts. State proof verification is also used in handling `Response::Get` in order to verify the storage values requested in the `Request::Get`
+Given a `StateCommitment`, an arbitrary set of keys and a state proof, this method performs state proof verification and returns the verified values for provided storage keys. These keys may point to an empty leaf and are represented with `Option::None`. State proof verification is also used in handling `Request::Get` in order to construct the `GetResponse` from the verified storage values.

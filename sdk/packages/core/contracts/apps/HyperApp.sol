@@ -13,9 +13,14 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PostRequest, GetRequest} from "../libraries/Message.sol";
 import {DispatchPost, DispatchGet, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IApp, IncomingPostRequest, IncomingGetResponse} from "../interfaces/IApp.sol";
+import {
+    IApp,
+    IncomingPostRequest,
+    IncomingGetResponse,
+    PostRequestTimeout,
+    GetRequestTimeout
+} from "../interfaces/IApp.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -132,7 +137,7 @@ abstract contract HyperApp is IApp {
      * @dev Called by the Host when a previously dispatched POST request has timed out.
      * Override this method to implement cleanup or retry logic. The default implementation reverts.
      */
-    function onPostRequestTimeout(PostRequest memory) external virtual onlyHost {
+    function onPostRequestTimeout(PostRequestTimeout memory) external virtual onlyHost {
         revert UnexpectedCall();
     }
 
@@ -150,7 +155,7 @@ abstract contract HyperApp is IApp {
      * @dev Called by the Host when a previously dispatched GET request has timed out.
      * Override this method to handle GET timeout scenarios. The default implementation reverts.
      */
-    function onGetTimeout(GetRequest memory) external virtual onlyHost {
+    function onGetTimeout(GetRequestTimeout memory) external virtual onlyHost {
         revert UnexpectedCall();
     }
 }

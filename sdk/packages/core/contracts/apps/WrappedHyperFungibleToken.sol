@@ -22,7 +22,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {IWrappedHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "../interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "../interfaces/IApp.sol";
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 import {IWETH} from "../interfaces/IWETH.sol";
 import {HyperApp} from "./HyperApp.sol";
@@ -320,10 +320,10 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
      * Attempts to unwrap WETH and refund native tokens.
-     * @param request The timed-out POST request
+     * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
-    function onPostRequestTimeout(PostRequest calldata request) external override onlyHost whenNotPaused {
-        HyperFungibleToken.Message memory message = abi.decode(request.body, (HyperFungibleToken.Message));
+    function onPostRequestTimeout(PostRequestTimeout calldata incoming) external override onlyHost whenNotPaused {
+        HyperFungibleToken.Message memory message = abi.decode(incoming.request.body, (HyperFungibleToken.Message));
         address refundee = _toAddr(message.from);
 
         if (_isWeth) {

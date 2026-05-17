@@ -96,12 +96,12 @@ function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenN
 
 ---
 
-### onPostRequestTimeout(request)
+### onPostRequestTimeout(incoming)
 
 Called when a sent message times out. Re-mints tokens to the original sender.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external onlyHost whenNotPaused
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external onlyHost whenNotPaused
 ```
 
 ---

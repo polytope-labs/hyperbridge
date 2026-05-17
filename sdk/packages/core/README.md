@@ -65,7 +65,9 @@ contract MyApp is HyperApp {
     }
 
     /// Handle timeout (message not delivered before expiry)
-    function onPostRequestTimeout(PostRequest memory request) external override onlyHost {
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) external override onlyHost {
+        // `incoming.request` is the timed-out POST request,
+        // `incoming.relayer` is the relayer that submitted the timeout proof.
         // Refund or cleanup
     }
 }

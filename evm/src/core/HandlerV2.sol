@@ -28,6 +28,7 @@ import {
     StateCommitment
 } from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {IHost, FeeMetadata, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
+import {PostRequestTimeout, GetRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
 import {
     Message,
@@ -285,7 +286,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchTimeOut(request, meta, requestCommitment);
+            host.dispatchTimeOut(PostRequestTimeout(request, _msgSender()), meta, requestCommitment);
         }
     }
 
@@ -320,7 +321,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchTimeOut(request, meta, commitment);
+            host.dispatchTimeOut(GetRequestTimeout(request, _msgSender()), meta, commitment);
         }
     }
 }

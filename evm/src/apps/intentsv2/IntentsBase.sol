@@ -436,14 +436,14 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Verifies an EIP-712 solver selection signature and stores the selected solver
-     * and session key in transient storage. The solver and session key are stored using
-     * `tstore` so they are only available within the same transaction — this ensures
-     * atomicity between `select` and `fillOrder` calls.
+     * @dev Verifies an EIP-712 solver selection signature and stores a commitment to
+     * `keccak256(abi.encode(solver, sessionKey))` in transient storage. The hash is
+     * stored using `tstore` so it is only available within the same transaction —
+     * this ensures atomicity between `select` and `fillOrder` calls.
      *
      * The session key is recovered from the EIP-712 signature over the (commitment, solver)
-     * tuple. The recovered address is stored at `commitment + 1` in transient storage,
-     * while the solver address is stored at the commitment slot itself.
+     * tuple. At fill time, `fillOrder` re-derives the same hash from `msg.sender` and
+     * `order.session` and compares it against the value stored at the commitment slot.
      *
      * @param options The selection options containing the commitment, solver address, and signature.
      * @return The recovered session key address.
@@ -454,12 +454,9 @@ abstract contract IntentsBase is EIP712 {
         address sessionKey = ECDSA.recover(digest, options.signature);
 
         bytes32 commitment = options.commitment;
-        bytes32 solver = bytes32(uint256(uint160(options.solver)));
-        bytes32 sessionKeyBytes = bytes32(uint256(uint160(sessionKey)));
-        bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+        bytes32 selectionHash = keccak256(abi.encode(options.solver, sessionKey));
         assembly {
-            tstore(commitment, solver)
-            tstore(sessionSlot, sessionKeyBytes)
+            tstore(commitment, selectionHash)
         }
 
         return sessionKey;

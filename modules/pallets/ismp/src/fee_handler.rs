@@ -192,7 +192,7 @@ where
 						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
 				},
 				Message::Response(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
 					Signature::decode(&mut &msg.signer[..])
 						.ok()
 						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())

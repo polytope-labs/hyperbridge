@@ -19,10 +19,7 @@ pub const LOG_TARGET: &str = "messaging-evm-tendermint";
 
 use anyhow::Error;
 use codec::Encode;
-use evm_state_machine::{
-	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
-	types::EvmKVProof,
-};
+use evm_state_machine::{presets::REQUEST_COMMITMENTS_SLOT, types::EvmKVProof};
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -117,41 +114,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 				let slot_hash = tesseract_evm::derive_map_key(
 					q.commitment.0.to_vec(),
 					REQUEST_COMMITMENTS_SLOT,
-				);
-				T::storage_key(&contract_addr, slot_hash.0)
-			})
-			.collect();
-
-		let responses = self
-			.prover
-			.abci_query_keys(&T::store_key(), storage_keys, at - 1)
-			.await
-			.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
-
-		let proofs: Vec<EvmKVProof> = responses
-			.into_iter()
-			.map(|resp| {
-				let proof = proof_ops_to_commitment_proof_bytes(resp.proof).unwrap_or_default();
-				EvmKVProof { value: resp.value, proof }
-			})
-			.collect();
-
-		Ok(proofs.encode())
-	}
-
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		let contract_addr: [u8; 20] = self.inner.ismp_host.0;
-		let storage_keys: Vec<Vec<u8>> = keys
-			.into_iter()
-			.map(|q| {
-				let slot_hash = tesseract_evm::derive_map_key(
-					q.commitment.0.to_vec(),
-					RESPONSE_COMMITMENTS_SLOT,
 				);
 				T::storage_key(&contract_addr, slot_hash.0)
 			})
@@ -269,10 +231,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		self.inner.ismp_host_contract()
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		self.inner.handler_v2_address().await
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		self.inner.block_max_gas()
 	}
@@ -305,10 +263,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		self.inner.query_response_receipt(hash).await
 	}
 
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		self.inner.query_response_fee_metadata(hash).await
-	}
-
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
@@ -338,14 +292,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		self.inner.request_receipt_full_key(commitment)
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.inner.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.inner.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

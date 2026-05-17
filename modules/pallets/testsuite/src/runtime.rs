@@ -35,7 +35,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
-	router::{GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
@@ -621,25 +621,29 @@ impl StateMachineClient for MockStateMachine {
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		_item: RequestResponse,
+		_commitments: Vec<H256>,
 		_root: StateCommitment,
 		_proof: &Proof,
 	) -> Result<(), IsmpError> {
 		Ok(())
+	}
+
+	fn commitment_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		Default::default()
+	}
+
+	fn receipts_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		Default::default()
 	}
 
 	fn verify_non_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		_item: RequestResponse,
+		_commitments: Vec<H256>,
 		_root: StateCommitment,
 		_proof: &Proof,
 	) -> Result<(), IsmpError> {
 		Ok(())
-	}
-
-	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
-		Default::default()
 	}
 
 	fn verify_state_proof(

@@ -32,7 +32,7 @@ use ismp::{
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetResponse, PostRequest, Request},
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, check_get_timeout_message_dedup,
@@ -368,7 +368,7 @@ fn should_handle_get_request_responses_correctly() {
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.unwrap();
-				let get = ismp::router::GetRequest {
+				ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Evm(1),
 					nonce: i,
@@ -379,22 +379,20 @@ fn should_handle_get_request_responses_correctly() {
 
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
-				};
-				Request::Get(get)
+				}
 			})
 			.collect::<Vec<_>>();
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 
-		let (signature, public_key) =
-			create_relayer_signer(RequestResponse::Request(requests.clone()).encode(), &[1u8; 32]);
+		let (signature, public_key) = create_relayer_signer(requests.encode(), &[1u8; 32]);
 		let initial_balance = 1000 * UNIT;
 		let public_key_array: [u8; 32] =
 			public_key.try_into().expect("Public key should be 32 bytes");
 		Balances::mint_into(&public_key_array.into(), initial_balance).unwrap();
 
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(requests.clone()),
+			requests: requests.clone(),
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
@@ -410,8 +408,7 @@ fn should_handle_get_request_responses_correctly() {
 
 		pallet_ismp::Pallet::<Test>::execute(vec![Message::Response(response)]).unwrap();
 
-		for request in requests {
-			let Request::Get(get) = request else { panic!("Shouldn't be possible") };
+		for get in requests {
 			let response = GetResponse { get, values: Default::default() };
 			assert!(host.response_receipt(&response).is_some())
 		}
@@ -627,7 +624,7 @@ fn substrate_verify_non_membership_requires_overlay_proof_variant() {
 
 		let rejected = state_machine.verify_non_membership(
 			&host,
-			RequestResponse::Request(vec![]),
+			vec![],
 			commitment.clone(),
 			&Proof { height, proof: SubstrateStateProof::StateProof(inner.clone()).encode() },
 		);
@@ -638,7 +635,7 @@ fn substrate_verify_non_membership_requires_overlay_proof_variant() {
 
 		let accepted = state_machine.verify_non_membership(
 			&host,
-			RequestResponse::Request(vec![]),
+			vec![],
 			commitment,
 			&Proof { height, proof: SubstrateStateProof::OverlayProof(inner).encode() },
 		);

@@ -11,12 +11,12 @@ use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
 use ssz_rs::{
-	calculate_multi_merkle_root, prelude::is_valid_merkle_branch, GeneralizedIndex, Merkleized,
-	Node,
+	GeneralizedIndex, Merkleized, Node, calculate_multi_merkle_root,
+	prelude::is_valid_merkle_branch,
 };
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
-	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
+	constants::{Config, DOMAIN_SYNC_COMMITTEE, Root},
 	types::{VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
@@ -35,15 +35,6 @@ pub fn verify_sync_committee_attestation<C: Config>(
 			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
 	{
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
-	}
-
-	// Verify sync committee has super majority participants
-	let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
-	let sync_aggregate_participants: u64 =
-		sync_committee_bits.iter().as_bitslice().count_ones() as u64;
-
-	if sync_aggregate_participants < ((2 * sync_committee_bits.len() as u64) / 3) + 1 {
-		Err(Error::SyncCommitteeParticipantsTooLow)?
 	}
 
 	// Verify update is valid
@@ -75,6 +66,29 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	};
 
 	let sync_committee_pubkeys = sync_committee.public_keys;
+	let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
+
+	// Verify sync committee has super majority participants. The bit
+	// vector and the pubkey set should both be `SYNC_COMMITTEE_SIZE`,
+	// but the threshold is computed against the actual pubkey set size
+	// and any bit past it is treated as junk — otherwise an attacker
+	// could pad `count_ones()` with positions that have no corresponding
+	// validator and trivially clear the supermajority check.
+	let committee_size = sync_committee_pubkeys.len();
+	if sync_committee_bits
+		.iter()
+		.enumerate()
+		.any(|(i, bit)| i >= committee_size && *bit)
+	{
+		Err(Error::InvalidUpdate("Sync committee bits set beyond committee size".into()))?
+	}
+
+	let sync_aggregate_participants: u64 =
+		sync_committee_bits.iter().take(committee_size).filter(|b| **b).count() as u64;
+
+	if sync_aggregate_participants < ((2 * committee_size as u64) / 3) + 1 {
+		Err(Error::SyncCommitteeParticipantsTooLow)?
+	}
 
 	let non_participant_pubkeys = sync_committee_bits
 		.iter()
@@ -210,4 +224,86 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	};
 
 	Ok(verifier_state)
+}
+
+#[cfg(test)]
+mod supermajority_tests {
+	use super::*;
+	use sync_committee_primitives::{
+		consensus_types::{BeaconBlockHeader, SyncAggregate, SyncCommittee},
+		constants::{BLS_SIGNATURE_BYTES_LEN, BlsSignature, SYNC_COMMITTEE_SIZE, sepolia::Sepolia},
+		types::{ExecutionPayloadProof, FinalityProof, VerifierState, VerifierStateUpdate},
+	};
+
+	/// Build a baseline update that passes every check that runs before
+	/// the supermajority gate, but whose `sync_committee_bits` are still
+	/// caller-controlled. The state lives entirely in period 0 so we
+	/// don't have to satisfy the sync-committee-update branches.
+	fn baseline() -> (VerifierState, VerifierStateUpdate) {
+		// Sepolia has 8192 slots per sync committee period — keep all
+		// slots well inside period 0.
+		let finalized_slot = 10u64;
+		let attested_slot = 20u64;
+		let signature_slot = 30u64;
+
+		let trusted_state = VerifierState {
+			finalized_header: BeaconBlockHeader { slot: 0, ..Default::default() },
+			latest_finalized_epoch: 0,
+			current_sync_committee: SyncCommittee::<SYNC_COMMITTEE_SIZE>::default(),
+			next_sync_committee: SyncCommittee::<SYNC_COMMITTEE_SIZE>::default(),
+			state_period: 0,
+		};
+
+		let update = VerifierStateUpdate {
+			attested_header: BeaconBlockHeader { slot: attested_slot, ..Default::default() },
+			sync_committee_update: None,
+			finalized_header: BeaconBlockHeader { slot: finalized_slot, ..Default::default() },
+			execution_payload: ExecutionPayloadProof::default(),
+			finality_proof: FinalityProof { epoch: 1, finality_branch: Vec::new() },
+			sync_aggregate: SyncAggregate {
+				sync_committee_bits: ssz_rs::Bitvector::default(),
+				sync_committee_signature: BlsSignature::try_from(vec![
+					0u8;
+					BLS_SIGNATURE_BYTES_LEN
+				])
+				.unwrap(),
+			},
+			signature_slot,
+		};
+
+		(trusted_state, update)
+	}
+
+	/// 341 of 512 bits set is one short of the `(2*512/3)+1 = 342`
+	/// threshold; the supermajority gate must reject.
+	#[test]
+	fn rejects_under_threshold_participants() {
+		let (state, mut update) = baseline();
+		for i in 0..341 {
+			update.sync_aggregate.sync_committee_bits.set(i, true);
+		}
+
+		let err = verify_sync_committee_attestation::<Sepolia>(state, update)
+			.expect_err("must reject under-threshold update");
+		assert!(matches!(err, Error::SyncCommitteeParticipantsTooLow), "unexpected error: {err:?}");
+	}
+
+	/// 342 bits set hits the threshold exactly; the gate must let the
+	/// update through. Verification fails downstream (no real BLS
+	/// signature, no merkle proofs) — what matters is that the failure
+	/// is not the supermajority check.
+	#[test]
+	fn accepts_exactly_threshold_participants() {
+		let (state, mut update) = baseline();
+		for i in 0..342 {
+			update.sync_aggregate.sync_committee_bits.set(i, true);
+		}
+
+		let err = verify_sync_committee_attestation::<Sepolia>(state, update)
+			.expect_err("downstream signature/merkle check must fail");
+		assert!(
+			!matches!(err, Error::SyncCommitteeParticipantsTooLow),
+			"supermajority gate should not have rejected: {err:?}"
+		);
+	}
 }

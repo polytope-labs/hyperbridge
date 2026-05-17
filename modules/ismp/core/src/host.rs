@@ -81,9 +81,6 @@ pub trait IsmpHost: Keccak256 {
 	/// Should return an error if request commitment does not exist in storage
 	fn request_commitment(&self, req: H256) -> Result<(), Error>;
 
-	/// Should return an error if request commitment does not exist in storage
-	fn response_commitment(&self, req: H256) -> Result<(), Error>;
-
 	/// Increment and return the next available nonce for an outgoing request.
 	fn next_nonce(&self) -> u64;
 

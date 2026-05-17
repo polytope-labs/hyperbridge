@@ -44,7 +44,7 @@ async fn transaction_payments_flow() {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -96,7 +96,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -119,7 +119,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -142,7 +142,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -165,7 +165,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -188,7 +188,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -234,7 +234,7 @@ async fn highest_delivery_height() {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),

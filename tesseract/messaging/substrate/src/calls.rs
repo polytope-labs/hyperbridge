@@ -17,7 +17,7 @@ use pallet_ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
-	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
@@ -116,7 +116,7 @@ where
 	/// on Hyperbridge. The extrinsic is unsigned (validated via
 	/// `validate_unsigned`); the claim itself carries the relayer's ECDSA
 	/// signature which the pallet recovers and matches against the
-	/// destination's `HandlerV2._epochs[set_id]` slot.
+	/// destination's `EvmHost._epochs[set_id]` slot.
 	pub async fn submit_outbound_consensus_delivery_claim(
 		&self,
 		claim: OutboundConsensusDeliveryClaim,
@@ -243,24 +243,11 @@ where
 		}
 	}
 
-	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {
-		let params = match key {
-			Key::Request(req) => {
-				let key = self.req_commitments_key(req);
-				let child_storage_key =
-					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-				let storage_key = StorageKey(key);
-
-				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
-			},
-			Key::Response { response_commitment, .. } => {
-				let key = self.res_commitments_key(response_commitment);
-				let child_storage_key =
-					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-				let storage_key = StorageKey(key);
-				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
-			},
-		};
+	async fn check_claimed(&self, commitment: H256) -> anyhow::Result<bool> {
+		let key = self.req_commitments_key(commitment);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
 			self.rpc_client.request("childstate_getStorage", params).await?;

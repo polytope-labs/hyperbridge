@@ -35,7 +35,7 @@ use ismp::{
 		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof, RequestMessage,
 		ResponseMessage, TimeoutMessage,
 	},
-	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -688,8 +688,7 @@ pub fn check_request_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static
 	Ok(())
 }
 
-/// `ResponseMessage` whose datagram is a `RequestResponse::Request`
-/// (Get-request batch) with two identical Get requests must be rejected
+/// `ResponseMessage` carrying two identical Get requests must be rejected
 /// with `DuplicateRequest`.
 pub fn check_response_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_with_elapsed_challenge_period(host);
@@ -704,13 +703,12 @@ pub fn check_response_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'stati
 		context: Default::default(),
 		timeout_timestamp: 0,
 	};
-	let req = Request::Get(get);
 
-	let datagram = RequestResponse::Request(vec![req.clone(), req]);
-	let (signature, ..) = create_relayer_signer(datagram.encode(), &[1u8; 32]);
+	let requests = vec![get.clone(), get];
+	let (signature, ..) = create_relayer_signer(requests.encode(), &[1u8; 32]);
 
 	let response_message = Message::Response(ResponseMessage {
-		datagram,
+		requests,
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});

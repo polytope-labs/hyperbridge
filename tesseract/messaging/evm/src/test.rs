@@ -5,7 +5,7 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{hash_request, Proof},
-	router::{PostRequest, Request, RequestResponse},
+	router::{PostRequest, Request},
 };
 use ismp_abi::evm_host::EvmHostInstance;
 use ismp_testsuite::mocks::Keccak256Hasher;
@@ -102,7 +102,7 @@ async fn test_ismp_state_proof() {
 		proof: proof.clone(),
 	};
 	evm_state_machine::verify_membership::<Keccak256Hasher>(
-		RequestResponse::Request(vec![request]),
+		vec![request],
 		state_commitment,
 		&membership_proof,
 		ISMP_HOST,

@@ -215,11 +215,6 @@ pub enum Error {
 		/// The response metadata
 		meta: Meta,
 	},
-	/// Expected get request found post
-	InvalidResponseType {
-		/// The request metadata
-		meta: Meta,
-	},
 	/// Error decoding signature
 	SignatureDecodingFailed,
 	/// Anyhow error: {0}

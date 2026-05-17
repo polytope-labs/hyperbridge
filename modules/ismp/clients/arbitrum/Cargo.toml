@@ -26,6 +26,7 @@ hex-literal = { workspace = true }
 codec = { workspace = true, default-features = false }
 ethabi = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -59,6 +60,7 @@ std = [
     "evm-state-machine/std",
     "polkadot-sdk/std",
     "anyhow/std",
+    "thiserror/std",
     "alloy-sol-types/std",
     "primitive-types/std"
 ]

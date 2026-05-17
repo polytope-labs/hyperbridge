@@ -29,7 +29,6 @@ use ismp::{
 	error::Error,
 	host::IsmpHost,
 	messaging::{Keccak256, Proof},
-	router::RequestResponse,
 };
 use primitive_types::{H160, H256};
 use thiserror::Error as ThisError;
@@ -99,7 +98,7 @@ pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 
 pub fn verify_membership<H: Keccak256 + Send + Sync>(
-	item: RequestResponse,
+	commitments: Vec<H256>,
 	root: StateCommitment,
 	proof: &Proof,
 	contract_address: H160,
@@ -109,7 +108,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 		.storage_proof
 		.remove(&contract_address.0.to_vec())
 		.ok_or(EvmStateMachineError::ContractAccountProofMissing)?;
-	let keys = req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec());
+	let keys = req_commitment_key::<H, _>(commitments, |k| H::keccak256(k).0.to_vec());
 	let root = H256::from_slice(&root.state_root[..]);
 	let contract_root = get_contract_account::<H>(
 		evm_state_proof.contract_proof,
@@ -233,29 +232,33 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	fn verify_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(EvmStateMachineError::IsmpContractNotFound)?;
-		verify_membership::<H>(item, root, proof, contract_address)
+		verify_membership::<H>(commitments, root, proof, contract_address)
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		// State trie keys are used to process timeouts from EVM chains
-		// We return the trie keys for request or response receipts
-		req_res_receipt_keys::<H>(items)
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_commitment_key::<H, _>(commitments, |k| H::keccak256(k).0.to_vec())
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		// State trie keys are used to process timeouts from EVM chains.
+		// We return the trie keys for request receipts.
+		req_receipt_keys::<H>(commitments)
 	}
 
 	fn verify_non_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
-		let keys = self.receipts_state_trie_key(item);
+		let keys = self.receipts_state_trie_key(commitments);
 		let values = self.verify_state_proof(host, keys, root, proof)?;
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(EvmStateMachineError::DeliveredRequestsInBatch.into());

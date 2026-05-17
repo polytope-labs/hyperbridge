@@ -28,13 +28,12 @@ use alloc::{
 	vec::Vec,
 };
 use codec::{Decode, Encode};
-use evm_state_machine::{req_res_commitment_key, req_res_receipt_keys};
+use evm_state_machine::{req_commitment_key, req_receipt_keys};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::IsmpHost,
 	messaging::{Keccak256, Proof},
-	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
 use pharos_primitives::{spv, NonExistenceProof, PharosProofNode};
@@ -137,27 +136,31 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(PharosStateMachineError::IsmpContractNotFound)?;
-		verify_membership::<H>(item, root, proof, contract_address)
+		verify_membership::<H>(commitments, root, proof, contract_address)
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		req_res_receipt_keys::<H>(items)
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_commitment_key::<H, _>(commitments, |k| k.to_vec())
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_receipt_keys::<H>(commitments)
 	}
 
 	fn verify_non_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
-		let keys = self.receipts_state_trie_key(item);
+		let keys = self.receipts_state_trie_key(commitments);
 		let values = self.verify_state_proof(host, keys, root, proof)?;
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(PharosStateMachineError::DeliveredRequestsInBatch.into());
@@ -186,7 +189,7 @@ fn decode_pharos_state_proof(proof: &Proof) -> Result<PharosStateProof, Error> {
 
 /// Verify membership of ISMP commitments in the Pharos state.
 pub fn verify_membership<H: Keccak256 + Send + Sync>(
-	item: RequestResponse,
+	commitments: Vec<H256>,
 	root: StateCommitment,
 	proof: &Proof,
 	contract_address: H160,
@@ -196,7 +199,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 	let state_root = H256::from_slice(&root.state_root[..]);
 	let address: [u8; 20] = contract_address.0;
 
-	let commitment_keys = req_res_commitment_key::<H, _>(item, |k| k.to_vec());
+	let commitment_keys = req_commitment_key::<H, _>(commitments, |k| k.to_vec());
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	for slot_hash in commitment_keys {

@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 log = { workspace = true }
 anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
@@ -31,6 +32,7 @@ default = ["std"]
 std = [
     "log/std",
     "anyhow/std",
+    "thiserror/std",
     "polkadot-sdk/std",
     "codec/std",
     "ismp/std",

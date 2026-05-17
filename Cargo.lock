@@ -1044,6 +1044,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -3568,6 +3569,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8558,6 +8560,7 @@ dependencies = [
  "substrate-state-machine",
  "subxt 0.42.1",
  "subxt-utils",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -10551,6 +10554,7 @@ dependencies = [
  "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-verifier",
+ "thiserror 2.0.18",
  "tracing-subscriber 0.3.22",
 ]
 
@@ -10574,6 +10578,7 @@ dependencies = [
  "sp-io",
  "sync-committee-primitives",
  "sync-committee-verifier",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -13572,6 +13577,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "scale-info",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -15410,6 +15416,7 @@ dependencies = [
  "pharos-primitives",
  "pharos-prover",
  "pharos-state-machine",
+ "pharos-verifier",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
@@ -27611,9 +27618,11 @@ dependencies = [
  "bls_on_arkworks",
  "hex",
  "hex-literal 0.4.1",
+ "ismp",
  "log",
  "ssz-rs",
  "sync-committee-primitives",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

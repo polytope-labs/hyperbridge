@@ -27,14 +27,13 @@ use ismp::{
 	error::Error,
 	host::IsmpHost,
 	messaging::{Keccak256, Proof},
-	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
-use primitive_types::H160;
+use primitive_types::{H160, H256};
 use tendermint_ics23_primitives::ICS23HostFunctions;
 use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
-use crate::{req_res_commitment_key, req_res_receipt_keys};
+use crate::{req_commitment_key, req_receipt_keys};
 use alloc::{
 	collections::BTreeMap,
 	string::{String, ToString},
@@ -100,16 +99,14 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
 
-		let slot_keys = req_res_commitment_key::<ICS23HostFunctions, _>(item, |k| {
-			ICS23HostFunctions::keccak256(k).0.to_vec()
-		});
+		let slot_keys = self.commitment_state_trie_key(commitments);
 
 		let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
 			.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
@@ -153,18 +150,24 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		req_res_receipt_keys::<ICS23HostFunctions>(items)
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_commitment_key::<ICS23HostFunctions, _>(commitments, |k| {
+			ICS23HostFunctions::keccak256(k).0.to_vec()
+		})
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_receipt_keys::<ICS23HostFunctions>(commitments)
 	}
 
 	fn verify_non_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
-		let keys = self.receipts_state_trie_key(item);
+		let keys = self.receipts_state_trie_key(commitments);
 		let values = self.verify_state_proof(host, keys, root, proof)?;
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(TendermintEvmError::DeliveredRequestsInBatch.into());

@@ -77,7 +77,11 @@ where
 				}
 			}
 
-			state_machine.verify_non_membership(host, wrapped.into(), state, &timeout_proof)?;
+			let commitments = requests
+				.iter()
+				.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+				.collect();
+			state_machine.verify_non_membership(host, commitments, state, &timeout_proof)?;
 
 			let router = host.ismp_router();
 			requests

@@ -47,7 +47,8 @@ use pallet_ismp::{
 };
 use pallet_ismp_relayer::withdrawal::Signature;
 use substrate_state_machine::{
-	HashAlgorithm, StateMachineProof, SubstrateStateMachine, SubstrateStateProof,
+	HashAlgorithm, StateMachineProof, SubstrateStateMachine, SubstrateStateMachineError,
+	SubstrateStateProof,
 };
 
 use crate::runtime::*;
@@ -628,9 +629,13 @@ fn substrate_verify_non_membership_requires_overlay_proof_variant() {
 			commitment.clone(),
 			&Proof { height, proof: SubstrateStateProof::StateProof(inner.clone()).encode() },
 		);
+		let err = rejected.expect_err("non-membership against a StateProof must be rejected");
+		let ismp::error::Error::AnyHow(anyhow_err) = err else {
+			panic!("expected AnyHow error, got {err:?}");
+		};
 		assert!(matches!(
-			rejected,
-			Err(ismp::error::Error::Custom(ref msg)) if msg == "Expected Overlay Proof"
+			anyhow_err.0.downcast_ref::<SubstrateStateMachineError>(),
+			Some(SubstrateStateMachineError::ExpectedOverlayProof)
 		));
 
 		let accepted = state_machine.verify_non_membership(

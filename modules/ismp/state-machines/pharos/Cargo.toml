@@ -19,6 +19,7 @@ ethabi = { workspace = true }
 hex-literal = { workspace = true }
 alloy-rlp = { workspace = true }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -37,4 +38,5 @@ std = [
     "ethabi/std",
     "alloy-rlp/std",
     "polkadot-sdk/std",
+    "anyhow/std",
 ]

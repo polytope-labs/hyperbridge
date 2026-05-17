@@ -7170,6 +7170,7 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "anyhow",
  "ethabi",
  "ethereum-triedb",
  "geth-primitives",
@@ -17225,6 +17226,7 @@ name = "pharos-state-machine"
 version = "0.1.0"
 dependencies = [
  "alloy-rlp",
+ "anyhow",
  "ethabi",
  "evm-state-machine",
  "geth-primitives",
@@ -26960,6 +26962,7 @@ dependencies = [
 name = "substrate-state-machine"
 version = "2512.0.0"
 dependencies = [
+ "anyhow",
  "hash-db",
  "ismp",
  "pallet-ismp",

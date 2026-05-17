@@ -76,7 +76,7 @@ pub enum EvmStateMachineError {
 
 impl From<EvmStateMachineError> for Error {
 	fn from(e: EvmStateMachineError) -> Error {
-		Error::Custom(e.to_string())
+		Error::AnyHow(anyhow::Error::new(e).into())
 	}
 }
 

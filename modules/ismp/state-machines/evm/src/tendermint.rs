@@ -70,7 +70,7 @@ pub enum TendermintEvmError {
 
 impl From<TendermintEvmError> for Error {
 	fn from(e: TendermintEvmError) -> Error {
-		Error::Custom(e.to_string())
+		Error::AnyHow(anyhow::Error::new(e).into())
 	}
 }
 

@@ -78,7 +78,7 @@ pub enum SubstrateStateMachineError {
 
 impl From<SubstrateStateMachineError> for Error {
 	fn from(e: SubstrateStateMachineError) -> Error {
-		Error::Custom(e.to_string())
+		Error::AnyHow(anyhow::Error::new(e).into())
 	}
 }
 

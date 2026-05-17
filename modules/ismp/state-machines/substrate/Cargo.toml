@@ -23,6 +23,7 @@ scale-info = { workspace = true, features = ["derive"] }
 hash-db = { workspace = true }
 trie-db = { workspace = true }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -45,4 +46,5 @@ std = [
     "serde/std",
     "pallet-ismp/std",
     "hash-db/std",
+    "anyhow/std",
 ]

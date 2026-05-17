@@ -83,7 +83,7 @@ pub enum PharosStateMachineError {
 
 impl From<PharosStateMachineError> for Error {
 	fn from(e: PharosStateMachineError) -> Error {
-		Error::Custom(e.to_string())
+		Error::AnyHow(anyhow::Error::new(e).into())
 	}
 }
 

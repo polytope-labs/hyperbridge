@@ -48,8 +48,9 @@ pub enum Error {
 	/// Fraud proofs were submitted for different block heights.
 	#[error("Fraud proofs must be for the same block height")]
 	FraudProofsDifferentHeight,
-	/// Fraud proofs were byte-identical.
-	#[error("Fraud proofs are identical")]
+	/// Both fraud proofs commit to the same Tendermint header, so they fail to
+	/// demonstrate equivocation.
+	#[error("Fraud proofs commit to the same block header")]
 	FraudProofsIdentical,
 	/// Asked to serve a state machine the client doesn't support.
 	#[error("Unsupported state machine or chain ID: {0:?}")]

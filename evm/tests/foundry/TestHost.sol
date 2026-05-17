@@ -15,14 +15,23 @@
 pragma solidity ^0.8.17;
 
 import {EvmHost, HostParams} from "../../src/core/EvmHost.sol";
+import {TestnetHost} from "../../src/core/TestnetHost.sol";
 
-contract TestHost is EvmHost {
-    constructor(HostParams memory params) EvmHost(params) {}
+/// @dev Test wrapper preserving the legacy single-shot `(HostParams)`
+/// constructor used by the existing Foundry tests. Extends `TestnetHost`
+/// so that tests can call `updateHostParams` from the admin and re-init
+/// the consensus state. For mainnet-behavior tests, use `MainnetTestHost`.
+contract TestHost is TestnetHost {
+    constructor(HostParams memory params) TestnetHost(params.admin) {
+        updateHostParamsInternal(params);
+    }
+}
 
-    /// chainId for the bsc mainnet
-    uint256 public constant CHAIN_ID = 1337;
-
-    function chainId() public pure override returns (uint256) {
-        return CHAIN_ID;
+/// @dev Test wrapper around the strict-mainnet `EvmHost`, used by tests
+/// that need to assert mainnet behavior (no admin updateHostParams,
+/// consensus state only initializable once).
+contract MainnetTestHost is EvmHost {
+    constructor(HostParams memory params) EvmHost(params.admin) {
+        updateHostParamsInternal(params);
     }
 }

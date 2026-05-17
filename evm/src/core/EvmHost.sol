@@ -108,7 +108,7 @@ struct WithdrawParams {
  * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
  * the state of the ISMP protocol.
  */
-abstract contract EvmHost is IHost, IHostManager, Context {
+contract EvmHost is IHost, IHostManager, Context {
     using Message for PostRequest;
     using Message for GetRequest;
     using Message for GetResponse;
@@ -134,7 +134,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
 
     // mapping of state machine identifier to latest known height
     // (stateMachineId => blockHeight)
-    mapping(uint256 => uint256) private _latestStateMachineHeight;
+    mapping(uint256 => uint256) internal _latestStateMachineHeight;
 
     // mapping of state machine identifier to height vetoed to fisherman
     // useful for rewarding fishermen on hyperbridge
@@ -142,7 +142,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     mapping(uint256 => mapping(uint256 => address)) private _vetoes;
 
     // Parameters for the host
-    HostParams private _hostParams;
+    HostParams internal _hostParams;
 
     // Monotonically increasing nonce for outgoing requests
     uint256 private _nonce;
@@ -162,6 +162,10 @@ abstract contract EvmHost is IHost, IHostManager, Context {
 
     // The most recent authority set ID for which a consensus proof has been submitted.
     uint256 private _currentEpoch;
+
+    // One-shot guard for `initialize`. Appended after all existing storage so
+    // this change does not shift any pre-existing storage slots.
+    bool private _initialized;
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(
@@ -352,9 +356,28 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         _;
     }
 
-    constructor(HostParams memory params) {
-        updateHostParamsInternal(params);
+    /**
+     * @dev Constructor only sets the initial admin and the consensus update
+     * timestamp. All other configuration is deferred to `initialize` so that
+     * the constructor's init code is identical on every chain (assuming the
+     * same `admin` is used everywhere), which is required for CREATE2 address
+     * parity across chains.
+     */
+    constructor(address _admin) {
         _consensusUpdateTimestamp = block.timestamp;
+        _hostParams.admin = _admin;
+    }
+
+    /**
+     * @dev One-shot initializer. Can only be called once, and only by the
+     * admin set in the constructor. Applies the initial `HostParams` via
+     * the internal updater.
+     */
+    function initialize(HostParams memory params) external {
+        if (_msgSender() != _hostParams.admin) revert UnauthorizedAction();
+        if (_initialized) revert UnauthorizedAction();
+        _initialized = true;
+        updateHostParamsInternal(params);
     }
 
     /*
@@ -368,11 +391,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     function host() public view returns (bytes memory) {
         return StateMachine.evm(block.chainid);
     }
-
-    /**
-     * @return the mainnet evm chainId for this host
-     */
-    function chainId() public virtual returns (uint256);
 
     /**
      * @return the host timestamp
@@ -544,26 +562,15 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     }
 
     /**
-     * @dev Updates the HostParams. On mainnet it can only be called by cross-chain governance.
+     * @dev Updates the HostParams. Only callable by cross-chain governance
+     * via the configured `hostManager`. The admin has no privileges here —
+     * environments that need a privileged admin override (testnets, forks)
+     * should use `TestnetHost`, which extends this contract.
+     *
+     * Marked `virtual` so subclasses can broaden the authorization
      * @param params, the new host params.
      */
-    function updateHostParams(HostParams memory params) external {
-        address caller = _msgSender();
-        if (caller != _hostParams.hostManager && caller != _hostParams.admin) {
-            revert UnauthorizedAction();
-        }
-
-        if (caller == _hostParams.admin) {
-            // admin cannot change host params on mainnet
-            if (chainId() == block.chainid) revert UnauthorizedAction();
-
-            // reset all state machines, on testnet
-            uint256 whitelistLength = params.stateMachines.length;
-            for (uint256 i = 0; i < whitelistLength; ++i) {
-                delete _latestStateMachineHeight[params.stateMachines[i]];
-            }
-        }
-
+    function updateHostParams(HostParams memory params) external virtual restrict(_hostParams.hostManager) {
         updateHostParamsInternal(params);
     }
 
@@ -746,17 +753,31 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     }
 
     /**
-     * @dev sets the initial consensus state
+     * @dev Whether the admin is permitted to (re)initialize the consensus
+     * state. On mainnet hosts the consensus state may only be set once via
+     * `setConsensusState` and is thereafter only updated through consensus
+     * proofs. `TestnetHost` overrides this to permit repeated admin
+     * re-initialization.
+     */
+    function _canReinitConsensus() internal view virtual returns (bool) {
+        return keccak256(_consensusState) == keccak256(bytes(""));
+    }
+
+    /**
+     * @dev sets the initial consensus state. By default this is a one-shot
+     * operation: once `_consensusState` is non-empty the admin can no longer
+     * call this and consensus state moves only through `storeConsensusState`
+     * (handler-only, driven by consensus proofs). `TestnetHost` overrides
+     * `_canReinitConsensus` to lift this restriction.
      * @param state initial consensus state
+     * @param height initial state-machine height
+     * @param commitment initial state commitment at `height`
      */
     function setConsensusState(bytes memory state, StateMachineHeight memory height, StateCommitment memory commitment)
         public
         restrict(_hostParams.admin)
     {
-        // if we're on mainnet, then consensus state can only be initialized once
-        // and updated subsequently through consensus proofs
-        bool canUpdate = chainId() == block.chainid ? keccak256(_consensusState) == keccak256(bytes("")) : true;
-        if (!canUpdate) revert UnauthorizedAction();
+        if (!_canReinitConsensus()) revert UnauthorizedAction();
 
         _consensusState = state;
         _consensusUpdateTimestamp = block.timestamp;

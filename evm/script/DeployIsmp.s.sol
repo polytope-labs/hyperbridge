@@ -8,24 +8,13 @@ import "../src/core/HandlerV2.sol";
 import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
+import {TestnetHost} from "../src/core/TestnetHost.sol";
+
 import "../src/consensus/EcdsaBeefy.sol";
 import "../src/consensus/ConsensusRouter.sol";
-import "../src/hosts/Ethereum.sol";
-import "../src/hosts/Arbitrum.sol";
-import "../src/hosts/Optimism.sol";
-import "../src/hosts/Base.sol";
-import "../src/hosts/Gnosis.sol";
-import "../src/hosts/Soneium.sol";
-import "../src/hosts/Unichain.sol";
-import "../src/hosts/Sei.sol";
 
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
-
-import {BscHost} from "../src/hosts/Bsc.sol";
-import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {PolkadotHost} from "../src/hosts/Polkadot.sol";
-import {PharosHost} from "../src/hosts/Pharos.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
@@ -63,10 +52,8 @@ contract DeployScript is BaseScript {
         // Deploy SP1 ZK consensus client
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
         SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
-
         // Deploy EcdsaBeefy naive consensus client
         EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
-
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
             IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy))
@@ -108,7 +95,6 @@ contract DeployScript is BaseScript {
 
         // handler
         HandlerV2 handler = new HandlerV2{salt: salt}();
-
         // Host manager
         HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
         uint256[] memory stateMachines = new uint256[](1);
@@ -128,12 +114,15 @@ contract DeployScript is BaseScript {
             stateMachines: stateMachines
         });
 
-        address hostAddress = initHost(params);
+        EvmHost host = isMainnet
+            ? new EvmHost{salt: salt}(admin)
+            : EvmHost(payable(address(new TestnetHost{salt: salt}(admin))));
+        host.initialize(params);
         // set the host address on the host manager
-        manager.setIsmpHost(hostAddress);
+        manager.setIsmpHost(address(host));
 
         // Set the consensus state
-        EvmHost(payable(hostAddress))
+        EvmHost(payable(address(host)))
             .setConsensusState(
                 consensusState,
                 StateMachineHeight({stateMachineId: paraId, height: 1}),
@@ -143,81 +132,12 @@ contract DeployScript is BaseScript {
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
-        if (!isMainnet) {
-            config.set("TOKEN_FAUCET", address(faucet));
-        }
-
+        vm.stopBroadcast();
         // ============= Write addresses to config =============
-        config.set("HOST", hostAddress);
+        if (!isMainnet) config.set("TOKEN_FAUCET", address(faucet));
+        config.set("HOST", address(host));
         config.set("HANDLER", address(handler));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
-    }
-
-    function initHost(HostParams memory params) public returns (address) {
-        uint256 chainId = block.chainid;
-
-        // Ethereum (mainnet: 1, sepolia: 11155111)
-        if (chainId == 1 || chainId == 11155111) {
-            EthereumHost h = new EthereumHost{salt: salt}(params);
-            return address(h);
-        }
-        // Arbitrum (mainnet: 42161, sepolia: 421614)
-        else if (chainId == 42161 || chainId == 421614) {
-            ArbitrumHost h = new ArbitrumHost{salt: salt}(params);
-            return address(h);
-        }
-        // Optimism (mainnet: 10, sepolia: 11155420)
-        else if (chainId == 10 || chainId == 11155420) {
-            OptimismHost h = new OptimismHost{salt: salt}(params);
-            return address(h);
-        }
-        // Base (mainnet: 8453, sepolia: 84532)
-        else if (chainId == 8453 || chainId == 84532) {
-            BaseHost h = new BaseHost{salt: salt}(params);
-            return address(h);
-        }
-        // BSC (mainnet: 56, testnet: 97)
-        else if (chainId == 56 || chainId == 97) {
-            BscHost h = new BscHost{salt: salt}(params);
-            return address(h);
-        }
-        // Polygon (mainnet: 137, amoy: 80002)
-        else if (chainId == 137 || chainId == 80002) {
-            PolygonHost h = new PolygonHost{salt: salt}(params);
-            return address(h);
-        }
-        // Gnosis (mainnet: 100, chiado: 10200)
-        else if (chainId == 100 || chainId == 10200) {
-            GnosisHost h = new GnosisHost{salt: salt}(params);
-            return address(h);
-        }
-        // Soneium (mainnet: 1868)
-        else if (chainId == 1868) {
-            SoneiumHost h = new SoneiumHost{salt: salt}(params);
-            return address(h);
-        }
-        // Unichain (mainnet: 1301)
-        else if (chainId == 1301) {
-            UnichainHost h = new UnichainHost{salt: salt}(params);
-            return address(h);
-        }
-        // Sei (mainnet: 1329, arctic testnet: 1328)
-        else if (chainId == 1329 || chainId == 1328) {
-            SeiHost h = new SeiHost{salt: salt}(params);
-            return address(h);
-        }
-        // Polkadot Asset Hub (mainnet: 420420419, testnet: 420420417)
-        else if (chainId == 420420419 || chainId == 420420417) {
-            PolkadotHost h = new PolkadotHost{salt: salt}(params);
-            return address(h);
-        }
-        // Pharos (mainnet: 688600, testnet: 688689)
-        else if (chainId == 688600 || chainId == 688689) {
-            PharosHost h = new PharosHost{salt: salt}(params);
-            return address(h);
-        }
-
-        revert("Unknown chain ID");
     }
 }

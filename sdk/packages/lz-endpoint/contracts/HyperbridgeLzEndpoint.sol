@@ -262,11 +262,11 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         });
 
         if (_params.payInLzToken) {
-            uint256 feeTokenAmount = quote(request);
-            return MessagingFee({nativeFee: 0, lzTokenFee: feeTokenAmount});
+            // The relayer fee is denominated in the host's fee token.
+            return MessagingFee({nativeFee: 0, lzTokenFee: request.fee});
         } else {
-            uint256 nativeFee = quoteNative(request);
-            return MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
+            // `quote()` returns the fee in the native token.
+            return MessagingFee({nativeFee: quote(request), lzTokenFee: 0});
         }
     }
 

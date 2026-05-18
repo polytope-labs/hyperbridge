@@ -36,8 +36,8 @@
 		"stateMachineId": "EVM-11155111",
 		"blockConfirmations": 5,
 		"contracts": {
-			"ethereumHost": "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
-			"handlerV1": "0xBf814fb3fD3eAaEB6a08C5A245c92da8b586f670",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -48,8 +48,8 @@
 		"startBlock": 88722044,
 		"stateMachineId": "EVM-421614",
 		"contracts": {
-			"ethereumHost": "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
-			"handlerV1": "0x84b962657aA916286D7B24D37f458a2D823180dc",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -60,8 +60,8 @@
 		"startBlock": 18572226,
 		"stateMachineId": "EVM-11155420",
 		"contracts": {
-			"ethereumHost": "0x6d51b678836d8060d980605d2999eF211809f3C2",
-			"handlerV1": "0x39c4085CcAe262fb8970578A2c703a87ed9842eF",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -72,8 +72,8 @@
 		"startBlock": 16589470,
 		"stateMachineId": "EVM-84532",
 		"contracts": {
-			"ethereumHost": "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
-			"handlerV1": "0x4638945E120846366cB7Abc08DB9c0766E3a663F",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -85,8 +85,8 @@
 		"stateMachineId": "EVM-97",
 		"unfinalizedBlocks": false,
 		"contracts": {
-			"ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			"intentGatewayV3": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD"
@@ -99,8 +99,8 @@
 		"stateMachineId": "EVM-10200",
 		"blockConfirmations": 5,
 		"contracts": {
-			"ethereumHost": "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
-			"handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -112,8 +112,8 @@
 		"stateMachineId": "EVM-80002",
 		"unfinalizedBlocks": false,
 		"contracts": {
-			"ethereumHost": "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
-			"handlerV1": "0xf0b4024F15d07912953184840682690C31aD9bcC",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0x693B854D6965ffEAaE21C74049deA644b56FCaCB",
 			"tokenGateway": "0x2efdc11b11cac34697b992a56e1d245c137a05b2"
 		}
@@ -125,8 +125,8 @@
 		"stateMachineId": "EVM-420420417",
 		"unfinalizedBlocks": false,
 		"contracts": {
-			"ethereumHost": "0xbb26e04a71e7c12093e82b83ba310163eac186fa",
-			"handlerV1": "0x8b31a195c98ead34cf463a66f52942b6145a68a2",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0x8b31a195c98ead34cf463a66f52942b6145a68a2",
 			"tokenGateway": "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c"
 		}
@@ -150,8 +150,8 @@
 		"startBlock": 18128677,
 		"stateMachineId": "EVM-688689",
 		"contracts": {
-			"ethereumHost": "0xED54E9b64043c389173316B6351Bd25491060eA8",
-			"handlerV1": "0x8B37747BBF8c8485026B9Dc2f8Fb177096EF574f",
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xeaB7572c5506978C9A4Ff0A0BA5A1291e327B0B8",
 			"tokenGateway": "0x451bDd8273839AD0Ec7F4Fa798E8B3DABb223fD8",
 			"intentGatewayV3": "0xb8039832c6c9266F928d038eA49A8a169300C670"

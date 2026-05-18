@@ -144,8 +144,10 @@ pub trait IsmpHost: Keccak256 {
 	fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error>;
 
 	/// Delete a request commitment from storage, used when a request is timed out.
-	/// Make sure to refund the user their relayer fee here.
-	/// Returns the scale encoded commitment metadata
+	/// Returns the scale encoded commitment metadata. Any settlement that depends
+	/// on that metadata (a relayer fee refund, for example) is performed later
+	/// from [`on_request_timeout`](Self::on_request_timeout) once the module
+	/// callback has acknowledged the timeout.
 	fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error>;
 
 	/// Delete a request receipt from storage, used when a request is timed out.
@@ -170,6 +172,17 @@ pub trait IsmpHost: Keccak256 {
 
 	/// Stores a commitment for an outgoing request alongside some scale encoded metadata
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error>;
+
+	/// Invoked by the timeout handler once the module callback has successfully
+	/// acknowledged a timed out request. `meta` is the encoded metadata the
+	/// host returned from [`delete_request_commitment`](Self::delete_request_commitment),
+	/// handed back so implementations that need it (refunding an escrowed
+	/// relayer fee, for example) can act on it without going to storage.
+	///
+	/// The default does nothing.
+	fn on_request_timeout(&self, _req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
+		Ok(())
+	}
 
 	/// Should return a handle to the consensus client based on the id
 	fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {

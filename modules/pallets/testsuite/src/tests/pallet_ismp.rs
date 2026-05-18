@@ -454,14 +454,15 @@ fn test_dispatch_fees_and_refunds() {
 			panic!("Leaf not found!")
 		};
 
-		// `timeout::handle` deletes the commitment before invoking the module,
-		// so reproduce that order here to feed the wrapper its metadata.
+		// Reproduce the timeout pipeline: delete the commitment, run the
+		// module callback, then let the host settle the refund.
 		let meta = host.delete_request_commitment(&request).unwrap();
 		host.ismp_router()
 			.module_for_id(vec![])
 			.unwrap()
-			.on_timeout(request.clone(), Some(meta.as_slice()))
+			.on_timeout(request.clone())
 			.unwrap();
+		host.on_request_timeout(&request, meta).unwrap();
 
 		// money should've been refunded to the account
 		assert_eq!(Balances::balance(&account), 10 * UNIT);
@@ -480,16 +481,17 @@ fn test_dispatch_fees_and_refunds() {
 		// now pallet-ismp has it
 		assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
 
-		// Second dispatch lives at the next MMR leaf; pull it out and run the
-		// same deletion-first sequence against the error module.
+		// Second dispatch lives at the next MMR leaf. Failing inner callback
+		// means `on_request_timeout` is never reached, so the escrow stays
+		// in place.
 		let Leaf::Request(request) = Mmr::intermediate_leaves(1).unwrap() else {
 			panic!("Leaf not found!")
 		};
-		let meta = host.delete_request_commitment(&request).unwrap();
+		let _meta = host.delete_request_commitment(&request).unwrap();
 		host.ismp_router()
 			.module_for_id(ERROR_MODULE_ID.to_vec())
 			.unwrap()
-			.on_timeout(request.clone(), Some(meta.as_slice()))
+			.on_timeout(request.clone())
 			.unwrap_err();
 
 		// pallet-ismp still has it

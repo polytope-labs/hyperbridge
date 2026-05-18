@@ -517,7 +517,7 @@ impl IsmpModule for ErrorModule {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 }
@@ -568,7 +568,7 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }

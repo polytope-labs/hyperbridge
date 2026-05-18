@@ -96,7 +96,7 @@ where
 					if host.host_state_machine() != post.source {
 						signer = host.delete_request_receipt(&request).ok();
 					}
-					let res = cb.on_timeout(request.clone(), Some(meta.as_slice())).map(|weight| {
+					let res = cb.on_timeout(request.clone()).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::PostRequestTimeoutHandled(TimeoutHandled {
@@ -105,10 +105,12 @@ where
 							dest: post.dest,
 						})
 					});
-					// If module callback failed restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
-						// If the request was routed we store it's receipt
 						if host.host_state_machine() != post.source && signer.is_some() {
 							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
 						}
@@ -152,7 +154,7 @@ where
 					let request = Request::Get(get.clone());
 					// Delete commitment to prevent reentrancy
 					let meta = host.delete_request_commitment(&request)?;
-					let res = cb.on_timeout(request.clone(), Some(meta.as_slice())).map(|weight| {
+					let res = cb.on_timeout(request.clone()).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::GetRequestTimeoutHandled(TimeoutHandled {
@@ -161,8 +163,11 @@ where
 							dest: get.dest,
 						})
 					});
-					// If module callback failed, restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
 					}
 					Ok::<_, anyhow::Error>(res)

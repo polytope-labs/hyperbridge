@@ -403,7 +403,7 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_timeout(&self, timeout: Request, meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		let (from, source) = match &timeout {
 			Request::Post(post) => (&post.from, post.source.clone()),
 			Request::Get(get) => (&get.from, get.source.clone()),
@@ -416,9 +416,9 @@ impl IsmpModule for ProxyModule {
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
-				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout, meta),
+				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
 			pallet_hyper_fungible_token::PALLET_ID =>
-				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_timeout(timeout, meta),
+				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(Weight::from_parts(0, 0)),
 		}

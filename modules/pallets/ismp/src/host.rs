@@ -18,18 +18,18 @@ use polkadot_sdk::*;
 
 use crate::{
 	child_trie,
-	dispatcher::{RefundingRouter, RequestMetadata},
+	dispatcher::{IsmpHostRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
 	KnownStateMachineHeights, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
-	UnbondingPeriod,
+	UnbondingPeriod, RELAYER_FEE_ACCOUNT,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use crypto_utils::verification::Signature;
-use frame_support::traits::{Get, UnixTime};
+use frame_support::traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime};
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -41,7 +41,10 @@ use ismp::{
 	router::{GetResponse, IsmpRouter, Request},
 };
 use sp_core::H256;
-use sp_runtime::SaturatedConversion;
+use sp_runtime::{
+	traits::{AccountIdConversion, Zero},
+	SaturatedConversion,
+};
 use sp_std::prelude::*;
 
 impl<T: Config> IsmpHost for Pallet<T> {
@@ -297,7 +300,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-		Box::new(RefundingRouter::<T>::new(Box::new(T::Router::default())))
+		Box::new(IsmpHostRouter::<T>::new(Box::new(T::Router::default())))
 	}
 
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error> {
@@ -305,6 +308,21 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta)
 			.map_err(|_| Error::Custom("Failed to decode leaf metadata".to_string()))?;
 		child_trie::RequestCommitments::<T>::insert(hash, leaf_meta);
+		Ok(())
+	}
+
+	fn on_request_timeout(&self, _req: &Request, meta: Vec<u8>) -> Result<(), Error> {
+		let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta)
+			.map_err(|_| Error::Custom("Failed to decode leaf metadata".to_string()))?;
+		if leaf_meta.fee.fee > Zero::zero() {
+			T::Currency::transfer(
+				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
+				&leaf_meta.fee.payer,
+				leaf_meta.fee.fee,
+				Preservation::Expendable,
+			)
+			.map_err(|err| Error::Custom(format!("Failed to refund relayer fee: {err:?}")))?;
+		}
 		Ok(())
 	}
 

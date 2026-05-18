@@ -17,8 +17,8 @@ pragma solidity ^0.8.24;
 import {IntentsBase} from "./intentsv2/IntentsBase.sol";
 import {IntrinsicIntents} from "./intentsv2/IntrinsicIntents.sol";
 import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
-import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";

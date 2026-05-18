@@ -311,7 +311,7 @@ where
 			.iter()
 			.min_by_key(|h| *h.number())
 			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
-		first_headers
+		let first_chain = first_headers
 			.ancestry(first_base.hash(), first_target.hash())
 			.map_err(|_| GrandpaError::InvalidAncestry)?;
 
@@ -320,7 +320,7 @@ where
 			.iter()
 			.min_by_key(|h| *h.number())
 			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
-		second_headers
+		let second_chain = second_headers
 			.ancestry(second_base.hash(), second_target.hash())
 			.map_err(|_| GrandpaError::InvalidAncestry)?;
 
@@ -329,6 +329,15 @@ where
 
 		if first_parent != second_parent {
 			return Err(GrandpaError::FraudProofsDifferentAncestor.into());
+		}
+
+		// Equivocation means two finalized blocks on competing branches. If one
+		// target appears in the other's ancestry then they share a canonical
+		// chain and this is just ordinary finality moving forward.
+		if first_chain.contains(&second_proof.block) ||
+			second_chain.contains(&first_proof.block)
+		{
+			return Err(GrandpaError::FraudProofsSameBranch.into());
 		}
 
 		let first_justification =

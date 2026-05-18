@@ -81,6 +81,10 @@ pub enum Error {
 	/// The two fraud proofs don't share an ancestor.
 	#[error("Fraud proofs are not for the same ancestor")]
 	FraudProofsDifferentAncestor,
+	/// The two finalized targets sit on the same canonical chain, so the proofs
+	/// don't witness a fork.
+	#[error("Fraud proofs are on the same branch")]
+	FraudProofsSameBranch,
 	/// A submitted justification doesn't match the trusted consensus
 	/// latest hash.
 	#[error("Justification does not match consensus latest hash")]

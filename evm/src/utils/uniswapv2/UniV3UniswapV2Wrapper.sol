@@ -191,7 +191,8 @@ contract UniV3UniswapV2Wrapper {
         return amounts;
     }
 
-    /// @notice Accepts ETH transfers to this contract
-    /// @dev Fallback function to receive ETH payments, required for unwrapping WETH
-    receive() external payable {}
+    /// @notice Accepts ETH transfers only from WETH during withdraw; all other senders revert
+    receive() external payable {
+        if (msg.sender != _params.WETH) revert Unauthorized();
+    }
 }

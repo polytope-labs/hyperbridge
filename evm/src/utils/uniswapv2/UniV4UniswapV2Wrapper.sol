@@ -135,5 +135,7 @@ contract UniV4UniswapV2Wrapper {
         });
     }
 
-    receive() external payable {}
+    receive() external payable {
+        if (msg.sender != _params.universalRouter) revert Unauthorized();
+    }
 }

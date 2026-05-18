@@ -14,8 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.20;
 
-import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
-import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {IConsensusV2, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
@@ -47,7 +46,7 @@ import {
  * (where the commitment block number <= the trusted latest height) are treated as no-ops
  * and return the existing state with no intermediates.
  */
-contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
+contract SP1Beefy is IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
@@ -71,7 +70,7 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+        return interfaceId == type(IConsensusV2).interfaceId
             || super.supportsInterface(interfaceId);
     }
 
@@ -96,30 +95,6 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
             verifyConsensus(consensusState, sp1Proof);
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
-    }
-
-    /*
-     * @dev Given some opaque consensus proof, produce the new consensus state and newly finalized intermediate states.
-     */
-    function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
-        external
-        view
-        returns (bytes memory, IntermediateState[] memory)
-    {
-        BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (
-            MiniCommitment memory commitment,
-            PartialBeefyMmrLeaf memory leaf,
-            ParachainHeader[] memory headers,
-            bytes memory proofBytes
-        ) = abi.decode(encodedProof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
-        SP1BeefyProof memory sp1Proof =
-            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: proofBytes});
-
-        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
-            verifyConsensus(consensusState, sp1Proof);
-
-        return (abi.encode(newState), intermediates);
     }
 
     /**

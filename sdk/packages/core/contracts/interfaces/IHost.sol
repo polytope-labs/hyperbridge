@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {StateCommitment, StateMachineHeight} from "./IConsensus.sol";
+import {StateCommitment, StateMachineHeight} from "./IConsensusV2.sol";
 import {IDispatcher} from "./IDispatcher.sol";
 import {PostRequest, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
 import {PostRequestTimeout, GetRequestTimeout} from "./IApp.sol";

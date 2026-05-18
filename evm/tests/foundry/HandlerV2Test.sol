@@ -35,7 +35,7 @@ import {
     IntermediateState,
     StateCommitment,
     StateMachineHeight
-} from "@hyperbridge/core/interfaces/IConsensus.sol";
+} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import {IHandlerV2} from "@hyperbridge/core/interfaces/IHandlerV2.sol";
 

@@ -29,10 +29,10 @@ import {
 } from "@hyperbridge/core/interfaces/IApp.sol";
 import {DispatchPost, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
-import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensus.sol";
-import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
+import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {IHandlerV2} from "@hyperbridge/core/interfaces/IHandlerV2.sol";
 import {PostRequest, GetRequest, GetResponse, Message} from "@hyperbridge/core/libraries/Message.sol";
-import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -590,7 +590,7 @@ contract EvmHost is IHost, IHostManager, Context {
 
         if (
             params.handler == address(0) || address(params.handler).code.length == 0
-                || !IERC165(params.handler).supportsInterface(type(IHandler).interfaceId)
+                || !IERC165(params.handler).supportsInterface(type(IHandlerV2).interfaceId)
         ) {
             // otherwise cannot process new datagrams
             revert InvalidHandler();
@@ -598,7 +598,7 @@ contract EvmHost is IHost, IHostManager, Context {
 
         if (
             params.consensusClient == address(0) || address(params.consensusClient).code.length == 0
-                || !IERC165(params.consensusClient).supportsInterface(type(IConsensus).interfaceId)
+                || !IERC165(params.consensusClient).supportsInterface(type(IConsensusV2).interfaceId)
         ) {
             // otherwise cannot process new consensus datagrams
             revert InvalidConsensusClient();

@@ -20,16 +20,14 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 import {IHandlerV2} from "@hyperbridge/core/interfaces/IHandlerV2.sol";
-import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {
-    IConsensus,
+    IConsensusV2,
     IntermediateState,
     StateMachineHeight,
     StateCommitment
-} from "@hyperbridge/core/interfaces/IConsensus.sol";
+} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {IHost, FeeMetadata, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
 import {PostRequestTimeout, GetRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
-import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
 import {
     Message,
     PostRequest,
@@ -117,7 +115,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IHandlerV2).interfaceId || interfaceId == type(IHandler).interfaceId
+        return interfaceId == type(IHandlerV2).interfaceId
             || interfaceId == bytes4(0x687b1a5c) || super.supportsInterface(interfaceId);
     }
 

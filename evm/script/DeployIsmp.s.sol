@@ -8,7 +8,7 @@ import "stringutils/strings.sol";
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
-import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import "../src/core/HandlerV2.sol";
@@ -58,7 +58,7 @@ contract DeployScript is BaseScript {
         EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
-            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy))
+            IConsensusV2(address(sp1Beefy)), IConsensusV2(address(ecdsaBeefy))
         );
         consensusClient = address(consensusRouter);
 
@@ -141,7 +141,9 @@ contract DeployScript is BaseScript {
         // ============= Write addresses to config =============
         if (!isMainnet) config.set("TOKEN_FAUCET", address(faucet));
         config.set("HOST", address(host));
-        config.set("HANDLER", address(handler));
+        config.set("ECDSA_BEEFY", address(ecdsaBeefy));
+        config.set("SP1_BEEFY", address(sp1Beefy));
+        config.set("HANDLER_V2", address(handler));
         config.set("CONSENSUS_ROUTER", address(consensusRouter));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));

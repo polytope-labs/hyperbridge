@@ -251,22 +251,6 @@ const generateChainsByIsmpHost = () => {
 	console.log("Generated chains-by-ismp-host.ts")
 }
 
-const generateChainsTokenGatewayAddresses = () => {
-	const tokenGateway = {}
-
-	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
-		if (config.type === "evm" && config.contracts?.tokenGateway) {
-			tokenGateway[config.stateMachineId] = config.contracts.tokenGateway
-		}
-	})
-
-	const value = `// Auto-generated, DO NOT EDIT \nexport const TOKEN_GATEWAY_ADDRESSES = ${JSON.stringify(tokenGateway, null, 2)}`
-
-	fs.writeFileSync(root + "/src/token-gateway-addresses.ts", value)
-	console.log("Generated token-gateway-addresses.ts")
-}
-
 const generateChainsIntentGatewayV3Addresses = () => {
 	const intentGatewayV3 = {}
 
@@ -342,7 +326,6 @@ try {
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayV3Addresses()
-	generateChainsTokenGatewayAddresses()
 	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()
 	process.exit(0)

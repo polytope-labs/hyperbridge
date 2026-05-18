@@ -23,11 +23,6 @@ export { handleEscrowRefundedEventV3 } from "@/handlers/events/intentGatewayV3/e
 export { handleDustCollectedEventV3 } from "@/handlers/events/intentGatewayV3/dustCollected.event.handler"
 export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSwept.event.handler"
 
-// Token Gateway Handlers
-export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/assetTeleported.event.handler"
-export { handleAssetReceivedEvent } from "@/handlers/events/tokenGateway/assetReceived.event.handler"
-export { handleAssetRefundedEvent } from "@/handlers/events/tokenGateway/assetRefunded.event.handler"
-
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
@@ -36,7 +31,6 @@ export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/h
 export { handleSubstrateResponseEvent } from "@/handlers/events/substrateChains/handleResponseEvent.handler"
 export { handleSubstratePostRequestHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestHandledEvent.handler"
 export { handleSubstratePostResponseHandledEvent } from "@/handlers/events/substrateChains/handlePostResponseHandledEvent.handler"
-export { handleSubstrateAssetTeleportedEvent } from "@/handlers/events/substrateChains/handleAssetTeleportedEvent.handler"
 export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestHandledEvent.handler"
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 

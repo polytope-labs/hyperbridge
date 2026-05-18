@@ -18,7 +18,7 @@
 use ibc_core_commitment_types::{
 	commitment::CommitmentProofBytes,
 	merkle::{MerklePath, MerkleProof},
-	proto::v1::MerkleRoot,
+	proto::{ics23::commitment_proof::Proof as Ics23Proof, v1::MerkleRoot},
 	specs::ProofSpecs,
 };
 use ibc_core_host::types::path::PathBytes;
@@ -284,17 +284,32 @@ pub fn verify_evm_kv_proofs(
 		let root_hash = MerkleRoot { hash: app_hash.to_vec() };
 		let merkle_path =
 			MerklePath::new(vec![PathBytes::from_bytes(store_key), PathBytes::from_bytes(&key)]);
-		merkle_proof
-			.verify_membership::<ICS23HostFunctions>(
-				&specs,
-				root_hash,
-				merkle_path,
-				ev.value.clone(),
-				0,
-			)
-			.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
 
-		out.insert(key_bytes, Some(ev.value));
+		// The leaf-level (first) ICS23 proof is a non-existence proof when the key is absent
+		// from the store. Verify it as such instead of forcing a membership check, which can
+		// only ever prove presence and so cannot represent an absent key.
+		let is_non_existence = matches!(
+			merkle_proof.proofs.first().and_then(|p| p.proof.as_ref()),
+			Some(Ics23Proof::Nonexist(_))
+		);
+
+		if is_non_existence {
+			merkle_proof
+				.verify_non_membership::<ICS23HostFunctions>(&specs, root_hash, merkle_path)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+			out.insert(key_bytes, None);
+		} else {
+			merkle_proof
+				.verify_membership::<ICS23HostFunctions>(
+					&specs,
+					root_hash,
+					merkle_path,
+					ev.value.clone(),
+					0,
+				)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+			out.insert(key_bytes, Some(ev.value));
+		}
 	}
 
 	Ok(out)

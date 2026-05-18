@@ -8,7 +8,11 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
+	bytes32ToBytes20,
+	type TokenInfo,
 } from "@hyperbridge/sdk"
+import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
+import type { Address } from "viem"
 import pQueue from "p-queue"
 import {
 	BidStorageService,
@@ -287,6 +291,61 @@ export class IntentFiller {
 
 	// Operations
 
+	private async verifyOrderOnSource(order: Order): Promise<boolean> {
+		if (order.inputs.length === 0) {
+			this.logger.warn({ orderId: order.id }, "Order has no inputs, rejecting")
+			return false
+		}
+
+		const sourceClient = this.chainClientManager.getPublicClient(order.source)
+		const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
+		const commitment = order.id as HexString
+
+		try {
+			const escrows = await Promise.all(
+				order.inputs.map((input: TokenInfo) =>
+					retryPromise(
+						() =>
+							sourceClient.readContract({
+								address: intentGatewayAddress,
+								abi: INTENT_GATEWAY_V2_ABI,
+								functionName: "_orders",
+								args: [commitment, bytes32ToBytes20(input.token) as Address],
+							}) as Promise<bigint>,
+						{
+							maxRetries: 3,
+							backoffMs: 250,
+							logMessage: "Failed to read _orders on source chain",
+						},
+					),
+				),
+			)
+
+			for (let i = 0; i < escrows.length; i++) {
+				if (escrows[i] === 0n) {
+					this.logger.warn(
+						{
+							orderId: order.id,
+							source: order.source,
+							inputIndex: i,
+							token: order.inputs[i].token,
+						},
+						"Phantom commitment: source escrow missing for input, skipping order",
+					)
+					return false
+				}
+			}
+
+			return true
+		} catch (err) {
+			this.logger.error(
+				{ orderId: order.id, source: order.source, err },
+				"Failed to verify source escrow, skipping order",
+			)
+			return false
+		}
+	}
+
 	private handleNewOrder(order: Order, transactionHash: string): void {
 		// Use the global queue for the initial analysis
 		// This can happen in parallel for PublicClient orders
@@ -304,6 +363,14 @@ export class IntentFiller {
 						{ orderId: order.id },
 						"Solver selection is active but Hyperbridge is not configured. Skipping order.",
 					)
+					return
+				}
+
+				// Guard against phantom commitments: the off-chain order reconstruction
+				// can mis-pair OrderPlaced logs with placeOrder calldata when a single tx
+				// contains multiple placeOrder calls, yielding a commitment that has no
+				// matching escrow on source. Reject those before bidding/filling.
+				if (!(await this.verifyOrderOnSource(order))) {
 					return
 				}
 

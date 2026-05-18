@@ -53,7 +53,7 @@ import type {
 import {
 	ADDRESS_ZERO,
 	EvmStateProof,
-	getContractCallInput,
+	getContractCallInputs,
 	MmrProof,
 	SubstrateStateProof,
 	generateRootWithProof,
@@ -392,13 +392,28 @@ export class EvmChain implements IChain {
 
 	/**
 	 * Retrieves the placeOrder calldata from a transaction using debug_traceTransaction.
+	 * When the transaction contains multiple placeOrder calls, `occurrenceIndex`
+	 * selects which call's calldata to return (0-indexed in execution order).
 	 */
-	async getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString> {
-		const callInput = await getContractCallInput(this.publicClient, txHash as HexString, intentGatewayAddress)
-		if (!callInput) {
+	async getPlaceOrderCalldata(
+		txHash: string,
+		intentGatewayAddress: string,
+		occurrenceIndex: number = 0,
+	): Promise<HexString> {
+		const callInputs = await getContractCallInputs(
+			this.publicClient,
+			txHash as HexString,
+			intentGatewayAddress,
+		)
+		if (callInputs.length === 0) {
 			throw new Error(`Failed to extract calldata from trace for tx ${txHash}`)
 		}
-		return callInput
+		if (occurrenceIndex >= callInputs.length) {
+			throw new Error(
+				`placeOrder occurrence ${occurrenceIndex} out of range for tx ${txHash} (found ${callInputs.length})`,
+			)
+		}
+		return callInputs[occurrenceIndex]
 	}
 
 	/**

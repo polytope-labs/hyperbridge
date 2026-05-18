@@ -321,8 +321,12 @@ export class PolkadotHubChain implements IChain {
 		return this.evm.getFeeTokenWithDecimals()
 	}
 
-	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString> {
-		return this.evm.getPlaceOrderCalldata(txHash, intentGatewayAddress)
+	getPlaceOrderCalldata(
+		txHash: string,
+		intentGatewayAddress: string,
+		occurrenceIndex?: number,
+	): Promise<HexString> {
+		return this.evm.getPlaceOrderCalldata(txHash, intentGatewayAddress, occurrenceIndex)
 	}
 
 	estimateGas(request: IPostRequest): Promise<{ gas: bigint; postRequestCalldata: HexString }> {

@@ -49,21 +49,22 @@ library Codec {
         return bytes.concat(
             ScaleCodec.encodeUintCompact(payloadLen),
             payload,
-            ScaleCodec.encode32(uint32(commitment.blockNumber)),
-            ScaleCodec.encode64(uint64(commitment.validatorSetId))
+            ScaleCodec.encode32(commitment.blockNumber),
+            ScaleCodec.encode64(commitment.validatorSetId)
         );
     }
 
     // @dev SCALE-encodes the BEEFY Mmr leaf
     function Encode(PartialBeefyMmrLeaf memory leaf) internal pure returns (bytes memory) {
-        bytes memory first =
-            bytes.concat(abi.encodePacked(uint8(leaf.version)), ScaleCodec.encode32(uint32(leaf.parentNumber)));
-        bytes memory second =
-            bytes.concat(bytes.concat(leaf.parentHash), ScaleCodec.encode64(uint64(leaf.nextAuthoritySet.id)));
-        bytes memory third = bytes.concat(
-            ScaleCodec.encode32(uint32(leaf.nextAuthoritySet.len)), bytes.concat(leaf.nextAuthoritySet.root)
+        return bytes.concat(
+            abi.encodePacked(leaf.version),
+            ScaleCodec.encode32(leaf.parentNumber),
+            abi.encodePacked(leaf.parentHash),
+            ScaleCodec.encode64(leaf.nextAuthoritySet.id),
+            ScaleCodec.encode32(leaf.nextAuthoritySet.len),
+            abi.encodePacked(leaf.nextAuthoritySet.root),
+            abi.encodePacked(leaf.extra)
         );
-        return bytes.concat(bytes.concat(first, second), bytes.concat(third, bytes.concat(leaf.extra)));
     }
 
     // @dev Deserializes a substrate header

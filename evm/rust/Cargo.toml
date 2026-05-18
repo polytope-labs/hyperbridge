@@ -49,3 +49,6 @@ std = [
     "codec/std",
     "scale-info/std",
 ]
+# Generated bindings for Solidity test-only helper contracts (e.g. BeefyConsensusClientTest).
+# Off by default so production builds don't pull in test-harness ABIs.
+test-helpers = []

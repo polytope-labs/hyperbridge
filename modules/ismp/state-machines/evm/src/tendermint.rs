@@ -18,7 +18,7 @@
 use ibc_core_commitment_types::{
 	commitment::CommitmentProofBytes,
 	merkle::{MerklePath, MerkleProof},
-	proto::v1::MerkleRoot,
+	proto::{ics23::commitment_proof::Proof as Ics23Proof, v1::MerkleRoot},
 	specs::ProofSpecs,
 };
 use ibc_core_host::types::path::PathBytes;
@@ -54,9 +54,9 @@ pub enum TendermintEvmError {
 	/// A query key length didn't match any supported layout (32 or 52 bytes).
 	#[error("Only 32-byte or 52-byte keys are supported")]
 	UnsupportedKeyLength,
-	/// A non-membership proof contained at least one delivered request.
-	#[error("Some Requests in the batch have been delivered")]
-	DeliveredRequestsInBatch,
+	/// The number of verified values doesn't match the number of supplied keys.
+	#[error("Mismatched values/keys: the proof did not account for every key")]
+	MismatchedValuesAndKeys,
 	/// SCALE decoding the EVM KV proof bundle failed.
 	#[error("Failed to decode proof bundle: {0}")]
 	ProofDecodeError(String),
@@ -162,16 +162,61 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 	fn verify_non_membership(
 		&self,
-		host: &dyn IsmpHost,
+		_host: &dyn IsmpHost,
 		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
+		let default_contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
+
 		let keys = self.receipts_state_trie_key(commitments);
-		let values = self.verify_state_proof(host, keys, root, proof)?;
-		if values.into_iter().any(|(_key, val)| val.is_some()) {
-			return Err(TendermintEvmError::DeliveredRequestsInBatch.into());
+
+		let store_key_str = store_key_for(proof.height.id.state_id);
+		let store_key = store_key_str.as_bytes();
+		let app_hash: [u8; 32] = root.state_root.0;
+
+		let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
+			.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
+
+		// Only support 32-byte or 52-byte keys
+		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
+			return Err(TendermintEvmError::UnsupportedKeyLength.into());
 		}
+
+		if proofs.len() != keys.len() {
+			return Err(TendermintEvmError::MismatchedProofsAndKeys.into());
+		}
+
+		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
+			// Determine contract address and 32-byte slot based on key length
+			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
+				(default_contract_address, key_bytes.clone().try_into().expect("32 bytes"))
+			} else {
+				// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
+				let addr = H160::from_slice(&key_bytes[..20]);
+				let mut slot_arr = [0u8; 32];
+				slot_arr.copy_from_slice(&key_bytes[20..]);
+				(addr, slot_arr)
+			};
+
+			let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
+
+			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
+			let merkle_proof = MerkleProof::try_from(&commitment_proof)
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
+			let specs = ProofSpecs::cosmos();
+			let root_hash = MerkleRoot { hash: app_hash.to_vec() };
+			let merkle_path = MerklePath::new(vec![
+				PathBytes::from_bytes(store_key),
+				PathBytes::from_bytes(&key),
+			]);
+			merkle_proof
+				.verify_non_membership::<ICS23HostFunctions>(&specs, root_hash, merkle_path)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+		}
+
 		Ok(())
 	}
 
@@ -185,7 +230,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
 
-		verify_evm_kv_proofs(keys, contract_address, root, proof)
+		let keys_len = keys.len();
+		let values = verify_evm_kv_proofs(keys, contract_address, root, proof)?;
+		if values.len() != keys_len {
+			return Err(TendermintEvmError::MismatchedValuesAndKeys.into());
+		}
+		Ok(values)
 	}
 }
 
@@ -234,17 +284,32 @@ pub fn verify_evm_kv_proofs(
 		let root_hash = MerkleRoot { hash: app_hash.to_vec() };
 		let merkle_path =
 			MerklePath::new(vec![PathBytes::from_bytes(store_key), PathBytes::from_bytes(&key)]);
-		merkle_proof
-			.verify_membership::<ICS23HostFunctions>(
-				&specs,
-				root_hash,
-				merkle_path,
-				ev.value.clone(),
-				0,
-			)
-			.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
 
-		out.insert(key_bytes, Some(ev.value));
+		// The leaf-level (first) ICS23 proof is a non-existence proof when the key is absent
+		// from the store. Verify it as such instead of forcing a membership check, which can
+		// only ever prove presence and so cannot represent an absent key.
+		let is_non_existence = matches!(
+			merkle_proof.proofs.first().and_then(|p| p.proof.as_ref()),
+			Some(Ics23Proof::Nonexist(_))
+		);
+
+		if is_non_existence {
+			merkle_proof
+				.verify_non_membership::<ICS23HostFunctions>(&specs, root_hash, merkle_path)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+			out.insert(key_bytes, None);
+		} else {
+			merkle_proof
+				.verify_membership::<ICS23HostFunctions>(
+					&specs,
+					root_hash,
+					merkle_path,
+					ev.value.clone(),
+					0,
+				)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+			out.insert(key_bytes, Some(ev.value));
+		}
 	}
 
 	Ok(out)

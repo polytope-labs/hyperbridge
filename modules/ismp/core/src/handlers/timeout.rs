@@ -31,6 +31,10 @@ pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
+	if msg.requests().is_empty() {
+		Err(Error::EmptyBatch)?
+	}
+
 	let consensus_clients = host.consensus_clients();
 
 	let check_state_machine_client = |state_machine: StateMachine| {

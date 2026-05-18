@@ -65,6 +65,8 @@ pub enum SubstrateEvmError {
 	StorageProofMissing(Vec<u8>),
 	#[error("Some Requests in the batch have been delivered")]
 	DeliveredRequestsInBatch,
+	#[error("Mismatched values/keys: the proof did not account for every key")]
+	MismatchedValuesAndKeys,
 }
 
 impl From<SubstrateEvmError> for Error {
@@ -165,7 +167,11 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
+		let keys_len = keys.len();
 		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.len() != keys_len {
+			return Err(SubstrateEvmError::MismatchedValuesAndKeys.into());
+		}
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(SubstrateEvmError::DeliveredRequestsInBatch.into());
 		}
@@ -187,6 +193,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 		let state_root = H256::from_slice(&root.state_root[..]);
 
+		let keys_len = keys.len();
 		let mut contract_keys: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();
 		for key in keys {
 			let address = if key.len() == 52 {
@@ -230,6 +237,10 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			for (key, value) in keys.into_iter().zip(values.into_iter()) {
 				result_map.insert(key, value);
 			}
+		}
+
+		if result_map.len() != keys_len {
+			return Err(SubstrateEvmError::MismatchedValuesAndKeys.into());
 		}
 
 		Ok(result_map)

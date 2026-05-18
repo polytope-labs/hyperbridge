@@ -21,6 +21,90 @@ import { getLogger } from "@/services/Logger"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { Mutex } from "async-mutex"
 
+export interface ReconstructDeps {
+	getPlaceOrderCalldata: (txHash: string, occurrenceIndex: number) => Promise<HexString>
+	onError?: (err: unknown, log: DecodedOrderPlacedLog, occurrenceIndex: number) => void
+}
+
+/**
+ * Pure reconstruction of `OrderPlaced` logs into `Order` structs with commitments.
+ * Groups logs by transaction hash and pairs the K-th log in a tx with the K-th
+ * placeOrder calldata supplied by `deps.getPlaceOrderCalldata(txHash, K)`.
+ */
+export async function reconstructOrdersFromLogs(
+	logs: DecodedOrderPlacedLog[],
+	deps: ReconstructDeps,
+): Promise<{ order: Order; transactionHash: string }[]> {
+	const logsByTx = new Map<string, { log: DecodedOrderPlacedLog; occurrenceIndex: number }[]>()
+	for (const log of logs) {
+		const txHash = log.transactionHash as string
+		const bucket = logsByTx.get(txHash) ?? []
+		bucket.push({ log, occurrenceIndex: bucket.length })
+		logsByTx.set(txHash, bucket)
+	}
+
+	const out: { order: Order; transactionHash: string }[] = []
+
+	for (const [transactionHash, entries] of logsByTx) {
+		for (const { log: decodedLog, occurrenceIndex } of entries) {
+			try {
+				let order: Order = {
+					user: decodedLog.args.user,
+					source: hexToString(decodedLog.args.source) as HexString,
+					destination: hexToString(decodedLog.args.destination) as HexString,
+					deadline: decodedLog.args.deadline,
+					nonce: decodedLog.args.nonce,
+					fees: decodedLog.args.fees,
+					session: decodedLog.args.session,
+					predispatch: {
+						assets: decodedLog.args.predispatch.map(
+							(predispatch: { token: HexString; amount: bigint }) => ({
+								token: predispatch.token,
+								amount: predispatch.amount,
+							}),
+						),
+						call: "0x",
+					},
+					output: {
+						beneficiary: "0x0000000000000000000000000000000000000000",
+						assets: decodedLog.args.outputs.map(
+							(output: { token: HexString; amount: bigint }) => ({
+								token: output.token,
+								amount: output.amount,
+							}),
+						),
+						call: "0x",
+					},
+					inputs: decodedLog.args.inputs.map(
+						(input: { token: HexString; amount: bigint }) => ({
+							token: input.token,
+							amount: input.amount,
+						}),
+					),
+				}
+
+				const placeOrderCallInput = await deps.getPlaceOrderCalldata(transactionHash, occurrenceIndex)
+
+				const decodedCalldata = decodeFunctionData({
+					abi: INTENT_GATEWAY_V2_ABI,
+					data: placeOrderCallInput as HexString,
+				})?.args?.[0] as Order
+
+				order.output.beneficiary = decodedCalldata.output.beneficiary as `0x${string}`
+				order.output.call = decodedCalldata.output.call as HexString
+				order.predispatch.call = decodedCalldata.predispatch.call as HexString
+				order.id = orderCommitment(order)
+
+				out.push({ order, transactionHash })
+			} catch (error) {
+				if (deps.onError) deps.onError(error, decodedLog, occurrenceIndex)
+			}
+		}
+	}
+
+	return out
+}
+
 export class EventMonitor extends EventEmitter {
 	private chains: Map<number, IEvmChain> = new Map()
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
@@ -203,79 +287,25 @@ export class EventMonitor extends EventEmitter {
 	}
 
 	private async processOrderPlacedLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {
-		const logsByTx = new Map<string, { log: DecodedOrderPlacedLog; occurrenceIndex: number }[]>()
-		for (const log of logs) {
-			const decodedLog = log as unknown as DecodedOrderPlacedLog
-			const txHash = decodedLog.transactionHash as string
-			const bucket = logsByTx.get(txHash) ?? []
-			bucket.push({ log: decodedLog, occurrenceIndex: bucket.length })
-			logsByTx.set(txHash, bucket)
-		}
+		const results = await reconstructOrdersFromLogs(logs as DecodedOrderPlacedLog[], {
+			getPlaceOrderCalldata: (txHash, occurrenceIndex) => {
+				const sourceFromTxHash = (logs as DecodedOrderPlacedLog[]).find(
+					(l) => l.transactionHash === txHash,
+				)
+				const source = sourceFromTxHash
+					? (hexToString(sourceFromTxHash.args.source) as HexString)
+					: undefined
+				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(source!)
+				return chain.getPlaceOrderCalldata!(txHash, intentGatewayAddress, occurrenceIndex)
+			},
+			onError: (err, decodedLog, occurrenceIndex) => {
+				this.logger.error({ err, log: decodedLog, occurrenceIndex }, "Error parsing event log")
+			},
+		})
 
-		for (const [transactionHash, entries] of logsByTx) {
-			for (const { log: decodedLog, occurrenceIndex } of entries) {
-				try {
-					let order: Order = {
-						user: decodedLog.args.user,
-						source: hexToString(decodedLog.args.source) as HexString,
-						destination: hexToString(decodedLog.args.destination) as HexString,
-						deadline: decodedLog.args.deadline,
-						nonce: decodedLog.args.nonce,
-						fees: decodedLog.args.fees,
-						session: decodedLog.args.session,
-						predispatch: {
-							assets: decodedLog.args.predispatch.map(
-								(predispatch: { token: HexString; amount: bigint }) => ({
-									token: predispatch.token,
-									amount: predispatch.amount,
-								}),
-							),
-							call: "0x",
-						},
-						output: {
-							beneficiary: "0x0000000000000000000000000000000000000000",
-							assets: decodedLog.args.outputs.map(
-								(output: { token: HexString; amount: bigint }) => ({
-									token: output.token,
-									amount: output.amount,
-								}),
-							),
-							call: "0x",
-						},
-						inputs: decodedLog.args.inputs.map(
-							(input: { token: HexString; amount: bigint }) => ({
-								token: input.token,
-								amount: input.amount,
-							}),
-						),
-					}
-
-					const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
-					const placeOrderCallInput = await chain.getPlaceOrderCalldata!(
-						transactionHash,
-						intentGatewayAddress,
-						occurrenceIndex,
-					)
-
-					const decodedCalldata = decodeFunctionData({
-						abi: INTENT_GATEWAY_V2_ABI,
-						data: placeOrderCallInput as HexString,
-					})?.args?.[0] as Order
-
-					order.output.beneficiary = decodedCalldata.output.beneficiary as `0x${string}`
-					order.output.call = decodedCalldata.output.call as HexString
-					order.predispatch.call = decodedCalldata.predispatch.call as HexString
-					order.id = orderCommitment(order)
-
-					this.logger.info({ orderId: order.id, txHash: transactionHash }, "New order detected")
-					this.emit("newOrder", { order, transactionHash })
-				} catch (error) {
-					this.logger.error(
-						{ err: error, log: decodedLog, occurrenceIndex },
-						"Error parsing event log",
-					)
-				}
-			}
+		for (const { order, transactionHash } of results) {
+			this.logger.info({ orderId: order.id, txHash: transactionHash }, "New order detected")
+			this.emit("newOrder", { order, transactionHash })
 		}
 	}
 

@@ -18,6 +18,8 @@ contract DeployScript is BaseScript {
         uint24 defaultFee = uint24(config.get("DEFAULT_FEE").toUint256());
         int24 defaultTickSpacing = int24(config.get("DEFAULT_TICK_SPACING").toInt256());
         address weth = config.get("WETH").toAddress();
+        address intentGateway = config.get("INTENT_GATEWAY_V2").toAddress();
+        address ismpHost = config.get("HOST").toAddress();
 
         UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
 
@@ -27,7 +29,9 @@ contract DeployScript is BaseScript {
                 quoter: quoter,
                 WETH: weth,
                 defaultFee: defaultFee,
-                defaultTickSpacing: defaultTickSpacing
+                defaultTickSpacing: defaultTickSpacing,
+                intentGateway: intentGateway,
+                ismpHost: ismpHost
             })
         );
         vm.stopBroadcast();

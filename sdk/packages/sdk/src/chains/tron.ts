@@ -111,7 +111,11 @@ export class TronChain implements IChain {
 	 * Only works for direct calls to IntentGateway (not nested/multicall).
 	 * Tron does not support debug_traceTransaction.
 	 */
-	async getPlaceOrderCalldata(txHash: string, _intentGatewayAddress: string): Promise<HexString> {
+	async getPlaceOrderCalldata(
+		txHash: string,
+		_intentGatewayAddress: string,
+		_occurrenceIndex?: number,
+	): Promise<HexString> {
 		const tx = await retryPromise(() => this.tronWeb.trx.getTransaction(txHash), {
 			maxRetries: 3,
 			backoffMs: 250,

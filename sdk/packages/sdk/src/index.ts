@@ -32,6 +32,7 @@ export {
 	parseStateMachineId,
 	retryPromise,
 	getContractCallInput,
+	getContractCallInputs,
 	calculateBalanceMappingLocation,
 	calculateAllowanceMappingLocation,
 	MOCK_ADDRESS,

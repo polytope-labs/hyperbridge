@@ -13,7 +13,7 @@ use ismp::{host::StateMachine, module::IsmpModule, router::PostRequest};
 use sp_core::{H160, U256};
 
 use pallet_bandwidth::{
-	abi::{PurchaseMessage, TierAbi, WithdrawalAbi},
+	abi::{PurchaseMessage, Tier, Withdrawal},
 	pallet::{Allowance, BandwidthManager, Tiers, PALLET_BANDWIDTH},
 	AppKey, BandwidthGate, ForceCreditParams, GateError, Subscription, TierConfig, TierIndex,
 	MAX_SUBSCRIPTIONS,
@@ -583,7 +583,7 @@ const ACTION_WITHDRAW: u8 = 1;
 /// would parse.
 fn decode_set_tiers(body: &[u8]) -> (Vec<u128>, Vec<u128>) {
 	assert_eq!(body[0], ACTION_SET_TIERS, "first byte must be SetTiers discriminant");
-	let rows: Vec<TierAbi> = <Vec<TierAbi>>::abi_decode(&body[1..]).unwrap();
+	let rows: Vec<Tier> = <Vec<Tier>>::abi_decode(&body[1..]).unwrap();
 	(
 		rows.iter().map(|r| r.tier.try_into().unwrap()).collect(),
 		rows.iter().map(|r| r.price.try_into().unwrap()).collect(),
@@ -592,7 +592,7 @@ fn decode_set_tiers(body: &[u8]) -> (Vec<u128>, Vec<u128>) {
 
 fn decode_withdraw(body: &[u8]) -> (H160, H160, u128) {
 	assert_eq!(body[0], ACTION_WITHDRAW);
-	let w = WithdrawalAbi::abi_decode(&body[1..]).unwrap();
+	let w = Withdrawal::abi_decode(&body[1..]).unwrap();
 	(
 		H160::from_slice(w.token.as_slice()),
 		H160::from_slice(w.beneficiary.as_slice()),
@@ -655,9 +655,9 @@ fn dispatch_withdraw_rejects_unknown_market() {
 fn set_tiers_body_round_trips() {
 	// Pure body-encoding test, doesn't dispatch — proves the wire
 	// format we send matches the contract's `abi.decode((Tier[]))` shape.
-	let rows: Vec<TierAbi> = vec![(1u128, 5u128), (2u128, 50u128), (3u128, 500u128)]
+	let rows: Vec<Tier> = vec![(1u128, 5u128), (2u128, 50u128), (3u128, 500u128)]
 		.into_iter()
-		.map(|(t, p)| TierAbi {
+		.map(|(t, p)| Tier {
 			tier: alloy_primitives::U256::from(t),
 			price: alloy_primitives::U256::from(p),
 		})
@@ -672,7 +672,7 @@ fn set_tiers_body_round_trips() {
 
 #[test]
 fn withdraw_body_round_trips() {
-	let body = WithdrawalAbi {
+	let body = Withdrawal {
 		token: alloy_primitives::Address::from([0x10u8; 20]),
 		beneficiary: alloy_primitives::Address::from([0x20u8; 20]),
 		amount: alloy_primitives::U256::from(42u128),

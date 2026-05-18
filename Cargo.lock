@@ -14442,10 +14442,10 @@ name = "pallet-bandwidth"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives 1.5.7",
- "alloy-sol-macro 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
  "ismp",
+ "ismp-abi",
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk",

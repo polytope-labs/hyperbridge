@@ -10,6 +10,7 @@ import {
 	keccak256,
 	pad,
 	toBytes,
+	toFunctionSelector,
 	toHex,
 	maxUint256,
 } from "viem"
@@ -39,6 +40,7 @@ import type { GetProofParameters, Hex, TransactionReceipt } from "viem"
 import EvmHost from "@/abis/evmHost"
 import evmHost from "@/abis/evmHost"
 import HandlerV2 from "@/abis/handlerV2"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import type {
@@ -392,6 +394,8 @@ export class EvmChain implements IChain {
 
 	/**
 	 * Retrieves the placeOrder calldata from a transaction using debug_traceTransaction.
+	 * Filters to placeOrder calls by selector so unrelated calls to the gateway in
+	 * the same transaction (e.g. quote, fillOrder) do not skew indexing.
 	 * When the transaction contains multiple placeOrder calls, `occurrenceIndex`
 	 * selects which call's calldata to return (0-indexed in execution order).
 	 */
@@ -405,15 +409,21 @@ export class EvmChain implements IChain {
 			txHash as HexString,
 			intentGatewayAddress,
 		)
-		if (callInputs.length === 0) {
-			throw new Error(`Failed to extract calldata from trace for tx ${txHash}`)
+		const placeOrderSelector = toFunctionSelector(
+			IntentGatewayV2ABI.find((item: any) => item.type === "function" && item.name === "placeOrder") as any,
+		)
+		const placeOrderInputs = callInputs.filter(
+			(input) => input.slice(0, 10).toLowerCase() === placeOrderSelector.toLowerCase(),
+		)
+		if (placeOrderInputs.length === 0) {
+			throw new Error(`Failed to extract placeOrder calldata from trace for tx ${txHash}`)
 		}
-		if (occurrenceIndex >= callInputs.length) {
+		if (occurrenceIndex >= placeOrderInputs.length) {
 			throw new Error(
-				`placeOrder occurrence ${occurrenceIndex} out of range for tx ${txHash} (found ${callInputs.length})`,
+				`placeOrder occurrence ${occurrenceIndex} out of range for tx ${txHash} (found ${placeOrderInputs.length})`,
 			)
 		}
-		return callInputs[occurrenceIndex]
+		return placeOrderInputs[occurrenceIndex]
 	}
 
 	/**

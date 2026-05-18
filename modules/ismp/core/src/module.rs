@@ -40,8 +40,14 @@ pub trait IsmpModule {
 	}
 
 	/// Called by the message handler on a module, to notify module of requests that were previously
-	/// sent but have now timed-out
-	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
+	/// sent but have now timed-out.
+	///
+	/// `meta` carries the host's encoded request metadata, as returned by
+	/// [`IsmpHost::delete_request_commitment`]. The commitment is removed
+	/// before this callback runs, so post deletion bookkeeping (refunding an
+	/// escrowed relayer fee, for example) should decode it from here rather
+	/// than reach back into host storage.
+	fn on_timeout(&self, _request: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 }

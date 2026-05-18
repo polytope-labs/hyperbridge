@@ -454,11 +454,13 @@ fn test_dispatch_fees_and_refunds() {
 			panic!("Leaf not found!")
 		};
 
-		// ask the host to timeout the request
+		// `timeout::handle` deletes the commitment before invoking the module,
+		// so reproduce that order here to feed the wrapper its metadata.
+		let meta = host.delete_request_commitment(&request).unwrap();
 		host.ismp_router()
 			.module_for_id(vec![])
 			.unwrap()
-			.on_timeout(request.clone())
+			.on_timeout(request.clone(), Some(meta.as_slice()))
 			.unwrap();
 
 		// money should've been refunded to the account
@@ -478,11 +480,16 @@ fn test_dispatch_fees_and_refunds() {
 		// now pallet-ismp has it
 		assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
 
-		// ask the host to timeout the request, using the error module
+		// Second dispatch lives at the next MMR leaf; pull it out and run the
+		// same deletion-first sequence against the error module.
+		let Leaf::Request(request) = Mmr::intermediate_leaves(1).unwrap() else {
+			panic!("Leaf not found!")
+		};
+		let meta = host.delete_request_commitment(&request).unwrap();
 		host.ismp_router()
 			.module_for_id(ERROR_MODULE_ID.to_vec())
 			.unwrap()
-			.on_timeout(request.clone())
+			.on_timeout(request.clone(), Some(meta.as_slice()))
 			.unwrap_err();
 
 		// pallet-ismp still has it

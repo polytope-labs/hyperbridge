@@ -209,7 +209,7 @@ where
 		Err(HftError::ResponsesNotSupported)?
 	}
 
-	fn on_timeout(&self, request: Request) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, request: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
 		match request {
 			Request::Post(PostRequest { body, to, dest, .. }) => {
 				let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;

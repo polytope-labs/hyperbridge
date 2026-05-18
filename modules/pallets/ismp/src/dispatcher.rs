@@ -151,23 +151,22 @@ where
 	}
 }
 
-/// [`IsmpRouter`] used by the pallet's [`IsmpHost`] implementation. Routes the
-/// well-known protocol-withdrawal id to the built-in handler and otherwise
-/// delegates to the runtime's configured router unchanged. Timeout refunds are
-/// the responsibility of [`IsmpHost::delete_request_commitment`], so this
-/// router does not wrap user modules.
-pub(crate) struct IsmpHostRouter<T> {
+/// Router installed by the pallet's [`IsmpHost`]. Intercepts the well known
+/// protocol withdrawal id and routes everything else through
+/// [`RefundingModule`] so that timed out requests return the escrowed fee to
+/// the original payer.
+pub(crate) struct RefundingRouter<T> {
 	inner: Box<dyn IsmpRouter>,
 	_phantom: PhantomData<T>,
 }
 
-impl<T: Config> IsmpHostRouter<T> {
+impl<T: Config> RefundingRouter<T> {
 	pub fn new(inner: Box<dyn IsmpRouter>) -> Self {
 		Self { inner, _phantom: PhantomData }
 	}
 }
 
-impl<T: Config> IsmpRouter for IsmpHostRouter<T> {
+impl<T: Config> IsmpRouter for RefundingRouter<T> {
 	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		// Intercept the well-known module id for protocol withdrawals. The
 		// payload is decoded as [`Message::WithdrawRelayerFees`] and the
@@ -178,7 +177,8 @@ impl<T: Config> IsmpRouter for IsmpHostRouter<T> {
 			return Ok(Box::new(HyperbridgeWithdrawalModule::<T>::default()));
 		}
 
-		self.inner.module_for_id(id)
+		let module = self.inner.module_for_id(id)?;
+		Ok(Box::new(RefundingModule::<T>::new(module)))
 	}
 }
 
@@ -227,8 +227,58 @@ impl<T: Config> IsmpModule for HyperbridgeWithdrawalModule<T> {
 		Err(IsmpError::CannotHandleMessage.into())
 	}
 
-	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
 		Err(IsmpError::CannotHandleMessage.into())
 	}
 }
 
+/// Wraps a user module so that a successful timeout callback refunds the
+/// escrowed relayer fee back to the original payer. The host has already
+/// deleted the commitment by the time we run, so the fee metadata is read
+/// from the `meta` argument that the framework threads through.
+pub(crate) struct RefundingModule<T> {
+	inner: Box<dyn IsmpModule>,
+	_phantom: PhantomData<T>,
+}
+
+impl<T: Config> RefundingModule<T> {
+	pub fn new(inner: Box<dyn IsmpModule>) -> Self {
+		Self { inner, _phantom: PhantomData }
+	}
+}
+
+impl<T: Config> IsmpModule for RefundingModule<T> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
+		self.inner.on_accept(request)
+	}
+
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
+		self.inner.on_response(response)
+	}
+
+	fn on_timeout(&self, request: Request, meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
+		let result = self.inner.on_timeout(request, meta);
+
+		if result.is_ok() {
+			if let Some(bytes) = meta {
+				let decoded = RequestMetadata::<T>::decode(&mut &*bytes).map_err(|err| {
+					IsmpError::Custom(format!("Failed to decode request metadata: {err:?}"))
+				})?;
+				let fee = decoded.fee;
+				if fee.fee > Zero::zero() {
+					T::Currency::transfer(
+						&RELAYER_FEE_ACCOUNT.into_account_truncating(),
+						&fee.payer,
+						fee.fee,
+						Preservation::Expendable,
+					)
+					.map_err(|err| {
+						IsmpError::Custom(format!("Failed to refund relayer fee: {err:?}"))
+					})?;
+				}
+			}
+		}
+
+		result
+	}
+}

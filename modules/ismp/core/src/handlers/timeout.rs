@@ -96,7 +96,7 @@ where
 					if host.host_state_machine() != post.source {
 						signer = host.delete_request_receipt(&request).ok();
 					}
-					let res = cb.on_timeout(request.clone()).map(|weight| {
+					let res = cb.on_timeout(request.clone(), Some(meta.as_slice())).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::PostRequestTimeoutHandled(TimeoutHandled {
@@ -152,7 +152,7 @@ where
 					let request = Request::Get(get.clone());
 					// Delete commitment to prevent reentrancy
 					let meta = host.delete_request_commitment(&request)?;
-					let res = cb.on_timeout(request.clone()).map(|weight| {
+					let res = cb.on_timeout(request.clone(), Some(meta.as_slice())).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::GetRequestTimeoutHandled(TimeoutHandled {

@@ -408,7 +408,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
 		let request = match timeout {
 			Request::Post(post) => Request::Post(post),
 			_ => Err(IsmpError::Custom("Only Post requests allowed, found Get".to_string()))?,

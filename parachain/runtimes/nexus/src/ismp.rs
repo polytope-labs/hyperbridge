@@ -356,7 +356,7 @@ impl IsmpModule for ProxyModule {
 		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request, _meta: Option<&[u8]>) -> Result<Weight, anyhow::Error> {
 		// Permanently reject Post-request timeouts whose originating module is a
 		// deprecated TokenGateway deployment, before any other handling runs. Only
 		// Post requests are subject to this — Get requests and Response timeouts

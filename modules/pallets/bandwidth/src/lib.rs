@@ -494,7 +494,11 @@ pub mod pallet {
 
 		/// Purchases dispatch with `timeout = 0`. If `on_timeout` ever
 		/// fires it's an invariant violation, not a noop.
-		fn on_timeout(&self, _timeout: Request) -> Result<Weight, anyhow::Error> {
+		fn on_timeout(
+			&self,
+			_timeout: Request,
+			_meta: Option<&[u8]>,
+		) -> Result<Weight, anyhow::Error> {
 			Err(anyhow::anyhow!("pallet-bandwidth purchases are non-timeouting"))
 		}
 	}

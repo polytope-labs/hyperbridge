@@ -136,7 +136,7 @@ fn should_timeout_request_correctly() {
 			},
 		};
 
-		module.on_timeout(Request::Post(post)).unwrap();
+		module.on_timeout(Request::Post(post), None).unwrap();
 		let new_balance = pallet_balances::Pallet::<Test>::free_balance(ALICE);
 		assert_eq!(new_balance, INITIAL_BALANCE);
 	});

@@ -8,7 +8,7 @@
 use alloy_sol_macro::sol;
 
 sol! {
-	#[derive(Debug, PartialEq, Eq)]
+	#![sol(all_derives)]
 
 	/// Matches `BandwidthPurchaseMsg` in `evm/src/apps/BandwidthManager.sol`.
 	struct BandwidthPurchaseMsg {

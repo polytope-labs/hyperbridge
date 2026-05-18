@@ -6,6 +6,7 @@
 //! Solidity ABI artifact.
 
 use alloc::{format, string::ToString, vec::Vec};
+use alloy_sol_types::SolType;
 use core::str::{self, FromStr};
 use ismp::host::StateMachine;
 

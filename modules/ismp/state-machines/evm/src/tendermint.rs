@@ -54,9 +54,6 @@ pub enum TendermintEvmError {
 	/// A query key length didn't match any supported layout (32 or 52 bytes).
 	#[error("Only 32-byte or 52-byte keys are supported")]
 	UnsupportedKeyLength,
-	/// A non-membership proof contained at least one delivered request.
-	#[error("Some Requests in the batch have been delivered")]
-	DeliveredRequestsInBatch,
 	/// The number of verified values doesn't match the number of supplied keys.
 	#[error("Mismatched values/keys: the proof did not account for every key")]
 	MismatchedValuesAndKeys,
@@ -165,20 +162,61 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 	fn verify_non_membership(
 		&self,
-		host: &dyn IsmpHost,
+		_host: &dyn IsmpHost,
 		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
+		let default_contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
+
 		let keys = self.receipts_state_trie_key(commitments);
-		let keys_len = keys.len();
-		let values = self.verify_state_proof(host, keys, root, proof)?;
-		if values.len() != keys_len {
-			return Err(TendermintEvmError::MismatchedValuesAndKeys.into());
+
+		let store_key_str = store_key_for(proof.height.id.state_id);
+		let store_key = store_key_str.as_bytes();
+		let app_hash: [u8; 32] = root.state_root.0;
+
+		let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
+			.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
+
+		// Only support 32-byte or 52-byte keys
+		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
+			return Err(TendermintEvmError::UnsupportedKeyLength.into());
 		}
-		if values.into_iter().any(|(_key, val)| val.is_some()) {
-			return Err(TendermintEvmError::DeliveredRequestsInBatch.into());
+
+		if proofs.len() != keys.len() {
+			return Err(TendermintEvmError::MismatchedProofsAndKeys.into());
 		}
+
+		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
+			// Determine contract address and 32-byte slot based on key length
+			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
+				(default_contract_address, key_bytes.clone().try_into().expect("32 bytes"))
+			} else {
+				// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
+				let addr = H160::from_slice(&key_bytes[..20]);
+				let mut slot_arr = [0u8; 32];
+				slot_arr.copy_from_slice(&key_bytes[20..]);
+				(addr, slot_arr)
+			};
+
+			let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
+
+			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
+			let merkle_proof = MerkleProof::try_from(&commitment_proof)
+				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;
+			let specs = ProofSpecs::cosmos();
+			let root_hash = MerkleRoot { hash: app_hash.to_vec() };
+			let merkle_path = MerklePath::new(vec![
+				PathBytes::from_bytes(store_key),
+				PathBytes::from_bytes(&key),
+			]);
+			merkle_proof
+				.verify_non_membership::<ICS23HostFunctions>(&specs, root_hash, merkle_path)
+				.map_err(|e| TendermintEvmError::MerkleProofVerificationFailed(e.to_string()))?;
+		}
+
 		Ok(())
 	}
 

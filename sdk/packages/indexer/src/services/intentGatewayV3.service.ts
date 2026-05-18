@@ -215,7 +215,7 @@ export class IntentGatewayV3Service {
 
 			await VolumeService.updateVolume("IntentGatewayV3.USER", inputUSD, timestamp)
 
-			// Convert user to 20 bytes for UserActivity ID, but keep referrer as 32 bytes
+			// Convert user to 20 bytes for UserActivityV2 ID, but keep referrer as 32 bytes
 			const userAddress20 = bytes32ToBytes20(order.user)
 			let user = await getOrCreateUser(userAddress20, referrer, timestamp)
 			user.totalOrdersPlaced = user.totalOrdersPlaced + BigInt(1)
@@ -413,7 +413,7 @@ export class IntentGatewayV3Service {
 					timestamp,
 				)
 
-				// User - convert to 20 bytes for UserActivity ID, referrer is already 32 bytes
+				// User - convert to 20 bytes for UserActivityV2 ID, referrer is already 32 bytes
 				const userAddress20 = bytes32ToBytes20(orderPlaced.user)
 				let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
 				user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)

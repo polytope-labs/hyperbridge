@@ -67,6 +67,7 @@ enum PointsActivityType {
 	REWARD_POINTS_EARNED
 	ORDER_PLACED_POINTS
 	ORDER_FILLED_POINTS
+	TOKEN_TELEPORTED_POINTS
 	ORDER_REFERRED_POINTS
 }
 
@@ -1724,7 +1725,7 @@ type AccumulatedFee @entity {
 """
 Stores user data related to the Hyperbridge protocol
 """
-type UserActivity @entity {
+type UserActivityV2 @entity {
 	"""
 	Unique identifier for the user
 	"""

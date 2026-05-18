@@ -50,7 +50,7 @@ pub use types::{
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use crate::abi::{PurchaseMessage, TierAbi, WithdrawalAbi};
+	use crate::abi::{PurchaseMessage, Tier, Withdrawal};
 	use alloc::{format, vec, vec::Vec};
 	use alloy_sol_types::SolValue;
 	use frame_support::{pallet_prelude::*, PalletId};
@@ -305,11 +305,11 @@ pub mod pallet {
 			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
 			let count = updates.len() as u32;
-			let rows: Vec<TierAbi> = updates
+			let rows: Vec<Tier> = updates
 				.into_iter()
 				.map(|(t, p)| {
 					let id_u32: u32 = t.into();
-					TierAbi { tier: to_alloy_u256(U256::from(id_u32)), price: to_alloy_u256(p) }
+					Tier { tier: to_alloy_u256(U256::from(id_u32)), price: to_alloy_u256(p) }
 				})
 				.collect();
 
@@ -337,7 +337,7 @@ pub mod pallet {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
-			let payload = WithdrawalAbi {
+			let payload = Withdrawal {
 				token: alloy_primitives::Address::from(token.0),
 				beneficiary: alloy_primitives::Address::from(beneficiary.0),
 				amount: to_alloy_u256(amount),

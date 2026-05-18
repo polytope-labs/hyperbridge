@@ -27,8 +27,7 @@ alloy_sol_macro::sol! {
 		bytes data;
 	}
 
-	/// Matches `BandwidthPurchaseMsg` in `evm/src/apps/BandwidthManager.sol:32-41`
-	/// and `BandwidthPurchaseMsgAbi` in `pallets/bandwidth/src/abi.rs:18-23`.
+	/// Matches `BandwidthPurchaseMsg` in `evm/src/apps/BandwidthManager.sol:32-41`.
 	struct BandwidthPurchaseMsg {
 		bytes app;
 		uint256 tier;
@@ -36,15 +35,13 @@ alloy_sol_macro::sol! {
 		bytes chain;
 	}
 
-	/// Matches `Tier` in `evm/src/apps/BandwidthManager.sol:44-49`
-	/// and `TierAbi` in `pallets/bandwidth/src/abi.rs:27-30`.
+	/// Matches `Tier` in `evm/src/apps/BandwidthManager.sol:44-49`.
 	struct Tier {
 		uint256 tier;
 		uint256 price;
 	}
 
-	/// Matches `Withdrawal` in `evm/src/apps/BandwidthManager.sol:54-58`
-	/// and `WithdrawalAbi` in `pallets/bandwidth/src/abi.rs:34-38`.
+	/// Matches `Withdrawal` in `evm/src/apps/BandwidthManager.sol:54-58`.
 	struct Withdrawal {
 		address token;
 		address beneficiary;

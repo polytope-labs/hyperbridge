@@ -66,7 +66,8 @@ contract EvmHostForkTest is MainnetForkBaseTest {
                 keys: keys,
                 timeout: 60 * 60,
                 context: new bytes(0),
-                fee: relayerFee
+                fee: relayerFee,
+                payer: whaleAccount
             })
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);

@@ -54,7 +54,8 @@ contract TestDispatcher is HyperApp {
             keys: request.keys,
             timeout: request.timeoutTimestamp,
             context: new bytes(0),
-            fee: 0
+            fee: 0,
+            payer: address(this)
         });
         return IDispatcher(_host).dispatch(get);
     }

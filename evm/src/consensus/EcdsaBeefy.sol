@@ -15,8 +15,7 @@
 pragma solidity ^0.8.17;
 
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
-import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
-import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {IConsensusV2, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
@@ -61,7 +60,7 @@ import {
  *
  * Stale proofs (commitment block number <= trusted latest height) are treated as no-ops.
  */
-contract EcdsaBeefy is IConsensus, IConsensusV2, ERC165 {
+contract EcdsaBeefy is IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // The PayloadId for the mmr root.
@@ -89,7 +88,7 @@ contract EcdsaBeefy is IConsensus, IConsensusV2, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+        return interfaceId == type(IConsensusV2).interfaceId
             || super.supportsInterface(interfaceId);
     }
 
@@ -108,22 +107,6 @@ contract EcdsaBeefy is IConsensus, IConsensusV2, ERC165 {
             verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
-    }
-
-    /// @dev IConsensus entry point. Decodes the proof and verifies consensus.
-    function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
-        external
-        pure
-        returns (bytes memory, IntermediateState[] memory)
-    {
-        BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (RelayChainProof memory relay, ParachainProof memory parachain) =
-            abi.decode(encodedProof, (RelayChainProof, ParachainProof));
-
-        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
-            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
-
-        return (abi.encode(newState), intermediates);
     }
 
     // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized

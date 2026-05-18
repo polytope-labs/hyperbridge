@@ -5,8 +5,8 @@ description: This guide walks you through the process of requesting and receivin
 
 # Testnet Fee Token Facucet
 
-[Hyper USD (USD.h)](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177) is the testnet-specific fee token required for dispatching messages through the Hyperbridge protocol on testnet. You'll need some USD.h to send [POST](/developers/evm/messaging/post-requests) and [GET Requests](/developers/evm/messaging/get-requests) across different testnet versions of blockchains.
-For development and testing on testnet environments, you can obtain free USD.h from the [faucet contract](https://sepolia.etherscan.io/address/0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3).
+[Hyper USD (USD.h)](https://sepolia.etherscan.io/address/0xBe97E73126d66188d72FBf99029126d0340a7f18) is the testnet-specific fee token required for dispatching messages through the Hyperbridge protocol on testnet. You'll need some USD.h to send [POST](/developers/evm/messaging/post-requests) and [GET Requests](/developers/evm/messaging/get-requests) across different testnet versions of blockchains.
+For development and testing on testnet environments, you can obtain free USD.h from the [faucet contract](https://sepolia.etherscan.io/address/0xcb00f5b86aac5e2fdca9dc7f34d9bfe00b967c18).
 
 <Callout type="info">
 USD.h has the same contract address across most testnet EVM chains where Hyperbridge is deployed (Sepolia, BSC Testnet, etc.). For the addresses on differing EVM chains and other types of chains, please check [here](./contract-addresses/testnet.mdx). The same applies to the faucet.
@@ -23,7 +23,7 @@ Before you begin, ensure you have:
 
 ### Step 1: Access the Faucet Contract
 
-Navigate to the [faucet contract's "Write Contract" page](https://sepolia.etherscan.io/address/0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3#writeContract).
+Navigate to the [faucet contract's "Write Contract" page](https://sepolia.etherscan.io/address/0xcb00f5b86aac5e2fdca9dc7f34d9bfe00b967c18#writeContract).
 
 <Callout type="info">
 Like USD.h, the faucet contract also has the same address across most testnet EVM chains where Hyperbridge is deployed (Sepolia, BSC Testnet, etc.). For the addresses on differing EVM chains and other types of chains, please check [here](./contract-addresses/testnet.mdx).
@@ -41,9 +41,9 @@ Like USD.h, the faucet contract also has the same address across most testnet EV
 
 1. Scroll down to find the function labeled **"1. drip (0x67a5cd06)"**
 2. Click to expand the function tab
-3. In the **"token (address)"** field, enter the [USD.h fee token contract address](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177):
+3. In the **"token (address)"** field, enter the [USD.h fee token contract address](https://sepolia.etherscan.io/address/0xBe97E73126d66188d72FBf99029126d0340a7f18):
    ```
-   0xA801da100bF16D07F668F4A49E1f71fc54D05177
+   0xBe97E73126d66188d72FBf99029126d0340a7f18
    ```
 4. Click the **"Write"** button
 5. Your wallet will prompt you to confirm the transaction. Approve it to proceed.
@@ -60,7 +60,7 @@ The faucet will automatically send **1000 USD.h tokens** to your connected walle
 
 - Ensure that you have not exceeded the faucet's limit of one request per day
 - Check that you have sufficient gas fee in the native token of the testnet chain (ETH for sepolia, testnet BNB for BNB Chain etc)
-- Make sure you are inputting the [USD.h](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177) and not something else (like your development wallet address) into the "token (address)" textbox
+- Make sure you are inputting the [USD.h](https://sepolia.etherscan.io/address/0xBe97E73126d66188d72FBf99029126d0340a7f18) and not something else (like your development wallet address) into the "token (address)" textbox
 
 For additional support, visit the [Hyperbridge Discord](https://discord.gg/hyperbridge) or consult the [official documentation](https://docs.hyperbridge.network/).
 

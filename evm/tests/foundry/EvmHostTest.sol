@@ -24,7 +24,7 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {DispatchPost, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
-import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
@@ -134,7 +134,7 @@ contract EvmHostTest is BaseTest {
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
             DispatchGet({
-                dest: StateMachine.evm(97), height: 100, keys: keys, context: new bytes(0), timeout: 60 * 60, fee: 0
+                dest: StateMachine.evm(97), height: 100, keys: keys, context: new bytes(0), timeout: 60 * 60, fee: 0, payer: address(this)
             })
         );
 

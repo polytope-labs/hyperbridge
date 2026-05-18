@@ -20,7 +20,7 @@ pragma solidity ^0.8.17;
  * the HeaderImpl library for extracting state commitments from Substrate block headers.
  */
 
-import {StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {StateCommitment} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot/ScaleCodec.sol";
 

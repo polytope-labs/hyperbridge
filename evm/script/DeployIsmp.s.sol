@@ -4,29 +4,31 @@ pragma solidity ^0.8.20;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
+
+import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+
 import "../src/core/HandlerV2.sol";
 import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
-
-import {TestnetHost} from "../src/core/TestnetHost.sol";
-
 import "../src/consensus/EcdsaBeefy.sol";
 import "../src/consensus/ConsensusRouter.sol";
 
+import {TestnetHost} from "../src/core/TestnetHost.sol";
+import {BandwidthManager} from "../src/apps/BandwidthManager.sol";
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
-
-import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {EcdsaBeefy} from "../src/consensus/EcdsaBeefy.sol";
 import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
-import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
-import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+
 import {FeeToken} from "../tests/foundry/FeeToken.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
+
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -56,7 +58,7 @@ contract DeployScript is BaseScript {
         EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
-            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy))
+            IConsensusV2(address(sp1Beefy)), IConsensusV2(address(ecdsaBeefy))
         );
         consensusClient = address(consensusRouter);
 
@@ -131,13 +133,20 @@ contract DeployScript is BaseScript {
 
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
-
+        BandwidthManager bandwidthManager = new BandwidthManager{salt: salt}(admin);
+        bandwidthManager.setHost(address(host));
+        
         vm.stopBroadcast();
+
         // ============= Write addresses to config =============
         if (!isMainnet) config.set("TOKEN_FAUCET", address(faucet));
         config.set("HOST", address(host));
-        config.set("HANDLER", address(handler));
+        config.set("ECDSA_BEEFY", address(ecdsaBeefy));
+        config.set("SP1_BEEFY", address(sp1Beefy));
+        config.set("HANDLER_V2", address(handler));
+        config.set("CONSENSUS_ROUTER", address(consensusRouter));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
+        config.set("BANDWIDTH_MANAGER", address(bandwidthManager));
     }
 }

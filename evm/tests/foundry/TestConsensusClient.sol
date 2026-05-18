@@ -14,28 +14,28 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2, IntermediateState} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /// Test consensus client, performs no verification
-contract TestConsensusClient is IConsensus, ERC165 {
+contract TestConsensusClient is IConsensusV2, ERC165 {
     /**
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensusV2).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    function verifyConsensus(bytes memory consensusState, bytes memory proof)
+    function verify(bytes calldata consensusState, bytes calldata proof)
         external
         pure
-        returns (bytes memory, IntermediateState[] memory)
+        returns (bytes memory, IntermediateState[] memory, uint256)
     {
         IntermediateState memory intermediate = abi.decode(proof, (IntermediateState));
 
         IntermediateState[] memory intermediates = new IntermediateState[](1);
         intermediates[0] = intermediate;
 
-        return (consensusState, intermediates);
+        return (consensusState, intermediates, 0);
     }
 }

@@ -14,7 +14,7 @@
 pragma solidity ^0.8.17;
 
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
-import {StateMachineHeight} from "../interfaces/IConsensus.sol";
+import {StateMachineHeight} from "../interfaces/IConsensusV2.sol";
 
 /**
  * @title FrozenStatus

@@ -33,7 +33,7 @@ import {
     SelectOptions
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
-import {ICallDispatcher, Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";

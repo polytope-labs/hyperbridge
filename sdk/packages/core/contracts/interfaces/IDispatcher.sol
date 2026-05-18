@@ -65,6 +65,9 @@ struct DispatchGet {
     /// @notice Application-specific metadata
     /// @dev Can be used to track the query purpose or pass additional context
     bytes context;
+    /// @notice Account responsible for paying the fees
+    /// @dev If different from msg.sender, must have approved the Host contract
+    address payer;
 }
 
 /**

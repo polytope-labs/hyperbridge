@@ -9,7 +9,7 @@ import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest, PostRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 import {DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
-import {Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";

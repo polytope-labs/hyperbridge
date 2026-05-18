@@ -31,7 +31,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-import {ICallDispatcher, Call} from "../../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 
 /**
  * @title IntentsBase

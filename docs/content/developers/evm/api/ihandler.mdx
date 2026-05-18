@@ -1,14 +1,14 @@
 ---
-title: IHandler
-description: API reference for IHandler - interface for verifying and processing ISMP messages.
+title: IHandlerV2
+description: API reference for IHandlerV2 - interface for verifying and processing ISMP messages.
 ---
 
-# IHandler
+# IHandlerV2
 
-Interface for verifying and processing ISMP messages. The handler validates consensus proofs and state proofs before dispatching messages to applications.
+Interface for verifying and processing ISMP messages. The handler validates consensus proofs and state proofs before dispatching messages to applications. Supports batching multiple handler calls into a single transaction via `batchCall`.
 
 ```solidity lineNumbers
-interface IHandler
+interface IHandlerV2
 ```
 
 ## Overview
@@ -26,6 +26,28 @@ All handler methods are **permissionless** - anyone can call them to relay messa
 ---
 
 ## Functions
+
+### batchCall()
+
+Executes multiple handler calls in a single transaction. Each element in `calls` is an ABI-encoded call to one of the handler functions below.
+
+```solidity lineNumbers
+function batchCall(
+    bytes[] memory calls
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `calls` | `bytes[]` | Array of ABI-encoded function calls (e.g. `handleConsensus` + `handlePostRequests`) |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Decodes and executes each call sequentially
+2. If any call fails, the entire batch reverts
+
+---
 
 ### handleConsensus()
 

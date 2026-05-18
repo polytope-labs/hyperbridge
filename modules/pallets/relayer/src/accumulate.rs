@@ -73,28 +73,11 @@ where
 		let dest_sm = validate_state_machine(&host, withdrawal_proof.dest_proof.height)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
 		let state_machine = withdrawal_proof.source_proof.height.id.state_id;
-		// Fee accumulation must read the relayer fee from the source-chain request commitment.
-		// On EVM chains the `RequestCommitments` mapping stores a `FeeMetadata { fee, sender }`
-		// struct: `commitment_state_trie_key` addresses the `sender` field (offset 1) so that
-		// membership proofs hit an always-non-zero slot, but the relayer fee lives at offset 0.
-		// Substrate commitment keys already address the full metadata blob, so they are used
-		// as-is.
-		let source_keys = if state_machine.is_evm() {
-			withdrawal_proof
-				.commitments
-				.iter()
-				.map(|commitment| {
-					let slot = derive_unhashed_map_key_with_offset::<<T as Config>::IsmpHost>(
-						commitment.0.to_vec(),
-						REQUEST_COMMITMENTS_SLOT,
-						0,
-					);
-					<T as Config>::IsmpHost::keccak256(&slot.0).0.to_vec()
-				})
-				.collect::<Vec<_>>()
-		} else {
-			source_sm.commitment_state_trie_key(withdrawal_proof.commitments.clone())
-		};
+		let source_keys = Self::source_fee_commitment_keys(
+			state_machine,
+			&*source_sm,
+			&withdrawal_proof.commitments,
+		);
 		let dest_keys = dest_sm.receipts_state_trie_key(withdrawal_proof.commitments.clone());
 
 		let source_result = Self::verify_withdrawal_proof(
@@ -177,6 +160,42 @@ where
 		});
 
 		Ok(())
+	}
+
+	/// Derives the source-chain storage keys that hold the relayer fee for each request
+	/// commitment in the batch.
+	///
+	/// EVM chains store request commitments as a `FeeMetadata { fee, sender }` struct in the
+	/// `RequestCommitments` mapping. [`StateMachineClient::commitment_state_trie_key`] addresses
+	/// the `sender` field (offset 1) because membership verification needs an always-non-zero
+	/// slot — EVM returns a non-membership proof for zero-valued slots. Fee accumulation instead
+	/// needs the `fee` field at offset 0, so for EVM sources the offset-0 slot is derived here
+	/// directly rather than reusing the membership key.
+	///
+	/// Substrate sources store the whole `RequestMetadata` (fee included) under a single key, so
+	/// `commitment_state_trie_key` already points at the fee for them.
+	///
+	/// [`StateMachineClient::commitment_state_trie_key`]: ismp::consensus::StateMachineClient::commitment_state_trie_key
+	fn source_fee_commitment_keys(
+		state_machine: StateMachine,
+		source_sm: &dyn ismp::consensus::StateMachineClient,
+		commitments: &[H256],
+	) -> Vec<Vec<u8>> {
+		if state_machine.is_evm() {
+			commitments
+				.iter()
+				.map(|commitment| {
+					let slot = derive_unhashed_map_key_with_offset::<<T as Config>::IsmpHost>(
+						commitment.0.to_vec(),
+						REQUEST_COMMITMENTS_SLOT,
+						0,
+					);
+					<T as Config>::IsmpHost::keccak256(&slot.0).0.to_vec()
+				})
+				.collect()
+		} else {
+			source_sm.commitment_state_trie_key(commitments.to_vec())
+		}
 	}
 
 	pub fn verify_withdrawal_proof(

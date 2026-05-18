@@ -35,8 +35,6 @@ contract UniV4UniswapV2Wrapper {
         address WETH;
         uint24 defaultFee;
         int24 defaultTickSpacing;
-        address intentGateway;
-        address ismpHost;
     }
 
     Params private _params;
@@ -138,9 +136,6 @@ contract UniV4UniswapV2Wrapper {
     }
 
     receive() external payable {
-        if (
-            msg.sender != _params.universalRouter && msg.sender != _params.intentGateway
-                && msg.sender != _params.ismpHost
-        ) revert Unauthorized();
+        if (msg.sender != _params.universalRouter) revert Unauthorized();
     }
 }

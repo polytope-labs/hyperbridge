@@ -44,9 +44,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
                 quoter: V4_QUOTER,
                 WETH: WETH,
                 defaultFee: 3000, // 0.3% fee tier
-                defaultTickSpacing: 60, // Tick spacing for 0.3% pools
-                intentGateway: address(0),
-                ismpHost: address(0)
+                defaultTickSpacing: 60 // Tick spacing for 0.3% pools
             })
         );
     }

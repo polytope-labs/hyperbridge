@@ -136,13 +136,21 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     }
 
     /**
-     * @notice Registers a bidirectional mapping between a LZ eid and an ISMP state machine ID
+     * @notice Registers a bidirectional mapping between a LZ eid and an ISMP state machine ID.
+     * @dev Pass empty `stateMachineId` to disable the EID. Re-mapping an EID clears the prior
+     * state machine's reverse entry so revoked sources cannot keep impersonating the EID.
      * @param lzEid The LayerZero endpoint ID
      * @param stateMachineId The ISMP state machine identifier (e.g., StateMachine.evm(1))
      */
     function setEidMapping(uint32 lzEid, bytes calldata stateMachineId) external onlyOwner {
+        bytes memory previous = _eidToStateMachine[lzEid];
+        if (previous.length != 0) {
+            delete _stateMachineToEid[keccak256(previous)];
+        }
         _eidToStateMachine[lzEid] = stateMachineId;
-        _stateMachineToEid[keccak256(stateMachineId)] = lzEid;
+        if (stateMachineId.length != 0) {
+            _stateMachineToEid[keccak256(stateMachineId)] = lzEid;
+        }
     }
 
     /// @inheritdoc HyperApp

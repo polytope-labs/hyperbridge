@@ -109,10 +109,12 @@ where
 							dest: post.dest,
 						})
 					});
-					// If module callback failed restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
-						// If the request was routed we store it's receipt
 						if host.host_state_machine() != post.source && signer.is_some() {
 							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
 						}
@@ -165,8 +167,11 @@ where
 							dest: get.dest,
 						})
 					});
-					// If module callback failed, restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
 					}
 					Ok::<_, anyhow::Error>(res)

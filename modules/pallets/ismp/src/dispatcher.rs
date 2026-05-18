@@ -16,10 +16,7 @@
 //! Implementation for the low-level ISMP Dispatcher
 use polkadot_sdk::*;
 
-use crate::{
-	child_trie::RequestCommitments, offchain::LeafIndexAndPos, Config, Event, Pallet,
-	RELAYER_FEE_ACCOUNT,
-};
+use crate::{offchain::LeafIndexAndPos, Config, Event, Pallet, RELAYER_FEE_ACCOUNT};
 use alloc::{boxed::Box, format, vec::Vec};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -32,7 +29,6 @@ use ismp::{
 	dispatcher::{DispatchRequest, IsmpDispatcher},
 	error::Error as IsmpError,
 	host::IsmpHost,
-	messaging::hash_request,
 	module::IsmpModule,
 	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request},
 };
@@ -155,36 +151,27 @@ where
 	}
 }
 
-/// An [`IsmpRouter`] implementation that delegates to an inner module which always refunds
-/// relayer fees on_timeout.
-pub(crate) struct RefundingRouter<T> {
-	/// Inner [`IsmpModule`]
+/// Router installed by the pallet's [`IsmpHost`]. Intercepts the well known
+/// protocol withdrawal id and otherwise defers to the runtime's configured
+/// router.
+pub(crate) struct IsmpHostRouter<T> {
 	inner: Box<dyn IsmpRouter>,
-	/// Phantom type for pinning generics
 	_phantom: PhantomData<T>,
 }
 
-impl<T: Config> RefundingRouter<T> {
-	/// Create an instance of a refunding router
+impl<T: Config> IsmpHostRouter<T> {
 	pub fn new(inner: Box<dyn IsmpRouter>) -> Self {
 		Self { inner, _phantom: PhantomData }
 	}
 }
 
-impl<T: Config> IsmpRouter for RefundingRouter<T> {
+impl<T: Config> IsmpRouter for IsmpHostRouter<T> {
 	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
-		// Intercept the well-known module id for protocol withdrawals. The
-		// payload is decoded as [`Message::WithdrawRelayerFees`] and the
-		// amount is transferred from `RELAYER_FEE_ACCOUNT` to the named
-		// account. Only messages originating from the configured coprocessor
-		// are accepted.
 		if id.as_slice() == HYPERBRIDGE_MODULE_ID {
 			return Ok(Box::new(HyperbridgeWithdrawalModule::<T>::default()));
 		}
 
-		let module = self.inner.module_for_id(id)?;
-
-		Ok(Box::new(RefundingModule::<T>::new(module)))
+		self.inner.module_for_id(id)
 	}
 }
 
@@ -235,59 +222,5 @@ impl<T: Config> IsmpModule for HyperbridgeWithdrawalModule<T> {
 
 	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(IsmpError::CannotHandleMessage.into())
-	}
-}
-
-/// An implementation of [`IsmpModule`] that wraps an inner implementation and refunds any relayer
-/// fees on_timeout. This allows the ISMP framework refund the relayer fees when requests time-out.
-pub(crate) struct RefundingModule<T> {
-	/// Inner [`IsmpModule`]
-	inner: Box<dyn IsmpModule>,
-	/// Phantom type for pinning generics
-	_phantom: PhantomData<T>,
-}
-
-impl<T: Config> RefundingModule<T> {
-	/// Create an instance of a refunding module
-	pub fn new(inner: Box<dyn IsmpModule>) -> Self {
-		Self { inner, _phantom: PhantomData }
-	}
-}
-
-impl<T: Config> IsmpModule for RefundingModule<T> {
-	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
-		self.inner.on_accept(request)
-	}
-
-	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
-		self.inner.on_response(response)
-	}
-
-	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
-		let result = self.inner.on_timeout(timeout.clone());
-
-		// only refund if module returns Ok(())
-		if result.is_ok() {
-			let fee_metadata = {
-				let commitment = hash_request::<Pallet<T>>(&timeout);
-				RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
-			};
-
-			if let Some(fee) = fee_metadata {
-				if fee.fee > Zero::zero() {
-					T::Currency::transfer(
-						&RELAYER_FEE_ACCOUNT.into_account_truncating(),
-						&fee.payer,
-						fee.fee,
-						Preservation::Expendable,
-					)
-					.map_err(|err| {
-						IsmpError::Custom(format!("Error withdrawing request fees: {err:?}"))
-					})?;
-				}
-			}
-		}
-
-		result
 	}
 }

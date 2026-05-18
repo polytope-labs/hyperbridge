@@ -96,13 +96,12 @@ abstract contract HyperApp is IApp {
      * @dev Handles fee token approval and transfer before dispatching the request to the Host.
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
      * @param request The POST request to dispatch containing destination, body, timeout, and fee parameters
-     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
      * @return commitment The unique identifier for the dispatched request
      */
-    function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32) {
+    function dispatchWithFeeToken(DispatchPost memory request) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
-        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), request.fee);
+        if (request.payer != address(this)) IERC20(feeToken).safeTransferFrom(request.payer, address(this), request.fee);
         IERC20(feeToken).forceApprove(hostAddr, request.fee);
         return IDispatcher(hostAddr).dispatch(request);
     }
@@ -112,13 +111,12 @@ abstract contract HyperApp is IApp {
      * @dev Handles fee token approval and transfer before dispatching the request to the Host.
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
      * @param request The GET request to dispatch containing destination, keys, height, timeout, and fee parameters
-     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
      * @return commitment The unique identifier for the dispatched request
      */
-    function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32) {
+    function dispatchWithFeeToken(DispatchGet memory request) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
-        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), request.fee);
+        if (request.payer != address(this)) IERC20(feeToken).safeTransferFrom(request.payer, address(this), request.fee);
         IERC20(feeToken).forceApprove(hostAddr, request.fee);
         return IDispatcher(hostAddr).dispatch(request);
     }

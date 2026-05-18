@@ -419,7 +419,8 @@ contract MyApp is HyperApp {
             keys: keys,
             timeout: 3600,
             fee: 0,
-            context: context
+            context: context,
+            payer: payer
         });
         
         // Automatically handles:
@@ -427,7 +428,7 @@ contract MyApp is HyperApp {
         // - Token transfer from payer
         // - Host approval
         // - Dispatch
-        return dispatchWithFeeToken(getRequest, payer);
+        return dispatchWithFeeToken(getRequest);
     }
 }
 ```

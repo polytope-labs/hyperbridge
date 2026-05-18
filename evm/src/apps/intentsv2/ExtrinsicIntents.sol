@@ -157,7 +157,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
             msgValue -= options.nativeDispatchFee;
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
 
         // Refund any unspent native tokens to the solver.
@@ -209,14 +209,15 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             timeout: 0,
             height: options.height,
             fee: options.relayerFee,
-            context: context
+            context: context,
+            payer: msg.sender
         });
 
         address hostAddr = host();
         if (msg.value > 0) {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
     }
 
@@ -260,7 +261,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         if (msg.value > 0) {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
     }
 

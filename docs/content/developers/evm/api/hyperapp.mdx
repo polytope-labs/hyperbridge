@@ -77,24 +77,22 @@ function quote(DispatchGet memory request) public view returns (uint256)
 
 ### dispatchWithFeeToken(DispatchPost)
 
-Dispatches a POST request using the fee token for payment, handling approvals automatically.
+Dispatches a POST request using the fee token for payment, handling approvals automatically. The payer is read from `request.payer`.
 
 ```solidity lineNumbers
-function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32)
+function dispatchWithFeeToken(DispatchPost memory request) internal returns (bytes32)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `DispatchPost` | The POST request to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
+| `request` | `DispatchPost` | The POST request to dispatch (includes `payer` field) |
 
 **Returns:** Commitment hash identifying the dispatched request
 
 **Behavior:**
-1. Calculates the required fee using `quote()`
-2. If `payer != address(this)`, transfers fee tokens from payer to this contract
-3. Approves Host to spend the fee tokens
-4. Dispatches the request to Host
+1. If `request.payer != address(this)`, transfers fee tokens from payer to this contract
+2. Approves Host to spend the fee tokens
+3. Dispatches the request to Host
 
 **Requirements:**
 - If payer is not this contract, payer must have approved this contract to spend fee tokens
@@ -104,16 +102,15 @@ function dispatchWithFeeToken(DispatchPost memory request, address payer) intern
 
 ### dispatchWithFeeToken(DispatchGet)
 
-Dispatches a GET request using the fee token for payment, handling approvals automatically.
+Dispatches a GET request using the fee token for payment, handling approvals automatically. The payer is read from `request.payer`.
 
 ```solidity lineNumbers
-function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32)
+function dispatchWithFeeToken(DispatchGet memory request) internal returns (bytes32)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `DispatchGet` | The GET request to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
+| `request` | `DispatchGet` | The GET request to dispatch (includes `payer` field) |
 
 **Returns:** Commitment hash identifying the dispatched request
 

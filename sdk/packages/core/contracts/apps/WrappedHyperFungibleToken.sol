@@ -278,7 +278,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         if (msgValue > 0) {
             commitment = IDispatcher(_host).dispatch{value: msgValue}(request);
         } else {
-            commitment = dispatchWithFeeToken(request, msg.sender);
+            commitment = dispatchWithFeeToken(request);
         }
 
         emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);

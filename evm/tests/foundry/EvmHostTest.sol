@@ -134,7 +134,7 @@ contract EvmHostTest is BaseTest {
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
             DispatchGet({
-                dest: StateMachine.evm(97), height: 100, keys: keys, context: new bytes(0), timeout: 60 * 60, fee: 0
+                dest: StateMachine.evm(97), height: 100, keys: keys, context: new bytes(0), timeout: 60 * 60, fee: 0, payer: address(this)
             })
         );
 

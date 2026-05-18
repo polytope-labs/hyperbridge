@@ -270,7 +270,7 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
         if (msg.value > 0) {
             commitment = IDispatcher(_host).dispatch{value: msg.value}(request);
         } else {
-            commitment = dispatchWithFeeToken(request, msg.sender);
+            commitment = dispatchWithFeeToken(request);
         }
 
         emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);

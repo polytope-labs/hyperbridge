@@ -57,6 +57,9 @@ pub enum TendermintEvmError {
 	/// A non-membership proof contained at least one delivered request.
 	#[error("Some Requests in the batch have been delivered")]
 	DeliveredRequestsInBatch,
+	/// The number of verified values doesn't match the number of supplied keys.
+	#[error("Mismatched values/keys: the proof did not account for every key")]
+	MismatchedValuesAndKeys,
 	/// SCALE decoding the EVM KV proof bundle failed.
 	#[error("Failed to decode proof bundle: {0}")]
 	ProofDecodeError(String),
@@ -168,7 +171,11 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
+		let keys_len = keys.len();
 		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.len() != keys_len {
+			return Err(TendermintEvmError::MismatchedValuesAndKeys.into());
+		}
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(TendermintEvmError::DeliveredRequestsInBatch.into());
 		}
@@ -185,7 +192,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(TendermintEvmError::IsmpContractNotFound)?;
 
-		verify_evm_kv_proofs(keys, contract_address, root, proof)
+		let keys_len = keys.len();
+		let values = verify_evm_kv_proofs(keys, contract_address, root, proof)?;
+		if values.len() != keys_len {
+			return Err(TendermintEvmError::MismatchedValuesAndKeys.into());
+		}
+		Ok(values)
 	}
 }
 

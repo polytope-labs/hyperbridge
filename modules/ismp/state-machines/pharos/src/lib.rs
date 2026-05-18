@@ -52,6 +52,9 @@ pub enum PharosStateMachineError {
 	/// A non-membership proof contained at least one delivered request.
 	#[error("Some Requests in the batch have been delivered")]
 	DeliveredRequestsInBatch,
+	/// The number of verified values doesn't match the number of supplied keys.
+	#[error("Mismatched values/keys: the proof did not account for every key")]
+	MismatchedValuesAndKeys,
 	/// No storage proof for the requested ISMP commitment slot.
 	#[error("Missing storage proof for commitment key")]
 	MissingCommitmentStorageProof,
@@ -161,7 +164,11 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
+		let keys_len = keys.len();
 		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.len() != keys_len {
+			return Err(PharosStateMachineError::MismatchedValuesAndKeys.into());
+		}
 		if values.into_iter().any(|(_key, val)| val.is_some()) {
 			return Err(PharosStateMachineError::DeliveredRequestsInBatch.into());
 		}
@@ -177,7 +184,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(PharosStateMachineError::IsmpContractNotFound)?;
-		verify_state_proof::<H>(keys, root, proof, ismp_address)
+		let keys_len = keys.len();
+		let values = verify_state_proof::<H>(keys, root, proof, ismp_address)?;
+		if values.len() != keys_len {
+			return Err(PharosStateMachineError::MismatchedValuesAndKeys.into());
+		}
+		Ok(values)
 	}
 }
 

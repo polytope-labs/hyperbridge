@@ -275,13 +275,13 @@ Represents a GET response with state data.
 ```solidity lineNumbers
 struct GetResponse {
     GetRequest request;
-    bytes[] values;
+    StorageValue[] values;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `request` | `GetRequest` | The original GET request |
-| `values` | `bytes[]` | RLP-encoded storage values in same order as keys |
+| `values` | `StorageValue[]` | Retrieved storage values in same order as requested keys |
 
 ---

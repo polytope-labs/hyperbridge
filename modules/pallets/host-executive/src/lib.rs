@@ -275,7 +275,7 @@ pub mod pallet {
 		/// Issues a call to withdraw the protocol fees from an evm chain
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		#[pallet::call_index(4)]
-		pub fn withdraw_protocol_fees(
+		pub fn withdraw(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
 			withdrawal_params: WithdrawalParams,

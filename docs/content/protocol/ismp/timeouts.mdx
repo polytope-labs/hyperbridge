@@ -23,7 +23,7 @@ pub enum TimeoutMessage {
     /// A non membership proof for POST requests
     Post {
         /// Timed out requests
-        requests: Vec<Post>,
+        requests: Vec<PostRequest>,
         /// Non membership batch proof for these requests
         timeout_proof: Proof,
     },
@@ -36,7 +36,7 @@ pub enum TimeoutMessage {
 }
 
 /// Handle timed out messages
-pub fn handle_timeouts<H>(host: &H, msg: TimeoutMessage) -> Result<(), Error>
+pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow::Error>
 where
     H: IsmpHost,
 {
@@ -44,7 +44,7 @@ where
 }
 ```
 
-The `handle_timeouts` is used to notify onchain `IsmpModule`s of outgoing requests that have now timed out. A relayer will construct the `TimeoutMessage` which holds a batch of these messages, and their relevant proofs. The handler will perform the following operations
+The timeout `handle` is used to notify onchain `IsmpModule`s of outgoing requests that have now timed out. A relayer will construct the `TimeoutMessage` which holds a batch of these messages, and their relevant proofs. The handler will perform the following operations
 
 - Assert that the state machine's consensus client is not frozen
 - Assert that the configured `challenge_period` for the `StateCommitment` has elapsed

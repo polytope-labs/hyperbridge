@@ -233,7 +233,7 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 		para_id == 4009
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
+	fn sp1_vkey_hash() -> sp_core::H256 {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
 }
@@ -343,7 +343,7 @@ impl IsmpModule for ProxyModule {
 		// no-op and this block is compiled out entirely.
 		#[cfg(not(feature = "no-bandwidth"))]
 		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
-			let bytes = core::cmp::max(request.body.len(), 32) as u32;
+			let bytes = ismp::abi::encode_post_request(&request).len() as u32;
 			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
 				&request.source,
 				&request.from,

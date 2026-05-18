@@ -68,12 +68,12 @@ function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenN
 
 ---
 
-## onPostRequestTimeout(request)
+## onPostRequestTimeout(incoming)
 
 Called when a sent message times out. For WETH: unwraps and sends native tokens. For ERC20: transfers the underlying back to the sender.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest calldata request) external onlyHost whenNotPaused
+function onPostRequestTimeout(PostRequestTimeout calldata incoming) external onlyHost whenNotPaused
 ```
 
 ---

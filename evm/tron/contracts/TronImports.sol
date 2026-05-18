@@ -12,7 +12,6 @@ pragma solidity ^0.8.17;
 
 // ── Core ────────────────────────────────────────────────────────────────────
 
-import {TronHost} from "../../src/hosts/Tron.sol";
 import {EvmHost} from "../../src/core/EvmHost.sol";
 import {HandlerV1} from "../../src/core/HandlerV1.sol";
 import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";

@@ -26,7 +26,7 @@ use crate::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -126,27 +126,29 @@ pub struct RequestMessage {
 	pub signer: Vec<u8>,
 }
 
-/// A request message holds a batch of responses to be dispatched from a source state machine
+/// A response message holds a batch of GetRequests being responded to.
+///
+/// Post-#840 the protocol no longer carries `PostResponse`; the only
+/// responses processed by `handle_response` are GetResponses constructed
+/// on-chain from the state proof. The relayer's job is to ferry the
+/// original GetRequests plus the storage proof; the host produces the
+/// `GetResponse` itself.
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
 )]
 pub struct ResponseMessage {
-	/// A set of either POST requests or responses to be handled
-	pub datagram: RequestResponse,
-	/// Membership batch proof for these req/res
+	/// The batch of GetRequests being responded to.
+	pub requests: Vec<GetRequest>,
+	/// Membership batch proof for `requests`.
 	pub proof: Proof,
 	/// Signer information. Ideally should be their account identifier
 	pub signer: Vec<u8>,
 }
 
 impl ResponseMessage {
-	/// Returns the requests in this message.
+	/// Returns the requests in this message wrapped as `Request::Get`.
 	pub fn requests(&self) -> Vec<Request> {
-		match &self.datagram {
-			RequestResponse::Response(responses) =>
-				responses.iter().map(|res| res.request()).collect(),
-			RequestResponse::Request(requests) => requests.clone(),
-		}
+		self.requests.iter().cloned().map(Request::Get).collect()
 	}
 
 	/// Retuns the associated proof

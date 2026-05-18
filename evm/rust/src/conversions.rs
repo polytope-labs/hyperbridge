@@ -54,7 +54,7 @@ mod beefy {
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 	use alloc::{vec, vec::Vec};
-	use alloy_primitives::{Bytes, FixedBytes, U256};
+	use alloy_primitives::{Bytes, FixedBytes};
 	use beefy_verifier_primitives::{
 		ConsensusMessage, ConsensusState, MmrProof, ParachainHeader as BvpParachainHeader,
 		ParachainProof as BvpParachainProof, SignatureWithAuthorityIndex,
@@ -102,8 +102,8 @@ mod beefy {
 						value.payload.get_raw(b"mh").expect("mmr payload not present").clone(),
 					),
 				}],
-				blockNumber: value.block_number.to_u256(),
-				validatorSetId: value.validator_set_id.to_u256(),
+				blockNumber: value.block_number,
+				validatorSetId: value.validator_set_id,
 			}
 		}
 	}
@@ -129,12 +129,12 @@ mod beefy {
 		fn from(value: SpMmrLeaf) -> Self {
 			use crate::sp1_beefy::SP1Beefy::AuthoritySetCommitment as Sp1AuthoritySetCommitment;
 			PartialBeefyMmrLeaf {
-				version: U256::ZERO,
-				parentNumber: value.parent_number_and_hash.0.to_u256(),
+				version: 0,
+				parentNumber: value.parent_number_and_hash.0,
 				parentHash: FixedBytes::from(value.parent_number_and_hash.1 .0),
 				nextAuthoritySet: Sp1AuthoritySetCommitment {
-					id: value.beefy_next_authority_set.id.to_u256(),
-					len: value.beefy_next_authority_set.len.to_u256(),
+					id: value.beefy_next_authority_set.id,
+					len: value.beefy_next_authority_set.len,
 					root: FixedBytes::from(value.beefy_next_authority_set.keyset_commitment.0),
 				},
 				extra: FixedBytes::from(value.leaf_extra.0),
@@ -160,8 +160,8 @@ mod beefy {
 						.collect(),
 				},
 				latestMmrLeaf: BeefyMmrLeaf {
-					version: U256::ZERO,
-					parentNumber: value.latest_mmr_leaf.parent_number_and_hash.0.to_u256(),
+					version: 0,
+					parentNumber: value.latest_mmr_leaf.parent_number_and_hash.0,
 					parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
 					nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
 					extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
@@ -185,8 +185,8 @@ mod beefy {
 	impl From<BeefyNextAuthoritySet<H256>> for AuthoritySetCommitment {
 		fn from(value: BeefyNextAuthoritySet<H256>) -> Self {
 			AuthoritySetCommitment {
-				id: value.id.to_u256(),
-				len: value.len.to_u256(),
+				id: value.id,
+				len: value.len,
 				root: FixedBytes::from(value.keyset_commitment.0),
 			}
 		}

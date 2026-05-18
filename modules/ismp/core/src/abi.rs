@@ -45,6 +45,14 @@ pub fn encode_get_request(req: &router::GetRequest) -> Vec<u8> {
 	sol.abi_encode()
 }
 
+/// Encode a [`router::Request`] as `abi.encode(req)`, dispatching on the variant.
+pub fn encode_request(req: &router::Request) -> Vec<u8> {
+	match req {
+		router::Request::Post(post) => encode_post_request(post),
+		router::Request::Get(get) => encode_get_request(get),
+	}
+}
+
 /// Encode a [`router::GetResponse`] as `abi.encode(res)`.
 pub fn encode_get_response(res: &router::GetResponse) -> Vec<u8> {
 	let sol: GetResponse = res.clone().into();

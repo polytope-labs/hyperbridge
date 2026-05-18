@@ -19,7 +19,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Keccak256, Proof},
 	module::IsmpModule,
-	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
+	router::{GetRequest, GetResponse, IsmpRouter, PostRequest, Request},
 };
 
 #[derive(Default)]
@@ -107,15 +107,29 @@ impl StateMachineClient for MockStateMachineClient {
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		_item: RequestResponse,
+		_commitments: Vec<H256>,
 		_root: StateCommitment,
 		_proof: &Proof,
 	) -> Result<(), Error> {
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn commitment_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
 		Default::default()
+	}
+
+	fn receipts_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		Default::default()
+	}
+
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_commitments: Vec<H256>,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), Error> {
+		Ok(())
 	}
 
 	fn verify_state_proof(
@@ -219,14 +233,6 @@ impl IsmpHost for Host {
 
 	fn request_commitment(&self, hash: H256) -> Result<(), Error> {
 		self.requests
-			.borrow()
-			.contains(&hash)
-			.then_some(())
-			.ok_or_else(|| Error::Custom("Request commitment not found".into()))
-	}
-
-	fn response_commitment(&self, hash: H256) -> Result<(), Error> {
-		self.responses
 			.borrow()
 			.contains(&hash)
 			.then_some(())
@@ -342,7 +348,11 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(
+		&self,
+		res: &GetResponse,
+		_signer: &Vec<u8>,
+	) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])

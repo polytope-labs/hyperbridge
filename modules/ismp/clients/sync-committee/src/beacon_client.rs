@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{collections::BTreeMap, format, string::ToString};
+use alloc::collections::BTreeMap;
 use codec::{Decode, Encode};
 use evm_state_machine::construct_intermediate_state;
 
@@ -32,6 +32,7 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use sync_committee_primitives::constants::Config;
+use sync_committee_verifier::error::Error as SyncCommitteeError;
 
 use crate::prelude::*;
 
@@ -84,17 +85,17 @@ impl<
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
 		let BeaconClientUpdate { consensus_update } =
 			BeaconClientUpdate::decode(&mut &consensus_proof[..])
-				.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
+				.map_err(|_| SyncCommitteeError::DecodeBeaconClientUpdate)?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+			.map_err(|_| SyncCommitteeError::DecodeConsensusState)?;
 
 		let new_light_client_state =
 			sync_committee_verifier::verify_sync_committee_attestation::<C>(
 				consensus_state.light_client_state,
 				consensus_update.clone(),
 			)
-			.map_err(|e| Error::Custom(format!("{:?}", e)))?;
+			?;
 
 		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
@@ -126,9 +127,9 @@ impl<
 
 		let new_consensus_state = ConsensusState {
 			frozen_height: None,
-			light_client_state: new_light_client_state.try_into().map_err(|_| {
-				Error::Custom(format!("Cannot convert light client state to codec type"))
-			})?,
+			light_client_state: new_light_client_state
+				.try_into()
+				.map_err(|_| SyncCommitteeError::ConvertLightClientState)?,
 			l2_consensus: consensus_state.l2_consensus,
 			chain_id: consensus_state.chain_id,
 		};
@@ -143,7 +144,7 @@ impl<
 		_proof_1: Vec<u8>,
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		Err(Error::Custom("fraud proof verification unimplemented".to_string()))
+		Err(SyncCommitteeError::FraudProofUnimplemented.into())
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
@@ -154,7 +155,7 @@ impl<
 		if SupportedStatemachines::<T, I>::contains_key(id) {
 			Ok(Box::new(<EvmStateMachine<H, T>>::default()))
 		} else {
-			Err(Error::Custom("State machine not supported".to_string()))
+			Err(SyncCommitteeError::UnsupportedStateMachine.into())
 		}
 	}
 }

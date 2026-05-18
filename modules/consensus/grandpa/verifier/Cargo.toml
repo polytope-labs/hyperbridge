@@ -16,6 +16,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true }
+ismp = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 derive_more = { version = "0.99.17", default-features = false, features = [
     "from",
@@ -51,7 +53,6 @@ log = "0.4.17"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 hex-literal = "0.3.4"
 grandpa-prover = { workspace = true }
-ismp = { workspace = true }
 subxt-utils = { workspace = true, default-features = true }
 
 [dev-dependencies.polkadot-sdk]
@@ -64,6 +65,8 @@ default = ["std"]
 std = [
     "codec/std",
     "anyhow/std",
+    "thiserror/std",
+    "ismp/std",
     "finality-grandpa/std",
     "polkadot-sdk/std",
     "grandpa-verifier-primitives/std",

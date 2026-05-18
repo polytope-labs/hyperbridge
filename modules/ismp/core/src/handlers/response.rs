@@ -21,9 +21,9 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::IsmpHost,
 	messaging::{dedup_requests, hash_request, ResponseMessage},
-	router::{GetResponse, Request, RequestResponse, StorageValue},
+	router::{GetResponse, Request, StorageValue},
 };
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use sp_weights::Weight;
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
@@ -36,83 +36,70 @@ where
 	let state = host.state_machine_commitment(proof.height)?;
 
 	let mut total_weights = Weight::zero();
-	let result = match &msg.datagram {
-		RequestResponse::Response(_) =>
-			Err(Error::Custom("PostResponse has been removed from the protocol".into()))?,
-		RequestResponse::Request(requests) => {
-			// Reject duplicate Get requests within the batch.
-			dedup_requests::<H>(requests)?;
 
-			let mut get_requests = vec![];
-			for req in requests.iter() {
-				let Request::Get(get) = req else {
-					Err(Error::InvalidResponseType { meta: req.into() })?
-				};
+	// Reject duplicate Get requests within the batch.
+	dedup_requests::<H>(&msg.requests())?;
 
-				if req.timed_out(host.timestamp()) {
-					Err(Error::RequestTimeout { meta: req.into() })?
-				}
+	for get in &msg.requests {
+		let req = Request::Get(get.clone());
 
-				if req.dest_chain() != proof.height.id.state_id {
-					Err(Error::RequestProofMetadataNotValid { meta: req.into() })?
-				}
+		if req.timed_out(host.timestamp()) {
+			Err(Error::RequestTimeout { meta: (&req).into() })?
+		}
 
-				let commitment = hash_request::<H>(&Request::Get(get.clone()));
-				if host.request_commitment(commitment).is_err() {
-					Err(Error::UnknownRequest { meta: req.into() })?
-				}
+		if req.dest_chain() != proof.height.id.state_id {
+			Err(Error::RequestProofMetadataNotValid { meta: (&req).into() })?
+		}
 
-				let res = GetResponse { get: get.clone(), values: Default::default() };
+		let commitment = hash_request::<H>(&req);
+		if host.request_commitment(commitment).is_err() {
+			Err(Error::UnknownRequest { meta: (&req).into() })?
+		}
 
-				if host.response_receipt(&res).is_some() {
-					Err(Error::DuplicateResponse { meta: (&res).into() })?
-				}
+		let res = GetResponse { get: get.clone(), values: Default::default() };
 
-				get_requests.push(get.clone());
-			}
+		if host.response_receipt(&res).is_some() {
+			Err(Error::DuplicateResponse { meta: (&res).into() })?
+		}
+	}
 
-			// Ensure the proof height is equal to each retrieval height specified in the Get
-			// requests
-			if !get_requests.iter().all(|get| get.height == proof.height.height) {
-				Err(Error::InsufficientProofHeight)?
-			}
+	// Ensure the proof height is equal to each retrieval height specified in the Get
+	// requests
+	if !msg.requests.iter().all(|get| get.height == proof.height.height) {
+		Err(Error::InsufficientProofHeight)?
+	}
 
-			// Since each get request can contain multiple storage keys
-			// we should handle them individually
-			get_requests
+	// Since each get request can contain multiple storage keys
+	// we should handle them individually
+	let result = msg
+		.requests
+		.iter()
+		.cloned()
+		.map(|request| {
+			let wrapped_req = Request::Get(request.clone());
+			let keys = request.keys.clone();
+			let values = state_machine
+				.verify_state_proof(host, keys, state, &proof)?
 				.into_iter()
-				.map(|request| {
-					let wrapped_req = Request::Get(request.clone());
-					let keys = request.keys.clone();
-					let values = state_machine
-						.verify_state_proof(host, keys, state, &proof)?
-						.into_iter()
-						.map(|(key, value)| StorageValue { key, value })
-						.collect();
+				.map(|(key, value)| StorageValue { key, value })
+				.collect();
 
-					let router = host.ismp_router();
-					let cb = router.module_for_id(request.from.clone())?;
-					let response = GetResponse { get: request.clone(), values: Default::default() };
-					let signer = host.store_response_receipt(&response, &msg.signer)?;
-					let res = cb.on_response(GetResponse { get: request.clone(), values }).map(
-						|weight| {
-							total_weights.saturating_accrue(weight);
-							let commitment = hash_request::<H>(&wrapped_req);
-							Event::GetRequestHandled(RequestResponseHandled {
-								commitment,
-								relayer: signer,
-							})
-						},
-					);
-					// Delete receipt if module callback failed so it can be timed out
-					if res.is_err() {
-						host.delete_response_receipt(&response)?;
-					}
-					Ok::<_, anyhow::Error>(res)
-				})
-				.collect::<Result<Vec<_>, _>>()?
-		},
-	};
+			let router = host.ismp_router();
+			let cb = router.module_for_id(request.from.clone())?;
+			let response = GetResponse { get: request.clone(), values: Default::default() };
+			let signer = host.store_response_receipt(&response, &msg.signer)?;
+			let res = cb.on_response(GetResponse { get: request.clone(), values }).map(|weight| {
+				total_weights.saturating_accrue(weight);
+				let commitment = hash_request::<H>(&wrapped_req);
+				Event::GetRequestHandled(RequestResponseHandled { commitment, relayer: signer })
+			});
+			// Delete receipt if module callback failed so it can be timed out
+			if res.is_err() {
+				host.delete_response_receipt(&response)?;
+			}
+			Ok::<_, anyhow::Error>(res)
+		})
+		.collect::<Result<Vec<_>, _>>()?;
 
 	Ok(MessageResult::Response { events: result, weight: total_weights })
 }

@@ -21,8 +21,8 @@ pub mod rpc;
 pub use error::ProverError;
 
 use pharos_primitives::{
-	BlockProof, BlsPublicKey, Config, PharosProofNode, SiblingLeftmostLeafProof, ValidatorInfo,
-	ValidatorSet, ValidatorSetProof, VerifierStateUpdate, CURRENT_EPOCH_SLOT,
+	BlockProof, BlsPublicKey, Config, EpochProof, PharosProofNode, SiblingLeftmostLeafProof,
+	ValidatorInfo, ValidatorSet, ValidatorSetProof, VerifierStateUpdate, CURRENT_EPOCH_SLOT,
 	STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
@@ -106,10 +106,8 @@ impl<C: Config> PharosProver<C> {
 
 	/// Fetch a block update for the given block number.
 	///
-	/// This will:
-	/// 1. Fetch the block header
-	/// 2. Fetch the block proof (BLS signature)
-	/// 3. If at epoch boundary, fetch validator set proof
+	/// Always attaches a storage proof of `currentEpoch` (slot 5). The validator
+	/// set proof is included only when the block crosses an epoch boundary.
 	pub async fn fetch_block_update(
 		&self,
 		block_number: u64,
@@ -118,6 +116,8 @@ impl<C: Config> PharosProver<C> {
 
 		let rpc_proof = self.rpc.get_block_proof(block_number).await?;
 		let block_proof = self.convert_rpc_block_proof(&rpc_proof)?;
+
+		let current_epoch_proof = self.fetch_current_epoch_proof(block_number).await?;
 
 		let is_boundary = self.is_epoch_boundary(block_number).await?;
 		let validator_set_proof = if is_boundary {
@@ -134,7 +134,24 @@ impl<C: Config> PharosProver<C> {
 			None
 		};
 
-		Ok(VerifierStateUpdate { header, block_proof, validator_set_proof })
+		Ok(VerifierStateUpdate { header, block_proof, validator_set_proof, current_epoch_proof })
+	}
+
+	/// Fetch a storage proof of `currentEpoch` (slot 5) at the given block height.
+	pub async fn fetch_current_epoch_proof(
+		&self,
+		block_number: u64,
+	) -> Result<EpochProof, ProverError> {
+		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
+		let slot_key = H256::from_low_u64_be(CURRENT_EPOCH_SLOT);
+
+		let proof = self.rpc.get_proof(address, vec![slot_key], block_number).await?;
+		let sp = proof
+			.storage_proof
+			.first()
+			.ok_or(ProverError::MissingStorageProof("currentEpoch"))?;
+
+		Ok(EpochProof { proof: rpc_to_proof_nodes(&sp.proof)?, value: hex_to_bytes(&sp.value)? })
 	}
 
 	/// Fetch only the block proof for a given block number.

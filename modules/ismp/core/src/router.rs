@@ -263,10 +263,7 @@ impl Request {
 	/// Returns the ABI-encoded request, matching Solidity's `abi.encode(...)` semantics.
 	/// This prevents hash malleability vulnerabilities that exist with packed encoding.
 	pub fn encode(&self) -> Vec<u8> {
-		match self {
-			Request::Post(post) => abi::encode_post_request(post),
-			Request::Get(get) => abi::encode_get_request(get),
-		}
+		abi::encode_request(self)
 	}
 }
 
@@ -348,25 +345,6 @@ pub struct StorageValue {
 	#[serde(serialize_with = "serde_hex_utils::as_hex::serialize_option")]
 	#[serde(deserialize_with = "serde_hex_utils::as_hex::deserialize_option")]
 	pub value: Option<Vec<u8>>,
-}
-
-/// Convenience enum for membership verification.
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	scale_info::TypeInfo,
-	PartialEq,
-	Eq,
-	derive_more::From,
-)]
-pub enum RequestResponse {
-	/// A batch of requests
-	Request(Vec<Request>),
-	/// A batch of responses
-	Response(Vec<GetResponse>),
 }
 
 /// The Ismp router dictates how messsages are routed to [`IsmpModule`]

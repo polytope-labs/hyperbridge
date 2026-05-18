@@ -109,15 +109,6 @@ impl IsmpProvider for TronClient {
 		self.evm.query_requests_proof(at, keys, counterparty).await
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		self.evm.query_responses_proof(at, keys, counterparty).await
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -144,14 +135,6 @@ impl IsmpProvider for TronClient {
 
 	fn ismp_host_contract(&self) -> Option<H160> {
 		self.evm.ismp_host_contract()
-	}
-
-	async fn handler_v2_address(&self) -> Option<H160> {
-		// Tron's IsmpHost mirrors the EVM ABI surface, so delegating to
-		// the inner EVM client picks up `hostParams().handler` if Tron's
-		// host contract exposes it. If HandlerV2 isn't deployed the call
-		// fails gracefully and returns `None`.
-		self.evm.handler_v2_address().await
 	}
 
 	fn block_max_gas(&self) -> u64 {
@@ -188,10 +171,6 @@ impl IsmpProvider for TronClient {
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		self.evm.query_response_receipt(hash).await
-	}
-
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error> {
-		self.evm.query_response_fee_metadata(hash).await
 	}
 
 	async fn state_machine_update_notification(
@@ -241,14 +220,6 @@ impl IsmpProvider for TronClient {
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		self.evm.request_receipt_full_key(commitment)
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

@@ -21,6 +21,7 @@ contract DeployWrappedHFT is BaseScript {
             isWeth: isWeth
         }));
 
+        vm.stopBroadcast();
         console.log("=== WrappedHFT Deployment ===");
         console.log("WrappedHyperFungibleToken:", address(whft));
         console.log("CallDispatcher:", address(dispatcher));

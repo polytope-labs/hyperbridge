@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec, vec::Vec};
-use beefy_verifier::verify_consensus;
+use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
+use beefy_verifier::{error::Error as BeefyError, verify_consensus};
 use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
 	Sp1BeefyProof,
@@ -77,36 +77,30 @@ where
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
 		let consensus_state: ConsensusState =
-			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode consensus state from trusted consensus state: {e:?}"
-				))
-			})?;
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
 
-		let proof_type = proof.first().ok_or_else(|| Error::Custom("Empty proof".into()))?;
+		let proof_type = proof.first().ok_or(BeefyError::EmptyProof)?;
 		let payload = &proof[1..];
 
 		let (new_state, verified_parachains) = match *proof_type {
 			PROOF_TYPE_NAIVE => {
 				let consensus_proof: ConsensusMessage = codec::Decode::decode(&mut &payload[..])
-					.map_err(|e| Error::Custom(format!("Cannot decode naive proof: {e:?}")))?;
-				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)
-					.map_err(|e| Error::AnyHow(e.into()))?
+					.map_err(|e| BeefyError::DecodeNaiveProof(format!("{e:?}")))?;
+				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)?
 			},
 			PROOF_TYPE_SP1 => {
 				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
-					.map_err(|e| Error::Custom(format!("Cannot decode SP1 proof: {e:?}")))?;
-				let vkey_bytes = C::sp1_vkey_hash();
-				let vkey_hash = core::str::from_utf8(&vkey_bytes)
-					.map_err(|_| Error::Custom("Invalid SP1 vkey hash encoding".into()))?;
+					.map_err(|e| BeefyError::DecodeSp1Proof(format!("{e:?}")))?;
+				let vkey_hash = C::sp1_vkey_hash();
+				let vkey = alloc::format!("0x{:x}", vkey_hash);
 				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
 					consensus_state,
 					sp1_proof,
-					vkey_hash,
-				)
-				.map_err(|e| Error::AnyHow(anyhow::Error::new(e).into()))?
+					&vkey,
+				)?
 			},
-			_ => return Err(Error::Custom(format!("Unknown proof type: {proof_type}"))),
+			_ => return Err(BeefyError::UnknownProofType(*proof_type).into()),
 		};
 
 		if verified_parachains.is_empty() {
@@ -121,7 +115,7 @@ where
 			}
 
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*para_header.header)
-				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
+				.map_err(|e| BeefyError::DecodeParachainHeader(format!("{e}")))?;
 
 			let mut state_commitments_vec = Vec::new();
 			let (mut timestamp, mut overlay_root) = (0, H256::default());
@@ -131,10 +125,8 @@ where
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
 					{
-						let timestamp_digest =
-							TimestampDigest::decode(&mut &value[..]).map_err(|e| {
-								Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
-							})?;
+						let timestamp_digest = TimestampDigest::decode(&mut &value[..])
+							.map_err(|e| BeefyError::DecodeTimestampDigest(format!("{e:?}")))?;
 						timestamp = timestamp_digest.timestamp;
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
@@ -144,16 +136,14 @@ where
 						if let Ok(log) = log {
 							overlay_root = log.child_trie_root;
 						} else {
-							Err(Error::Custom(
-								"Header contains an invalid ismp consensus log".into(),
-							))?
+							Err(BeefyError::InvalidIsmpConsensusLog)?
 						}
 					},
 					_ => {},
 				};
 			}
 			if timestamp == 0 {
-				Err(Error::Custom("Timestamp not found".into()))?
+				Err(BeefyError::TimestampNotFound)?
 			}
 
 			let (state_id, consensus_state_id) = match host.host_state_machine() {
@@ -161,7 +151,7 @@ where
 					(StateMachine::Kusama(para_header.para_id), PASEO_CONSENSUS_STATE_ID),
 				StateMachine::Polkadot(_) =>
 					(StateMachine::Polkadot(para_header.para_id), POLKADOT_CONSENSUS_STATE_ID),
-				_ => Err(Error::Custom("Host state machine should be a parachain".into()))?,
+				_ => Err(BeefyError::HostStateMachineNotParachain)?,
 			};
 
 			let height: u32 = (*header.number()).into();
@@ -190,31 +180,24 @@ where
 		proof_2: Vec<u8>,
 	) -> Result<(), Error> {
 		let consensus_state: ConsensusState =
-			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode consensus state from trusted consensus state: {e:?}"
-				))
-			})?;
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
 
-		let first_proof: MmrProof = codec::Decode::decode(&mut &proof_1[..]).map_err(|e| {
-			Error::Custom(format!("Cannot decode first mmr proof from proof_1 bytes: {e:?}"))
-		})?;
+		let first_proof: MmrProof = codec::Decode::decode(&mut &proof_1[..])
+			.map_err(|e| BeefyError::DecodeMmrProof(format!("{e:?}")))?;
 
-		let second_proof: MmrProof = codec::Decode::decode(&mut &proof_2[..]).map_err(|e| {
-			Error::Custom(format!("Cannot decode second mmr proof from proof_2 bytes: {e:?}"))
-		})?;
+		let second_proof: MmrProof = codec::Decode::decode(&mut &proof_2[..])
+			.map_err(|e| BeefyError::DecodeMmrProof(format!("{e:?}")))?;
 
 		let first_commitment = &first_proof.signed_commitment.commitment;
 		let second_commitment = &second_proof.signed_commitment.commitment;
 
 		if first_commitment.block_number != second_commitment.block_number {
-			return Err(Error::Custom("Fraud proofs must be for the same block number".to_string()));
+			return Err(BeefyError::FraudProofsDifferentBlock.into());
 		}
 
 		if first_commitment.encode() == second_commitment.encode() {
-			return Err(Error::Custom(
-				"Fraud proofs have identical commitments, no equivocation".to_string(),
-			));
+			return Err(BeefyError::FraudProofsIdenticalCommitments.into());
 		}
 
 		let empty_parachain_proof =
@@ -224,13 +207,13 @@ where
 			consensus_state.clone(),
 			ConsensusMessage { mmr: first_proof, parachain: empty_parachain_proof.clone() },
 		)
-		.map_err(|e| Error::Custom(format!("First proof verification failed: {e:?}")))?;
+		.map_err(|e| BeefyError::FraudProofVerificationFailed(format!("first: {e:?}")))?;
 
 		verify_consensus::<SubstrateCrypto>(
 			consensus_state,
 			ConsensusMessage { mmr: second_proof, parachain: empty_parachain_proof },
 		)
-		.map_err(|e| Error::Custom(format!("Second proof verification failed: {e:?}")))?;
+		.map_err(|e| BeefyError::FraudProofVerificationFailed(format!("second: {e:?}")))?;
 
 		Ok(())
 	}
@@ -242,13 +225,11 @@ where
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		let para_id = match id {
 			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-			_ => Err(Error::Custom(
-				"State Machine is not supported by this consensus client".to_string(),
-			))?,
+			_ => Err(BeefyError::UnsupportedStateMachine(id))?,
 		};
 
 		if !C::is_parachain_tracked(para_id) {
-			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
+			Err(BeefyError::UnregisteredParachain(para_id))?
 		}
 
 		Ok(Box::new(S::from(id)))

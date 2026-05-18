@@ -236,17 +236,12 @@ export class EvmChain implements IChain {
 	}
 
 	/**
-	 * Returns the current authority set epoch from the HandlerV2 contract.
+	 * Returns the current authority set epoch from the Host contract.
 	 */
 	async currentEpoch(): Promise<bigint> {
-		const hostParams = await this.publicClient.readContract({
+		const epoch = await this.publicClient.readContract({
 			address: this.params.host,
 			abi: EvmHost.ABI,
-			functionName: "hostParams",
-		})
-		const epoch = await this.publicClient.readContract({
-			address: hostParams.handler,
-			abi: HandlerV2.ABI,
 			functionName: "currentEpoch",
 		})
 		return BigInt(epoch)

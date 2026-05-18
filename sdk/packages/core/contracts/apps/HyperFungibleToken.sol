@@ -23,7 +23,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {IHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "../interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "../interfaces/IApp.sol";
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 import {HyperApp} from "./HyperApp.sol";
 
@@ -305,10 +305,10 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
      * Re-mints the burned tokens back to the original sender as a refund.
-     * @param request The timed-out POST request
+     * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
-    function onPostRequestTimeout(PostRequest memory request) external override onlyHost whenNotPaused {
-        Message memory message = abi.decode(request.body, (Message));
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) external override onlyHost whenNotPaused {
+        Message memory message = abi.decode(incoming.request.body, (Message));
         address refundee = _toAddr(message.from);
         _mint(refundee, message.amount);
         emit Refunded(refundee, message.amount);

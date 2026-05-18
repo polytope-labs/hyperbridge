@@ -207,7 +207,7 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 		para_id == u32::from(ParachainInfo::get())
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
+	fn sp1_vkey_hash() -> sp_core::H256 {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
 }
@@ -315,7 +315,7 @@ impl IsmpModule for ProxyModule {
 		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
 		// recharge flow itself doesn't need bandwidth.
 		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
-			let bytes = core::cmp::max(request.body.len(), 32) as u32;
+			let bytes = ismp::abi::encode_post_request(&request).len() as u32;
 			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
 				&request.source,
 				&request.from,

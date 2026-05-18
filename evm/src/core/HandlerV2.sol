@@ -28,6 +28,7 @@ import {
     StateCommitment
 } from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {IHost, FeeMetadata, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
+import {PostRequestTimeout, GetRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
 import {
     Message,
@@ -56,7 +57,8 @@ bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569
  *
  * @notice Handles all ISMP message types: consensus updates, post requests,
  * post responses, get responses, and timeouts. Supports batch call execution
- * via `batchCall` and tracks relayer attribution per authority set epoch.
+ * via `batchCall`. Stateless: all protocol state lives on the host, including
+ * relayer attribution per authority set epoch.
  */
 contract HandlerV2 is IHandlerV2, ERC165, Context {
     using Bytes for bytes;
@@ -103,24 +105,6 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
     error BatchCallFailed(uint256 index, bytes reason);
 
     /**
-     * @notice Emitted when a consensus proof introduces a new authority set epoch.
-     * @param authoritySetId The new authority set ID.
-     * @param relayer The address of the relayer that submitted the proof.
-     */
-    event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
-
-    /**
-     * @notice Maps an authority set ID (epoch) to the relayer that first submitted
-     * the consensus proof for that epoch.
-     */
-    mapping(uint256 => address) private _epochs;
-
-    /**
-     * @notice The most recent authority set ID for which a consensus proof has been submitted.
-     */
-    uint256 private _currentEpoch;
-
-    /**
      * @dev Checks if the host permits incoming datagrams
      */
     modifier notFrozen(IHost host) {
@@ -135,22 +119,6 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(IHandlerV2).interfaceId || interfaceId == type(IHandler).interfaceId
             || interfaceId == bytes4(0x687b1a5c) || super.supportsInterface(interfaceId);
-    }
-
-    /**
-    * @dev Returns the relayer address for a given authority set ID.
-    * @param authoritySetId - the authority set / epoch ID
-    * @return the relayer address, or address(0) if not set
-    */
-    function relayerOf(uint256 authoritySetId) external view returns (address) {
-        return _epochs[authoritySetId];
-    }
-
-    /**
-    * @dev Returns the current authority set epoch.
-    */
-    function currentEpoch() external view returns (uint256) {
-        return _currentEpoch;
     }
 
     /**
@@ -196,10 +164,13 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             }
         }
 
-        if (nextAuthoritySetId > _currentEpoch) {
-            _currentEpoch = nextAuthoritySetId;
-            _epochs[nextAuthoritySetId] = msg.sender;
-            emit NewEpoch(nextAuthoritySetId, msg.sender);
+        // `nextAuthoritySetId` identifies the upcoming set; the relayer that delivered the proof
+        // is credited as the relayer for the just-ended epoch (`nextAuthoritySetId - 1`).
+        // If `nextAuthoritySetId == 0` no rotation has occurred, so there is nothing to record.
+        if (nextAuthoritySetId == 0) return;
+        uint256 epoch = nextAuthoritySetId - 1;
+        if (epoch > host.currentEpoch()) {
+            host.recordEpoch(epoch, _msgSender());
         }
     }
 
@@ -315,7 +286,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchTimeOut(request, meta, requestCommitment);
+            host.dispatchTimeOut(PostRequestTimeout(request, _msgSender()), meta, requestCommitment);
         }
     }
 
@@ -350,7 +321,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchTimeOut(request, meta, commitment);
+            host.dispatchTimeOut(GetRequestTimeout(request, _msgSender()), meta, commitment);
         }
     }
 }

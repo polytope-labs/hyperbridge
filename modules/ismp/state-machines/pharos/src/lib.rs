@@ -22,19 +22,70 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
+use alloc::{
+	collections::BTreeMap,
+	string::{String, ToString},
+	vec::Vec,
+};
 use codec::{Decode, Encode};
-use evm_state_machine::{req_res_commitment_key, req_res_receipt_keys};
+use evm_state_machine::{req_commitment_key, req_receipt_keys};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::IsmpHost,
 	messaging::{Keccak256, Proof},
-	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
 use pharos_primitives::{spv, NonExistenceProof, PharosProofNode};
 use primitive_types::{H160, H256};
+use thiserror::Error as ThisError;
+
+/// Errors produced by the Pharos state machine client.
+#[derive(Debug, ThisError)]
+pub enum PharosStateMachineError {
+	/// No ISMP host contract is registered for the requested state machine id.
+	#[error("Ismp contract address not found")]
+	IsmpContractNotFound,
+	/// SCALE-decoding the Pharos state proof failed.
+	#[error("Cannot decode pharos state proof: {0}")]
+	StateProofDecodeError(String),
+	/// A non-membership proof contained at least one delivered request.
+	#[error("Some Requests in the batch have been delivered")]
+	DeliveredRequestsInBatch,
+	/// No storage proof for the requested ISMP commitment slot.
+	#[error("Missing storage proof for commitment key")]
+	MissingCommitmentStorageProof,
+	/// No storage proof for the requested slot.
+	#[error("Missing storage proof for key")]
+	MissingStorageProof,
+	/// No storage value alongside an existence proof.
+	#[error("Missing storage value for key")]
+	MissingStorageValue,
+	/// No account proof for the requested 20-byte address query.
+	#[error("Missing account proof")]
+	MissingAccountProof,
+	/// A slot hash had the wrong length (expected 32 bytes).
+	#[error("Invalid slot hash length: expected 32, got {0}")]
+	InvalidSlotHashLength(usize),
+	/// An address had the wrong length (expected 20 bytes).
+	#[error("Invalid address: expected 20 bytes, got {0}")]
+	InvalidAddressLength(usize),
+	/// A query key didn't match any supported layout (20, 32, or 52 bytes).
+	#[error("Unsupported key type: expected length 20, 32, or 52")]
+	UnsupportedKeyLength,
+	/// A storage value exceeded the maximum word size.
+	#[error("Storage value exceeds 32 bytes")]
+	StorageValueTooLarge,
+	/// The SPV proof failed to verify.
+	#[error("SPV verification failed: {0}")]
+	SpvVerificationFailed(String),
+}
+
+impl From<PharosStateMachineError> for Error {
+	fn from(e: PharosStateMachineError) -> Error {
+		Error::AnyHow(anyhow::Error::new(e).into())
+	}
+}
 
 /// Account proof data for a 20-byte address query.
 #[derive(Encode, Decode, Clone)]
@@ -85,17 +136,36 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
-		verify_membership::<H>(item, root, proof, contract_address)
+			.ok_or(PharosStateMachineError::IsmpContractNotFound)?;
+		verify_membership::<H>(commitments, root, proof, contract_address)
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		req_res_receipt_keys::<H>(items)
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_commitment_key::<H, _>(commitments, |k| k.to_vec())
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		req_receipt_keys::<H>(commitments)
+	}
+
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let keys = self.receipts_state_trie_key(commitments);
+		let values = self.verify_state_proof(host, keys, root, proof)?;
+		if values.into_iter().any(|(_key, val)| val.is_some()) {
+			return Err(PharosStateMachineError::DeliveredRequestsInBatch.into());
+		}
+		Ok(())
 	}
 
 	fn verify_state_proof(
@@ -106,21 +176,20 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(PharosStateMachineError::IsmpContractNotFound)?;
 		verify_state_proof::<H>(keys, root, proof, ismp_address)
 	}
 }
 
 /// Decode a PharosStateProof from the proof bytes.
 fn decode_pharos_state_proof(proof: &Proof) -> Result<PharosStateProof, Error> {
-	PharosStateProof::decode(&mut &proof.proof[..]).map_err(|e| {
-		Error::AnyHow(anyhow::anyhow!("Cannot decode pharos state proof: {:?}", e).into())
-	})
+	PharosStateProof::decode(&mut &proof.proof[..])
+		.map_err(|e| PharosStateMachineError::StateProofDecodeError(alloc::format!("{e:?}")).into())
 }
 
 /// Verify membership of ISMP commitments in the Pharos state.
 pub fn verify_membership<H: Keccak256 + Send + Sync>(
-	item: RequestResponse,
+	commitments: Vec<H256>,
 	root: StateCommitment,
 	proof: &Proof,
 	contract_address: H160,
@@ -130,25 +199,25 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 	let state_root = H256::from_slice(&root.state_root[..]);
 	let address: [u8; 20] = contract_address.0;
 
-	let commitment_keys = req_res_commitment_key::<H, _>(item, |k| k.to_vec());
+	let commitment_keys = req_commitment_key::<H, _>(commitments, |k| k.to_vec());
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	for slot_hash in commitment_keys {
 		let storage_proof_nodes = pharos_proof
 			.storage_proof
 			.get(&slot_hash)
-			.ok_or_else(|| Error::Custom("Missing storage proof for commitment key".to_string()))?;
+			.ok_or(PharosStateMachineError::MissingCommitmentStorageProof)?;
 
-		let slot_key: [u8; 32] = slot_hash.try_into().map_err(|e: Vec<u8>| {
-			Error::Custom(alloc::format!("Invalid slot hash length: expected 32, got {}", e.len()))
-		})?;
+		let slot_key: [u8; 32] = slot_hash
+			.try_into()
+			.map_err(|e: Vec<u8>| PharosStateMachineError::InvalidSlotHashLength(e.len()))?;
 
 		spv::verify_membership_proof(
 			storage_proof_nodes,
 			&spv::build_storage_key(&address, &slot_key),
 			&state_root.0,
 		)
-		.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
+		.map_err(|e| PharosStateMachineError::SpvVerificationFailed(alloc::format!("{e:?}")))?;
 	}
 
 	Ok(())
@@ -178,13 +247,14 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			(ismp_address, key.clone())
 		} else if key.len() == 20 {
 			// Account query which verifies account proof and return raw account value
-			let address: [u8; 20] = key.clone().try_into().map_err(|e: Vec<u8>| {
-				Error::Custom(alloc::format!("Invalid address: expected 20 bytes, got {}", e.len()))
-			})?;
+			let address: [u8; 20] = key
+				.clone()
+				.try_into()
+				.map_err(|e: Vec<u8>| PharosStateMachineError::InvalidAddressLength(e.len()))?;
 			let account_data = pharos_proof
 				.account_proofs
 				.get(&key)
-				.ok_or_else(|| Error::Custom("Missing account proof".to_string()))?;
+				.ok_or(PharosStateMachineError::MissingAccountProof)?;
 
 			spv::verify_proof(
 				&account_data.proof_nodes,
@@ -192,23 +262,20 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 				&account_data.raw_value,
 				&state_root.0,
 			)
-			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
+			.map_err(|e| PharosStateMachineError::SpvVerificationFailed(alloc::format!("{e:?}")))?;
 
 			map.insert(key, Some(account_data.raw_value.clone()));
 			continue;
 		} else {
-			return Err(Error::Custom(
-				"Unsupported key type: expected length 20, 32, or 52".to_string(),
-			));
+			return Err(PharosStateMachineError::UnsupportedKeyLength.into());
 		};
 
 		let contract_address: [u8; 20] = contract_addr.0;
 
-		let slot_key: [u8; 32] = slot_hash.clone().try_into().map_err(|e: Vec<u8>| {
-			Error::AnyHow(
-				anyhow::anyhow!("Invalid slot hash length: expected 32, got {}", e.len()).into(),
-			)
-		})?;
+		let slot_key: [u8; 32] = slot_hash
+			.clone()
+			.try_into()
+			.map_err(|e: Vec<u8>| PharosStateMachineError::InvalidSlotHashLength(e.len()))?;
 
 		// Check if this is a non-existence proof
 		if let Some(non_existence) = pharos_proof.non_existence_proofs.get(slot_key.as_slice()) {
@@ -218,7 +285,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 				&state_root.0,
 				&non_existence.sibling_proofs,
 			)
-			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
+			.map_err(|e| PharosStateMachineError::SpvVerificationFailed(alloc::format!("{e:?}")))?;
 			map.insert(key, None);
 			continue;
 		}
@@ -227,19 +294,19 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		let storage_proof_nodes = pharos_proof
 			.storage_proof
 			.get(slot_key.as_slice())
-			.ok_or_else(|| Error::Custom("Missing storage proof for key".to_string()))?;
+			.ok_or(PharosStateMachineError::MissingStorageProof)?;
 
 		let storage_value = pharos_proof
 			.storage_values
 			.get(&slot_hash)
-			.ok_or_else(|| Error::Custom("Missing storage value for key".to_string()))?;
+			.ok_or(PharosStateMachineError::MissingStorageValue)?;
 
 		// Pad value to 32 bytes for proof verification
 		let mut padded_value = [0u8; 32];
 		if storage_value.len() <= 32 {
 			padded_value[32 - storage_value.len()..].copy_from_slice(storage_value);
 		} else {
-			return Err(Error::Custom("Storage value exceeds 32 bytes".to_string()));
+			return Err(PharosStateMachineError::StorageValueTooLarge.into());
 		}
 
 		spv::verify_proof(
@@ -248,7 +315,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			&padded_value,
 			&state_root.0,
 		)
-		.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
+		.map_err(|e| PharosStateMachineError::SpvVerificationFailed(alloc::format!("{e:?}")))?;
 
 		map.insert(key, Some(storage_value.clone()));
 	}

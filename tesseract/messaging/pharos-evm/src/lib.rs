@@ -187,19 +187,6 @@ impl IsmpProvider for PharosEvmClient {
 		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		let slot_hashes: Vec<H256> = keys
-			.into_iter()
-			.map(|q| self.evm.response_commitment_key(q.commitment).1)
-			.collect();
-		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -307,10 +294,6 @@ impl IsmpProvider for PharosEvmClient {
 		self.evm.ismp_host_contract()
 	}
 
-	async fn handler_v2_address(&self) -> Option<H160> {
-		self.evm.handler_v2_address().await
-	}
-
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}
@@ -343,10 +326,6 @@ impl IsmpProvider for PharosEvmClient {
 		self.evm.query_response_receipt(hash).await
 	}
 
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		self.evm.query_response_fee_metadata(hash).await
-	}
-
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
@@ -376,14 +355,6 @@ impl IsmpProvider for PharosEvmClient {
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		self.evm.request_receipt_full_key(commitment)
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

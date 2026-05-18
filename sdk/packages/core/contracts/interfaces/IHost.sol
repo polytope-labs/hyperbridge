@@ -16,6 +16,7 @@ pragma solidity ^0.8.17;
 import {StateCommitment, StateMachineHeight} from "./IConsensus.sol";
 import {IDispatcher} from "./IDispatcher.sol";
 import {PostRequest, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
+import {PostRequestTimeout, GetRequestTimeout} from "./IApp.sol";
 
 // Some metadata about the request fee
 struct FeeMetadata {
@@ -95,6 +96,18 @@ interface IHost is IDispatcher {
     function consensusState() external view returns (bytes memory);
 
     /**
+     * @return the most recent authority set ID (epoch) for which a consensus proof has been submitted
+     */
+    function currentEpoch() external view returns (uint256);
+
+    /**
+     * @dev Returns the relayer that first submitted the consensus proof for the given epoch.
+     * @param authoritySetId - the authority set / epoch ID
+     * @return the relayer address, or address(0) if not set
+     */
+    function relayerOf(uint256 authoritySetId) external view returns (address);
+
+    /**
      * @param commitment - commitment to the request
      * @return relayer address
      */
@@ -135,6 +148,15 @@ interface IHost is IDispatcher {
     function storeConsensusState(bytes memory state) external;
 
     /**
+     * @dev Record the relayer that first submitted a consensus proof for a new authority set epoch.
+     * Only callable by the configured handler. The recorded relayer is the one passed in by the
+     * handler at the call site; the host trusts the handler to identify the relayer.
+     * @param authoritySetId the new authority set / epoch ID
+     * @param relayer the relayer that delivered the consensus proof
+     */
+    function recordEpoch(uint256 authoritySetId, address relayer) external;
+
+    /**
      * @dev Store the commitment at `state height`
      * @param height state machine height
      * @param commitment state commitment
@@ -160,14 +182,26 @@ interface IHost is IDispatcher {
 
     /**
      * @dev Dispatch an incoming get timeout to source app
-     * @param timeout - timed-out get request
+     * @param timeout - timed-out get request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(GetRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        GetRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
     /**
      * @dev Dispatch an incoming post timeout to source app
-     * @param timeout - timed-out post request
+     * @param timeout - timed-out post request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(PostRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        PostRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
 }

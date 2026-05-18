@@ -35,7 +35,7 @@ use ismp::{
 		hash_request, ConsensusMessage, FraudProofMessage, Message, Proof, RequestMessage,
 		ResponseMessage, TimeoutMessage,
 	},
-	router::{GetRequest, GetResponse, PostRequest, Request, RequestResponse},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -315,7 +315,11 @@ where
 	Ok(())
 }
 
-fn dispatch_get_request<H>(host: &H, intermediate_state: &IntermediateState, timeout: u64) -> GetRequest
+fn dispatch_get_request<H>(
+	host: &H,
+	intermediate_state: &IntermediateState,
+	timeout: u64,
+) -> GetRequest
 where
 	H: IsmpHost + IsmpDispatcher,
 	H::Account: From<[u8; 32]>,
@@ -357,7 +361,8 @@ where
 	H::Balance: From<u32> + Default,
 {
 	let intermediate_state = setup_mock_client(host);
-	let get = dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
+	let get =
+		dispatch_get_request(host, &intermediate_state, host.timestamp().as_secs() + 1_000_000);
 
 	let response = GetResponse { get: get.clone(), values: Default::default() };
 	host.store_response_receipt(&response, &vec![0u8; 32]).unwrap();
@@ -368,7 +373,6 @@ where
 	assert!(matches!(res, Err(Error::GetResponseAlreadyReceived { .. })));
 	Ok(())
 }
-
 
 pub fn fraud_proof_checks<H>(host: &H)
 where
@@ -684,8 +688,7 @@ pub fn check_request_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static
 	Ok(())
 }
 
-/// `ResponseMessage` whose datagram is a `RequestResponse::Request`
-/// (Get-request batch) with two identical Get requests must be rejected
+/// `ResponseMessage` carrying two identical Get requests must be rejected
 /// with `DuplicateRequest`.
 pub fn check_response_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_with_elapsed_challenge_period(host);
@@ -700,13 +703,12 @@ pub fn check_response_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'stati
 		context: Default::default(),
 		timeout_timestamp: 0,
 	};
-	let req = Request::Get(get);
 
-	let datagram = RequestResponse::Request(vec![req.clone(), req]);
-	let (signature, ..) = create_relayer_signer(datagram.encode(), &[1u8; 32]);
+	let requests = vec![get.clone(), get];
+	let (signature, ..) = create_relayer_signer(requests.encode(), &[1u8; 32]);
 
 	let response_message = Message::Response(ResponseMessage {
-		datagram,
+		requests,
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
 		signer: signature,
 	});
@@ -759,9 +761,8 @@ pub fn check_get_timeout_message_dedup<H: IsmpHost>(host: &H) -> Result<(), &'st
 		timeout_timestamp: 0,
 	};
 
-	let timeout_message = Message::Timeout(TimeoutMessage::Get {
-		requests: vec![get.clone(), get],
-	});
+	let timeout_message =
+		Message::Timeout(TimeoutMessage::Get { requests: vec![get.clone(), get] });
 
 	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(Error::DuplicateRequest { .. })), "got: {res:?}");

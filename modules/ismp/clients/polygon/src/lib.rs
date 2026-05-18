@@ -350,20 +350,6 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		let consensus_state: ConsensusState = Decode::decode(&mut &trusted_consensus_state[..])
 			.map_err(|e| PolygonError::DecodeConsensusState(e.to_string()))?;
 
-		let height_1 = update_1.tendermint_proof.signed_header.header.height;
-		let height_2 = update_2.tendermint_proof.signed_header.header.height;
-		if height_1 != height_2 {
-			return Err(PolygonError::FraudProofsDifferentHeight.into());
-		}
-
-		if proof_1 == proof_2 {
-			return Err(PolygonError::FraudProofsIdentical.into());
-		}
-
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
-
-		let time = host.timestamp().as_secs();
-
 		let consensus_proof_1 = update_1
 			.tendermint_proof
 			.to_consensus_proof()
@@ -373,6 +359,30 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			.tendermint_proof
 			.to_consensus_proof()
 			.map_err(|e| PolygonError::ConvertTendermintProof(e.to_string()))?;
+
+		let height_1 = consensus_proof_1.signed_header.header.height;
+		let height_2 = consensus_proof_2.signed_header.header.height;
+		if height_1 != height_2 {
+			return Err(PolygonError::FraudProofsDifferentHeight.into());
+		}
+
+		// A genuine fraud proof must demonstrate equivocation: two *distinct* blocks
+		// signed by the validator set at the same height. Comparing the raw proof
+		// bytes is insufficient — SCALE's `Decode` silently ignores trailing bytes
+		// and other non-canonical encodings, so an attacker could submit the *same*
+		// header twice with one copy malleated (e.g. an appended trailing byte or
+		// reordered commit signatures), pass this byte-inequality check, and freeze
+		// a live consensus client permissionlessly. Compare the canonical Tendermint
+		// header hashes instead — they uniquely identify the block being committed.
+		let header_hash_1 = consensus_proof_1.signed_header.header.hash();
+		let header_hash_2 = consensus_proof_2.signed_header.header.hash();
+		if header_hash_1 == header_hash_2 {
+			return Err(PolygonError::FraudProofsIdentical.into());
+		}
+
+		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+
+		let time = host.timestamp().as_secs();
 
 		verify_header_update(trusted_state.clone(), consensus_proof_1, time)
 			.map_err(|e| PolygonError::VerifyHeaderUpdate(e.to_string()))?;

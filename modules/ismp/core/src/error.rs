@@ -107,6 +107,8 @@ pub enum Error {
 	},
 	/// Cannot handle the given message
 	CannotHandleMessage,
+	/// The message batch contains no requests
+	EmptyBatch,
 	/// Membership proof verification failed: {0}
 	MembershipProofVerificationFailed(String),
 	/// Non-membership proof verification failed: {0}

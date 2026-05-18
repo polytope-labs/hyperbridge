@@ -31,6 +31,10 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
+	if msg.requests.is_empty() {
+		Err(Error::EmptyBatch)?
+	}
+
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
 	let check_state_machine_client = |state_machine: StateMachine| {

@@ -116,7 +116,8 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(IHandlerV2).interfaceId
-            || interfaceId == bytes4(0x687b1a5c) || super.supportsInterface(interfaceId);
+            || interfaceId == bytes4(0x744d77d5) || interfaceId == bytes4(0x687b1a5c)
+            || super.supportsInterface(interfaceId);
     }
 
     /**
@@ -192,11 +193,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             if (!leaf.request.dest.equals(host.host())) revert InvalidMessageDestination();
             // check time-out
             if (timestamp >= leaf.request.timeout()) revert MessageTimedOut();
-            // duplicate request?
-            bytes32 commitment = leaf.request.hash();
-            if (host.requestReceipts(commitment) != address(0)) revert DuplicateMessage();
-
-            leaves[i] = MerkleMountainRange.Leaf(leaf.index, commitment);
+            leaves[i] = MerkleMountainRange.Leaf(leaf.index, leaf.request.hash());
         }
 
         bytes32 root = host.stateMachineCommitment(request.proof.height).overlayRoot;
@@ -206,6 +203,8 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
 
         for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
+            // duplicate request?
+            if (host.requestReceipts(leaf.request.hash()) != address(0)) revert DuplicateMessage();
             host.dispatchIncoming(leaf.request, _msgSender());
         }
     }
@@ -229,12 +228,8 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             // don't check for timeouts because it's checked on Hyperbridge
 
             // known request? also serves as source check
-            bytes32 requestCommitment = leaf.response.request.hash();
-            FeeMetadata memory meta = host.requestCommitments(requestCommitment);
+            FeeMetadata memory meta = host.requestCommitments(leaf.response.request.hash());
             if (meta.sender == address(0)) revert UnknownMessage();
-
-            // duplicate response?
-            if (host.responseReceipts(requestCommitment).relayer != address(0)) revert DuplicateMessage();
             leaves[i] = MerkleMountainRange.Leaf(leaf.index, leaf.response.hash());
         }
 
@@ -245,6 +240,8 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
 
         for (uint256 i = 0; i < responsesLength; ++i) {
             GetResponseLeaf memory leaf = message.responses[i];
+            // duplicate response?
+            if (host.responseReceipts(leaf.response.request.hash()).relayer != address(0)) revert DuplicateMessage();
             host.dispatchIncoming(leaf.response, _msgSender());
         }
     }

@@ -220,23 +220,31 @@ where
 	let transaction_pool = params.transaction_pool.clone();
 	let import_queue_service = params.import_queue.service();
 
-	// Collators are required to run the fisherman task; non-authorities skip
-	// it. Errors here abort node startup.
-	if validator {
+	// Collators run the fisherman, non authorities skip it. Preflight the
+	// config now so a misconfigured operator fails before any chain init.
+	// The actual provider construction is deferred until after
+	// `sc_service::spawn_tasks` opens the local RPC port, because the
+	// fisherman dials `[hyperbridge].rpc_ws` and on a normal collator that
+	// URL points back at this same node.
+	let fisherman_path = if validator {
 		let path = tesseract_config.clone().ok_or_else(|| {
 			sc_service::Error::Other(
 				"--tesseract-config is required when running as a collator/authority".to_string(),
 			)
 		})?;
-		hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(|e| {
-			sc_service::Error::Other(format!("failed to spawn fisherman task: {e:?}"))
-		})?;
-	} else if tesseract_config.is_some() {
-		log::info!(
-			target: "fisherman",
-			"--tesseract-config provided to a non-authority node; ignoring (fisherman only runs on collators)",
-		);
-	}
+		hyperbridge_fisherman::load_and_validate(&path)
+			.await
+			.map_err(|e| sc_service::Error::Other(format!("invalid tesseract config: {e:?}")))?;
+		Some(path)
+	} else {
+		if tesseract_config.is_some() {
+			log::info!(
+				target: "fisherman",
+				"--tesseract-config provided to a non-authority node; ignoring (fisherman only runs on collators)",
+			);
+		}
+		None
+	};
 
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		build_network(BuildNetworkParams {
@@ -328,6 +336,14 @@ where
 		telemetry: telemetry.as_mut(),
 		tracing_execute_block: None,
 	})?;
+
+	// The local RPC server is up now, so the fisherman can safely dial
+	// `[hyperbridge].rpc_ws` even when it points back at this node.
+	if let Some(path) = fisherman_path {
+		hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(|e| {
+			sc_service::Error::Other(format!("failed to spawn fisherman task: {e:?}"))
+		})?;
+	}
 
 	if let Some(hwbench) = hwbench {
 		sc_sysinfo::print_hwbench(&hwbench);

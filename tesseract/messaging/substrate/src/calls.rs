@@ -193,18 +193,8 @@ where
 			U256::from(10u128 * 10u128.pow((*fee_token_decimals).into()))
 		{
 			// withdraws funds accumulated into hyperbridge address
-			let key = relayer_nonce_storage_key(self.address.clone(), chain);
-			let block_hash = self
-				.rpc
-				.chain_get_block_hash(None)
-				.await?
-				.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-			let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
-			let nonce = if let Some(raw_value) = raw_value {
-				Decode::decode(&mut &*raw_value)?
-			} else {
-				0u64
-			};
+			let nonce =
+				fetch_relayer_nonce(&self.client, &self.rpc, self.address.clone(), chain).await?;
 
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
 			let signature = { self.sign(&message) };
@@ -221,15 +211,8 @@ where
 			);
 		}
 		// withdraws funds accumulated into counterparty address
-		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let block_hash = self
-			.rpc
-			.chain_get_block_hash(None)
-			.await?
-			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		let nonce =
-			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+			fetch_relayer_nonce(&self.client, &self.rpc, counterparty.address(), chain).await?;
 
 		let message = message(nonce, chain, None);
 		let signature = { counterparty.sign(&message) };
@@ -255,6 +238,10 @@ where
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 
 		Ok(leaf_meta.claimed)
+	}
+
+	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64> {
+		fetch_relayer_nonce(&self.client, &self.rpc, address, chain).await
 	}
 }
 
@@ -314,6 +301,23 @@ async fn relayer_account_balance<C: subxt::Config>(
 	};
 
 	Ok(balance)
+}
+
+async fn fetch_relayer_nonce<C: subxt::Config>(
+	client: &OnlineClient<C>,
+	rpc: &LegacyRpcMethods<C>,
+	address: Vec<u8>,
+	chain: StateMachine,
+) -> anyhow::Result<u64> {
+	let key = relayer_nonce_storage_key(address, chain);
+	let block_hash = rpc
+		.chain_get_block_hash(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+	let raw_value = client.storage().at(block_hash).fetch_raw(key).await?;
+	let nonce =
+		if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+	Ok(nonce)
 }
 
 async fn execute_withdrawal<C>(

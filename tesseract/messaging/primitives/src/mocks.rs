@@ -93,6 +93,10 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 	async fn check_claimed(&self, _commitment: H256) -> anyhow::Result<bool> {
 		Ok(false)
 	}
+
+	async fn relayer_nonce(&self, _address: Vec<u8>, _chain: StateMachine) -> anyhow::Result<u64> {
+		Ok(0)
+	}
 }
 
 #[async_trait::async_trait]

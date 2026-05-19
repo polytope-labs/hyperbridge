@@ -22,11 +22,13 @@ use ismp::{
 	router::{PostRequest, Request},
 };
 use itertools::Itertools;
-use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
+use pallet_ismp_relayer::{
+	beneficiary_message,
+	withdrawal::{Signature, WithdrawalProof},
+};
 use primitive_types::{H256, U256};
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
-use sp_core::keccak_256;
 use std::{collections::BTreeSet, mem::discriminant, sync::Arc};
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
@@ -240,8 +242,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let dest_height =
-			request_entries.last().map(|data| data.height as u64).unwrap_or_default();
+		let dest_height = request_entries.last().map(|data| data.height as u64).unwrap_or_default();
 
 		if dest_height == 0 {
 			Ok(None)
@@ -250,15 +251,26 @@ impl TransactionPayment {
 		}
 	}
 
-	pub async fn query_state_proofs(
+	pub async fn query_state_proofs<H: HyperbridgeClaim + Sync>(
 		&self,
 		source: Arc<dyn IsmpProvider>,
 		dest: Arc<dyn IsmpProvider>,
 		source_height: u64,
 		dest_height: u64,
 		keys: Vec<(H256, Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+		hyperbridge: &H,
 	) -> Result<Vec<WithdrawalProof>, anyhow::Error> {
 		let mut proofs = vec![];
+		let source_chain = source.state_machine_id().state_id;
+		let cross_chain_type = discriminant(&source.state_machine_id().state_id) !=
+			discriminant(&dest.state_machine_id().state_id);
+		// One signature is consumed per submitted proof, so each chunk increments
+		// the locally-tracked nonce from the snapshot we read at the start.
+		let mut nonce = if cross_chain_type {
+			hyperbridge.relayer_nonce(dest.address(), source_chain).await?
+		} else {
+			0
+		};
 		// Chunk keys by 50 each
 		for chunk in keys.chunks(50) {
 			// Gather keys to be queried on the source chain
@@ -289,6 +301,16 @@ impl TransactionPayment {
 				)
 				.await?;
 
+			let beneficiary_details = if cross_chain_type {
+				let beneficiary = source.address();
+				let prehash = beneficiary_message(nonce, source_chain, &beneficiary);
+				let details = Some((beneficiary, dest.sign(&prehash)));
+				nonce += 1;
+				details
+			} else {
+				None
+			};
+
 			let proof = WithdrawalProof {
 				commitments: request_response_commitments,
 				source_proof: Proof {
@@ -302,16 +324,7 @@ impl TransactionPayment {
 					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
 					proof: dest_proof,
 				},
-				beneficiary_details: {
-					// If they are not the same chain type
-					if discriminant(&source.state_machine_id().state_id) !=
-						discriminant(&dest.state_machine_id().state_id)
-					{
-						Some((source.address(), dest.sign(&keccak_256(&source.address()))))
-					} else {
-						None
-					}
-				},
+				beneficiary_details,
 			};
 
 			proofs.push(proof)
@@ -322,13 +335,14 @@ impl TransactionPayment {
 
 	// todo: Consolidate the state proof query into a single function
 	/// Create payment claim proof for all deliveries of requests from source to dest.
-	pub async fn create_proof_from_receipts(
+	pub async fn create_proof_from_receipts<H: HyperbridgeClaim + Sync>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
 		source: Arc<dyn IsmpProvider>,
 		dest: Arc<dyn IsmpProvider>,
 		receipts: Vec<TxReceipt>,
+		hyperbridge: &H,
 	) -> anyhow::Result<Vec<WithdrawalProof>> {
 		let keys = receipts
 			.iter()
@@ -339,7 +353,8 @@ impl TransactionPayment {
 			})
 			.collect::<Vec<_>>();
 
-		self.query_state_proofs(source, dest, source_height, dest_height, keys).await
+		self.query_state_proofs(source, dest, source_height, dest_height, keys, hyperbridge)
+			.await
 	}
 
 	/// Fetch all pending withdrawals from the db, returns their id so they can be deleted.
@@ -480,7 +495,7 @@ impl TransactionPayment {
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
-	pub async fn create_claim_proof<H: HyperbridgeClaim>(
+	pub async fn create_claim_proof<H: HyperbridgeClaim + Sync>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
@@ -544,8 +559,15 @@ impl TransactionPayment {
 			}
 		});
 
-		self.query_state_proofs(source, dest, source_height, dest_height, keys_to_prove)
-			.await
+		self.query_state_proofs(
+			source,
+			dest,
+			source_height,
+			dest_height,
+			keys_to_prove,
+			hyperbridge,
+		)
+		.await
 	}
 
 	pub async fn delete_claimed_entries(&self, commitments: Vec<H256>) -> anyhow::Result<()> {

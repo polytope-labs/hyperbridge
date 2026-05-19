@@ -107,7 +107,7 @@ where
 		let beneficiary_address = if let Some((beneficiary_address, signature)) =
 			withdrawal_proof.beneficiary_details
 		{
-			let msg = sp_io::hashing::keccak_256(&beneficiary_address);
+			let msg = beneficiary_message(state_machine, &beneficiary_address);
 			match &signature {
 				Signature::Evm { .. } => {
 					let eth_address =
@@ -292,6 +292,13 @@ where
 
 		Ok((result, commitments))
 	}
+}
+
+/// Signed payload authorising a beneficiary redirect on a specific source chain.
+/// Binding the state machine keeps a signature collected on one chain from being
+/// accepted on another that happens to share the same delivery key.
+pub fn beneficiary_message(state_machine: StateMachine, beneficiary: &[u8]) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(state_machine, beneficiary).encode())
 }
 
 impl<T: Config> Pallet<T> {

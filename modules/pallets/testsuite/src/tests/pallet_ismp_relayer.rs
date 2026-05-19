@@ -31,11 +31,11 @@ use pallet_ismp::{
 };
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
-	self as pallet_ismp_relayer, message,
+	self as pallet_ismp_relayer, beneficiary_message, message,
 	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
 };
-use sp_core::{keccak_256, Pair, H256, U256};
+use sp_core::{Pair, H256, U256};
 use sp_trie::LayoutV0;
 use std::time::Duration;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
@@ -220,7 +220,9 @@ fn test_accumulate_fees() {
 
 		let beneficiary_address = H256::random();
 
-		let signature = pair.sign(&keccak_256(beneficiary_address.as_bytes())).to_vec();
+		let signature = pair
+			.sign(&beneficiary_message(StateMachine::Kusama(2000), beneficiary_address.as_bytes()))
+			.to_vec();
 
 		let withdrawal_proof = WithdrawalProof {
 			commitments: keys,
@@ -699,7 +701,12 @@ fn test_accumulate_fees_evm_signatures() {
 
 		let beneficiary_address = H256::random();
 
-		let signature = pair.sign_prehashed(&keccak_256(beneficiary_address.as_bytes())).to_vec();
+		let signature = pair
+			.sign_prehashed(&beneficiary_message(
+				StateMachine::Kusama(2000),
+				beneficiary_address.as_bytes(),
+			))
+			.to_vec();
 
 		let withdrawal_proof = WithdrawalProof {
 			commitments: keys,
@@ -741,6 +748,183 @@ fn test_accumulate_fees_evm_signatures() {
 				beneficiary_address.0.to_vec()
 			),
 			U256::from(5000u128)
+		);
+	})
+}
+
+/// A redirect signature signed for one source chain must not satisfy verification
+/// when reused on another. The state machine is folded into the signed payload
+/// so the recovered address only matches the delivery address on the chain the
+/// signature was issued for.
+#[test]
+fn test_accumulate_fees_rejects_replay_from_other_chain() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		set_timestamp::<Test>(10_000_000_000);
+		let requests = (0u64..2)
+			.into_iter()
+			.map(|nonce| {
+				let post = PostRequest {
+					source: StateMachine::Kusama(2000),
+					dest: StateMachine::Kusama(2001),
+					nonce,
+					from: vec![],
+					to: vec![],
+					timeout_timestamp: 0,
+					body: vec![],
+				};
+				hash_request::<Ismp>(&Request::Post(post))
+			})
+			.collect::<Vec<_>>();
+
+		let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+		let eth_address = pair.public().to_eth_address().unwrap().to_vec();
+
+		let mut source_root = H256::default();
+		let mut source_db = MemoryDB::<KeccakHasher>::default();
+		let mut source_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut source_db, &mut source_root)
+				.build();
+		let mut dest_root = H256::default();
+		let mut dest_db = MemoryDB::<KeccakHasher>::default();
+		let mut dest_trie =
+			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
+
+		for request in &requests {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
+			let leaf_meta = RequestMetadata {
+				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+				fee: fee_metadata,
+				claimed: false,
+			};
+			RequestCommitments::<Test>::insert(*request, leaf_meta.clone());
+			source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
+			dest_trie.insert(&request_receipt_key, &eth_address.encode()).unwrap();
+		}
+		drop(source_trie);
+		drop(dest_trie);
+
+		let mut source_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let mut dest_recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		let source_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&source_db, &source_root)
+			.with_recorder(&mut source_recorder)
+			.build();
+		let dest_trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&dest_db, &dest_root)
+			.with_recorder(&mut dest_recorder)
+			.build();
+
+		let mut keys = vec![];
+		for request in requests.iter() {
+			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
+			source_trie.get(&request_commitment_key).unwrap();
+			dest_trie.get(&request_receipt_key).unwrap();
+			keys.push(*request);
+		}
+
+		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>(),
+		});
+		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>(),
+		});
+
+		let host = Ismp::default();
+		for chain in [StateMachine::Kusama(2000), StateMachine::Kusama(2001)] {
+			host.store_state_machine_commitment(
+				StateMachineHeight {
+					id: StateMachineId {
+						state_id: chain,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				StateCommitment {
+					timestamp: 100,
+					overlay_root: Some(if chain == StateMachine::Kusama(2000) {
+						source_root
+					} else {
+						dest_root
+					}),
+					state_root: Default::default(),
+				},
+			)
+			.unwrap();
+			host.store_state_machine_update_time(
+				StateMachineHeight {
+					id: StateMachineId {
+						state_id: chain,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				Duration::from_secs(100),
+			)
+			.unwrap();
+			host.store_challenge_period(
+				StateMachineId { state_id: chain, consensus_state_id: MOCK_CONSENSUS_STATE_ID },
+				0,
+			)
+			.unwrap();
+		}
+		host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
+		host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
+
+		let beneficiary_address = H256::random();
+
+		// A signature the relayer would have produced for a different source chain.
+		// The byte payload is reused as if captured from that chain and replayed here.
+		let foreign_chain = StateMachine::Kusama(7777);
+		let signature = pair
+			.sign_prehashed(&beneficiary_message(foreign_chain, beneficiary_address.as_bytes()))
+			.to_vec();
+
+		let withdrawal_proof = WithdrawalProof {
+			commitments: keys,
+			source_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2000),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: source_state_proof.encode(),
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Kusama(2001),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 1,
+				},
+				proof: dest_state_proof.encode(),
+			},
+			beneficiary_details: Some((
+				beneficiary_address.0.to_vec(),
+				Signature::Evm { address: eth_address, signature },
+			)),
+		};
+
+		let result = pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+			RuntimeOrigin::none(),
+			withdrawal_proof,
+		);
+
+		assert!(result.is_err(), "replayed signature from a different chain must be rejected");
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(
+				StateMachine::Kusama(2000),
+				beneficiary_address.0.to_vec()
+			),
+			U256::zero()
 		);
 	})
 }

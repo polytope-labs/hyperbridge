@@ -22,11 +22,13 @@ use ismp::{
 	router::{PostRequest, Request},
 };
 use itertools::Itertools;
-use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
+use pallet_ismp_relayer::{
+	beneficiary_message,
+	withdrawal::{Signature, WithdrawalProof},
+};
 use primitive_types::{H256, U256};
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
-use sp_core::keccak_256;
 use std::{collections::BTreeSet, mem::discriminant, sync::Arc};
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
@@ -240,8 +242,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let dest_height =
-			request_entries.last().map(|data| data.height as u64).unwrap_or_default();
+		let dest_height = request_entries.last().map(|data| data.height as u64).unwrap_or_default();
 
 		if dest_height == 0 {
 			Ok(None)
@@ -307,7 +308,10 @@ impl TransactionPayment {
 					if discriminant(&source.state_machine_id().state_id) !=
 						discriminant(&dest.state_machine_id().state_id)
 					{
-						Some((source.address(), dest.sign(&keccak_256(&source.address()))))
+						let beneficiary = source.address();
+						let prehash =
+							beneficiary_message(source.state_machine_id().state_id, &beneficiary);
+						Some((beneficiary, dest.sign(&prehash)))
 					} else {
 						None
 					}

@@ -24,6 +24,7 @@ pub mod accumulate;
 pub mod outbound_consensus;
 pub mod withdrawal;
 
+pub use accumulate::beneficiary_message;
 pub use outbound_consensus::*;
 pub use withdrawal::message;
 

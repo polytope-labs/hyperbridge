@@ -22,7 +22,7 @@
 //! Substrate), and the per-leaf result validation that ties source-side fee
 //! metadata to destination-side delivery receipts.
 
-use crate::{withdrawal::WithdrawalProof, Config, Error, Event, Fees, Pallet};
+use crate::{withdrawal::WithdrawalProof, Config, Error, Event, Fees, Nonce, Pallet};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
@@ -107,7 +107,8 @@ where
 		let beneficiary_address = if let Some((beneficiary_address, signature)) =
 			withdrawal_proof.beneficiary_details
 		{
-			let msg = beneficiary_message(state_machine, &beneficiary_address);
+			let nonce = Nonce::<T>::get(&delivery_address, state_machine);
+			let msg = beneficiary_message(nonce, state_machine, &beneficiary_address);
 			match &signature {
 				Signature::Evm { .. } => {
 					let eth_address =
@@ -119,10 +120,16 @@ where
 				Signature::Sr25519 { .. } | Signature::Ed25519 { .. } => {
 					// verify the signature with the delivery address from the state proof
 					let _ = signature
-						.verify(&msg, Some(delivery_address))
+						.verify(&msg, Some(delivery_address.clone()))
 						.map_err(|_| Error::<T>::InvalidSignature)?;
 				},
 			}
+
+			Nonce::<T>::try_mutate(&delivery_address, state_machine, |value| {
+				*value += 1;
+				Ok::<(), ()>(())
+			})
+			.map_err(|_: ()| Error::<T>::ErrorCompletingCall)?;
 
 			let _ = Fees::<T>::try_mutate(state_machine, beneficiary_address.clone(), |inner| {
 				*inner += total_fee;
@@ -295,10 +302,15 @@ where
 }
 
 /// Signed payload authorising a beneficiary redirect on a specific source chain.
-/// Binding the state machine keeps a signature collected on one chain from being
-/// accepted on another that happens to share the same delivery key.
-pub fn beneficiary_message(state_machine: StateMachine, beneficiary: &[u8]) -> [u8; 32] {
-	sp_io::hashing::keccak_256(&(state_machine, beneficiary).encode())
+/// Including the relayer nonce alongside the state machine keeps the signature usable for
+/// exactly one accumulate call on that chain, mirroring how `withdraw_fees` binds its signed
+/// payload.
+pub fn beneficiary_message(
+	nonce: u64,
+	state_machine: StateMachine,
+	beneficiary: &[u8],
+) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(nonce, state_machine, beneficiary).encode())
 }
 
 impl<T: Config> Pallet<T> {

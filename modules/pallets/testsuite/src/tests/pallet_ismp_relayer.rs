@@ -221,7 +221,11 @@ fn test_accumulate_fees() {
 		let beneficiary_address = H256::random();
 
 		let signature = pair
-			.sign(&beneficiary_message(StateMachine::Kusama(2000), beneficiary_address.as_bytes()))
+			.sign(&beneficiary_message(
+				0,
+				StateMachine::Kusama(2000),
+				beneficiary_address.as_bytes(),
+			))
 			.to_vec();
 
 		let withdrawal_proof = WithdrawalProof {
@@ -703,6 +707,7 @@ fn test_accumulate_fees_evm_signatures() {
 
 		let signature = pair
 			.sign_prehashed(&beneficiary_message(
+				0,
 				StateMachine::Kusama(2000),
 				beneficiary_address.as_bytes(),
 			))
@@ -732,7 +737,7 @@ fn test_accumulate_fees_evm_signatures() {
 			},
 			beneficiary_details: Some((
 				beneficiary_address.0.to_vec().clone(),
-				Signature::Evm { address: eth_address, signature },
+				Signature::Evm { address: eth_address.clone(), signature },
 			)),
 		};
 
@@ -748,6 +753,11 @@ fn test_accumulate_fees_evm_signatures() {
 				beneficiary_address.0.to_vec()
 			),
 			U256::from(5000u128)
+		);
+		assert_eq!(
+			pallet_ismp_relayer::Nonce::<Test>::get(eth_address, StateMachine::Kusama(2000)),
+			1,
+			"a successful redirect must consume the signer's nonce"
 		);
 	})
 }
@@ -882,7 +892,7 @@ fn test_accumulate_fees_rejects_replay_from_other_chain() {
 		// The byte payload is reused as if captured from that chain and replayed here.
 		let foreign_chain = StateMachine::Kusama(7777);
 		let signature = pair
-			.sign_prehashed(&beneficiary_message(foreign_chain, beneficiary_address.as_bytes()))
+			.sign_prehashed(&beneficiary_message(0, foreign_chain, beneficiary_address.as_bytes()))
 			.to_vec();
 
 		let withdrawal_proof = WithdrawalProof {

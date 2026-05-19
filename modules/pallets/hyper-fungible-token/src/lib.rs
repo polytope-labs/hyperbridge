@@ -324,14 +324,15 @@ pub mod pallet {
 
 			let chains: Vec<StateMachine> = registration.chains.keys().cloned().collect();
 			for (chain, config) in registration.chains {
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					registration.local_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
 				ContractToAsset::<T>::insert(
 					chain,
-					config.token_contract,
+					token_contract,
 					registration.local_id.clone(),
 				);
 				Precisions::<T>::insert(registration.local_id.clone(), chain, config.decimals);
@@ -361,12 +362,13 @@ pub mod pallet {
 					ContractToAsset::<T>::remove(chain, old_contract);
 				}
 
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					update.asset_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
-				ContractToAsset::<T>::insert(chain, config.token_contract, update.asset_id.clone());
+				ContractToAsset::<T>::insert(chain, token_contract, update.asset_id.clone());
 				Precisions::<T>::insert(update.asset_id.clone(), chain, config.decimals);
 			}
 

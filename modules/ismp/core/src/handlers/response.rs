@@ -83,7 +83,7 @@ where
 			let wrapped_req = Request::Get(request.clone());
 			let keys = request.keys.clone();
 			let values = state_machine
-				.verify_state_proof(host, keys, state, &proof)?
+				.verify_state_proof(host, keys, state.state_root, &proof)?
 				.into_iter()
 				.map(|(key, value)| StorageValue { key, value })
 				.collect();

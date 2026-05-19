@@ -214,8 +214,17 @@ where
 		let state = host
 			.state_machine_commitment(proof.height)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
+		// Select the trie root explicitly instead of letting the relayer-supplied proof choose
+		// it. Fee accumulation reads ISMP request/receipt metadata, which lives in the global
+		// state trie on EVM chains and in the ISMP child trie (overlay root) on substrate
+		// chains.
+		let root = if proof.height.id.state_id.is_evm() {
+			state.state_root
+		} else {
+			state.overlay_root.ok_or(Error::<T>::ProofValidationError)?
+		};
 		let result = state_machine
-			.verify_state_proof(&host, keys, state, proof)
+			.verify_state_proof(&host, keys, root, proof)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
 
 		Ok(result)

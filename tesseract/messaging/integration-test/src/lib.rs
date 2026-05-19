@@ -18,7 +18,7 @@ use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
 };
-use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof};
 use subxt::{
 	ext::codec::{Decode, Encode},
 	utils::AccountId32,
@@ -63,10 +63,8 @@ async fn relay_get_response_message(
 			chain_b_client.client.rpc().read_proof(keys, dest_chain_block_hash).await?;
 		let proof = value_proof.proof.into_iter().map(|bytes| bytes.0).collect::<Vec<Vec<u8>>>();
 
-		let proof_of_value = SubstrateStateProof::StateProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: proof,
-		});
+		let proof_of_value =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof };
 		let proof = Proof {
 			height: StateMachineHeight {
 				id: chain_b_client.state_machine_id(),

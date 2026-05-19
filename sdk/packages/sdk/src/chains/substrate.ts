@@ -19,7 +19,7 @@ import {
 	GetRequestsWithProof,
 	type IStateMachine,
 	Message,
-	SubstrateStateProof,
+	SubstrateStateMachineProof,
 	isEvmChain,
 	isSubstrateChain,
 	replaceWebsocketWithHttp,
@@ -231,15 +231,12 @@ export class SubstrateChain implements IChain {
 					: message.Responses.map(responseCommitmentStorageKey)
 			const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), childTrieKeys])
 			const basicProof = BasicProof.dec(toHex(proof.proof))
-			const encoded = SubstrateStateProof.enc({
-				tag: "OverlayProof",
-				value: {
-					hasher: {
-						tag: this.params.hasher,
-						value: undefined,
-					},
-					storageProof: basicProof,
+			const encoded = SubstrateStateMachineProof.enc({
+				hasher: {
+					tag: this.params.hasher,
+					value: undefined,
 				},
+				storageProof: basicProof,
 			})
 			return toHex(encoded)
 		}
@@ -310,15 +307,12 @@ export class SubstrateChain implements IChain {
 		const encodedKeys = keys.map((key) => Array.from(hexToBytes(key)))
 		const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), encodedKeys])
 		const basicProof = BasicProof.dec(toHex(proof.proof))
-		const encoded = SubstrateStateProof.enc({
-			tag: "OverlayProof",
-			value: {
-				hasher: {
-					tag: this.params.hasher,
-					value: undefined,
-				},
-				storageProof: basicProof,
+		const encoded = SubstrateStateMachineProof.enc({
+			hasher: {
+				tag: this.params.hasher,
+				value: undefined,
 			},
+			storageProof: basicProof,
 		})
 		return toHex(encoded)
 	}

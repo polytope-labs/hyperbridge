@@ -17,7 +17,7 @@ mod tests {
 	use evm_state_machine::{tendermint::verify_evm_kv_proofs, types::EvmKVProof};
 
 	use ismp::{
-		consensus::{StateCommitment, StateMachineHeight, StateMachineId},
+		consensus::{StateMachineHeight, StateMachineId},
 		host::StateMachine,
 		messaging::Proof as IsmpProof,
 	};
@@ -667,10 +667,7 @@ mod tests {
 			proof: encoded_proofs,
 		};
 
-		let state_commitment =
-			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
-
-		let _ = verify_evm_kv_proofs(vec![key52], contract, state_commitment, &ismp_proof)?;
+		let _ = verify_evm_kv_proofs(vec![key52], contract, app_hash, &ismp_proof)?;
 		println!("EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
 		Ok(())
 	}

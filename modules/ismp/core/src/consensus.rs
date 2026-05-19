@@ -195,12 +195,17 @@ pub trait StateMachineClient {
 		proof: &Proof,
 	) -> Result<(), Error>;
 
-	/// Verify the state of proof of some arbitrary data. Should return the verified data
+	/// Verify the state of proof of some arbitrary data. Should return the verified data.
+	///
+	/// The caller passes the concrete trie `root` the proof must be verified against, rather
+	/// than the full [`StateCommitment`]. This ensures the root is bound to the calling
+	/// context (e.g. the global state trie for GET responses, the ISMP child trie for relayer
+	/// fee accumulation) and cannot be selected by a relayer-supplied proof.
 	fn verify_state_proof(
 		&self,
 		host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>;
 }

@@ -168,7 +168,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
 		let keys_len = keys.len();
-		let values = self.verify_state_proof(host, keys, root, proof)?;
+		let values = self.verify_state_proof(host, keys, root.state_root, proof)?;
 		if values.len() != keys_len {
 			return Err(SubstrateEvmError::MismatchedValuesAndKeys.into());
 		}
@@ -182,7 +182,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		&self,
 		_host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_host_address = EvmHosts::<T>::get(&proof.height.id.state_id)
@@ -191,7 +191,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let proof: SubstrateEvmProof =
 			Decode::decode(&mut &proof.proof[..]).map_err(SubstrateEvmError::ProofDecodeError)?;
 
-		let state_root = H256::from_slice(&root.state_root[..]);
+		let state_root = root;
 
 		let keys_len = keys.len();
 		let mut contract_keys: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();

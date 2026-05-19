@@ -132,7 +132,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 
 pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	keys: Vec<Vec<u8>>,
-	root: StateCommitment,
+	root: H256,
 	proof: &Proof,
 	ismp_address: H160,
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
@@ -182,7 +182,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		let contract_root = get_contract_account::<H>(
 			evm_state_proof.contract_proof.clone(),
 			&contract_address,
-			root.state_root,
+			root,
 		)?
 		.storage_root
 		.0
@@ -201,7 +201,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		let account = get_contract_account::<H>(
 			evm_state_proof.contract_proof.clone(),
 			&contract_address[..],
-			root.state_root,
+			root,
 		)?;
 
 		// Using rlp encoding for uniformity, storage values from state proofs are rlp encoded
@@ -263,7 +263,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
 		let keys_len = keys.len();
-		let values = self.verify_state_proof(host, keys, root, proof)?;
+		let values = self.verify_state_proof(host, keys, root.state_root, proof)?;
 		if values.len() != keys_len {
 			return Err(EvmStateMachineError::MismatchedValuesAndKeys.into());
 		}
@@ -277,7 +277,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		&self,
 		host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)

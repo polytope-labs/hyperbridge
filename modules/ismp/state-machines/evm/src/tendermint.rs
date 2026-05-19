@@ -224,7 +224,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		&self,
 		_host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
@@ -243,12 +243,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 pub fn verify_evm_kv_proofs(
 	mut keys: Vec<Vec<u8>>,
 	default_contract_address: H160,
-	root: StateCommitment,
+	root: H256,
 	proof: &Proof,
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 	let store_key_str = store_key_for(proof.height.id.state_id);
 	let store_key = store_key_str.as_bytes();
-	let app_hash: [u8; 32] = root.state_root.0;
+	let app_hash: [u8; 32] = root.0;
 	let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
 		.map_err(|e| TendermintEvmError::ProofDecodeError(e.to_string()))?;
 	// Only support 32-byte or 52-byte keys

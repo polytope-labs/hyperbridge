@@ -30,7 +30,7 @@ use ismp::{
 };
 use pallet_ismp::child_trie::{self};
 use primitive_types::H256;
-use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof};
 use subxt_utils::{
 	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
 	values::{
@@ -269,11 +269,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let update_time: u64 = Decode::decode(&mut &*item)?;
 	assert_eq!(now.as_secs(), update_time);
 
-	let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-		hasher: HashAlgorithm::Keccak,
-		storage_proof: proof,
-	})
-	.encode();
+	let proof = StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }.encode();
 	let proof = Proof { height, proof };
 
 	let signature = Signature::Sr25519 {
@@ -574,11 +570,7 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	assert!(finalized);
 	progress.wait_for_finalized_success().await?;
 
-	let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-		hasher: HashAlgorithm::Keccak,
-		storage_proof: proof,
-	})
-	.encode();
+	let proof = StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }.encode();
 	let proof = Proof { height, proof };
 
 	let signature = Signature::Sr25519 {

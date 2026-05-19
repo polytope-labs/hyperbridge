@@ -52,7 +52,7 @@ use pallet_ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::StateMachineProof;
 use subxt_utils::{
 	host_params_storage_key, send_extrinsic, state_machine_commitment_storage_key,
 	state_machine_update_time_storage_key,
@@ -269,10 +269,7 @@ where
 				let response: pallet_ismp_rpc::Proof =
 					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
@@ -290,10 +287,7 @@ where
 				let response: pallet_ismp_rpc::Proof =
 					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 			StateProofQueryType::Arbitrary(keys) => {
@@ -302,10 +296,7 @@ where
 					self.rpc_client.request("ismp_queryStateProof", params).await?;
 
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::StateProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 		}

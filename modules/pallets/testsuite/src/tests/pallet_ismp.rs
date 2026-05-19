@@ -28,7 +28,7 @@ use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
-	consensus::{StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId},
+	consensus::{StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
@@ -46,10 +46,6 @@ use pallet_ismp::{
 	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
 use pallet_ismp_relayer::withdrawal::Signature;
-use substrate_state_machine::{
-	HashAlgorithm, StateMachineProof, SubstrateStateMachine, SubstrateStateMachineError,
-	SubstrateStateProof,
-};
 
 use crate::runtime::*;
 
@@ -608,51 +604,4 @@ fn should_charge_fee_for_request() {
 		assert_eq!(final_signer_balance, initial_balance - expected_fee);
 		assert_eq!(final_treasury_balance, initial_treasury_balance + expected_fee);
 	});
-}
-
-#[test]
-fn substrate_verify_non_membership_requires_overlay_proof_variant() {
-	let mut ext = new_test_ext();
-
-	ext.execute_with(|| {
-		let host = Ismp::default();
-		let state_machine = SubstrateStateMachine::<Test>::default();
-		let height = StateMachineHeight {
-			id: StateMachineId {
-				state_id: StateMachine::Kusama(2000),
-				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-			},
-			height: 1,
-		};
-		let commitment = StateCommitment {
-			timestamp: 0,
-			overlay_root: Some(H256::zero()),
-			state_root: H256::zero(),
-		};
-
-		let inner = StateMachineProof { hasher: HashAlgorithm::Blake2, storage_proof: vec![] };
-
-		let rejected = state_machine.verify_non_membership(
-			&host,
-			vec![],
-			commitment.clone(),
-			&Proof { height, proof: SubstrateStateProof::StateProof(inner.clone()).encode() },
-		);
-		let err = rejected.expect_err("non-membership against a StateProof must be rejected");
-		let ismp::error::Error::AnyHow(anyhow_err) = err else {
-			panic!("expected AnyHow error, got {err:?}");
-		};
-		assert!(matches!(
-			anyhow_err.0.downcast_ref::<SubstrateStateMachineError>(),
-			Some(SubstrateStateMachineError::ExpectedOverlayProof)
-		));
-
-		let accepted = state_machine.verify_non_membership(
-			&host,
-			vec![],
-			commitment,
-			&Proof { height, proof: SubstrateStateProof::OverlayProof(inner).encode() },
-		);
-		assert!(accepted.is_ok());
-	})
 }

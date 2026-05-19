@@ -38,7 +38,7 @@ use pallet_ismp_relayer::{
 use sp_core::{keccak_256, Pair, H256, U256};
 use sp_trie::LayoutV0;
 use std::time::Duration;
-use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof};
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use crate::runtime::{
@@ -127,15 +127,11 @@ fn test_accumulate_fees() {
 			source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 		let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 
-		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: source_keys_proof,
-		});
+		let source_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: source_keys_proof };
 
-		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: dest_keys_proof,
-		});
+		let dest_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: dest_keys_proof };
 
 		let host = Ismp::default();
 		host.store_state_machine_commitment(
@@ -350,14 +346,10 @@ fn test_accumulate_fees_rejects_mixed_delivery_addresses() {
 			source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 		let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 
-		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: source_keys_proof,
-		});
-		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: dest_keys_proof,
-		});
+		let source_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: source_keys_proof };
+		let dest_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: dest_keys_proof };
 
 		let host = Ismp::default();
 		host.store_state_machine_commitment(
@@ -606,15 +598,11 @@ fn test_accumulate_fees_evm_signatures() {
 			source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 		let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 
-		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: source_keys_proof,
-		});
+		let source_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: source_keys_proof };
 
-		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: dest_keys_proof,
-		});
+		let dest_state_proof =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: dest_keys_proof };
 
 		let host = Ismp::default();
 		host.store_state_machine_commitment(

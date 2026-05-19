@@ -57,7 +57,7 @@ import {
 	EvmStateProof,
 	getContractCallInputs,
 	MmrProof,
-	SubstrateStateProof,
+	SubstrateStateMachineProof,
 	generateRootWithProof,
 } from "@/utils"
 
@@ -496,7 +496,7 @@ export class EvmChain implements IChain {
 				return encoded
 			})
 			.with({ kind: "TimeoutPostRequest" }, (timeout) => {
-				const proof = SubstrateStateProof.dec(timeout.proof.proof).value.storageProof.map((item) =>
+				const proof = SubstrateStateMachineProof.dec(timeout.proof.proof).storageProof.map((item) =>
 					toHex(new Uint8Array(item)),
 				)
 				const encoded = encodeFunctionData({

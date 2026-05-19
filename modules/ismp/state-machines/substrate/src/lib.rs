@@ -270,18 +270,14 @@ where
 		&self,
 		_host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+		// The trie root is supplied by the caller, bound to the calling context. The
+		// `SubstrateStateProof` variant tag is no longer used to select the root, so a relayer
+		// can no longer steer verification at the wrong trie.
 		let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
 			.map_err(SubstrateStateMachineError::ProofDecodeError)?;
-		let root = match &state_proof {
-			SubstrateStateProof::OverlayProof { .. } => match T::Coprocessor::get() {
-				Some(id) if id == proof.height.id.state_id => root.state_root,
-				_ => root.overlay_root.ok_or(SubstrateStateMachineError::MissingChildTrieRoot)?,
-			},
-			SubstrateStateProof::StateProof { .. } => root.state_root,
-		};
 		let data = match state_proof.hasher() {
 			HashAlgorithm::Keccak => {
 				let db =

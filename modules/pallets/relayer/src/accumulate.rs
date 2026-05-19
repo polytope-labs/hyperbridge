@@ -28,7 +28,7 @@ use alloy_primitives::Address;
 use codec::Encode;
 use crypto_utils::verification::Signature;
 use evm_state_machine::{derive_unhashed_map_key_with_offset, presets::REQUEST_COMMITMENTS_SLOT};
-use frame_support::{dispatch::DispatchResult, ensure};
+use frame_support::{dispatch::DispatchResult, ensure, traits::Get};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
@@ -207,8 +207,22 @@ where
 		let state = host
 			.state_machine_commitment(proof.height)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
+		// Select the trie root explicitly instead of letting the relayer-supplied proof choose
+		// it via its variant tag. Fee accumulation reads ISMP request/receipt metadata, which
+		// lives in the global state trie on EVM chains and in the ISMP child trie (overlay
+		// root) on substrate chains — except for the coprocessor itself, whose ISMP storage is
+		// part of its global state.
+		let state_id = proof.height.id.state_id;
+		let root = if state_id.is_evm() {
+			state.state_root
+		} else {
+			match <T as pallet_ismp::Config>::Coprocessor::get() {
+				Some(id) if id == state_id => state.state_root,
+				_ => state.overlay_root.ok_or(Error::<T>::ProofValidationError)?,
+			}
+		};
 		let result = state_machine
-			.verify_state_proof(&host, keys, state, proof)
+			.verify_state_proof(&host, keys, root, proof)
 			.map_err(|_| Error::<T>::ProofValidationError)?;
 
 		Ok(result)

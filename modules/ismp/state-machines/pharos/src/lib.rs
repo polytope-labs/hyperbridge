@@ -165,7 +165,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	) -> Result<(), Error> {
 		let keys = self.receipts_state_trie_key(commitments);
 		let keys_len = keys.len();
-		let values = self.verify_state_proof(host, keys, root, proof)?;
+		let values = self.verify_state_proof(host, keys, root.state_root, proof)?;
 		if values.len() != keys_len {
 			return Err(PharosStateMachineError::MismatchedValuesAndKeys.into());
 		}
@@ -179,7 +179,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		&self,
 		_host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)
@@ -238,13 +238,13 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 /// Verify state proof and return key-value map.
 pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	keys: Vec<Vec<u8>>,
-	root: StateCommitment,
+	root: H256,
 	proof: &Proof,
 	ismp_address: H160,
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 	let pharos_proof = decode_pharos_state_proof(proof)?;
 
-	let state_root = H256::from_slice(&root.state_root[..]);
+	let state_root = root;
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	let mut map = BTreeMap::new();

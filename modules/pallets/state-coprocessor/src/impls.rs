@@ -132,7 +132,7 @@ where
 		let mut total_bytes: u32 = 0;
 		for req in requests {
 			let values: Vec<StorageValue> = dest_state_machine
-				.verify_state_proof(&host, req.keys.clone(), state_root, &response)?
+				.verify_state_proof(&host, req.keys.clone(), state_root.state_root, &response)?
 				.into_iter()
 				.map(|(key, value)| StorageValue { key, value })
 				.collect();

@@ -136,7 +136,7 @@ impl StateMachineClient for MockStateMachineClient {
 		&self,
 		_host: &dyn IsmpHost,
 		_keys: Vec<Vec<u8>>,
-		_root: StateCommitment,
+		_root: H256,
 		_proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		Ok(Default::default())

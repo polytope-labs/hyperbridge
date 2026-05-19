@@ -6,13 +6,12 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
-	primitives::{compute_epoch, BscClientUpdate},
+	primitives::{compute_epoch, parse_extra, BscClientUpdate},
 	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use evm_state_machine::EvmStateMachine;
-use geth_primitives::Header;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -167,20 +166,12 @@ impl<
 		let header_1 = bsc_client_update_1.attested_header.clone();
 		let header_2 = bsc_client_update_2.attested_header.clone();
 
-		if header_1.number != header_2.number {
-			Err(Error::InvalidFraudProof)?
-		}
-
-		let header_1_hash = Header::from(&header_1).hash::<H>();
-		let header_2_hash = Header::from(&header_2).hash::<H>();
-
-		if header_1_hash == header_2_hash {
-			return Err(Error::InvalidFraudProof.into());
-		}
-
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::DecodeConsensusState)?;
 		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
+
+		// Authenticate both updates against the trusted validator set: this verifies
+		// the BLS aggregate signature over each update's `vote_data`.
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_1,
@@ -192,6 +183,28 @@ impl<
 			bsc_client_update_2,
 			epoch_length,
 		)?;
+
+		// The fraud proof must be bound to the BLS-signed `vote_data`, never to the
+		// `attested_header` itself. The header's non-vote fields (e.g. `state_root`,
+		// `parent_hash`, `receipts_root`) are not covered by the signature, so a
+		// single genuine attestation can be cloned into two distinct-hashing headers
+		// that carry the same vote. A genuine BSC equivocation is a slashable double
+		// vote: two quorum-signed votes for the same target block number but
+		// different target hashes.
+		let vote_1 = parse_extra::<H, C>(&header_1)
+			.map_err(|_| Error::InvalidFraudProof)?
+			.vote_data;
+		let vote_2 = parse_extra::<H, C>(&header_2)
+			.map_err(|_| Error::InvalidFraudProof)?
+			.vote_data;
+
+		if vote_1.target_number != vote_2.target_number {
+			Err(Error::InvalidFraudProof)?
+		}
+
+		if vote_1.target_hash == vote_2.target_hash {
+			return Err(Error::InvalidFraudProof.into());
+		}
 
 		Ok(())
 	}

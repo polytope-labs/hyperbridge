@@ -25,6 +25,7 @@
 #![cfg(test)]
 
 use std::{
+	collections::BTreeMap,
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
@@ -235,6 +236,22 @@ async fn fetch_storage_by_key<T: Decode>(
 	let decoded =
 		T::decode(&mut &bytes[..]).map_err(|e| anyhow!("decoding raw storage failed: {e:?}"))?;
 	Ok(Some(decoded))
+}
+
+/// Highest parachain height tracked across both ring buffers. The pallet writes
+/// the proven height into `MessagingProofs` for non-rotating proofs and into
+/// `RotationProofs` for rotating ones, so neither map alone is a complete view
+/// after a successful first proof.
+async fn latest_recorded_height(client: &OnlineClient<Hyperbridge>) -> Result<u64, anyhow::Error> {
+	let messaging = fetch_storage::<Vec<u64>>(client, "MessagingProofs")
+		.await?
+		.and_then(|v| v.last().copied())
+		.unwrap_or(0);
+	let rotation = fetch_storage::<BTreeMap<u64, u64>>(client, "RotationProofs")
+		.await?
+		.and_then(|m| m.values().copied().max())
+		.unwrap_or(0);
+	Ok(messaging.max(rotation))
 }
 
 #[tokio::test]
@@ -553,6 +570,13 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 		"proof block {proof_block} must be ahead of trusted height {initial_height}",
 	);
 
+	// Same predicate the verifier uses to decide whether to rotate: the leaf's
+	// next-set id is strictly greater than the trusted state's next-set id. When
+	// rotation fires, the pallet routes the proof into `RotationProofs` instead
+	// of `MessagingProofs`, so we have to know in advance which bucket to check.
+	let will_rotate = consensus_message.mmr.latest_mmr_leaf.beefy_next_authority_set.id >
+		initial_state.next_authorities.id;
+
 	let abi_state: SolBeefyConsensusState = initial_state.into();
 	let abi_state_bytes = SolBeefyConsensusState::abi_encode(&abi_state);
 
@@ -598,17 +622,29 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 	submit_signed(&client, &rpc_client, submit_call, Keyring::Bob).await?;
 	eprintln!("[stage] submit_proof finalized");
 
-	// First-proof path appends `latest_height` to `MessagingProofs`. A non-empty vec
-	// after `submit_proof` returns success means dispatch ran the full BEEFY check,
-	// stored a parachain commitment, and ran ring-buffer eviction. Combined with
-	// `wait_for_finalized_success` having returned ok, that's sufficient evidence
-	// the naive happy path works end-to-end.
-	let messaging_proofs: Vec<u64> =
-		fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
-	assert!(
-		!messaging_proofs.is_empty(),
-		"MessagingProofs must contain the proven height after a successful first proof",
-	);
+	// The first-proof path writes the proven height into `MessagingProofs` when
+	// no rotation happened, and into `RotationProofs` when it did. A non-empty
+	// entry in the right bucket means dispatch ran the full BEEFY check, stored
+	// a parachain commitment, and ran ring-buffer eviction. Combined with
+	// `wait_for_finalized_success` having returned ok, that's sufficient
+	// evidence the naive happy path works end-to-end.
+	if will_rotate {
+		let rotation_proofs: BTreeMap<u64, u64> =
+			fetch_storage::<BTreeMap<u64, u64>>(&client, "RotationProofs")
+				.await?
+				.unwrap_or_default();
+		assert!(
+			!rotation_proofs.is_empty(),
+			"RotationProofs must contain the rotation height after a successful rotating proof",
+		);
+	} else {
+		let messaging_proofs: Vec<u64> =
+			fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
+		assert!(
+			!messaging_proofs.is_empty(),
+			"MessagingProofs must contain the proven height after a successful first proof",
+		);
+	}
 
 	Ok(())
 }
@@ -674,13 +710,11 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	submit_sudo(&client, &rpc_client, zero_reward).await?;
 
 	// 3. `settle_uncle_proof` looks up `ProofContext[Self::latest_height()]`. After a successful
-	//    first proof, `settle_first_proof` pushes that same height into `MessagingProofs`, so its
-	//    last entry is a faithful proxy. When Tier-3 runs in isolation `MessagingProofs` is empty
-	//    and `latest_height()` is 0, matching what we'd seed.
-	let parachain_height: u64 = fetch_storage::<Vec<u64>>(&client, "MessagingProofs")
-		.await?
-		.and_then(|v| v.last().copied())
-		.unwrap_or(0);
+	//    first proof, `settle_first_proof` pushes that height into either `MessagingProofs` or
+	//    `RotationProofs` depending on whether the proof rotated. Taking the max across both ring
+	//    buffers keeps Tier-3 in lockstep with Tier-2 regardless of which path it took, and falls
+	//    back to 0 when Tier-3 runs in isolation.
+	let parachain_height = latest_recorded_height(&client).await?;
 	eprintln!("[stage] seeding ProofContext at parachain_height={parachain_height}");
 
 	// 4. Force the BEEFY consensus state and seed the uncle snapshot via `System::set_storage`. We

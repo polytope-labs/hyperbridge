@@ -208,6 +208,8 @@ pub mod pallet {
 		AssetTransferError,
 		/// Error dispatching the cross-chain request
 		DispatchError,
+		/// Peer chain is not an EVM state machine; this pallet bridges substrate <-> EVM only
+		NonEvmPeerChain,
 	}
 
 	#[pallet::call]
@@ -324,6 +326,10 @@ pub mod pallet {
 
 			let chains: Vec<StateMachine> = registration.chains.keys().cloned().collect();
 			for (chain, config) in registration.chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
 				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
@@ -356,6 +362,10 @@ pub mod pallet {
 			T::CreateOrigin::ensure_origin(origin)?;
 
 			for (chain, config) in update.add_chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
 				// Remove old reverse mapping if it exists
 				if let Some(old_contract) = TokenContracts::<T>::get(chain, update.asset_id.clone())
 				{

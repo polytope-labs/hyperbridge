@@ -42,6 +42,8 @@ import {HyperApp} from "./HyperApp.sol";
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
 contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
+    using SafeERC20 for IERC20;
+
     /**
      * @title SendParams
      * @notice Parameters for initiating a cross-chain token transfer
@@ -90,11 +92,8 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
         bytes data;
     }
 
-    using SafeERC20 for IERC20;
-
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
-
 
     /// @notice Thrown when attempting to send to or receive from an unconfigured chain
     error UnsupportedChain();
@@ -273,7 +272,13 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
             commitment = dispatchWithFeeToken(request);
         }
 
-        emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);
+        emit Sent({
+            from: msg.sender,
+            to: params.to,
+            dest: string(params.dest),
+            amount: params.amount,
+            commitment: commitment
+        });
     }
 
     /**
@@ -298,7 +303,12 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
             ICallDispatcher(_dispatcher).dispatch(message.data);
         }
 
-        emit Received(message.from, beneficiary, string(request.source), message.amount);
+        emit Received({
+            from: message.from,
+            to: beneficiary,
+            source: string(request.source),
+            amount: message.amount
+        });
     }
 
     /**
@@ -311,15 +321,15 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
         Message memory message = abi.decode(incoming.request.body, (Message));
         address refundee = _toAddr(message.from);
         _mint(refundee, message.amount);
-        emit Refunded(refundee, message.amount);
+        emit Refunded({to: refundee, amount: message.amount});
     }
 
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {
-        if (b.length < 20) revert InvalidAddress(b.length);
-        assembly {
-            addr := mload(add(b, 20))
-        }
+        if (b.length != 20) revert InvalidAddress(b.length);
+        // casting to 'bytes20' is safe because we already checked length
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return address(bytes20(b));
     }
 
     /// @notice Pauses ERC20 transfers

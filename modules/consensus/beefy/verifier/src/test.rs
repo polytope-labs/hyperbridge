@@ -27,12 +27,18 @@ use beefy_prover::{
 	util::{MerkleHasher, hash_authority_addresses},
 };
 use beefy_verifier_primitives::{
-	ConsensusMessage, MmrProof, ParachainHeader, ParachainProof, SignatureWithAuthorityIndex,
+	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
+	SignatureWithAuthorityIndex, SignedCommitment,
 };
 use ismp::messaging::Keccak256;
-use polkadot_sdk::sp_consensus_beefy::ecdsa_crypto::Signature;
+use polkadot_sdk::sp_consensus_beefy::{
+	Commitment, MmrRootHash, Payload, ValidatorSetId,
+	ecdsa_crypto::Signature,
+	mmr::{BeefyAuthoritySet, BeefyNextAuthoritySet, MmrLeaf, MmrLeafVersion},
+};
+use sp_mmr_primitives::LeafProof;
 
-use crate::{EcdsaRecover, verify_consensus};
+use crate::{EcdsaRecover, error::Error, verify_consensus, verify_mmr_update_proof};
 
 struct TestHost;
 
@@ -340,4 +346,57 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 		"latest_beefy_height should advance"
 	);
 	assert_eq!(verified_headers.len(), 1, "fixture contains one parachain header");
+}
+
+fn authority_set(id: ValidatorSetId, len: u32) -> BeefyAuthoritySet<H256> {
+	BeefyAuthoritySet { id, len, keyset_commitment: H256::zero() }
+}
+
+fn dummy_mmr_proof(commitment: Commitment<u32>, signature_count: u32) -> MmrProof {
+	let signatures = (0..signature_count)
+		.map(|index| SignatureWithAuthorityIndex { index, signature: [0u8; 65] })
+		.collect();
+	MmrProof {
+		signed_commitment: SignedCommitment { commitment, signatures },
+		latest_mmr_leaf: MmrLeaf {
+			version: MmrLeafVersion::new(0, 0),
+			parent_number_and_hash: (0, H256::zero()),
+			beefy_next_authority_set: BeefyNextAuthoritySet {
+				id: 0,
+				len: 0,
+				keyset_commitment: H256::zero(),
+			},
+			leaf_extra: H256::zero(),
+		},
+		mmr_proof: LeafProof { leaf_indices: vec![0], leaf_count: 1, items: vec![] },
+		authority_proof: vec![],
+	}
+}
+
+// When current and next authority sets diverge in size, the threshold must be
+// judged against the set named by `validator_set_id` rather than passing if
+// either set's threshold is met. This mirrors the Solidity verifier and rules
+// out a commitment that only clears the smaller set's bar.
+#[test]
+fn rejects_sub_supermajority_from_named_authority_set() {
+	const CURRENT_SET_ID: ValidatorSetId = 42;
+	const NEXT_SET_ID: ValidatorSetId = 43;
+
+	let trusted_state = ConsensusState {
+		latest_beefy_height: 0,
+		beefy_activation_block: 0,
+		mmr_root_hash: H256::zero(),
+		current_authorities: authority_set(CURRENT_SET_ID, 100),
+		next_authorities: authority_set(NEXT_SET_ID, 3),
+	};
+
+	let payload = Payload::from_single_entry(*b"mh", MmrRootHash::zero().0.to_vec());
+	let commitment = Commitment { payload, block_number: 1, validator_set_id: CURRENT_SET_ID };
+
+	let mmr = dummy_mmr_proof(commitment, 3);
+
+	let result = sp_io::TestExternalities::default()
+		.execute_with(|| verify_mmr_update_proof::<TestHost>(trusted_state, mmr));
+
+	assert!(matches!(result, Err(Error::SuperMajorityRequired)));
 }

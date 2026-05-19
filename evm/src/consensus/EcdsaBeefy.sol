@@ -88,8 +88,7 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensusV2).interfaceId
-            || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensusV2).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /// @dev IConsensusV2 entry point. Decodes the proof, verifies consensus, and returns
@@ -103,27 +102,15 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
         (RelayChainProof memory relay, ParachainProof memory parachain) =
             abi.decode(proof, (RelayChainProof, ParachainProof));
 
-        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
-            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
-
-        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
-    }
-
-    // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
-    // by this consensus proof.
-    function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
-        internal
-        pure
-        returns (BeefyConsensusState memory, IntermediateState[] memory)
-    {
         // Stale proofs are a no-op: return the previous state with no intermediates so the caller
         // can treat replays as idempotent rather than having to guard against reverts.
-        if (trustedState.latestHeight >= proof.relay.signedCommitment.commitment.blockNumber) {
-            return (trustedState, new IntermediateState[](0));
+        if (consensusState.latestHeight >= relay.signedCommitment.commitment.blockNumber) {
+            return (abi.encode(consensusState), new IntermediateState[](0), consensusState.nextAuthoritySet.id);
         }
-        (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
-        IntermediateState[] memory intermediate = verifyParachainHeaderProof(headsRoot, proof.parachain);
-        return (state, intermediate);
+        (BeefyConsensusState memory newState, bytes32 headsRoot) = verifyMmrUpdateProof(consensusState, relay);
+        IntermediateState[] memory intermediates = verifyParachainHeaderProof(headsRoot, parachain);
+
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /**

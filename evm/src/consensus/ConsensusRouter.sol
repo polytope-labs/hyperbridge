@@ -24,10 +24,10 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @notice Routes consensus verification to the appropriate BEEFY verifier based on a
  * single-byte proof type prefix:
  *
- *   0x00 (Naive)      -> EcdsaBeefy: Verifies all secp256k1 signatures and authority set
+ *   0x00 (Ecdsa)      -> EcdsaBeefy: Verifies all secp256k1 signatures and authority set
  *                        membership proofs on-chain. Most gas-expensive but fully trustless.
  *
- *   0x01 (ZK)         -> SP1Beefy: Delegates signature verification, authority set membership,
+ *   0x01 (SP1)         -> SP1Beefy: Delegates signature verification, authority set membership,
  *                        and MMR leaf inclusion to an SP1 zero-knowledge proof. Cheapest on-chain
  *                        verification at the cost of off-chain proving.
  *
@@ -86,7 +86,6 @@ contract ConsensusRouter is IConsensusV2, ERC165 {
         returns (bytes memory, IntermediateState[] memory, uint256)
     {
         if (encodedProof.length == 0) revert EmptyProof();
-
         uint8 proofTypeByte = uint8(encodedProof[0]);
 
         if (proofTypeByte > uint8(type(ProofType).max)) {
@@ -94,10 +93,7 @@ contract ConsensusRouter is IConsensusV2, ERC165 {
         }
 
         ProofType proofType = ProofType(proofTypeByte);
-
-        // Strip the first byte
         bytes calldata actualProof = encodedProof[1:];
-
         if (proofType == ProofType.Sp1) {
             return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);
         } else if (proofType == ProofType.Ecdsa) {

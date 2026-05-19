@@ -46,6 +46,8 @@ import {HyperFungibleToken} from "./HyperFungibleToken.sol";
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
 contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
+    using SafeERC20 for IERC20;
+
     /**
      * @title WrappedConfigOptions
      * @notice Configuration parameters for WrappedHyperFungibleToken
@@ -60,8 +62,6 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         /// @notice Whether the underlying token is WETH (enables native ETH refunds on timeout)
         bool isWeth;
     }
-
-    using SafeERC20 for IERC20;
 
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
@@ -254,7 +254,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
 
     /**
      * @notice Locks underlying tokens and dispatches a cross-chain transfer message
-     * @dev If `_isWeth` is true, wraps native tokens via the underlying's WETH
+     * @dev If `_isWeth` is true and msg.value is sufficient, wraps native tokens via the underlying's WETH
      * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
      * after wrapping is forwarded as native payment for dispatch fees.
      *
@@ -265,7 +265,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
      */
     function send(HyperFungibleToken.SendParams calldata params) external payable whenNotPaused {
         uint256 msgValue = msg.value;
-        if (_isWeth) {
+        if (_isWeth && msgValue >= params.amount) {
             msgValue = msgValue - params.amount;
             IWETH(_underlying).deposit{value: params.amount}();
         } else {
@@ -273,7 +273,6 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         }
 
         DispatchPost memory request = _buildDispatchPost(params);
-
         bytes32 commitment;
         if (msgValue > 0) {
             commitment = IDispatcher(_host).dispatch{value: msgValue}(request);
@@ -281,7 +280,13 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             commitment = dispatchWithFeeToken(request);
         }
 
-        emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);
+        emit Sent({
+            from: msg.sender,
+            to: params.to,
+            dest: string(params.dest),
+            amount: params.amount,
+            commitment: commitment
+        });
     }
 
     /**
@@ -313,7 +318,12 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             ICallDispatcher(_dispatcher).dispatch(message.data);
         }
 
-        emit Received(message.from, beneficiary, string(request.source), message.amount);
+        emit Received({
+            from: message.from,
+            to: beneficiary,
+            source: string(request.source),
+            amount: message.amount
+        });
     }
 
     /**
@@ -334,7 +344,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             IERC20(_underlying).safeTransfer(refundee, message.amount);
         }
 
-        emit Refunded(refundee, message.amount);
+        emit Refunded({to: refundee, amount: message.amount});
     }
 
     /// @notice Accepts native ETH transfers, required for receiving ETH from WETH.withdraw()
@@ -342,10 +352,10 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
 
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {
-        if (b.length < 20) revert InvalidAddress(b.length);
-        assembly {
-            addr := mload(add(b, 20))
-        }
+        if (b.length != 20) revert InvalidAddress(b.length);
+        // casting to 'bytes20' is safe because we already checked length
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return address(bytes20(b));
     }
 
     /// @notice ERC165 interface detection

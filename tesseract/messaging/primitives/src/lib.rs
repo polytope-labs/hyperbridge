@@ -588,9 +588,7 @@ pub trait HyperbridgeClaim {
 	async fn check_claimed(&self, commitment: H256) -> anyhow::Result<bool>;
 	/// Current relayer signature nonce stored on Hyperbridge for this `(address, chain)`
 	/// pair. Used to pin a beneficiary redirect signature to one accumulate call.
-	async fn relayer_nonce(&self, _address: Vec<u8>, _chain: StateMachine) -> anyhow::Result<u64> {
-		Ok(0)
-	}
+	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64>;
 }
 
 #[async_trait::async_trait]

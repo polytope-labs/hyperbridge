@@ -211,6 +211,66 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 }
 
 #[test]
+fn should_reject_decompression_when_actual_size_diverges_from_claim() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let post = ismp::router::PostRequest {
+			source: host.host_state_machine(),
+			dest: StateMachine::Evm(1),
+			nonce: 0,
+			from: H256::random().0.to_vec(),
+			to: H256::random().0.to_vec(),
+			timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 2_000_000_000,
+			body: H512::random().0.to_vec(),
+		};
+
+		let msg = RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Evm(1),
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 3,
+				},
+				proof: H512::random().0.to_vec(),
+			},
+			signer: H512::random().0.to_vec(),
+		};
+
+		let call = RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned {
+			messages: vec![Message::Request(msg)],
+		})
+		.encode();
+
+		let mut buffer = vec![0u8; 1_000_000];
+		let compressed = zstd_safe::compress(&mut buffer[..], &call, 3).unwrap();
+		let final_compressed_call = buffer[..compressed].to_vec();
+
+		let inflated_size = (call.len() as u32) + 100_000;
+
+		let res = pallet_call_decompressor::Pallet::<Test>::decompress_call(
+			RuntimeOrigin::none(),
+			final_compressed_call,
+			inflated_size,
+		)
+		.err()
+		.unwrap();
+
+		assert_eq!(
+			res,
+			DispatchError::Module(ModuleError {
+				index: 10,
+				error: [2, 0, 0, 0],
+				message: Some("DecompressionFailed")
+			})
+		);
+	})
+}
+
+#[test]
 fn decompress_stack_exhaustion_poc() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
@@ -227,15 +287,15 @@ fn decompress_stack_exhaustion_poc() {
 				RuntimeCall::Sudo(pallet_sudo::Call::sudo { call: Box::new(nested_calls) });
 		}
 
+		let encoded = nested_calls.encode();
 		let mut buffer = vec![0u8; 1000000];
-		let compressed =
-			zstd_safe::compress(&mut buffer[..], nested_calls.encode().as_slice(), 3).unwrap();
+		let compressed = zstd_safe::compress(&mut buffer[..], encoded.as_slice(), 3).unwrap();
 		let final_compressed_call = buffer[..compressed].to_vec();
 
 		let res = pallet_call_decompressor::Pallet::<Test>::decompress_call(
 			RuntimeOrigin::none(),
 			final_compressed_call.to_vec(),
-			1000000,
+			encoded.len() as u32,
 		)
 		.err()
 		.unwrap();

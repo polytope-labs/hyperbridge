@@ -23,6 +23,11 @@ use frame_support::{
 	traits::{Get, IsSubType},
 };
 pub use pallet::*;
+pub use weights::WeightInfo;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
 use polkadot_sdk::*;
 #[cfg(feature = "std")]
 use ruzstd::io::Read;
@@ -64,6 +69,9 @@ pub mod pallet {
 	{
 		/// Represents the maximum call size in megabytes(MB)
 		type MaxCallSize: Get<u32>;
+
+		/// Weight information for the extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::error]
@@ -97,7 +105,7 @@ pub mod pallet {
 		/// - `encoded_call_size`: this is the size of the not compressed(decompressed) encoded call
 		/// in bytes.
 		#[pallet::call_index(0)]
-		#[pallet::weight({1_000_000})]
+		#[pallet::weight(T::WeightInfo::decompress_call())]
 		pub fn decompress_call(
 			origin: OriginFor<T>,
 			compressed: Vec<u8>,

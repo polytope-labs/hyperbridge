@@ -468,6 +468,7 @@ impl pallet_ismp_host_executive::Config for Test {
 
 impl pallet_call_decompressor::Config for Test {
 	type MaxCallSize = ConstU32<2>;
+	type WeightInfo = ();
 }
 
 impl pallet_bridge_airdrop::Config for Test {

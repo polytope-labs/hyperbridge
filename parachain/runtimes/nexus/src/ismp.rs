@@ -174,6 +174,7 @@ impl pallet_ismp_host_executive::Config for Runtime {
 
 impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<3>;
+	type WeightInfo = crate::weights::pallet_call_decompressor::WeightInfo<Runtime>;
 }
 
 /// True when the account is a bonded controller account registered with

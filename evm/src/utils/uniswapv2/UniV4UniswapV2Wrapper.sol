@@ -35,20 +35,16 @@ contract UniV4UniswapV2Wrapper {
         address WETH;
         uint24 defaultFee;
         int24 defaultTickSpacing;
+        address host;
     }
 
     Params private _params;
     bool private _initialized;
-    address private _deployer;
 
     error Unauthorized();
 
-    constructor(address deployer) {
-        _deployer = deployer;
-    }
-
     function init(Params memory params) external {
-        if (_initialized || msg.sender != _deployer) revert Unauthorized();
+        if (_initialized) revert Unauthorized();
         _params = params;
         _initialized = true;
     }
@@ -84,7 +80,7 @@ contract UniV4UniswapV2Wrapper {
         uint256 refundETH = address(this).balance;
 
         if (refundETH > 0) {
-            (bool success,) = _deployer.call{value: refundETH}("");
+            (bool success,) = _params.host.call{value: refundETH}("");
             require(success, "ETH refund failed");
         }
 

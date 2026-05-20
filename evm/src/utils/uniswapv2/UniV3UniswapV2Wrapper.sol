@@ -41,6 +41,8 @@ contract UniV3UniswapV2Wrapper {
         address quoter;
         /// @dev The fees that helps point to the specific pool.
         uint24 maxFee;
+        /// @dev IsmpHost address that receives unspent ETH from swaps.
+        address host;
     }
 
     /**
@@ -52,13 +54,6 @@ contract UniV3UniswapV2Wrapper {
      * @dev Private variable to track initialization status.
      */
     bool private _initialized;
-
-    /**
-     * @dev The deployer of the contract.
-     * The deployer may initialize the contract only once.
-     * They also receive all unspent ETH.
-     */
-    address private _deployer;
 
     /**
      * @dev Error indicating that a deposit operation has failed.
@@ -80,17 +75,13 @@ contract UniV3UniswapV2Wrapper {
      */
     error InvalidWethAddress();
 
-    constructor(address deployer) {
-        _deployer = deployer;
-    }
-
     /**
      * @notice Initializes the Uniswap V3 to V2 wrapper module
      * @dev Can only be called once
      * @param params Initialization parameters.
      */
     function init(Params memory params) public {
-        if (_initialized || msg.sender != _deployer) revert Unauthorized();
+        if (_initialized) revert Unauthorized();
         // approve the swap router to spend WETH
         IWETH(params.WETH).approve(params.swapRouter, type(uint256).max);
 
@@ -146,7 +137,7 @@ contract UniV3UniswapV2Wrapper {
             uint256 refund = msg.value - spent;
             IWETH(weth).withdraw(refund);
 
-            (bool success,) = _deployer.call{value: refund}("");
+            (bool success,) = _params.host.call{value: refund}("");
             if (!success) revert RefundFailed();
         }
 

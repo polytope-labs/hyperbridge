@@ -20,10 +20,14 @@ contract DeployScript is BaseScript {
         uint24 maxFee = uint24(config.get("MAX_FEE").toUint256());
         address uniswapV2 = IDispatcher(HOST_ADDRESS).uniswapV2Router();
 
-        UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
+        UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}();
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({
-                WETH: IUniswapV2Router02(uniswapV2).WETH(), swapRouter: swapRouter, quoter: quoter, maxFee: maxFee
+                WETH: IUniswapV2Router02(uniswapV2).WETH(),
+                swapRouter: swapRouter,
+                quoter: quoter,
+                maxFee: maxFee,
+                host: HOST_ADDRESS
             })
         );
         vm.stopBroadcast();

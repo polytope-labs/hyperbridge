@@ -37,14 +37,15 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
 
         DEPLOYER = address(this);
-        wrapper = new UniV4UniswapV2Wrapper(address(this));
+        wrapper = new UniV4UniswapV2Wrapper();
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
                 universalRouter: UNIVERSAL_ROUTER,
                 quoter: V4_QUOTER,
                 WETH: WETH,
                 defaultFee: 3000, // 0.3% fee tier
-                defaultTickSpacing: 60 // Tick spacing for 0.3% pools
+                defaultTickSpacing: 60, // Tick spacing for 0.3% pools
+                host: address(this)
             })
         );
     }

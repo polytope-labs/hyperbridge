@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
 use ssz_rs::{
-	GeneralizedIndex, Merkleized, Node, calculate_multi_merkle_root,
+	GeneralizedIndex, Merkleized, Node, calculate_multi_merkle_root, get_helper_indices,
 	prelude::is_valid_merkle_branch,
 };
 use sync_committee_primitives::{
@@ -29,12 +29,20 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
-	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize &&
-		update.sync_committee_update.is_some() &&
-		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
-			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
-	{
+	// The finality branch is always required; validate it independently of the optional
+	// sync-committee update. The previous combined `&&` chain only triggered when ALL three
+	// subconditions held, so a malformed finality branch was accepted whenever the update
+	// lacked a sync-committee section or carried a correctly-sized next-committee branch.
+	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize {
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
+	}
+
+	if let Some(sync_committee_update) = update.sync_committee_update.as_ref() {
+		if sync_committee_update.next_sync_committee_branch.len() !=
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
+		{
+			Err(Error::InvalidUpdate("Next sync committee branch is incorrect".into()))?
+		}
 	}
 
 	// Verify update is valid
@@ -152,6 +160,20 @@ pub fn verify_sync_committee_attestation<C: Config>(
 
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = update.execution_payload;
+	let execution_payload_indices = [
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+	];
+	// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
+	// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
+	// proofs whose helper-node count does not match what the algorithm requires so an
+	// attacker-controlled `multi_proof` cannot panic the runtime via the public unsigned
+	// consensus update path.
+	if execution_payload.multi_proof.len() != get_helper_indices(&execution_payload_indices).len()
+	{
+		Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
+	}
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
 			Node::from_bytes(execution_payload.state_root.as_ref().try_into().expect("Infallible")),
@@ -164,11 +186,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				.map_err(|_| Error::MerkleizationError("Failed to hash timestamp".into()))?,
 		],
 		&execution_payload.multi_proof,
-		&[
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
-		],
+		&execution_payload_indices,
 	);
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(
@@ -259,7 +277,14 @@ mod supermajority_tests {
 			sync_committee_update: None,
 			finalized_header: BeaconBlockHeader { slot: finalized_slot, ..Default::default() },
 			execution_payload: ExecutionPayloadProof::default(),
-			finality_proof: FinalityProof { epoch: 1, finality_branch: Vec::new() },
+			finality_proof: FinalityProof {
+				epoch: 1,
+				// Branch length must match `Sepolia::FINALIZED_ROOT_INDEX_LOG2` so the
+				// finality-branch length check passes; the node contents don't matter for
+				// these tests because the supermajority gate fires before any merkle
+				// verification.
+				finality_branch: vec![Node::default(); Sepolia::FINALIZED_ROOT_INDEX_LOG2 as usize],
+			},
 			sync_aggregate: SyncAggregate {
 				sync_committee_bits: ssz_rs::Bitvector::default(),
 				sync_committee_signature: BlsSignature::try_from(vec![

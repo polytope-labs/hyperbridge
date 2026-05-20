@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 6_900,
+	spec_version: 7_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -843,20 +843,19 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,
-			ProxyType::NonTransfer => {
-				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. })
-			},
+			ProxyType::NonTransfer =>
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
 			ProxyType::CancelProxy => matches!(
 				c,
-				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. })
-					| RuntimeCall::Utility { .. }
-					| RuntimeCall::Multisig { .. }
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
 			),
 			ProxyType::Collator => matches!(
 				c,
-				RuntimeCall::CollatorSelection { .. }
-					| RuntimeCall::Utility { .. }
-					| RuntimeCall::Multisig { .. }
+				RuntimeCall::CollatorSelection { .. } |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
 			),
 		}
 	}
@@ -1114,6 +1113,7 @@ mod benches {
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
 		[pallet_intents_coprocessor, IntentsCoprocessor]
+		[pallet_call_decompressor, CallDecompressor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_referenda, Referenda]
 		[pallet_whitelist, Whitelist]

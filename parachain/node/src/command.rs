@@ -380,6 +380,33 @@ pub fn run() -> Result<()> {
 						let watcher_sender = bid_sender.clone();
 						let is_authority = config.role.is_authority();
 
+						// Preflight the config now and defer the spawn until
+						// after start_simnode opens the RPC. Same rationale as
+						// the production path in service.rs.
+						let fisherman_path = if is_authority {
+							match tesseract_config.as_ref() {
+								Some(path) => {
+									hyperbridge_fisherman::load_and_validate(path)
+										.await
+										.map_err(|e| {
+											sc_service::Error::Other(format!(
+												"invalid tesseract config: {e:?}"
+											))
+										})?;
+									Some(path.clone())
+								},
+								None => None,
+							}
+						} else {
+							if tesseract_config.is_some() {
+								log::info!(
+									target: "fisherman",
+									"--tesseract-config provided to a non-authority simnode; ignoring (fisherman only runs on collators)",
+								);
+							}
+							None
+						};
+
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
 							_,
@@ -420,25 +447,19 @@ pub fn run() -> Result<()> {
 							),
 						);
 
-						// Mirror the production wiring: only authorities run the
-						// fisherman, and only when --tesseract-config is set. Lets
-						// simnode-based integration tests exercise the same spawn
-						// path used by real collators.
-						if is_authority {
-							if let Some(path) = tesseract_config.as_ref() {
-								hyperbridge_fisherman::spawn(path, &task_manager).await.map_err(
-									|e| {
-										sc_service::Error::Other(format!(
-											"failed to spawn fisherman task: {e:?}"
-										))
-									},
-								)?;
-							}
-						} else if tesseract_config.is_some() {
-							log::info!(
-								target: "fisherman",
-								"--tesseract-config provided to a non-authority simnode; ignoring (fisherman only runs on collators)",
-							);
+						// start_simnode has brought the local RPC up, so the
+						// fisherman dial against `[hyperbridge].rpc_ws` is
+						// safe even when it loops back to this node. Mirrors
+						// the production wiring in service.rs so simnode tests
+						// exercise the same spawn path.
+						if let Some(path) = fisherman_path {
+							hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(
+								|e| {
+									sc_service::Error::Other(format!(
+										"failed to spawn fisherman task: {e:?}"
+									))
+								},
+							)?;
 						}
 
 						Ok(task_manager)

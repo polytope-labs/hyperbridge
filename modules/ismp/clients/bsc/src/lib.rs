@@ -93,25 +93,33 @@ impl<
 
 		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
-			if bsc_client_update.attested_header.number.low_u64() % epoch_length >=
-				(consensus_state.current_validators.len() as u64 / 2)
-			{
-				// Sanity check
+			let attested_number = bsc_client_update.attested_header.number.low_u64();
+			let attested_epoch = compute_epoch(attested_number, epoch_length);
+			let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
+			// Promote the pending validator set only when the submitted update is in the
+			// specific epoch where that set is scheduled to activate, and the attested
+			// header has reached the recorded `rotation_block`. The previous rule —
+			// "any update whose `attested.number % epoch_length` is past the rotation
+			// midpoint" — promoted the pending set in any later epoch, so an attacker
+			// holding the keys of a stale `next_validators` (e.g. retired or compromised
+			// validators) could submit an update many epochs later, get their set
+			// promoted to `current_validators`, and then have their forged
+			// `source_header`'s `state_root` accepted as a BSC state commitment. Binding
+			// rotation to the recorded `rotation_block`'s epoch prevents that reuse.
+			if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
 				// During authority set rotation, the source header must be from the same epoch as
-				// the attested header
-				let epoch =
-					compute_epoch(bsc_client_update.attested_header.number.low_u64(), epoch_length);
+				// the attested header.
 				let source_header_epoch =
 					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
-				if source_header_epoch != epoch {
+				if source_header_epoch != attested_epoch {
 					Err(Error::SourceHeaderEpochMismatch {
-						attested_epoch: epoch,
+						attested_epoch,
 						source_epoch: source_header_epoch,
 					})?
 				}
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
-				consensus_state.current_epoch = epoch;
+				consensus_state.current_epoch = attested_epoch;
 			}
 		}
 

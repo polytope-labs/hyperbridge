@@ -220,6 +220,7 @@ impl pallet_ismp_host_executive::Config for Runtime {
 
 impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<2>;
+	type WeightInfo = pallet_call_decompressor::weights::SubstrateWeight<Runtime>;
 }
 
 impl ismp_parachain::Config for Runtime {

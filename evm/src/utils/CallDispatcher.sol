@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 
 /**
  * @title The CallDispatcher

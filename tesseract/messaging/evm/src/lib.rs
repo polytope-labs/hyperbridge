@@ -2,14 +2,14 @@
 pub const LOG_TARGET: &str = "messaging-evm";
 
 use crate::{
-	abi::{EvmHostInstance, PingModuleInstance},
+	abi::EvmHostInstance,
 	transport::RpcTransport,
 };
 
 use alloy::{
 	eips::BlockId,
 	network::EthereumWallet,
-	primitives::{Address, U256 as AlloyU256},
+	primitives::Address,
 	providers::{
 		fillers::{
 			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -23,12 +23,9 @@ use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messa
 use polkadot_sdk::frame_support::crypto::ecdsa::ECDSAExt;
 use primitive_types::{H256, U256};
 
-use evm_state_machine::presets::{
-	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-	RESPONSE_RECEIPTS_SLOT,
-};
+use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT};
 
-use ismp_solidity_abi::evm_host::{StateCommitment, StateMachineHeight};
+use ismp_abi::evm_host::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
@@ -433,13 +430,10 @@ impl EvmClient {
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
-		use ismp_solidity_abi::{
-			evm_host::EvmHost::{
-				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
-				PostResponseEvent, PostResponseHandled,
-				StateMachineUpdated as EvmStateMachineUpdated,
-			},
-			EvmHostEvents,
+		use ismp::abi::EvmHostEvents;
+		use ismp_abi::evm_host::EvmHost::{
+			GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
+			StateMachineUpdated as EvmStateMachineUpdated,
 		};
 
 		let host_addr = Address::from_slice(&self.ismp_host.0);
@@ -454,17 +448,11 @@ impl EvmClient {
 				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
 				}
-				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
-				}
 				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
 				}
 				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
-				}
-				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
 				}
 				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();
@@ -499,24 +487,6 @@ impl EvmClient {
 		Ok(())
 	}
 
-	/// Dispatch a test request to the parachain.
-	pub async fn dispatch_to_parachain(
-		&self,
-		address: H160,
-		para_id: u32,
-	) -> Result<(), anyhow::Error> {
-		let ping_addr = Address::from_slice(&address.0);
-		let contract = PingModuleInstance::new(ping_addr, self.signer.clone());
-		let call = contract.dispatchToParachain(AlloyU256::from(para_id));
-
-		let gas = call.estimate_gas().await?;
-		let pending = call.gas(gas).send().await?;
-		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
-
-		Ok(())
-	}
-
 	pub async fn set_latest_finalized_height(
 		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
@@ -541,23 +511,8 @@ impl EvmClient {
 		(key, H256(bytes))
 	}
 
-	pub fn response_commitment_key(&self, key: H256) -> (H256, H256) {
-		let key = derive_map_key(key.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
-		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let bytes = number.to_big_endian();
-		(key, H256(bytes))
-	}
-
 	pub fn request_receipt_key(&self, key: H256) -> H256 {
 		derive_map_key(key.0.to_vec(), REQUEST_RECEIPTS_SLOT)
-	}
-
-	pub fn response_receipt_key(&self, key: H256) -> Vec<Vec<u8>> {
-		let key = derive_map_key(key.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
-		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let bytes = number.to_big_endian();
-
-		vec![key.0.to_vec(), bytes.to_vec()]
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {

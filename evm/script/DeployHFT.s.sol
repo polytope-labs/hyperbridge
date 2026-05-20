@@ -19,6 +19,7 @@ contract DeployHFT is BaseScript {
             dispatcher: address(dispatcher)
         }));
 
+        vm.stopBroadcast();
         console.log("=== HFT Deployment ===");
         console.log("HyperFungibleToken:", address(hft));
         console.log("CallDispatcher:", address(dispatcher));

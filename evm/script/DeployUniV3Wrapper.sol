@@ -21,13 +21,13 @@ contract DeployScript is BaseScript {
         address uniswapV2 = IDispatcher(HOST_ADDRESS).uniswapV2Router();
 
         UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
-        console.log("UniV3UniswapV2Wrapper deployed at:", address(wrapper));
-
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({
                 WETH: IUniswapV2Router02(uniswapV2).WETH(), swapRouter: swapRouter, quoter: quoter, maxFee: maxFee
             })
         );
+        vm.stopBroadcast();
+        console.log("UniV3UniswapV2Wrapper deployed at:", address(wrapper));
         console.log("UniV3UniswapV2Wrapper initialized");
     }
 }

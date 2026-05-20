@@ -20,7 +20,6 @@ contract DeployScript is BaseScript {
         address weth = config.get("WETH").toAddress();
 
         UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
-        console.log("UniV4UniswapV2Wrapper deployed at:", address(wrapper));
 
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
@@ -31,6 +30,8 @@ contract DeployScript is BaseScript {
                 defaultTickSpacing: defaultTickSpacing
             })
         );
+        vm.stopBroadcast();
+        console.log("UniV4UniswapV2Wrapper deployed at:", address(wrapper));
         console.log("UniV4UniswapV2Wrapper initialized");
     }
 }

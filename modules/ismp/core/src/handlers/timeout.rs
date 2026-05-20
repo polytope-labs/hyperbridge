@@ -20,8 +20,8 @@ use crate::{
 	events::{Event, TimeoutHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, TimeoutMessage},
-	router::Response,
+	messaging::{dedup_requests, hash_request, TimeoutMessage},
+	router::{GetResponse, Request},
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -31,6 +31,10 @@ pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
+	if msg.requests().is_empty() {
+		Err(Error::EmptyBatch)?
+	}
+
 	let consensus_clients = host.consensus_clients();
 
 	let check_state_machine_client = |state_machine: StateMachine| {
@@ -46,8 +50,11 @@ where
 			let state_machine = validate_state_machine(host, timeout_proof.height)?;
 			let state = host.state_machine_commitment(timeout_proof.height)?;
 
-			for request in &requests {
-				let dest_chain = request.dest_chain();
+			let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Post).collect();
+			dedup_requests::<H>(&wrapped)?;
+
+			for post in &requests {
+				let dest_chain = post.dest;
 
 				// in order to allow proxies, the host must configure the given state machine
 				// as it's proxy and must not have a state machine client for the destination chain
@@ -56,56 +63,59 @@ where
 
 				// check if the timeout is allowed to be proxied
 				if dest_chain != timeout_proof.height.id.state_id && !allow_proxy {
-					Err(Error::RequestProxyProhibited { meta: request.into() })?
+					Err(Error::RequestProxyProhibited { meta: post.into() })?
 				}
 
 				// Ensure a commitment exists for all requests in the batch
-				let commitment = hash_request::<H>(request);
+				let commitment = hash_request::<H>(&Request::Post(post.clone()));
 				if host.request_commitment(commitment).is_err() {
-					Err(Error::UnknownRequest { meta: request.into() })?
+					Err(Error::UnknownRequest { meta: post.into() })?
 				}
 
-				if !request.timed_out(state.timestamp()) {
+				if !post.timed_out(state.timestamp()) {
 					Err(Error::RequestTimeoutNotElapsed {
-						meta: request.into(),
-						timeout_timestamp: request.timeout(),
+						meta: post.into(),
+						timeout_timestamp: post.timeout(),
 						state_machine_time: state.timestamp(),
 					})?
 				}
 			}
 
-			let keys = state_machine.receipts_state_trie_key(requests.clone().into());
-			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
-			if values.into_iter().any(|(_key, val)| val.is_some()) {
-				Err(Error::Custom("Some Requests in the batch have been delivered".into()))?
-			}
+			let commitments = requests
+				.iter()
+				.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+				.collect();
+			state_machine.verify_non_membership(host, commitments, state, &timeout_proof)?;
 
 			let router = host.ismp_router();
 			requests
 				.into_iter()
-				.map(|request| {
-					let cb = router.module_for_id(request.source_module())?;
+				.map(|post| {
+					let cb = router.module_for_id(post.from.clone())?;
+					let request = Request::Post(post.clone());
 					// Delete commitment to prevent rentrancy attack
 					let meta = host.delete_request_commitment(&request)?;
 					let mut signer = None;
 					// If it was a routed request delete the receipt
-					if host.host_state_machine() != request.source_chain() {
+					if host.host_state_machine() != post.source {
 						signer = host.delete_request_receipt(&request).ok();
 					}
-					let res = cb.on_timeout(request.clone().into()).map(|weight| {
+					let res = cb.on_timeout(request.clone()).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::PostRequestTimeoutHandled(TimeoutHandled {
 							commitment,
-							source: request.source_chain(),
-							dest: request.dest_chain(),
+							source: post.source,
+							dest: post.dest,
 						})
 					});
-					// If module callback failed restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
-						// If the request was routed we store it's receipt
-						if host.host_state_machine() != request.source_chain() && signer.is_some() {
+						if host.host_state_machine() != post.source && signer.is_some() {
 							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
 						}
 					}
@@ -113,96 +123,28 @@ where
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},
-		TimeoutMessage::PostResponse { responses, timeout_proof } => {
-			let state_machine = validate_state_machine(host, timeout_proof.height)?;
-			let state = host.state_machine_commitment(timeout_proof.height)?;
-			for response in &responses {
-				let dest_chain = response.dest_chain();
-
-				// in order to allow proxies, the host must configure the given state machine
-				// as it's proxy and must not have a state machine client for the destination chain
-				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-					check_state_machine_client(dest_chain);
-
-				// check if the response is allowed to be proxied
-				if dest_chain != timeout_proof.height.id.state_id && !allow_proxy {
-					Err(Error::ResponseProxyProhibited {
-						meta: Response::Post(response.clone()).into(),
-					})?
-				}
-
-				// Ensure a commitment exists for all responses in the batch
-				let commitment = hash_post_response::<H>(response);
-				if host.response_commitment(commitment).is_err() {
-					Err(Error::UnknownResponse { meta: Response::Post(response.clone()).into() })?
-				}
-
-				if response.timeout() > state.timestamp() {
-					Err(Error::RequestTimeoutNotElapsed {
-						meta: response.into(),
-						timeout_timestamp: response.timeout(),
-						state_machine_time: state.timestamp(),
-					})?
-				}
-			}
-
-			let items = responses.iter().map(|r| Into::into(r.clone())).collect::<Vec<Response>>();
-			let keys = state_machine.receipts_state_trie_key(items.into());
-			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
-			if values.into_iter().any(|(_key, val)| val.is_some()) {
-				Err(Error::Custom("Some responses in the batch have been delivered".into()))?
-			}
-
-			let router = host.ismp_router();
-			responses
-				.into_iter()
-				.map(|response| {
-					let cb = router.module_for_id(response.source_module())?;
-					// Delete commitment to prevent rentrancy
-					let meta = host.delete_response_commitment(&response)?;
-					// If the response was routed we delete it's receipt
-					let mut signer = None;
-					if host.host_state_machine() != response.source_chain() {
-						signer =
-							host.delete_response_receipt(&Response::Post(response.clone())).ok();
-					}
-					let res = cb.on_timeout(response.clone().into()).map(|weight| {
-						total_module_weight.saturating_accrue(weight);
-						let commitment = hash_post_response::<H>(&response);
-						Event::PostResponseTimeoutHandled(TimeoutHandled {
-							commitment,
-							source: response.source_chain(),
-							dest: response.dest_chain(),
-						})
-					});
-					// If module callback failed restore commitment so it can be retried
-					if res.is_err() {
-						host.store_response_commitment(&response, meta)?;
-						if host.host_state_machine() != response.source_chain() && signer.is_some()
-						{
-							host.store_response_receipt(
-								&Response::Post(response),
-								&signer.expect("Infallible"),
-							)?;
-						}
-					}
-					Ok::<_, anyhow::Error>(res)
-				})
-				.collect::<Result<Vec<_>, _>>()?
-		},
 		TimeoutMessage::Get { requests } => {
-			for request in &requests {
-				let commitment = hash_request::<H>(request);
+			let wrapped: Vec<Request> = requests.iter().cloned().map(Request::Get).collect();
+			dedup_requests::<H>(&wrapped)?;
+
+			for get in &requests {
+				let commitment = hash_request::<H>(&Request::Get(get.clone()));
 				// if we have a commitment, it came from us
 				if host.request_commitment(commitment).is_err() {
-					Err(Error::UnknownRequest { meta: request.into() })?
+					Err(Error::UnknownRequest { meta: get.into() })?
+				}
+
+				// Reject the timeout if a response has already been received for this request
+				let response = GetResponse { get: get.clone(), values: Default::default() };
+				if host.response_receipt(&response).is_some() {
+					Err(Error::GetResponseAlreadyReceived { meta: get.into() })?
 				}
 
 				// Ensure the get timeout has elapsed on the host
-				if !request.timed_out(host.timestamp()) {
+				if !get.timed_out(host.timestamp()) {
 					Err(Error::RequestTimeoutNotElapsed {
-						meta: request.into(),
-						timeout_timestamp: request.timeout(),
+						meta: get.into(),
+						timeout_timestamp: get.timeout(),
 						state_machine_time: host.timestamp(),
 					})?
 				}
@@ -211,21 +153,25 @@ where
 			let router = host.ismp_router();
 			requests
 				.into_iter()
-				.map(|request| {
-					let cb = router.module_for_id(request.source_module())?;
+				.map(|get| {
+					let cb = router.module_for_id(get.from.clone())?;
+					let request = Request::Get(get.clone());
 					// Delete commitment to prevent reentrancy
 					let meta = host.delete_request_commitment(&request)?;
-					let res = cb.on_timeout(request.clone().into()).map(|weight| {
+					let res = cb.on_timeout(request.clone()).map(|weight| {
 						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::GetRequestTimeoutHandled(TimeoutHandled {
 							commitment,
-							source: request.source_chain(),
-							dest: request.dest_chain(),
+							source: get.source,
+							dest: get.dest,
 						})
 					});
-					// If module callback failed, restore commitment so it can be retried
-					if res.is_err() {
+					if res.is_ok() {
+						host.on_request_timeout(&request, meta)?;
+					} else {
+						// Module callback failed; restore commitment so the request
+						// can be retried.
 						host.store_request_commitment(&request, meta)?;
 					}
 					Ok::<_, anyhow::Error>(res)

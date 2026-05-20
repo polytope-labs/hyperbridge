@@ -40,62 +40,10 @@ function host() public view virtual returns (address)
 
 ### quote(DispatchPost)
 
-Returns the fee in the fee token for dispatching a POST request.
-
-```solidity lineNumbers
-function quote(DispatchPost memory request) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `request` | `DispatchPost` | The POST request to quote |
-
-**Returns:** Fee amount in the fee token
-
-**Formula:** `request.fee + (bodyLength * perByteFee)`
-
----
-
-### quote(DispatchGet)
-
-Returns the fee in the fee token for dispatching a GET request.
-
-```solidity lineNumbers
-function quote(DispatchGet memory request) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `request` | `DispatchGet` | The GET request to quote |
-
-**Returns:** Fee amount in the fee token
-
-**Note:** Enforces a minimum fee of 32 bytes worth of data
-
----
-
-### quote(DispatchPostResponse)
-
-Returns the fee in the fee token for dispatching a POST response.
-
-```solidity lineNumbers
-function quote(DispatchPostResponse memory response) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to quote |
-
-**Returns:** Fee amount in the fee token
-
----
-
-### quoteNative(DispatchPost)
-
 Returns the fee in the native token (e.g., ETH) for dispatching a POST request.
 
 ```solidity lineNumbers
-function quoteNative(DispatchPost memory request) public view returns (uint256)
+function quote(DispatchPost memory request) public view returns (uint256)
 ```
 
 | Parameter | Type | Description |
@@ -111,12 +59,12 @@ function quoteNative(DispatchPost memory request) public view returns (uint256)
 
 ---
 
-### quoteNative(DispatchGet)
+### quote(DispatchGet)
 
 Returns the fee in the native token for dispatching a GET request.
 
 ```solidity lineNumbers
-function quoteNative(DispatchGet memory request) public view returns (uint256)
+function quote(DispatchGet memory request) public view returns (uint256)
 ```
 
 | Parameter | Type | Description |
@@ -127,42 +75,24 @@ function quoteNative(DispatchGet memory request) public view returns (uint256)
 
 ---
 
-### quoteNative(DispatchPostResponse)
-
-Returns the fee in the native token for dispatching a POST response.
-
-```solidity lineNumbers
-function quoteNative(DispatchPostResponse memory response) public view returns (uint256)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to quote |
-
-**Returns:** Fee amount in the native token
-
----
-
 ### dispatchWithFeeToken(DispatchPost)
 
-Dispatches a POST request using the fee token for payment, handling approvals automatically.
+Dispatches a POST request using the fee token for payment, handling approvals automatically. The payer is read from `request.payer`.
 
 ```solidity lineNumbers
-function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32)
+function dispatchWithFeeToken(DispatchPost memory request) internal returns (bytes32)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `DispatchPost` | The POST request to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
+| `request` | `DispatchPost` | The POST request to dispatch (includes `payer` field) |
 
 **Returns:** Commitment hash identifying the dispatched request
 
 **Behavior:**
-1. Calculates the required fee using `quote()`
-2. If `payer != address(this)`, transfers fee tokens from payer to this contract
-3. Approves Host to spend the fee tokens
-4. Dispatches the request to Host
+1. If `request.payer != address(this)`, transfers fee tokens from payer to this contract
+2. Approves Host to spend the fee tokens
+3. Dispatches the request to Host
 
 **Requirements:**
 - If payer is not this contract, payer must have approved this contract to spend fee tokens
@@ -170,35 +100,17 @@ function dispatchWithFeeToken(DispatchPost memory request, address payer) intern
 
 ---
 
-### dispatchWithFeeToken(DispatchPostResponse)
-
-Dispatches a POST response using the fee token for payment, handling approvals automatically.
-
-```solidity lineNumbers
-function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `DispatchPostResponse` | The POST response to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
-
-**Returns:** Commitment hash identifying the dispatched response
-
----
-
 ### dispatchWithFeeToken(DispatchGet)
 
-Dispatches a GET request using the fee token for payment, handling approvals automatically.
+Dispatches a GET request using the fee token for payment, handling approvals automatically. The payer is read from `request.payer`.
 
 ```solidity lineNumbers
-function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32)
+function dispatchWithFeeToken(DispatchGet memory request) internal returns (bytes32)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `DispatchGet` | The GET request to dispatch |
-| `payer` | `address` | Address that will pay the fee token |
+| `request` | `DispatchGet` | The GET request to dispatch (includes `payer` field) |
 
 **Returns:** Commitment hash identifying the dispatched request
 
@@ -225,48 +137,16 @@ function onAccept(IncomingPostRequest calldata incoming) external virtual onlyHo
 Called when a POST request you sent has timed out. Override to handle cleanup. Default implementation reverts with `UnexpectedCall()`.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external virtual onlyHost
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external virtual onlyHost
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `PostRequest` | The timed-out request |
+| `incoming` | `PostRequestTimeout` | The timed-out POST request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by Host
 
 **Important:** Must be idempotent as it can be called multiple times
-
----
-
-### onPostResponse()
-
-Called when a POST response is received. Override to handle responses. Default implementation reverts with `UnexpectedCall()`.
-
-```solidity lineNumbers
-function onPostResponse(IncomingPostResponse memory incoming) external virtual onlyHost
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `incoming` | `IncomingPostResponse` | The incoming POST response |
-
-**Access:** Only callable by Host
-
----
-
-### onPostResponseTimeout()
-
-Called when a POST response you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
-
-```solidity lineNumbers
-function onPostResponseTimeout(PostResponse memory response) external virtual onlyHost
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `PostResponse` | The timed-out response |
-
-**Access:** Only callable by Host
 
 ---
 
@@ -293,12 +173,12 @@ function onGetResponse(IncomingGetResponse memory incoming) external virtual onl
 Called when a GET request you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
 
 ```solidity lineNumbers
-function onGetTimeout(GetRequest memory request) external virtual onlyHost
+function onGetTimeout(GetRequestTimeout memory incoming) external virtual onlyHost
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `GetRequest` | The timed-out GET request |
+| `incoming` | `GetRequestTimeout` | The timed-out GET request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by Host
 

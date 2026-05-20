@@ -10,13 +10,13 @@ publish = false
 
 [dependencies]
 ismp = { workspace = true }
+ismp-abi = { workspace = true, default-features = false }
 codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true }
 primitive-types = { workspace = true }
 anyhow = { workspace = true, default-features = false }
 alloy-primitives = { workspace = true }
-alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
 [dependencies.polkadot-sdk]
@@ -34,5 +34,6 @@ std = [
     "primitive-types/std",
     "anyhow/std",
     "alloy-primitives/std",
+    "ismp-abi/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

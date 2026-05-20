@@ -44,6 +44,6 @@ pub trait BeefyClientConfig {
 	/// Returns true if the given parachain id is tracked by this consensus client.
 	fn is_parachain_tracked(para_id: u32) -> bool;
 
-	/// Returns the SP1 verification key hash bytes.
-	fn sp1_vkey_hash() -> alloc::vec::Vec<u8>;
+	/// Returns the SP1 verification key hash.
+	fn sp1_vkey_hash() -> primitive_types::H256;
 }

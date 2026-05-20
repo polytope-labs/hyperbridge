@@ -27,7 +27,6 @@ ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-demo = { workspace = true, default-features = true }
-pallet-hyperbridge = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
@@ -37,7 +36,7 @@ pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }

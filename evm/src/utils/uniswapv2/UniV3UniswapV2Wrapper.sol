@@ -21,7 +21,7 @@ import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.so
 import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
 import {IMulticallExtended} from "@uniswap/swap-router-contracts/contracts/interfaces/IMulticallExtended.sol";
 
-import {IWETH} from "../../interfaces/IWETH.sol";
+import {IWETH} from "@hyperbridge/core/interfaces/IWETH.sol";
 
 /**
  * @title UniV3UniswapV2Wrapper
@@ -92,7 +92,7 @@ contract UniV3UniswapV2Wrapper {
     function init(Params memory params) public {
         if (_initialized || msg.sender != _deployer) revert Unauthorized();
         // approve the swap router to spend WETH
-        IWETH(params.WETH).approve(params.swapRouter, type(uint256).max);
+        IERC20(params.WETH).approve(params.swapRouter, type(uint256).max);
 
         _params = params;
         _initialized = true;
@@ -191,7 +191,8 @@ contract UniV3UniswapV2Wrapper {
         return amounts;
     }
 
-    /// @notice Accepts ETH transfers to this contract
-    /// @dev Fallback function to receive ETH payments, required for unwrapping WETH
-    receive() external payable {}
+    /// @notice Accepts ETH transfers only from WETH during withdraw; all other senders revert
+    receive() external payable {
+        if (msg.sender != _params.WETH) revert Unauthorized();
+    }
 }

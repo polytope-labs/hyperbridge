@@ -27,7 +27,7 @@ import {
     CancelOptions
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
-import {ICallDispatcher, Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**

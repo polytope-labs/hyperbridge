@@ -5,7 +5,6 @@ pub const LOG_TARGET: &str = "consensus-integration-tests";
 // mod ethereum;
 // mod grandpa;
 // mod bsc;
-mod ping;
 // mod polygon;
 // mod substrate;
 //mod l2s;

@@ -35,7 +35,7 @@ alloy-sol-types = { workspace = true, default-features = true }
 
 # ismp
 ismp = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true }
 
 # tesseract

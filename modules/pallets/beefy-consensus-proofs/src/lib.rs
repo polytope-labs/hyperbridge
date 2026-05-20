@@ -46,6 +46,7 @@ extern crate alloc;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 pub mod types;
 pub mod weights;
 
@@ -76,7 +77,7 @@ pub mod pallet {
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
 	};
-	use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 	use primitive_types::H256;
 	use sp_runtime::traits::AccountIdConversion;
 
@@ -93,8 +94,12 @@ pub mod pallet {
 		}
 	}
 
+	/// Current storage version.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
@@ -159,10 +164,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type ProofReward<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
-	/// SP1 verification key hash (ASCII hex), consumed by
+	/// SP1 verification key hash, consumed by
 	/// `beefy_verifier::sp1::verify_sp1_consensus`.
 	#[pallet::storage]
-	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
+	pub type Sp1VkeyHash<T: Config> = StorageValue<_, H256, ValueQuery>;
 
 	/// Heights of recent messaging proofs (no authority-set rotation). Values are
 	/// strictly increasing because every accepted proof advances the proven height,
@@ -354,7 +359,7 @@ pub mod pallet {
 		/// Update the SP1 verification key hash.
 		#[pallet::call_index(3)]
 		#[pallet::weight(T::WeightInfo::set_sp1_vkey_hash())]
-		pub fn set_sp1_vkey_hash(origin: OriginFor<T>, vkey_hash: Vec<u8>) -> DispatchResult {
+		pub fn set_sp1_vkey_hash(origin: OriginFor<T>, vkey_hash: H256) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 			Sp1VkeyHash::<T>::put(vkey_hash);
 			Self::deposit_event(Event::Sp1VkeyHashUpdated);
@@ -433,19 +438,19 @@ pub mod pallet {
 			let canonical_payload = match proof_type {
 				types::PROOF_TYPE_SP1 => {
 					let p =
-						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+						<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
+					<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
 				},
 				types::PROOF_TYPE_NAIVE => {
 					let p =
-						<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+						<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
+					<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
 				},
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
@@ -580,20 +585,19 @@ pub mod pallet {
 
 			let abi_payload = &proof[1..];
 			let abi_proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+				<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
 			let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
 
-			let vkey_bytes = Sp1VkeyHash::<T>::get();
-			let vkey =
-				core::str::from_utf8(&vkey_bytes).map_err(|_| Error::<T>::VerificationFailed)?;
+			let vkey_hash = Sp1VkeyHash::<T>::get();
+			let vkey = alloc::format!("0x{:x}", vkey_hash);
 
 			beefy_verifier::sp1::verify_sp1_consensus::<types::SubstrateCrypto>(
 				snapshot,
 				scale_proof,
-				vkey,
+				&vkey,
 			)
 			.map_err(|e| {
 				log::debug!(
@@ -704,9 +708,9 @@ pub mod pallet {
 		/// 2. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
 		///    which routes to `BeefyConsensusClient::verify_consensus`. That runs the full BEEFY /
 		///    SP1 check and persists consensus state + parachain commitments. The verifier's own
-		///    upfront stale check (`beefy_verifier::error::Error::StaleHeight`) propagates back as
-		///    a `Custom(...)` ismp error here; we surface it as `StaleProof` so the dispatcher can
-		///    route an SP1 uncle to `settle_uncle_proof`.
+		///    upfront stale check (`beefy_verifier::error::Error::StaleHeight`) propagates back
+		///    wrapped in `ismp::Error::AnyHow` here; we surface it as `StaleProof` so the
+		///    dispatcher can route an SP1 uncle to `settle_uncle_proof`.
 		/// 3. Extract the proven parachain height from the returned `StateMachineUpdated` events
 		///    and the new authority-set id from the stored consensus state so the caller can
 		///    classify the proof as rotation / messaging.
@@ -726,7 +730,7 @@ pub mod pallet {
 			let consensus_proof = match proof_type {
 				types::PROOF_TYPE_SP1 => {
 					let abi_proof =
-						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+						<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
@@ -735,7 +739,7 @@ pub mod pallet {
 				},
 				types::PROOF_TYPE_NAIVE => {
 					let abi_proof =
-						<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+						<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;

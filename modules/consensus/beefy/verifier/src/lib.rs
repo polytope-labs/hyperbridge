@@ -91,7 +91,7 @@ impl<H: Keccak256> MmrMerge for KeccakMerge<H> {
 pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	trusted_state: ConsensusState,
 	proof: ConsensusMessage,
-) -> anyhow::Result<(Vec<u8>, Vec<ParachainHeader>)> {
+) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
 	let (state, heads_root) = verify_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
 	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 	Ok((state.encode(), verified_headers))
@@ -116,26 +116,21 @@ pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 		});
 	}
 
-	if !check_participation_threshold(
-		signatures_length as u32,
-		trusted_state.current_authorities.len,
-	) && !check_participation_threshold(
-		signatures_length as u32,
-		trusted_state.next_authorities.len,
-	) {
-		return Err(Error::SuperMajorityRequired);
-	}
-
 	let commitment = mmr.signed_commitment.commitment.clone();
 
-	if commitment.validator_set_id != trusted_state.current_authorities.id &&
-		commitment.validator_set_id != trusted_state.next_authorities.id
-	{
+	// Pick the authority set the commitment claims to be signed under, then judge
+	// participation against that set alone.
+	let authority_set = if commitment.validator_set_id == trusted_state.current_authorities.id {
+		&trusted_state.current_authorities
+	} else if commitment.validator_set_id == trusted_state.next_authorities.id {
+		&trusted_state.next_authorities
+	} else {
 		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
-	}
+	};
 
-	let is_current_authorities =
-		commitment.validator_set_id == trusted_state.current_authorities.id;
+	if !check_participation_threshold(signatures_length as u32, authority_set.len) {
+		return Err(Error::SuperMajorityRequired);
+	}
 
 	let mmr_root_data = commitment
 		.payload
@@ -168,21 +163,12 @@ pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 
 	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(mmr.authority_proof.clone());
 
-	let valid = if is_current_authorities {
-		merkle_proof.verify(
-			trusted_state.current_authorities.keyset_commitment.into(),
-			&authority_indices,
-			&authority_leaves,
-			trusted_state.current_authorities.len as usize,
-		)
-	} else {
-		merkle_proof.verify(
-			trusted_state.next_authorities.keyset_commitment.into(),
-			&authority_indices,
-			&authority_leaves,
-			trusted_state.next_authorities.len as usize,
-		)
-	};
+	let valid = merkle_proof.verify(
+		authority_set.keyset_commitment.into(),
+		&authority_indices,
+		&authority_leaves,
+		authority_set.len as usize,
+	);
 
 	if !valid {
 		Err(Error::InvalidAuthoritiesProof)?;

@@ -28,6 +28,7 @@ std = [
     "tracing-subscriber/std",
     "ibc-core-host/std",
     "ibc-core-commitment-types/std",
+    "thiserror/std",
 ]
 
 [dependencies]
@@ -51,3 +52,4 @@ tendermint-ics23-primitives = { workspace = true, default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false }
 ibc-core-commitment-types = { workspace = true, default-features = false }
 ibc-core-host = { workspace = true, default-features = false }
+thiserror = { workspace = true }

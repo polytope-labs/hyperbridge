@@ -1,5 +1,5 @@
 {
     "title": "Messaging",
     "defaultOpen": false,
-    "pages": ["post-requests", "get-requests", "post-responses", "receiving", "testnet-faucet"]
+    "pages": ["post-requests", "get-requests", "receiving", "testnet-faucet"]
 }

@@ -48,7 +48,7 @@ use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
-use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof;
+use ismp_abi::ecdsa_beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
@@ -105,9 +105,6 @@ pub enum ProofVariant {
 	/// Delegate signature verification to an SP1 zero-knowledge proof (SP1Beefy).
 	#[serde(alias = "zk")]
 	Sp1,
-	/// Deterministically sample a small subset of signatures via Fiat-Shamir
-	/// (FiatShamirBeefy).
-	FiatShamir,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,9 +154,6 @@ pub const PROOF_TYPE_ECDSA: u8 = 0x00;
 /// Proof type identifier for ZK proofs (SP1Beefy)
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
-/// Proof type identifier for Fiat-Shamir sampled proofs (BeefyV1FiatShamir)
-pub const PROOF_TYPE_FIAT_SHAMIR: u8 = 0x02;
-
 impl<R, P, B, Q> BeefyProver<R, P, B, Q>
 where
 	R: subxt::Config + Send + Sync + Clone,
@@ -206,24 +200,6 @@ where
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
 				[&[PROOF_TYPE_SP1], message.abi_encode_params().as_slice()].concat()
 			},
-			Prover::FiatShamir(ref fs, _) => {
-				let (consensus_message, bitmap) =
-					fs.consensus_proof_fiat_shamir(signed_commitment, &consensus_state).await?;
-				let message: BeefyConsensusProof = consensus_message.into();
-				// FiatShamir expects abi.encode(RelayChainProof, ParachainProof,uint256[4])
-				let bitmap_words: [alloy_primitives::U256; 4] = bitmap
-					.words
-					.iter()
-					.map(|w| {
-						let buf = w.to_big_endian();
-						alloy_primitives::U256::from_be_bytes(buf)
-					})
-					.collect::<Vec<_>>()
-					.try_into()
-					.expect("bitmap should have exactly 4 words");
-				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode_params();
-				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
-			},
 		};
 
 		Ok(encoded)
@@ -252,12 +228,9 @@ where
 			.filter_map(|event| {
 				let dest = match &event.event {
 					Event::PostRequest(post) => post.dest.clone(),
-					Event::PostResponse(resp) => resp.dest_chain(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
 					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge =>
 						req.source,
-					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge =>
-						res.source,
 					_ => None?,
 				};
 
@@ -531,14 +504,10 @@ where
 					.filter_map(|e| {
 						let event = match &e.event {
 							Event::PostRequest(req) => req.dest,
-							Event::PostResponse(res) => res.dest_chain(),
 							Event::GetResponse(res) => res.get.source,
 							Event::PostRequestTimeoutHandled(req)
 								if req.source != hyperbridge =>
 								req.source,
-							Event::PostResponseTimeoutHandled(res)
-								if res.source != hyperbridge =>
-								res.source,
 							_ => None?,
 						};
 						Some(event)
@@ -609,15 +578,12 @@ where
 	}
 }
 
-/// Beefy prover, can produce ECDSA, SP1, or Fiat-Shamir proofs
+/// Beefy prover, can produce ECDSA or SP1 proofs
 pub enum Prover<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
 	/// ECDSA prover — verifies all 2/3+1 signatures on-chain
 	Ecdsa(beefy_prover::Prover<R, P>, PhantomData<B>),
 	/// SP1 prover — delegates signature verification to an SP1 ZK program
 	Sp1(zk_beefy::Prover<R, P, B>),
-	/// Fiat-Shamir prover — deterministically samples SAMPLE_SIZE signatures for on-chain
-	/// verification
-	FiatShamir(beefy_prover::Prover<R, P>, PhantomData<B>),
 }
 
 impl<R, P, B> Clone for Prover<R, P, B>
@@ -632,7 +598,6 @@ where
 		match self {
 			Prover::Ecdsa(p, _) => Prover::Ecdsa(p.clone(), PhantomData),
 			Prover::Sp1(p) => Prover::Sp1(p.clone()),
-			Prover::FiatShamir(p, _) => Prover::FiatShamir(p.clone(), PhantomData),
 		}
 	}
 }
@@ -686,7 +651,6 @@ where
 		};
 
 		let prover = match config.proof_variant {
-			ProofVariant::FiatShamir => Prover::FiatShamir(prover, PhantomData),
 			ProofVariant::Sp1 => {
 				let sp1_prover = zk_beefy::LocalProver::new().await?;
 				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover))
@@ -710,7 +674,6 @@ where
 		match self {
 			Prover::Sp1(ref p) => &p.inner,
 			Prover::Ecdsa(ref p, _) => p,
-			Prover::FiatShamir(ref p, _) => p,
 		}
 	}
 

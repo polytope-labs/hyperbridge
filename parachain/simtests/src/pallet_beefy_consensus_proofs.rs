@@ -25,6 +25,7 @@
 #![cfg(test)]
 
 use std::{
+	collections::BTreeMap,
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
@@ -60,7 +61,7 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment,
 };
-use ismp_solidity_abi::ecdsa_beefy::{
+use ismp_abi::ecdsa_beefy::{
 	BeefyConsensusProof as SolBeefyConsensusProof, BeefyConsensusState as SolBeefyConsensusState,
 };
 use primitive_types::H256;
@@ -100,7 +101,7 @@ fn sp1_fixture() -> Sp1Fixture {
 fn fixture_state_scale(latest_beefy_height: u32) -> Vec<u8> {
 	use alloy_sol_types::SolValue;
 	use beefy_verifier_primitives::ConsensusState;
-	use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 
 	let fx = sp1_fixture();
 	let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
@@ -116,7 +117,7 @@ fn trusted_state_scale() -> Vec<u8> {
 	let fx = sp1_fixture();
 	let prev_height = {
 		use alloy_sol_types::SolValue;
-		use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+		use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 		let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
 		let sol = <SolBeefyConsensusState as SolValue>::abi_decode(&raw).expect("abi state");
 		u32::try_from(sol.latestHeight).expect("latest height fits u32")
@@ -143,8 +144,8 @@ fn sp1_wire_proof() -> Vec<u8> {
 
 /// SP1 verification key the fixture proof was generated against — matches the mainnet
 /// SP1Beefy deployment at `0x82582f85cf370adCB61D97dab3068c0C4102Ccb6`.
-const SP1_FIXTURE_VKEY: &[u8] =
-	b"0x009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf";
+const SP1_FIXTURE_VKEY: [u8; 32] =
+	hex_literal::hex!("009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf");
 
 /// Storage-key builder for a `Twox64Concat` map (`twox_128(pallet) ++ twox_128(item) ++
 /// twox_64(key) ++ key`).
@@ -237,6 +238,22 @@ async fn fetch_storage_by_key<T: Decode>(
 	Ok(Some(decoded))
 }
 
+/// Highest parachain height tracked across both ring buffers. The pallet writes
+/// the proven height into `MessagingProofs` for non-rotating proofs and into
+/// `RotationProofs` for rotating ones, so neither map alone is a complete view
+/// after a successful first proof.
+async fn latest_recorded_height(client: &OnlineClient<Hyperbridge>) -> Result<u64, anyhow::Error> {
+	let messaging = fetch_storage::<Vec<u64>>(client, "MessagingProofs")
+		.await?
+		.and_then(|v| v.last().copied())
+		.unwrap_or(0);
+	let rotation = fetch_storage::<BTreeMap<u64, u64>>(client, "RotationProofs")
+		.await?
+		.and_then(|m| m.values().copied().max())
+		.unwrap_or(0);
+	Ok(messaging.max(rotation))
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyhow::Error> {
@@ -256,15 +273,15 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 	assert_eq!(on_chain, reward);
 
 	// 2. set_sp1_vkey_hash via Sudo, expect storage updated.
-	let vkey: Vec<u8> =
-		b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c".to_vec();
+	let vkey: [u8; 32] =
+		hex_literal::hex!("0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c");
 	let call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(&vkey)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&vkey)])],
 	);
 	submit_sudo(&client, &rpc_client, call).await?;
-	let on_chain_vkey: Vec<u8> = fetch_storage::<Vec<u8>>(&client, "Sp1VkeyHash")
+	let on_chain_vkey: [u8; 32] = fetch_storage::<[u8; 32]>(&client, "Sp1VkeyHash")
 		.await?
 		.ok_or_else(|| anyhow!("Sp1VkeyHash unset after set_sp1_vkey_hash"))?;
 	assert_eq!(on_chain_vkey, vkey);
@@ -553,6 +570,13 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 		"proof block {proof_block} must be ahead of trusted height {initial_height}",
 	);
 
+	// Same predicate the verifier uses to decide whether to rotate: the leaf's
+	// next-set id is strictly greater than the trusted state's next-set id. When
+	// rotation fires, the pallet routes the proof into `RotationProofs` instead
+	// of `MessagingProofs`, so we have to know in advance which bucket to check.
+	let will_rotate = consensus_message.mmr.latest_mmr_leaf.beefy_next_authority_set.id >
+		initial_state.next_authorities.id;
+
 	let abi_state: SolBeefyConsensusState = initial_state.into();
 	let abi_state_bytes = SolBeefyConsensusState::abi_encode(&abi_state);
 
@@ -598,17 +622,29 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 	submit_signed(&client, &rpc_client, submit_call, Keyring::Bob).await?;
 	eprintln!("[stage] submit_proof finalized");
 
-	// First-proof path appends `latest_height` to `MessagingProofs`. A non-empty vec
-	// after `submit_proof` returns success means dispatch ran the full BEEFY check,
-	// stored a parachain commitment, and ran ring-buffer eviction. Combined with
-	// `wait_for_finalized_success` having returned ok, that's sufficient evidence
-	// the naive happy path works end-to-end.
-	let messaging_proofs: Vec<u64> =
-		fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
-	assert!(
-		!messaging_proofs.is_empty(),
-		"MessagingProofs must contain the proven height after a successful first proof",
-	);
+	// The first-proof path writes the proven height into `MessagingProofs` when
+	// no rotation happened, and into `RotationProofs` when it did. A non-empty
+	// entry in the right bucket means dispatch ran the full BEEFY check, stored
+	// a parachain commitment, and ran ring-buffer eviction. Combined with
+	// `wait_for_finalized_success` having returned ok, that's sufficient
+	// evidence the naive happy path works end-to-end.
+	if will_rotate {
+		let rotation_proofs: BTreeMap<u64, u64> =
+			fetch_storage::<BTreeMap<u64, u64>>(&client, "RotationProofs")
+				.await?
+				.unwrap_or_default();
+		assert!(
+			!rotation_proofs.is_empty(),
+			"RotationProofs must contain the rotation height after a successful rotating proof",
+		);
+	} else {
+		let messaging_proofs: Vec<u64> =
+			fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
+		assert!(
+			!messaging_proofs.is_empty(),
+			"MessagingProofs must contain the proven height after a successful first proof",
+		);
+	}
 
 	Ok(())
 }
@@ -663,7 +699,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	let vkey_call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(SP1_FIXTURE_VKEY)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&SP1_FIXTURE_VKEY)])],
 	);
 	submit_sudo(&client, &rpc_client, vkey_call).await?;
 
@@ -674,13 +710,11 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	submit_sudo(&client, &rpc_client, zero_reward).await?;
 
 	// 3. `settle_uncle_proof` looks up `ProofContext[Self::latest_height()]`. After a successful
-	//    first proof, `settle_first_proof` pushes that same height into `MessagingProofs`, so its
-	//    last entry is a faithful proxy. When Tier-3 runs in isolation `MessagingProofs` is empty
-	//    and `latest_height()` is 0, matching what we'd seed.
-	let parachain_height: u64 = fetch_storage::<Vec<u64>>(&client, "MessagingProofs")
-		.await?
-		.and_then(|v| v.last().copied())
-		.unwrap_or(0);
+	//    first proof, `settle_first_proof` pushes that height into either `MessagingProofs` or
+	//    `RotationProofs` depending on whether the proof rotated. Taking the max across both ring
+	//    buffers keeps Tier-3 in lockstep with Tier-2 regardless of which path it took, and falls
+	//    back to 0 when Tier-3 runs in isolation.
+	let parachain_height = latest_recorded_height(&client).await?;
 	eprintln!("[stage] seeding ProofContext at parachain_height={parachain_height}");
 
 	// 4. Force the BEEFY consensus state and seed the uncle snapshot via `System::set_storage`. We

@@ -56,7 +56,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 
 use alloc::borrow::Cow;
@@ -185,6 +185,8 @@ pub type Executive = frame_executive::Executive<
 pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
+	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -247,7 +249,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 6_800,
+	spec_version: 7_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -797,6 +799,11 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 
+impl pallet_messaging_incentives::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -919,6 +926,8 @@ mod runtime {
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(91)]
 	pub type HyperFungibleToken = pallet_hyper_fungible_token;
+	#[runtime::pallet_index(92)]
+	pub type MessagingIncentives = pallet_messaging_incentives;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -1174,7 +1183,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}
@@ -1203,7 +1212,7 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(
-			block: Block,
+			block: <Block as sp_runtime::traits::Block>::LazyBlock,
 			state_root_check: bool,
 			signature_check: bool,
 			select: frame_try_runtime::TryStateSelect,

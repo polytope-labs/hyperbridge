@@ -15,7 +15,7 @@ use subxt::config::HashFor;
 
 use beefy_prover::util::hash_authority_addresses;
 use beefy_verifier_primitives::ConsensusState;
-use ismp_solidity_abi::sp1_beefy::SP1BeefyProof;
+use ismp_abi::sp1_beefy::SP1BeefyProof;
 
 #[cfg(feature = "cluster")]
 pub use sp1_beefy::cluster::ClusterProver;

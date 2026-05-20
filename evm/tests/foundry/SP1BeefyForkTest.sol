@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 
-import {IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IntermediateState} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {SP1Beefy} from "../../src/consensus/SP1Beefy.sol";
 import {BeefyConsensusState} from "../../src/consensus/Types.sol";

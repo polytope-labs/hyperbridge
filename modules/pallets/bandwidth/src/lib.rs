@@ -50,7 +50,7 @@ pub use types::{
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use crate::abi::{PurchaseMessage, TierAbi, WithdrawalAbi};
+	use crate::abi::{PurchaseMessage, Tier, Withdrawal};
 	use alloc::{format, vec, vec::Vec};
 	use alloy_sol_types::SolValue;
 	use frame_support::{pallet_prelude::*, PalletId};
@@ -59,7 +59,7 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 		module::IsmpModule,
-		router::{PostRequest, Response, Timeout},
+		router::{GetResponse, PostRequest, Request},
 	};
 	use primitive_types::{H160, U256};
 	use sp_core::H256;
@@ -305,11 +305,11 @@ pub mod pallet {
 			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
 			let count = updates.len() as u32;
-			let rows: Vec<TierAbi> = updates
+			let rows: Vec<Tier> = updates
 				.into_iter()
 				.map(|(t, p)| {
 					let id_u32: u32 = t.into();
-					TierAbi { tier: to_alloy_u256(U256::from(id_u32)), price: to_alloy_u256(p) }
+					Tier { tier: to_alloy_u256(U256::from(id_u32)), price: to_alloy_u256(p) }
 				})
 				.collect();
 
@@ -337,7 +337,7 @@ pub mod pallet {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
-			let payload = WithdrawalAbi {
+			let payload = Withdrawal {
 				token: alloy_primitives::Address::from(token.0),
 				beneficiary: alloy_primitives::Address::from(beneficiary.0),
 				amount: to_alloy_u256(amount),
@@ -488,13 +488,13 @@ pub mod pallet {
 			Ok(Weight::zero())
 		}
 
-		fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+		fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 			Err(ismp::Error::CannotHandleMessage.into())
 		}
 
 		/// Purchases dispatch with `timeout = 0`. If `on_timeout` ever
 		/// fires it's an invariant violation, not a noop.
-		fn on_timeout(&self, _timeout: Timeout) -> Result<Weight, anyhow::Error> {
+		fn on_timeout(&self, _timeout: Request) -> Result<Weight, anyhow::Error> {
 			Err(anyhow::anyhow!("pallet-bandwidth purchases are non-timeouting"))
 		}
 	}

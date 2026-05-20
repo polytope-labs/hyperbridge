@@ -30,7 +30,7 @@ use frame_support::traits::{
 use frame_system::RawOrigin;
 use ismp::{
 	module::IsmpModule,
-	router::{PostRequest, Request, Response, Timeout},
+	router::{GetResponse, PostRequest, Request},
 };
 use polkadot_sdk::*;
 use sp_core::{Get, H160, U256};
@@ -56,7 +56,7 @@ where
 			.ok_or(HftError::UnknownSourceContract(source))?;
 
 		// Decode the Message
-		let message = Message::abi_decode_params(&body).map_err(HftError::DecodeError)?;
+		let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 		// Convert recipient bytes to substrate AccountId
 		// If 32 bytes: use directly. If 20 bytes: left-pad with zeros.
@@ -205,14 +205,14 @@ where
 		Ok(T::DbWeight::get().reads_writes(5, 2))
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(HftError::ResponsesNotSupported)?
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, request: Request) -> Result<Weight, anyhow::Error> {
 		match request {
-			Timeout::Request(Request::Post(PostRequest { body, to, dest, .. })) => {
-				let message = Message::abi_decode_params(&body).map_err(HftError::DecodeError)?;
+			Request::Post(PostRequest { body, to, dest, .. }) => {
+				let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 				// Refund the original sender
 				let from_bytes = message.from.as_ref();
@@ -285,8 +285,7 @@ where
 				});
 				Ok(T::DbWeight::get().reads_writes(5, 2))
 			},
-			Timeout::Request(Request::Get(_)) => Err(HftError::UnsupportedTimeoutType)?,
-			Timeout::Response(_) => Err(HftError::UnsupportedTimeoutType)?,
+			Request::Get(_) => Err(HftError::UnsupportedTimeoutType)?,
 		}
 	}
 }

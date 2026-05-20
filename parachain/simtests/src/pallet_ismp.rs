@@ -9,8 +9,7 @@ use std::{
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp_parachain::ParachainData;
-use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-use pallet_ismp_host_executive::HostParam;
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, Bytes, KeccakHasher};
@@ -31,7 +30,7 @@ use ismp::{
 };
 use pallet_ismp::child_trie::{self};
 use primitive_types::H256;
-use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof};
 use subxt_utils::{
 	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
 	values::{
@@ -62,7 +61,6 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_id = 3000u32;
-	let slot_duration = 6000u64;
 	let source = StateMachine::Kusama(para_id);
 	// Bytes used as the `from` field of the POST request below. Pre-computed
 	// here so the same value can be added to the bandwidth allowlist during
@@ -74,7 +72,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		let add_parachain_call = subxt::dynamic::tx(
 			"IsmpParachain",
 			"add_parachain",
-			vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
+			vec![vec![parachain_data_to_value(&ParachainData { id: para_id })]],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
@@ -102,13 +100,11 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	// Init the host executive extrinsic
 	{
 		let mut host_params = BTreeMap::new();
-		host_params.insert(
-			source,
-			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-				default_per_byte_fee: 0u128,
-				..Default::default()
-			})),
-		);
+		// Substrate host params have been removed; only EVM host params
+		// remain. Register a default `EvmHostParam` entry so the storage
+		// shape is satisfied — the bandwidth gate doesn't consult the
+		// params during dispatch for substrate sources.
+		host_params.insert(source, HostParam::EvmHostParam(EvmHostParam::default()));
 
 		let host_params_value = host_params_btreemap_to_value(&host_params);
 
@@ -273,11 +269,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let update_time: u64 = Decode::decode(&mut &*item)?;
 	assert_eq!(now.as_secs(), update_time);
 
-	let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-		hasher: HashAlgorithm::Keccak,
-		storage_proof: proof,
-	})
-	.encode();
+	let proof = StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }.encode();
 	let proof = Proof { height, proof };
 
 	let signature = Signature::Sr25519 {
@@ -361,7 +353,6 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	// tests can run back-to-back against the same simnode without colliding
 	// on the parachain-registration step.
 	let para_id = 3001u32;
-	let slot_duration = 6000u64;
 	let source = StateMachine::Kusama(para_id);
 	let from = H256::random().as_bytes().to_vec();
 
@@ -370,7 +361,7 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 		let add_parachain_call = subxt::dynamic::tx(
 			"IsmpParachain",
 			"add_parachain",
-			vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
+			vec![vec![parachain_data_to_value(&ParachainData { id: para_id })]],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
@@ -397,13 +388,11 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	// Init the host executive extrinsic
 	{
 		let mut host_params = BTreeMap::new();
-		host_params.insert(
-			source,
-			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-				default_per_byte_fee: 0u128,
-				..Default::default()
-			})),
-		);
+		// Substrate host params have been removed; only EVM host params
+		// remain. Register a default `EvmHostParam` entry so the storage
+		// shape is satisfied — the bandwidth gate doesn't consult the
+		// params during dispatch for substrate sources.
+		host_params.insert(source, HostParam::EvmHostParam(EvmHostParam::default()));
 
 		let host_params_value = host_params_btreemap_to_value(&host_params);
 
@@ -581,11 +570,7 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	assert!(finalized);
 	progress.wait_for_finalized_success().await?;
 
-	let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-		hasher: HashAlgorithm::Keccak,
-		storage_proof: proof,
-	})
-	.encode();
+	let proof = StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }.encode();
 	let proof = Proof { height, proof };
 
 	let signature = Signature::Sr25519 {

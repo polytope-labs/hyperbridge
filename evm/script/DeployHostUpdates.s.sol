@@ -14,7 +14,7 @@ import {BandwidthManager} from "../src/apps/BandwidthManager.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v6.1.0/SP1VerifierGroth16.sol";
 import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
-import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -33,9 +33,8 @@ contract DeployScript is BaseScript {
         console.log("SP1Beefy deployed at:", address(sp1));
 
         ConsensusRouter consensusClient = new ConsensusRouter{salt: salt}(
-            IConsensus(sp1),
-            IConsensus(ecdsaBeefy),
-            IConsensus(address(0))
+            IConsensusV2(sp1),
+            IConsensusV2(ecdsaBeefy)
         );
         console.log("ConsensusRouter deployed at:", address(consensusClient));
 

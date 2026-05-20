@@ -208,6 +208,8 @@ pub mod pallet {
 		AssetTransferError,
 		/// Error dispatching the cross-chain request
 		DispatchError,
+		/// Peer chain is not an EVM state machine; this pallet bridges substrate <-> EVM only
+		NonEvmPeerChain,
 	}
 
 	#[pallet::call]
@@ -293,7 +295,7 @@ pub mod pallet {
 				from: PALLET_ID.to_bytes(),
 				to: token_contract,
 				timeout: params.timeout,
-				body: Message::abi_encode_params(&token_message),
+				body: Message::abi_encode(&token_message),
 			};
 
 			let metadata = FeeMetadata { payer: who.clone(), fee: params.relayer_fee.into() };
@@ -324,14 +326,19 @@ pub mod pallet {
 
 			let chains: Vec<StateMachine> = registration.chains.keys().cloned().collect();
 			for (chain, config) in registration.chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					registration.local_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
 				ContractToAsset::<T>::insert(
 					chain,
-					config.token_contract,
+					token_contract,
 					registration.local_id.clone(),
 				);
 				Precisions::<T>::insert(registration.local_id.clone(), chain, config.decimals);
@@ -355,18 +362,23 @@ pub mod pallet {
 			T::CreateOrigin::ensure_origin(origin)?;
 
 			for (chain, config) in update.add_chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
 				// Remove old reverse mapping if it exists
 				if let Some(old_contract) = TokenContracts::<T>::get(chain, update.asset_id.clone())
 				{
 					ContractToAsset::<T>::remove(chain, old_contract);
 				}
 
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					update.asset_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
-				ContractToAsset::<T>::insert(chain, config.token_contract, update.asset_id.clone());
+				ContractToAsset::<T>::insert(chain, token_contract, update.asset_id.clone());
 				Precisions::<T>::insert(update.asset_id.clone(), chain, config.decimals);
 			}
 

@@ -943,46 +943,44 @@ export const USE_ETHERSCAN_CHAINS = new Set(["EVM-137", "EVM-56", "EVM-1"])
 export const TESTNET_CHAINS = new Set(["EVM-10200", "EVM-97"])
 
 /**
- * Recursively searches through call tracer response to find a call matching the target contract address.
- * Searches only in nested calls; the top-level call should be handled by the caller.
+ * Recursively collects every call to the target contract from nested calls
+ * in execution order. The top-level call should be handled by the caller.
  * @param call The call object to search
  * @param targetContractAddress The target contract address to find
- * @returns The input (calldata) if found, null otherwise
+ * @param acc Accumulator for collected calldata inputs
  */
-function findCallInputByAddress(call: CallTracerCall, targetContractAddress: string): string | null {
+function collectCallInputsByAddress(call: CallTracerCall, targetContractAddress: string, acc: string[]): void {
 	const normalizedTarget = targetContractAddress.toLowerCase()
 
 	if (call.calls && Array.isArray(call.calls)) {
 		for (const nestedCall of call.calls) {
 			if (nestedCall.to.toLowerCase() === normalizedTarget) {
-				return nestedCall.input
+				acc.push(nestedCall.input)
 			}
-			const result = findCallInputByAddress(nestedCall, targetContractAddress)
-			if (result !== null) {
-				return result
-			}
+			collectCallInputsByAddress(nestedCall, targetContractAddress, acc)
 		}
 	}
-
-	return null
 }
 
 /**
- * Retrieves the calldata used to call a target contract within a transaction using debug_traceTransaction
- * with the callTracer. Unlike the indexer helper, this returns the calldata whether the target is called
- * directly by the transaction or via nested calls.
+ * Retrieves every call to `targetContractAddress` in `txHash`, in execution order,
+ * using debug_traceTransaction with the callTracer. Includes the top-level call when
+ * the transaction directly targets the contract, followed by every nested invocation.
+ *
+ * Callers with multiple logs from the same transaction should pair calldata entries
+ * to log positions by their order of appearance.
  *
  * @param client - viem PublicClient connected to an RPC node with debug API enabled
  * @param txHash - The transaction hash
- * @param targetContractAddress - The target contract address to find the call for
- * @returns The input (calldata) as a hex string, or null if the target is not found in the trace
+ * @param targetContractAddress - The target contract address to find calls for
+ * @returns An ordered list of calldata hex strings (empty if the target is not called)
  * @throws Error if the RPC call fails or returns an unexpected response
  */
-export async function getContractCallInput(
+export async function getContractCallInputs(
 	client: PublicClient,
 	txHash: HexString,
 	targetContractAddress: string,
-): Promise<HexString | null> {
+): Promise<HexString[]> {
 	const traceClient = client.extend((client) => ({
 		async traceTransaction(hash: HexString): Promise<CallTracerCall> {
 			// Cast to any to bypass viem's strict RPC method typing for debug_* methods
@@ -1009,16 +1007,35 @@ export async function getContractCallInput(
 	}
 
 	const normalizedTarget = targetContractAddress.toLowerCase()
+	const inputs: string[] = []
 
-	// If the top-level transaction directly calls the target contract, return its input
 	if (trace.to.toLowerCase() === normalizedTarget) {
-		return trace.input as HexString
+		inputs.push(trace.input)
 	}
 
-	// Otherwise search for the target contract in nested calls
-	const input = findCallInputByAddress(trace, targetContractAddress)
+	collectCallInputsByAddress(trace, targetContractAddress, inputs)
 
-	return input ? (input as HexString) : null
+	return inputs as HexString[]
+}
+
+/**
+ * Retrieves the calldata used to call a target contract within a transaction.
+ * Returns the first call by execution order; callers handling multiple logs
+ * from the same transaction should prefer {@link getContractCallInputs}.
+ *
+ * @param client - viem PublicClient connected to an RPC node with debug API enabled
+ * @param txHash - The transaction hash
+ * @param targetContractAddress - The target contract address to find the call for
+ * @returns The input (calldata) as a hex string, or null if the target is not found in the trace
+ * @throws Error if the RPC call fails or returns an unexpected response
+ */
+export async function getContractCallInput(
+	client: PublicClient,
+	txHash: HexString,
+	targetContractAddress: string,
+): Promise<HexString | null> {
+	const inputs = await getContractCallInputs(client, txHash, targetContractAddress)
+	return inputs.length > 0 ? inputs[0] : null
 }
 
 /**

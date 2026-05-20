@@ -32,6 +32,9 @@ anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
 sp-weights = { workspace = true, default-features = false }
+ismp-abi = { workspace = true, default-features = false }
+alloy-primitives = { workspace = true, default-features = false }
+alloy-sol-types = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -48,4 +51,7 @@ std = [
     "displaydoc/std",
     "anyhow/std",
     "sp-weights/std",
+    "ismp-abi/std",
+    "alloy-primitives/std",
+    "alloy-sol-types/std",
 ]

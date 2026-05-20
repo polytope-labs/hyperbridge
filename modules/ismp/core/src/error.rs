@@ -107,6 +107,8 @@ pub enum Error {
 	},
 	/// Cannot handle the given message
 	CannotHandleMessage,
+	/// The message batch contains no requests
+	EmptyBatch,
 	/// Membership proof verification failed: {0}
 	MembershipProofVerificationFailed(String),
 	/// Non-membership proof verification failed: {0}
@@ -153,6 +155,11 @@ pub enum Error {
 	/// Attempted to respond to/timeout an unknown request
 	UnknownRequest {
 		/// Unknown request metadata
+		meta: Meta,
+	},
+	/// Attempted to time-out a GET request that has already been responded to
+	GetResponseAlreadyReceived {
+		/// The request metadata
 		meta: Meta,
 	},
 	/// Attempted to time-out an unknown response
@@ -208,11 +215,6 @@ pub enum Error {
 	/// The response destination does not match
 	InvalidResponseDestination {
 		/// The response metadata
-		meta: Meta,
-	},
-	/// Expected get request found post
-	InvalidResponseType {
-		/// The request metadata
 		meta: Meta,
 	},
 	/// Error decoding signature

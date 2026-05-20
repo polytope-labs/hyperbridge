@@ -68,8 +68,10 @@ pub struct SendParams<AssetId, Balance> {
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
 )]
 pub struct ChainConfig {
-	/// The HyperFungibleToken/WrappedHyperFungibleToken module ID on this chain
-	pub token_contract: Vec<u8>,
+	/// The HyperFungibleToken/WrappedHyperFungibleToken EVM contract address on this chain.
+	/// A fixed 20-byte EVM address: this pallet bridges substrate <-> EVM only, so a
+	/// (non-EVM) substrate peer module id cannot be registered here.
+	pub token_contract: H160,
 	/// ERC20 decimals on this chain
 	pub decimals: u8,
 }

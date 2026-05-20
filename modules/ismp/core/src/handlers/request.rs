@@ -20,8 +20,8 @@ use crate::{
 	events::{Event, RequestResponseHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, RequestMessage},
-	router::{Request, RequestResponse},
+	messaging::{dedup_requests, hash_request, RequestMessage},
+	router::Request,
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -31,6 +31,10 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
+	if msg.requests.is_empty() {
+		Err(Error::EmptyBatch)?
+	}
+
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
 	let check_state_machine_client = |state_machine: StateMachine| {
@@ -41,6 +45,13 @@ where
 	};
 
 	let router = host.ismp_router();
+
+	// Reject duplicate requests within the batch. Wire format is `Vec`,
+	// so this is the line of defence against an attacker padding a
+	// batch with identical requests.
+	let wrapped: Vec<Request> = msg.requests.iter().cloned().map(Request::Post).collect();
+	dedup_requests::<H>(&wrapped)?;
+
 	for req in msg.requests.iter() {
 		let req = Request::Post(req.clone());
 		// If a receipt exists for any request then it's a duplicate and it is not dispatched
@@ -74,12 +85,12 @@ where
 
 	// Verify membership proof
 	let state = host.state_machine_commitment(msg.proof.height)?;
-	state_machine.verify_membership(
-		host,
-		RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
-		state,
-		&msg.proof,
-	)?;
+	let commitments = msg
+		.requests
+		.iter()
+		.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+		.collect();
+	state_machine.verify_membership(host, commitments, state, &msg.proof)?;
 
 	let mut total_weights = Weight::zero();
 	let result = msg

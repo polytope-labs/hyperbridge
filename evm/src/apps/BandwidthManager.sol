@@ -26,7 +26,6 @@ import {DispatchPost, IDispatcher} from "@hyperbridge/core/interfaces/IDispatche
 import {IncomingPostRequest, IApp} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
-
 /// Wire payload dispatched by `purchase()` to `pallet-bandwidth`. The
 /// pallet credits a tier-bucket on `chain` for `app`, scaled by `months`.
 struct BandwidthPurchaseMsg {

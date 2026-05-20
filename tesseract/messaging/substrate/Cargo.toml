@@ -35,7 +35,6 @@ ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
-pallet-hyperbridge = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 pallet-state-coprocessor = { workspace = true, default-features = true }
 

@@ -46,7 +46,6 @@ use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
 	messaging::{Message, MessageWithWeight},
-	router::{RequestResponse, Response},
 };
 use pallet_ismp::fee_handler::FeeHandler;
 
@@ -124,17 +123,6 @@ where
 	fn message_bytes(message: &Message) -> u32 {
 		let raw = match message {
 			Message::Request(req) => req.requests.iter().map(|p| p.body.len()).sum::<usize>(),
-			Message::Response(res) => match &res.datagram {
-				RequestResponse::Response(responses) => responses
-					.iter()
-					.map(|r| match r {
-						Response::Post(p) => p.response.len(),
-						Response::Get(g) =>
-							g.values.iter().filter_map(|v| v.value.as_ref()).map(|b| b.len()).sum(),
-					})
-					.sum(),
-				RequestResponse::Request(_) => 0,
-			},
 			_ => 0,
 		};
 		core::cmp::max(raw as u32, 32)
@@ -148,7 +136,7 @@ where
 			Message::Request(msg) =>
 				(&msg.signer, sp_io::hashing::keccak_256(&msg.requests.encode())),
 			Message::Response(msg) =>
-				(&msg.signer, sp_io::hashing::keccak_256(&msg.datagram.encode())),
+				(&msg.signer, sp_io::hashing::keccak_256(&msg.requests.encode())),
 			_ => return None,
 		};
 		Signature::decode(&mut &signer[..])

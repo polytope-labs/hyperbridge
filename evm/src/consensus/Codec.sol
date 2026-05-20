@@ -37,31 +37,34 @@ library Codec {
     // @dev SCALE-encodes the BEEFY finality commitment
     function Encode(Commitment memory commitment) internal pure returns (bytes memory) {
         uint256 payloadLen = commitment.payload.length;
-        bytes memory accumulator = bytes("");
+        bytes memory payload = bytes("");
         for (uint256 i = 0; i < payloadLen; i++) {
-            accumulator = bytes.concat(
-                abi.encodePacked(commitment.payload[i].id), ScaleCodec.encodeBytes(commitment.payload[i].data)
+            payload = bytes.concat(
+                payload,
+                abi.encodePacked(commitment.payload[i].id),
+                ScaleCodec.encodeBytes(commitment.payload[i].data)
             );
         }
 
-        bytes memory payload = bytes.concat(ScaleCodec.encodeUintCompact(payloadLen), accumulator);
-        bytes memory rest = bytes.concat(
-            ScaleCodec.encode32(uint32(commitment.blockNumber)), ScaleCodec.encode64(uint64(commitment.validatorSetId))
+        return bytes.concat(
+            ScaleCodec.encodeUintCompact(payloadLen),
+            payload,
+            ScaleCodec.encode32(commitment.blockNumber),
+            ScaleCodec.encode64(commitment.validatorSetId)
         );
-
-        return bytes.concat(payload, rest);
     }
 
     // @dev SCALE-encodes the BEEFY Mmr leaf
     function Encode(PartialBeefyMmrLeaf memory leaf) internal pure returns (bytes memory) {
-        bytes memory first =
-            bytes.concat(abi.encodePacked(uint8(leaf.version)), ScaleCodec.encode32(uint32(leaf.parentNumber)));
-        bytes memory second =
-            bytes.concat(bytes.concat(leaf.parentHash), ScaleCodec.encode64(uint64(leaf.nextAuthoritySet.id)));
-        bytes memory third = bytes.concat(
-            ScaleCodec.encode32(uint32(leaf.nextAuthoritySet.len)), bytes.concat(leaf.nextAuthoritySet.root)
+        return bytes.concat(
+            abi.encodePacked(leaf.version),
+            ScaleCodec.encode32(leaf.parentNumber),
+            abi.encodePacked(leaf.parentHash),
+            ScaleCodec.encode64(leaf.nextAuthoritySet.id),
+            ScaleCodec.encode32(leaf.nextAuthoritySet.len),
+            abi.encodePacked(leaf.nextAuthoritySet.root),
+            abi.encodePacked(leaf.extra)
         );
-        return bytes.concat(bytes.concat(first, second), bytes.concat(third, bytes.concat(leaf.extra)));
     }
 
     // @dev Deserializes a substrate header

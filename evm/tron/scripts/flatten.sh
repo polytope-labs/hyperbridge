@@ -21,7 +21,6 @@ declare -A CONTRACTS=(
     ["TronHost"]="src/hosts/Tron.sol"
     ["HandlerV1"]="src/core/HandlerV1.sol"
     ["HostManager"]="src/core/HostManager.sol"
-    ["BeefyV1FiatShamir"]="src/consensus/BeefyV1FiatShamir.sol"
     ["ConsensusRouter"]="src/consensus/ConsensusRouter.sol"
     ["CallDispatcher"]="src/utils/CallDispatcher.sol"
     ["IntentGatewayV2"]="src/apps/IntentGatewayV2.sol"

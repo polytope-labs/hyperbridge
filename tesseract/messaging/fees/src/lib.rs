@@ -19,14 +19,16 @@ use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Keccak256, Message, Proof},
-	router::{PostRequest, Request, RequestResponse},
+	router::{PostRequest, Request},
 };
 use itertools::Itertools;
-use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalProof};
+use pallet_ismp_relayer::{
+	beneficiary_message,
+	withdrawal::{Signature, WithdrawalProof},
+};
 use primitive_types::{H256, U256};
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
-use sp_core::keccak_256;
 use std::{collections::BTreeSet, mem::discriminant, sync::Arc};
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
@@ -277,43 +279,21 @@ impl TransactionPayment {
 		Ok(data)
 	}
 
-	/// Store entries for delivered post requests and responses
+	/// Store entries for delivered post requests
 	pub async fn store_messages(&self, receipts: Vec<TxReceipt>) -> anyhow::Result<()> {
 		let mut actions = vec![];
-		for receipt in receipts {
-			match receipt {
-				TxReceipt::Request { query, height } => {
-					let action = self.db.deliveries().create(
-						hex::encode(query.commitment.as_bytes()),
-						query.source_chain.to_string(),
-						query.dest_chain.to_string(),
-						DeliveryType::PostRequest as i32,
-						chrono::Utc::now().timestamp() as i32,
-						height as i32,
-						Default::default(),
-					);
+		for TxReceipt { query, height } in receipts {
+			let action = self.db.deliveries().create(
+				hex::encode(query.commitment.as_bytes()),
+				query.source_chain.to_string(),
+				query.dest_chain.to_string(),
+				DeliveryType::PostRequest as i32,
+				chrono::Utc::now().timestamp() as i32,
+				height as i32,
+				Default::default(),
+			);
 
-					actions.push(action);
-				},
-
-				TxReceipt::Response { query, request_commitment, height } => {
-					// When inserting the hash for responses we concatenate the response
-					// commitment with the request commitment
-					let mut commitment = vec![];
-					commitment.extend_from_slice(query.commitment.as_bytes());
-					commitment.extend_from_slice(request_commitment.as_bytes());
-					let action = self.db.deliveries().create(
-						hex::encode(commitment.as_slice()),
-						query.source_chain.to_string(),
-						query.dest_chain.to_string(),
-						DeliveryType::PostResponse as i32,
-						chrono::Utc::now().timestamp() as i32,
-						height as i32,
-						Default::default(),
-					);
-					actions.push(action);
-				},
-			}
+			actions.push(action);
 		}
 		self.db._batch(actions).await?;
 		Ok(())
@@ -350,28 +330,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let response_entries = self
-			.db
-			.deliveries()
-			.find_many(vec![
-				WhereParam::SourceChain(StringFilter::Equals(source_chain.to_string())),
-				WhereParam::DestChain(StringFilter::Equals(dest_chain.to_string())),
-				WhereParam::DeliveryType(IntFilter::Equals(DeliveryType::PostResponse as i32)),
-			])
-			.order_by(OrderByParam::Height(Direction::Asc))
-			.exec()
-			.await?;
-
-		let highest_request_delivery_height =
-			request_entries.get(request_entries.len() - 1).map(|data| data.height as u64);
-
-		let highest_response_delivery_height =
-			response_entries.get(response_entries.len() - 1).map(|data| data.height as u64);
-
-		let dest_height = std::cmp::max(
-			highest_request_delivery_height.unwrap_or_default(),
-			highest_response_delivery_height.unwrap_or_default(),
-		);
+		let dest_height = request_entries.last().map(|data| data.height as u64).unwrap_or_default();
 
 		if dest_height == 0 {
 			Ok(None)
@@ -380,15 +339,26 @@ impl TransactionPayment {
 		}
 	}
 
-	pub async fn query_state_proofs(
+	pub async fn query_state_proofs<H: HyperbridgeClaim + Sync>(
 		&self,
 		source: Arc<dyn IsmpProvider>,
 		dest: Arc<dyn IsmpProvider>,
 		source_height: u64,
 		dest_height: u64,
-		keys: Vec<(Key, Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+		keys: Vec<(H256, Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+		hyperbridge: &H,
 	) -> Result<Vec<WithdrawalProof>, anyhow::Error> {
 		let mut proofs = vec![];
+		let source_chain = source.state_machine_id().state_id;
+		let cross_chain_type = discriminant(&source.state_machine_id().state_id) !=
+			discriminant(&dest.state_machine_id().state_id);
+		// One signature is consumed per submitted proof, so each chunk increments
+		// the locally-tracked nonce from the snapshot we read at the start.
+		let mut nonce = if cross_chain_type {
+			hyperbridge.relayer_nonce(dest.address(), source_chain).await?
+		} else {
+			0
+		};
 		// Chunk keys by 50 each
 		for chunk in keys.chunks(50) {
 			// Gather keys to be queried on the source chain
@@ -419,6 +389,16 @@ impl TransactionPayment {
 				)
 				.await?;
 
+			let beneficiary_details = if cross_chain_type {
+				let beneficiary = source.address();
+				let prehash = beneficiary_message(nonce, source_chain, &beneficiary);
+				let details = Some((beneficiary, dest.sign(&prehash)));
+				nonce += 1;
+				details
+			} else {
+				None
+			};
+
 			let proof = WithdrawalProof {
 				commitments: request_response_commitments,
 				source_proof: Proof {
@@ -432,16 +412,7 @@ impl TransactionPayment {
 					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
 					proof: dest_proof,
 				},
-				beneficiary_details: {
-					// If they are not the same chain type
-					if discriminant(&source.state_machine_id().state_id) !=
-						discriminant(&dest.state_machine_id().state_id)
-					{
-						Some((source.address(), dest.sign(&keccak_256(&source.address()))))
-					} else {
-						None
-					}
-				},
+				beneficiary_details,
 			};
 
 			proofs.push(proof)
@@ -451,44 +422,27 @@ impl TransactionPayment {
 	}
 
 	// todo: Consolidate the state proof query into a single function
-	/// Create payment claim proof for all deliveries of requests and responses from source to dest
-	/// a number of days The default is 30 days
-	pub async fn create_proof_from_receipts(
+	/// Create payment claim proof for all deliveries of requests from source to dest.
+	pub async fn create_proof_from_receipts<H: HyperbridgeClaim + Sync>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
 		source: Arc<dyn IsmpProvider>,
 		dest: Arc<dyn IsmpProvider>,
 		receipts: Vec<TxReceipt>,
+		hyperbridge: &H,
 	) -> anyhow::Result<Vec<WithdrawalProof>> {
 		let keys = receipts
 			.iter()
-			.map(|data| {
-				match data {
-					TxReceipt::Request { query, height } => {
-						let source_key = source.request_commitment_full_key(query.commitment);
-						//Get request receipt keys on dest chain
-						let dest_key = dest.request_receipt_full_key(query.commitment);
-						(Key::Request(query.commitment), source_key, dest_key)
-					},
-					TxReceipt::Response { query, request_commitment, height } => {
-						let source_key = source.response_commitment_full_key(query.commitment);
-						//Get response receipt keys on dest chain
-						let dest_key = dest.response_receipt_full_key(*request_commitment);
-						(
-							Key::Response {
-								request_commitment: *request_commitment,
-								response_commitment: query.commitment,
-							},
-							source_key,
-							dest_key,
-						)
-					},
-				}
+			.map(|TxReceipt { query, .. }| {
+				let source_key = source.request_commitment_full_key(query.commitment);
+				let dest_key = dest.request_receipt_full_key(query.commitment);
+				(query.commitment, source_key, dest_key)
 			})
 			.collect::<Vec<_>>();
 
-		self.query_state_proofs(source, dest, source_height, dest_height, keys).await
+		self.query_state_proofs(source, dest, source_height, dest_height, keys, hyperbridge)
+			.await
 	}
 
 	/// Fetch all pending withdrawals from the db, returns their id so they can be deleted.
@@ -629,7 +583,7 @@ impl TransactionPayment {
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
-	pub async fn create_claim_proof<H: HyperbridgeClaim>(
+	pub async fn create_claim_proof<H: HyperbridgeClaim + Sync>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
@@ -650,18 +604,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let response_entries = self
-			.db
-			.deliveries()
-			.find_many(vec![
-				WhereParam::SourceChain(StringFilter::Equals(source_chain.to_string())),
-				WhereParam::DestChain(StringFilter::Equals(dest_chain.to_string())),
-				WhereParam::DeliveryType(IntFilter::Equals(DeliveryType::PostResponse as i32)),
-			])
-			.exec()
-			.await?;
-
-		if request_entries.is_empty() && response_entries.is_empty() {
+		if request_entries.is_empty() {
 			return Ok(Default::default());
 		}
 
@@ -671,40 +614,26 @@ impl TransactionPayment {
 			let source_key = source.request_commitment_full_key(hash);
 			//Get request receipt keys on dest chain
 			let dest_key = dest.request_receipt_full_key(hash);
-			Some((Key::Request(hash), source_key, dest_key))
-		});
-
-		let responses = response_entries.iter().filter_map(|data| {
-			// Get response commitment keys on source chain
-			let concat_hash = hex::decode(data.hash.clone()).ok()?;
-			let response_commitment = H256::from_slice(&concat_hash[..32]);
-			let source_key = source.response_commitment_full_key(response_commitment);
-			//Get response receipt keys on dest chain
-			let request_commitment = H256::from_slice(&concat_hash[32..]);
-			let dest_key = dest.response_receipt_full_key(request_commitment);
-			Some((Key::Response { request_commitment, response_commitment }, source_key, dest_key))
+			Some((hash, source_key, dest_key))
 		});
 
 		let mut keys_to_delete = vec![];
 		let mut keys_to_prove = vec![];
 
-		for key in requests.chain(responses) {
-			let fee = match &key.0 {
-				Key::Request(hash) => source.query_request_fee_metadata(*hash).await?,
-				Key::Response { response_commitment, .. } =>
-					source.query_response_fee_metadata(*response_commitment).await?,
-			};
+		for entry in requests {
+			let hash = entry.0;
+			let fee = source.query_request_fee_metadata(hash).await?;
 
 			if fee.is_zero() {
-				keys_to_delete.push(key.0);
+				keys_to_delete.push(hash);
 				continue;
 			}
 
-			if hyperbridge.check_claimed(key.0.clone()).await? {
-				keys_to_delete.push(key.0);
+			if hyperbridge.check_claimed(hash).await? {
+				keys_to_delete.push(hash);
 				continue;
 			}
-			keys_to_prove.push(key);
+			keys_to_prove.push(entry);
 		}
 
 		let tx = self.clone();
@@ -718,25 +647,21 @@ impl TransactionPayment {
 			}
 		});
 
-		self.query_state_proofs(source, dest, source_height, dest_height, keys_to_prove)
-			.await
+		self.query_state_proofs(
+			source,
+			dest,
+			source_height,
+			dest_height,
+			keys_to_prove,
+			hyperbridge,
+		)
+		.await
 	}
 
-	pub async fn delete_claimed_entries(&self, commitments: Vec<Key>) -> anyhow::Result<()> {
+	pub async fn delete_claimed_entries(&self, commitments: Vec<H256>) -> anyhow::Result<()> {
 		if !commitments.is_empty() {
 			// Remove claimed entries from db
-			let entries = commitments
-				.into_iter()
-				.map(|key| match key {
-					Key::Request(req) => req.0.to_vec(),
-					Key::Response { request_commitment, response_commitment } => {
-						let mut key = vec![];
-						key.extend_from_slice(&response_commitment.0);
-						key.extend_from_slice(&request_commitment.0);
-						key
-					},
-				})
-				.collect();
+			let entries = commitments.into_iter().map(|req| req.0.to_vec()).collect();
 
 			self.delete_entries(entries).await?;
 		}
@@ -747,7 +672,6 @@ impl TransactionPayment {
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
 pub enum DeliveryType {
 	PostRequest = 0,
-	PostResponse = 1,
 }
 
 impl TryFrom<i32> for DeliveryType {
@@ -755,7 +679,6 @@ impl TryFrom<i32> for DeliveryType {
 	fn try_from(value: i32) -> Result<Self, Self::Error> {
 		match value {
 			0 => Ok(Self::PostRequest),
-			1 => Ok(Self::PostResponse),
 			_ => Err(anyhow!("Unknown delivery type")),
 		}
 	}

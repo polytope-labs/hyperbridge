@@ -16,7 +16,7 @@
 //! The parachain consensus client module
 use polkadot_sdk::*;
 
-use core::{marker::PhantomData, time::Duration};
+use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -32,9 +32,8 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use pallet_ismp::{ConsensusDigest, ISMP_ID};
+use pallet_ismp::{ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID};
 use primitive_types::H256;
-use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
 	app_crypto::sp_core::storage::StorageKey,
 	generic::Header,
@@ -145,8 +144,6 @@ where
 			let id = codec::Decode::decode(&mut &key[(key.len() - 4)..])
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
-			let slot_duration = Parachains::<T>::get(id).expect("Parachain with ID exists; qed");
-
 			// ideally all parachain headers are the same
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
@@ -155,12 +152,14 @@ where
 				(0, H256::default(), H256::default());
 			for digest in header.digest().logs.iter() {
 				match digest {
-					DigestItem::PreRuntime(consensus_engine_id, value)
-						if *consensus_engine_id == AURA_ENGINE_ID =>
+					DigestItem::Consensus(consensus_engine_id, value)
+						if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
 					{
-						let slot = Slot::decode(&mut &value[..])
-							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-						timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+						let timestamp_digest =
+							TimestampDigest::decode(&mut &value[..]).map_err(|e| {
+								Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
+							})?;
+						timestamp = timestamp_digest.timestamp;
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_ID =>
@@ -240,7 +239,7 @@ where
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
 		// There are no fraud proofs for the parachain client
-		Ok(())
+		Err(Error::CannotHandleMessage)
 	}
 
 	fn consensus_client_id(&self) -> [u8; 4] {

@@ -563,7 +563,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 timeout: 0,
                 height: uint64(options.height),
                 fee: options.relayerFee,
-                context: context
+                context: context,
+                payer: msg.sender
             });
 
             // dispatch storage query request
@@ -572,7 +573,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 IDispatcher(hostAddr).dispatch{value: msg.value}(request);
             } else {
                 // try to pay for dispatch with fee token
-                dispatchWithFeeToken(request, msg.sender);
+                dispatchWithFeeToken(request);
             }
         } else if (currentChain == orderDest) {
             // destination chain: dispatch RefundEscrow request to source chain
@@ -603,7 +604,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 IDispatcher(hostAddr).dispatch{value: msg.value}(request);
             } else {
                 // try to pay for dispatch with fee token
-                dispatchWithFeeToken(request, msg.sender);
+                dispatchWithFeeToken(request);
             }
         } else {
             revert WrongChain();

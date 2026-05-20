@@ -6,10 +6,10 @@ import {BaseTest} from "./BaseTest.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
-import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "@hyperbridge/core/interfaces/IApp.sol";
 import {DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
-import {Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -332,7 +332,7 @@ contract HyperFungibleTokenTest is BaseTest {
         });
 
         vm.prank(address(host));
-        hft.onPostRequestTimeout(request);
+        hft.onPostRequestTimeout(PostRequestTimeout(request, address(0xBEEF)));
 
         assertEq(hft.balanceOf(sender), balanceAfterSend + SEND_AMOUNT);
     }
@@ -354,7 +354,7 @@ contract HyperFungibleTokenTest is BaseTest {
         });
 
         vm.expectRevert();
-        hft.onPostRequestTimeout(request);
+        hft.onPostRequestTimeout(PostRequestTimeout(request, address(0xBEEF)));
     }
 
     // ========== Helpers ==========
@@ -622,7 +622,7 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
         });
 
         vm.prank(address(host));
-        whft.onPostRequestTimeout(request);
+        whft.onPostRequestTimeout(PostRequestTimeout(request, address(0xBEEF)));
 
         assertEq(mockToken.balanceOf(address(this)), balanceBefore);
     }
@@ -672,7 +672,7 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
         });
 
         vm.prank(address(host));
-        wethWhft.onPostRequestTimeout(request);
+        wethWhft.onPostRequestTimeout(PostRequestTimeout(request, address(0xBEEF)));
 
         // Sender should have native ETH back
         assertEq(sender.balance, ethBefore);
@@ -695,7 +695,7 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
         });
 
         vm.expectRevert();
-        whft.onPostRequestTimeout(request);
+        whft.onPostRequestTimeout(PostRequestTimeout(request, address(0xBEEF)));
     }
 
     // ========== Helpers ==========

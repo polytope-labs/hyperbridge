@@ -379,11 +379,12 @@ pub mod pallet {
 
 	/// The custom implementation of the `ReservableCurrency` trait.
 	impl<T: Config> ReservableCurrency<T::AccountId> for Pallet<T> {
-		/// Checks total amount of funds that are not already reserved
-		/// total includes locked/vested tokens
+		/// Checks the total amount of funds that are not already reserved or
+		/// bonded through this pallet. Total includes locked/vested tokens.
 		fn can_reserve(who: &T::AccountId, value: Self::Balance) -> bool {
 			let unreserved_balance = T::NativeCurrency::total_balance(who)
-				.saturating_sub(T::NativeCurrency::reserved_balance(who));
+				.saturating_sub(T::NativeCurrency::reserved_balance(who))
+				.saturating_sub(Bonded::<T>::get(who));
 			unreserved_balance >= value
 		}
 

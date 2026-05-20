@@ -10,8 +10,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HandlerV1} from "../../src/core/HandlerV1.sol";
-import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {HandlerV2} from "../../src/core/HandlerV2.sol";
+import {HostParams} from "../../src/core/EvmHost.sol";
 import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
@@ -252,29 +252,20 @@ contract BandwidthManagerTest is Test {
 
     function _deployHost(address feeTokenAddr) internal returns (TestHost h) {
         TestConsensusClient cc = new TestConsensusClient();
-        HandlerV1 handler = new HandlerV1();
+        HandlerV2 handler = new HandlerV2();
         HostManager hm = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
 
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = PARA_ID;
-        PerByteFee[] memory pbf = new PerByteFee[](0);
 
-        // `defaultPerByteFee = 0` so the manager doesn't need a
-        // treasury balance to cover dispatch fees on top of the
-        // tier price — purchase chains are expected to subsidise
-        // their own dispatch.
         HostParams memory params = HostParams({
             uniswapV2: address(0),
-            perByteFees: pbf,
             admin: address(this),
             hostManager: address(hm),
             handler: address(handler),
-            defaultTimeout: 0,
             unStakingPeriod: 21 * (60 * 60 * 24),
             challengePeriod: 0,
             consensusClient: address(cc),
-            defaultPerByteFee: 0,
-            stateCommitmentFee: 0,
             feeToken: feeTokenAddr,
             hyperbridge: StateMachine.kusama(PARA_ID),
             stateMachines: stateMachines

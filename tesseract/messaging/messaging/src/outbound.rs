@@ -369,12 +369,9 @@ async fn submit_for_dest(
 		.collect::<Vec<_>>();
 
 	retain_incentivized_requests(&mut events, coprocessor, incentivized.as_deref());
-	let has_events_for_dest = events.iter().any(|ev| {
-		matches!(ev,
-		Event::PostRequest(req) if req.dest == dest_state_machine) ||
-			matches!(ev,
-		Event::PostResponse(res) if res.dest_chain() == dest_state_machine)
-	});
+	let has_events_for_dest = events
+		.iter()
+		.any(|ev| matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine));
 
 	if !has_events_for_dest && !is_mandatory {
 		// Messaging-only proof with nothing for this chain — skip. Rotation
@@ -668,12 +665,12 @@ async fn forward_consensus_delivery_claims(
 
 /// Sibling of [`forward_consensus_delivery_claims`] for the request reward.
 /// Indexes the batch's `PostRequest`s by commitment, then for every
-/// [`TxReceipt::Request`] whose `source_chain` is the hyperbridge
-/// coprocessor, recovers the original request from the batch and forwards a
+/// [`TxReceipt`] whose `source_chain` is the hyperbridge coprocessor,
+/// recovers the original request from the batch and forwards a
 /// [`PendingRequestDeliveryClaim`] carrying that request. The pallet hashes
 /// it on chain and looks up the reward by `(request.dest, request.from)`,
-/// so without the request we cannot key the allowlist. Responses are
-/// ignored: this incentive is request-only.
+/// so without the request we cannot key the allowlist. `TxReceipt` only
+/// carries requests since `PostResponse` was removed in #840.
 ///
 /// Uses `try_send` so a full channel drops the claim immediately; the DB
 /// row persisted just above will be replayed on the next trigger.
@@ -700,12 +697,11 @@ async fn forward_request_delivery_claims(
 
 	let claims: Vec<PendingRequestDeliveryClaim> = receipts
 		.iter()
-		.filter_map(|receipt| match receipt {
-			TxReceipt::Request { query, height } if query.source_chain == coprocessor =>
-				by_commitment.get(&query.commitment).cloned().map(|request| {
-					PendingRequestDeliveryClaim { request, delivery_height: *height }
-				}),
-			_ => None,
+		.filter_map(|TxReceipt { query, height }| {
+			(query.source_chain == coprocessor)
+				.then(|| by_commitment.get(&query.commitment).cloned())
+				.flatten()
+				.map(|request| PendingRequestDeliveryClaim { request, delivery_height: *height })
 		})
 		.collect();
 
@@ -1066,7 +1062,7 @@ pub async fn initialize(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::router::{PostRequest, PostResponse};
+	use ismp::router::PostRequest;
 	use std::sync::Arc;
 	use tesseract_primitives::mocks::MockHost;
 
@@ -1083,21 +1079,6 @@ mod tests {
 			to: vec![2],
 			timeout_timestamp: 0,
 			body: vec![],
-		}
-	}
-
-	/// Build a PostResponse whose `dest_chain()` is `response_to`. A response
-	/// heads back to the *source* of the original request, so we put
-	/// `response_to` in the inner post's `source` field.
-	fn post_res(
-		response_to: StateMachine,
-		request_was_for: StateMachine,
-		nonce: u64,
-	) -> PostResponse {
-		PostResponse {
-			post: post_req(response_to, request_was_for, nonce),
-			response: vec![9],
-			timeout_timestamp: 0,
 		}
 	}
 
@@ -1225,10 +1206,7 @@ mod tests {
 		let client_map = client_map_with(hb.clone(), dest.clone());
 
 		// Only DEST_B-targeted events; messaging-only proof for DEST_A.
-		let events = vec![
-			Event::PostRequest(post_req(HB, DEST_B, 1)),
-			Event::PostResponse(post_res(DEST_B, HB, 2)),
-		];
+		let events = vec![Event::PostRequest(post_req(HB, DEST_B, 1))];
 
 		submit_for_dest(
 			OutboundEventContext {
@@ -1279,26 +1257,13 @@ mod tests {
 
 	fn request_receipt_for(req: &PostRequest, height: u64) -> TxReceipt {
 		let commitment = hash_request::<Hasher>(&Request::Post(req.clone()));
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source,
 				dest_chain: req.dest,
 				nonce: req.nonce,
 				commitment,
 			},
-			height,
-		}
-	}
-
-	fn response_receipt(source: StateMachine, height: u64) -> TxReceipt {
-		TxReceipt::Response {
-			query: Query {
-				source_chain: source,
-				dest_chain: DEST_A,
-				nonce: 1,
-				commitment: H256::repeat_byte(0xCC),
-			},
-			request_commitment: H256::repeat_byte(0xDD),
 			height,
 		}
 	}
@@ -1335,30 +1300,6 @@ mod tests {
 			heights.iter().copied().collect::<std::collections::BTreeSet<_>>(),
 			[100u64, 102u64].into_iter().collect()
 		);
-	}
-
-	#[tokio::test]
-	async fn forwards_ignores_responses() {
-		let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-		let user_req = build_post(DEST_B, 0x11);
-		let batch_requests = vec![user_req.clone()];
-		let receipts = vec![
-			response_receipt(HB, 100),
-			response_receipt(DEST_B, 101),
-			request_receipt_for(&user_req, 102),
-		];
-		forward_request_delivery_claims(
-			"dest_a",
-			DEST_A,
-			HB,
-			&batch_requests,
-			&receipts,
-			&Some(tx),
-			&None,
-		)
-		.await;
-
-		assert!(rx.try_recv().is_err(), "no request was hyperbridge-originated");
 	}
 
 	#[tokio::test]
@@ -1420,7 +1361,12 @@ mod tests {
 	#[test]
 	fn retain_incentivized_passes_non_request_events() {
 		let allowlist: BTreeSet<Vec<u8>> = BTreeSet::new();
-		let mut events = vec![Event::PostResponse(post_res(DEST_B, HB, 1))];
+		// A non-`PostRequest` event (e.g. a state-machine update) must pass
+		// through untouched regardless of the allowlist.
+		let mut events = vec![Event::StateMachineUpdated(StateMachineUpdated {
+			state_machine_id: hb_id(),
+			latest_height: 1,
+		})];
 		retain_incentivized_requests(&mut events, HB, Some(&allowlist));
 		assert_eq!(events.len(), 1);
 	}

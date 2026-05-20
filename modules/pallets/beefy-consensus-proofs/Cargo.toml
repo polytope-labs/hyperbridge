@@ -23,7 +23,7 @@ beefy-verifier-primitives = { workspace = true, default-features = false }
 
 # ABI
 alloy-sol-types = { workspace = true, default-features = false }
-ismp-solidity-abi = { workspace = true, default-features = false }
+ismp-abi = { workspace = true, default-features = false }
 
 # misc
 anyhow = { workspace = true, default-features = false }
@@ -55,7 +55,7 @@ std = [
     "beefy-verifier/std",
     "beefy-verifier-primitives/std",
     "alloy-sol-types/std",
-    "ismp-solidity-abi/std",
+    "ismp-abi/std",
     "anyhow/std",
     "primitive-types/std",
     "sp-core/std",

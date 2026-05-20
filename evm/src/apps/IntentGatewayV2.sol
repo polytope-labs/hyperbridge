@@ -17,8 +17,8 @@ pragma solidity ^0.8.24;
 import {IntentsBase} from "./intentsv2/IntentsBase.sol";
 import {IntrinsicIntents} from "./intentsv2/IntrinsicIntents.sol";
 import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
-import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -414,16 +414,13 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
-            bytes32 solver;
-            bytes32 storedSessionKey;
-            bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+            bytes32 storedSelectionHash;
             assembly {
-                solver := tload(commitment)
-                storedSessionKey := tload(sessionSlot)
+                storedSelectionHash := tload(commitment)
             }
 
-            if (address(uint160(uint256(solver))) != msg.sender) revert Unauthorized();
-            if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
+            bytes32 expectedSelectionHash = keccak256(abi.encode(msg.sender, order.session));
+            if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;

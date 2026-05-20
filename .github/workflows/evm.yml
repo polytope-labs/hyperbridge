@@ -141,5 +141,5 @@ jobs:
                       exit 0
                   fi
                   cargo test -p evm-integration-tests --release \
-                      tests::beefy_v1::test_beefy_consensus_client \
+                      tests::ecdsa_beefy::test_beefy_consensus_client \
                       -- --ignored --nocapture

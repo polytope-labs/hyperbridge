@@ -43,6 +43,10 @@ export const SubstrateHashing = Enum({
 	Blake2: _void,
 })
 
+/**
+ * The proof format for all substrate state proofs. The trie root the proof is verified
+ * against is chosen by the verifying context on-chain, not encoded in the proof itself.
+ */
 export const SubstrateStateMachineProof = Struct({
 	/**
 	 * The hasher used to hash the state machine state.
@@ -52,17 +56,6 @@ export const SubstrateStateMachineProof = Struct({
 	 * Proof of the state machine state.
 	 */
 	storageProof: Vector(Vector(u8)),
-})
-
-export const SubstrateStateProof = Enum({
-	/*
-	 * Uses overlay root for verification
-	 */
-	OverlayProof: SubstrateStateMachineProof,
-	/*
-	 * Uses state root for verification
-	 */
-	StateProof: SubstrateStateMachineProof,
 })
 
 export const BasicProof = Vector(Vector(u8))

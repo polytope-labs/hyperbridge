@@ -18,7 +18,7 @@
 use crate::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{GetRequest, GetResponse, PostRequest, PostResponse, Request, Response},
+	router::{GetRequest, GetResponse, PostRequest, Request},
 };
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -110,20 +110,14 @@ pub enum Event {
 	StateCommitmentVetoed(StateCommitmentVetoed),
 	/// An event that is emitted when a post request is dispatched
 	PostRequest(PostRequest),
-	/// An event that is emitted when a post response is dispatched
-	PostResponse(PostResponse),
-	/// An event that is emitted when a post response is dispatched
+	/// An event that is emitted when a get response is dispatched
 	GetResponse(GetResponse),
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(GetRequest),
 	/// Emitted when a post request is handled
 	PostRequestHandled(RequestResponseHandled),
-	/// Emitted when a post response is handled
-	PostResponseHandled(RequestResponseHandled),
 	/// Emitted when a post request timeout is handled
 	PostRequestTimeoutHandled(TimeoutHandled),
-	/// Emitted when a post response timeout is handled
-	PostResponseTimeoutHandled(TimeoutHandled),
 	/// Emitted when a get request is handled
 	GetRequestHandled(RequestResponseHandled),
 	/// Emitted when a get request timeout is handled
@@ -149,14 +143,8 @@ impl From<&Request> for Meta {
 	}
 }
 
-impl From<&Response> for Meta {
-	fn from(value: &Response) -> Self {
-		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
-	}
-}
-
-impl From<&PostResponse> for Meta {
-	fn from(value: &PostResponse) -> Self {
+impl From<&GetResponse> for Meta {
+	fn from(value: &GetResponse) -> Self {
 		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
 	}
 }
@@ -167,8 +155,20 @@ impl From<Request> for Meta {
 	}
 }
 
-impl From<Response> for Meta {
-	fn from(value: Response) -> Self {
+impl From<GetResponse> for Meta {
+	fn from(value: GetResponse) -> Self {
 		Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+	}
+}
+
+impl From<&crate::router::PostRequest> for Meta {
+	fn from(value: &crate::router::PostRequest) -> Self {
+		Self { source: value.source, dest: value.dest, nonce: value.nonce }
+	}
+}
+
+impl From<&crate::router::GetRequest> for Meta {
+	fn from(value: &crate::router::GetRequest) -> Self {
+		Self { source: value.source, dest: value.dest, nonce: value.nonce }
 	}
 }

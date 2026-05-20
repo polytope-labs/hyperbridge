@@ -38,11 +38,30 @@ pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> Result<G1Projectiv
 }
 
 /// Aggregate multiple BLS public keys into a single public key.
-pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
-	let aggregate = keys
-		.iter()
-		.filter_map(|key| pubkey_to_projective(key).ok())
-		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
+///
+/// Any input key that fails to decompress is propagated as an error
+/// rather than silently dropped — otherwise a caller's participant
+/// count would diverge from the aggregate, letting an attacker pad the
+/// quorum with junk keys that contribute nothing to the signature.
+pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Result<Vec<u8>, BLSError> {
+	let mut aggregate = G1ProjectivePoint::default();
+	for key in keys {
+		aggregate = aggregate + pubkey_to_projective(key)?;
+	}
+	Ok(bls::point_to_pubkey(aggregate.into()))
+}
 
-	bls::point_to_pubkey(aggregate.into())
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn aggregate_public_keys_rejects_malformed_key() {
+		// An all-zeros 48-byte buffer is not a valid compressed G1 point.
+		let junk: BlsPublicKey = vec![0u8; BLS_PUBLIC_KEY_BYTES_LEN].try_into().unwrap();
+		let err = aggregate_public_keys(&[junk]).expect_err("malformed key must error");
+		// Any BLSError is acceptable — the point is that the error is surfaced
+		// rather than silently dropped.
+		let _ = err;
+	}
 }

@@ -21,13 +21,13 @@ Interface for dispatching outgoing cross-chain messages. Applications use these 
 
 ---
 
-### [IHandler](/developers/evm/api/ihandler)
+### [IHandlerV2](/developers/evm/api/ihandler)
 
-Verifies and processes incoming ISMP messages. Handles all message delivery and timeout processing.
+Verifies and processes incoming ISMP messages. Handles all message delivery and timeout processing. Supports batching multiple calls via `batchCall`.
 
 ---
 
-### [IConsensus](/developers/evm/api/iconsensus)
+### [IConsensusV2](/developers/evm/api/iconsensus)
 
 Interface for consensus clients that verify Hyperbridge's finality.
 

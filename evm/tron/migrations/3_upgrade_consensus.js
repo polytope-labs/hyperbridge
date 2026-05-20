@@ -1,7 +1,7 @@
 /**
  * TronBox Migration: Upgrade consensus contracts
  *
- * Deploys new BeefyV1, BeefyV1FiatShamir, and ConsensusRouter,
+ * Deploys new BeefyV1 and ConsensusRouter,
  * then updates the TronHost's hostParams to use the new router.
  *
  * Required: ParachainProof was changed from `Parachain parachain` (singular)
@@ -11,9 +11,7 @@
 
 const HeaderImpl = artifacts.require("HeaderImpl");
 const Codec = artifacts.require("Codec");
-const Transcript = artifacts.require("Transcript");
 const BeefyV1 = artifacts.require("BeefyV1");
-const BeefyV1FiatShamir = artifacts.require("BeefyV1FiatShamir");
 const ConsensusRouter = artifacts.require("ConsensusRouter");
 const TronHost = artifacts.require("TronHost");
 
@@ -47,10 +45,6 @@ module.exports = async function (deployer, network, accounts) {
     await deployer.deploy(Codec);
     console.log("  ✓ Codec:", Codec.address);
 
-    console.log("→ Deploying Transcript library ...");
-    await deployer.deploy(Transcript);
-    console.log("  ✓ Transcript:", Transcript.address);
-
     // ─── 2. Deploy BeefyV1 (naive proof verifier) ────────────────────
     console.log("→ Linking libraries → BeefyV1 ...");
     await deployer.link(HeaderImpl, BeefyV1);
@@ -61,25 +55,13 @@ module.exports = async function (deployer, network, accounts) {
     const beefyV1 = await BeefyV1.deployed();
     console.log("  ✓ BeefyV1:", beefyV1.address);
 
-    // ─── 3. Deploy BeefyV1FiatShamir ─────────────────────────────────
-    console.log("→ Linking libraries → BeefyV1FiatShamir ...");
-    await deployer.link(HeaderImpl, BeefyV1FiatShamir);
-    await deployer.link(Codec, BeefyV1FiatShamir);
-    await deployer.link(Transcript, BeefyV1FiatShamir);
-
-    console.log("→ Deploying BeefyV1FiatShamir ...");
-    await deployer.deploy(BeefyV1FiatShamir);
-    const beefyV1FiatShamir = await BeefyV1FiatShamir.deployed();
-    console.log("  ✓ BeefyV1FiatShamir:", beefyV1FiatShamir.address);
-
-    // ─── 4. Deploy ConsensusRouter ───────────────────────────────────
+    // ─── 3. Deploy ConsensusRouter ───────────────────────────────────
     // SP1Beefy set to zero — not available on TRON (depends on sp1-contracts)
     console.log("→ Deploying ConsensusRouter ...");
     await deployer.deploy(
         ConsensusRouter,
         ZERO_ADDRESS_HEX,              // sp1Beefy — not available on TRON
-        beefyV1.address,               // beefyV1 (naive)
-        beefyV1FiatShamir.address,     // beefyV1FiatShamir
+        beefyV1.address,               // ecdsaBeefy (naive)
     );
     const newRouter = await ConsensusRouter.deployed();
     console.log("  ✓ ConsensusRouter:", newRouter.address);
@@ -117,7 +99,6 @@ module.exports = async function (deployer, network, accounts) {
     console.log("║              Upgrade Summary                             ║");
     console.log("╠═══════════════════════════════════════════════════════════╣");
     console.log(`║  BeefyV1             : ${beefyV1.address}`);
-    console.log(`║  BeefyV1FiatShamir   : ${beefyV1FiatShamir.address}`);
     console.log(`║  SP1Beefy            : (not deployed — zero address)`);
     console.log(`║  ConsensusRouter     : ${newRouter.address}`);
     console.log(`║  TronHost (updated)  : ${hostAddress}`);

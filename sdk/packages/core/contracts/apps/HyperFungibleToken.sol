@@ -23,7 +23,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {IHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "../interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "../interfaces/IApp.sol";
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 import {HyperApp} from "./HyperApp.sol";
 
@@ -42,6 +42,8 @@ import {HyperApp} from "./HyperApp.sol";
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
 contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
+    using SafeERC20 for IERC20;
+
     /**
      * @title SendParams
      * @notice Parameters for initiating a cross-chain token transfer
@@ -90,11 +92,8 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
         bytes data;
     }
 
-    using SafeERC20 for IERC20;
-
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
-
 
     /// @notice Thrown when attempting to send to or receive from an unconfigured chain
     error UnsupportedChain();
@@ -224,22 +223,12 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Burns tokens and dispatches a cross-chain transfer message
-     * @notice Returns the fee in the host's fee token for sending a cross-chain transfer.
-     * @param params The send parameters
-     * @return The fee amount in the fee token
-     */
-    function quote(SendParams calldata params) public view returns (uint256) {
-        return quote(_buildDispatchPost(params));
-    }
-
-    /**
      * @notice Returns the fee in native currency for sending a cross-chain transfer.
      * @param params The send parameters
      * @return The fee amount in native currency
      */
-    function quoteNative(SendParams calldata params) public view returns (uint256) {
-        return quoteNative(_buildDispatchPost(params));
+    function quote(SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
     }
 
     /**
@@ -280,10 +269,16 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
         if (msg.value > 0) {
             commitment = IDispatcher(_host).dispatch{value: msg.value}(request);
         } else {
-            commitment = dispatchWithFeeToken(request, msg.sender);
+            commitment = dispatchWithFeeToken(request);
         }
 
-        emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);
+        emit Sent({
+            from: msg.sender,
+            to: params.to,
+            dest: string(params.dest),
+            amount: params.amount,
+            commitment: commitment
+        });
     }
 
     /**
@@ -308,28 +303,33 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
             ICallDispatcher(_dispatcher).dispatch(message.data);
         }
 
-        emit Received(message.from, beneficiary, string(request.source), message.amount);
+        emit Received({
+            from: message.from,
+            to: beneficiary,
+            source: string(request.source),
+            amount: message.amount
+        });
     }
 
     /**
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
      * Re-mints the burned tokens back to the original sender as a refund.
-     * @param request The timed-out POST request
+     * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
-    function onPostRequestTimeout(PostRequest memory request) external override onlyHost whenNotPaused {
-        Message memory message = abi.decode(request.body, (Message));
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) external override onlyHost whenNotPaused {
+        Message memory message = abi.decode(incoming.request.body, (Message));
         address refundee = _toAddr(message.from);
         _mint(refundee, message.amount);
-        emit Refunded(refundee, message.amount);
+        emit Refunded({to: refundee, amount: message.amount});
     }
 
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {
-        if (b.length < 20) revert InvalidAddress(b.length);
-        assembly {
-            addr := mload(add(b, 20))
-        }
+        if (b.length != 20) revert InvalidAddress(b.length);
+        // casting to 'bytes20' is safe because we already checked length
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return address(bytes20(b));
     }
 
     /// @notice Pauses ERC20 transfers

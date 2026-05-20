@@ -35,7 +35,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
@@ -59,7 +59,6 @@ use sp_runtime::{
 	AccountId32, BuildStorage,
 };
 
-use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
@@ -82,7 +81,6 @@ frame_support::construct_runtime!(
 		Timestamp: pallet_timestamp,
 		Mmr: pallet_mmr_tree,
 		Ismp: pallet_ismp,
-		Hyperbridge: pallet_hyperbridge,
 		Balances: pallet_balances,
 		Relayer: pallet_ismp_relayer,
 		Fishermen: pallet_fishermen,
@@ -108,6 +106,7 @@ frame_support::construct_runtime!(
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
 		Bandwidth: pallet_bandwidth,
+		StateCoprocessor: pallet_state_coprocessor,
 	}
 );
 
@@ -261,10 +260,7 @@ impl pallet_ismp::Config for Test {
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Test,
-			HyperbridgeClientMachine<Test, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Test>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 		ismp_beefy::consensus::BeefyConsensusClient<
@@ -288,12 +284,14 @@ impl pallet_ismp::Config for Test {
 	type MigrationWeightInfo = ();
 }
 
-impl pallet_hyperbridge::Config for Test {
-	type IsmpHost = Ismp;
-}
-
 impl pallet_bandwidth::Config for Test {
 	type Dispatcher = Ismp;
+}
+
+impl pallet_state_coprocessor::Config for Test {
+	type IsmpHost = Ismp;
+	type Mmr = Mmr;
+	type BandwidthGate = Bandwidth;
 }
 
 parameter_types! {
@@ -437,8 +435,8 @@ impl ismp_beefy::BeefyClientConfig for Test {
 		ismp_parachain::Parachains::<Test>::contains_key(para_id)
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
-		Vec::new()
+	fn sp1_vkey_hash() -> primitive_types::H256 {
+		Default::default()
 	}
 }
 
@@ -515,11 +513,11 @@ impl IsmpModule for ErrorModule {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 }
@@ -566,11 +564,11 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }
@@ -623,22 +621,36 @@ impl StateMachineClient for MockStateMachine {
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		_item: RequestResponse,
+		_commitments: Vec<H256>,
 		_root: StateCommitment,
 		_proof: &Proof,
 	) -> Result<(), IsmpError> {
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn commitment_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
 		Default::default()
+	}
+
+	fn receipts_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		Default::default()
+	}
+
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_commitments: Vec<H256>,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), IsmpError> {
+		Ok(())
 	}
 
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,
 		_keys: Vec<Vec<u8>>,
-		_root: StateCommitment,
+		_root: H256,
 		_proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
 		Ok(Default::default())

@@ -200,6 +200,20 @@ pub struct ValidatorSetProof {
 	pub storage_values: Vec<Vec<u8>>,
 }
 
+/// State proof of `currentEpoch` (slot 5) on the staking contract.
+///
+/// Carries the proof path and the raw storage value at the update's block height,
+/// verified against the block's `state_root`. The proven `u64` epoch is what the
+/// verifier uses to decide whether the update crosses an epoch boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct EpochProof {
+	/// Proof path for slot 5 of the staking contract, root-to-leaf.
+	pub proof: Vec<PharosProofNode>,
+	/// Raw big-endian storage value at slot 5 (decodes to `u64`).
+	pub value: Vec<u8>,
+}
+
 /// The trusted state maintained by the Pharos consensus client.
 ///
 /// This state is updated as new blocks are verified and represents
@@ -235,19 +249,21 @@ impl VerifierState {
 
 /// Data required to update the verifier state.
 ///
-/// This is what the prover submits to advance the light client's state.
-/// Epoch transitions are determined by the presence of a `validator_set_proof`:
-/// if present, the epoch increments by 1. The relayer walks epoch-by-epoch,
-/// so each validator set proof corresponds to exactly one epoch transition.
+/// Every update carries an `EpochProof` of slot 5 (`currentEpoch`) on the staking
+/// contract. Rotation is driven by the proven epoch, not by the presence of a
+/// `validator_set_proof`: the proof is required whenever `observed_epoch` differs
+/// from the trusted epoch and disallowed otherwise.
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct VerifierStateUpdate {
 	/// The header being attested to
 	pub header: CodecHeader,
 	/// Block proof from debug_getBlockProof containing the BLS signature
 	pub block_proof: BlockProof,
-	/// Optional validator set update proof (required at epoch transitions).
-	/// Presence of this proof signals an epoch boundary: new_epoch = current_epoch + 1.
+	/// Validator set update proof. Required when `current_epoch_proof` proves a
+	/// new epoch; must be absent when the update stays within the trusted epoch.
 	pub validator_set_proof: Option<ValidatorSetProof>,
+	/// Storage proof of `currentEpoch` (slot 5) against the header's `state_root`.
+	pub current_epoch_proof: EpochProof,
 }
 
 impl VerifierStateUpdate {

@@ -29,12 +29,20 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
-	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize &&
-		update.sync_committee_update.is_some() &&
-		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
-			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
-	{
+	// The finality branch is always required; validate it independently of the optional
+	// sync-committee update. The previous combined `&&` chain only triggered when ALL three
+	// subconditions held, so a malformed finality branch was accepted whenever the update
+	// lacked a sync-committee section or carried a correctly-sized next-committee branch.
+	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize {
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
+	}
+
+	if let Some(sync_committee_update) = update.sync_committee_update.as_ref() {
+		if sync_committee_update.next_sync_committee_branch.len() !=
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
+		{
+			Err(Error::InvalidUpdate("Next sync committee branch is incorrect".into()))?
+		}
 	}
 
 	// Verify update is valid

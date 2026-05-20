@@ -7,13 +7,48 @@ pub mod crypto;
 pub mod error;
 
 use crate::error::Error;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
 use ssz_rs::{
 	GeneralizedIndex, Merkleized, Node, calculate_multi_merkle_root,
 	prelude::is_valid_merkle_branch,
 };
+
+/// Computes the helper-indices count expected by `ssz_rs::calculate_multi_merkle_root`
+/// for the given set of leaf generalized indices. The upstream helper is private, so we
+/// reproduce the algorithm here to bound the proof length we pass to it.
+///
+/// `calculate_multi_merkle_root` zips its `proof` argument against the internally-computed
+/// helper indices and panics on `objects.get(&GeneralizedIndex(1)).unwrap()` if the proof
+/// is short. Pre-validating that `proof.len()` matches this count turns a relayer-supplied
+/// short proof into a graceful `InvalidMerkleBranch` error instead of a runtime panic.
+fn expected_multi_merkle_proof_len(indices: &[GeneralizedIndex]) -> usize {
+	fn branch(idx: &GeneralizedIndex, out: &mut BTreeSet<GeneralizedIndex>) {
+		let mut focus = *idx;
+		while focus.0 > 1 {
+			out.insert(focus.sibling());
+			focus = focus.parent();
+		}
+	}
+
+	fn path(idx: &GeneralizedIndex, out: &mut BTreeSet<GeneralizedIndex>) {
+		out.insert(*idx);
+		let mut focus = *idx;
+		while focus.0 > 1 {
+			focus = focus.parent();
+			out.insert(focus);
+		}
+	}
+
+	let mut all_branch = BTreeSet::new();
+	let mut all_path = BTreeSet::new();
+	for index in indices {
+		branch(index, &mut all_branch);
+		path(index, &mut all_path);
+	}
+	all_branch.difference(&all_path).count()
+}
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, DOMAIN_SYNC_COMMITTEE, Root},
@@ -152,6 +187,21 @@ pub fn verify_sync_committee_attestation<C: Config>(
 
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = update.execution_payload;
+	let execution_payload_indices = [
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+		GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+	];
+	// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
+	// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
+	// proofs whose helper-node count does not match what the algorithm requires so an
+	// attacker-controlled `multi_proof` cannot panic the runtime via the public unsigned
+	// consensus update path.
+	if execution_payload.multi_proof.len() !=
+		expected_multi_merkle_proof_len(&execution_payload_indices)
+	{
+		Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
+	}
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
 			Node::from_bytes(execution_payload.state_root.as_ref().try_into().expect("Infallible")),
@@ -164,11 +214,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 				.map_err(|_| Error::MerkleizationError("Failed to hash timestamp".into()))?,
 		],
 		&execution_payload.multi_proof,
-		&[
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-			GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
-		],
+		&execution_payload_indices,
 	);
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(

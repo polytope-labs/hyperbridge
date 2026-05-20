@@ -60,6 +60,22 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		Err(Error::InvalidUpdate("State period does not contain signature period".into()))?
 	}
 
+	// When the update crosses a sync-committee period boundary, require the attested
+	// header to be in the same (new) period as the signature. Otherwise the attested
+	// state has not yet rotated and its `next_sync_committee` field still holds
+	// `committee_{state_period+1}` — i.e. the committee we are already trusting as
+	// `next_sync_committee` — instead of the genuinely upcoming `committee_{state_period+2}`.
+	// Accepting such an update would stage the previous-period committee again and brick
+	// future updates once the chain enters `state_period + 2`.
+	if should_have_sync_committee_update(state_period, update_signature_period) {
+		let attested_period = compute_sync_committee_period_at_slot::<C>(update.attested_header.slot);
+		if attested_period != update_signature_period {
+			Err(Error::InvalidUpdate(
+				"Attested header is not in the same sync-committee period as the signature".into(),
+			))?
+		}
+	}
+
 	if update.attested_header.slot <= trusted_state.finalized_header.slot ||
 		update.finality_proof.epoch <= trusted_state.latest_finalized_epoch
 	{

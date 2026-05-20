@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
+import {IntentGatewayV2, Params, Deployment} from "../src/apps/IntentGatewayV2.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
@@ -25,7 +25,7 @@ contract DeployScript is BaseScript {
         address priceOracle = address(0);
         // address priceOracle = deployPriceOracle(address(intentGateway));
 
-        intentGateway.setParams(
+        intentGateway.init(
             Params({
                 host: HOST_ADDRESS,
                 dispatcher: config.get("CALL_DISPATCHER").toAddress(),
@@ -33,7 +33,8 @@ contract DeployScript is BaseScript {
                 surplusShareBps: 5_000, // 50%
                 protocolFeeBps: 30, // 0.3%
                 priceOracle: address(priceOracle)
-            })
+            }),
+            new Deployment[](0)
         );
 
         vm.stopBroadcast();

@@ -54,6 +54,9 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     /// @notice Thrown when the destination eid has no configured state machine mapping
     error UnknownEid(uint32 eid);
 
+    /// @notice Thrown when setEidMapping is called with the zero eid
+    error InvalidEid();
+
     /// @notice Thrown when an incoming message has an unexpected source
     error UnknownSource();
 
@@ -143,6 +146,7 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
      * @param stateMachineId The ISMP state machine identifier (e.g., StateMachine.evm(1))
      */
     function setEidMapping(uint32 lzEid, bytes calldata stateMachineId) external onlyOwner {
+        if (lzEid == 0) revert InvalidEid();
         bytes memory previous = _eidToStateMachine[lzEid];
         if (previous.length != 0) {
             delete _stateMachineToEid[keccak256(previous)];
@@ -312,9 +316,9 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             bytes memory message
         ) = abi.decode(request.body, (bytes32, uint32, bytes32, uint64, bytes32, bytes));
 
-        // Validate source eid matches the ISMP source chain
+        // Reject `expectedEid == 0` so unconfigured sources don't collide with `srcEid = 0`.
         uint32 expectedEid = _stateMachineToEid[keccak256(request.source)];
-        if (expectedEid != srcEid) revert UnknownSource();
+        if (expectedEid == 0 || expectedEid != srcEid) revert UnknownSource();
 
         // Validate and increment nonce
         address receiverAddr = address(uint160(uint256(receiver)));

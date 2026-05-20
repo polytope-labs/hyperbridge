@@ -277,7 +277,14 @@ mod supermajority_tests {
 			sync_committee_update: None,
 			finalized_header: BeaconBlockHeader { slot: finalized_slot, ..Default::default() },
 			execution_payload: ExecutionPayloadProof::default(),
-			finality_proof: FinalityProof { epoch: 1, finality_branch: Vec::new() },
+			finality_proof: FinalityProof {
+				epoch: 1,
+				// Branch length must match `Sepolia::FINALIZED_ROOT_INDEX_LOG2` so the
+				// finality-branch length check passes; the node contents don't matter for
+				// these tests because the supermajority gate fires before any merkle
+				// verification.
+				finality_branch: vec![Node::default(); Sepolia::FINALIZED_ROOT_INDEX_LOG2 as usize],
+			},
 			sync_aggregate: SyncAggregate {
 				sync_committee_bits: ssz_rs::Bitvector::default(),
 				sync_committee_signature: BlsSignature::try_from(vec![

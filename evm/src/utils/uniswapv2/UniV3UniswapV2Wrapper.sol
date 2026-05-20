@@ -56,6 +56,11 @@ contract UniV3UniswapV2Wrapper {
     bool private _initialized;
 
     /**
+     * @dev The address that deployed the wrapper. Only this address may call `init()`.
+     */
+    address private immutable _deployer;
+
+    /**
      * @dev Error indicating that a deposit operation has failed.
      */
     error DepositFailed();
@@ -75,13 +80,17 @@ contract UniV3UniswapV2Wrapper {
      */
     error InvalidWethAddress();
 
+    constructor() {
+        _deployer = msg.sender;
+    }
+
     /**
      * @notice Initializes the Uniswap V3 to V2 wrapper module
      * @dev Can only be called once
      * @param params Initialization parameters.
      */
     function init(Params memory params) public {
-        if (_initialized) revert Unauthorized();
+        if (_initialized || msg.sender != _deployer) revert Unauthorized();
         // approve the swap router to spend WETH
         IERC20(params.WETH).approve(params.swapRouter, type(uint256).max);
 

@@ -40,11 +40,16 @@ contract UniV4UniswapV2Wrapper {
 
     Params private _params;
     bool private _initialized;
+    address private immutable _deployer;
 
     error Unauthorized();
 
+    constructor() {
+        _deployer = msg.sender;
+    }
+
     function init(Params memory params) external {
-        if (_initialized) revert Unauthorized();
+        if (_initialized || msg.sender != _deployer) revert Unauthorized();
         _params = params;
         _initialized = true;
     }

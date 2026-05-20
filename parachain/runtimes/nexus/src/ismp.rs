@@ -39,7 +39,7 @@ use pallet_assets::BenchmarkHelper;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
-use sp_runtime::{traits::Zero, Weight};
+use sp_runtime::Weight;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
@@ -177,18 +177,16 @@ impl pallet_call_decompressor::Config for Runtime {
 	type WeightInfo = crate::weights::pallet_call_decompressor::WeightInfo<Runtime>;
 }
 
-/// True when the account is a bonded controller account registered with
-/// `pallet-collator-manager`. Controllers are paired with a stash that has
-/// bonded funds; `deregister` removes both entries in the same block, so an
-/// account present in `Stash` whose paired stash still holds a non-zero
-/// bond is a legitimate fisherman.
+/// True when the account is in the active collator set for the current
+/// session. The set comes from `pallet_session::Validators<Runtime>`,
+/// which `pallet-collator-manager`'s `SessionManager::new_session`
+/// populates with controller accounts. Registered but idle controllers
+/// and rotated out ex collators cannot sign vetoes; only the validators
+/// producing blocks for the current session can.
 pub struct IsCollator;
 impl frame_support::traits::Contains<AccountId> for IsCollator {
 	fn contains(account: &AccountId) -> bool {
-		let Some(stash) = pallet_collator_manager::Stash::<Runtime>::get(account) else {
-			return false;
-		};
-		!pallet_collator_manager::Bonded::<Runtime>::get(&stash).is_zero()
+		pallet_session::Validators::<Runtime>::get().contains(account)
 	}
 }
 

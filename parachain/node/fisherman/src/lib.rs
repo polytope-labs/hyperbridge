@@ -1,18 +1,17 @@
 // Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Collator-side fisherman wrapper. Parses the consolidated relayer's
-//! [`HyperbridgeConfig`], constructs a Hyperbridge [`IsmpProvider`] and one
-//! per-L2 [`IsmpProvider`] from the existing canonical config types, and
-//! hands each pair to [`tesseract_fisherman::fish`] — the same task
-//! implementation the relayer used to spawn. Multi-RPC quorum and 3-attempt
-//! retry on transport errors live inside [`tesseract_evm::byzantine`], not
-//! here.
+//! Collator side fisherman. Parses the operator's tesseract toml, builds a
+//! hyperbridge provider and one provider per supported L2, and hands each
+//! pair to [`tesseract_fisherman::fish`].
 //!
-//! The signer used to sign veto extrinsics comes from
-//! `[hyperbridge].signer` in the tesseract config — the same field the
-//! relayer uses. Operators must set it explicitly; the collator's AURA
-//! keystore is not consulted.
+//! Startup ordering matters. [`load_and_validate`] only reads the file and
+//! checks fields, so it is safe to call before chain init and gives the
+//! operator a fast error on a bad config. [`spawn`] parses the toml through
+//! [`HyperbridgeConfig::parse_conf`], which dials `[hyperbridge].rpc_ws`.
+//! On a normal collator that URL points back at this node, so [`spawn`]
+//! must run after `sc_service::spawn_tasks` has opened the RPC port. Doing
+//! it earlier blocks the task that is supposed to open that port.
 
 pub mod config;
 
@@ -28,15 +27,21 @@ use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 
 pub const LOG_TARGET: &str = "fisherman";
 
-/// Parse the operator's tesseract toml at `path` (same shape the relayer
-/// consumes), validate it for collator use, build the Hyperbridge provider
-/// and per-L2 providers, and spawn one [`tesseract_fisherman::fish`] task
-/// per supported L2.
-///
-/// Errors here fail the collator at startup. The downstream tasks use
-/// `spawn_essential_handle`, so any internal panic tears the node down —
-/// which is the desired behavior: a collator that can't fish is a collator
-/// that shouldn't be producing blocks.
+/// Read the tesseract toml at `path` and run the sync preflight checks.
+/// Performs no network I/O so the call is safe to make before any chain
+/// init runs.
+pub async fn load_and_validate(path: &Path) -> anyhow::Result<()> {
+	let toml_str = tokio::fs::read_to_string(path)
+		.await
+		.with_context(|| format!("reading tesseract config at {}", path.display()))?;
+	config::preflight(&toml_str)
+		.with_context(|| format!("validating tesseract config at {}", path.display()))?;
+	Ok(())
+}
+
+/// Build the hyperbridge and per L2 providers and spawn one
+/// [`tesseract_fisherman::fish`] task per supported L2. Must run after
+/// `sc_service::spawn_tasks` has brought the local RPC server up.
 pub async fn spawn(path: &Path, task_manager: &TaskManager) -> anyhow::Result<()> {
 	let path_str = path
 		.to_str()
@@ -44,12 +49,15 @@ pub async fn spawn(path: &Path, task_manager: &TaskManager) -> anyhow::Result<()
 	let config = HyperbridgeConfig::parse_conf(path_str)
 		.await
 		.with_context(|| format!("parsing tesseract config at {}", path.display()))?;
-
 	config::validate(&config)?;
 
-	let hyperbridge_substrate = config.hyperbridge.substrate.clone().resolve().await.context(
-		"resolving hyperbridge SubstrateConfig (rpc_ws / state_machine lookup) for fisherman",
-	)?;
+	let hyperbridge_substrate = config
+		.hyperbridge
+		.substrate
+		.clone()
+		.resolve()
+		.await
+		.context("resolving hyperbridge SubstrateConfig for fisherman")?;
 	let hyperbridge_state_machine = hyperbridge_substrate.state_machine();
 	let hb_client = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_substrate)
 		.await
@@ -70,11 +78,6 @@ pub async fn spawn(path: &Path, task_manager: &TaskManager) -> anyhow::Result<()
 			.await
 			.with_context(|| format!("constructing IsmpProvider for L2 {state_machine}"))?;
 
-		// Match the relayer's argument order: `chain_a` is the chain we
-		// subscribe to for `StateMachineUpdated` events (hyperbridge), and
-		// `chain_b` is the L2 whose `check_for_byzantine_attack` runs the
-		// quorum across its rpc providers and sends a veto on hyperbridge
-		// (the counterparty).
 		tesseract_fisherman::fish(hyperbridge.clone(), l2, task_manager, hyperbridge_state_machine)
 			.await
 			.with_context(|| format!("spawning fisherman task for L2 {state_machine}"))?;

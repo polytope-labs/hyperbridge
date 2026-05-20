@@ -14660,6 +14660,7 @@ dependencies = [
 name = "pallet-call-decompressor"
 version = "0.1.1"
 dependencies = [
+ "hex-literal 0.4.1",
  "ismp",
  "log",
  "pallet-ismp",

@@ -822,14 +822,14 @@ fn test_accumulate_fees_rejects_replay_from_other_chain() {
 			keys.push(*request);
 		}
 
-		let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+		let source_state_proof = StateMachineProof {
 			hasher: HashAlgorithm::Keccak,
 			storage_proof: source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>(),
-		});
-		let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+		};
+		let dest_state_proof = StateMachineProof {
 			hasher: HashAlgorithm::Keccak,
 			storage_proof: dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>(),
-		});
+		};
 
 		let host = Ismp::default();
 		for chain in [StateMachine::Kusama(2000), StateMachine::Kusama(2001)] {

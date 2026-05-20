@@ -19,7 +19,7 @@ contract DeployScript is BaseScript {
         int24 defaultTickSpacing = int24(config.get("DEFAULT_TICK_SPACING").toInt256());
         address weth = config.get("WETH").toAddress();
 
-        UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
+        UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}();
 
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
@@ -27,7 +27,8 @@ contract DeployScript is BaseScript {
                 quoter: quoter,
                 WETH: weth,
                 defaultFee: defaultFee,
-                defaultTickSpacing: defaultTickSpacing
+                defaultTickSpacing: defaultTickSpacing,
+                host: HOST_ADDRESS
             })
         );
         vm.stopBroadcast();

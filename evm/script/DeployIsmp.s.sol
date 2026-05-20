@@ -48,6 +48,7 @@ contract DeployScript is BaseScript {
         bytes memory hyperbridge;
         TokenFaucet faucet;
         HyperFungibleTokenImpl feeTokenInstance;
+        UniV3UniswapV2Wrapper deferredWrapper;
 
         bool isMainnet = config.get("is_mainnet").toBool();
 
@@ -67,16 +68,9 @@ contract DeployScript is BaseScript {
             address uniswap = config.get("UNISWAP_V2").toAddress();
             // if existing univ2 address isn't available, deploy univ3 wrapper
             if (uniswap == address(0)) {
-                UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
-                wrapper.init(
-                    UniV3UniswapV2Wrapper.Params({
-                        WETH: config.get("WETH").toAddress(),
-                        swapRouter: config.get("SWAP_ROUTER").toAddress(),
-                        quoter: config.get("QUOTER").toAddress(),
-                        maxFee: uint24(config.get("MAX_FEE").toUint256())
-                    })
-                );
-                uniswapV2 = address(wrapper);
+                // Wrapper init deferred until after host is deployed; host address is needed in Params.
+                deferredWrapper = new UniV3UniswapV2Wrapper{salt: salt}();
+                uniswapV2 = address(deferredWrapper);
             } else {
                 uniswapV2 = uniswap;
             }
@@ -122,6 +116,18 @@ contract DeployScript is BaseScript {
         host.initialize(params);
         // set the host address on the host manager
         manager.setIsmpHost(address(host));
+
+        if (address(deferredWrapper) != address(0)) {
+            deferredWrapper.init(
+                UniV3UniswapV2Wrapper.Params({
+                    WETH: config.get("WETH").toAddress(),
+                    swapRouter: config.get("SWAP_ROUTER").toAddress(),
+                    quoter: config.get("QUOTER").toAddress(),
+                    maxFee: uint24(config.get("MAX_FEE").toUint256()),
+                    host: address(host)
+                })
+            );
+        }
 
         // Set the consensus state
         EvmHost(payable(address(host)))

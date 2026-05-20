@@ -141,7 +141,16 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 			let validator_num = data[0].clone() as usize;
 			let validator_bytes_total_length =
 				VALIDATOR_NUMBER_SIZE + validator_num * VALIDATOR_BYTES_LENGTH;
-			if data_length < validator_bytes_total_length.clone() as usize {
+			// Post-BOHR headers carry a one-byte `turn` field immediately after the validator
+			// entries. Include it in the length check so the BOHR slice at the end of this branch
+			// (which advances `index` by `TURN_LENGTH_SIZE`) cannot panic on a header that has a
+			// validator section but omits the turn byte.
+			let required_length = if header.timestamp >= C::BOHR_FORK_TIMESTAMP {
+				validator_bytes_total_length + TURN_LENGTH_SIZE
+			} else {
+				validator_bytes_total_length
+			};
+			if data_length < required_length {
 				Err(anyhow!("Parse validator failed"))?;
 			}
 			extra.validator_size = validator_num.clone() as u8;

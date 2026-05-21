@@ -19,7 +19,7 @@ contract DeployScript is BaseScript {
         int24 defaultTickSpacing = int24(config.get("DEFAULT_TICK_SPACING").toInt256());
         address weth = config.get("WETH").toAddress();
 
-        UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}();
+        UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
 
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({

@@ -43,8 +43,8 @@ contract UniV4UniswapV2Wrapper {
 
     error Unauthorized();
 
-    constructor() {
-        _deployer = msg.sender;
+    constructor(address deployer) {
+        _deployer = deployer;
     }
 
     function init(Params memory params) external {

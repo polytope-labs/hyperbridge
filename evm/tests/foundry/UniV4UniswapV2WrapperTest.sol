@@ -37,7 +37,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
 
         DEPLOYER = address(this);
-        wrapper = new UniV4UniswapV2Wrapper();
+        wrapper = new UniV4UniswapV2Wrapper(address(this));
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
                 universalRouter: UNIVERSAL_ROUTER,

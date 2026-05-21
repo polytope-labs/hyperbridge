@@ -78,8 +78,8 @@ contract UniV3UniswapV2Wrapper {
      */
     error InvalidWethAddress();
 
-    constructor() {
-        _deployer = msg.sender;
+    constructor(address deployer) {
+        _deployer = deployer;
     }
 
     /**

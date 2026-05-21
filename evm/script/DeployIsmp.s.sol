@@ -67,7 +67,7 @@ contract DeployScript is BaseScript {
             address uniswap = config.get("UNISWAP_V2").toAddress();
             // if existing univ2 address isn't available, deploy univ3 wrapper
             if (uniswap == address(0)) {
-                UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}();
+                UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
                 wrapper.init(
                     UniV3UniswapV2Wrapper.Params({
                         WETH: config.get("WETH").toAddress(),

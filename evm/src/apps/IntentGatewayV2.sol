@@ -93,6 +93,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * Subsequent parameter updates must come through Hyperbridge governance via the `onAccept` callback.
      *
      * @param p The initial gateway configuration parameters.
+     * @param deployments The initial gateway cross-chain peers
      */
     function init(Params memory p, Deployment[] memory deployments) public {
         if (msg.sender != _admin) revert Unauthorized();

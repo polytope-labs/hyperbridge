@@ -23,7 +23,8 @@ import {
     TokenInfo,
     PaymentInfo,
     DispatchInfo,
-    FillOptions
+    FillOptions,
+    Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -132,7 +133,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
         legitimateSolver = makeAddr("legitimateSolver");
 
         intentGateway = new IntentGatewayV2(address(this));
-        intentGateway.setParams(
+        intentGateway.init(
             Params({
                 host:            address(host),
                 dispatcher:      address(dispatcher),
@@ -141,7 +142,7 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 protocolFeeBps:  0,
                 priceOracle:     address(0)
             })
-        );
+        , new Deployment[](0));
 
         maliciousBeneficiary = new ReentrantBeneficiary(payable(address(intentGateway)));
 

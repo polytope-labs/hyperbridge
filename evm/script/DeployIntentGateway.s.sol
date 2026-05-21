@@ -9,6 +9,7 @@ import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -25,6 +26,36 @@ contract DeployScript is BaseScript {
         address priceOracle = address(0);
         // address priceOracle = deployPriceOracle(address(intentGateway));
 
+        Deployment[] memory deployments = new Deployment[](7);
+        deployments[0] = Deployment({
+            chain: StateMachine.evm(1), // ethereum
+            gateway: address(intentGateway)
+        });
+        deployments[1] = Deployment({
+            chain: StateMachine.evm(10), // optimism 
+            gateway: address(intentGateway)
+        });
+        deployments[2] = Deployment({
+            chain: StateMachine.evm(42161), // arbitrum
+            gateway: address(intentGateway)
+        });
+        deployments[3] = Deployment({
+            chain: StateMachine.evm(8453), // base
+            gateway: address(intentGateway)
+        });
+        deployments[4] = Deployment({
+            chain: StateMachine.evm(56), // bsc
+            gateway: address(intentGateway)
+        });
+        deployments[5] = Deployment({
+            chain: StateMachine.evm(100), // gnosis
+            gateway: address(intentGateway)
+        });
+        deployments[6] = Deployment({
+            chain: StateMachine.evm(137), // polygon
+            gateway: address(intentGateway)
+        });
+
         intentGateway.init(
             Params({
                 host: HOST_ADDRESS,
@@ -34,7 +65,7 @@ contract DeployScript is BaseScript {
                 protocolFeeBps: 30, // 0.3%
                 priceOracle: address(priceOracle)
             }),
-            new Deployment[](0)
+            deployments
         );
 
         vm.stopBroadcast();

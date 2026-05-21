@@ -11,7 +11,8 @@ import {
     TokenInfo,
     Params,
     DispatchInfo,
-    PaymentInfo
+    PaymentInfo,
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
@@ -49,7 +50,7 @@ contract SolverAccountTest is Test {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        intentGateway.setParams(params);
+        intentGateway.init(params, new Deployment[](0));
 
         // Deploy SolverAccount at a temporary address to get bytecode
         SolverAccount tempAccount = new SolverAccount(address(intentGateway));

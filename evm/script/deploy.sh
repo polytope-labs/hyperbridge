@@ -290,7 +290,7 @@ for chain in "${CHAIN_ARRAY[@]}"; do
             VERIFIER_FLAGS="--verifier blockscout --verifier-url https://gnosis-chiado.blockscout.com/api/ --verifier-api-key $GNOSIS_BLOCKSCOUT_API_KEY"
             ;;
         polkadot-testnet)
-            VERIFIER_FLAGS="--verifier custom --verifier-url https://api.routescan.io/v2/network/testnet/evm/420420417/etherscan --verifier-api-key verifyContract"
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout-testnet.polkadot.io/api/"
             ;;
         pharos-testnet)
             # Pharos uses SocialScan. Its etherscan-compatible endpoint requires any
@@ -353,6 +353,7 @@ for tx in data.get('transactions', []):
                 gnosis) FORGE_CHAIN_NAME="xdai" ;;
                 inkchain) FORGE_CHAIN_NAME="ink" ;;
                 pharos-testnet) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
+                polkadot-testnet) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
             esac
 
             if forge verify-contract "$contract_address" "$VERIFY_NAME" \

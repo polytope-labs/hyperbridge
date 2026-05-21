@@ -102,12 +102,10 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         console.log("Max ETH sent:", maxEthIn);
         console.log("ETH actually spent (returned):", amounts[0]);
         console.log("WHALE ETH spent:", initialEthBalance - newEthBalance);
-        console.log("Deployer received refund:", newDeployerBalance - initialDeployerBalance);
         console.log("DAI received:", amounts[1]);
 
-        assertEq(initialEthBalance - newEthBalance, maxEthIn, "WHALE spent full amount");
-
-        assertEq(newDeployerBalance - initialDeployerBalance, maxEthIn - amounts[0], "Deployer got refund");
+        assertEq(initialEthBalance - newEthBalance, amounts[0], "WHALE spent exactly the consumed amount");
+        assertEq(newDeployerBalance, initialDeployerBalance, "Deployer received no refund (refund returns to caller)");
     }
 
     function testGetAmountsOut() public {

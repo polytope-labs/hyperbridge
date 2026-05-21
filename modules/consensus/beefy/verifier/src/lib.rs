@@ -226,6 +226,14 @@ fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	mmr: &MmrProof,
 	mmr_root: H256,
 ) -> Result<(), Error> {
+	// `leaf_indices` is supplied by the relayer in the unsigned consensus message;
+	// an empty vector previously panicked the runtime via the unchecked `[0]` index
+	// after the BEEFY signature and authority membership checks had already succeeded.
+	// This verifier checks a single MMR leaf, so reject any proof that does not carry
+	// exactly one leaf index.
+	if mmr.mmr_proof.leaf_indices.len() != 1 {
+		Err(Error::InvalidMmrProof)?
+	}
 	let leaf_index = mmr.mmr_proof.leaf_indices[0];
 	let leaf_hash = H::keccak256(&mmr.latest_mmr_leaf.encode());
 	let mmr_size = leaf_index_to_mmr_size(leaf_index);

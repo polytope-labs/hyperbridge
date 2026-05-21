@@ -27,8 +27,7 @@ contract DeployScript is BaseScript {
                 quoter: quoter,
                 WETH: weth,
                 defaultFee: defaultFee,
-                defaultTickSpacing: defaultTickSpacing,
-                host: HOST_ADDRESS
+                defaultTickSpacing: defaultTickSpacing
             })
         );
         vm.stopBroadcast();

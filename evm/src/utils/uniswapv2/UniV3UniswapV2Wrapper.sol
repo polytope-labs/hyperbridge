@@ -41,8 +41,6 @@ contract UniV3UniswapV2Wrapper {
         address quoter;
         /// @dev The fees that helps point to the specific pool.
         uint24 maxFee;
-        /// @dev IsmpHost address that receives unspent ETH from swaps.
-        address host;
     }
 
     /**
@@ -146,7 +144,7 @@ contract UniV3UniswapV2Wrapper {
             uint256 refund = msg.value - spent;
             IWETH(weth).withdraw(refund);
 
-            (bool success,) = _params.host.call{value: refund}("");
+            (bool success,) = msg.sender.call{value: refund}("");
             if (!success) revert RefundFailed();
         }
 

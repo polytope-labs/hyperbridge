@@ -38,11 +38,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         wrapper = new UniV3UniswapV2Wrapper();
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({
-                WETH: WETH,
-                swapRouter: UNISWAP_V3_ROUTER_V2,
-                quoter: UNISWAP_V3_QUOTER_V2,
-                maxFee: 500,
-                host: address(this)
+                WETH: WETH, swapRouter: UNISWAP_V3_ROUTER_V2, quoter: UNISWAP_V3_QUOTER_V2, maxFee: 500
             })
         );
     }

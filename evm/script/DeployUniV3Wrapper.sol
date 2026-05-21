@@ -23,11 +23,7 @@ contract DeployScript is BaseScript {
         UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}();
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({
-                WETH: IUniswapV2Router02(uniswapV2).WETH(),
-                swapRouter: swapRouter,
-                quoter: quoter,
-                maxFee: maxFee,
-                host: HOST_ADDRESS
+                WETH: IUniswapV2Router02(uniswapV2).WETH(), swapRouter: swapRouter, quoter: quoter, maxFee: maxFee
             })
         );
         vm.stopBroadcast();

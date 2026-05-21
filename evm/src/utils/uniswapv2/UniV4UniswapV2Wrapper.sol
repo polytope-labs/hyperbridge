@@ -35,7 +35,6 @@ contract UniV4UniswapV2Wrapper {
         address WETH;
         uint24 defaultFee;
         int24 defaultTickSpacing;
-        address host;
     }
 
     Params private _params;
@@ -85,7 +84,7 @@ contract UniV4UniswapV2Wrapper {
         uint256 refundETH = address(this).balance;
 
         if (refundETH > 0) {
-            (bool success,) = _params.host.call{value: refundETH}("");
+            (bool success,) = msg.sender.call{value: refundETH}("");
             require(success, "ETH refund failed");
         }
 

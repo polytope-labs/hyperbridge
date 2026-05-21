@@ -56,8 +56,8 @@ pub struct DestinationFee {
 	/// The percentage of fee (in basis points) charged for the destination chain
 	/// 10000 = 100%, 5000 = 50%, etc.
 	pub destination_fee_bps: U256,
-	/// The state machine ID associated with the destination fee
-	pub state_machine_id: H256,
+	/// The raw state machine ID bytes for the destination chain (hashed on-chain)
+	pub chain: Vec<u8>,
 }
 
 /// Parameter update request from users/governance (optional fields pattern)
@@ -93,8 +93,8 @@ pub struct CompleteParamsUpdate {
 /// Request to add a new Intent Gateway deployment
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct NewDeployment {
-	/// Identifier for the state machine
-	pub state_machine_id: Vec<u8>,
+	/// The raw state machine ID bytes for the deployment chain
+	pub chain: Vec<u8>,
 	/// The gateway contract address
 	pub gateway: H160,
 }
@@ -203,7 +203,7 @@ mod sol_types {
 		/// Solidity representation of DestinationFee
 		struct DestinationFee {
 			uint256 destinationFeeBps;
-			bytes32 stateMachineId;
+			bytes chain;
 		}
 
 		/// Solidity representation of ParamsUpdate
@@ -214,7 +214,7 @@ mod sol_types {
 
 		/// Solidity representation of NewDeployment
 		struct NewDeployment {
-			bytes stateMachineId;
+			bytes chain;
 			address gateway;
 		}
 
@@ -263,7 +263,7 @@ impl From<DestinationFee> for sol_types::DestinationFee {
 		use alloy_primitives::U256 as AlloyU256;
 		sol_types::DestinationFee {
 			destinationFeeBps: AlloyU256::from_limbs(fee.destination_fee_bps.0),
-			stateMachineId: fee.state_machine_id.0.into(),
+			chain: fee.chain.into(),
 		}
 	}
 }
@@ -320,7 +320,7 @@ impl RequestKind {
 			RequestKind::AddDeployment(deployment) => {
 				use alloy_primitives::Address;
 				let deployment_sol = sol_types::NewDeployment {
-					stateMachineId: deployment.state_machine_id.clone().into(),
+					chain: deployment.chain.clone().into(),
 					gateway: Address::from_slice(&deployment.gateway.0),
 				};
 

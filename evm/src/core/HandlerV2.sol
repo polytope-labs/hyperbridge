@@ -275,7 +275,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
-            keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
+            keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, requestCommitment);
 
             // verify state trie non-membership proofs
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
@@ -310,7 +310,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
-            keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
+            keys[0] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, commitment);
 
             // verify state trie non-membership proofs
             PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];

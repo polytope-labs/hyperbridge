@@ -27,7 +27,7 @@ import {
     WithdrawalRequest,
     FillOptions,
     CancelOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -294,7 +294,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         // only hyperbridge is permitted to perform these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
         if (kind == RequestKind.NewDeployment) {
-            _addDeployment(abi.decode(incoming.request.body[1:], (NewDeployment)));
+            _addDeployment(abi.decode(incoming.request.body[1:], (Deployment)));
         } else if (kind == RequestKind.UpdateParams) {
             _updateParams(abi.decode(incoming.request.body[1:], (ParamsUpdate)));
         } else if (kind == RequestKind.SweepDust) {

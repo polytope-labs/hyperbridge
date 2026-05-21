@@ -38,7 +38,7 @@ import {
     FillOptions,
     SelectOptions,
     CancelOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
@@ -93,13 +93,18 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * Subsequent parameter updates must come through Hyperbridge governance via the `onAccept` callback.
      *
      * @param p The initial gateway configuration parameters.
+     * @param deployments The initial gateway cross-chain peers
      */
-    function setParams(Params memory p) public {
+    function init(Params memory p, Deployment[] memory deployments) public {
         if (msg.sender != _admin) revert Unauthorized();
 
+        uint256 deploymentsLength = deployments.length;
+        for (uint256 i = 0; i < deploymentsLength; i++) {
+            _addDeployment(deployments[i]);
+        }
         _validateParams(p);
-        _admin = address(0);
         _params = p;
+        _admin = address(0);
     }
 
     /**
@@ -357,8 +362,8 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
 
         emit OrderPlaced({
             user: order.user,
-            source: order.source,
-            destination: order.destination,
+            source: string(order.source),
+            destination: string(order.destination),
             deadline: order.deadline,
             nonce: order.nonce,
             fees: order.fees,

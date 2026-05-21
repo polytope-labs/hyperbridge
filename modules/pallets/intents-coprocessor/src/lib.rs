@@ -281,7 +281,7 @@ pub mod pallet {
 
 				// Prepare cross-chain request to notify existing gateway
 				let new_deployment = types::NewDeployment {
-					state_machine_id: state_machine.to_string().into_bytes(),
+					chain: state_machine.to_string().into_bytes(),
 					gateway,
 				};
 				let request = RequestKind::AddDeployment(new_deployment);

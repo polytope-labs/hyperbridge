@@ -1165,7 +1165,7 @@ export const ABI = [
 	},
 	{
 		type: "function",
-		name: "setParams",
+		name: "init",
 		inputs: [
 			{
 				name: "p",
@@ -1204,6 +1204,23 @@ export const ABI = [
 					},
 				],
 			},
+			{
+				name: "deployments",
+				type: "tuple[]",
+				internalType: "struct Deployment[]",
+				components: [
+					{
+						name: "chain",
+						type: "bytes",
+						internalType: "bytes",
+					},
+					{
+						name: "gateway",
+						type: "address",
+						internalType: "address",
+					},
+				],
+			},
 		],
 		outputs: [],
 		stateMutability: "nonpayable",
@@ -1213,10 +1230,10 @@ export const ABI = [
 		name: "DestinationProtocolFeeUpdated",
 		inputs: [
 			{
-				name: "stateMachineId",
-				type: "bytes32",
-				indexed: true,
-				internalType: "bytes32",
+				name: "chain",
+				type: "string",
+				indexed: false,
+				internalType: "string",
 			},
 			{
 				name: "feeBps",
@@ -1341,13 +1358,13 @@ export const ABI = [
 	},
 	{
 		type: "event",
-		name: "NewDeploymentAdded",
+		name: "DeploymentAdded",
 		inputs: [
 			{
-				name: "stateMachineId",
-				type: "bytes",
+				name: "chain",
+				type: "string",
 				indexed: false,
-				internalType: "bytes",
+				internalType: "string",
 			},
 			{
 				name: "gateway",
@@ -1425,15 +1442,15 @@ export const ABI = [
 			},
 			{
 				name: "source",
-				type: "bytes",
+				type: "string",
 				indexed: false,
-				internalType: "bytes",
+				internalType: "string",
 			},
 			{
 				name: "destination",
-				type: "bytes",
+				type: "string",
 				indexed: false,
-				internalType: "bytes",
+				internalType: "string",
 			},
 			{
 				name: "deadline",
@@ -1663,6 +1680,11 @@ export const ABI = [
 	{
 		type: "error",
 		name: "Cancelled",
+		inputs: [],
+	},
+	{
+		type: "error",
+		name: "UnknownInstance",
 		inputs: [],
 	},
 	{

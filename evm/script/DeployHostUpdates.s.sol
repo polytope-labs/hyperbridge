@@ -24,45 +24,42 @@ contract DeployScript is BaseScript {
     function deploy() internal override {
         // Deploy consensus clients
         EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
-        console.log("EcdsaBeefy deployed at:", address(ecdsaBeefy));
-
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
-        console.log("SP1Verifier deployed at:", address(verifier));
-
         SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
-        console.log("SP1Beefy deployed at:", address(sp1));
-
         ConsensusRouter consensusClient = new ConsensusRouter{salt: salt}(
             IConsensusV2(sp1),
             IConsensusV2(ecdsaBeefy)
         );
-        console.log("ConsensusRouter deployed at:", address(consensusClient));
 
-        HandlerV2 handler = new HandlerV2{salt: salt}();
-        console.log("HandlerV2 deployed at:", address(handler));
+        // HandlerV2 handler = new HandlerV2{salt: salt}();
 
-        BandwidthManager bandwidthManager = new BandwidthManager{salt: salt}(admin);
-        bandwidthManager.setHost(HOST_ADDRESS);
-        bandwidthManager.renounceOwnership();
-        console.log("BandwidthManager deployed at:", address(bandwidthManager));
+        // BandwidthManager bandwidthManager = new BandwidthManager{salt: salt}(admin);
+        // bandwidthManager.setHost(HOST_ADDRESS);
+        // bandwidthManager.renounceOwnership();
 
         // Update host params if not mainnet
         bool isMainnet = config.get("is_mainnet").toBool();
-        console.log("Is mainnet:", isMainnet);
-
         if (!isMainnet) {
             HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
             params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            // params.handler = address(handler);
             EvmHost(HOST_ADDRESS).updateHostParams(params);
             console.log("Host params updated with new consensus client and handler");
         }
 
         vm.stopBroadcast();
+        console.log("Is mainnet:", isMainnet);
+        console.log("EcdsaBeefy deployed at:", address(ecdsaBeefy));
+        console.log("SP1Verifier deployed at:", address(verifier));
+        console.log("SP1Beefy deployed at:", address(sp1));
+        console.log("ConsensusRouter deployed at:", address(consensusClient));
+        // console.log("HandlerV2 deployed at:", address(handler));
+        // console.log("BandwidthManager deployed at:", address(bandwidthManager));
         config.set("ECDSA_BEEFY", address(ecdsaBeefy));
+        config.set("SP1_VERIFIER", address(verifier));
         config.set("SP1_BEEFY", address(sp1));
         config.set("CONSENSUS_ROUTER", address(consensusClient));
-        config.set("BANDWIDTH_MANAGER", address(bandwidthManager));
-        config.set("HANDLER_V2", address(handler));
+        // config.set("BANDWIDTH_MANAGER", address(bandwidthManager));
+        // config.set("HANDLER_V2", address(handler));
     }
 }

@@ -70,6 +70,7 @@ contract ConsensusRouter is IConsensusV2, ERC165 {
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(IConsensusV2).interfaceId
+            || interfaceId == bytes4(0x7d755598)
             || super.supportsInterface(interfaceId);
     }
 

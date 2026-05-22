@@ -39,7 +39,7 @@ contract UniV4UniswapV2Wrapper {
 
     Params private _params;
     bool private _initialized;
-    address private _deployer;
+    address private immutable _deployer;
 
     error Unauthorized();
 
@@ -77,14 +77,18 @@ contract UniV4UniswapV2Wrapper {
             abi.encodePacked(uint8(Actions.SWAP_EXACT_OUT_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)), params
         );
 
+        // Snapshot standing balance (excluding inbound msg.value) so the refund is the swap-call delta only,
+        // immune to any ETH that lands on the wrapper from outside the router (e.g., selfdestruct, coinbase).
+        uint256 balanceBefore = address(this).balance - msg.value;
+
         IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
             abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))), inputs, deadline
         );
 
-        uint256 refundETH = address(this).balance;
+        uint256 refundETH = address(this).balance - balanceBefore;
 
         if (refundETH > 0) {
-            (bool success,) = _deployer.call{value: refundETH}("");
+            (bool success,) = msg.sender.call{value: refundETH}("");
             require(success, "ETH refund failed");
         }
 

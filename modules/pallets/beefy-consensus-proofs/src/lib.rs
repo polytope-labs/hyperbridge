@@ -227,6 +227,8 @@ pub mod pallet {
 		UnknownProofType,
 		/// ABI decoding or conversion failed.
 		AbiDecodeFailed,
+		/// The submitted proof is not in canonical ABI form (e.g. trailing padding).
+		MalformedProof,
 		/// The BEEFY verifier rejected the proof.
 		VerificationFailed,
 		/// Rotation proof did not rotate to `NextAuthoritySetId`.
@@ -476,6 +478,14 @@ pub mod pallet {
 			canonical_proof.push(proof_type);
 			canonical_proof.extend_from_slice(&canonical_payload);
 			let proof_hash: H256 = sp_io::hashing::keccak_256(&canonical_proof).into();
+
+			// Reject any submission that isn't already in canonical form. If the raw input
+			// hashes differently from its canonical re-encoding it carries non-canonical
+			// bytes (trailing padding, alternate encodings), so it is malformed.
+			let submitted_hash: H256 = sp_io::hashing::keccak_256(&proof).into();
+			if submitted_hash != proof_hash {
+				Err(Error::<T>::MalformedProof)?
+			}
 
 			// Read the pre-proof consensus state before `verify_and_apply` mutates it.
 			// Used to seed `ProofContext` for the first-proof path.

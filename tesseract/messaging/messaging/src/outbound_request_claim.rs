@@ -52,7 +52,7 @@ use pallet_ismp::child_trie::request_receipt_storage_key;
 use pallet_ismp_relayer::{
 	outbound_request_delivery_message, OutboundRequestDeliveryClaim, REQUEST_RECEIPTS_SLOT,
 };
-use primitive_types::H256;
+use primitive_types::{H160, H256};
 use sp_core::Pair;
 use subxt_utils::outbound_requests_claimed_storage_key;
 use tesseract_evm::derive_map_key;
@@ -274,7 +274,7 @@ async fn process_claim(
 	.await
 	.context("wait_for_state_machine_update")?;
 
-	let key = receipt_key_for(destination, commitment)?;
+	let key = receipt_key_for(destination, commitment, dest.ismp_host_contract())?;
 
 	let proof_bytes = dest
 		.query_state_proof(dest_height, StateProofQueryType::Arbitrary(vec![key]))
@@ -310,9 +310,23 @@ async fn process_claim(
 
 /// Destination-side storage key for `RequestReceipts[commitment]`. Matches
 /// the pallet-side derivation in `Pallet::request_receipt_key`.
-fn receipt_key_for(destination: StateMachine, commitment: H256) -> anyhow::Result<Vec<u8>> {
+fn receipt_key_for(
+	destination: StateMachine,
+	commitment: H256,
+	ismp_host: Option<H160>,
+) -> anyhow::Result<Vec<u8>> {
 	if destination.is_evm() {
-		Ok(derive_map_key(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT).0.to_vec())
+		// EVM `query_state_proof` expects a 52-byte arbitrary key: the 20-byte
+		// host contract address followed by the 32-byte storage slot hash.
+		// `RequestReceipts` lives in the
+		// destination's IsmpHost contract, so prefix the host address here.
+		let host = ismp_host.ok_or_else(|| {
+			anyhow!("no IsmpHost contract address for EVM destination {destination}")
+		})?;
+		let slot = derive_map_key(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
+		let mut key = host.0.to_vec();
+		key.extend_from_slice(&slot.0);
+		Ok(key)
 	} else if destination.is_substrate() {
 		Ok(request_receipt_storage_key(commitment))
 	} else {

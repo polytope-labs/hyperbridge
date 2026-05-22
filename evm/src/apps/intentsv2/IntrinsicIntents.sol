@@ -44,6 +44,9 @@ abstract contract IntrinsicIntents is IntentsBase {
      * and emits OrderFilled.
      * On partial fill: releases proportional escrow and emits PartialFill.
      *
+     * Orders that carry output calldata cannot be partially filled — they must be
+     * completed in a single fill, otherwise the call reverts with PartialFillNotAllowed.
+     *
      * @param order The order to fill.
      * @param options The fill options containing the solver's output token amounts.
      * @param commitment The keccak256 hash of the ABI-encoded order.
@@ -119,6 +122,11 @@ abstract contract IntrinsicIntents is IntentsBase {
             escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: escrowedAmount});
             outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
         }
+
+        // Orders carrying output calldata must be filled completely in a single fill.
+        // The attached call is only executed on a full fill, so a partial fill would
+        // leave the intended side effect unexecuted while releasing proportional escrow.
+        if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
 
         WithdrawalRequest memory body = WithdrawalRequest({
             commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))

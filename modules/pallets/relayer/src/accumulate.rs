@@ -32,7 +32,7 @@ use frame_support::{dispatch::DispatchResult, ensure};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::{Keccak256, Proof},
+	messaging::Proof,
 };
 use pallet_ismp::child_trie::RequestCommitments;
 use polkadot_sdk::*;
@@ -179,6 +179,10 @@ where
 	/// needs the `fee` field at offset 0, so for EVM sources the offset-0 slot is derived here
 	/// directly rather than reusing the membership key.
 	///
+	/// The raw (unhashed) slot is returned for EVM sources: the fee path verifies through
+	/// `verify_state_proof`, which hashes each key internally to derive the trie slot hash.
+	/// Pre-hashing here would double-hash and miss the value.
+	///
 	/// Substrate sources store the whole `RequestMetadata` (fee included) under a single key, so
 	/// `commitment_state_trie_key` already points at the fee for them.
 	///
@@ -192,12 +196,13 @@ where
 			commitments
 				.iter()
 				.map(|commitment| {
-					let slot = derive_unhashed_map_key_with_offset::<<T as Config>::IsmpHost>(
+					derive_unhashed_map_key_with_offset::<<T as Config>::IsmpHost>(
 						commitment.0.to_vec(),
 						REQUEST_COMMITMENTS_SLOT,
 						0,
-					);
-					<T as Config>::IsmpHost::keccak256(&slot.0).0.to_vec()
+					)
+					.0
+					.to_vec()
 				})
 				.collect()
 		} else {

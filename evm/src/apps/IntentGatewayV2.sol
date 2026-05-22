@@ -22,6 +22,7 @@ import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatche
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -56,7 +57,7 @@ import {
  *           \       /
  *        IntentGatewayV2
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
+contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /**
@@ -152,7 +153,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
      * @param graffiti Unused on-chain; available for off-chain indexing or solver metadata.
      */
-    function placeOrder(Order memory order, bytes32 graffiti) public payable {
+    function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
 
         // Reject duplicate output tokens 
@@ -403,7 +404,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
-    function fillOrder(Order calldata order, FillOptions calldata options) public payable {
+    function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
         if (order.deadline < block.number) revert Expired();
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -460,7 +461,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order to cancel. Must match the exact order that was placed.
      * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
      */
-    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
+    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable nonReentrant {
         bytes32 commitment = keccak256(abi.encode(order));
 
         if (_filled[commitment] != address(0)) revert Filled();

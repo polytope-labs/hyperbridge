@@ -223,6 +223,13 @@ where
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		// On the coprocessor the BEEFY client only seeds the coprocessor's own state machine
+		// commitment; it must never be used to verify state proofs for incoming messages.
+		let host = H::default();
+		if Some(host.host_state_machine()) == host.allowed_proxy() {
+			Err(BeefyError::HostStateMachineIsCoprocessor)?
+		}
+
 		let para_id = match id {
 			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
 			_ => Err(BeefyError::UnsupportedStateMachine(id))?,

@@ -72,10 +72,10 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
+		consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 		handlers,
 		host::IsmpHost,
-		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
+		messaging::{ConsensusMessage as IsmpConsensusMessage, Message, StateCommitmentHeight},
 	};
 	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 	use primitive_types::H256;
@@ -300,7 +300,12 @@ pub mod pallet {
 			let current_set_id = state.current_authorities.id;
 			let next_set_id = state.next_authorities.id;
 			let latest_beefy_height = state.latest_beefy_height;
+			let host = pallet_ismp::Pallet::<T>::default();
 
+			// Seed an initial commitment for the host state machine at the current block height.
+			let height = sp_runtime::SaturatedConversion::saturated_into::<u64>(
+				frame_system::Pallet::<T>::block_number(),
+			);
 			pallet_ismp::Pallet::<T>::create_consensus_client(
 				frame_system::RawOrigin::Root.into(),
 				ismp::messaging::CreateConsensusState {
@@ -309,7 +314,20 @@ pub mod pallet {
 					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					unbonding_period: T::UnbondingPeriod::get(),
 					challenge_periods: Default::default(),
-					state_machine_commitments: Default::default(),
+					state_machine_commitments: vec![(
+						StateMachineId {
+							consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+							state_id: host.host_state_machine(),
+						},
+						StateCommitmentHeight {
+							height,
+							commitment: StateCommitment {
+								timestamp: host.timestamp().as_secs(),
+								overlay_root: None,
+								state_root: H256::zero(),
+							},
+						},
+					)],
 				},
 			)
 			.map_err(|e| {

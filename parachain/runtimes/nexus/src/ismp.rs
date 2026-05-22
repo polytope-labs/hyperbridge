@@ -16,7 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount, TreasuryPalletId,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -25,7 +26,7 @@ use frame_support::{
 	parameter_types,
 	traits::AsEnsureOriginWithArg,
 };
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use ismp::{
 	consensus::StateMachineClient,
 	error::Error,
@@ -264,7 +265,7 @@ impl pallet_assets::Config for Runtime {
 	type AssetId = H256;
 	type AssetIdParameter = H256;
 	type Currency = Balances;
-	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureRootWithSuccess<AccountId32, TreasuryAccount>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
 	type AssetDeposit = AssetDeposit;
 	type AssetAccountDeposit = AssetAccountDeposit;

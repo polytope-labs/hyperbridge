@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_000,
+	spec_version: 7_100,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -924,7 +924,6 @@ parameter_types! {
 
 parameter_types! {
 	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
 		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
 	];
 }

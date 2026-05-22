@@ -337,12 +337,23 @@ where
 		tracing_execute_block: None,
 	})?;
 
-	// The local RPC server is up now, so the fisherman can safely dial
-	// `[hyperbridge].rpc_ws` even when it points back at this node.
+	// The local RPC server is up now, but until this node has finished
+	// syncing that RPC serves stale chain state. Defer the fisherman spawn
+	// behind a sync-status watcher so it dials `[hyperbridge].rpc_ws` and
+	// builds its providers only once the node has caught up. The config was
+	// already validated above, so a bad config still fails fast.
 	if let Some(path) = fisherman_path {
-		hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(|e| {
-			sc_service::Error::Other(format!("failed to spawn fisherman task: {e:?}"))
-		})?;
+		let sync_service = sync_service.clone();
+		hyperbridge_fisherman::spawn_when_synced(&task_manager, path, move || {
+			let sync_service = sync_service.clone();
+			async move {
+				sync_service.num_connected_peers() > 0 &&
+					matches!(
+						sync_service.status().await,
+						Ok(status) if !status.state.is_major_syncing()
+					)
+			}
+		});
 	}
 
 	if let Some(hwbench) = hwbench {

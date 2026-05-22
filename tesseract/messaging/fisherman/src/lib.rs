@@ -22,13 +22,13 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::host::StateMachine;
-use polkadot_sdk::sc_service::TaskManager;
+use polkadot_sdk::sc_service::SpawnEssentialTaskHandle;
 use tesseract_primitives::IsmpProvider;
 
 pub async fn fish(
 	chain_a: Arc<dyn IsmpProvider>,
 	chain_b: Arc<dyn IsmpProvider>,
-	task_manager: &TaskManager,
+	spawn_handle: &SpawnEssentialTaskHandle,
 	coprocessor: StateMachine,
 ) -> Result<(), anyhow::Error> {
 	{
@@ -36,7 +36,7 @@ pub async fn fish(
 		let chain_b = chain_b.clone();
 		let coprocessor = coprocessor.clone();
 		let name = format!("fisherman-{}-{}", chain_a.name(), chain_b.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
+		spawn_handle.spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"fisherman",
 			async move {

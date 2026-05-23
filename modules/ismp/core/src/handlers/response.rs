@@ -91,6 +91,14 @@ where
 			let router = host.ismp_router();
 			let cb = router.module_for_id(request.from.clone())?;
 			let response = GetResponse { get: request.clone(), values: Default::default() };
+			// Re-check the receipt right before dispatch. The up-front pass above
+			// runs before any callback executes; a prior response's on_response in
+			// this same batch could have stored a receipt for this response
+			// (directly or by re-entering the handler), and we must not invoke
+			// on_response a second time.
+			if host.response_receipt(&response).is_some() {
+				Err(Error::DuplicateResponse { meta: (&response).into() })?
+			}
 			let signer = host.store_response_receipt(&response, &msg.signer)?;
 			let res = cb.on_response(GetResponse { get: request.clone(), values }).map(|weight| {
 				total_weights.saturating_accrue(weight);

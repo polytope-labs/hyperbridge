@@ -129,6 +129,23 @@ pub mod pallet {
 	pub type Stash<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
 
+	/// Pending controller-side approvals authorising a specific stash to bind
+	/// the controller. A non-empty entry at `(stash, controller)` is the
+	/// controller's signed consent to be paired by that stash.
+	///
+	/// Cleared on consumption by `register` / `set_controller`, or explicitly
+	/// via `revoke_controller_approval`.
+	#[pallet::storage]
+	pub type ControllerApprovals<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId, // stash
+		Blake2_128Concat,
+		T::AccountId, // controller
+		(),
+		OptionQuery,
+	>;
+
 	/// The reward value for collators
 	#[pallet::storage]
 	#[pallet::getter(fn collator_reward)]
@@ -149,6 +166,10 @@ pub mod pallet {
 		NoController,
 		/// The specified controller account is already paired with another stash.
 		AlreadyPaired,
+		/// The controller has not approved being paired with the calling stash.
+		ControllerApprovalMissing,
+		/// There is no pending controller approval to revoke for the given pair.
+		NoPendingApproval,
 	}
 
 	#[pallet::event]
@@ -196,6 +217,20 @@ pub mod pallet {
 			/// The reward amount.
 			amount: <T as pallet::Config>::Balance,
 		},
+		/// A controller account has approved being paired with a specific stash.
+		ControllerApprovalGranted {
+			/// The controller account granting approval.
+			controller: T::AccountId,
+			/// The stash account the controller has authorised.
+			stash: T::AccountId,
+		},
+		/// A previously-granted controller approval was revoked.
+		ControllerApprovalRevoked {
+			/// The controller account that revoked approval.
+			controller: T::AccountId,
+			/// The stash account whose approval was revoked.
+			stash: T::AccountId,
+		},
 	}
 
 	#[pallet::call]
@@ -214,14 +249,25 @@ pub mod pallet {
 		}
 
 		/// Registers a controller account for a bonded stash.
+		///
 		/// The origin must be a stash account, which must have already bonded funds
-		/// via `pallet-collator-selection`
+		/// via `pallet-collator-selection`. The supplied `controller` must have
+		/// previously authorised the pairing by calling `approve_controller` from
+		/// the controller's own origin — without this two-step consent, an
+		/// arbitrary stash could squat any unpaired controller address, blocking
+		/// the legitimate operator and (if the controller carried session keys
+		/// and reputation) consuming that reputation on selection.
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::register())]
 		pub fn register(origin: OriginFor<T>, controller: T::AccountId) -> DispatchResult {
 			let stash = ensure_signed(origin)?;
 			ensure!(!Controller::<T>::contains_key(&stash), Error::<T>::AlreadyRegistered);
 			ensure!(!Stash::<T>::contains_key(&controller), Error::<T>::AlreadyPaired);
+			// Controller must have signed an approval for this specific stash.
+			ensure!(
+				ControllerApprovals::<T>::take(&stash, &controller).is_some(),
+				Error::<T>::ControllerApprovalMissing
+			);
 
 			Controller::<T>::insert(&stash, &controller);
 			Stash::<T>::insert(&controller, &stash);
@@ -231,7 +277,11 @@ pub mod pallet {
 		}
 
 		/// Change the controller account for a registered stash.
-		/// The origin must be the stash account
+		///
+		/// The origin must be the stash account, and the proposed `new_controller`
+		/// must have previously authorised the rotation by calling
+		/// `approve_controller` from its own origin (mirroring the consent flow
+		/// required by `register`).
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_controller())]
 		pub fn set_controller(
@@ -241,6 +291,10 @@ pub mod pallet {
 			let stash = ensure_signed(origin)?;
 			let old_controller = Controller::<T>::get(&stash).ok_or(Error::<T>::NotStash)?;
 			ensure!(!Stash::<T>::contains_key(&new_controller), Error::<T>::AlreadyPaired);
+			ensure!(
+				ControllerApprovals::<T>::take(&stash, &new_controller).is_some(),
+				Error::<T>::ControllerApprovalMissing
+			);
 
 			Controller::<T>::insert(&stash, &new_controller);
 			Stash::<T>::remove(&old_controller);
@@ -258,6 +312,44 @@ pub mod pallet {
 			let controller = Controller::<T>::take(&stash).ok_or(Error::<T>::NotStash)?;
 			Stash::<T>::remove(&controller);
 			Self::deposit_event(Event::Deregistered { stash });
+			Ok(())
+		}
+
+		/// Authorise `stash` to bind the caller as its controller.
+		///
+		/// The origin is the controller account granting consent. A subsequent
+		/// `register(controller)` or `set_controller(controller)` call from
+		/// `stash` consumes this approval and completes the pairing. The
+		/// approval is single-use and per-(stash, controller).
+		///
+		/// Approvals may be retracted before consumption via
+		/// `revoke_controller_approval`.
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::register())]
+		pub fn approve_controller(
+			origin: OriginFor<T>,
+			stash: T::AccountId,
+		) -> DispatchResult {
+			let controller = ensure_signed(origin)?;
+			ControllerApprovals::<T>::insert(&stash, &controller, ());
+			Self::deposit_event(Event::ControllerApprovalGranted { controller, stash });
+			Ok(())
+		}
+
+		/// Revoke a previously-granted controller approval for the given stash.
+		/// The origin must be the controller that issued the approval.
+		#[pallet::call_index(5)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::deregister())]
+		pub fn revoke_controller_approval(
+			origin: OriginFor<T>,
+			stash: T::AccountId,
+		) -> DispatchResult {
+			let controller = ensure_signed(origin)?;
+			ensure!(
+				ControllerApprovals::<T>::take(&stash, &controller).is_some(),
+				Error::<T>::NoPendingApproval,
+			);
+			Self::deposit_event(Event::ControllerApprovalRevoked { controller, stash });
 			Ok(())
 		}
 	}

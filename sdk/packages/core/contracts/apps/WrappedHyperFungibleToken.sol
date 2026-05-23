@@ -307,9 +307,18 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         address beneficiary = _toAddr(message.to);
 
         if (_isWeth) {
+            // Try a native-ETH push first (cheap for EOAs and payable contracts);
+            // if the recipient cannot accept native value (no `receive()` / `fallback()
+            // payable`), re-wrap the withdrawn ETH and deliver the underlying WETH as
+            // an ERC-20 transfer instead. This mirrors the deposit-side flexibility of
+            // `send()` (which accepts WETH from non-payable callers via `safeTransferFrom`)
+            // so the refund path doesn't permanently lock funds for the same caller class.
             IWETH(_underlying).withdraw(message.amount);
             (bool sent,) = beneficiary.call{value: message.amount}("");
-            if (!sent) revert TransferFailed();
+            if (!sent) {
+                IWETH(_underlying).deposit{value: message.amount}();
+                IERC20(_underlying).safeTransfer(beneficiary, message.amount);
+            }
         } else {
             IERC20(_underlying).safeTransfer(beneficiary, message.amount);
         }
@@ -337,9 +346,17 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         address refundee = _toAddr(message.from);
 
         if (_isWeth) {
+            // Try a native-ETH push first; if the refundee cannot accept native value
+            // (e.g. the caller used the ERC-20 deposit path in `send()` from a
+            // non-payable contract), re-wrap the withdrawn ETH and deliver the
+            // underlying WETH as an ERC-20 transfer so the timeout still settles and
+            // funds are not permanently locked.
             IWETH(_underlying).withdraw(message.amount);
             (bool sent,) = refundee.call{value: message.amount}("");
-            if (!sent) revert TransferFailed();
+            if (!sent) {
+                IWETH(_underlying).deposit{value: message.amount}();
+                IERC20(_underlying).safeTransfer(refundee, message.amount);
+            }
         } else {
             IERC20(_underlying).safeTransfer(refundee, message.amount);
         }

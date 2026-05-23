@@ -200,7 +200,19 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 				(addr, slot_arr)
 			};
 
-			let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
+			// `receipts_state_trie_key` returns the raw EVM storage slot for
+			// `_requestReceipts[commitment]`. Ethermint-style Tendermint EVM stores
+			// expose EVM storage under IAVL keys of the form
+			// `prefix || address || keccak256(slot)` (see the prover's
+			// `abci_query_key` docs and `DefaultEvmKeys::storage_key`), so the raw
+			// slot must be keccak256-hashed before being folded into the IAVL key.
+			// `commitment_state_trie_key` already applies this hash inside its
+			// `req_commitment_key` closure for the membership path; this rehash
+			// keeps the non-membership path consistent so a present receipt is
+			// queried under the IAVL key that genuinely backs it rather than under
+			// an unhashed key that never exists in the tree.
+			let hashed_slot = ICS23HostFunctions::keccak256(&slot).0;
+			let key = storage_key_for(proof.height.id.state_id, &addr.0, hashed_slot);
 
 			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
 				.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;

@@ -128,8 +128,14 @@ where
 			// seems relay hash isn't in the finalized chain.
 			continue;
 		}
-		let relay_chain_header =
-			headers.header(&hash).expect("Headers have been checked by AncestryChain; qed");
+		// `AncestryChain::ancestry` includes the base hash in its returned route even
+		// when the base header is absent from `unknown_headers` — most notably the
+		// trusted latest relay hash. A previous `.expect` here panicked the runtime
+		// on attacker-controlled `parachain_headers` whose key matched the trusted
+		// latest hash. Surface a typed error instead so the proof is rejected.
+		let relay_chain_header = headers
+			.header(&hash)
+			.ok_or(Error::RelayHeaderNotInUnknownHeaders)?;
 		let state_proof = proof.state_proof;
 		let mut keys = BTreeMap::new();
 		for para_id in proof.para_ids {

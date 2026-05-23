@@ -47,6 +47,15 @@ pub enum Error {
 	/// header.
 	#[error("Invalid proof, parachain header not found")]
 	ParachainHeaderNotFound,
+	/// A `parachain_headers` map entry references a relay-chain hash that
+	/// is in the finalized ancestry route (`headers.ancestry`) but whose
+	/// header is not present in `finality_proof.unknown_headers`. The
+	/// trusted latest relay hash is the canonical instance of this:
+	/// `AncestryChain::ancestry` includes the base hash even when the
+	/// base header is not in the map. The verifier used to `.expect` the
+	/// header here and panic; it now surfaces a typed error.
+	#[error("Parachain header proof references a relay hash with no relay-chain header in unknown_headers")]
+	RelayHeaderNotInUnknownHeaders,
 	/// A parachain header in the state proof failed to SCALE-decode.
 	#[error("Error decoding header: {0}")]
 	DecodeHeader(String),

@@ -49,7 +49,7 @@ but does **not** need to set session keys — that's the Controller's job.
     - It's the account that accrues Reputation.
     - It's the account that sets Session Keys (required for block production).
     - This is the account you use as your relayer or prover signer.
-    - It must be linked to a Stash via `collatorManager.register` before the Stash can be selected as a Collator.
+    - It must approve being paired with your Stash via `collatorManager.approveController`, and the Stash then completes the link with `collatorManager.register`, before the Stash can be selected as a Collator. The two-signer flow prevents another account from squatting your Controller address.
 
 **Why Two Accounts?** This separation allows you to keep your bonded funds secure in a cold wallet while using a hot wallet for
 operational duties. If your Controller is compromised, an attacker cannot access your bonded funds — they can only perform
@@ -342,12 +342,30 @@ brings the fisherman task online so the node is contributing to L2 fraud detecti
 ### Step 3: Link your Controller to your Stash
 
 You must now create the on-chain link between your Stash account and your operational Controller account. This must be done before registering as a candidate, as `ValidatorRegistration` requires the controller to be linked first.
-**Action**: Call the collatorManager.register extrinsic
+
+Linking is a **two-step, two-signer** flow: the Controller first publishes its consent to be paired with a specific Stash, and the Stash then consumes that consent to complete the pairing. This prevents another account from squatting your Controller address.
+
+#### Step 3a: Approve the pairing from your Controller account
+
+**Action**: Call the `collatorManager.approveController` extrinsic from your **Controller** account.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
-- Select your Stash account.
+- Select your **Controller** account.
+- Choose the `collatorManager` pallet and the `approveController` extrinsic.
+- In the `stash` field, enter your **Stash** account address.
+- Sign and submit the transaction.
+
+This records a single-use, on-chain consent saying: "I am the Controller and I authorise this Stash to bind me." The approval is specific to that one `(stash, controller)` pair and is consumed by the next step. If you change your mind before the Stash consumes it, you can retract the approval by calling `collatorManager.revokeControllerApproval(stash)` from the Controller.
+
+#### Step 3b: Register the Controller from your Stash account
+
+**Action**: Call the `collatorManager.register` extrinsic from your **Stash** account.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your **Stash** account.
 - Choose the `collatorManager` pallet and the `register` extrinsic.
 - In the `controller` field, select your `Controller` account (the one with the reputation and session keys).
+- Sign and submit. The transaction will consume the matching approval from Step 3a and fail with `ControllerApprovalMissing` if no approval is on record for this `(stash, controller)` pair.
 
 <figure>
   <img src="/register_controller.png" alt="Registering Your Controller" />
@@ -355,6 +373,10 @@ You must now create the on-chain link between your Stash account and your operat
 </figure>
 
 This tells the network: "Designate this Controller to perform collator duties on behalf of my Stash account."
+
+#### Rotating to a new Controller later
+
+The same two-step consent applies if you ever rotate your Controller via `collatorManager.setController`: the **new** Controller must first call `approveController(stash)` from its own origin, and only then can the Stash call `setController(new_controller)` to consume that approval and switch.
 
 ### Step 4: Register as a Candidate By Bonding Funds from your Stash Account
 

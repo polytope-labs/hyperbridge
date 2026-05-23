@@ -1457,7 +1457,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
     }
 
-    function testPartialFill_CalldataOnlyAfterFullFill() public {
+    /// @notice Orders carrying output calldata cannot be partially filled: any fill that
+    /// does not complete the order reverts with PartialFillNotAllowed. A single full fill
+    /// succeeds and executes the attached calldata.
+    function testPartialFill_CalldataOrderRequiresFullFill() public {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
 
@@ -1497,28 +1500,27 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         order.source = host.host();
         order.nonce = 0;
 
-        // Partial fill — calldata should NOT execute
+        // Partial fill — must revert, partial fills are disallowed for calldata orders.
         vm.startPrank(solver);
         dai.approve(address(intentGateway), 500 * 1e18);
         TokenInfo[] memory outputs1 = new TokenInfo[](1);
         outputs1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs1}));
         vm.stopPrank();
 
-        // Allowance should still be 0 (calldata not executed yet)
+        // No escrow released and calldata not executed.
         assertEq(
             dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)),
             0,
-            "Calldata should not execute on partial fill"
+            "Calldata should not execute on rejected partial fill"
         );
 
-        // Complete the fill — calldata should execute
-        address solver2 = makeAddr("solver2");
-        deal(address(dai), solver2, 100000 * 1e18);
-        vm.startPrank(solver2);
-        dai.approve(address(intentGateway), 500 * 1e18);
+        // Full fill in a single transaction — calldata executes.
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
-        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs2}));
         vm.stopPrank();
 

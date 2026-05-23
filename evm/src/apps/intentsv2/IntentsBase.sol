@@ -188,6 +188,12 @@ abstract contract IntentsBase is EIP712 {
     */
     error UnknownInstance();
 
+    /*
+     * @dev Thrown when a solver attempts to partially fill an order that carries
+     * output calldata. Such orders must be filled completely in a single fill.
+    */
+    error PartialFillNotAllowed();
+
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
      * @param user The order creator's address encoded as bytes32.

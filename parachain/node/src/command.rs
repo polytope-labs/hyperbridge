@@ -449,17 +449,21 @@ pub fn run() -> Result<()> {
 
 						// start_simnode has brought the local RPC up, so the
 						// fisherman dial against `[hyperbridge].rpc_ws` is
-						// safe even when it loops back to this node. Mirrors
-						// the production wiring in service.rs so simnode tests
-						// exercise the same spawn path.
+						// safe even when it loops back to this node. Simnode
+						// is a single instant-seal node with nothing to sync,
+						// so the spawn runs directly rather than behind the
+						// production sync watcher.
 						if let Some(path) = fisherman_path {
-							hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(
-								|e| {
-									sc_service::Error::Other(format!(
-										"failed to spawn fisherman task: {e:?}"
-									))
-								},
-							)?;
+							hyperbridge_fisherman::spawn(
+								&path,
+								task_manager.spawn_essential_handle(),
+							)
+							.await
+							.map_err(|e| {
+								sc_service::Error::Other(format!(
+									"failed to spawn fisherman task: {e:?}"
+								))
+							})?;
 						}
 
 						Ok(task_manager)

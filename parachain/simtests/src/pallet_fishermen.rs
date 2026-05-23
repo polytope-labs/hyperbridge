@@ -506,7 +506,8 @@ async fn fisherman_task_spawns_against_simnode_and_mock_l2_rpcs() -> Result<()> 
 	let l2 = build_l2_provider(vec![mock_a.url(), mock_b.url()], hyperbridge.clone()).await?;
 
 	let task_manager = TaskManager::new(tokio::runtime::Handle::current(), None)?;
-	tesseract_fisherman::fish(hyperbridge, l2, &task_manager, coprocessor).await?;
+	tesseract_fisherman::fish(hyperbridge, l2, &task_manager.spawn_essential_handle(), coprocessor)
+		.await?;
 
 	tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -615,7 +616,8 @@ async fn fisherman_task_detects_disagreement_and_submits_veto() -> Result<()> {
 	let l2 = build_l2_provider(vec![mock_a.url(), mock_b.url()], hyperbridge.clone()).await?;
 
 	let task_manager = TaskManager::new(tokio::runtime::Handle::current(), None)?;
-	tesseract_fisherman::fish(hyperbridge, l2, &task_manager, coprocessor).await?;
+	tesseract_fisherman::fish(hyperbridge, l2, &task_manager.spawn_essential_handle(), coprocessor)
+		.await?;
 
 	// Give the task a moment to subscribe and capture its baseline height.
 	tokio::time::sleep(Duration::from_secs(2)).await;

@@ -100,6 +100,14 @@ where
 			let wrapped_req = Request::Post(request.clone());
 			let mut lambda = || {
 				let cb = router.module_for_id(request.to.clone())?;
+				// Re-check the receipt right before dispatch. The up-front pass above
+				// runs before any callback executes; a prior request's on_accept in
+				// this same batch could have stored a receipt for this request
+				// (directly or by re-entering the handler), and we must not invoke
+				// on_accept a second time.
+				if host.request_receipt(&wrapped_req).is_some() {
+					Err(Error::DuplicateRequest { meta: wrapped_req.clone().into() })?
+				}
 				// Store request receipt to prevent reentrancy attack
 				let signer = host.store_request_receipt(&wrapped_req, &msg.signer)?;
 				let res = cb.on_accept(request.clone()).map(|weight| {

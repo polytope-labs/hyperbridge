@@ -210,6 +210,11 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 	fn sp1_vkey_hash() -> sp_core::H256 {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
+
+	fn allowed_proof_types() -> &'static [u8] {
+		// Mainnet: only accept SP1 ZK proofs.
+		&[ismp_beefy::PROOF_TYPE_SP1]
+	}
 }
 
 impl pallet_consensus_incentives::Config for Runtime {

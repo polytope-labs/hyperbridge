@@ -438,6 +438,10 @@ impl ismp_beefy::BeefyClientConfig for Test {
 	fn sp1_vkey_hash() -> primitive_types::H256 {
 		Default::default()
 	}
+
+	fn allowed_proof_types() -> &'static [u8] {
+		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1]
+	}
 }
 
 parameter_types! {

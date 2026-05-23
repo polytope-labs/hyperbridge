@@ -69,7 +69,7 @@ pub mod signer {
 	use anyhow::Context;
 	use polkadot_sdk::sp_core::{sr25519, Pair};
 	use subxt::{
-		config::{ExtrinsicParams, HashFor},
+		config::{DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor},
 		tx::{DefaultParams, Signer, TxInBlock, TxProgress, TxStatus},
 		utils::{AccountId32, MultiSignature},
 		OnlineClient,
@@ -129,6 +129,44 @@ pub mod signer {
 		let params = DefaultParams::default_params();
 		let ext = client.tx().create_signed(payload, signer, params).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Like [`send_extrinsic`], but submits with an explicit `nonce` rather than letting subxt
+	/// fetch one from the chain.
+	///
+	/// subxt sources the auto nonce from the latest *finalized* block (via its internal
+	/// `inject_account_nonce_and_block`). On a parachain, finality trails the best chain by
+	/// several blocks, so a submitter that only waits for in-block (not finalization) before its
+	/// next submission reuses an already-spent nonce and the node rejects it as
+	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from `system_accountNextIndex`)
+	/// avoids that. This uses `create_partial_offline`, which — unlike `create_signed` — does not
+	/// overwrite the nonce we set.
+	pub async fn send_extrinsic_with_nonce<T, Tx: Payload>(
+		client: &OnlineClient<T>,
+		signer: &InMemorySigner<T>,
+		payload: &Tx,
+		nonce: u64,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error>
+	where
+		T: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<T>>,
+		T::AccountId: Into<T::Address> + Clone + 'static,
+		T::Signature: From<MultiSignature> + Send + Sync,
+	{
+		let params = DefaultExtrinsicParamsBuilder::<T>::new().nonce(nonce).build();
+		let mut partial = client.tx().create_partial_offline(payload, params)?;
+		let ext = partial.sign(signer);
+		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Drive a submitted extrinsic to inclusion (or finalization), assert it executed
+	/// successfully, and return the hash of the block it landed in.
+	async fn await_extrinsic<T: subxt::Config>(
+		progress: TxProgress<T, OnlineClient<T>>,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error> {
 		let ext_hash = progress.extrinsic_hash();
 
 		let extrinsic = if wait_for_finalization {

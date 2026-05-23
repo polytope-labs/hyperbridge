@@ -5,3 +5,4 @@ mod pallet_beefy_consensus_proofs;
 mod pallet_fishermen;
 mod pallet_ismp;
 mod pallet_mmr;
+mod pool_aware_nonce;

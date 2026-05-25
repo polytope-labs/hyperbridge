@@ -12,12 +12,13 @@
 //! Rules layered on top of the relayer schema: the signer must be set,
 //! every supported chain in [`tesseract_evm::registry`] — both L2 rollups
 //! and non-L2 EVM chains (Ethereum, BNB, Gnosis, Polygon, with their
-//! testnet counterparts) — must be configured, every chain needs at least
-//! two distinct host `rpc_urls` so the byzantine handler has independent
-//! providers to quorum across, and every chain must carry a
-//! `[<chain>.consensus]` sub-table with the matching consensus kind so
-//! the consensus relayer (and, for L2s, the L1 rollup-claim fisherman)
-//! has the addresses and host config it needs.
+//! testnet counterparts) — must be configured with at least two distinct
+//! host `rpc_urls` so the byzantine handler has independent providers
+//! to quorum across. Only L2 chains additionally need a
+//! `[<chain>.consensus]` sub-table — the on-chain rollup-claim fisherman
+//! reads the rollup-core / dispute-game-factory addresses from there.
+//! Non-L2 chains are required to be present but their consensus block
+//! is optional from the collator's perspective.
 
 use std::collections::HashSet;
 
@@ -399,13 +400,10 @@ mod tests {
 		use tesseract::config::{
 			HyperbridgeConfig, HyperbridgeSection, PerChainConfig, RelayerConfig,
 		};
-		use tesseract_bsc::BscPosConfig;
 		use tesseract_config::AnyConfig;
 		use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 		use tesseract_evm::EvmConfig;
-		use tesseract_polygon::PolygonPosConfig;
 		use tesseract_substrate::SubstrateConfig;
-		use tesseract_sync_committee::SyncCommitteeConfig;
 
 		use crate::config::validate;
 
@@ -442,54 +440,13 @@ mod tests {
 			}
 		}
 
-		fn sync_committee_consensus() -> SyncCommitteeConfig {
-			SyncCommitteeConfig {
-				host: tesseract_sync_committee::HostConfig {
-					beacon_http_urls: vec!["https://beacon.example/".into()],
-					consensus_update_frequency: 60,
-				},
-				layer_twos: None,
-			}
-		}
-
-		fn bsc_consensus() -> BscPosConfig {
-			BscPosConfig {
-				host: tesseract_bsc::HostConfig {
-					consensus_update_frequency: None,
-					epoch_length: 1000,
-				},
-			}
-		}
-
-		fn polygon_consensus() -> PolygonPosConfig {
-			PolygonPosConfig {
-				host: tesseract_polygon::HostConfig {
-					consensus_update_frequency: None,
-					heimdall_rpc_url: "https://heimdall.example/".into(),
-					disable: None,
-				},
-			}
-		}
-
-		fn non_l2_consensus_for(chain_id: u32) -> ConsensusConfig {
-			match chain_id {
-				1 => ConsensusConfig::Ethereum { inner: sync_committee_consensus() },
-				11155111 => ConsensusConfig::Sepolia { inner: sync_committee_consensus() },
-				56 => ConsensusConfig::Bsc { inner: bsc_consensus() },
-				97 => ConsensusConfig::BscTestnet { inner: bsc_consensus() },
-				100 => ConsensusConfig::Gnosis { inner: sync_committee_consensus() },
-				10200 => ConsensusConfig::Chiado { inner: sync_committee_consensus() },
-				137 | 80002 => ConsensusConfig::Polygon { inner: polygon_consensus() },
-				_ => panic!("non-L2 fixture not configured for chain_id {chain_id}"),
-			}
-		}
-
 		fn evm_chain(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
 			let consensus = match chain_id {
 				42161 | 421614 => Some(arbitrum_consensus()),
 				// L2 op-stack chains (Base, Optimism, Unichain, Soneium + testnets).
 				8453 | 130 | 10 | 1868 | 84532 | 11155420 => Some(opstack_consensus()),
-				_ => Some(non_l2_consensus_for(chain_id)),
+				// Non-L2 chains: collator doesn't require a consensus block on this side.
+				_ => None,
 			};
 			PerChainConfig {
 				messaging: AnyConfig::Evm(EvmConfig {
@@ -647,7 +604,8 @@ mod tests {
 
 		#[test]
 		fn validate_rejects_missing_non_l2_chain() {
-			// Drop Sepolia entirely and the testnet coverage check must fire.
+			// Drop Sepolia entirely and the testnet coverage check must fire — non-L2 chains
+			// don't need a consensus block but they do need to be present.
 			let mut cfg = complete_testnet_collator_config();
 			cfg.chains.remove(&StateMachine::Evm(11155111));
 			let err = validate(&cfg).unwrap_err().to_string();
@@ -656,24 +614,21 @@ mod tests {
 		}
 
 		#[test]
-		fn validate_rejects_missing_non_l2_consensus() {
-			// Sepolia present but its consensus block is missing — the per-chain check fires.
-			let mut cfg = complete_testnet_collator_config();
-			cfg.chains.get_mut(&StateMachine::Evm(11155111)).unwrap().consensus = None;
-			let err = validate(&cfg).unwrap_err().to_string();
-			assert!(err.contains("11155111"), "error: {err}");
-			assert!(err.contains("sepolia"), "error: {err}");
-		}
-
-		#[test]
-		fn validate_rejects_polygon_with_wrong_consensus_kind() {
-			let mut cfg = complete_testnet_collator_config();
-			// Amoy mistakenly wired with a bsc consensus block.
-			cfg.chains.get_mut(&StateMachine::Evm(80002)).unwrap().consensus =
-				Some(ConsensusConfig::BscTestnet { inner: bsc_consensus() });
-			let err = validate(&cfg).unwrap_err().to_string();
-			assert!(err.contains("80002"), "error: {err}");
-			assert!(err.contains("polygon"), "error: {err}");
+		fn validate_accepts_non_l2_without_consensus() {
+			// All four testnet non-L2 chains are wired without a consensus block in the
+			// fixture; the complete config still validates.
+			let cfg = complete_testnet_collator_config();
+			for non_l2 in [11155111u32, 97, 10200, 80002] {
+				assert!(
+					cfg.chains
+						.get(&StateMachine::Evm(non_l2))
+						.expect("non-L2 fixture present")
+						.consensus
+						.is_none(),
+					"non-L2 chain {non_l2} fixture should leave consensus unset",
+				);
+			}
+			validate(&cfg).expect("non-L2 chains do not need a consensus block on the collator");
 		}
 	}
 }

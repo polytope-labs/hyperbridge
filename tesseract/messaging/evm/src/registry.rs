@@ -159,24 +159,17 @@ pub fn is_opstack_l2(chain_id: u64) -> bool {
 	is_supported_l2(chain_id) && !is_arbitrum_l2(chain_id)
 }
 
-/// The expected tesseract consensus client kind for a supported chain — both L2 and non-L2.
-/// Returns `None` for chains outside the supported set.
+/// The expected tesseract consensus client kind for a supported L2. Returns `None` for any
+/// other chain — non-L2 chains don't require a `[<chain>.consensus]` block on the collator
+/// side, only the L2s do (the on-chain rollup-claim fisherman needs the rollup-core /
+/// dispute-game factory addresses that live in those L2 consensus configs).
 pub fn expected_consensus_kind(chain_id: u64) -> Option<&'static str> {
 	if is_arbitrum_l2(chain_id) {
-		return Some("arbitrum_orbit");
-	}
-	if is_opstack_l2(chain_id) {
-		return Some("op_stack");
-	}
-	match chain_id {
-		1 => Some("ethereum"),
-		11155111 => Some("sepolia"),
-		56 => Some("bsc"),
-		97 => Some("bsc_testnet"),
-		100 => Some("gnosis"),
-		10200 => Some("chiado"),
-		137 | 80002 => Some("polygon"),
-		_ => None,
+		Some("arbitrum_orbit")
+	} else if is_opstack_l2(chain_id) {
+		Some("op_stack")
+	} else {
+		None
 	}
 }
 

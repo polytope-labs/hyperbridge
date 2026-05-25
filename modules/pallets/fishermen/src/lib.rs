@@ -18,8 +18,8 @@
 //! games / arbitrum assertions) before they reach the consensus verifier.
 //!
 //! The set of accounts allowed to act is the active collator set, sourced from
-//! the runtime's `IsCollator` predicate. Every action requires two distinct
-//! collators to finalize.
+//! the runtime's `IsCollator` predicate. Any single collator can finalize a
+//! veto or blacklist — there is no quorum.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
@@ -84,27 +84,11 @@ pub mod pallet {
 		type IsCollator: Contains<Self::AccountId>;
 	}
 
-	/// Heights with a single recorded veto, awaiting a second distinct collator
-	/// to finalize the veto.
-	#[pallet::storage]
-	#[pallet::getter(fn pending_vetoes)]
-	pub type PendingVetoes<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineHeight, T::AccountId, OptionQuery>;
-
-	/// Half-quorum half of [`BlacklistedDisputeGames`]: the first collator to
-	/// flag a (state_machine, proxy) pair is recorded here; a distinct second
-	/// collator finalizes the blacklist.
-	#[pallet::storage]
-	#[pallet::getter(fn pending_dispute_game_blacklist)]
-	pub type PendingDisputeGameBlacklist<T: Config> =
-		StorageMap<_, Blake2_128Concat, (StateMachineId, H160), T::AccountId, OptionQuery>;
-
 	/// Finalized opstack dispute-game blacklist. Keyed by `(state_machine_id,
-	/// dispute_game_proxy)`; the value is `(first_collator, second_collator)` — the two
-	/// distinct fishermen whose calls quorum-finalized the entry. Read by
-	/// `pallet-ismp-optimism::verify_consensus` to refuse `OpFaultProofGames` proofs that
-	/// reference a blacklisted proxy; the recorded fishermen are kept for auditability and
-	/// reputation accounting downstream.
+	/// dispute_game_proxy)`; the value is the collator account that submitted the blacklist.
+	/// Read by `pallet-ismp-optimism::verify_consensus` to refuse `OpFaultProofGames` proofs
+	/// that reference a blacklisted proxy; the recorded fisherman is kept for auditability
+	/// and reputation accounting downstream.
 	#[pallet::storage]
 	#[pallet::getter(fn blacklisted_dispute_games)]
 	pub type BlacklistedDisputeGames<T: Config> = StorageDoubleMap<
@@ -113,22 +97,16 @@ pub mod pallet {
 		StateMachineId,
 		Blake2_128Concat,
 		H160,
-		(T::AccountId, T::AccountId),
+		T::AccountId,
 		OptionQuery,
 	>;
-
-	/// Half-quorum half of [`BlacklistedArbitrumClaims`].
-	#[pallet::storage]
-	#[pallet::getter(fn pending_arbitrum_claim_blacklist)]
-	pub type PendingArbitrumClaimBlacklist<T: Config> =
-		StorageMap<_, Blake2_128Concat, (StateMachineId, H256), T::AccountId, OptionQuery>;
 
 	/// Finalized arbitrum claim blacklist. Keyed by `(state_machine_id, claim_hash)` where
 	/// `claim_hash` is the BoLD `assertionHash` for BoLD updates or
 	/// `keccak256(state_hash || node_num.to_be_bytes())` for Orbit/AnyTrust updates; the
-	/// value is `(first_collator, second_collator)` — the two distinct fishermen whose calls
-	/// quorum-finalized the entry. Read by `pallet-ismp-arbitrum::verify_consensus`; the
-	/// recorded fishermen are kept for auditability and reputation accounting downstream.
+	/// value is the collator account that submitted the blacklist. Read by
+	/// `pallet-ismp-arbitrum::verify_consensus`; the recorded fisherman is kept for
+	/// auditability and reputation accounting downstream.
 	#[pallet::storage]
 	#[pallet::getter(fn blacklisted_arbitrum_claims)]
 	pub type BlacklistedArbitrumClaims<T: Config> = StorageDoubleMap<
@@ -137,7 +115,7 @@ pub mod pallet {
 		StateMachineId,
 		Blake2_128Concat,
 		H256,
-		(T::AccountId, T::AccountId),
+		T::AccountId,
 		OptionQuery,
 	>;
 
@@ -147,49 +125,28 @@ pub mod pallet {
 		UnauthorizedAction,
 		/// State commitment was not found.
 		VetoFailed,
-		/// Invalid veto request (e.g. same collator submitted twice).
-		InvalidVeto,
-		/// Invalid blacklist request (e.g. same collator submitted twice).
-		InvalidBlacklist,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// The provided state commitment was vetoed at `height`.
-		StateCommitmentVetoed { height: StateMachineHeight, commitment: StateCommitment },
-		/// A first veto for `height` has been noted, awaiting a second distinct
-		/// collator to finalize.
-		VetoNoted { height: StateMachineHeight, fisherman: T::AccountId },
-		/// A first blacklist for the given opstack dispute-game proxy has been
-		/// noted, awaiting a second distinct collator to finalize.
-		DisputeGameBlacklistNoted {
-			state_machine_id: StateMachineId,
-			proxy: H160,
+		/// The provided state commitment was vetoed at `height` by `fisherman`.
+		StateCommitmentVetoed {
+			height: StateMachineHeight,
+			commitment: StateCommitment,
 			fisherman: T::AccountId,
 		},
-		/// The given opstack dispute-game proxy has been blacklisted by the two listed
-		/// collators (the first one to submit and the second distinct one who finalized).
+		/// The given opstack dispute-game proxy has been blacklisted by `fisherman`.
 		DisputeGameBlacklisted {
 			state_machine_id: StateMachineId,
 			proxy: H160,
-			first_fisherman: T::AccountId,
-			second_fisherman: T::AccountId,
-		},
-		/// A first blacklist for the given arbitrum claim hash has been noted,
-		/// awaiting a second distinct collator to finalize.
-		ArbitrumClaimBlacklistNoted {
-			state_machine_id: StateMachineId,
-			claim: H256,
 			fisherman: T::AccountId,
 		},
-		/// The given arbitrum claim hash has been blacklisted by the two listed collators (the
-		/// first one to submit and the second distinct one who finalized).
+		/// The given arbitrum claim hash has been blacklisted by `fisherman`.
 		ArbitrumClaimBlacklisted {
 			state_machine_id: StateMachineId,
 			claim: H256,
-			first_fisherman: T::AccountId,
-			second_fisherman: T::AccountId,
+			fisherman: T::AccountId,
 		},
 	}
 
@@ -198,16 +155,15 @@ pub mod pallet {
 	where
 		T::AccountId: AsRef<[u8]>,
 	{
-		/// A collator has determined that some [`StateCommitment`] (which is ideally still in its
-		/// challenge period) is in fact fraudulent and misrepresentative of the state changes at
-		/// the provided height. This allows them to veto the state commitment. They aren't
-		/// required to provide any proofs for this. Successful veto requires two distinct
-		/// collators.
+		/// A collator has determined that some [`StateCommitment`] (which is ideally still in
+		/// its challenge period) is in fact fraudulent and misrepresentative of the state
+		/// changes at the provided height. They aren't required to provide any proofs for
+		/// this — any single collator's call deletes the commitment.
 		///
-		/// Dispatches with `Pays::No`. The on-chain `IsCollator` check is the DOS guard, so the
-		/// signer does not need to hold a balance.
+		/// Dispatches with `Pays::No`. The on-chain `IsCollator` check is the DOS guard, so
+		/// the signer does not need to hold a balance.
 		#[pallet::call_index(0)]
-		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3), Pays::No))]
+		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2), Pays::No))]
 		pub fn veto_state_commitment(
 			origin: OriginFor<T>,
 			height: StateMachineHeight,
@@ -215,46 +171,40 @@ pub mod pallet {
 			let account = ensure_signed(origin)?;
 			ensure!(T::IsCollator::contains(&account), Error::<T>::UnauthorizedAction);
 
-			if let Some(prev_veto) = PendingVetoes::<T>::get(height) {
-				if account == prev_veto {
-					Err(Error::<T>::InvalidVeto)?
-				}
-				let ismp_host = <T as Config>::IsmpHost::default();
-				let commitment = ismp_host
-					.state_machine_commitment(height)
-					.map_err(|_| Error::<T>::VetoFailed)?;
-				ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
-				PendingVetoes::<T>::remove(height);
+			let ismp_host = <T as Config>::IsmpHost::default();
+			let commitment =
+				ismp_host.state_machine_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
+			ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
 
-				Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
-				pallet_ismp::Pallet::<T>::deposit_event(
-					ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
-						height,
-						fisherman: account.as_ref().to_vec(),
-					})
-					.into(),
-				);
-			} else {
-				PendingVetoes::<T>::insert(height, account.clone());
-				Self::deposit_event(Event::VetoNoted { height, fisherman: account });
-			}
+			Self::deposit_event(Event::StateCommitmentVetoed {
+				height,
+				commitment,
+				fisherman: account.clone(),
+			});
+			pallet_ismp::Pallet::<T>::deposit_event(
+				ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
+					height,
+					fisherman: account.as_ref().to_vec(),
+				})
+				.into(),
+			);
 
 			Ok(())
 		}
 
-		/// A collator has determined that the opstack dispute game at `proxy` (registered against
-		/// the configured `DisputeGameFactory` for `state_machine_id`) is fraudulent — typically
-		/// because the off-chain fisherman watcher verified the claimed L2 output root against a
-		/// supermajority (2/3·N + 1) of L2 RPC endpoints and observed a mismatch (or a quorum of
-		/// the L2 height being absent).
+		/// A collator has determined that the opstack dispute game at `proxy` (registered
+		/// against the configured `DisputeGameFactory` for `state_machine_id`) is fraudulent
+		/// — typically because the off-chain fisherman watcher verified the claimed L2 output
+		/// root against a supermajority (2/3·N + 1) of L2 RPC endpoints and observed a
+		/// mismatch (or a quorum of the L2 height being absent).
 		///
-		/// Successful blacklist requires two distinct collators. Once finalized, the entry is
-		/// permanent (there is no `unblacklist` extrinsic) — the consensus verifier will refuse
-		/// any future `OpFaultProofGames` consensus proof that references this proxy.
+		/// Any single collator finalizes the blacklist. The entry is permanent (there is no
+		/// `unblacklist` extrinsic) — the consensus verifier will refuse any future
+		/// `OpFaultProofGames` consensus proof that references this proxy.
 		///
 		/// Dispatches with `Pays::No`. The on-chain `IsCollator` check is the DOS guard.
 		#[pallet::call_index(1)]
-		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(2, 2), Pays::No))]
+		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1), Pays::No))]
 		pub fn blacklist_dispute_game(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
@@ -263,51 +213,32 @@ pub mod pallet {
 			let account = ensure_signed(origin)?;
 			ensure!(T::IsCollator::contains(&account), Error::<T>::UnauthorizedAction);
 
-			// Already finalized: silently succeed so a slow second collator doesn't fail loudly.
+			// Idempotent: a second call for the same (chain, proxy) is silently Ok and does
+			// not overwrite the original fisherman.
 			if BlacklistedDisputeGames::<T>::contains_key(state_machine_id, proxy) {
 				return Ok(());
 			}
 
-			let key = (state_machine_id, proxy);
-			if let Some(prev) = PendingDisputeGameBlacklist::<T>::get(&key) {
-				if account == prev {
-					Err(Error::<T>::InvalidBlacklist)?
-				}
-				PendingDisputeGameBlacklist::<T>::remove(&key);
-				BlacklistedDisputeGames::<T>::insert(
-					state_machine_id,
-					proxy,
-					(prev.clone(), account.clone()),
-				);
-				Self::deposit_event(Event::DisputeGameBlacklisted {
-					state_machine_id,
-					proxy,
-					first_fisherman: prev,
-					second_fisherman: account,
-				});
-			} else {
-				PendingDisputeGameBlacklist::<T>::insert(key, account.clone());
-				Self::deposit_event(Event::DisputeGameBlacklistNoted {
-					state_machine_id,
-					proxy,
-					fisherman: account,
-				});
-			}
-
+			BlacklistedDisputeGames::<T>::insert(state_machine_id, proxy, account.clone());
+			Self::deposit_event(Event::DisputeGameBlacklisted {
+				state_machine_id,
+				proxy,
+				fisherman: account,
+			});
 			Ok(())
 		}
 
 		/// A collator has determined that the arbitrum claim identified by `claim` (a BoLD
-		/// `assertionHash` or, for Orbit/AnyTrust, a derived hash of `state_hash || node_num`) is
-		/// fraudulent.
+		/// `assertionHash` or, for Orbit/AnyTrust, a derived hash of `state_hash || node_num`)
+		/// is fraudulent.
 		///
-		/// Successful blacklist requires two distinct collators. Once finalized, the entry is
-		/// permanent — the consensus verifier will refuse any future `ArbitrumOrbit` or
-		/// `ArbitrumBold` consensus proof that resolves to this claim hash.
+		/// Any single collator finalizes the blacklist. The entry is permanent — the
+		/// consensus verifier will refuse any future `ArbitrumOrbit` or `ArbitrumBold`
+		/// consensus proof that resolves to this claim hash.
 		///
 		/// Dispatches with `Pays::No`. The on-chain `IsCollator` check is the DOS guard.
 		#[pallet::call_index(2)]
-		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(2, 2), Pays::No))]
+		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1), Pays::No))]
 		pub fn blacklist_arbitrum_claim(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
@@ -320,32 +251,12 @@ pub mod pallet {
 				return Ok(());
 			}
 
-			let key = (state_machine_id, claim);
-			if let Some(prev) = PendingArbitrumClaimBlacklist::<T>::get(&key) {
-				if account == prev {
-					Err(Error::<T>::InvalidBlacklist)?
-				}
-				PendingArbitrumClaimBlacklist::<T>::remove(&key);
-				BlacklistedArbitrumClaims::<T>::insert(
-					state_machine_id,
-					claim,
-					(prev.clone(), account.clone()),
-				);
-				Self::deposit_event(Event::ArbitrumClaimBlacklisted {
-					state_machine_id,
-					claim,
-					first_fisherman: prev,
-					second_fisherman: account,
-				});
-			} else {
-				PendingArbitrumClaimBlacklist::<T>::insert(key, account.clone());
-				Self::deposit_event(Event::ArbitrumClaimBlacklistNoted {
-					state_machine_id,
-					claim,
-					fisherman: account,
-				});
-			}
-
+			BlacklistedArbitrumClaims::<T>::insert(state_machine_id, claim, account.clone());
+			Self::deposit_event(Event::ArbitrumClaimBlacklisted {
+				state_machine_id,
+				claim,
+				fisherman: account,
+			});
 			Ok(())
 		}
 	}

@@ -37,9 +37,9 @@ export interface BridgeParams {
  * Fee quote for a cross-chain send
  */
 export interface QuoteResult {
-	/** Native token amount needed as msg.value for send() (protocol fee + relayer fee) */
+	/** Native token amount needed as msg.value for send(). Returned directly by the contract's quote(). */
 	totalNativeCost: bigint
-	/** Total fee in the host's fee token (protocol fee + relayer fee) */
+	/** Fee paid in the host's fee token when payInFeeToken is true. Equals relayerFeeInFeeToken. */
 	totalFeeTokenCost: bigint
 	/** Relayer fee component in the source chain's fee token */
 	relayerFeeInFeeToken: bigint
@@ -116,8 +116,7 @@ export class HyperFungibleToken {
 	 * 1. Estimates gas for delivering the message on the destination chain (fake proofs)
 	 * 2. Converts dest gas cost → dest feeToken via dest chain's Uniswap (getAmountsOut)
 	 * 3. Scales decimals if source and dest feeTokens differ in precision
-	 * 4. Passes relayer fee (in source feeToken) to source.quoteNative() which adds
-	 *    per-byte protocol fees and converts the total to source native
+	 * 4. Calls the token's quote(SendParams) to get the native dispatch cost
 	 */
 	async quote(params: BridgeParams): Promise<QuoteResult> {
 		const dest = this.encodeStateMachineId(params.dest)
@@ -194,7 +193,6 @@ export class HyperFungibleToken {
 			}
 		}
 
-		// Batch 3: call quote and quoteNative with SendParams on the token contract
 		const sendParams = {
 			dest,
 			to,
@@ -204,37 +202,22 @@ export class HyperFungibleToken {
 			data,
 		}
 
-		// Both quote() and quoteNative() route through the host's uniswapV2Router.
-		// On testnets where the router isn't configured, these calls revert; the
-		// caller must use payInFeeToken and the approval check below uses a sentinel.
-		let totalFeeTokenCost = 0n
-		try {
-			totalFeeTokenCost = (await this.source.client.readContract({
-				address: params.token,
-				abi: HyperFungibleTokenABI,
-				functionName: "quote",
-				args: [sendParams],
-			})) as bigint
-		} catch {
-			// uniswapV2Router unset on this host — quote unavailable.
-		}
-
 		let totalNativeCost = 0n
 		try {
 			totalNativeCost = (await this.source.client.readContract({
 				address: params.token,
 				abi: HyperFungibleTokenABI,
-				functionName: "quoteNative",
+				functionName: "quote",
 				args: [sendParams],
 			})) as bigint
 			totalNativeCost = (totalNativeCost * 101n) / 100n // 1% buffer
 		} catch {
-			// uniswapV2Router unset on this host — native quote unavailable.
+			// host may not be set up to price native fees on this chain yet
 		}
 
 		return {
 			totalNativeCost,
-			totalFeeTokenCost,
+			totalFeeTokenCost: relayerFeeInSourceFeeToken,
 			relayerFeeInFeeToken: relayerFeeInSourceFeeToken,
 		}
 	}
@@ -318,9 +301,9 @@ export class HyperFungibleToken {
 				args: [params.from, token],
 			})) as bigint
 
-			// Approve max to avoid repeated approvals and rounding issues. When the
-			// on-chain quote was unavailable (testnet without uniswapV2Router),
-			// fall back to a sentinel so the first call still issues an approval.
+			// Approve max to avoid repeated approvals and rounding issues. Fall back to
+			// a sentinel when the relayer fee is zero so the first call still issues an
+			// approval (the contract still pulls 0 fee tokens but the host may charge dust).
 			const approvalThreshold = fee.totalFeeTokenCost > 0n ? fee.totalFeeTokenCost : 1n << 200n
 			if (currentAllowance < approvalThreshold) {
 				yield {

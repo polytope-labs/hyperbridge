@@ -220,8 +220,10 @@ async fn read_l2_block_number(
 	Ok(n.to::<u64>())
 }
 
-/// Per-provider: fetch the L2 block at `height`, fetch the message-parser storage proof at
-/// that block, and compute the expected `output_root`.
+/// Per-provider: fetch the L2 block at `height`, fetch the message-parser account at that
+/// block to get its `storage_root`, and compute the expected `output_root`. Uses
+/// `eth_getAccount` (alloy `get_account`) instead of `eth_getProof` since we only need the
+/// account's storage root, not the full merkle proof.
 async fn compute_quorum_root(
 	provider: &AlloyProvider,
 	message_parser: &H160,
@@ -233,16 +235,16 @@ async fn compute_quorum_root(
 		FetchOutcome::Errored => return FetchOutcome::Errored,
 	};
 	let parser_addr = Address::from_slice(&message_parser.0);
-	let proof = match provider
-		.get_proof(parser_addr, vec![])
+	let account = match provider
+		.get_account(parser_addr)
 		.block_id(BlockId::number(height))
 		.await
 	{
-		Ok(p) => p,
+		Ok(a) => a,
 		Err(e) => {
 			log::warn!(
 				target: crate::LOG_TARGET,
-				"fish_opstack: message-parser proof at L2 block {height} failed: {e:?}",
+				"fish_opstack: message-parser account at L2 block {height} failed: {e:?}",
 			);
 			return FetchOutcome::Errored;
 		},
@@ -252,7 +254,7 @@ async fn compute_quorum_root(
 	let computed = calculate_output_root::<Hasher>(
 		H256::zero(),
 		l2_header.state_root,
-		proof.storage_hash.0.into(),
+		account.storage_root.0.into(),
 		l2_block_hash,
 	);
 	FetchOutcome::Found(computed)

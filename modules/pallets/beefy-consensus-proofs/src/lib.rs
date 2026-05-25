@@ -133,12 +133,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type UnbondingPeriod: Get<u64>;
 
-		/// Allowed proof types. Controls which consensus proof formats the pallet
-		/// will accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
-		/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`.
-		#[pallet::constant]
-		type AllowedProofTypes: Get<&'static [u8]>;
-
 		/// Maximum number of uncle provers rewarded per parachain height, in addition to
 		/// the first prover. Total provers per height are therefore `MaxUncleProvers + 1`,
 		/// occupying positions `0..=MaxUncleProvers` (position 0 is always the first prover).
@@ -443,10 +437,11 @@ pub mod pallet {
 			// Size is enforced by the `BoundedVec<u8, T::MaxProofSize>` parameter on
 			// `submit_proof` — oversized payloads fail SCALE decoding inside the txpool
 			// and never reach this dispatch.
+			// The set of accepted proof types is gated by `ismp-beefy`'s
+			// `BeefyClientConfig::allowed_proof_types` during `verify_and_apply`; here we only
+			// need the type byte to drive canonical re-encoding. Unknown bytes still fall
+			// through to the `_ => UnknownProofType` arm of the match below.
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if !T::AllowedProofTypes::get().contains(&proof_type) {
-				Err(Error::<T>::UnknownProofType)?
-			}
 
 			// Decode the ABI payload then re-encode it canonically and hash *that* instead
 			// of the raw input. `alloy_sol_types::abi_decode_params` silently ignores

@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_200,
+	spec_version: 7_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -922,12 +922,6 @@ parameter_types! {
 	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
-parameter_types! {
-	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
-	];
-}
-
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -936,7 +930,6 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
-	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;

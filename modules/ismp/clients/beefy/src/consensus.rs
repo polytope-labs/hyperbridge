@@ -81,6 +81,9 @@ where
 				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
 
 		let proof_type = proof.first().ok_or(BeefyError::EmptyProof)?;
+		if !C::allowed_proof_types().contains(proof_type) {
+			return Err(BeefyError::UnknownProofType(*proof_type).into());
+		}
 		let payload = &proof[1..];
 
 		let (new_state, verified_parachains) = match *proof_type {

@@ -29,6 +29,12 @@ contract ConfiguredWrapperForkTest is Test, Config {
     string internal constant CONFIG_FILE = "config.mainnet.toml";
 
     function _assertSwapWorks(string memory chain) internal {
+        // Skipped on CI (no per-chain mainnet RPC aliases). Run locally with the
+        // mainnet env sourced and RUN_WRAPPER_FORK_TESTS=true.
+        if (!vm.envOr("RUN_WRAPPER_FORK_TESTS", false)) {
+            vm.skip(true);
+            return;
+        }
         vm.createSelectFork(chain);
         _loadConfig(CONFIG_FILE, false);
 

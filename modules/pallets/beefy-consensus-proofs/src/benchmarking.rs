@@ -99,9 +99,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(submitter), proof);
 
-		// Uncle accepted at position 0; one hash recorded under height 0.
+		// Uncle accepted at position 0; one hash and one submitter recorded under height 0.
 		assert_eq!(pallet::ProverCount::<T>::get(0u64), 1);
 		assert_eq!(pallet::AcceptedProofHashes::<T>::get(0u64).len(), 1);
+		assert_eq!(pallet::RewardedSubmitters::<T>::get(0u64).len(), 1);
 	}
 
 	#[benchmark]

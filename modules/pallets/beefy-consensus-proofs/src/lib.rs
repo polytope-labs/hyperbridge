@@ -201,6 +201,22 @@ pub mod pallet {
 	pub type AcceptedProofHashes<T: Config> =
 		StorageMap<_, Blake2_128Concat, u64, BoundedVec<H256, MaxStoredProvers<T>>, ValueQuery>;
 
+	/// Accounts already rewarded at a given parachain height, whether for the first proof
+	/// or an uncle. Uncle rewards exist to pay *independent* provers racing the same
+	/// target, so a submitter that already collected a reward at this height is rejected
+	/// from collecting again. `AcceptedProofHashes` alone cannot catch this: SP1 Groth16
+	/// randomizes the witness, so the same operator can re-prove the same target with
+	/// fresh bytes and a fresh hash. Bounded by `MaxUncleProvers + 1`, matching the at
+	/// most one first plus `MaxUncleProvers` uncle accounts per height.
+	#[pallet::storage]
+	pub type RewardedSubmitters<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		u64,
+		BoundedVec<T::AccountId, MaxStoredProvers<T>>,
+		ValueQuery,
+	>;
+
 	/// Reward fractions `(numerator, denominator)` indexed by prover position. The base
 	/// reward [`ProofReward`] is multiplied by the fraction at the prover's position.
 	/// An empty curve falls back to `(1, 1)` for position 0 and zero for uncles, so the
@@ -240,6 +256,9 @@ pub mod pallet {
 		UncleSlotsFull,
 		/// This exact proof has already been accepted at this height.
 		ProofAlreadySubmitted,
+		/// This account has already been rewarded at this height (as the first proof or a
+		/// prior uncle). One reward per account per height.
+		SubmitterAlreadyRewarded,
 		/// No first proof has been seen at this height, so no uncle slot exists.
 		NoUncleContext,
 		/// `set_reward_curve` received a fraction with a zero denominator.
@@ -527,7 +546,12 @@ pub mod pallet {
 
 			// Record uncle metadata for SP1 proofs only. Naive proofs are ineligible.
 			if proof_type == types::PROOF_TYPE_SP1 {
-				Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, proof_hash)?;
+				Self::record_uncle_metadata(
+					&submitter,
+					outcome.latest_height,
+					prev_state_bytes,
+					proof_hash,
+				)?;
 			}
 
 			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
@@ -556,6 +580,7 @@ pub mod pallet {
 				ProofContext::<T>::remove(height);
 				ProverCount::<T>::remove(height);
 				AcceptedProofHashes::<T>::remove(height);
+				RewardedSubmitters::<T>::remove(height);
 			}
 
 			Self::deposit_event(Event::ProofAccepted {
@@ -601,6 +626,17 @@ pub mod pallet {
 				Err(Error::<T>::ProofAlreadySubmitted)?
 			}
 
+			// Reject an account that already collected a reward at this height (first proof
+			// or a prior uncle). SP1 Groth16 witness randomization lets the same operator
+			// re-prove the same target with fresh bytes, dodging the `AcceptedProofHashes`
+			// hash dedup; uncle rewards are meant for *independent* provers, so one reward
+			// per account per height. Checked before the expensive SP1 verification so a
+			// double-dipper only pays the tx fee.
+			let rewarded = RewardedSubmitters::<T>::get(parachain_height);
+			if rewarded.contains(&submitter) {
+				Err(Error::<T>::SubmitterAlreadyRewarded)?
+			}
+
 			// Verify the proof cryptographically against the saved trusted state. We
 			// don't apply state mutations because the live state is already past this point.
 			let snapshot: beefy_verifier_primitives::ConsensusState =
@@ -634,6 +670,10 @@ pub mod pallet {
 
 			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
 				.map_err(|_| Error::<T>::UncleSlotsFull)?;
+			RewardedSubmitters::<T>::try_mutate(parachain_height, |vec| {
+				vec.try_push(submitter.clone())
+			})
+			.map_err(|_| Error::<T>::UncleSlotsFull)?;
 			ProverCount::<T>::insert(parachain_height, position.saturating_add(1));
 
 			Self::deposit_event(Event::UncleProofAccepted {
@@ -647,9 +687,10 @@ pub mod pallet {
 		}
 
 		/// Save the pre-proof snapshot keyed by `parachain_height` and register the
-		/// first proof's hash. Uncles for this height land in the same rows; eviction
-		/// from `MessagingProofs`/`RotationProofs` removes them in lockstep.
+		/// first proof's hash and submitter. Uncles for this height land in the same rows;
+		/// eviction from `MessagingProofs`/`RotationProofs` removes them in lockstep.
 		fn record_uncle_metadata(
+			submitter: &T::AccountId,
 			parachain_height: u64,
 			prev_state_bytes: Vec<u8>,
 			proof_hash: H256,
@@ -658,6 +699,10 @@ pub mod pallet {
 
 			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
 				.map_err(|_| Error::<T>::UncleSlotsFull)?;
+			RewardedSubmitters::<T>::try_mutate(parachain_height, |vec| {
+				vec.try_push(submitter.clone())
+			})
+			.map_err(|_| Error::<T>::UncleSlotsFull)?;
 			ProverCount::<T>::mutate(parachain_height, |c| *c = c.saturating_add(1));
 
 			Ok(())

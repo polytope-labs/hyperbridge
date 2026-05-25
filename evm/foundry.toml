@@ -40,6 +40,7 @@ polygon = "${POLYGON_RPC_URL}"
 unichain = "${UNICHAIN_RPC_URL}"
 inkchain = "${INKCHAIN_RPC_URL}"
 sei = "${SEI_RPC_URL}"
+polkadot = "${POLKADOT_URL}"
 
 [etherscan]
 # testnet
@@ -63,6 +64,7 @@ bsc = { chain = 56, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.ethe
 gnosis = { chain = 100, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=100" }
 soneium = { chain = 1868, key="${SONEIUM_BLOCKSCOUT_API_KEY}", url = "https://soneium.blockscout.com/api" }
 polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=137" }
+polkadot = { chain = 420420419, key="verifyContract", url = "https://blockscout.polkadot.io/api/" }
 unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=130" }
 inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=57073" }
 sei = { chain = 1329, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1329" }

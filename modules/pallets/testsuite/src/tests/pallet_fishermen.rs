@@ -169,6 +169,11 @@ fn test_can_blacklist_dispute_games() {
 		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
 			state_machine_id, proxy,
 		));
+		// Both fishermen are recorded in storage, in submission order.
+		assert_eq!(
+			pallet_fishermen::BlacklistedDisputeGames::<Test>::get(state_machine_id, proxy),
+			Some((collator_a.clone(), collator_b.clone())),
+		);
 
 		// Idempotent: a slow third collator call after finalization is silently Ok.
 		assert_eq!(
@@ -215,7 +220,7 @@ fn test_can_blacklist_arbitrum_claims() {
 		// Second distinct collator finalizes.
 		assert_eq!(
 			pallet_fishermen::Pallet::<Test>::blacklist_arbitrum_claim(
-				RuntimeOrigin::signed(collator_b),
+				RuntimeOrigin::signed(collator_b.clone()),
 				state_machine_id,
 				claim,
 			),
@@ -224,5 +229,10 @@ fn test_can_blacklist_arbitrum_claims() {
 		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
 			state_machine_id, claim,
 		));
+		// Both fishermen are recorded in storage, in submission order.
+		assert_eq!(
+			pallet_fishermen::BlacklistedArbitrumClaims::<Test>::get(state_machine_id, claim),
+			Some((collator_a, collator_b)),
+		);
 	})
 }

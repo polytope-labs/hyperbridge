@@ -100,9 +100,11 @@ pub mod pallet {
 		StorageMap<_, Blake2_128Concat, (StateMachineId, H160), T::AccountId, OptionQuery>;
 
 	/// Finalized opstack dispute-game blacklist. Keyed by `(state_machine_id,
-	/// dispute_game_proxy)`. Read by `pallet-ismp-optimism::verify_consensus`
-	/// to refuse `OpFaultProofGames` proofs that reference a blacklisted
-	/// proxy.
+	/// dispute_game_proxy)`; the value is `(first_collator, second_collator)` — the two
+	/// distinct fishermen whose calls quorum-finalized the entry. Read by
+	/// `pallet-ismp-optimism::verify_consensus` to refuse `OpFaultProofGames` proofs that
+	/// reference a blacklisted proxy; the recorded fishermen are kept for auditability and
+	/// reputation accounting downstream.
 	#[pallet::storage]
 	#[pallet::getter(fn blacklisted_dispute_games)]
 	pub type BlacklistedDisputeGames<T: Config> = StorageDoubleMap<
@@ -111,7 +113,7 @@ pub mod pallet {
 		StateMachineId,
 		Blake2_128Concat,
 		H160,
-		(),
+		(T::AccountId, T::AccountId),
 		OptionQuery,
 	>;
 
@@ -121,11 +123,12 @@ pub mod pallet {
 	pub type PendingArbitrumClaimBlacklist<T: Config> =
 		StorageMap<_, Blake2_128Concat, (StateMachineId, H256), T::AccountId, OptionQuery>;
 
-	/// Finalized arbitrum claim blacklist. Keyed by `(state_machine_id,
-	/// claim_hash)` where `claim_hash` is the BoLD `assertionHash` for BoLD
-	/// updates or `keccak256(state_hash || node_num.to_be_bytes())` for
-	/// Orbit/AnyTrust updates. Read by
-	/// `pallet-ismp-arbitrum::verify_consensus`.
+	/// Finalized arbitrum claim blacklist. Keyed by `(state_machine_id, claim_hash)` where
+	/// `claim_hash` is the BoLD `assertionHash` for BoLD updates or
+	/// `keccak256(state_hash || node_num.to_be_bytes())` for Orbit/AnyTrust updates; the
+	/// value is `(first_collator, second_collator)` — the two distinct fishermen whose calls
+	/// quorum-finalized the entry. Read by `pallet-ismp-arbitrum::verify_consensus`; the
+	/// recorded fishermen are kept for auditability and reputation accounting downstream.
 	#[pallet::storage]
 	#[pallet::getter(fn blacklisted_arbitrum_claims)]
 	pub type BlacklistedArbitrumClaims<T: Config> = StorageDoubleMap<
@@ -134,7 +137,7 @@ pub mod pallet {
 		StateMachineId,
 		Blake2_128Concat,
 		H256,
-		(),
+		(T::AccountId, T::AccountId),
 		OptionQuery,
 	>;
 
@@ -165,8 +168,14 @@ pub mod pallet {
 			proxy: H160,
 			fisherman: T::AccountId,
 		},
-		/// The given opstack dispute-game proxy has been blacklisted.
-		DisputeGameBlacklisted { state_machine_id: StateMachineId, proxy: H160 },
+		/// The given opstack dispute-game proxy has been blacklisted by the two listed
+		/// collators (the first one to submit and the second distinct one who finalized).
+		DisputeGameBlacklisted {
+			state_machine_id: StateMachineId,
+			proxy: H160,
+			first_fisherman: T::AccountId,
+			second_fisherman: T::AccountId,
+		},
 		/// A first blacklist for the given arbitrum claim hash has been noted,
 		/// awaiting a second distinct collator to finalize.
 		ArbitrumClaimBlacklistNoted {
@@ -174,8 +183,14 @@ pub mod pallet {
 			claim: H256,
 			fisherman: T::AccountId,
 		},
-		/// The given arbitrum claim hash has been blacklisted.
-		ArbitrumClaimBlacklisted { state_machine_id: StateMachineId, claim: H256 },
+		/// The given arbitrum claim hash has been blacklisted by the two listed collators (the
+		/// first one to submit and the second distinct one who finalized).
+		ArbitrumClaimBlacklisted {
+			state_machine_id: StateMachineId,
+			claim: H256,
+			first_fisherman: T::AccountId,
+			second_fisherman: T::AccountId,
+		},
 	}
 
 	#[pallet::call]
@@ -259,8 +274,17 @@ pub mod pallet {
 					Err(Error::<T>::InvalidBlacklist)?
 				}
 				PendingDisputeGameBlacklist::<T>::remove(&key);
-				BlacklistedDisputeGames::<T>::insert(state_machine_id, proxy, ());
-				Self::deposit_event(Event::DisputeGameBlacklisted { state_machine_id, proxy });
+				BlacklistedDisputeGames::<T>::insert(
+					state_machine_id,
+					proxy,
+					(prev.clone(), account.clone()),
+				);
+				Self::deposit_event(Event::DisputeGameBlacklisted {
+					state_machine_id,
+					proxy,
+					first_fisherman: prev,
+					second_fisherman: account,
+				});
 			} else {
 				PendingDisputeGameBlacklist::<T>::insert(key, account.clone());
 				Self::deposit_event(Event::DisputeGameBlacklistNoted {
@@ -302,8 +326,17 @@ pub mod pallet {
 					Err(Error::<T>::InvalidBlacklist)?
 				}
 				PendingArbitrumClaimBlacklist::<T>::remove(&key);
-				BlacklistedArbitrumClaims::<T>::insert(state_machine_id, claim, ());
-				Self::deposit_event(Event::ArbitrumClaimBlacklisted { state_machine_id, claim });
+				BlacklistedArbitrumClaims::<T>::insert(
+					state_machine_id,
+					claim,
+					(prev.clone(), account.clone()),
+				);
+				Self::deposit_event(Event::ArbitrumClaimBlacklisted {
+					state_machine_id,
+					claim,
+					first_fisherman: prev,
+					second_fisherman: account,
+				});
 			} else {
 				PendingArbitrumClaimBlacklist::<T>::insert(key, account.clone());
 				Self::deposit_event(Event::ArbitrumClaimBlacklistNoted {

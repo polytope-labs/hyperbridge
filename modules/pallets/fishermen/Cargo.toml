@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 scale-info = { workspace = true }
 codec = { workspace = true }
+primitive-types = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
@@ -31,6 +32,7 @@ std = [
     "codec/std",
     "polkadot-sdk/std",
     "scale-info/std",
+    "primitive-types/std",
     "ismp/std",
     "pallet-ismp/std",
 ]

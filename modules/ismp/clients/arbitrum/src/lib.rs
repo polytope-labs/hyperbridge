@@ -40,7 +40,7 @@ pub const NODES_SLOT: u64 = 118;
 /// Storage layout slot for the _assertions map in the Rollup Contract
 pub const ASSERTIONS_SLOT: u64 = 117;
 
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, Copy)]
 pub struct GlobalState {
 	pub block_hash: H256,
 	pub send_root: H256,
@@ -62,7 +62,7 @@ impl GlobalState {
 	}
 }
 
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, Copy)]
 pub enum MachineStatus {
 	Running = 0,
 	Finished = 1,
@@ -106,7 +106,7 @@ pub struct ArbitrumPayloadProof {
 }
 
 /// https://github.com/OffchainLabs/nitro/blob/5e9f4228e6418b114a5aea0aa7f2f0cc161b67c0/contracts/src/rollup/RollupLib.sol#L59
-fn get_state_hash<H: Keccak256>(
+pub fn get_state_hash<H: Keccak256>(
 	global_state: GlobalState,
 	machine_status: MachineStatus,
 	inbox_max_count: U256,
@@ -264,7 +264,7 @@ impl From<AssertionState> for AssertionStateSol {
 }
 
 impl AssertionState {
-	fn hash(&self) -> H256 {
+	pub fn hash(&self) -> H256 {
 		sp_io::hashing::keccak_256(&self.abi_encode()).into()
 	}
 
@@ -275,7 +275,7 @@ impl AssertionState {
 }
 
 // https://github.com/OffchainLabs/nitro-contracts/blob/109a8a36cd4c6a2a0d2b5003b01adee60d83e2a1/src/rollup/RollupLib.sol#L33
-fn compute_assertion_hash(
+pub fn compute_assertion_hash(
 	previous_assertion_hash: H256,
 	after_state_hash: H256,
 	sequencer_batch_acc: H256,
@@ -285,6 +285,17 @@ fn compute_assertion_hash(
 	buf.extend_from_slice(&after_state_hash[..]);
 	buf.extend_from_slice(&sequencer_batch_acc[..]);
 	sp_io::hashing::keccak_256(&buf).into()
+}
+
+/// Hyperbridge-internal claim hash for Orbit/AnyTrust updates. The on-chain `_nodes` map keys
+/// nodes by `nodeNum` (a `u64`); to use a single `H256` blacklist key space across both Orbit
+/// and BoLD, we hash the (state_hash, node_num) tuple. Both the on-chain verifier wrapper and
+/// the off-chain fisherman MUST derive the key with this exact helper to stay byte-identical.
+pub fn orbit_claim_hash<H: Keccak256>(state_hash: H256, node_num: u64) -> H256 {
+	let mut buf = [0u8; 40];
+	buf[..32].copy_from_slice(&state_hash.0);
+	buf[32..].copy_from_slice(&node_num.to_be_bytes());
+	H::keccak256(&buf)
 }
 
 pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(

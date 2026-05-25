@@ -117,6 +117,30 @@ pub fn is_supported_l2(chain_id: u64) -> bool {
 		SUPPORTED_L2_CHAIN_IDS_TESTNET.contains(&chain_id)
 }
 
+/// True for Arbitrum-family L2s (`arbitrum_orbit` consensus). Used by the collator-side
+/// fisherman to validate that the operator wired the expected consensus client kind per chain.
+pub fn is_arbitrum_l2(chain_id: u64) -> bool {
+	matches!(chain_id, 42161 | 421614)
+}
+
+/// True for OP-Stack-family L2s (`op_stack` consensus): Base, Unichain, Optimism, Soneium,
+/// and their testnets.
+pub fn is_opstack_l2(chain_id: u64) -> bool {
+	is_supported_l2(chain_id) && !is_arbitrum_l2(chain_id)
+}
+
+/// The expected tesseract consensus client kind for a supported L2. Returns `None` for
+/// chains that aren't in the supported set.
+pub fn expected_consensus_kind(chain_id: u64) -> Option<&'static str> {
+	if is_arbitrum_l2(chain_id) {
+		Some("arbitrum_orbit")
+	} else if is_opstack_l2(chain_id) {
+		Some("op_stack")
+	} else {
+		None
+	}
+}
+
 /// Fetches the chain's numeric ID via `eth_chainId` against the first RPC URL
 /// in the list. Used by the consolidated relayer to auto-derive a chain's
 /// `state_machine` identifier.

@@ -46,6 +46,7 @@ use op_verifier::{
 	Error as OptimismError, GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
 	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
+use pallet_fishermen::FishermanBlacklist;
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
 
@@ -213,6 +214,18 @@ impl<
 				if let Some((dispute_game_factory, game_type_configs)) =
 					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
 				{
+					// Refuse proofs that reference a blacklisted dispute-game proxy. The check
+					// happens before the heavy proof verification so a blacklisted entry costs
+					// only one storage read.
+					if <T as pallet::Config>::FishermanBlacklist::is_dispute_game_blacklisted(
+						state_machine_id,
+						dispute_proof.proxy,
+					) {
+						return Err(
+							OptimismError::DisputeGameBlacklisted(dispute_proof.proxy).into()
+						);
+					}
+
 					let state = verify_optimism_dispute_game_proof::<H>(
 						dispute_proof,
 						state_root,

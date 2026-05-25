@@ -15,7 +15,7 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	weights, AccountId, Balance, Balances, Fishermen, Ismp, IsmpParachain, Mmr, ParachainInfo,
 	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount, TreasuryPalletId,
 	EXISTENTIAL_DEPOSIT,
 };
@@ -229,12 +229,14 @@ impl ismp_arbitrum::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
+	type FishermanBlacklist = Fishermen;
 }
 
 impl ismp_optimism::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
+	type FishermanBlacklist = Fishermen;
 }
 
 impl ismp_tendermint::pallet::Config for Runtime {

@@ -514,6 +514,32 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Temporary: Veto a misrepresentative state commiment at the provided height
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), anyhow::Error>;
 
+	/// Submit a `pallet-fishermen::blacklist_dispute_game` extrinsic against this provider.
+	/// Used by the off-chain fisherman watcher to permanently blacklist an opstack dispute-game
+	/// proxy that an RPC quorum has identified as fraudulent. Only meaningful on the hyperbridge
+	/// substrate provider; EVM providers return an unimplemented error.
+	async fn blacklist_dispute_game(
+		&self,
+		state_machine_id: StateMachineId,
+		proxy: H160,
+	) -> Result<(), anyhow::Error> {
+		let _ = (state_machine_id, proxy);
+		Err(anyhow!("blacklist_dispute_game not implemented for {}", self.name()))
+	}
+
+	/// Submit a `pallet-fishermen::blacklist_arbitrum_claim` extrinsic against this provider.
+	/// Used by the off-chain fisherman watcher to permanently blacklist an arbitrum claim hash
+	/// (BoLD `assertionHash` or Orbit derived hash). Only meaningful on the hyperbridge
+	/// substrate provider; EVM providers return an unimplemented error.
+	async fn blacklist_arbitrum_claim(
+		&self,
+		state_machine_id: StateMachineId,
+		claim: H256,
+	) -> Result<(), anyhow::Error> {
+		let _ = (state_machine_id, claim);
+		Err(anyhow!("blacklist_arbitrum_claim not implemented for {}", self.name()))
+	}
+
 	/// Fetch the host params for given state machine
 	async fn query_host_params(
 		&self,

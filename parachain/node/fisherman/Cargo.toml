@@ -16,12 +16,19 @@ url = "2"
 ismp = { workspace = true, default-features = true }
 tesseract = { workspace = true }
 tesseract-config = { workspace = true }
+tesseract-consensus-config = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-fisherman = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
+alloy = { workspace = true }
+primitive-types = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
 features = ["sc-service"]
+
+[dev-dependencies]
+arb-host = { workspace = true }
+op-host = { workspace = true }

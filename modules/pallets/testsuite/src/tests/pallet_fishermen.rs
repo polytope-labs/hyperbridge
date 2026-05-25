@@ -22,7 +22,8 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 };
-use sp_core::{crypto::AccountId32, H256};
+use pallet_fishermen::FishermanBlacklist;
+use sp_core::{crypto::AccountId32, H160, H256};
 use sp_runtime::{DispatchError, ModuleError};
 
 #[test]
@@ -93,5 +94,135 @@ fn test_can_veto_state_commitments() {
 
 		let result = host.state_machine_commitment(height);
 		assert!(matches!(result, Err(Error::StateCommitmentNotFound { .. })));
+	})
+}
+
+#[test]
+fn test_can_blacklist_dispute_games() {
+	new_test_ext().execute_with(|| {
+		let collator_a: AccountId32 = H256::random().0.into();
+		let collator_b: AccountId32 = H256::random().0.into();
+		let outsider: AccountId32 = H256::random().0.into();
+		CollatorSet::set(vec![collator_a.clone(), collator_b.clone()]);
+
+		let state_machine_id =
+			StateMachineId { state_id: StateMachine::Evm(10), consensus_state_id: *b"OPTI" };
+		let proxy = H160::repeat_byte(0xab);
+
+		// Outsider rejected.
+		let result = pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+			RuntimeOrigin::signed(outsider.clone()),
+			state_machine_id,
+			proxy,
+		);
+		assert!(matches!(
+			result,
+			Err(DispatchError::Module(ModuleError { message: Some("UnauthorizedAction"), .. }))
+		));
+
+		// Not blacklisted yet.
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, proxy,
+		));
+
+		// First collator: pending only.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+				RuntimeOrigin::signed(collator_a.clone()),
+				state_machine_id,
+				proxy,
+			),
+			Ok(()),
+		);
+		assert_eq!(
+			pallet_fishermen::PendingDisputeGameBlacklist::<Test>::get((state_machine_id, proxy)),
+			Some(collator_a.clone()),
+		);
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, proxy,
+		));
+
+		// Same collator twice: rejected.
+		let result = pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+			RuntimeOrigin::signed(collator_a.clone()),
+			state_machine_id,
+			proxy,
+		);
+		assert!(matches!(
+			result,
+			Err(DispatchError::Module(ModuleError { message: Some("InvalidBlacklist"), .. }))
+		));
+
+		// Second distinct collator: finalize.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+				RuntimeOrigin::signed(collator_b.clone()),
+				state_machine_id,
+				proxy,
+			),
+			Ok(()),
+		);
+		assert_eq!(
+			pallet_fishermen::PendingDisputeGameBlacklist::<Test>::get((state_machine_id, proxy)),
+			None,
+		);
+		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, proxy,
+		));
+
+		// Idempotent: a slow third collator call after finalization is silently Ok.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+				RuntimeOrigin::signed(collator_a),
+				state_machine_id,
+				proxy,
+			),
+			Ok(()),
+		);
+
+		// A different proxy on the same chain is still un-blacklisted.
+		let other_proxy = H160::repeat_byte(0xcd);
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, other_proxy,
+		));
+	})
+}
+
+#[test]
+fn test_can_blacklist_arbitrum_claims() {
+	new_test_ext().execute_with(|| {
+		let collator_a: AccountId32 = H256::random().0.into();
+		let collator_b: AccountId32 = H256::random().0.into();
+		CollatorSet::set(vec![collator_a.clone(), collator_b.clone()]);
+
+		let state_machine_id =
+			StateMachineId { state_id: StateMachine::Evm(42161), consensus_state_id: *b"ARBC" };
+		let claim = H256::repeat_byte(0x55);
+
+		// First collator: pending only.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_arbitrum_claim(
+				RuntimeOrigin::signed(collator_a.clone()),
+				state_machine_id,
+				claim,
+			),
+			Ok(()),
+		);
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
+			state_machine_id, claim,
+		));
+
+		// Second distinct collator finalizes.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_arbitrum_claim(
+				RuntimeOrigin::signed(collator_b),
+				state_machine_id,
+				claim,
+			),
+			Ok(()),
+		);
+		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
+			state_machine_id, claim,
+		));
 	})
 }

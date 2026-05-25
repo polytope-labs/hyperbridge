@@ -2,7 +2,7 @@
 name = "tesseract-fisherman"
 version = "0.1.1"
 edition = "2021"
-description = "A process that checks for malicious consensus updates"
+description = "A process that checks for malicious consensus updates and rollup claims"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
@@ -12,10 +12,24 @@ futures = "0.3.28"
 tracing = "0.1.40"
 tokio = { workspace = true, features = ["full"] }
 sp-core = { workspace = true, features = ["full_crypto"] }
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde-hex-utils = { workspace = true }
+codec = { workspace = true }
+primitive-types = { workspace = true }
 
+# alloy stack for L1 watching and L2 quorum
+alloy = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-primitives = { workspace = true }
+
+# hyperbridge crates
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-
+geth-primitives = { workspace = true }
+arbitrum-verifier = { workspace = true }
+op-verifier = { workspace = true }
+tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]

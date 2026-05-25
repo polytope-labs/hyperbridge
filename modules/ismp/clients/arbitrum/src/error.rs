@@ -11,6 +11,7 @@
 
 use alloc::string::{String, ToString};
 use ismp::host::StateMachine;
+use primitive_types::H256;
 use thiserror::Error;
 
 /// Failure modes for Arbitrum consensus proof verification and the
@@ -54,6 +55,11 @@ pub enum Error {
 	/// computed from `(global_state, machine_status, inbox_max_count)`.
 	#[error("State hash from proof does not match calculated state hash")]
 	StateHashMismatch,
+	/// The arbitrum claim referenced by this proof (Orbit derived key or BoLD `assertionHash`)
+	/// has been blacklisted by the fishermen pallet. The consensus verifier refuses to process
+	/// any further proofs for it.
+	#[error("Arbitrum claim {0:?} has been blacklisted by fishermen")]
+	ClaimBlacklisted(H256),
 
 	// -- ismp-arbitrum client wrapper --
 	/// The submitted consensus proof failed to SCALE-decode into an `ArbitrumUpdate`.

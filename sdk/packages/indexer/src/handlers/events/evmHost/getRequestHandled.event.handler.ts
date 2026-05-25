@@ -48,7 +48,7 @@ export const handleGetRequestHandledEvent = wrap(async (event: GetRequestHandled
 	// Non-critical operations: stats, parsing, transfers, and volumes
 	try {
 		// Update hyperbridge stats
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp, transaction)
+		await HyperBridgeService.handleRequestHandledEvent(relayer_id, chain, blockTimestamp, transaction)
 
 		// Parse transaction to extract addresses
 		let fromAddresses = [] as string[]

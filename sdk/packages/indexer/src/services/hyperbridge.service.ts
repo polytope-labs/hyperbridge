@@ -1,4 +1,4 @@
-import { PostRequestEventLog, PostResponseEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { EthereumTransaction } from "@subql/types-ethereum"
 import { DailyProtocolFeesStats, RelayerV2, Transfer } from "@/configs/src/types/models"
 import { HyperBridgeChainStatsService } from "@/services/hyperbridgeChainStats.service"
@@ -12,18 +12,18 @@ import { RelayerService } from "./relayer.service"
 
 export class HyperBridgeService {
 	/**
-	 * Perform the necessary actions related to Hyperbridge stats when a PostRequest/PostResponse event is indexed
+	 * Perform the necessary actions related to Hyperbridge stats when a PostRequest event is indexed
 	 */
-	static async handlePostRequestOrResponseEvent(
+	static async handlePostRequestEvent(
 		chain: string,
-		event: PostRequestEventLog | PostResponseEventLog,
+		event: PostRequestEventLog,
 	): Promise<void> {
 		if (!event.args) return
 
 		const { args, address } = event
 		let { body, dest } = args
 
-		logger.info(`handlePostRequestOrResponseEvent: ${stringify({ chain, event })}`)
+		logger.info(`handlePostRequestEvent: ${stringify({ chain, event })}`)
 
 		try {
 			const protocolFee = await this.computeProtocolFeeFromHexData(address, body, dest)
@@ -32,7 +32,7 @@ export class HyperBridgeService {
 			await this.incrementNumberOfSentMessages(chain)
 		} catch (error) {
 			logger.error(
-				`Error updating Hyperbridge stats related to PostRequest/PostResponse event: ${JSON.stringify({
+				`Error updating Hyperbridge stats related to PostRequest event: ${JSON.stringify({
 					error,
 					address,
 					body,
@@ -43,10 +43,10 @@ export class HyperBridgeService {
 	}
 
 	/**
-	 * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
+	 * Perform the necessary actions related to Hyperbridge stats when a request is delivered (PostRequest or GetRequest handled).
 	 * @param transaction Optional Ethereum transaction for EVM chains.
 	 */
-	static async handlePostRequestOrResponseHandledEvent(
+	static async handleRequestHandledEvent(
 		relayer_id: string,
 		chain: string,
 		timestamp: bigint,

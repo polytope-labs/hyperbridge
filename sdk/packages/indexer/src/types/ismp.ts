@@ -74,18 +74,6 @@ export interface PostRequest {
 }
 
 /**
- * ResponseV2 payload to a prior {@link PostRequest}.
- */
-export interface PostResponse {
-	// The request that triggered this response.
-	post: PostRequest
-	// The response message.
-	response: string
-	// Timestamp at which this response expires in seconds.
-	timeoutTimestamp: bigint
-}
-
-/**
  * Batched GET request timeouts with proof for verification at a given height.
  */
 export interface GetTimeoutMessage {
@@ -99,15 +87,6 @@ export interface GetTimeoutMessage {
  */
 export interface PostRequestTimeoutMessage {
 	timeouts: PostRequest[]
-	height: StateMachineHeight
-	proof: Hex[]
-}
-
-/**
- * Batched POST response timeouts with proof for verification at a given height.
- */
-export interface PostResponseTimeoutMessage {
-	timeouts: PostResponse[]
 	height: StateMachineHeight
 	proof: Hex[]
 }
@@ -139,18 +118,6 @@ export interface PostRequestMessage {
 	proof: Proof
 	requests: {
 		request: PostRequest
-		index: bigint
-		kIndex: bigint
-	}[]
-}
-
-/**
- * Batch of POST responses accompanied by inclusion proof.
- */
-export interface PostResponseMessage {
-	proof: Proof
-	responses: {
-		response: PostResponse
 		index: bigint
 		kIndex: bigint
 	}[]

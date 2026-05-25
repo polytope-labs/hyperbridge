@@ -104,7 +104,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 			{ handler: "handleSubstrateRequestEvent", module: "ismp", method: "Request" },
 			{ handler: "handleSubstrateResponseEvent", module: "ismp", method: "Response" },
 			{ handler: "handleSubstratePostRequestHandledEvent", module: "ismp", method: "PostRequestHandled" },
-			{ handler: "handleSubstratePostResponseHandledEvent", module: "ismp", method: "PostResponseHandled" },
 			{
 				handler: "handleSubstratePostRequestTimeoutHandledEvent",
 				module: "ismp",
@@ -115,11 +114,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 				handler: "handleSubstrateGetRequestTimeoutHandledEvent",
 				module: "ismp",
 				method: "GetRequestTimeoutHandled",
-			},
-			{
-				handler: "handleSubstratePostResponseTimeoutHandledEvent",
-				module: "ismp",
-				method: "PostResponseTimeoutHandled",
 			},
 		],
 	}
@@ -173,17 +167,8 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 				handler: "handlePostRequestEvent",
 				topics: ["PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)"],
 			},
-			{
-				handler: "handlePostResponseEvent",
-				topics: ["PostResponseEvent(string,string,address,bytes,uint256,uint256,bytes,bytes,uint256,uint256)"],
-			},
 			{ handler: "handlePostRequestHandledEvent", topics: ["PostRequestHandled(bytes32,address)"] },
-			{ handler: "handlePostResponseHandledEvent", topics: ["PostResponseHandled(bytes32,address)"] },
 			{ handler: "handlePostRequestTimeoutHandledEvent", topics: ["PostRequestTimeoutHandled(bytes32,string)"] },
-			{
-				handler: "handlePostResponseTimeoutHandledEvent",
-				topics: ["PostResponseTimeoutHandled(bytes32,string)"],
-			},
 			{
 				handler: "handleGetRequestEvent",
 				topics: ["GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256,bytes,uint256)"],

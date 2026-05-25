@@ -209,26 +209,18 @@ async fn spawn_rollup_watchers(
 				});
 			},
 			ConsensusConfig::ArbitrumOrbit { inner } => {
+				// Only BoLD assertions are watched. Pre-BoLD Orbit chains have been migrated;
+				// spawning an `ArbitrumKind::Orbit` watcher would just emit empty-event noise
+				// while still costing one L1 `eth_getLogs` per poll.
 				let host = &inner.host;
 				let entry = arbitrum_by_l1
 					.entry(host.l1_state_machine)
 					.or_insert_with(|| (host.ethereum_rpc_url.clone(), Vec::new()));
-				// The operator's consensus config doesn't distinguish Orbit vs BoLD; the on-chain
-				// rollup core emits one event type or the other but not both. Spawn one target
-				// per kind so whichever the rollup emits is caught.
-				let id = StateMachineId {
-					state_id: *state_machine,
-					consensus_state_id: consensus_state_id_from_str(&host.consensus_state_id)?,
-				};
 				entry.1.push(ArbitrumTarget {
-					state_machine_id: id,
-					rollup_core: host.rollup_core,
-					l2_providers: l2_providers.clone(),
-					state_machine: *state_machine,
-					kind: ArbitrumKind::Orbit,
-				});
-				entry.1.push(ArbitrumTarget {
-					state_machine_id: id,
+					state_machine_id: StateMachineId {
+						state_id: *state_machine,
+						consensus_state_id: consensus_state_id_from_str(&host.consensus_state_id)?,
+					},
 					rollup_core: host.rollup_core,
 					l2_providers: l2_providers.clone(),
 					state_machine: *state_machine,

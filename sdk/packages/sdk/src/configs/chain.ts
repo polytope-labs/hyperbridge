@@ -190,7 +190,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			IntentGatewayV2: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			UniswapRouter02: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
 			UniswapV2Factory: "0x12e036669DA18F4A2777853d6e2136b32AceEC86",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -229,7 +229,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0x58a41b89f4871725e5d898d98ef4bf917601c5eb",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			UniswapRouter02: "0x0000000000000000000000000000000000000000",
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -268,7 +268,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			UniswapRouter02: "0x0000000000000000000000000000000000000000",
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -667,7 +667,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGatewayV2: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
-			Host: "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -784,7 +784,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
@@ -808,7 +808,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0x6d51b678836d8060d980605d2999eF211809f3C2",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia.optimism.io",
@@ -832,7 +832,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia.base.org",
@@ -857,7 +857,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x606ba811aa6cb424ce2108e8977c5284686f0d1f",
 			TokenGateway: "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c",
-			Host: "0xbb26e04a71e7c12093e82b83ba310163eac186fa",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://testnet-asset-hub-eth-rpc.polkadot.io",
@@ -882,7 +882,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		wrappedNativeDecimals: 18,
 		addresses: {
 			TokenGateway: "0x451bDd8273839AD0Ec7F4Fa798E8B3DABb223fD8",
-			Host: "0xED54E9b64043c389173316B6351Bd25491060eA8",
+			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			IntentGatewayV2: "0xb8039832c6c9266F928d038eA49A8a169300C670",
 		},
 		consensusStateId: "PHAR",

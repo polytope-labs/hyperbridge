@@ -290,7 +290,8 @@ async function runBridgeFlow(params: {
 	return { commitment, statuses }
 }
 
-describe("HyperFungibleToken SDK", () => {
+// Skipped: bridge tests need the redeployed host's uniswapV2Router configured and a funded test account.
+describe.skip("HyperFungibleToken SDK", () => {
 	it("should detect WrappedHFT on BSC", async () => {
 		console.log("[test:detect-bsc] start — BSC_WRAPPED_HFT=", BSC_WRAPPED_HFT)
 		console.log("[test:detect-bsc] creating BSC->Polygon chains")

@@ -10,12 +10,14 @@
 //! local RPC server is up.
 //!
 //! Rules layered on top of the relayer schema: the signer must be set,
-//! every supported L2 in [`tesseract_evm::registry`] must be configured,
-//! every L2 needs at least two distinct host `rpc_urls` so the byzantine
-//! handler has independent providers to quorum across, and every L2 must
-//! carry a `[<chain>.consensus]` sub-table with the matching consensus
-//! kind so the L1 rollup-claim fisherman has the rollup-core / dispute-game
-//! factory address it needs to watch.
+//! every supported chain in [`tesseract_evm::registry`] — both L2 rollups
+//! and non-L2 EVM chains (Ethereum, BNB, Gnosis, Polygon, with their
+//! testnet counterparts) — must be configured, every chain needs at least
+//! two distinct host `rpc_urls` so the byzantine handler has independent
+//! providers to quorum across, and every chain must carry a
+//! `[<chain>.consensus]` sub-table with the matching consensus kind so
+//! the consensus relayer (and, for L2s, the L1 rollup-claim fisherman)
+//! has the addresses and host config it needs.
 
 use std::collections::HashSet;
 
@@ -25,8 +27,9 @@ use tesseract::config::HyperbridgeConfig;
 use tesseract_config::AnyConfig;
 use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 use tesseract_evm::registry::{
-	expected_consensus_kind, is_supported_l2, SUPPORTED_L2_CHAIN_IDS_MAINNET,
-	SUPPORTED_L2_CHAIN_IDS_TESTNET,
+	expected_consensus_kind, is_supported_chain, SUPPORTED_L2_CHAIN_IDS_MAINNET,
+	SUPPORTED_L2_CHAIN_IDS_TESTNET, SUPPORTED_NON_L2_CHAIN_IDS_MAINNET,
+	SUPPORTED_NON_L2_CHAIN_IDS_TESTNET,
 };
 use toml::{Table, Value};
 use url::Url;
@@ -80,7 +83,7 @@ pub fn preflight(toml_str: &str) -> anyhow::Result<()> {
 			continue;
 		};
 
-		if !is_supported_l2(chain_id) {
+		if !is_supported_chain(chain_id) {
 			continue;
 		}
 
@@ -94,7 +97,7 @@ pub fn preflight(toml_str: &str) -> anyhow::Result<()> {
 			.collect::<anyhow::Result<_>>()?;
 		if urls.len() < MIN_RPC_URLS_PER_L2 {
 			return Err(anyhow!(
-				"L2 chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
+				"chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
 				urls.len(),
 				MIN_RPC_URLS_PER_L2,
 			));
@@ -104,9 +107,31 @@ pub fn preflight(toml_str: &str) -> anyhow::Result<()> {
 		configured_l2s.push(chain_id);
 	}
 
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_MAINNET, "mainnet")?;
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_TESTNET, "testnet")?;
+	require_complete_set(&configured_l2s, &mainnet_chain_set(), "mainnet")?;
+	require_complete_set(&configured_l2s, &testnet_chain_set(), "testnet")?;
 	Ok(())
+}
+
+/// Concatenation of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`] and
+/// [`SUPPORTED_NON_L2_CHAIN_IDS_MAINNET`] — the full set of EVM chains a mainnet collator
+/// must configure.
+fn mainnet_chain_set() -> Vec<u64> {
+	let mut v = Vec::with_capacity(
+		SUPPORTED_L2_CHAIN_IDS_MAINNET.len() + SUPPORTED_NON_L2_CHAIN_IDS_MAINNET.len(),
+	);
+	v.extend_from_slice(SUPPORTED_L2_CHAIN_IDS_MAINNET);
+	v.extend_from_slice(SUPPORTED_NON_L2_CHAIN_IDS_MAINNET);
+	v
+}
+
+/// Testnet counterpart of [`mainnet_chain_set`].
+fn testnet_chain_set() -> Vec<u64> {
+	let mut v = Vec::with_capacity(
+		SUPPORTED_L2_CHAIN_IDS_TESTNET.len() + SUPPORTED_NON_L2_CHAIN_IDS_TESTNET.len(),
+	);
+	v.extend_from_slice(SUPPORTED_L2_CHAIN_IDS_TESTNET);
+	v.extend_from_slice(SUPPORTED_NON_L2_CHAIN_IDS_TESTNET);
+	v
 }
 
 /// Pull the chain id out of an `"EVM-<chain_id>"` state machine string.
@@ -127,16 +152,16 @@ pub fn validate(config: &HyperbridgeConfig) -> anyhow::Result<()> {
 		));
 	}
 
-	let mut configured_l2s: Vec<u64> = Vec::new();
+	let mut configured_chains: Vec<u64> = Vec::new();
 	for (state_machine, per_chain) in &config.chains {
 		let AnyConfig::Evm(evm) = &per_chain.messaging else { continue };
 		let StateMachine::Evm(chain_id) = state_machine else { continue };
-		if !is_supported_l2(*chain_id as u64) {
+		if !is_supported_chain(*chain_id as u64) {
 			continue;
 		}
 		if evm.rpc_urls.len() < MIN_RPC_URLS_PER_L2 {
 			return Err(anyhow!(
-				"L2 chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
+				"chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
 				evm.rpc_urls.len(),
 				MIN_RPC_URLS_PER_L2,
 			));
@@ -144,11 +169,11 @@ pub fn validate(config: &HyperbridgeConfig) -> anyhow::Result<()> {
 		ensure_distinct_hosts(*chain_id as u64, &evm.rpc_urls)?;
 		ensure_consensus_section(*chain_id as u64, per_chain.consensus.as_ref())?;
 
-		configured_l2s.push(*chain_id as u64);
+		configured_chains.push(*chain_id as u64);
 	}
 
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_MAINNET, "mainnet")?;
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_TESTNET, "testnet")?;
+	require_complete_set(&configured_chains, &mainnet_chain_set(), "mainnet")?;
+	require_complete_set(&configured_chains, &testnet_chain_set(), "testnet")?;
 	Ok(())
 }
 
@@ -374,10 +399,13 @@ mod tests {
 		use tesseract::config::{
 			HyperbridgeConfig, HyperbridgeSection, PerChainConfig, RelayerConfig,
 		};
+		use tesseract_bsc::BscPosConfig;
 		use tesseract_config::AnyConfig;
 		use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 		use tesseract_evm::EvmConfig;
+		use tesseract_polygon::PolygonPosConfig;
 		use tesseract_substrate::SubstrateConfig;
+		use tesseract_sync_committee::SyncCommitteeConfig;
 
 		use crate::config::validate;
 
@@ -414,11 +442,54 @@ mod tests {
 			}
 		}
 
-		fn evm_l2(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
-			let consensus = if matches!(chain_id, 42161 | 421614) {
-				Some(arbitrum_consensus())
-			} else {
-				Some(opstack_consensus())
+		fn sync_committee_consensus() -> SyncCommitteeConfig {
+			SyncCommitteeConfig {
+				host: tesseract_sync_committee::HostConfig {
+					beacon_http_urls: vec!["https://beacon.example/".into()],
+					consensus_update_frequency: 60,
+				},
+				layer_twos: None,
+			}
+		}
+
+		fn bsc_consensus() -> BscPosConfig {
+			BscPosConfig {
+				host: tesseract_bsc::HostConfig {
+					consensus_update_frequency: None,
+					epoch_length: 1000,
+				},
+			}
+		}
+
+		fn polygon_consensus() -> PolygonPosConfig {
+			PolygonPosConfig {
+				host: tesseract_polygon::HostConfig {
+					consensus_update_frequency: None,
+					heimdall_rpc_url: "https://heimdall.example/".into(),
+					disable: None,
+				},
+			}
+		}
+
+		fn non_l2_consensus_for(chain_id: u32) -> ConsensusConfig {
+			match chain_id {
+				1 => ConsensusConfig::Ethereum { inner: sync_committee_consensus() },
+				11155111 => ConsensusConfig::Sepolia { inner: sync_committee_consensus() },
+				56 => ConsensusConfig::Bsc { inner: bsc_consensus() },
+				97 => ConsensusConfig::BscTestnet { inner: bsc_consensus() },
+				100 => ConsensusConfig::Gnosis { inner: sync_committee_consensus() },
+				10200 => ConsensusConfig::Chiado { inner: sync_committee_consensus() },
+				137 | 80002 => ConsensusConfig::Polygon { inner: polygon_consensus() },
+				_ => panic!("non-L2 fixture not configured for chain_id {chain_id}"),
+			}
+		}
+
+		fn evm_chain(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
+			let consensus = match chain_id {
+				42161 | 421614 => Some(arbitrum_consensus()),
+				// L2 op-stack chains (Base, Optimism, Unichain, Soneium + testnets).
+				8453 | 130 | 10 | 1868 | 84532 | 11155420 => Some(opstack_consensus()),
+				_ => Some(non_l2_consensus_for(chain_id)),
 			};
 			PerChainConfig {
 				messaging: AnyConfig::Evm(EvmConfig {
@@ -445,30 +516,25 @@ mod tests {
 			}
 		}
 
-		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete
-		/// testnet L2 set (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia)
-		/// with two distinct-host rpc_urls each. The relayer section is left
-		/// at its [`Default`] (collators don't need to populate it).
+		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete testnet EVM
+		/// set: L2s (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia) plus the required
+		/// non-L2 chains (Sepolia, BSC Chapel, Gnosis Chiado, Polygon Amoy). Each chain has
+		/// two distinct-host rpc_urls. The relayer section is left at its [`Default`]
+		/// (collators don't need to populate it).
 		fn complete_testnet_collator_config() -> HyperbridgeConfig {
 			let mut chains = HashMap::new();
 			for (chain_id, rpcs) in [
-				(
-					421614u32,
-					["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"],
-				),
-				(
-					11155420,
-					["https://opt-sepolia.alchemy.com/v2/k", "https://opt-sepolia.infura.io/v3/k"],
-				),
-				(
-					84532,
-					[
-						"https://base-sepolia.alchemy.com/v2/k",
-						"https://base-sepolia.infura.io/v3/k",
-					],
-				),
+				// L2s
+				(421614u32, ["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"]),
+				(11155420, ["https://opt-sepolia.alchemy.com/v2/k", "https://opt-sepolia.infura.io/v3/k"]),
+				(84532,    ["https://base-sepolia.alchemy.com/v2/k", "https://base-sepolia.infura.io/v3/k"]),
+				// Non-L2 testnets
+				(11155111, ["https://sepolia.alchemy.com/v2/k", "https://sepolia.infura.io/v3/k"]),
+				(97,       ["https://bsc-testnet.alchemy.com/v2/k", "https://bsc-testnet.infura.io/v3/k"]),
+				(10200,    ["https://chiado.alchemy.com/v2/k", "https://chiado.infura.io/v3/k"]),
+				(80002,    ["https://amoy.alchemy.com/v2/k", "https://amoy.infura.io/v3/k"]),
 			] {
-				chains.insert(StateMachine::Evm(chain_id), evm_l2(chain_id, &rpcs));
+				chains.insert(StateMachine::Evm(chain_id), evm_chain(chain_id, &rpcs));
 			}
 			HyperbridgeConfig {
 				hyperbridge: HyperbridgeSection {
@@ -577,6 +643,37 @@ mod tests {
 			let err = validate(&cfg).unwrap_err().to_string();
 			assert!(err.contains("84532"), "error: {err}");
 			assert!(err.contains("op_stack"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_missing_non_l2_chain() {
+			// Drop Sepolia entirely and the testnet coverage check must fire.
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.remove(&StateMachine::Evm(11155111));
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("testnet"), "error: {err}");
+			assert!(err.contains("11155111"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_missing_non_l2_consensus() {
+			// Sepolia present but its consensus block is missing — the per-chain check fires.
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.get_mut(&StateMachine::Evm(11155111)).unwrap().consensus = None;
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("11155111"), "error: {err}");
+			assert!(err.contains("sepolia"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_polygon_with_wrong_consensus_kind() {
+			let mut cfg = complete_testnet_collator_config();
+			// Amoy mistakenly wired with a bsc consensus block.
+			cfg.chains.get_mut(&StateMachine::Evm(80002)).unwrap().consensus =
+				Some(ConsensusConfig::BscTestnet { inner: bsc_consensus() });
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("80002"), "error: {err}");
+			assert!(err.contains("polygon"), "error: {err}");
 		}
 	}
 }

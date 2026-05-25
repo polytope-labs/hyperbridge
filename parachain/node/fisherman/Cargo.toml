@@ -32,3 +32,6 @@ features = ["sc-service"]
 [dev-dependencies]
 arb-host = { workspace = true }
 op-host = { workspace = true }
+tesseract-bsc = { workspace = true }
+tesseract-polygon = { workspace = true }
+tesseract-sync-committee = { workspace = true }

@@ -85,7 +85,7 @@ pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
 /// claim task consumes these and, mirroring the fee accumulation pattern,
 /// waits for Hyperbridge's consensus client for `destination` to verify a
 /// destination block at or past `delivery_height`, then builds a state
-/// proof of `HandlerV2._epochs[set_id]`, signs with the EVM key, and
+/// proof of `EvmHost._epochs[set_id]`, signs with the EVM key, and
 /// submits `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
 #[derive(Debug, Clone)]
 pub struct PendingConsensusDeliveryClaim {
@@ -106,7 +106,6 @@ use ismp::{
 	router::PostRequest,
 };
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
@@ -202,28 +201,25 @@ pub struct Query {
 	pub commitment: H256,
 }
 
-/// A type tha should be returned when messages are submitted successfully
+/// A type that should be returned when messages are submitted successfully.
+///
+/// Only requests are represented since the protocol no longer carries
+/// `PostResponse`s (removed in #840) and `GetResponse` deliveries are
+/// dispatched on-chain rather than surfaced back to the relayer for fee
+/// accumulation.
 #[derive(Debug, Clone, Copy)]
-pub enum TxReceipt {
-	/// Request variant
-	Request { query: Query, height: u64 },
-	/// Response variant
-	Response { query: Query, request_commitment: H256, height: u64 },
+pub struct TxReceipt {
+	pub query: Query,
+	pub height: u64,
 }
 
 impl TxReceipt {
 	pub fn height(&self) -> u64 {
-		match self {
-			TxReceipt::Request { height, .. } => *height,
-			TxReceipt::Response { height, .. } => *height,
-		}
+		self.height
 	}
 
 	pub fn source(&self) -> StateMachine {
-		match self {
-			TxReceipt::Request { query, .. } => query.source_chain,
-			TxReceipt::Response { query, .. } => query.source_chain,
-		}
+		self.query.source_chain
 	}
 }
 
@@ -280,12 +276,12 @@ impl Keccak256 for Hasher {
 	}
 }
 
-/// One `HandlerV2::NewEpoch(set_id, relayer)` log emitted by the destination
+/// One `EvmHost::NewEpoch(set_id, relayer)` log emitted by the destination
 /// chain in response to a consensus delivery, attributed to this relayer.
 ///
 /// `block_number` is the destination's block in which the log was emitted —
 /// i.e. the block at which `_epochs[set_id]` was actually written to the
-/// HandlerV2 contract. The outbound-claim task uses it as `delivery_height`
+/// EvmHost contract. The outbound-claim task uses it as `delivery_height`
 /// so the storage proof we build is over a height the destination has
 /// already mined past, eliminating the prior race where we'd query the
 /// destination's `finalized` head before the outbound tx had even landed.
@@ -299,7 +295,7 @@ pub struct NewEpochEvent {
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
 	pub unsuccessful: Vec<Message>,
-	/// Every `HandlerV2::NewEpoch(set_id, relayer)` log in this submission's
+	/// Every `EvmHost::NewEpoch(set_id, relayer)` log in this submission's
 	/// receipts whose `relayer` matches `self.address()`. A single tx can
 	/// carry several consensus messages (catch-up batches), and each one
 	/// that lands a new authority set on chain emits its own log — each
@@ -356,15 +352,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
-	/// Query a responses proof
-	/// Return the scale encoded proof
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error>;
-
 	/// Query state proof for some keys, return scaled encoded proof
 	async fn query_state_proof(
 		&self,
@@ -410,15 +397,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
 	/// what the pallet's state proof verifier looks up.
 	fn ismp_host_contract(&self) -> Option<sp_core::H160>;
-
-	/// The HandlerV2 contract address on this chain (only meaningful on
-	/// EVM destinations that have HandlerV2 deployed). The EVM impl reads
-	/// `EvmHost.hostParams().handler` so the relayer doesn't have to be
-	/// told the address out of band — it stays in sync with whatever
-	/// governance has set on chain. Defaults to `None` for non-EVM chains
-	/// (mirroring [`Self::ismp_host_contract`]); the outbound-consensus
-	/// claim task is EVM-only and skips destinations that report `None`.
-	async fn handler_v2_address(&self) -> Option<sp_core::H160>;
 
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;
@@ -466,11 +444,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Should return the relayer delivered this response
 	/// if it has been delivered
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error>;
-
-	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
-	/// (message commiment)
-	/// Should return Erc20 standard type with 18 decimals value
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
 
 	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
 	/// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
@@ -520,14 +493,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// receipt
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
-	/// This method should return the key used to be used to query the state proof for the response
-	/// commitment
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
-
-	/// This method should return the key used to be used to query the state proof for the response
-	/// receipt
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
-
 	/// Relayer's address on this chain
 	fn address(&self) -> Vec<u8>;
 
@@ -553,7 +518,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error>;
+	) -> Result<HostParam, anyhow::Error>;
 
 	/// The max number of concurrent queries that can be made to the rpc node
 	fn max_concurrent_queries(&self) -> usize {
@@ -619,8 +584,11 @@ pub trait HyperbridgeClaim {
 		client: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<Vec<WithdrawFundsResult>>;
-	/// Check if this key has been claimed
-	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;
+	/// Check if this commitment has been claimed
+	async fn check_claimed(&self, commitment: H256) -> anyhow::Result<bool>;
+	/// Current relayer signature nonce stored on Hyperbridge for this `(address, chain)`
+	/// pair. Used to pin a beneficiary redirect signature to one accumulate call.
+	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64>;
 }
 
 #[async_trait::async_trait]

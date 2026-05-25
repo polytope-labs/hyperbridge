@@ -28,12 +28,12 @@ import {
     DispatchInfo,
     FillOptions,
     CancelOptions,
-    NewDeployment,
+    Deployment,
     WithdrawalRequest,
     SelectOptions
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
-import {ICallDispatcher, Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
@@ -41,7 +41,7 @@ import {IQuoter} from "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 contract IntentGatewayV2Test is MainnetForkBaseTest {
     IntentGatewayV2 public intentGateway;
@@ -77,7 +77,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        intentGateway.setParams(intentParams);
+        // Register the gateway's cross-chain peers. In these tests the peer on every
+        // remote chain is simulated by this same contract instance, so each chain maps
+        // back to `intentGateway`. `_instance` now reverts UnknownInstance for unregistered
+        // chains, so peers must be seeded explicitly.
+        Deployment[] memory deployments = new Deployment[](3);
+        deployments[0] = Deployment({chain: host.host(), gateway: address(intentGateway)});
+        deployments[1] = Deployment({chain: bytes("SOURCE_CHAIN"), gateway: address(intentGateway)});
+        deployments[2] = Deployment({chain: bytes("DEST_CHAIN"), gateway: address(intentGateway)});
+        intentGateway.init(intentParams, deployments);
 
         // Fund test accounts
         _fundTestAccounts();
@@ -507,7 +515,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        zeroFeeGateway.setParams(zeroFeeParams);
+        zeroFeeGateway.init(zeroFeeParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -787,7 +795,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18;
 
@@ -865,7 +873,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -928,7 +936,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -1000,7 +1008,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Compare: without calldata and 50% split, protocol gets 50 DAI
         //          with calldata and 50% split, protocol gets 100 DAI (all surplus)
         IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
-        customGateway.setParams(
+        customGateway.init(
             Params({
                 host: address(host),
                 dispatcher: address(dispatcher),
@@ -1009,7 +1017,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 protocolFeeBps: 0,
                 priceOracle: address(0)
             })
-        );
+        , new Deployment[](0));
 
         // Setup order WITH calldata
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -1376,7 +1384,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
-        gatewayWithSelection.setParams(newParams);
+        gatewayWithSelection.init(newParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -1447,7 +1455,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
-        gatewayWithSelection.setParams(newParams);
+        gatewayWithSelection.init(newParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -1783,7 +1791,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Roll past deadline
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: order.deadline + 1});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(order.deadline + 1)});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
@@ -1823,7 +1831,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 100});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 100)});
 
         // Different user tries to cancel
         vm.startPrank(filler);
@@ -1864,7 +1872,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Try to cancel before deadline
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 50});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 50)});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
@@ -2272,8 +2280,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
 
-        vm.expectEmit(true, false, false, true);
-        emit IntentsBase.EscrowRefunded(commitment);
+        vm.expectEmit(true, false, false, false);
+        emit IntentsBase.EscrowRefunded(commitment, inputs);
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
@@ -2365,7 +2373,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory stateMachineId = bytes("NEW_CHAIN");
         address gateway = address(0x1234);
 
-        NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
+        Deployment memory deployment = Deployment({chain: stateMachineId, gateway: gateway});
 
         bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.NewDeployment)), abi.encode(deployment));
 
@@ -2384,18 +2392,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
-        // Check NewDeploymentAdded event
+        // Check DeploymentAdded event
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool eventFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("NewDeploymentAdded(bytes,address)")) {
+            if (entries[i].topics[0] == keccak256("DeploymentAdded(string,address)")) {
                 eventFound = true;
                 break;
             }
         }
 
-        assertTrue(eventFound, "NewDeploymentAdded event should be emitted");
+        assertTrue(eventFound, "DeploymentAdded event should be emitted");
 
         // Verify instance was stored
         assertEq(intentGateway.instance(stateMachineId), gateway, "Gateway instance should be stored");
@@ -2403,8 +2411,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpdateParams() public {
         Params memory newParams = Params({
-            host: address(0x5678),
-            dispatcher: address(0x9ABC),
+            host: address(host),
+            dispatcher: address(dispatcher),
             solverSelection: true,
             surplusShareBps: 10000,
             protocolFeeBps: 0,
@@ -2471,9 +2479,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
         bytes memory optimismStateMachineId = bytes("OPTIMISM");
 
-        destinationFees[0] = DestinationFee({stateMachineId: keccak256(arbitrumStateMachineId), destinationFeeBps: 50});
+        destinationFees[0] = DestinationFee({destinationFeeBps: 50, chain: arbitrumStateMachineId});
 
-        destinationFees[1] = DestinationFee({stateMachineId: keccak256(optimismStateMachineId), destinationFeeBps: 150});
+        destinationFees[1] = DestinationFee({destinationFeeBps: 150, chain: optimismStateMachineId});
 
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
 
@@ -2509,7 +2517,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 paramsUpdatedFound = true;
             }
 
-            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(string,uint256)")) {
                 destinationFeeEventsFound++;
             }
         }
@@ -2560,7 +2568,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 destinationFeeEventsFound = 0;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(string,uint256)")) {
                 destinationFeeEventsFound++;
             }
         }
@@ -2583,11 +2591,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
-        bytes32 hashedStateMachineId = keccak256(arbitrumStateMachineId);
         uint256 feeBps = 75;
 
         DestinationFee[] memory destinationFees = new DestinationFee[](1);
-        destinationFees[0] = DestinationFee({stateMachineId: hashedStateMachineId, destinationFeeBps: feeBps});
+        destinationFees[0] = DestinationFee({destinationFeeBps: feeBps, chain: arbitrumStateMachineId});
 
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
 
@@ -2604,7 +2611,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.expectEmit(true, false, false, true);
-        emit IntentsBase.DestinationProtocolFeeUpdated(hashedStateMachineId, feeBps);
+        emit IntentsBase.DestinationProtocolFeeUpdated(string(arbitrumStateMachineId), feeBps);
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
@@ -2621,16 +2628,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         // Set destination-specific fee via governance
         bytes memory destinationChain = bytes("ARBITRUM");
-        bytes32 destinationHash = keccak256(destinationChain);
 
         DestinationFee[] memory destinationFees = new DestinationFee[](1);
         destinationFees[0] = DestinationFee({
-            stateMachineId: destinationHash,
-            destinationFeeBps: 50 // 0.5% for this destination
+            destinationFeeBps: 50, // 0.5% for this destination
+            chain: destinationChain
         });
 
         ParamsUpdate memory update = ParamsUpdate({params: customParams, destinationFees: destinationFees});
@@ -2713,7 +2719,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         // Place order to destination without specific fee set
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
@@ -2769,13 +2775,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testInstance() public {
         bytes memory stateMachineId = bytes("TEST_CHAIN");
 
-        // Before adding deployment, should return this contract's address
-        address instance = intentGateway.instance(stateMachineId);
-        assertEq(instance, address(intentGateway), "Should return self address by default");
+        // Before adding a deployment, an unregistered chain reverts UnknownInstance.
+        vm.expectRevert(IntentsBase.UnknownInstance.selector);
+        intentGateway.instance(stateMachineId);
 
         // Add a new deployment
         address gateway = address(0xABCD);
-        NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
+        Deployment memory deployment = Deployment({chain: stateMachineId, gateway: gateway});
 
         bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.NewDeployment)), abi.encode(deployment));
 
@@ -2793,7 +2799,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
         // Now should return the stored gateway
-        instance = intentGateway.instance(stateMachineId);
+        address instance = intentGateway.instance(stateMachineId);
         assertEq(instance, gateway, "Should return stored gateway address");
     }
 
@@ -2867,14 +2873,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
         );
 
-        MerklePatricia.StorageValue[] memory values = new MerklePatricia.StorageValue[](1);
-        values[0] = MerklePatricia.StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
 
         GetRequest memory getRequest = GetRequest({
             source: host.host(),
             dest: order.destination,
             nonce: 0,
-            from: address(intentGateway),
+            from: abi.encodePacked(address(intentGateway)),
             keys: new bytes[](0),
             height: 0,
             timeoutTimestamp: 0,
@@ -2908,7 +2914,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1%
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        // Register the local chain peer so the later RedeemEscrow onAccept authenticates.
+        Deployment[] memory deployments = new Deployment[](1);
+        deployments[0] = Deployment({chain: host.host(), gateway: address(customGateway)});
+        customGateway.init(customParams, deployments);
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC
@@ -2955,7 +2964,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
                     )
             ) {
                 orderPlacedFound = true;
@@ -3034,7 +3043,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 1000, // 10%
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 1000) / 10000; // 100 USDC
@@ -3114,7 +3123,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0, // 0%
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
 
@@ -3170,7 +3179,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 200, // 2%
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
         uint256 daiAmount = 500 * 1e18; // 500 DAI
@@ -3267,7 +3276,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 500, // 5%
             priceOracle: address(0)
         });
-        customGateway.setParams(customParams);
+        customGateway.init(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
@@ -3303,7 +3312,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
                     )
             ) {
                 // Decode the event - note this is complex due to dynamic arrays
@@ -3322,5 +3331,208 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             }
         }
         assertTrue(dustFound, "DustCollected should be emitted");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                NATIVE TOKEN OVERPAYMENT REFUND TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice placeOrder with fee swap refunds unused ETH after swapETHForExactTokens.
+    function testPlaceOrder_FeeSwap_RefundsExcessNativeToken() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 1 * 1e18; // 1 DAI worth of fees
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: feeAmount,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userEthBefore = user.balance;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        // Send 5 ETH for a fee swap that should cost much less
+        intentGateway.placeOrder{value: 5 ether}(order, bytes32(0));
+        vm.stopPrank();
+
+        // User should get back most of the 5 ETH — the swap only needed a tiny fraction
+        uint256 ethSpent = userEthBefore - user.balance;
+        assertTrue(ethSpent < 1 ether, "User should have been refunded most of the 5 ETH");
+        assertTrue(ethSpent > 0, "User should have spent some ETH on the fee swap");
+    }
+
+    /// @notice Cross-chain fillOrder refunds solver's excess native ETH.
+    function testFillCrossChain_RefundsSolverExcessNativeToken() public {
+        uint256 outputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount}); // native ETH output
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Cross-chain order: source is remote, destination is current chain
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        uint256 fillerEthBefore = filler.balance;
+
+        vm.startPrank(filler);
+        // Approve fee token for cross-chain dispatch
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder{value: outputAmount + overpayment}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+        vm.stopPrank();
+
+        // Solver should only have spent outputAmount
+        assertEq(filler.balance, fillerEthBefore - outputAmount, "Solver overpayment should be refunded");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    PARAMS VALIDATION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice setParams rejects zero host address.
+    function testRevert_SetParams_ZeroHost() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(0),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.init(p, new Deployment[](0));
+    }
+
+    /// @notice setParams rejects EOA dispatcher (no code).
+    function testRevert_SetParams_EOADispatcher() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(0xdead),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.init(p, new Deployment[](0));
+    }
+
+    /// @notice setParams rejects surplusShareBps > 10000.
+    function testRevert_SetParams_SurplusShareBpsTooHigh() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10001,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.init(p, new Deployment[](0));
+    }
+
+    /// @notice setParams rejects protocolFeeBps >= 10000.
+    function testRevert_SetParams_ProtocolFeeBpsTooHigh() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 10000,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.init(p, new Deployment[](0));
+    }
+
+    /// @notice setParams rejects non-contract priceOracle.
+    function testRevert_SetParams_EOAPriceOracle() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0xbeef)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.init(p, new Deployment[](0));
+    }
+
+    /// @notice updateParams via governance rejects destinationFeeBps >= 10000.
+    function testRevert_UpdateParams_DestinationFeeBpsTooHigh() public {
+        DestinationFee[] memory fees = new DestinationFee[](1);
+        fees[0] = DestinationFee({destinationFeeBps: 10000, chain: bytes("ARBITRUM")});
+
+        ParamsUpdate memory update = ParamsUpdate({
+            params: Params({
+                host: address(host),
+                dispatcher: address(dispatcher),
+                solverSelection: false,
+                surplusShareBps: 5000,
+                protocolFeeBps: 0,
+                priceOracle: address(0)
+            }),
+            destinationFees: fees
+        });
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
     }
 }

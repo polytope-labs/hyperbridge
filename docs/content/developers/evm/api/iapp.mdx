@@ -15,7 +15,6 @@ interface IApp
 
 Applications implementing `IApp` can:
 - Receive POST requests from other chains
-- Receive POST responses to requests they sent
 - Receive GET responses with queried state data
 - Handle timeouts for sent messages
 
@@ -43,7 +42,6 @@ function onAccept(IncomingPostRequest calldata incoming) external
 - Receiving cross-chain messages
 - Processing deposits or transfers
 - Executing remote commands
-- Optionally sending a response back
 
 **Best Practices:**
 - Always validate the source chain/application
@@ -59,12 +57,12 @@ function onAccept(IncomingPostRequest calldata incoming) external
 Called when a POST request you sent has timed out on the destination chain.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `PostRequest` | The timed-out POST request |
+| `incoming` | `PostRequestTimeout` | Struct containing the timed-out POST request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by the Host contract
 
@@ -80,50 +78,6 @@ function onPostRequestTimeout(PostRequest memory request) external
 - Update internal state to reflect timeout
 - Refund users or cleanup resources
 - Keep gas costs low
-
----
-
-### onPostResponse()
-
-Called when a POST response is delivered to your application.
-
-```solidity lineNumbers
-function onPostResponse(IncomingPostResponse memory incoming) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `incoming` | `IncomingPostResponse` | Struct containing response and relayer info |
-
-**Access:** Only callable by the Host contract
-
-**Best Practices:**
-- Track pending requests to match with responses
-- Validate response data
-- Handle both success and failure cases
-- Clean up request state
-- Emit events for monitoring
-
----
-
-### onPostResponseTimeout()
-
-Called when a POST response you sent has timed out.
-
-```solidity lineNumbers
-function onPostResponseTimeout(PostResponse memory response) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `PostResponse` | The timed-out POST response |
-
-**Access:** Only callable by the Host contract
-
-**Important:**
-- Called **before** refunding relayer fees
-- If this callback reverts, fees are NOT refunded
-- Must be idempotent
 
 ---
 
@@ -161,12 +115,12 @@ function onGetResponse(IncomingGetResponse memory incoming) external
 Called when a GET request you sent has timed out.
 
 ```solidity lineNumbers
-function onGetTimeout(GetRequest memory request) external
+function onGetTimeout(GetRequestTimeout memory incoming) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `request` | `GetRequest` | The timed-out GET request |
+| `incoming` | `GetRequestTimeout` | Struct containing the timed-out GET request and the relayer that submitted the timeout proof |
 
 **Access:** Only callable by the Host contract
 
@@ -202,24 +156,6 @@ struct IncomingPostRequest {
 
 ---
 
-### IncomingPostResponse
-
-Encapsulates an incoming POST response with relayer information.
-
-```solidity lineNumbers
-struct IncomingPostResponse {
-    PostResponse response;
-    address relayer;
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `response` | `PostResponse` | The POST response |
-| `relayer` | `address` | Who delivered the response |
-
----
-
 ### IncomingGetResponse
 
 Encapsulates an incoming GET response with relayer information.
@@ -235,6 +171,42 @@ struct IncomingGetResponse {
 |-------|------|-------------|
 | `response` | `GetResponse` | The GET response with state data |
 | `relayer` | `address` | Who delivered the response |
+
+---
+
+### PostRequestTimeout
+
+Encapsulates a timed-out POST request with relayer information.
+
+```solidity lineNumbers
+struct PostRequestTimeout {
+    PostRequest request;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The timed-out POST request |
+| `relayer` | `address` | Who submitted the timeout proof |
+
+---
+
+### GetRequestTimeout
+
+Encapsulates a timed-out GET request with relayer information.
+
+```solidity lineNumbers
+struct GetRequestTimeout {
+    GetRequest request;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `GetRequest` | The timed-out GET request |
+| `relayer` | `address` | Who submitted the timeout proof |
 
 ---
 
@@ -263,26 +235,6 @@ struct PostRequest {
 | `from` | `bytes` | Source application address |
 | `to` | `bytes` | Destination application address |
 | `body` | `bytes` | Request payload |
-
----
-
-### PostResponse
-
-Represents a POST response.
-
-```solidity lineNumbers
-struct PostResponse {
-    PostRequest request;
-    bytes response;
-    uint64 timeoutTimestamp;
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `request` | `PostRequest` | The original POST request |
-| `response` | `bytes` | Response payload |
-| `timeoutTimestamp` | `uint64` | Unix timestamp when response times out |
 
 ---
 
@@ -323,13 +275,13 @@ Represents a GET response with state data.
 ```solidity lineNumbers
 struct GetResponse {
     GetRequest request;
-    bytes[] values;
+    StorageValue[] values;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `request` | `GetRequest` | The original GET request |
-| `values` | `bytes[]` | RLP-encoded storage values in same order as keys |
+| `values` | `StorageValue[]` | Retrieved storage values in same order as requested keys |
 
 ---

@@ -14,7 +14,53 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {IntermediateState} from "./IConsensus.sol";
+/**
+ * @title StateCommitment
+ * @notice Represents a commitment to an intermediate state in the state machine
+ * @dev Contains metadata about the state machine including timestamp and merkle roots
+ */
+struct StateCommitment {
+    /// @notice Unix timestamp of the state machine at the time of this commitment
+    /// @dev Used for calculating request timeouts and enforcing time-based logic
+    uint256 timestamp;
+    /// @notice Merkle root of the overlay trie containing all ISMP requests and responses
+    /// @dev Used to verify inclusion proofs for cross-chain messages
+    bytes32 overlayRoot;
+    /// @notice Merkle root of the state trie at the given block height
+    /// @dev Represents the complete state of the state machine at this height
+    bytes32 stateRoot;
+}
+
+/**
+ * @title StateMachineHeight
+ * @notice Uniquely identifies a specific height in a state machine
+ * @dev Consensus clients may track multiple concurrent state machines, hence the need for an identifier
+ */
+struct StateMachineHeight {
+    /// @notice Unique identifier for the state machine (e.g., parachain ID, chain ID)
+    /// @dev Each blockchain or parachain in the network has a unique identifier
+    uint256 stateMachineId;
+    /// @notice Block height or number in the state machine
+    /// @dev Represents the sequential position in the blockchain
+    uint256 height;
+}
+
+/**
+ * @title IntermediateState
+ * @notice Represents an intermediate state in the state transition sequence of a state machine
+ * @dev Used to track finalized states that have been verified through consensus
+ */
+struct IntermediateState {
+    /// @notice Unique identifier for the state machine
+    /// @dev Same as StateMachineHeight.stateMachineId
+    uint256 stateMachineId;
+    /// @notice Block height of this intermediate state
+    /// @dev The specific height at which this state was committed
+    uint256 height;
+    /// @notice The state commitment at this height
+    /// @dev Contains the timestamp and merkle roots for this state
+    StateCommitment commitment;
+}
 
 /**
  * @title IConsensusV2

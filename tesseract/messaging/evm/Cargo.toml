@@ -37,7 +37,7 @@ async-recursion = "1.0.5"
 
 jsonrpsee = { workspace = true, features = ["ws-client"] }
 
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }

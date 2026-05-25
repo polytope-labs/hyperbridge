@@ -53,16 +53,16 @@ The [`IHost`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/package
 
 Additionally, it implements the [`IsmpDispatcher`](/protocol/ismp/dispatcher) interface, providing methods for contracts to dispatch requests and responses to the Hyperbridge.
 
-### `IHandler`
+### `IHandlerV2`
 
-The [`IHandler`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IHandler.sol) serves as the entry point for all ISMP datagrams. It is a stateless contract responsible for handling consensus and state proof verifications for all ISMP messages. Upon successful verification, it delegates storage and dispatching to relevant applications to the `IHost` contract.
+The [`IHandlerV2`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IHandlerV2.sol) serves as the entry point for all ISMP datagrams. It is a stateless contract responsible for handling consensus and state proof verifications for all ISMP messages. Upon successful verification, it delegates storage and dispatching to relevant applications to the `IHost` contract. It supports batching multiple handler calls into a single transaction via `batchCall`.
 
 This decoupled design of the Handler from the Host allows independent upgrades to verification mechanisms without impacting the core protocol, enabling future adoption of more efficient consensus and state verification methods with no changes to the protocol or dependent contracts.
 
 
-### `IConsensus`
+### `IConsensusV2`
 
-The [`IConsensus`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IConsensus.sol) is an interface for verifying Hyperbridge's consensus on EVM chains. This is only used by the `IHandler` contract and is likely of no use to 3rd party developers.
+The [`IConsensusV2`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IConsensusV2.sol) is an interface for verifying Hyperbridge's consensus on EVM chains. This is only used by the `IHandlerV2` contract and is likely of no use to 3rd party developers.
 
 
 ### `IDispatcher`
@@ -89,6 +89,6 @@ In the next section we'll look into hands-on examples of how to send and receive
 
 ## Implementations
 
- - [IHost (EvmHost)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L126)
- - [IHandler (HandlerV1)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/modules/HandlerV1.sol#L57)
- - [IConsensus (SP1Beefy)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/consensus/SP1Beefy.sol#L31)
+ - [IHost (EvmHost)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/core/EvmHost.sol)
+ - [IHandlerV2 (HandlerV2)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/core/HandlerV2.sol)
+ - [IConsensusV2 (SP1Beefy)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/consensus/SP1Beefy.sol)

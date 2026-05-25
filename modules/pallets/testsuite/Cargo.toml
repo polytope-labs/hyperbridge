@@ -32,26 +32,21 @@ ismp-bsc = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true, features = [
     "testing",
 ] }
-pallet-hyperbridge = { workspace = true, default-features = true }
+pallet-bandwidth = { workspace = true, default-features = true }
+pallet-state-coprocessor = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
-pallet-xcm-gateway = { workspace = true, default-features = true }
 pallet-hyper-fungible-token = { workspace = true, default-features = true }
-pallet-token-gateway = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
-pallet-token-governor = { workspace = true, default-features = true }
-pallet-token-gateway-inspector = { workspace = true, default-features = true }
-token-gateway-primitives = { workspace = true, default-features = true }
 pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-consensus-incentives = { workspace = true, default-features = true }
-pallet-messaging-fees = { workspace = true, default-features = true }
+pallet-messaging-incentives = { workspace = true, default-features = true }
 pallet-collator-manager = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
-hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
@@ -59,6 +54,7 @@ ismp-pharos = { workspace = true, default-features = true }
 pharos-primitives = { workspace = true, default-features = true }
 pharos-prover = { workspace = true, default-features = true }
 pharos-state-machine = { workspace = true, default-features = true }
+pharos-verifier = { workspace = true, default-features = true }
 geth-primitives = { workspace = true, default-features = true }
 bls = { workspace = true }
 crypto-utils = { workspace = true, default-features = true }
@@ -71,7 +67,7 @@ beefy-verifier-primitives = { workspace = true }
 subxt-core = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
-ismp-solidity-abi = { workspace = true, features = ["std"] }
+ismp-abi = { workspace = true, features = ["std"] }
 
 [dependencies.alloy]
 workspace = true

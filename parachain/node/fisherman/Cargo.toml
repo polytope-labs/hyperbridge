@@ -1,0 +1,27 @@
+[package]
+name = "hyperbridge-fisherman"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Collator-side fisherman wrapper. Validates the relayer's HyperbridgeConfig for collator use, constructs IsmpProviders, and spawns tesseract-fisherman tasks per supported L2."
+publish = false
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+log = "0.4"
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros", "fs"] }
+toml = "0.7.4"
+url = "2"
+
+ismp = { workspace = true, default-features = true }
+tesseract = { workspace = true }
+tesseract-config = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-fisherman = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service"]

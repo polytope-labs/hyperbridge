@@ -17,11 +17,12 @@ pragma solidity ^0.8.24;
 import {IntentsBase} from "./intentsv2/IntentsBase.sol";
 import {IntrinsicIntents} from "./intentsv2/IntrinsicIntents.sol";
 import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
-import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -38,7 +39,7 @@ import {
     FillOptions,
     SelectOptions,
     CancelOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
@@ -56,7 +57,7 @@ import {
  *           \       /
  *        IntentGatewayV2
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
+contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /**
@@ -93,12 +94,18 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * Subsequent parameter updates must come through Hyperbridge governance via the `onAccept` callback.
      *
      * @param p The initial gateway configuration parameters.
+     * @param deployments The initial gateway cross-chain peers
      */
-    function setParams(Params memory p) public {
+    function init(Params memory p, Deployment[] memory deployments) public {
         if (msg.sender != _admin) revert Unauthorized();
 
-        _admin = address(0);
+        uint256 deploymentsLength = deployments.length;
+        for (uint256 i = 0; i < deploymentsLength; i++) {
+            _addDeployment(deployments[i]);
+        }
+        _validateParams(p);
         _params = p;
+        _admin = address(0);
     }
 
     /**
@@ -146,8 +153,34 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
      * @param graffiti Unused on-chain; available for off-chain indexing or solver metadata.
      */
-    function placeOrder(Order memory order, bytes32 graffiti) public payable {
+    function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
+
+        // Reject duplicate output tokens 
+        uint256 outputsLen_ = order.output.assets.length;
+        for (uint256 i; i < outputsLen_;) {
+            bytes32 token = order.output.assets[i].token;
+            assembly ("memory-safe") {
+                if tload(token) {
+                    mstore(0, 0xb4fa3fb3) // InvalidInput.selector
+                    revert(0x1c, 0x04)
+                }
+                tstore(token, 1)
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        // Clean up transient storage so repeated placeOrder calls in the same tx don't false-positive.
+        for (uint256 i; i < outputsLen_;) {
+            bytes32 token = order.output.assets[i].token;
+            assembly ("memory-safe") {
+                tstore(token, 0)
+            }
+            unchecked {
+                ++i;
+            }
+        }
 
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
@@ -155,40 +188,11 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
         order.nonce = _nonce++;
 
         uint256 inputsLen = order.inputs.length;
-        bytes32 destinationHash = keccak256(order.destination);
-        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
-        if (protocolFeeBps == 0) {
-            protocolFeeBps = _params.protocolFeeBps;
-        }
-        TokenInfo[] memory reducedInputs;
-        bytes32 commitment;
 
-        if (protocolFeeBps > 0) {
-            reducedInputs = new TokenInfo[](inputsLen);
-            for (uint256 i; i < inputsLen;) {
-                uint256 originalAmount = order.inputs[i].amount;
-                if (originalAmount == 0) revert InvalidInput();
-                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
-                uint256 reducedAmount = originalAmount - protocolFee;
-                address token = address(uint160(uint256(order.inputs[i].token)));
-
-                if (protocolFee > 0) emit DustCollected(token, protocolFee);
-
-                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
-                unchecked {
-                    ++i;
-                }
-            }
-
-            TokenInfo[] memory originalInputs = order.inputs;
-            order.inputs = reducedInputs;
-            commitment = keccak256(abi.encode(order));
-            order.inputs = originalInputs;
-        } else {
-            reducedInputs = order.inputs;
-            commitment = keccak256(abi.encode(order));
-        }
-
+        // Phase 1: Transfer tokens and record actual received amounts.
+        // For fee-on-transfer tokens, the gateway receives less than the requested amount.
+        // We mutate order.inputs to reflect actual received so the commitment and escrow
+        // are consistent with what the gateway holds.
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
@@ -216,31 +220,29 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
 
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
+            // Build sweep calls and snapshot gateway balances before the sweep.
             Call[] memory transferCalls = new Call[](inputsLen);
+            uint256[] memory balancesBefore = new uint256[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
                 address token = address(uint160(uint256(order.inputs[i].token)));
                 uint256 requiredAmount = order.inputs[i].amount;
-                uint256 balance;
 
                 if (token == address(0)) {
-                    balance = address(dispatcher).balance;
+                    uint256 balance = address(dispatcher).balance;
                     if (balance < requiredAmount) revert InsufficientNativeToken();
                     transferCalls[i] = Call({to: address(this), value: balance, data: ""});
+                    balancesBefore[i] = address(this).balance;
                 } else {
-                    balance = IERC20(token).balanceOf(dispatcher);
+                    uint256 balance = IERC20(token).balanceOf(dispatcher);
                     if (balance < requiredAmount) revert InvalidInput();
                     transferCalls[i] = Call({
                         to: token,
                         value: 0,
                         data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
                     });
+                    balancesBefore[i] = IERC20(token).balanceOf(address(this));
                 }
-
-                uint256 dust = balance - requiredAmount;
-                if (dust > 0) emit DustCollected(token, dust);
-
-                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -248,6 +250,28 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
             }
 
             ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
+
+            // Measure actual received, emit dust for excess, update order.inputs.
+            for (uint256 i; i < inputsLen;) {
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 received;
+                if (token == address(0)) {
+                    received = address(this).balance - balancesBefore[i];
+                } else {
+                    received = IERC20(token).balanceOf(address(this)) - balancesBefore[i];
+                }
+
+                if (received > order.inputs[i].amount) {
+                    uint256 dust = received - order.inputs[i].amount;
+                    emit DustCollected(token, dust);
+                } else {
+                    order.inputs[i].amount = received;
+                }
+
+                unchecked {
+                    ++i;
+                }
+            }
         } else {
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
@@ -256,14 +280,59 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                     if (msgValue < order.inputs[i].amount) revert InsufficientNativeToken();
                     msgValue -= order.inputs[i].amount;
                 } else {
+                    uint256 balBefore = IERC20(token).balanceOf(address(this));
                     IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
+                    order.inputs[i].amount = IERC20(token).balanceOf(address(this)) - balBefore;
                 }
-
-                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
                 }
+            }
+        }
+
+        // Phase 2: Compute protocol fees and commitment from actual received amounts.
+        bytes32 destinationHash = keccak256(order.destination);
+        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
+        if (protocolFeeBps == 0) {
+            protocolFeeBps = _params.protocolFeeBps;
+        }
+        TokenInfo[] memory reducedInputs;
+        bytes32 commitment;
+
+        if (protocolFeeBps > 0) {
+            reducedInputs = new TokenInfo[](inputsLen);
+            for (uint256 i; i < inputsLen;) {
+                uint256 originalAmount = order.inputs[i].amount;
+                if (originalAmount == 0) revert InvalidInput();
+                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
+                uint256 reducedAmount = originalAmount - protocolFee;
+                address token = address(uint160(uint256(order.inputs[i].token)));
+
+                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+
+                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
+                unchecked {
+                    ++i;
+                }
+            }
+
+            order.inputs = reducedInputs;
+            commitment = keccak256(abi.encode(order));
+        } else {
+            reducedInputs = order.inputs;
+            commitment = keccak256(abi.encode(order));
+        }
+
+        // Phase 3: Credit escrow.
+        for (uint256 i; i < inputsLen;) {
+            address token = address(uint160(uint256(order.inputs[i].token)));
+            // Reject duplicate input tokens
+            if (_orders[commitment][token] != 0) revert InvalidInput();
+            _orders[commitment][token] = reducedInputs[i].amount;
+
+            unchecked {
+                ++i;
             }
         }
 
@@ -275,9 +344,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                 address[] memory path = new address[](2);
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
-                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
+                uint256[] memory amounts = IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
+                msgValue -= amounts[0];
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
             }
@@ -285,10 +355,16 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
             _orders[commitment][TRANSACTION_FEES] = order.fees;
         }
 
+        // Refund any unspent native tokens to the user.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
+        }
+
         emit OrderPlaced({
             user: order.user,
-            source: order.source,
-            destination: order.destination,
+            source: string(order.source),
+            destination: string(order.destination),
             deadline: order.deadline,
             nonce: order.nonce,
             fees: order.fees,
@@ -328,7 +404,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
-    function fillOrder(Order calldata order, FillOptions calldata options) public payable {
+    function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
         if (order.deadline < block.number) revert Expired();
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -344,16 +420,13 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
-            bytes32 solver;
-            bytes32 storedSessionKey;
-            bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+            bytes32 storedSelectionHash;
             assembly {
-                solver := tload(commitment)
-                storedSessionKey := tload(sessionSlot)
+                storedSelectionHash := tload(commitment)
             }
 
-            if (address(uint160(uint256(solver))) != msg.sender) revert Unauthorized();
-            if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
+            bytes32 expectedSelectionHash = keccak256(abi.encode(msg.sender, order.session));
+            if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;
@@ -388,7 +461,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
      * @param order The order to cancel. Must match the exact order that was placed.
      * @param options Cancel options including proof height and relayer fee for cross-chain cancels.
      */
-    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
+    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable nonReentrant {
         bytes32 commitment = keccak256(abi.encode(order));
 
         if (_filled[commitment] != address(0)) revert Filled();

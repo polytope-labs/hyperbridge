@@ -293,7 +293,7 @@ describe("VolumeService", () => {
 		})
 
 		it("should handle different ID formats", async () => {
-			const ids = ["TokenGateway", "IntentGateway.USER", "IntentGateway.FILLER"]
+			const ids = ["TokenGateway", "IntentGatewayV2.USER", "IntentGatewayV2.FILLER"]
 			const volume = "100.50"
 			const timestamp = BigInt(1700000000)
 

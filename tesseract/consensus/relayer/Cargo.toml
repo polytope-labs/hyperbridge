@@ -11,14 +11,6 @@ path = "src/lib.rs"
 name = "tesseract-consensus"
 path = "bins/relayer.rs"
 
-[[bin]]
-name = "beefy-prover"
-path = "bins/prover.rs"
-
-[[bin]]
-name = "polyhedron"
-path = "bins/polyhedron.rs"
-
 [dependencies]
 log = "0.4.19"
 env_logger = "0.10.0"

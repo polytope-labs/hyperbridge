@@ -16,7 +16,7 @@
 #![cfg(test)]
 use polkadot_sdk::*;
 
-use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
+use crate::runtime::{new_test_ext, CollatorSet, Ismp, RuntimeOrigin, Test};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	error::Error,
@@ -28,22 +28,12 @@ use sp_runtime::{DispatchError, ModuleError};
 #[test]
 fn test_can_veto_state_commitments() {
 	new_test_ext().execute_with(|| {
-		let account: AccountId32 = H256::random().0.into();
+		let collator_a: AccountId32 = H256::random().0.into();
+		let collator_b: AccountId32 = H256::random().0.into();
+		let outsider: AccountId32 = H256::random().0.into();
 
-		// add a new fisherman
-		pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account.clone()).unwrap();
-		assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account.clone()), Some(()));
-
-		// sanity check, can't add it again
-		let result = pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account.clone());
-		assert_eq!(
-			result,
-			Err(DispatchError::Module(ModuleError {
-				index: 9,
-				error: [0, 0, 0, 0],
-				message: Some("AlreadyAdded"),
-			}))
-		);
+		// Seed the active collator set. Outsider deliberately not included.
+		CollatorSet::set(vec![collator_a.clone(), collator_b.clone()]);
 
 		let host = Ismp::default();
 		let height = StateMachineHeight {
@@ -56,65 +46,52 @@ fn test_can_veto_state_commitments() {
 			state_root: H256::random(),
 		};
 		host.store_state_machine_commitment(height, commitment).unwrap();
+		assert_eq!(host.state_machine_commitment(height).unwrap(), commitment);
 
-		let result = host.state_machine_commitment(height).unwrap();
-		assert_eq!(result, commitment);
-
-		// sanity check, unauthorized veto
+		// A non-collator cannot veto.
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(H256::random().0.into()),
+			RuntimeOrigin::signed(outsider.clone()),
 			height,
 		);
 		assert_eq!(
 			result,
 			Err(DispatchError::Module(ModuleError {
-				index: 9,
-				error: [2, 0, 0, 0],
+				index: 8,
+				error: [0, 0, 0, 0],
 				message: Some("UnauthorizedAction"),
 			}))
 		);
 
-		// Add another fisherman
-
-		let account_2: AccountId32 = H256::random().0.into();
-		pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account_2.clone()).unwrap();
-		assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account_2.clone()), Some(()));
-
-		// actual veto
+		// First collator records a pending veto.
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(account.clone()),
+			RuntimeOrigin::signed(collator_a.clone()),
 			height,
 		);
 		assert_eq!(result, Ok(()));
+		assert_eq!(pallet_fishermen::PendingVetoes::<Test>::get(height), Some(collator_a.clone()));
 
-		assert_eq!(pallet_fishermen::PendingVetoes::<Test>::get(height), Some(account.clone()));
-
-		// veto with same account
+		// Same collator submitting again is rejected.
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(account.clone()),
+			RuntimeOrigin::signed(collator_a.clone()),
 			height,
 		);
-
 		assert!(matches!(
 			result,
 			Err(sp_runtime::DispatchError::Module(ModuleError {
-				index: 9,
-				error: [4, 0, 0, 0,],
+				index: 8,
+				error: [2, 0, 0, 0,],
 				message: Some("InvalidVeto",),
 			}))
 		));
 
+		// Second distinct collator finalizes the veto and the commitment is gone.
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(account_2.clone()),
+			RuntimeOrigin::signed(collator_b.clone()),
 			height,
 		);
 		assert_eq!(result, Ok(()));
 
-		// should have been deleted
 		let result = host.state_machine_commitment(height);
 		assert!(matches!(result, Err(Error::StateCommitmentNotFound { .. })));
-
-		pallet_fishermen::Pallet::<Test>::remove(RuntimeOrigin::root(), account.clone()).unwrap();
-		assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account), None);
 	})
 }

@@ -60,7 +60,7 @@ function sendMessage(
         body: message,
         dest: StateMachine.evm(1),
         timeout: timeout,
-        to: abi.encodePacked(to),
+        to: abi.encode(to),
         fee: relayerFee,
         payer: msg.sender
     });
@@ -73,58 +73,20 @@ function sendMessage(
 
 1. **Create the DispatchPost struct** - Populate all required fields including destination, recipient, message body, timeout, and fees
 2. **Set the destination** - Use `StateMachine.evm(1)` for Ethereum Mainnet (or appropriate chain ID)
-3. **Encode the recipient** - Convert the destination contract address to bytes using `abi.encodePacked(to)`
+3. **Encode the recipient** - Convert the destination contract address to bytes using `abi.encode(to)`
 4. **Dispatch the request** - Call `IDispatcher(_host).dispatch()` with the POST request and any required native token value
 5. **Return commitment hash** - The function returns a unique identifier for tracking the request
 
 
 ## Fees
 
-Understanding the fee model is crucial for dispatching POST requests. Hyperbridge uses a dual-fee structure: **protocol fees** and **optional relayer fees**.
+The fee model for POST requests is straightforward: you only pay an **optional relayer fee** to incentivize third-party relayers to deliver your message.
 
-### Fee Components
+| Component | Description | Refundable |
+|-----------|-------------|------------|
+| **Relayer Fee** | Optional incentive for third-party relayers to deliver your message, set by the application in `DispatchPost.fee` | ✅ Yes (on timeout) |
 
-| Component | Description | Calculation | Refundable |
-|-----------|-------------|-------------|------------|
-| **Protocol Fee** | Non-refundable fee charged by Hyperbridge for processing the request | `perByteFee(dest) × max(body.length, 32)` | ❌ No |
-| **Relayer Fee** | Optional incentive for third-party relayers to deliver your message | Set by application in `DispatchPost.fee` | ✅ Yes (on timeout) |
-
-These fees are collected by the `IDispatcher` contract from the caller. 
-
-```solidity lineNumbers=1065 title="hyperbridge/evm/src/core/EvmHost.sol" 
-function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
-    // minimum charge is the size of one word
-    uint256 length = 32 > post.body.length ? 32 : post.body.length;
-    uint256 fee = (perByteFee(post.dest) * length) + post.fee;
-        
-    if (msg.value > 0) {
-        address[] memory path = new address[](2);
-        address uniswapV2 = _hostParams.uniswapV2;
-        path[0] = IUniswapV2Router02(uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-            fee, path, address(this), block.timestamp
-        );
-    } else {
-        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
-    }
-}
-```
-
-### Protocol Fees
-
-Protocol fees are calculated per byte of the request body:
-
-```solidity lineNumbers
-// Get the per-byte fee for destination chain
-uint256 perByteFee = IDispatcher(host).perByteFee(post.dest);
-
-// Calculate protocol fee (minimum 32 bytes)
-uint256 bodyLength = post.body.length < 32 ? 32 : post.body.length;
-uint256 protocolFee = perByteFee * bodyLength;
-```
-
-The minimum charge is **32 bytes** (one word), even for smaller messages. Per-byte fees can vary by destination chain and fall back to `defaultPerByteFee` if no override exists for the destination. Protocol fees are **non-refundable**.
+The fee is collected by the `IDispatcher` contract from the caller.
 
 ### Relayer Fees
 
@@ -148,7 +110,7 @@ The relayer fee should cover:
 2. **Relayer service fee** - Incentive for relayer services (typically 10-20% markup on gas costs)
 
 **Refund on Timeout:**
-If the request times out, the `payer` address receives the relayer fee back (protocol fee is not refunded).
+If the request times out, the `payer` address receives the relayer fee back.
 
 ## Payment Methods
 
@@ -161,7 +123,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
 <Callout type="info">
-For testing purposes on testnet, you can use the testnet fee token, [Hyper USD](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177). The contract address is the same across several EVM chains. Check out the [guide](/developers/guides/testnet-fee-token) on how to get the token. 
+For testing purposes on testnet, you can use the testnet fee token, [Hyper USD](https://sepolia.etherscan.io/address/0xBe97E73126d66188d72FBf99029126d0340a7f18). The contract address is the same across several EVM chains. Check out the [guide](/developers/guides/testnet-fee-token) on how to get the token. 
 </Callout>
 
 ### Fee Token Payment (Recommended)
@@ -182,7 +144,7 @@ contract MyApp is HyperApp {
             body: message,
             dest: dest,
             timeout: timeout,
-            to: abi.encodePacked(to),
+            to: abi.encode(to),
             fee: relayerFee,
             payer: msg.sender
         });
@@ -192,7 +154,7 @@ contract MyApp is HyperApp {
         // - Token transfer from payer
         // - Host approval
         // - Dispatch
-        return dispatchWithFeeToken(post, msg.sender);
+        return dispatchWithFeeToken(post);
     }
 }
 ```
@@ -214,7 +176,7 @@ contract MyApp is HyperApp {
             body: message,
             dest: dest,
             timeout: timeout,
-            to: abi.encodePacked(to),
+            to: abi.encode(to),
             fee: relayerFee,
             payer: msg.sender
         });
@@ -254,7 +216,7 @@ const post = {
 const nativeCost = await publicClient.readContract({
   address: myAppAddress,
   abi: hyperAppAbi,
-  functionName: 'quoteNative',
+  functionName: 'quote',
   args: [post]
 })
 
@@ -272,7 +234,7 @@ console.log(`Fee in fee token: ${feeTokenCost}`)
 ```
 
 <Callout type="warning" title="Estimate Fees Off-Chain">
-Use the `quoteNative()` view function from your frontend to estimate how much native token users need to send. **Do not call `quoteNative()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
+Use the `quote()` view function from your frontend to estimate how much native token users need to send. **Do not call `quote()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
 </Callout>
 
 ### Payment Method Comparison
@@ -309,7 +271,7 @@ IERC20(feeToken).approve(host, additionalFee);
 IDispatcher(host).fundRequest(commitment, additionalFee);
 ```
 
-Note that `fundRequest` only increases the **relayer fee** (protocol fee cannot be changed). The additional fee goes to the `payer` address if the request times out. This function can be called multiple times to incrementally increase fees and only works for pending requests.
+Note that `fundRequest` increases the **relayer fee**. The additional fee goes to the `payer` address if the request times out. This function can be called multiple times to incrementally increase fees and only works for pending requests.
 
 
 ## Self Relayed Requests
@@ -330,7 +292,7 @@ The SDK automatically generates the [`PostRequestMessage`](/developers/evm/api/i
 
 When a POST request times out (exceeds its specified `timeout` period), The request will be **rejected on the destination** if delivery is attempted.
 
-```solidity lineNumbers=159 title="hyperbridge/evm/src/core/HandlerV1.sol"
+```solidity lineNumbers=159 title="hyperbridge/evm/src/core/HandlerV2.sol"
 for (uint256 i = 0; i < requestsLen; ++i) {
     PostRequestLeaf memory leaf = request.requests[i];
     // check destination
@@ -369,11 +331,13 @@ Your contract must implement `onPostRequestTimeout` to handle timed-out requests
 
 ```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
-    function onPostRequestTimeout(PostRequest memory request)
+    function onPostRequestTimeout(PostRequestTimeout memory incoming)
         external
         override
         onlyHost
     {
+        // `incoming.request` is the timed-out POST request.
+        // `incoming.relayer` is the relayer that submitted the timeout proof.
         // Handle the timeout - maybe refund user or retry
         emit RequestTimedOut(commitment, user, amount);
     }

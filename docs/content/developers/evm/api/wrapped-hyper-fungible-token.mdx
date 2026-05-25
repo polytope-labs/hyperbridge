@@ -68,12 +68,12 @@ function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenN
 
 ---
 
-## onPostRequestTimeout(request)
+## onPostRequestTimeout(incoming)
 
 Called when a sent message times out. For WETH: unwraps and sends native tokens. For ERC20: transfers the underlying back to the sender.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest calldata request) external onlyHost whenNotPaused
+function onPostRequestTimeout(PostRequestTimeout calldata incoming) external onlyHost whenNotPaused
 ```
 
 ---
@@ -183,9 +183,29 @@ function unpause() external onlyOwner
 
 ---
 
+## quote(params)
+
+Returns the fee in the host's fee token for dispatching a cross-chain send. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256)
+```
+
+---
+
+## quote(params)
+
+Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256)
+```
+
+---
+
 ## quote(request)
 
-Returns the fee in the host's fee token for dispatching a cross-chain send. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+Returns the fee in the host's fee token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
 
 ```solidity lineNumbers
 function quote(DispatchPost memory request) public view returns (uint256)
@@ -193,12 +213,12 @@ function quote(DispatchPost memory request) public view returns (uint256)
 
 ---
 
-## quoteNative(request)
+## quote(request)
 
-Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+Returns the fee in the native token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
 
 ```solidity lineNumbers
-function quoteNative(DispatchPost memory request) public view returns (uint256)
+function quote(DispatchPost memory request) public view returns (uint256)
 ```
 
 ---

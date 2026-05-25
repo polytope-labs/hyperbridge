@@ -87,7 +87,7 @@ where
 	// Shared GET-request channel. The inbound messaging task populates it as a
 	// side effect of its normal event querying; the processor task drains it.
 	let (get_request_sender, get_request_receiver) =
-		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
+		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(512);
 
 	// chain_b → Hyperbridge inbound messaging. Also forwards any GET requests
 	// seen on chain_b into `get_request_sender` (via handle_update's built-in
@@ -286,7 +286,18 @@ async fn handle_update(
 					})
 					.collect::<Vec<_>>();
 				if !get_requests.is_empty() {
-					let _ = sender.send((get_requests, state_machine_update.clone())).await;
+					// `try_send` so this inbound forwarder never blocks on a
+					// backed-up get-request consumer. On `Full`, the events
+					// are still emitted upstream and a future range query
+					// will pick them back up; warn so it surfaces.
+					if let Err(err) = sender.try_send((get_requests, state_machine_update.clone()))
+					{
+						tracing::warn!(
+							target: "messaging-inbound",
+							?err,
+							"get-request channel send failed",
+						);
+					}
 				}
 			}
 
@@ -326,7 +337,6 @@ async fn handle_update(
 		.iter()
 		.chunk_by(|event| match event {
 			ismp::events::Event::PostRequest(req) => req.dest,
-			ismp::events::Event::PostResponse(res) => res.dest_chain(),
 			event => {
 				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
 			},
@@ -392,17 +402,20 @@ async fn handle_update(
 									"Failed to persist deliveries to database",
 								)
 							}
-							// Send receipts to the fee accumulation task
-							match sender.send(receipts).await {
-								Err(_sent) => {
-									tracing::error!(
-										target: LOG_TARGET,
-										source = %chain_b.name(),
-										dest = %chain_a.name(),
-										"Fee auto accumulation failed; you can try again manually",
-									)
-								},
-								_ => {},
+							// Send receipts to the fee accumulation task.
+							// `try_send` so the inbound task never blocks on
+							// a backed-up fee-accumulator. Receipts are
+							// already persisted via `tx_payment.store_messages`
+							// above, so a dropped channel push is recoverable
+							// by the manual `accumulate-fees` subcommand.
+							if let Err(err) = sender.try_send(receipts) {
+								tracing::error!(
+									target: LOG_TARGET,
+									source = %chain_b.name(),
+									dest = %chain_a.name(),
+									?err,
+									"Fee auto accumulation channel send failed; you can try again manually",
+								);
 							}
 						}
 					}
@@ -504,12 +517,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 					},
 				};
 
-				let fee = match receipt {
-					TxReceipt::Request { query, .. } =>
-						source_chain.query_request_fee_metadata(query.commitment).await,
-					TxReceipt::Response { query, .. } =>
-						source_chain.query_response_fee_metadata(query.commitment).await,
-				};
+				let fee = source_chain.query_request_fee_metadata(receipt.query.commitment).await;
 
 				match fee {
 					Ok(fee_amount) if fee_amount > U256::zero() => Some(receipt),
@@ -556,15 +564,9 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 			.max_by(|a, b| a.height().cmp(&b.height()))
 			.map(|tx| tx.height())
 			.expect("Infallible");
-		receipts.iter().for_each(|receipt| match receipt {
-			TxReceipt::Request { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
-			TxReceipt::Response { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
+		receipts.iter().for_each(|receipt| {
+			let entry = groups.entry(receipt.query.source_chain).or_insert(vec![]);
+			entry.push(*receipt);
 		});
 
 		// Wait for destination chain's state machine update on hyperbridge
@@ -622,7 +624,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 								"Creating withdrawal proofs from db for deliveries",
 							);
 							let proofs = tx_payment
-							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
+							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone(), &*hyperbridge)
 							.await?;
 							observe_challenge_period(source_chain.clone(), hyperbridge.clone(), source_height.into()).await?;
 							observe_challenge_period(dest.clone(), hyperbridge.clone(), dest_height).await?;

@@ -10,6 +10,7 @@ import {
 	keccak256,
 	pad,
 	toBytes,
+	toFunctionSelector,
 	toHex,
 	maxUint256,
 } from "viem"
@@ -39,6 +40,7 @@ import type { GetProofParameters, Hex, TransactionReceipt } from "viem"
 import EvmHost from "@/abis/evmHost"
 import evmHost from "@/abis/evmHost"
 import HandlerV2 from "@/abis/handlerV2"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import type {
@@ -53,9 +55,9 @@ import type {
 import {
 	ADDRESS_ZERO,
 	EvmStateProof,
-	getContractCallInput,
+	getContractCallInputs,
 	MmrProof,
-	SubstrateStateProof,
+	SubstrateStateMachineProof,
 	generateRootWithProof,
 } from "@/utils"
 
@@ -236,17 +238,12 @@ export class EvmChain implements IChain {
 	}
 
 	/**
-	 * Returns the current authority set epoch from the HandlerV2 contract.
+	 * Returns the current authority set epoch from the Host contract.
 	 */
 	async currentEpoch(): Promise<bigint> {
-		const hostParams = await this.publicClient.readContract({
+		const epoch = await this.publicClient.readContract({
 			address: this.params.host,
 			abi: EvmHost.ABI,
-			functionName: "hostParams",
-		})
-		const epoch = await this.publicClient.readContract({
-			address: hostParams.handler,
-			abi: HandlerV2.ABI,
 			functionName: "currentEpoch",
 		})
 		return BigInt(epoch)
@@ -397,13 +394,36 @@ export class EvmChain implements IChain {
 
 	/**
 	 * Retrieves the placeOrder calldata from a transaction using debug_traceTransaction.
+	 * Filters to placeOrder calls by selector so unrelated calls to the gateway in
+	 * the same transaction (e.g. quote, fillOrder) do not skew indexing.
+	 * When the transaction contains multiple placeOrder calls, `occurrenceIndex`
+	 * selects which call's calldata to return (0-indexed in execution order).
 	 */
-	async getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString> {
-		const callInput = await getContractCallInput(this.publicClient, txHash as HexString, intentGatewayAddress)
-		if (!callInput) {
-			throw new Error(`Failed to extract calldata from trace for tx ${txHash}`)
+	async getPlaceOrderCalldata(
+		txHash: string,
+		intentGatewayAddress: string,
+		occurrenceIndex: number = 0,
+	): Promise<HexString> {
+		const callInputs = await getContractCallInputs(
+			this.publicClient,
+			txHash as HexString,
+			intentGatewayAddress,
+		)
+		const placeOrderSelector = toFunctionSelector(
+			IntentGatewayV2ABI.find((item: any) => item.type === "function" && item.name === "placeOrder") as any,
+		)
+		const placeOrderInputs = callInputs.filter(
+			(input) => input.slice(0, 10).toLowerCase() === placeOrderSelector.toLowerCase(),
+		)
+		if (placeOrderInputs.length === 0) {
+			throw new Error(`Failed to extract placeOrder calldata from trace for tx ${txHash}`)
 		}
-		return callInput
+		if (occurrenceIndex >= placeOrderInputs.length) {
+			throw new Error(
+				`placeOrder occurrence ${occurrenceIndex} out of range for tx ${txHash} (found ${placeOrderInputs.length})`,
+			)
+		}
+		return placeOrderInputs[occurrenceIndex]
 	}
 
 	/**
@@ -476,7 +496,7 @@ export class EvmChain implements IChain {
 				return encoded
 			})
 			.with({ kind: "TimeoutPostRequest" }, (timeout) => {
-				const proof = SubstrateStateProof.dec(timeout.proof.proof).value.storageProof.map((item) =>
+				const proof = SubstrateStateMachineProof.dec(timeout.proof.proof).storageProof.map((item) =>
 					toHex(new Uint8Array(item)),
 				)
 				const encoded = encodeFunctionData({
@@ -804,7 +824,7 @@ export class EvmChain implements IChain {
 			args: contractArgs,
 		})
 
-		const gas = await this.publicClient.estimateContractGas({
+		let gas = await this.publicClient.estimateContractGas({
 			address: hostParams.handler,
 			abi: HandlerV2.ABI,
 			functionName: "handlePostRequests",
@@ -821,6 +841,9 @@ export class EvmChain implements IChain {
 				},
 			],
 		})
+
+		// Add the cost of consensus verification (~600k gas)
+		gas += 600_000n
 
 		return { gas, postRequestCalldata }
 	}

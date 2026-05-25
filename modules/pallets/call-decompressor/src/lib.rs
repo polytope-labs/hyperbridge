@@ -19,9 +19,15 @@ use alloc::{vec, vec::Vec};
 use codec::DecodeLimit;
 use frame_support::{
 	dispatch::DispatchResult,
+	ensure,
 	traits::{Get, IsSubType},
 };
 pub use pallet::*;
+pub use weights::WeightInfo;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
 use polkadot_sdk::*;
 #[cfg(feature = "std")]
 use ruzstd::io::Read;
@@ -63,6 +69,9 @@ pub mod pallet {
 	{
 		/// Represents the maximum call size in megabytes(MB)
 		type MaxCallSize: Get<u32>;
+
+		/// Weight information for the extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::error]
@@ -96,7 +105,7 @@ pub mod pallet {
 		/// - `encoded_call_size`: this is the size of the not compressed(decompressed) encoded call
 		/// in bytes.
 		#[pallet::call_index(0)]
-		#[pallet::weight({1_000_000})]
+		#[pallet::weight(T::WeightInfo::decompress_call())]
 		pub fn decompress_call(
 			origin: OriginFor<T>,
 			compressed: Vec<u8>,
@@ -137,7 +146,7 @@ pub mod pallet {
 			let decompressed = Self::decompress(compressed.clone(), encoded_call_size.clone())
 				.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
-			let runtime_call = T::RuntimeCall::decode_with_depth_limit(
+			let runtime_call = T::RuntimeCall::decode_all_with_depth_limit(
 				MAX_EXTRINSIC_DECODE_DEPTH_LIMIT,
 				&mut &decompressed[..],
 			)
@@ -194,11 +203,16 @@ where
 	<T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp::Call<T>>,
 	<T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
 {
-	/// This decompresses the encoded runtime call
+	/// Decompresses the encoded runtime call.
+	///
+	/// `encoded_call_size` is the exact byte length the caller claims the
+	/// decompressed payload will have. The call is rejected if the zstd
+	/// stream produces a different number of bytes, so a smaller compressed
+	/// payload can not be expanded into a larger allocation by overstating
+	/// the size.
 	///
 	/// - `compressed_bytes`: the compressed encoded runtime call represented in bytes.
-	/// - `encoded_call_size`: this is the size of the not compressed(decompressed) encoded call
-	/// in bytes.
+	/// - `encoded_call_size`: the byte length of the decompressed encoded call.
 	pub fn decompress(
 		compressed_bytes: Vec<u8>,
 		encoded_call_size: u32,
@@ -206,15 +220,35 @@ where
 		let mut decoder = StreamingDecoder::new(compressed_bytes.as_slice())
 			.map_err(|_| Error::<T>::DecompressionFailed)?;
 
-		let mut result = vec![0u8; encoded_call_size as usize];
-		let _ = decoder.read(&mut result);
+		let claimed = encoded_call_size as usize;
+		let mut result = Vec::new();
+		let mut chunk = vec![0u8; 4096];
+
+		loop {
+			let n = decoder.read(&mut chunk).map_err(|_| Error::<T>::DecompressionFailed)?;
+			if n == 0 {
+				break;
+			}
+			if result.len() + n > claimed {
+				return Err(Error::<T>::DecompressionFailed.into());
+			}
+			result.extend_from_slice(&chunk[..n]);
+		}
+
+		ensure!(result.len() == claimed, Error::<T>::DecompressionFailed);
+
 		Ok(result)
 	}
 
-	/// This decoded and executes the encoded runtime call which is represented in  bytes
+	/// Decodes and executes the encoded runtime call represented in bytes.
+	///
+	/// Decoding fails if any bytes are left in the input after the runtime
+	/// call is read. This is what catches a compressed payload whose decoded
+	/// contents are a valid call followed by padding.
+	///
 	/// - `call_bytes`: the uncompressed encoded runtime call.
 	pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {
-		let runtime_call = <T as frame_system::Config>::RuntimeCall::decode_with_depth_limit(
+		let runtime_call = <T as frame_system::Config>::RuntimeCall::decode_all_with_depth_limit(
 			MAX_EXTRINSIC_DECODE_DEPTH_LIMIT,
 			&mut &call_bytes[..],
 		)

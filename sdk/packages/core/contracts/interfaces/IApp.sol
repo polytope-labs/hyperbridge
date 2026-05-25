@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PostRequest, PostResponse, GetResponse, GetRequest} from "../libraries/Message.sol";
+import {PostRequest, GetResponse, GetRequest} from "../libraries/Message.sol";
 
 /**
  * @title IncomingPostRequest
@@ -28,18 +28,6 @@ struct IncomingPostRequest {
 }
 
 /**
- * @title IncomingPostResponse
- * @notice Encapsulates an incoming POST response with relayer information
- * @dev Used by the Host to deliver POST responses to applications
- */
-struct IncomingPostResponse {
-    // The Post response containing the original request, response data, and timeout
-    PostResponse response;
-    // Relayer responsible for delivering the response
-    address relayer;
-}
-
-/**
  * @title IncomingGetResponse
  * @notice Encapsulates an incoming GET response with relayer information
  * @dev Used by the Host to deliver GET responses containing state data to applications
@@ -48,6 +36,30 @@ struct IncomingGetResponse {
     // The Get response containing the request and retrieved state values
     GetResponse response;
     // Relayer responsible for delivering the response
+    address relayer;
+}
+
+/**
+ * @title PostRequestTimeout
+ * @notice Encapsulates a timed-out POST request with relayer information
+ * @dev Used by the Host to deliver POST request timeout notifications to applications
+ */
+struct PostRequestTimeout {
+    // The Post request that has timed-out
+    PostRequest request;
+    // Relayer responsible for submitting the timeout proof
+    address relayer;
+}
+
+/**
+ * @title GetRequestTimeout
+ * @notice Encapsulates a timed-out GET request with relayer information
+ * @dev Used by the Host to deliver GET request timeout notifications to applications
+ */
+struct GetRequestTimeout {
+    // The Get request that has timed-out
+    GetRequest request;
+    // Relayer responsible for submitting the timeout proof
     address relayer;
 }
 
@@ -67,12 +79,6 @@ interface IApp {
     function onAccept(IncomingPostRequest memory incoming) external;
 
     /**
-     * @dev Called by the `Host` to notify an app of a post response to a previously sent out request
-     * @param incoming post response
-     */
-    function onPostResponse(IncomingPostResponse memory incoming) external;
-
-    /**
      * @dev Called by the `Host` to notify an app of a get response to a previously sent out request
      * @param incoming get response
      */
@@ -80,19 +86,13 @@ interface IApp {
 
     /**
      * @dev Called by the `Host` to notify an app of post requests that were previously sent but have now timed-out
-     * @param request post request
+     * @param incoming post request timeout
      */
-    function onPostRequestTimeout(PostRequest memory request) external;
-
-    /**
-     * @dev Called by the `Host` to notify an app of post responses that were previously sent but have now timed-out
-     * @param response post response
-     */
-    function onPostResponseTimeout(PostResponse memory response) external;
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) external;
 
     /**
      * @dev Called by the `Host` to notify an app of get requests that were previously sent but have now timed-out
-     * @param request get request
+     * @param incoming get request timeout
      */
-    function onGetTimeout(GetRequest memory request) external;
+    function onGetTimeout(GetRequestTimeout memory incoming) external;
 }

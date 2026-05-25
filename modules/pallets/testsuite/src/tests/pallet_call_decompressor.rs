@@ -25,7 +25,6 @@ use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
 	messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{PostResponse, Request, RequestResponse},
 };
 use sp_core::{H256, H512};
 use sp_runtime::{DispatchError, ModuleError};
@@ -38,25 +37,22 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 		let host = Ismp::default();
 		let requests = (0..100)
 			.into_iter()
-			.map(|i| {
-				let get = ismp::router::GetRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
-					height: 3,
-					context: Default::default(),
+			.map(|i| ismp::router::GetRequest {
+				source: host.host_state_machine(),
+				dest: StateMachine::Evm(1),
+				nonce: i,
+				from: H256::random().0.to_vec(),
+				keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
+				height: 3,
+				context: Default::default(),
 
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-				};
-				Request::Get(get)
+				timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
+					2_000_000_000,
 			})
 			.collect::<Vec<_>>();
 
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(requests.clone()),
+			requests: requests.clone(),
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
@@ -90,7 +86,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -105,20 +101,17 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		let host = Ismp::default();
 		let requests = (0..100)
 			.into_iter()
-			.map(|i| {
-				let get = ismp::router::GetRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
-					height: 3,
-					context: Default::default(),
+			.map(|i| ismp::router::GetRequest {
+				source: host.host_state_machine(),
+				dest: StateMachine::Evm(1),
+				nonce: i,
+				from: H256::random().0.to_vec(),
+				keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
+				height: 3,
+				context: Default::default(),
 
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-				};
-				Request::Get(get)
+				timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
+					2_000_000_000,
 			})
 			.collect::<Vec<_>>();
 
@@ -144,7 +137,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -209,7 +202,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [1, 0, 0, 0],
 				message: Some("ErrorExecutingCall")
 			})
@@ -218,33 +211,22 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 }
 
 #[test]
-fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
+fn should_reject_decompression_when_actual_size_diverges_from_claim() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
 		let host = Ismp::default();
-		let responses = (0..1000)
-			.into_iter()
-			.map(|i| {
-				let post = ismp::router::PostRequest {
-					source: host.host_state_machine(),
-					dest: StateMachine::Evm(1),
-					nonce: i,
-					from: H256::random().0.to_vec(),
-					to: H256::random().0.to_vec(),
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
-					body: H512::random().0.to_vec(),
-				};
-				ismp::router::Response::Post(PostResponse {
-					post,
-					response: H512::random().0.to_vec(),
-					timeout_timestamp: 200000,
-				})
-			})
-			.collect::<Vec<_>>();
+		let post = ismp::router::PostRequest {
+			source: host.host_state_machine(),
+			dest: StateMachine::Evm(1),
+			nonce: 0,
+			from: H256::random().0.to_vec(),
+			to: H256::random().0.to_vec(),
+			timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 2_000_000_000,
+			body: H512::random().0.to_vec(),
+		};
 
-		let msg = ResponseMessage {
-			datagram: RequestResponse::Response(responses),
+		let msg = RequestMessage {
+			requests: vec![post],
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
@@ -259,28 +241,30 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 		};
 
 		let call = RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned {
-			messages: vec![Message::Response(msg)],
+			messages: vec![Message::Request(msg)],
 		})
 		.encode();
+
 		let mut buffer = vec![0u8; 1_000_000];
 		let compressed = zstd_safe::compress(&mut buffer[..], &call, 3).unwrap();
 		let final_compressed_call = buffer[..compressed].to_vec();
 
+		let inflated_size = (call.len() as u32) + 100_000;
+
 		let res = pallet_call_decompressor::Pallet::<Test>::decompress_call(
 			RuntimeOrigin::none(),
-			final_compressed_call.to_vec(),
-			call.len() as u32,
+			final_compressed_call,
+			inflated_size,
 		)
 		.err()
 		.unwrap();
 
-		// Decoding the call was completed without errors
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
-				error: [1, 0, 0, 0],
-				message: Some("ErrorExecutingCall")
+				index: 10,
+				error: [2, 0, 0, 0],
+				message: Some("DecompressionFailed")
 			})
 		);
 	})
@@ -303,15 +287,15 @@ fn decompress_stack_exhaustion_poc() {
 				RuntimeCall::Sudo(pallet_sudo::Call::sudo { call: Box::new(nested_calls) });
 		}
 
+		let encoded = nested_calls.encode();
 		let mut buffer = vec![0u8; 1000000];
-		let compressed =
-			zstd_safe::compress(&mut buffer[..], nested_calls.encode().as_slice(), 3).unwrap();
+		let compressed = zstd_safe::compress(&mut buffer[..], encoded.as_slice(), 3).unwrap();
 		let final_compressed_call = buffer[..compressed].to_vec();
 
 		let res = pallet_call_decompressor::Pallet::<Test>::decompress_call(
 			RuntimeOrigin::none(),
 			final_compressed_call.to_vec(),
-			1000000,
+			encoded.len() as u32,
 		)
 		.err()
 		.unwrap();
@@ -319,7 +303,7 @@ fn decompress_stack_exhaustion_poc() {
 		assert_eq!(
 			res,
 			DispatchError::Module(ModuleError {
-				index: 11,
+				index: 10,
 				error: [3, 0, 0, 0],
 				message: Some("ErrorDecodingCall")
 			})

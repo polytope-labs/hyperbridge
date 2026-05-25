@@ -175,7 +175,13 @@ interface FillerTomlConfig {
 			maxPriorityFeePerGasBumpPercent?: number
 			maxFeePerGasBumpPercent?: number
 		}
-		/** Overfill protection knobs. Defaults: maxOverfillBps=100, maxConsecutiveClamps=3. */
+		/**
+		 * Overfill protection knobs. Defaults: maxOverfillBps=100, maxConsecutiveClamps=3.
+		 * `maxOverfillBps` clamps the per-leg output ceiling on every strategy.
+		 * `maxConsecutiveClamps` only halts FXFiller, and only when the clamped legs
+		 * were priced by an on-chain venue (e.g. Uniswap V4). Offline-curve clamps warn
+		 * but never halt.
+		 */
 		overfillProtection?: {
 			maxOverfillBps?: number
 			maxConsecutiveClamps?: number

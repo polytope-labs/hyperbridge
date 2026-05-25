@@ -49,14 +49,13 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         );
     }
 
-    function testSwapExactETHForTokensV4() public {
+    function testSwapETHForExactTokens_ExactOutputV4() public {
         address[] memory path = new address[](2);
         path[0] = address(0); // Native ETH
         path[1] = DAI;
 
-        uint256 exactEthAmount = 1 ether;
-        uint256[] memory expectedAmounts = wrapper.getAmountsOut(exactEthAmount, path);
-        uint256 amountOutMin = expectedAmounts[1];
+        uint256 amountOut = 1000e18; // exact DAI to receive
+        uint256 maxEth = 2 ether;
 
         vm.deal(WHALE, 100 ether);
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
@@ -66,20 +65,18 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
 
         vm.prank(WHALE);
         uint256[] memory amounts =
-            wrapper.swapExactETHForTokens{value: exactEthAmount}(amountOutMin, path, WHALE, deadline);
+            wrapper.swapETHForExactTokens{value: maxEth}(amountOut, path, WHALE, deadline);
 
         uint256 newDaiBalance = IERC20(DAI).balanceOf(WHALE);
-        uint256 newEthBalance = WHALE.balance;
 
-        assertEq(amounts[0], exactEthAmount, "Should spend exact ETH amount");
-        assertEq(initialEthBalance - newEthBalance, exactEthAmount, "ETH balance should decrease by exact amount");
+        assertEq(amounts[1], amountOut, "Should receive exact DAI amount");
+        assertEq(newDaiBalance - initialDaiBalance, amountOut, "DAI balance increase should match requested amount");
 
         console.log("ETH spent:", amounts[0]);
         console.log("DAI received:", amounts[1]);
-        console.log("Actual DAI received:", newDaiBalance - initialDaiBalance);
 
-        assertTrue(amounts[1] > 0, "Should receive some DAI");
-        assertTrue(newDaiBalance > initialDaiBalance, "DAI balance should increase");
+        assertTrue(amounts[0] > 0, "Should spend some ETH");
+        assertTrue(amounts[0] <= maxEth, "Should not spend more than maxEth");
     }
 
     function testSwapETHForExactTokensV4() public {
@@ -105,12 +102,10 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         console.log("Max ETH sent:", maxEthIn);
         console.log("ETH actually spent (returned):", amounts[0]);
         console.log("WHALE ETH spent:", initialEthBalance - newEthBalance);
-        console.log("Deployer received refund:", newDeployerBalance - initialDeployerBalance);
         console.log("DAI received:", amounts[1]);
 
-        assertEq(initialEthBalance - newEthBalance, maxEthIn, "WHALE spent full amount");
-
-        assertEq(newDeployerBalance - initialDeployerBalance, maxEthIn - amounts[0], "Deployer got refund");
+        assertEq(initialEthBalance - newEthBalance, amounts[0], "WHALE spent exactly the consumed amount");
+        assertEq(newDeployerBalance, initialDeployerBalance, "Deployer received no refund (refund returns to caller)");
     }
 
     function testGetAmountsOut() public {

@@ -1,9 +1,8 @@
 use crate::TransactionPayment;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
+	messaging::hash_request,
+	router::{PostRequest, Request},
 };
 use std::sync::Arc;
 use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
@@ -45,7 +44,7 @@ async fn transaction_payments_flow() {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -56,40 +55,7 @@ async fn transaction_payments_flow() {
 		}
 	});
 
-	let response_receipts = (0..500).into_iter().map(|i| {
-		let resp = Response::Post(PostResponse {
-			post: PostRequest {
-				source: StateMachine::Evm(8002),
-				dest: StateMachine::Evm(97),
-				nonce: i,
-				from: vec![],
-				to: vec![],
-				timeout_timestamp: 0,
-				body: vec![],
-			},
-			response: vec![0u8; 64],
-			timeout_timestamp: i,
-		});
-
-		let commitment = hash_response::<Hasher>(&resp);
-		let request_commitment = hash_request::<Hasher>(&resp.request());
-
-		TxReceipt::Response {
-			query: Query {
-				source_chain: resp.source_chain(),
-				dest_chain: resp.dest_chain(),
-				nonce: resp.nonce(),
-				commitment,
-			},
-			request_commitment,
-			height: Default::default(),
-		}
-	});
-
-	tx_payment
-		.store_messages(receipts.chain(response_receipts).collect())
-		.await
-		.unwrap();
+	tx_payment.store_messages(receipts.collect()).await.unwrap();
 
 	let proofs = tx_payment
 		.create_claim_proof(
@@ -102,7 +68,7 @@ async fn transaction_payments_flow() {
 		.await
 		.unwrap();
 
-	assert_eq!(proofs.iter().fold(0, |acc, proof| proof.commitments.len() + acc), 1000);
+	assert_eq!(proofs.iter().fold(0, |acc, proof| proof.commitments.len() + acc), 500);
 	tx_payment
 		.delete_claimed_entries(proofs.into_iter().fold(vec![], |mut acc, proof| {
 			acc.extend(proof.commitments);
@@ -130,43 +96,13 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
 				nonce: req.nonce(),
 				commitment,
 			},
-			height: Default::default(),
-		}
-	});
-
-	let response_receipts = (0..5).into_iter().map(|i| {
-		let resp = Response::Post(PostResponse {
-			post: PostRequest {
-				source: StateMachine::Evm(8002),
-				dest: StateMachine::Evm(97),
-				nonce: i,
-				from: vec![],
-				to: vec![],
-				timeout_timestamp: 0,
-				body: vec![],
-			},
-			response: vec![0u8; 64],
-			timeout_timestamp: i,
-		});
-
-		let commitment = hash_response::<Hasher>(&resp);
-		let request_commitment = hash_request::<Hasher>(&resp.request());
-
-		TxReceipt::Response {
-			query: Query {
-				source_chain: resp.source_chain(),
-				dest_chain: resp.dest_chain(),
-				nonce: resp.nonce(),
-				commitment,
-			},
-			request_commitment,
 			height: Default::default(),
 		}
 	});
@@ -183,7 +119,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -206,7 +142,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -229,7 +165,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -252,7 +188,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -270,7 +206,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 				.chain(receipts3)
 				.chain(receipts4)
 				.chain(receipts5)
-				.chain(response_receipts)
 				.collect(),
 		)
 		.await
@@ -299,7 +234,7 @@ async fn highest_delivery_height() {
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
-		TxReceipt::Request {
+		TxReceipt {
 			query: Query {
 				source_chain: req.source_chain(),
 				dest_chain: req.dest_chain(),
@@ -310,40 +245,7 @@ async fn highest_delivery_height() {
 		}
 	});
 
-	let response_receipts = (0..500).into_iter().map(|i| {
-		let resp = Response::Post(PostResponse {
-			post: PostRequest {
-				source: StateMachine::Evm(8002),
-				dest: StateMachine::Evm(97),
-				nonce: i,
-				from: vec![],
-				to: vec![],
-				timeout_timestamp: 0,
-				body: vec![],
-			},
-			response: vec![0u8; 64],
-			timeout_timestamp: i,
-		});
-
-		let commitment = hash_response::<Hasher>(&resp);
-		let request_commitment = hash_request::<Hasher>(&resp.request());
-
-		TxReceipt::Response {
-			query: Query {
-				source_chain: resp.source_chain(),
-				dest_chain: resp.dest_chain(),
-				nonce: resp.nonce(),
-				commitment,
-			},
-			request_commitment,
-			height: i,
-		}
-	});
-
-	tx_payment
-		.store_messages(receipts.chain(response_receipts).collect())
-		.await
-		.unwrap();
+	tx_payment.store_messages(receipts.collect()).await.unwrap();
 
 	let height = tx_payment
 		.highest_delivery_height(StateMachine::Evm(97), StateMachine::Evm(8002))

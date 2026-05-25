@@ -208,6 +208,11 @@ pub mod pallet {
 		AssetTransferError,
 		/// Error dispatching the cross-chain request
 		DispatchError,
+		/// Peer chain is not an EVM state machine; this pallet bridges substrate <-> EVM only
+		NonEvmPeerChain,
+		/// Configured ERC decimals are less than the local asset's decimals; precision conversion
+		/// requires erc_decimals >= local_decimals
+		ErcDecimalsBelowLocal,
 	}
 
 	#[pallet::call]
@@ -320,18 +325,35 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::CreateOrigin::ensure_origin(origin)?;
 
+			let local_decimals = if registration.local_id == T::NativeAssetId::get() {
+				T::Decimals::get()
+			} else {
+				<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+					registration.local_id.clone(),
+				)
+			};
+
 			NativeAssets::<T>::insert(registration.local_id.clone(), registration.native);
 
 			let chains: Vec<StateMachine> = registration.chains.keys().cloned().collect();
 			for (chain, config) in registration.chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
+				ensure!(
+					config.decimals >= local_decimals,
+					Error::<T>::ErcDecimalsBelowLocal
+				);
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					registration.local_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
 				ContractToAsset::<T>::insert(
 					chain,
-					config.token_contract,
+					token_contract,
 					registration.local_id.clone(),
 				);
 				Precisions::<T>::insert(registration.local_id.clone(), chain, config.decimals);
@@ -354,19 +376,36 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::CreateOrigin::ensure_origin(origin)?;
 
+			let local_decimals = if update.asset_id == T::NativeAssetId::get() {
+				T::Decimals::get()
+			} else {
+				<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+					update.asset_id.clone(),
+				)
+			};
+
 			for (chain, config) in update.add_chains {
+				// This pallet bridges substrate <-> EVM only; reject non-EVM peers.
+				if !matches!(chain, StateMachine::Evm(_)) {
+					return Err(Error::<T>::NonEvmPeerChain.into());
+				}
+				ensure!(
+					config.decimals >= local_decimals,
+					Error::<T>::ErcDecimalsBelowLocal
+				);
 				// Remove old reverse mapping if it exists
 				if let Some(old_contract) = TokenContracts::<T>::get(chain, update.asset_id.clone())
 				{
 					ContractToAsset::<T>::remove(chain, old_contract);
 				}
 
+				let token_contract = config.token_contract.0.to_vec();
 				TokenContracts::<T>::insert(
 					chain,
 					update.asset_id.clone(),
-					config.token_contract.clone(),
+					token_contract.clone(),
 				);
-				ContractToAsset::<T>::insert(chain, config.token_contract, update.asset_id.clone());
+				ContractToAsset::<T>::insert(chain, token_contract, update.asset_id.clone());
 				Precisions::<T>::insert(update.asset_id.clone(), chain, config.decimals);
 			}
 
@@ -389,4 +428,3 @@ pub mod pallet {
 		}
 	}
 }
-

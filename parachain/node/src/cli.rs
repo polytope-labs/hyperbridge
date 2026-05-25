@@ -60,13 +60,24 @@ pub enum Subcommand {
 	TryRuntime,
 
 	/// Runs the node with signature verification override and manual seal.
-	Simnode(SimnodeCli),
+	Simnode(SimnodeCommand),
 }
 
+/// Wrapper around `sc_simnode::cli::SimnodeCli` that adds the hyperbridge
+/// specific flags. Named distinctly from the inner type so clap's
+/// argument group derivation does not collide on the shared `SimnodeCli`
+/// group name.
 #[derive(Debug, clap::Parser)]
-pub struct SimnodeCli {
+pub struct SimnodeCommand {
 	#[arg(long)]
 	pub instant: bool,
+	/// Path to a tesseract relayer toml config. Duplicated at the
+	/// subcommand level because `args_conflicts_with_subcommands` on the
+	/// root `Cli` makes top level options unreachable when running a
+	/// subcommand. When simnode runs as a `--validator` the fisherman is
+	/// spawned from this config, matching the production collator path.
+	#[arg(long)]
+	pub tesseract_config: Option<PathBuf>,
 	#[command(flatten)]
 	pub rest: sc_simnode::cli::SimnodeCli,
 }
@@ -99,6 +110,14 @@ pub struct Cli {
 	/// NOTE: DEPRECATED, async-backing is enabled by default.
 	#[arg(long)]
 	pub async_backing: bool,
+
+	/// Path to a tesseract relayer toml config. When the node runs as a
+	/// collator/authority this is required, and the fisherman task is spawned
+	/// using it to watch L2 chains across multiple RPC providers and submit
+	/// veto extrinsics on disagreement. When the node is a non-authority, the
+	/// flag is optional and ignored.
+	#[arg(long)]
+	pub tesseract_config: Option<PathBuf>,
 
 	/// Relay chain arguments
 	#[arg(raw = true)]

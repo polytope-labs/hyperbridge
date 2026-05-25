@@ -19,6 +19,7 @@ extern crate alloc;
 extern crate core;
 pub mod consensus;
 
+pub use beefy_verifier_primitives::{PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
 pub use consensus::{BEEFY_CONSENSUS_ID, BeefyConsensusClient};
 
 use polkadot_sdk::*;
@@ -44,6 +45,12 @@ pub trait BeefyClientConfig {
 	/// Returns true if the given parachain id is tracked by this consensus client.
 	fn is_parachain_tracked(para_id: u32) -> bool;
 
-	/// Returns the SP1 verification key hash bytes.
-	fn sp1_vkey_hash() -> alloc::vec::Vec<u8>;
+	/// Returns the SP1 verification key hash.
+	fn sp1_vkey_hash() -> primitive_types::H256;
+
+	/// Allowed proof types. Controls which consensus proof formats this client will
+	/// accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
+	/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`. A proof whose type byte is not listed is
+	/// rejected with [`beefy_verifier::error::Error::UnknownProofType`] before verification.
+	fn allowed_proof_types() -> &'static [u8];
 }

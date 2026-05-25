@@ -23,7 +23,7 @@ import {
     SweepDust,
     WithdrawalRequest,
     SelectOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -31,7 +31,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-import {ICallDispatcher, Call} from "../../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 
 /**
  * @title IntentsBase
@@ -183,6 +183,17 @@ abstract contract IntentsBase is EIP712 {
      */
     error UnknownOrder();
 
+    /*
+     * @dev Thrown when the cross-chain peer is unknown.
+    */
+    error UnknownInstance();
+
+    /*
+     * @dev Thrown when a solver attempts to partially fill an order that carries
+     * output calldata. Such orders must be filled completely in a single fill.
+    */
+    error PartialFillNotAllowed();
+
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
      * @param user The order creator's address encoded as bytes32.
@@ -199,8 +210,8 @@ abstract contract IntentsBase is EIP712 {
      */
     event OrderPlaced(
         bytes32 user,
-        bytes source,
-        bytes destination,
+        string source,
+        string destination,
         uint256 deadline,
         uint256 nonce,
         uint256 fees,
@@ -215,8 +226,10 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
+     * @param outputs The output token amounts provided by the solver.
+     * @param inputs The escrowed input tokens released to the solver.
      */
-    event OrderFilled(bytes32 indexed commitment, address filler);
+    event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
      * @dev Emitted when an order is partially filled by a solver. Only applicable
@@ -231,14 +244,16 @@ abstract contract IntentsBase is EIP712 {
     /**
      * @dev Emitted when escrowed tokens are released to the solver after a successful fill.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts released.
      */
-    event EscrowReleased(bytes32 indexed commitment);
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when escrowed tokens are refunded to the original user after cancellation.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts refunded.
      */
-    event EscrowRefunded(bytes32 indexed commitment);
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when the gateway's configuration parameters are updated via governance.
@@ -249,10 +264,10 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when a new gateway instance is registered for a remote state machine.
-     * @param stateMachineId The state machine identifier for the new deployment.
+     * @param chain The state machine identifier for the new deployment.
      * @param gateway The address of the deployed gateway on that chain.
      */
-    event NewDeploymentAdded(bytes stateMachineId, address gateway);
+    event DeploymentAdded(string chain, address gateway);
 
     /**
      * @dev Emitted when surplus tokens are retained by the protocol. This includes
@@ -273,10 +288,10 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when a destination-specific protocol fee override is set via governance.
-     * @param stateMachineId The destination state machine identifier.
+     * @param chain The destination state machine identifier.
      * @param feeBps The protocol fee in basis points for orders targeting this destination.
      */
-    event DestinationProtocolFeeUpdated(bytes32 indexed stateMachineId, uint256 feeBps);
+    event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
     /**
      * @dev Returns the address of the Hyperbridge host contract. This function is virtual
@@ -305,7 +320,8 @@ abstract contract IntentsBase is EIP712 {
      */
     function _instance(bytes calldata stateMachineId) internal view returns (address) {
         address gateway = _instances[keccak256(stateMachineId)];
-        return gateway == address(0) ? address(this) : gateway;
+        if (gateway == address(0)) revert UnknownInstance();
+        return gateway;
     }
 
     /**
@@ -364,9 +380,9 @@ abstract contract IntentsBase is EIP712 {
             }
 
             if (isRefund) {
-                emit EscrowRefunded({commitment: body.commitment});
+                emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
             } else {
-                emit EscrowReleased({commitment: body.commitment});
+                emit EscrowReleased({commitment: body.commitment, tokens: body.tokens});
             }
         }
     }
@@ -432,14 +448,14 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Verifies an EIP-712 solver selection signature and stores the selected solver
-     * and session key in transient storage. The solver and session key are stored using
-     * `tstore` so they are only available within the same transaction — this ensures
-     * atomicity between `select` and `fillOrder` calls.
+     * @dev Verifies an EIP-712 solver selection signature and stores a commitment to
+     * `keccak256(abi.encode(solver, sessionKey))` in transient storage. The hash is
+     * stored using `tstore` so it is only available within the same transaction —
+     * this ensures atomicity between `select` and `fillOrder` calls.
      *
      * The session key is recovered from the EIP-712 signature over the (commitment, solver)
-     * tuple. The recovered address is stored at `commitment + 1` in transient storage,
-     * while the solver address is stored at the commitment slot itself.
+     * tuple. At fill time, `fillOrder` re-derives the same hash from `msg.sender` and
+     * `order.session` and compares it against the value stored at the commitment slot.
      *
      * @param options The selection options containing the commitment, solver address, and signature.
      * @return The recovered session key address.
@@ -450,12 +466,9 @@ abstract contract IntentsBase is EIP712 {
         address sessionKey = ECDSA.recover(digest, options.signature);
 
         bytes32 commitment = options.commitment;
-        bytes32 solver = bytes32(uint256(uint160(options.solver)));
-        bytes32 sessionKeyBytes = bytes32(uint256(uint160(sessionKey)));
-        bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+        bytes32 selectionHash = keccak256(abi.encode(options.solver, sessionKey));
         assembly {
-            tstore(commitment, solver)
-            tstore(sessionSlot, sessionKeyBytes)
+            tstore(commitment, selectionHash)
         }
 
         return sessionKey;
@@ -468,9 +481,23 @@ abstract contract IntentsBase is EIP712 {
      *
      * @param body The deployment info containing the state machine ID and gateway address.
      */
-    function _addDeployment(NewDeployment memory body) internal {
-        _instances[keccak256(body.stateMachineId)] = body.gateway;
-        emit NewDeploymentAdded({stateMachineId: body.stateMachineId, gateway: body.gateway});
+    function _addDeployment(Deployment memory body) internal {
+        _instances[keccak256(body.chain)] = body.gateway;
+        emit DeploymentAdded({chain: string(body.chain), gateway: body.gateway});
+    }
+
+    /**
+     * @dev Validates gateway configuration parameters. Reverts with InvalidInput if any
+     * value would brick the gateway or cause arithmetic errors in fee calculations.
+     *
+     * @param p The parameters to validate.
+     */
+    function _validateParams(Params memory p) internal view {
+        if (p.host == address(0) || p.host.code.length == 0) revert InvalidInput();
+        if (p.dispatcher == address(0) || p.dispatcher.code.length == 0) revert InvalidInput();
+        if (p.surplusShareBps > 10_000) revert InvalidInput();
+        if (p.protocolFeeBps >= 10_000) revert InvalidInput();
+        if (p.priceOracle != address(0) && p.priceOracle.code.length == 0) revert InvalidInput();
     }
 
     /**
@@ -478,24 +505,28 @@ abstract contract IntentsBase is EIP712 {
      * Called by Hyperbridge governance to modify fee settings, host address, dispatcher,
      * price oracle, and other operational parameters.
      *
-     * Emits ParamsUpdated with the old and new params, then iterates over any destination-
-     * specific fee overrides and applies them to `_destinationProtocolFees`.
+     * Validates all params before applying. Emits ParamsUpdated with the old and new params,
+     * then iterates over any destination-specific fee overrides and applies them to
+     * `_destinationProtocolFees`.
      *
      * @param update The parameter update containing new params and destination fee overrides.
      */
     function _updateParams(ParamsUpdate memory update) internal {
+        _validateParams(update.params);
+
         emit ParamsUpdated({previous: _params, current: update.params});
         _params = update.params;
 
         for (uint256 i; i < update.destinationFees.length;) {
-            bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
+            bytes memory chain = update.destinationFees[i].chain;
             uint256 feeBps = update.destinationFees[i].destinationFeeBps;
-            _destinationProtocolFees[stateMachineId] = feeBps;
+            if (feeBps >= 10_000) revert InvalidInput();
+            _destinationProtocolFees[keccak256(chain)] = feeBps;
 
             unchecked {
                 ++i;
             }
-            emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
+            emit DestinationProtocolFeeUpdated(string(chain), feeBps);
         }
     }
 

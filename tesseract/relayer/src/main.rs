@@ -13,18 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Log/tracing target for this crate.
-pub const LOG_TARGET: &str = "tesseract";
-
-mod cli;
-mod config;
-mod fees;
-mod monitor;
-mod provider;
-
 use clap::Parser;
-
-use crate::cli::{Cli, Subcommand};
+use tesseract::cli::{Cli, Subcommand};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {

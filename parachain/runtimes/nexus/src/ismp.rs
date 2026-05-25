@@ -15,9 +15,9 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGateway, TokenGatewayInspector,
-	TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount, TreasuryPalletId,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -26,14 +26,13 @@ use frame_support::{
 	parameter_types,
 	traits::AsEnsureOriginWithArg,
 };
-use frame_system::EnsureRoot;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use ismp::{
 	consensus::StateMachineClient,
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, Response, Timeout},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 };
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 #[cfg(feature = "runtime-benchmarks")]
@@ -45,7 +44,7 @@ use sp_runtime::Weight;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
-use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
+use substrate_state_machine::SubstrateStateMachine;
 
 /// Deprecated TokenGateway contract addresses whose incoming ISMP Post requests
 /// must be rejected unconditionally by the nexus runtime.
@@ -100,6 +99,7 @@ impl ismp_bsc::pallet::Config for Runtime {
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
+	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
 }
 
 pub struct Coprocessor;
@@ -124,7 +124,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 			StateMachine::Evm(chain_id)
 				if chain_id == ismp_parachain::ASSET_HUB_MAINNET_CHAIN_ID =>
 				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
-			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+			_ => Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id))),
 		}
 	}
 }
@@ -146,18 +146,19 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			ParachainStateMachineProvider,
 		>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
+		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
+		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler =
-		(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
+	type FeeHandler = (
+		pallet_consensus_incentives::Pallet<Runtime>,
+		pallet_messaging_incentives::Pallet<Runtime>,
+	);
 	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
@@ -174,11 +175,25 @@ impl pallet_ismp_host_executive::Config for Runtime {
 
 impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<3>;
+	type WeightInfo = crate::weights::pallet_call_decompressor::WeightInfo<Runtime>;
+}
+
+/// True when the account is in the active collator set for the current
+/// session. The set comes from `pallet_session::Validators<Runtime>`,
+/// which `pallet-collator-manager`'s `SessionManager::new_session`
+/// populates with controller accounts. Registered but idle controllers
+/// and rotated out ex collators cannot sign vetoes; only the validators
+/// producing blocks for the current session can.
+pub struct IsCollator;
+impl frame_support::traits::Contains<AccountId> for IsCollator {
+	fn contains(account: &AccountId) -> bool {
+		pallet_session::Validators::<Runtime>::get().contains(account)
+	}
 }
 
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId>;
+	type IsCollator = IsCollator;
 }
 
 impl ismp_parachain::Config for Runtime {
@@ -187,10 +202,19 @@ impl ismp_parachain::Config for Runtime {
 	type RootOrigin = EnsureRoot<AccountId>;
 }
 
-impl pallet_token_governor::Config for Runtime {
-	type Dispatcher = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EnsureRoot<AccountId>;
+impl ismp_beefy::BeefyClientConfig for Runtime {
+	fn is_parachain_tracked(para_id: u32) -> bool {
+		para_id == u32::from(ParachainInfo::get())
+	}
+
+	fn sp1_vkey_hash() -> sp_core::H256 {
+		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
+	}
+
+	fn allowed_proof_types() -> &'static [u8] {
+		// Mainnet: only accept SP1 ZK proofs.
+		&[ismp_beefy::PROOF_TYPE_SP1]
+	}
 }
 
 impl pallet_consensus_incentives::Config for Runtime {
@@ -246,7 +270,7 @@ impl pallet_assets::Config for Runtime {
 	type AssetId = H256;
 	type AssetIdParameter = H256;
 	type Currency = Balances;
-	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureRootWithSuccess<AccountId32, TreasuryAccount>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
 	type AssetDeposit = AssetDeposit;
 	type AssetAccountDeposit = AssetAccountDeposit;
@@ -265,42 +289,8 @@ impl pallet_assets::Config for Runtime {
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }
 
-impl pallet_token_gateway_inspector::Config for Runtime {
-	type GatewayOrigin = EnsureRoot<AccountId>;
-}
-
-impl pallet_hyperbridge::Config for Runtime {
-	type IsmpHost = Ismp;
-}
-
-parameter_types! {
-	pub const Decimals: u8 = 10;
-}
-
-pub struct NativeAssetId;
-impl Get<H256> for NativeAssetId {
-	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"BRIDGE").into()
-	}
-}
-
-pub struct AssetAdmin;
-impl Get<AccountId> for AssetAdmin {
-	fn get() -> AccountId {
-		TokenGateway::pallet_account()
-	}
-}
-
-impl pallet_token_gateway::Config for Runtime {
+impl pallet_bandwidth::Config for Runtime {
 	type Dispatcher = Ismp;
-	type Assets = Assets;
-	type NativeCurrency = Balances;
-	type NativeAssetId = NativeAssetId;
-	type CreateOrigin = EnsureRoot<AccountId>;
-	type Decimals = Decimals;
-	type AssetAdmin = AssetAdmin;
-	type EvmToSubstrate = ();
-	type WeightInfo = crate::weights::pallet_token_gateway::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -327,9 +317,25 @@ impl IsmpModule for ProxyModule {
 			));
 		}
 
-		if request.dest != HostStateMachine::get() {
-			TokenGatewayInspector::inspect_request(&request)?;
+		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
+		// recharge flow itself doesn't need bandwidth.
+		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
+			let bytes = ismp::abi::encode_post_request(&request).len() as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&request.source,
+				&request.from,
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					request.source,
+					request.from
+				)
+			})?;
+		}
 
+		if request.dest != HostStateMachine::get() {
 			Ismp::dispatch_request(
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
@@ -341,32 +347,26 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		match pallet_id {
-			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
-				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
-			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
-				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
+				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
-			Ismp::dispatch_response(
-				response,
-				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
-			)?;
 			return Ok(Weight::from_parts(0, 0));
 		}
 
 		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		// Permanently reject Post-request timeouts whose originating module is a
 		// deprecated TokenGateway deployment, before any other handling runs. Only
 		// Post requests are subject to this — Get requests and Response timeouts
 		// are untouched.
-		if let Timeout::Request(Request::Post(post)) = &timeout {
+		if let Request::Post(post) = &timeout {
 			if is_deprecated_token_gateway(&post.from) {
 				return Err(anyhow!(
 					"rejecting Post-request timeout from deprecated TokenGateway address {:?}",
@@ -375,28 +375,16 @@ impl IsmpModule for ProxyModule {
 			}
 		}
 
-		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => {
-				if post.source != HostStateMachine::get() {
-					TokenGatewayInspector::handle_timeout(post)?;
-				}
-				(&post.from, &post.source)
-			},
-			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
-			Timeout::Response(res) => (&res.source_module(), &res.source_chain()),
+		let source = match &timeout {
+			Request::Post(post) => &post.source,
+			Request::Get(get) => &get.source,
 		};
 
 		if *source != HostStateMachine::get() {
 			return Ok(Weight::from_parts(0, 0));
 		}
 
-		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		match pallet_id {
-			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
-				pallet_token_gateway::Pallet::<Runtime>::default().on_timeout(timeout),
-			// instead of returning an error, do nothing. The timeout is for a connected chain.
-			_ => Ok(Weight::from_parts(300_000_000, 0)),
-		}
+		Ok(Weight::from_parts(300_000_000, 0))
 	}
 }
 

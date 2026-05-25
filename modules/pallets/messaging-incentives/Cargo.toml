@@ -1,0 +1,43 @@
+[package]
+name = "pallet-messaging-incentives"
+version = "0.1.0"
+description = "FRAME pallet that mints reputation tokens to relayers proportional to bytes delivered"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+edition = "2021"
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+ismp = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
+log = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-application-crypto",
+    "sp-io",
+]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "polkadot-sdk/std",
+    "polkadot-sdk/sp-application-crypto",
+    "pallet-ismp/std",
+    "ismp/std",
+    "crypto-utils/std",
+    "log/std",
+]
+runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
+try-runtime = ["polkadot-sdk/try-runtime"]

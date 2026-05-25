@@ -175,6 +175,7 @@ async fn start_node_impl<Runtime, T, Extra>(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -218,6 +219,32 @@ where
 	let prometheus_registry = parachain_config.prometheus_registry().cloned();
 	let transaction_pool = params.transaction_pool.clone();
 	let import_queue_service = params.import_queue.service();
+
+	// Collators run the fisherman, non authorities skip it. Preflight the
+	// config now so a misconfigured operator fails before any chain init.
+	// The actual provider construction is deferred until after
+	// `sc_service::spawn_tasks` opens the local RPC port, because the
+	// fisherman dials `[hyperbridge].rpc_ws` and on a normal collator that
+	// URL points back at this same node.
+	let fisherman_path = if validator {
+		let path = tesseract_config.clone().ok_or_else(|| {
+			sc_service::Error::Other(
+				"--tesseract-config is required when running as a collator/authority".to_string(),
+			)
+		})?;
+		hyperbridge_fisherman::load_and_validate(&path)
+			.await
+			.map_err(|e| sc_service::Error::Other(format!("invalid tesseract config: {e:?}")))?;
+		Some(path)
+	} else {
+		if tesseract_config.is_some() {
+			log::info!(
+				target: "fisherman",
+				"--tesseract-config provided to a non-authority node; ignoring (fisherman only runs on collators)",
+			);
+		}
+		None
+	};
 
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		build_network(BuildNetworkParams {
@@ -309,6 +336,25 @@ where
 		telemetry: telemetry.as_mut(),
 		tracing_execute_block: None,
 	})?;
+
+	// The local RPC server is up now, but until this node has finished
+	// syncing that RPC serves stale chain state. Defer the fisherman spawn
+	// behind a sync-status watcher so it dials `[hyperbridge].rpc_ws` and
+	// builds its providers only once the node has caught up. The config was
+	// already validated above, so a bad config still fails fast.
+	if let Some(path) = fisherman_path {
+		let sync_service = sync_service.clone();
+		hyperbridge_fisherman::spawn_when_synced(&task_manager, path, move || {
+			let sync_service = sync_service.clone();
+			async move {
+				sync_service.num_connected_peers() > 0 &&
+					matches!(
+						sync_service.status().await,
+						Ok(status) if !status.state.is_major_syncing()
+					)
+			}
+		});
+	}
 
 	if let Some(hwbench) = hwbench {
 		sc_sysinfo::print_hwbench(&hwbench);
@@ -522,6 +568,7 @@ pub async fn start_parachain_node(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
@@ -529,14 +576,28 @@ pub async fn start_parachain_node(
 				gargantua_runtime::RuntimeApi,
 				gargantua_runtime::Runtime,
 				gargantua_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				tesseract_config,
+			)
 			.await,
 		chain if chain.contains("nexus") =>
 			start_node_impl::<
 				nexus_runtime::RuntimeApi,
 				nexus_runtime::Runtime,
 				nexus_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				tesseract_config,
+			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}

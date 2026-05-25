@@ -18,10 +18,10 @@ use ismp::{
 	},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Keccak256},
-	router::{IsmpRouter, PostRequest, PostResponse, Request, Response},
+	router::{IsmpRouter, PostRequest, Request},
 	Error,
 };
-use ismp_solidity_abi::evm_host::EvmHost::PostRequestEvent;
+use ismp_abi::evm_host::EvmHost::PostRequestEvent;
 use ismp_testsuite::mocks::{Host as MockHost, Keccak256Hasher};
 use polkadot_sdk::sp_runtime::testing::H256;
 use primitive_types::U256;

@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 description = "Consolidated Hyperbridge relayer — inbound and outbound consensus + messaging"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -35,7 +35,6 @@ tesseract-beefy = { workspace = true }
 tesseract-config = { workspace = true }
 tesseract-consensus-config = { workspace = true }
 tesseract-evm = { workspace = true }
-tesseract-fisherman = { workspace = true }
 messaging = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }

@@ -61,7 +61,7 @@ where
 		);
 
 		let signer = InMemorySigner::new(self.signer.clone());
-		let tx_block_hash = send_extrinsic(&self.client, &signer, &call, None).await?;
+		let tx_block_hash = send_extrinsic(&self.client, &signer, &call, None, true).await?;
 		Ok(tx_block_hash)
 	}
 
@@ -69,7 +69,7 @@ where
 		let call =
 			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 		let signer = InMemorySigner::new(self.signer.clone());
-		send_extrinsic(&self.client, &signer, &call, None).await?;
+		send_extrinsic(&self.client, &signer, &call, None, true).await?;
 
 		Ok(())
 	}
@@ -81,7 +81,7 @@ where
 			vec![get_request_ismp_demo_to_value(&get_req)],
 		);
 		let signer = InMemorySigner::new(self.signer.clone());
-		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None).await?;
+		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None, true).await?;
 
 		Ok(tx_block_hash)
 	}
@@ -140,7 +140,7 @@ where
 		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 
 		let signer = InMemorySigner::new(self.signer().clone());
-		send_extrinsic(&self.client, &signer, &tx, None).await?;
+		send_extrinsic(&self.client, &signer, &tx, None, true).await?;
 
 		Ok(())
 	}
@@ -153,7 +153,7 @@ where
 		);
 		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		let signer = InMemorySigner::new(self.signer().clone());
-		send_extrinsic(&self.client, &signer, &tx, None).await?;
+		send_extrinsic(&self.client, &signer, &tx, None, true).await?;
 
 		Ok(())
 	}

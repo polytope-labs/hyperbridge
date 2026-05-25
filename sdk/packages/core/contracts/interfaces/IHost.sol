@@ -13,9 +13,10 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {StateCommitment, StateMachineHeight} from "./IConsensus.sol";
+import {StateCommitment, StateMachineHeight} from "./IConsensusV2.sol";
 import {IDispatcher} from "./IDispatcher.sol";
-import {PostRequest, PostResponse, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
+import {PostRequest, GetResponse, GetRequest, FrozenStatus} from "../libraries/Message.sol";
+import {PostRequestTimeout, GetRequestTimeout} from "./IApp.sol";
 
 // Some metadata about the request fee
 struct FeeMetadata {
@@ -63,19 +64,6 @@ interface IHost is IDispatcher {
     function vetoes(uint256 paraId, uint256 height) external view returns (address);
 
     /**
-     * @dev Returns the fee required for 3rd party applications to access hyperbridge state commitments.
-     * @return the `stateCommitmentFee`
-     */
-    function stateCommitmentFee() external view returns (uint256);
-
-    /**
-     * @notice Charges the stateCommitmentFee to 3rd party applications.
-     * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
-     * If not enough native tokens are supplied, will revert.
-     *
-     * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
      * @param height - state machine height
      * @return the state commitment at `height`
      */
@@ -108,10 +96,16 @@ interface IHost is IDispatcher {
     function consensusState() external view returns (bytes memory);
 
     /**
-     * @dev Check the response status for a given request.
-     * @return `response` status
+     * @return the most recent authority set ID (epoch) for which a consensus proof has been submitted
      */
-    function responded(bytes32 commitment) external view returns (bool);
+    function currentEpoch() external view returns (uint256);
+
+    /**
+     * @dev Returns the relayer that first submitted the consensus proof for the given epoch.
+     * @param authoritySetId - the authority set / epoch ID
+     * @return the relayer address, or address(0) if not set
+     */
+    function relayerOf(uint256 authoritySetId) external view returns (address);
 
     /**
      * @param commitment - commitment to the request
@@ -130,12 +124,6 @@ interface IHost is IDispatcher {
      * @return existence status of an outgoing request commitment
      */
     function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory);
-
-    /**
-     * @param commitment - commitment to the response
-     * @return existence status of an outgoing response commitment
-     */
-    function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory);
 
     /**
      * @return the challenge period
@@ -160,6 +148,15 @@ interface IHost is IDispatcher {
     function storeConsensusState(bytes memory state) external;
 
     /**
+     * @dev Record the relayer that first submitted a consensus proof for a new authority set epoch.
+     * Only callable by the configured handler. The recorded relayer is the one passed in by the
+     * handler at the call site; the host trusts the handler to identify the relayer.
+     * @param authoritySetId the new authority set / epoch ID
+     * @param relayer the relayer that delivered the consensus proof
+     */
+    function recordEpoch(uint256 authoritySetId, address relayer) external;
+
+    /**
      * @dev Store the commitment at `state height`
      * @param height state machine height
      * @param commitment state commitment
@@ -178,12 +175,6 @@ interface IHost is IDispatcher {
     function dispatchIncoming(PostRequest memory request, address relayer) external;
 
     /**
-     * @dev Dispatch an incoming post response to source app
-     * @param response - post response
-     */
-    function dispatchIncoming(PostResponse memory response, address relayer) external;
-
-    /**
      * @dev Dispatch an incoming get response to source app
      * @param response - get response
      */
@@ -191,19 +182,26 @@ interface IHost is IDispatcher {
 
     /**
      * @dev Dispatch an incoming get timeout to source app
-     * @param timeout - timed-out get request
+     * @param timeout - timed-out get request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(GetRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        GetRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
     /**
      * @dev Dispatch an incoming post timeout to source app
-     * @param timeout - timed-out post request
+     * @param timeout - timed-out post request bundled with the relayer that submitted the timeout proof
+     * @param meta - fee metadata for the original request
+     * @param commitment - request commitment
      */
-    function dispatchTimeOut(PostRequest memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
+    function dispatchTimeOut(
+        PostRequestTimeout memory timeout,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external;
 
-    /**
-     * @dev Dispatch an incoming post response timeout to source app
-     * @param timeout - timed-out post response
-     */
-    function dispatchTimeOut(PostResponse memory timeout, FeeMetadata memory meta, bytes32 commitment) external;
 }

@@ -17,7 +17,7 @@
 use polkadot_sdk::*;
 
 use codec::{Decode, Encode};
-use ismp::router::{Request, Response};
+use ismp::router::{GetResponse, Request};
 use scale_info::TypeInfo;
 use sp_core::{RuntimeDebug, H256};
 use sp_mmr_primitives::NodeIndex;
@@ -58,14 +58,14 @@ pub enum Leaf {
 	/// A request variant
 	Request(Request),
 	/// A response variant
-	Response(Response),
+	GetResponse(GetResponse),
 }
 
 impl FullLeaf for Leaf {
 	fn preimage(&self) -> Vec<u8> {
 		match self {
 			Leaf::Request(req) => req.encode(),
-			Leaf::Response(res) => res.encode(),
+			Leaf::GetResponse(res) => res.encode(),
 		}
 	}
 }
@@ -173,7 +173,7 @@ pub trait ForkIdentifier<T: frame_system::Config> {
 pub enum ProofKeys {
 	/// Request commitments
 	Requests(Vec<H256>),
-	/// Response commitments
+	/// GetResponse commitments
 	Responses(Vec<H256>),
 }
 

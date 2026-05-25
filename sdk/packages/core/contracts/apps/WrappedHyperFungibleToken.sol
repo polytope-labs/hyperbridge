@@ -22,7 +22,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {IWrappedHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "../interfaces/IApp.sol";
+import {IncomingPostRequest, PostRequestTimeout} from "../interfaces/IApp.sol";
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 import {IWETH} from "../interfaces/IWETH.sol";
 import {HyperApp} from "./HyperApp.sol";
@@ -39,14 +39,15 @@ import {HyperFungibleToken} from "./HyperFungibleToken.sol";
  * The owner configures which chains this wrapper can communicate with, the address of the
  * corresponding deployment on each chain, and the underlying ERC20 token.
  *
- * Also supports native token wrapping: if `msg.value >= params.amount` during send, the
- * contract wraps the native token by treating the underlying ERC20 as WETH. This reverts
- * naturally if the underlying is not a WETH contract.
+ * Also supports native token wrapping: if isWeth is true during send, the
+ * contract wraps the native token by treating the underlying ERC20 as WETH.
  *
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
 contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
+    using SafeERC20 for IERC20;
+
     /**
      * @title WrappedConfigOptions
      * @notice Configuration parameters for WrappedHyperFungibleToken
@@ -61,8 +62,6 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         /// @notice Whether the underlying token is WETH (enables native ETH refunds on timeout)
         bool isWeth;
     }
-
-    using SafeERC20 for IERC20;
 
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
@@ -221,37 +220,29 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Locks underlying tokens and dispatches a cross-chain transfer message
-     * @dev If `msg.value >= params.amount`, wraps native tokens via the underlying's WETH
-     * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
-     * after wrapping is forwarded as native payment for dispatch fees.
-     *
-     * If `msg.value < params.amount`, locks ERC20 tokens via safeTransferFrom and pays
-     * dispatch fees in the host's fee token (pulled from msg.sender).
-     *
-     * @param params The send parameters including destination, recipient, amount, and optional calldata
+     * @notice Returns the fee in native currency for sending a cross-chain transfer.
+     * @param params The send parameters
+     * @return The fee amount in native currency
      */
-    function send(HyperFungibleToken.SendParams calldata params) external payable whenNotPaused {
+    function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
+    }
+
+    /**
+     * @dev Builds the DispatchPost from SendParams.
+     */
+    function _buildDispatchPost(HyperFungibleToken.SendParams calldata params) internal view returns (DispatchPost memory) {
         bytes memory dest = _supportedChains[params.dest];
         if (dest.length == 0) revert UnsupportedChain();
 
-        uint256 msgValue = msg.value;
-        if (_isWeth) {
-            msgValue = msgValue - params.amount;
-            IWETH(_underlying).deposit{value: params.amount}();
-        } else {
-            IERC20(_underlying).safeTransferFrom(msg.sender, address(this), params.amount);
-        }
-
-        bytes memory from = abi.encodePacked(msg.sender);
         bytes memory body = abi.encode(HyperFungibleToken.Message({
-            from: from,
+            from: abi.encodePacked(msg.sender),
             to: params.to,
             amount: params.amount,
             data: params.data
         }));
 
-        DispatchPost memory request = DispatchPost({
+        return DispatchPost({
             dest: params.dest,
             to: dest,
             body: body,
@@ -259,15 +250,43 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             fee: params.relayerFee,
             payer: msg.sender
         });
+    }
 
+    /**
+     * @notice Locks underlying tokens and dispatches a cross-chain transfer message
+     * @dev If `_isWeth` is true and msg.value is sufficient, wraps native tokens via the underlying's WETH
+     * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
+     * after wrapping is forwarded as native payment for dispatch fees.
+     *
+     * If `_isWeth` is false, locks ERC20 tokens via safeTransferFrom and pays
+     * dispatch fees in the host's fee token (pulled from msg.sender).
+     *
+     * @param params The send parameters including destination, recipient, amount, and optional calldata
+     */
+    function send(HyperFungibleToken.SendParams calldata params) external payable whenNotPaused {
+        uint256 msgValue = msg.value;
+        if (_isWeth && msgValue >= params.amount) {
+            msgValue = msgValue - params.amount;
+            IWETH(_underlying).deposit{value: params.amount}();
+        } else {
+            IERC20(_underlying).safeTransferFrom(msg.sender, address(this), params.amount);
+        }
+
+        DispatchPost memory request = _buildDispatchPost(params);
         bytes32 commitment;
         if (msgValue > 0) {
             commitment = IDispatcher(_host).dispatch{value: msgValue}(request);
         } else {
-            commitment = dispatchWithFeeToken(request, msg.sender);
+            commitment = dispatchWithFeeToken(request);
         }
 
-        emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);
+        emit Sent({
+            from: msg.sender,
+            to: params.to,
+            dest: string(params.dest),
+            amount: params.amount,
+            commitment: commitment
+        });
     }
 
     /**
@@ -288,9 +307,18 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
         address beneficiary = _toAddr(message.to);
 
         if (_isWeth) {
+            // Try a native-ETH push first (cheap for EOAs and payable contracts);
+            // if the recipient cannot accept native value (no `receive()` / `fallback()
+            // payable`), re-wrap the withdrawn ETH and deliver the underlying WETH as
+            // an ERC-20 transfer instead. This mirrors the deposit-side flexibility of
+            // `send()` (which accepts WETH from non-payable callers via `safeTransferFrom`)
+            // so the refund path doesn't permanently lock funds for the same caller class.
             IWETH(_underlying).withdraw(message.amount);
             (bool sent,) = beneficiary.call{value: message.amount}("");
-            if (!sent) revert TransferFailed();
+            if (!sent) {
+                IWETH(_underlying).deposit{value: message.amount}();
+                IERC20(_underlying).safeTransfer(beneficiary, message.amount);
+            }
         } else {
             IERC20(_underlying).safeTransfer(beneficiary, message.amount);
         }
@@ -299,29 +327,41 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             ICallDispatcher(_dispatcher).dispatch(message.data);
         }
 
-        emit Received(message.from, beneficiary, string(request.source), message.amount);
+        emit Received({
+            from: message.from,
+            to: beneficiary,
+            source: string(request.source),
+            amount: message.amount
+        });
     }
 
     /**
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
-     * Attempts to unwrap WETH and refund native tokens. If that fails (underlying is not
-     * WETH or native transfer rejected), falls back to transferring the underlying ERC20.
-     * @param request The timed-out POST request
+     * Attempts to unwrap WETH and refund native tokens.
+     * @param incoming The timed-out POST request and the relayer that submitted the timeout proof
      */
-    function onPostRequestTimeout(PostRequest calldata request) external override onlyHost whenNotPaused {
-        HyperFungibleToken.Message memory message = abi.decode(request.body, (HyperFungibleToken.Message));
+    function onPostRequestTimeout(PostRequestTimeout calldata incoming) external override onlyHost whenNotPaused {
+        HyperFungibleToken.Message memory message = abi.decode(incoming.request.body, (HyperFungibleToken.Message));
         address refundee = _toAddr(message.from);
 
         if (_isWeth) {
+            // Try a native-ETH push first; if the refundee cannot accept native value
+            // (e.g. the caller used the ERC-20 deposit path in `send()` from a
+            // non-payable contract), re-wrap the withdrawn ETH and deliver the
+            // underlying WETH as an ERC-20 transfer so the timeout still settles and
+            // funds are not permanently locked.
             IWETH(_underlying).withdraw(message.amount);
             (bool sent,) = refundee.call{value: message.amount}("");
-            if (!sent) revert TransferFailed();
+            if (!sent) {
+                IWETH(_underlying).deposit{value: message.amount}();
+                IERC20(_underlying).safeTransfer(refundee, message.amount);
+            }
         } else {
             IERC20(_underlying).safeTransfer(refundee, message.amount);
         }
 
-        emit Refunded(refundee, message.amount);
+        emit Refunded({to: refundee, amount: message.amount});
     }
 
     /// @notice Accepts native ETH transfers, required for receiving ETH from WETH.withdraw()
@@ -329,10 +369,10 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
 
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {
-        if (b.length < 20) revert InvalidAddress(b.length);
-        assembly {
-            addr := mload(add(b, 20))
-        }
+        if (b.length != 20) revert InvalidAddress(b.length);
+        // casting to 'bytes20' is safe because we already checked length
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return address(bytes20(b));
     }
 
     /// @notice ERC165 interface detection

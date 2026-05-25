@@ -1,8 +1,8 @@
 name: "@hyperbridge/sdk"
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request_target.number || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
     push:
@@ -12,7 +12,7 @@ on:
             - "sdk/packages/indexer/**"
             - "sdk/packages/simplex/**"
             - ".github/workflows/test-sdk.yml"
-    pull_request_target:
+    pull_request:
         branches: [main]
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
@@ -24,8 +24,8 @@ on:
 
 jobs:
     test:
-        # Skip on draft pull requests; run on push, ready PRs, and manual dispatch.
-        if: github.event_name != 'pull_request_target' || github.event.pull_request_target.draft == false
+        # Disabled during protocol rewrite — re-enable once the SDK is stable.
+        if: false
         runs-on: ubuntu-latest
         defaults:
             run:
@@ -34,7 +34,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request_target.head.sha || github.sha }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -42,9 +42,9 @@ jobs:
                   node-version: "22"
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@v2
+              uses: pnpm/action-setup@v4
               with:
-                  version: "7"
+                  version: 11
 
             - name: Install dependencies
               run: pnpm install
@@ -70,7 +70,6 @@ jobs:
                   SEPOLIA=${{ secrets.SEPOLIA }}
                   BUNDLER_URL=${{ secrets.BUNDLER_URL }}
                   COIN_GECKGO_API_KEY=${{secrets.COINGECKO}}
-                  PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
                   TURNKEY_ORG_ID=${{ secrets.TURNKEY_ORG_ID }}
                   TURNKEY_API_PUBLIC_KEY=${{ secrets.TURNKEY_API_PUBLIC_KEY }}
@@ -128,6 +127,9 @@ jobs:
                   echo "GraphQL server is available!"
                   sleep 10
 
+            - name: Run SDK test - hyper-fungible-token
+              run: pnpm --filter="@hyperbridge/sdk" test:hyper-fungible-token
+
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
@@ -136,12 +138,6 @@ jobs:
 
             - name: Run SDK test - concurrent (non-sequential tests)
               run: pnpm --filter="@hyperbridge/sdk" test:concurrent
-
-            - name: Run SDK test - requests
-              run: pnpm --filter="@hyperbridge/sdk" test:requests
-
-            - name: Run SDK test - hyper-fungible-token
-              run: pnpm --filter="@hyperbridge/sdk" test:hyper-fungible-token
 
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway

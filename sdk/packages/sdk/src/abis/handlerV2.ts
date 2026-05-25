@@ -13,19 +13,6 @@ const ABI = [
 		type: "function",
 	},
 	{
-		inputs: [],
-		name: "currentEpoch",
-		outputs: [
-			{
-				internalType: "uint256",
-				name: "",
-				type: "uint256",
-			},
-		],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
 		inputs: [
 			{
 				internalType: "contract IHost",
@@ -394,25 +381,6 @@ const ABI = [
 	{
 		inputs: [
 			{
-				internalType: "uint256",
-				name: "authoritySetId",
-				type: "uint256",
-			},
-		],
-		name: "relayerOf",
-		outputs: [
-			{
-				internalType: "address",
-				name: "",
-				type: "address",
-			},
-		],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
 				internalType: "bytes4",
 				name: "interfaceId",
 				type: "bytes4",
@@ -428,25 +396,6 @@ const ABI = [
 		],
 		stateMutability: "view",
 		type: "function",
-	},
-	{
-		anonymous: false,
-		inputs: [
-			{
-				indexed: true,
-				internalType: "uint256",
-				name: "authoritySetId",
-				type: "uint256",
-			},
-			{
-				indexed: true,
-				internalType: "address",
-				name: "relayer",
-				type: "address",
-			},
-		],
-		name: "NewEpoch",
-		type: "event",
 	},
 	{
 		inputs: [

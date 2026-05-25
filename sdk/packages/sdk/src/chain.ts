@@ -231,7 +231,11 @@ export interface IEvmChain extends IChain {
 	getHostNonce(): Promise<bigint>
 	quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint>
 	getFeeTokenWithDecimals(): Promise<{ address: HexString; decimals: number }>
-	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString>
+	getPlaceOrderCalldata(
+		txHash: string,
+		intentGatewayAddress: string,
+		occurrenceIndex?: number,
+	): Promise<HexString>
 	broadcastTransaction(signedTransaction: HexString): Promise<TransactionReceipt>
 	getTransactionReceipt(hash: HexString): Promise<TransactionReceipt>
 }

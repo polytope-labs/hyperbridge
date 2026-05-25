@@ -13,8 +13,8 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
-import {StateMachineHeight} from "../interfaces/IConsensus.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
+import {StateMachineHeight} from "../interfaces/IConsensusV2.sol";
 
 /**
  * @title FrozenStatus
@@ -67,7 +67,7 @@ struct GetRequest {
     /// @notice Unique nonce for this request on the source chain
     uint64 nonce;
     /// @notice Address of the application that initiated this query
-    address from;
+    bytes from;
     /// @notice Unix timestamp when this query expires
     uint64 timeoutTimestamp;
     /// @notice Storage keys to retrieve from the destination chain
@@ -87,21 +87,7 @@ struct GetResponse {
     /// @notice The original GET request being responded to
     GetRequest request;
     /// @notice Retrieved storage values from the queried chain
-    MerklePatricia.StorageValue[] values;
-}
-
-/**
- * @title PostResponse
- * @notice Represents a response to a cross-chain POST request
- * @dev Contains the original request and the response data
- */
-struct PostResponse {
-    /// @notice The original request being responded to
-    PostRequest request;
-    /// @notice Response payload to send back to the requester
-    bytes response;
-    /// @notice Unix timestamp when this response expires
-    uint64 timeoutTimestamp;
+    StorageValue[] values;
 }
 
 /**
@@ -112,18 +98,6 @@ struct PostResponse {
 struct PostRequestLeaf {
     /// @notice The POST request data
     PostRequest request;
-    /// @notice Position in the MMR leaves array
-    uint256 index;
-}
-
-/**
- * @title PostResponseLeaf
- * @notice Represents a POST response as a leaf in a Merkle Mountain Range tree
- * @dev Used for generating and verifying merkle proofs of responses
- */
-struct PostResponseLeaf {
-    /// @notice The POST response data
-    PostResponse response;
     /// @notice Position in the MMR leaves array
     uint256 index;
 }
@@ -204,33 +178,6 @@ struct PostRequestTimeoutMessage {
     bytes[] proof;
 }
 
-/**
- * @title PostResponseTimeoutMessage
- * @notice Batch of timed-out POST responses with their non-membership proof
- * @dev Used to prove that POST responses were not acknowledged before timeout
- */
-struct PostResponseTimeoutMessage {
-    /// @notice Array of POST responses that have timed out
-    PostResponse[] timeouts;
-    /// @notice Height at which the timeout proof is generated
-    StateMachineHeight height;
-    /// @notice Non-membership proof showing responses were not processed
-    bytes[] proof;
-}
-
-// A message for handling incoming responses
-/**
- * @title PostResponseMessage
- * @notice Batch of POST responses with their merkle proof
- * @dev Used by the Handler to verify and process incoming POST responses
- */
-struct PostResponseMessage {
-    /// @notice Merkle proof for verifying the responses
-    Proof proof;
-    /// @notice Array of POST responses as MMR leaves
-    PostResponseLeaf[] responses;
-}
-
 library Message {
     /**
      * @dev Calculates the absolute timeout value for a PostRequest
@@ -255,50 +202,24 @@ library Message {
     }
 
     /**
-     * @dev Calculates the absolute timeout value for a PostResponse
-     */
-    function timeout(PostResponse memory res) internal pure returns (uint64) {
-        if (res.timeoutTimestamp == 0) {
-            return type(uint64).max;
-        } else {
-            return res.timeoutTimestamp;
-        }
-    }
-
-    /**
      * @dev Encode the given post request for commitment
      */
     function encode(PostRequest memory req) internal pure returns (bytes memory) {
-        return abi.encodePacked(req.source, req.dest, req.nonce, req.timeoutTimestamp, req.from, req.to, req.body);
+        return abi.encode(req);
     }
 
     /**
      * @dev Encode the given get request for commitment
      */
     function encode(GetRequest memory req) internal pure returns (bytes memory) {
-        bytes memory keysEncoding = bytes("");
-        uint256 len = req.keys.length;
-        for (uint256 i = 0; i < len; i++) {
-            keysEncoding = bytes.concat(keysEncoding, req.keys[i]);
-        }
-
-        return abi.encodePacked(
-            req.source,
-            req.dest,
-            req.nonce,
-            req.height,
-            req.timeoutTimestamp,
-            abi.encodePacked(req.from),
-            keysEncoding,
-            req.context
-        );
+        return abi.encode(req);
     }
 
     /**
-     * @dev Returns the commitment for the given post response
+     * @dev Encode the given get response for commitment
      */
-    function hash(PostResponse memory res) internal pure returns (bytes32) {
-        return keccak256(bytes.concat(encode(res.request), abi.encodePacked(res.response, res.timeoutTimestamp)));
+    function encode(GetResponse memory res) internal pure returns (bytes memory) {
+        return abi.encode(res);
     }
 
     /**
@@ -319,11 +240,6 @@ library Message {
      * @dev Returns the commitment for the given get response
      */
     function hash(GetResponse memory res) internal pure returns (bytes32) {
-        bytes memory response = bytes("");
-        uint256 len = res.values.length;
-        for (uint256 i = 0; i < len; i++) {
-            response = bytes.concat(response, bytes.concat(res.values[i].key, res.values[i].value));
-        }
-        return keccak256(bytes.concat(encode(res.request), response));
+        return keccak256(encode(res));
     }
 }

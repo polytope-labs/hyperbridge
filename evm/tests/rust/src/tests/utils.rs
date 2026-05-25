@@ -7,17 +7,16 @@ use std::{
 use crate::{DataOrHash, Mmr};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{SolCall, SolValue};
-use ismp_solidity_abi::{
-	beefy::Beefy::{IntermediateState, StateCommitment},
+use ismp_abi::{
+	ecdsa_beefy::Beefy::{IntermediateState, StateCommitment},
 	evm_host::EvmHost::{
-		requestCommitmentsCall, requestReceiptsCall, responseCommitmentsCall, responseReceiptsCall,
-		FeeMetadata, ResponseReceipt,
+		requestCommitmentsCall, requestReceiptsCall, responseReceiptsCall, FeeMetadata,
+		ResponseReceipt,
 	},
 	handler::{
 		handleConsensusCall, handleGetRequestTimeoutsCall, handleGetResponsesCall,
-		handlePostRequestTimeoutsCall, handlePostRequestsCall, handlePostResponseTimeoutsCall,
-		handlePostResponsesCall, GetResponseMessage, GetTimeoutMessage, PostRequestMessage,
-		PostRequestTimeoutMessage, PostResponseMessage, PostResponseTimeoutMessage, Proof,
+		handlePostRequestTimeoutsCall, handlePostRequestsCall, GetResponseMessage,
+		GetTimeoutMessage, PostRequestMessage, PostRequestTimeoutMessage, Proof,
 		StateMachineHeight,
 	},
 };
@@ -45,7 +44,7 @@ alloy_sol_macro::sol! {
 	function grantMinterRole(address account) external;
 	function grantBurnerRole(address account) external;
 
-	// PingModule.setIsmpHost(address, address)
+	// TestDispatcher.setIsmpHost(address, address)
 	function setIsmpHost(address hostAddr, address tokenFaucet) external;
 }
 
@@ -67,15 +66,7 @@ alloy_sol_macro::sol! {
 		address host;
 	}
 
-	struct PerByteFee {
-		bytes32 stateIdHash;
-		uint256 perByteFee;
-	}
-
 	struct HostParams {
-		uint256 defaultTimeout;
-		uint256 defaultPerByteFee;
-		uint256 stateCommitmentFee;
 		address feeToken;
 		address admin;
 		address handler;
@@ -85,7 +76,6 @@ alloy_sol_macro::sol! {
 		uint256 challengePeriod;
 		address consensusClient;
 		uint256[] stateMachines;
-		PerByteFee[] perByteFees;
 		bytes hyperbridge;
 	}
 }
@@ -103,8 +93,8 @@ pub struct TestEnv {
 	pub host: Address,
 	pub consensus_client: Address,
 	pub fee_token: Address,
-	pub test_module: Address,
 	pub manager: Address,
+	pub test_module: Address,
 }
 
 impl TestEnv {
@@ -151,8 +141,8 @@ impl TestEnv {
 			host: Address::ZERO,
 			consensus_client: Address::ZERO,
 			fee_token: Address::ZERO,
-			test_module: Address::ZERO,
 			manager: Address::ZERO,
+			test_module: Address::ZERO,
 		};
 
 		let out_dir = Self::evm_out_dir();
@@ -177,9 +167,6 @@ impl TestEnv {
 		// 5. Deploy TestHost: constructor(HostParams)
 		let bytecode = load_and_link_artifact(&mut env, &out_dir, "TestHost");
 		let host_params = HostParams {
-			defaultTimeout: U256::ZERO,
-			defaultPerByteFee: U256::from(1_000_000_000_000_000_000u128),
-			stateCommitmentFee: U256::from(10u128) * U256::from(10u128.pow(18)),
 			feeToken: env.fee_token,
 			admin: env.sender,
 			handler: env.handler,
@@ -189,18 +176,17 @@ impl TestEnv {
 			challengePeriod: U256::ZERO,
 			consensusClient: env.consensus_client,
 			stateMachines: vec![U256::from(2000)],
-			perByteFees: vec![],
 			hyperbridge: Bytes::from(b"KUSAMA-2000".to_vec()),
 		};
 		let constructor_args = SolValue::abi_encode(&host_params);
 		env.host = env.deploy_raw([bytecode, constructor_args].concat());
 
-		// 6. Deploy PingModule: constructor(address admin)
-		let bytecode = load_and_link_artifact(&mut env, &out_dir, "PingModule");
+		// 6. Deploy TestDispatcher: constructor(address admin)
+		let bytecode = load_and_link_artifact(&mut env, &out_dir, "TestDispatcher");
 		let constructor_args = (env.sender,).abi_encode_params();
 		env.test_module = env.deploy_raw([bytecode, constructor_args].concat());
 
-		// 7. Configure: setIsmpHost on PingModule (needs warped timestamp)
+		// 7. Configure: setIsmpHost on TestDispatcher (needs warped timestamp)
 		env.evm.ctx.block.timestamp = U256::from(100_000);
 		env.call(
 			env.test_module,
@@ -397,13 +383,6 @@ impl TestEnv {
 		);
 	}
 
-	pub fn handle_post_responses(&mut self, message: PostResponseMessage) {
-		self.call(
-			self.handler,
-			handlePostResponsesCall { host: self.host, response: message }.abi_encode(),
-		);
-	}
-
 	pub fn handle_get_responses(&mut self, message: GetResponseMessage) {
 		self.call(self.handler, handleGetResponsesCall { host: self.host, message }.abi_encode());
 	}
@@ -412,13 +391,6 @@ impl TestEnv {
 		self.call(
 			self.handler,
 			handlePostRequestTimeoutsCall { host: self.host, message }.abi_encode(),
-		);
-	}
-
-	pub fn handle_post_response_timeouts(&mut self, message: PostResponseTimeoutMessage) {
-		self.call(
-			self.handler,
-			handlePostResponseTimeoutsCall { host: self.host, message }.abi_encode(),
 		);
 	}
 
@@ -453,61 +425,25 @@ impl TestEnv {
 		<requestCommitmentsCall as SolCall>::abi_decode_returns(&result).unwrap()
 	}
 
-	pub fn response_commitment(&mut self, commitment: [u8; 32]) -> FeeMetadata {
-		let result = self.call(
-			self.host,
-			responseCommitmentsCall { commitment: FixedBytes(commitment) }.abi_encode(),
-		);
-		<responseCommitmentsCall as SolCall>::abi_decode_returns(&result).unwrap()
-	}
-
 	pub fn dispatch_post_request(
 		&mut self,
-		request: ismp_solidity_abi::evm_host::EvmHost::PostRequest,
+		request: ismp_abi::evm_host::EvmHost::PostRequest,
 	) {
-		// Convert EvmHost::PostRequest to PingModule::PostRequest via ABI encoding
+		// Re-encode through ABI to convert into TestDispatcher's PostRequest type (same fields).
 		let encoded = SolValue::abi_encode(&request);
-		let ping_request =
-			<ismp_solidity_abi::ping_module::PingModule::PostRequest as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
+		let test_request =
+			<test_dispatcher::PostRequest as SolValue>::abi_decode(&encoded).unwrap();
 		let calldata =
-			ismp_solidity_abi::ping_module::PingModule::dispatch_0Call { request: ping_request }
-				.abi_encode();
+			test_dispatcher::dispatchPostRequestCall { request: test_request }.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
-	pub fn dispatch_get_request(
-		&mut self,
-		request: ismp_solidity_abi::evm_host::EvmHost::GetRequest,
-	) {
+	pub fn dispatch_get_request(&mut self, request: ismp_abi::evm_host::EvmHost::GetRequest) {
 		let encoded = SolValue::abi_encode(&request);
-		let ping_request =
-			<ismp_solidity_abi::ping_module::PingModule::GetRequest as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
+		let test_request =
+			<test_dispatcher::GetRequest as SolValue>::abi_decode(&encoded).unwrap();
 		let calldata =
-			ismp_solidity_abi::ping_module::PingModule::dispatch_1Call { request: ping_request }
-				.abi_encode();
-		self.call(self.test_module, calldata);
-	}
-
-	pub fn dispatch_post_response(
-		&mut self,
-		response: ismp_solidity_abi::evm_host::EvmHost::PostResponse,
-	) {
-		let encoded = SolValue::abi_encode(&response);
-		let ping_response =
-			<ismp_solidity_abi::ping_module::PingModule::PostResponse as SolValue>::abi_decode(
-				&encoded,
-			)
-			.unwrap();
-		let calldata = ismp_solidity_abi::ping_module::PingModule::dispatchPostResponseCall {
-			response: ping_response,
-		}
-		.abi_encode();
+			test_dispatcher::dispatchGetRequestCall { request: test_request }.abi_encode();
 		self.call(self.test_module, calldata);
 	}
 
@@ -522,6 +458,37 @@ impl TestEnv {
 	pub fn fee_token_balance(&mut self, account: Address) -> U256 {
 		let result = self.call(self.fee_token, balanceOfCall { account }.abi_encode());
 		<balanceOfCall as SolCall>::abi_decode_returns(&result).unwrap()
+	}
+}
+
+// TestDispatcher ABI — mirrors the canonical Message.sol struct shapes.
+mod test_dispatcher {
+	alloy_sol_macro::sol! {
+		#[derive(Debug)]
+		struct PostRequest {
+			bytes source;
+			bytes dest;
+			uint64 nonce;
+			bytes from;
+			bytes to;
+			uint64 timeoutTimestamp;
+			bytes body;
+		}
+
+		#[derive(Debug)]
+		struct GetRequest {
+			bytes source;
+			bytes dest;
+			uint64 nonce;
+			bytes from;
+			uint64 timeoutTimestamp;
+			bytes[] keys;
+			uint64 height;
+			bytes context;
+		}
+
+		function dispatchPostRequest(PostRequest request) external returns (bytes32);
+		function dispatchGetRequest(GetRequest request) external returns (bytes32);
 	}
 }
 
@@ -580,24 +547,24 @@ fn load_and_link_artifact(runner: &mut TestEnv, out_dir: &Path, artifact_name: &
 
 pub fn to_handler_get_response(
 	response: ismp::router::GetResponse,
-) -> ismp_solidity_abi::handler::GetResponse {
-	let evm_response: ismp_solidity_abi::evm_host::EvmHost::GetResponse = response.into();
+) -> ismp_abi::handler::GetResponse {
+	let evm_response: ismp_abi::evm_host::EvmHost::GetResponse = response.into();
 	let encoded = SolValue::abi_encode(&evm_response);
-	<ismp_solidity_abi::handler::GetResponse as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::GetResponse as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 pub fn to_handler_get_request(
-	request: ismp_solidity_abi::evm_host::EvmHost::GetRequest,
-) -> ismp_solidity_abi::handler::GetRequest {
+	request: ismp_abi::evm_host::EvmHost::GetRequest,
+) -> ismp_abi::handler::GetRequest {
 	let encoded = SolValue::abi_encode(&request);
-	<ismp_solidity_abi::handler::GetRequest as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::GetRequest as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 pub fn to_handler_post_request(
-	request: ismp_solidity_abi::evm_host::EvmHost::PostRequest,
-) -> ismp_solidity_abi::handler::PostRequest {
+	request: ismp_abi::evm_host::EvmHost::PostRequest,
+) -> ismp_abi::handler::PostRequest {
 	let encoded = SolValue::abi_encode(&request);
-	<ismp_solidity_abi::handler::PostRequest as SolValue>::abi_decode(&encoded).unwrap()
+	<ismp_abi::handler::PostRequest as SolValue>::abi_decode(&encoded).unwrap()
 }
 
 // ---------------------------------------------------------------------------

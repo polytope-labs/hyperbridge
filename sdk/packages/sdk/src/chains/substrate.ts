@@ -19,7 +19,7 @@ import {
 	GetRequestsWithProof,
 	type IStateMachine,
 	Message,
-	SubstrateStateProof,
+	SubstrateStateMachineProof,
 	isEvmChain,
 	isSubstrateChain,
 	replaceWebsocketWithHttp,
@@ -231,15 +231,12 @@ export class SubstrateChain implements IChain {
 					: message.Responses.map(responseCommitmentStorageKey)
 			const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), childTrieKeys])
 			const basicProof = BasicProof.dec(toHex(proof.proof))
-			const encoded = SubstrateStateProof.enc({
-				tag: "OverlayProof",
-				value: {
-					hasher: {
-						tag: this.params.hasher,
-						value: undefined,
-					},
-					storageProof: basicProof,
+			const encoded = SubstrateStateMachineProof.enc({
+				hasher: {
+					tag: this.params.hasher,
+					value: undefined,
 				},
+				storageProof: basicProof,
 			})
 			return toHex(encoded)
 		}
@@ -310,15 +307,12 @@ export class SubstrateChain implements IChain {
 		const encodedKeys = keys.map((key) => Array.from(hexToBytes(key)))
 		const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), encodedKeys])
 		const basicProof = BasicProof.dec(toHex(proof.proof))
-		const encoded = SubstrateStateProof.enc({
-			tag: "OverlayProof",
-			value: {
-				hasher: {
-					tag: this.params.hasher,
-					value: undefined,
-				},
-				storageProof: basicProof,
+		const encoded = SubstrateStateMachineProof.enc({
+			hasher: {
+				tag: this.params.hasher,
+				value: undefined,
 			},
+			storageProof: basicProof,
 		})
 		return toHex(encoded)
 	}
@@ -430,8 +424,12 @@ export class SubstrateChain implements IChain {
 
 		const proofs: HexString[] = []
 
-		// Walk from currentEpoch + 1 forward, fetching each rotation proof
-		let epoch = currentEpoch + 1n
+		// The rotation map is keyed by the epoch that was current when the proof
+		// was generated — the proof itself is signed by set (key + 1). The handler's
+		// currentEpoch equals the destination's nextAuthoritySet.id. We start from
+		// currentEpoch - 1 (the destination's currentAuthoritySet.id) so the first
+		// proof is signed by a set the destination already knows.
+		let epoch = currentEpoch - 1n
 		while (rotationMap.has(epoch)) {
 			const height = rotationMap.get(epoch)!
 			const key = beefyOffchainKey(height)

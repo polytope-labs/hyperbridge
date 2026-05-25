@@ -35,12 +35,11 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
+	router::{GetResponse, IsmpRouter, PostRequest, Request},
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
-use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
 	frame_support::{
 		traits::{FindAuthor, LockIdentifier},
@@ -53,17 +52,14 @@ use polkadot_sdk::{
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256, U256,
+	H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
 };
 
-use crate::runtime::sp_runtime::DispatchError;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
-use pallet_messaging_fees::types::PriceOracle;
 use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;
@@ -85,7 +81,6 @@ frame_support::construct_runtime!(
 		Timestamp: pallet_timestamp,
 		Mmr: pallet_mmr_tree,
 		Ismp: pallet_ismp,
-		Hyperbridge: pallet_hyperbridge,
 		Balances: pallet_balances,
 		Relayer: pallet_ismp_relayer,
 		Fishermen: pallet_fishermen,
@@ -95,18 +90,14 @@ frame_support::construct_runtime!(
 		MessageQueue: pallet_message_queue,
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
-		Gateway: pallet_xcm_gateway,
-		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
 		IsmpBsc: ismp_bsc::pallet,
-		TokenGateway: pallet_token_gateway,
 		HyperFungibleToken: pallet_hyper_fungible_token,
-		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_consensus_incentives,
-		MessagingRelayerIncentives: pallet_messaging_fees,
+		MessagingRelayerIncentives: pallet_messaging_incentives,
 		IsmpGrandpa: ismp_grandpa::pallet,
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
@@ -114,6 +105,8 @@ frame_support::construct_runtime!(
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
+		Bandwidth: pallet_bandwidth,
+		StateCoprocessor: pallet_state_coprocessor,
 	}
 );
 
@@ -174,9 +167,20 @@ parameter_types! {
 	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
 }
 
+parameter_types! {
+	pub static CollatorSet: alloc::vec::Vec<AccountId32> = alloc::vec::Vec::new();
+}
+
+pub struct IsCollatorMock;
+impl frame_support::traits::Contains<AccountId32> for IsCollatorMock {
+	fn contains(t: &AccountId32) -> bool {
+		CollatorSet::get().contains(t)
+	}
+}
+
 impl pallet_fishermen::Config for Test {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId32>;
+	type IsCollator = IsCollatorMock;
 }
 
 impl pallet_sudo::Config for Test {
@@ -199,7 +203,7 @@ parameter_types! {
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ReputationCallFilter;
 	type RuntimeOrigin = RuntimeOrigin;
 	type RuntimeCall = RuntimeCall;
 	type Hash = H256;
@@ -256,10 +260,7 @@ impl pallet_ismp::Config for Test {
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Test,
-			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Test>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 		ismp_beefy::consensus::BeefyConsensusClient<
@@ -271,7 +272,7 @@ impl pallet_ismp::Config for Test {
 	type OffchainDB = Mmr;
 	type FeeHandler = (
 		pallet_consensus_incentives::Pallet<Test>,
-		pallet_messaging_fees::Pallet<Test>,
+		pallet_messaging_incentives::Pallet<Test>,
 		pallet_ismp::fee_handler::WeightFeeHandler<
 			AccountId32,
 			Balances,
@@ -283,40 +284,18 @@ impl pallet_ismp::Config for Test {
 	type MigrationWeightInfo = ();
 }
 
-impl pallet_hyperbridge::Config for Test {
+impl pallet_bandwidth::Config for Test {
+	type Dispatcher = Ismp;
+}
+
+impl pallet_state_coprocessor::Config for Test {
 	type IsmpHost = Ismp;
+	type Mmr = Mmr;
+	type BandwidthGate = Bandwidth;
 }
 
 parameter_types! {
 	pub const Decimals: u8 = 10;
-}
-
-pub struct NativeAssetId;
-
-impl Get<H256> for NativeAssetId {
-	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"BRIDGE").into()
-	}
-}
-
-pub struct AssetAdmin;
-
-impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
-	fn get() -> <Test as frame_system::Config>::AccountId {
-		TokenGateway::pallet_account()
-	}
-}
-
-impl pallet_token_gateway::Config for Test {
-	type Dispatcher = Ismp;
-	type Assets = Assets;
-	type NativeCurrency = Balances;
-	type NativeAssetId = NativeAssetId;
-	type CreateOrigin = EnsureSigned<AccountId32>;
-	type Decimals = Decimals;
-	type AssetAdmin = AssetAdmin;
-	type EvmToSubstrate = ();
-	type WeightInfo = ();
 }
 
 pub struct HftNativeAssetId;
@@ -343,6 +322,26 @@ parameter_types! {
 }
 pub type ReputationAsset =
 	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+/// Mirror of the runtime `ReputationCallFilter` — rejects user-facing
+/// `Assets` transfer extrinsics targeting the reputation asset so the
+/// mock exercises the same soulbound semantics as nexus/gargantua.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
 
 sp_runtime::impl_opaque_keys! {
 	pub struct SessionKeys {
@@ -429,10 +428,6 @@ impl pallet_authorship::Config for Test {
 	type EventHandler = CollatorManager;
 }
 
-impl pallet_token_gateway_inspector::Config for Test {
-	type GatewayOrigin = EnsureRoot<AccountId32>;
-}
-
 impl ismp_sync_committee::pallet::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
@@ -460,18 +455,17 @@ impl ismp_beefy::BeefyClientConfig for Test {
 		ismp_parachain::Parachains::<Test>::contains_key(para_id)
 	}
 
-	fn sp1_vkey_hash() -> Vec<u8> {
-		Vec::new()
+	fn sp1_vkey_hash() -> primitive_types::H256 {
+		Default::default()
+	}
+
+	fn allowed_proof_types() -> &'static [u8] {
+		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1]
 	}
 }
 
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
-}
-impl pallet_token_governor::Config for Test {
-	type Dispatcher = Ismp;
-	type TreasuryAccount = TreasuryAccount;
-	type GovernorOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_mmr_tree::Config for Test {
@@ -498,6 +492,7 @@ impl pallet_ismp_host_executive::Config for Test {
 
 impl pallet_call_decompressor::Config for Test {
 	type MaxCallSize = ConstU32<2>;
+	type WeightInfo = ();
 }
 
 impl pallet_bridge_airdrop::Config for Test {
@@ -513,22 +508,9 @@ impl pallet_consensus_incentives::Config for Test {
 	type ReputationAsset = ReputationAsset;
 }
 
-impl pallet_messaging_fees::Config for Test {
-	type IsmpHost = Ismp;
-	type TreasuryAccount = TreasuryAccount;
-	type IncentivesOrigin = EnsureRoot<AccountId32>;
-	type PriceOracle = MockPriceOracle;
-	type WeightInfo = ();
+impl pallet_messaging_incentives::Config for Test {
 	type ReputationAsset = ReputationAsset;
-}
-
-pub struct MockPriceOracle;
-
-impl PriceOracle for MockPriceOracle {
-	fn get_bridge_price() -> Result<U256, DispatchError> {
-		// return 0.05 with 18 decimals: 0.05 * 10^18
-		Ok(U256::from(50_000_000_000_000_000u128))
-	}
+	type AdminOrigin = EnsureRoot<AccountId32>;
 }
 
 parameter_types! {
@@ -556,11 +538,11 @@ impl IsmpModule for ErrorModule {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 }
@@ -607,11 +589,11 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }
@@ -664,22 +646,36 @@ impl StateMachineClient for MockStateMachine {
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		_item: RequestResponse,
+		_commitments: Vec<H256>,
 		_root: StateCommitment,
 		_proof: &Proof,
 	) -> Result<(), IsmpError> {
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn commitment_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
 		Default::default()
+	}
+
+	fn receipts_state_trie_key(&self, _commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		Default::default()
+	}
+
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_commitments: Vec<H256>,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), IsmpError> {
+		Ok(())
 	}
 
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,
 		_keys: Vec<Vec<u8>>,
-		_root: StateCommitment,
+		_root: H256,
 		_proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
 		Ok(Default::default())
@@ -751,7 +747,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
 			(ALICE, INITIAL_BALANCE),
-			(TokenGateway::pallet_account(), INITIAL_BALANCE),
 			(HyperFungibleToken::pallet_account(), INITIAL_BALANCE),
 			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
@@ -765,37 +760,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	ext.execute_with(|| {
 		System::set_block_number(1);
-		let protocol_params =
-			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
-		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
-		pallet_token_gateway::SupportedAssets::<Test>::insert(NativeAssetId::get(), H256::zero());
-		pallet_token_gateway::NativeAssets::<Test>::insert(NativeAssetId::get(), true);
-		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), NativeAssetId::get());
-		pallet_token_gateway::Precisions::<Test>::insert(
-			NativeAssetId::get(),
-			StateMachine::Evm(1),
-			18,
-		);
-		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
-			StateMachine::Evm(1),
-			H160::zero().0.to_vec(),
-		);
-		pallet_token_governor::StandaloneChainAssets::<Test>::insert(
-			StateMachine::Kusama(100),
-			H256::zero(),
-			true,
-		);
-
-		let params = GatewayParams {
-			address: H160::zero(),
-			host: H160::zero(),
-			call_dispatcher: H160::random(),
-		};
-		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
-
-		// Setup HyperFungibleToken pallet storage
-		// Register the native asset with a mock EVM contract address
 		let hft_contract = vec![0xABu8; 20];
 		pallet_hyper_fungible_token::TokenContracts::<Test>::insert(
 			StateMachine::Evm(1),

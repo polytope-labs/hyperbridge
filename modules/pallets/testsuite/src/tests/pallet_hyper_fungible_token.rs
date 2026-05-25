@@ -6,7 +6,7 @@ use codec::Encode;
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, Request, Timeout},
+	router::{PostRequest, Request},
 };
 use pallet_hyper_fungible_token::{
 	impls::convert_to_erc20,
@@ -14,7 +14,7 @@ use pallet_hyper_fungible_token::{
 };
 
 use frame_support::BoundedVec;
-use sp_core::{ByteArray, Get, Pair, H256};
+use sp_core::{ByteArray, Get, Pair, H160, H256};
 use sp_runtime::{AccountId32, MultiSignature};
 
 use crate::runtime::{
@@ -136,7 +136,7 @@ fn should_timeout_request_correctly() {
 			},
 		};
 
-		module.on_timeout(Timeout::Request(Request::Post(post))).unwrap();
+		module.on_timeout(Request::Post(post)).unwrap();
 		let new_balance = pallet_balances::Pallet::<Test>::free_balance(ALICE);
 		assert_eq!(new_balance, INITIAL_BALANCE);
 	});
@@ -199,10 +199,7 @@ fn should_register_and_update_token() {
 		let mut chains = BTreeMap::new();
 		chains.insert(
 			StateMachine::Evm(42),
-			ChainConfig {
-				token_contract: contract.clone(),
-				decimals: 6,
-			},
+			ChainConfig { token_contract: H160::from_slice(&contract), decimals: 6 },
 		);
 
 		let reg = TokenRegistration { local_id: asset_id, native: false, chains };

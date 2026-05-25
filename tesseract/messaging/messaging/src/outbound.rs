@@ -65,6 +65,81 @@ pub async fn run(
 
 	tracing::info!(target: LOG_TARGET, source = %source_name, cursor, "Subscribed to Beefy Proof Notifications");
 
+	// Startup catch-up: before draining the live stream, walk every
+	// destination once and try to land any mandatory rotation proofs
+	// the destination is behind on. This covers the case where the
+	// relayer was offline through one or more authority-set rotations —
+	// without this pass, the destination's BEEFY light client stays at
+	// the old set_id, every subsequent messaging proof's signature
+	// verification fails, and the relayer can't deliver until a fresh
+	// mandatory proof arrives on Hyperbridge.
+	//
+	// Subscription happens before this call so live `ProofAccepted`
+	// events buffer in the stream while catch-up runs. Each
+	// `catch_up_rotations` invocation is idempotent on the
+	// `_epochs[set_id]` slot, so the per-proof catch-up inside
+	// `submit_for_dest` will see "dest already current" and return an
+	// empty vec the first time it fires after this. `current_set_id =
+	// None` means "no in-flight rotation to filter out" — every
+	// rotation the destination is behind on is eligible.
+	{
+		let mut startup_tasks = FuturesUnordered::new();
+		for dest in destinations.values() {
+			let hb = hyperbridge.clone();
+			let dest = dest.clone();
+			let proof_source = proof_source.clone();
+			let claim_sender = claim_sender.clone();
+			let claim_tx_payment = claim_tx_payment.clone();
+			let dest_name = dest.name();
+			let dest_state_machine = dest.state_machine_id().state_id;
+			startup_tasks.push(
+				async move {
+					let result = catch_up_rotations(&hb, &dest, &proof_source, None).await;
+					(dest_name, dest_state_machine, result, claim_sender, claim_tx_payment)
+				}
+				.boxed(),
+			);
+		}
+		while let Some((dest_name, dest_state_machine, result, claim_sender, claim_tx_payment)) =
+			startup_tasks.next().await
+		{
+			match result {
+				Ok(new_epochs) =>
+					if !new_epochs.is_empty() {
+						tracing::info!(
+							target: LOG_TARGET,
+							source = %source_name,
+							dest = %dest_name,
+							rotations = new_epochs.len(),
+							"startup rotation catch-up landed rotations",
+						);
+						// Forward the earned `NewEpoch` events so the
+						// outbound-claim task can collect their
+						// `OutboundConsensusDeliveryReward`. Same
+						// channel and DB persistence the per-proof
+						// path uses.
+						forward_consensus_delivery_claims(
+							&dest_name,
+							dest_state_machine,
+							new_epochs,
+							&claim_sender,
+							&claim_tx_payment,
+						)
+						.await;
+					},
+				Err(err) => {
+					tracing::warn!(
+						target: LOG_TARGET,
+						source = %source_name,
+						dest = %dest_name,
+						?err,
+						"startup rotation catch-up failed; proceeding to stream loop",
+					);
+				},
+			}
+		}
+	}
+
 	while let Some(item) = stream.next().await {
 		let accepted: ProofAccepted = match item {
 			Ok(ev) => ev,
@@ -261,12 +336,9 @@ async fn submit_for_dest(
 		.into_iter()
 		.filter(|ev| filter_events(&relayer_config, coprocessor, dest_state_machine, ev))
 		.collect::<Vec<_>>();
-	let has_events_for_dest = events.iter().any(|ev| {
-		matches!(ev,
-		Event::PostRequest(req) if req.dest == dest_state_machine) ||
-			matches!(ev,
-		Event::PostResponse(res) if res.dest_chain() == dest_state_machine)
-	});
+	let has_events_for_dest = events
+		.iter()
+		.any(|ev| matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine));
 
 	if !has_events_for_dest && !is_mandatory {
 		// Messaging-only proof with nothing for this chain — skip. Rotation
@@ -353,11 +425,54 @@ async fn submit_for_dest(
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
 	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
 
-	// Forward receipts for fee accumulation (best-effort, channel may be
-	// closed if the relayer is shutting down).
+	// Forward receipts for fee accumulation. `try_send` so the outbound
+	// task never blocks on the fee-accumulator consumer; on `Full`,
+	// persist the receipts to the local DB so the fee-accumulator
+	// restart / `accumulate-fees` subcommand can replay them. On
+	// `Closed` (shutdown), persist for the same reason. Receipts are
+	// otherwise only seen in-memory on this path — unlike the inbound
+	// flows in `lib.rs` / `retries.rs`, the outbound side doesn't
+	// pre-persist before sending.
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
-		if let Err(err) = sender.send(result.receipts).await {
-			tracing::warn!(target: LOG_TARGET, ?err, "fee-accumulation channel send failed");
+		match sender.try_send(result.receipts) {
+			Ok(()) => {},
+			Err(tokio::sync::mpsc::error::TrySendError::Full(receipts)) => {
+				tracing::warn!(
+					target: LOG_TARGET,
+					count = receipts.len(),
+					"fee-accumulation channel full; persisting receipts to DB instead of dropping",
+				);
+				if let Some(tx_payment) = &claim_tx_payment {
+					if let Err(err) = tx_payment.store_messages(receipts).await {
+						tracing::error!(
+							target: LOG_TARGET,
+							?err,
+							"failed to persist outbound receipts to DB after channel-full",
+						);
+					}
+				} else {
+					tracing::warn!(
+						target: LOG_TARGET,
+						"no tx_payment handle available; receipts dropped (fees disabled)",
+					);
+				}
+			},
+			Err(tokio::sync::mpsc::error::TrySendError::Closed(receipts)) => {
+				tracing::warn!(
+					target: LOG_TARGET,
+					count = receipts.len(),
+					"fee-accumulation channel closed; persisting receipts to DB",
+				);
+				if let Some(tx_payment) = &claim_tx_payment {
+					if let Err(err) = tx_payment.store_messages(receipts).await {
+						tracing::error!(
+							target: LOG_TARGET,
+							?err,
+							"failed to persist outbound receipts to DB after channel-closed",
+						);
+					}
+				}
+			},
 		}
 	}
 
@@ -442,14 +557,38 @@ async fn forward_consensus_delivery_claims(
 		})
 		.collect();
 	let summary: Vec<(u64, u64)> = claim_rows.clone();
-	if let Err(err) = sender.send(claims).await {
-		tracing::warn!(
-			target: LOG_TARGET,
-			?err,
-			dest = %dest_name,
-			?summary,
-			"outbound-consensus claim channel send failed",
-		);
+	// `try_send` instead of `send().await`: the outbound task must never
+	// block on a downstream consumer. If `outbound_claim::run` gets stuck
+	// (e.g. inside `wait_for_state_machine_update` waiting on a stream
+	// that silently stalled) the channel fills up; a blocking `send` here
+	// would pin `submit_for_dest`, which pins `tasks.next().await` in the
+	// outbound run loop, which kills the outer heartbeat and stops new
+	// `ProofAccepted` events being polled. We've seen this in production
+	// (claim task wedged ~8 h before outbound silently froze on the next
+	// proof).
+	//
+	// On `Full`: the persisted DB row written above will be picked up on
+	// the next outbound trigger via `outbound_claim::merge_pending`, so
+	// dropping the in-memory trigger is safe; on `Closed`: the receiver
+	// is gone, nothing more to do — log and move on.
+	match sender.try_send(claims) {
+		Ok(()) => {},
+		Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+			tracing::warn!(
+				target: LOG_TARGET,
+				dest = %dest_name,
+				?summary,
+				"outbound-consensus claim channel full; trigger dropped — DB row will replay on next outbound cycle",
+			);
+		},
+		Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+			tracing::warn!(
+				target: LOG_TARGET,
+				dest = %dest_name,
+				?summary,
+				"outbound-consensus claim channel closed; receiver gone",
+			);
+		},
 	}
 }
 
@@ -636,7 +775,7 @@ pub async fn initialize(
 	let mut fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> = HashMap::new();
 	if !fees_disabled {
 		for (sm, provider) in &destinations {
-			let (fee_sender, fee_receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
+			let (fee_sender, fee_receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(512);
 			fee_senders.insert(*sm, fee_sender);
 
 			let hb_for_fees =
@@ -675,7 +814,7 @@ pub async fn initialize(
 	// from the DB on every trigger and processes them, so no startup
 	// replay is needed in the caller.
 	let (claim_sender, claim_receiver) =
-		tokio::sync::mpsc::channel::<Vec<PendingConsensusDeliveryClaim>>(64);
+		tokio::sync::mpsc::channel::<Vec<PendingConsensusDeliveryClaim>>(512);
 	let claim_hb = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 	let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
@@ -742,7 +881,7 @@ pub async fn initialize(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::router::{PostRequest, PostResponse};
+	use ismp::router::PostRequest;
 	use std::sync::Arc;
 	use tesseract_primitives::mocks::MockHost;
 
@@ -759,21 +898,6 @@ mod tests {
 			to: vec![2],
 			timeout_timestamp: 0,
 			body: vec![],
-		}
-	}
-
-	/// Build a PostResponse whose `dest_chain()` is `response_to`. A response
-	/// heads back to the *source* of the original request, so we put
-	/// `response_to` in the inner post's `source` field.
-	fn post_res(
-		response_to: StateMachine,
-		request_was_for: StateMachine,
-		nonce: u64,
-	) -> PostResponse {
-		PostResponse {
-			post: post_req(response_to, request_was_for, nonce),
-			response: vec![9],
-			timeout_timestamp: 0,
 		}
 	}
 
@@ -897,10 +1021,7 @@ mod tests {
 		let client_map = client_map_with(hb.clone(), dest.clone());
 
 		// Only DEST_B-targeted events; messaging-only proof for DEST_A.
-		let events = vec![
-			Event::PostRequest(post_req(HB, DEST_B, 1)),
-			Event::PostResponse(post_res(DEST_B, HB, 2)),
-		];
+		let events = vec![Event::PostRequest(post_req(HB, DEST_B, 1))];
 
 		submit_for_dest(
 			OutboundEventContext {

@@ -26,18 +26,18 @@ use codec::Decode;
 use futures::Stream;
 use ismp::{consensus::StateMachineId, host::StateMachine};
 use polkadot_sdk::*;
-use sp_core::sr25519;
+use sp_core::{sr25519, Pair};
 use sp_runtime::{generic::Header, traits::Header as _};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
-	config::ExtrinsicParams,
+	config::{substrate::SubstrateExtrinsicParams, ExtrinsicParams},
 	dynamic::Value,
 	ext::subxt_rpcs::{rpc_params, RpcClient},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 	OnlineClient,
 };
-use subxt_utils::{send_extrinsic, InMemorySigner};
+use subxt_utils::{send_extrinsic_with_nonce, InMemorySigner};
 use tokio::sync::RwLock;
 
 /// Proof backend that submits proofs directly to `pallet-beefy-consensus-proofs`
@@ -76,7 +76,7 @@ impl<P: subxt::Config> OnchainBackend<P> {
 
 impl<P> OnchainBackend<P>
 where
-	P: subxt::Config + Send + Sync,
+	P: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<P>> + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
@@ -90,7 +90,23 @@ where
 		let tx = subxt::dynamic::tx("BeefyConsensusProofs", "submit_proof", vec![payload_value]);
 
 		let signer = InMemorySigner::<P>::new(self.signer.clone());
-		let result = send_extrinsic(&self.client, &signer, &tx, None).await;
+
+		// Fetch a pool-aware nonce rather than letting subxt pick one. subxt sources the auto
+		// nonce from the latest *finalized* block, which on the parachain trails the best chain
+		// by several blocks; since we only wait for in-block (not finalization) below, that auto
+		// nonce is frequently already spent by our previous proof and the node rejects the
+		// submission as `InvalidTransaction::Stale`. `system_accountNextIndex` accounts for the
+		// best block plus pending pool transactions, so it never lags behind our own submissions.
+		let account = AccountId32::from(self.signer.public().0);
+		let nonce: u64 = self
+			.rpc_client
+			.request("system_accountNextIndex", rpc_params![account.to_string()])
+			.await
+			.map_err(|e| anyhow!("system_accountNextIndex failed: {e}"))?;
+
+		// Don't wait for finalization: in-block is enough — the prover loop sleeps a block
+		// below before reading state, and uncle proofs need to race the next prover.
+		let result = send_extrinsic_with_nonce(&self.client, &signer, &tx, nonce, false).await;
 
 		// Wait one block so that load_state() on the next iteration sees the
 		// state advance written by the pallet in the previous block.
@@ -134,7 +150,7 @@ where
 #[async_trait::async_trait]
 impl<P> ProofBackend for OnchainBackend<P>
 where
-	P: subxt::Config + Send + Sync,
+	P: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<P>> + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
@@ -237,18 +253,17 @@ fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
 	let header_bytes: Vec<u8> = match proof_type {
 		PROOF_TYPE_SP1 => {
 			let proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+				<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.ok()?;
 			proof.headers.first()?.header.to_vec()
 		},
 		PROOF_TYPE_NAIVE => {
-			let proof =
-				<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
-					abi_payload,
-				)
-				.ok()?;
+			let proof = <ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+				abi_payload,
+			)
+			.ok()?;
 			proof.parachain.parachains.first()?.header.to_vec()
 		},
 		_ => return None,

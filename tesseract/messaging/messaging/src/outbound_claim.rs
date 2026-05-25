@@ -29,7 +29,7 @@
 //! 3. For each surviving (still-unclaimed) row:
 //!    - Wait for Hyperbridge's consensus client for the destination to verify a height >=
 //!      `delivery_height`.
-//!    - Build an EIP-1186 storage proof of `HandlerV2._epochs[set_id]` at that height.
+//!    - Build an EIP-1186 storage proof of `EvmHost._epochs[set_id]` at that height.
 //!    - Sign `outbound_consensus_delivery_message(set_id, destination, payee)` with the
 //!      destination's EVM key.
 //!    - Submit `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward` (unsigned) on
@@ -42,7 +42,7 @@ use anyhow::{anyhow, Context as _};
 use codec::Decode;
 use ismp::{consensus::StateMachineHeight, host::StateMachine, messaging::Proof};
 use pallet_ismp_relayer::{
-	outbound_consensus_delivery_message, OutboundConsensusDeliveryClaim, HANDLER_V2_EPOCHS_SLOT,
+	outbound_consensus_delivery_message, OutboundConsensusDeliveryClaim, EVM_HOST_EPOCHS_SLOT,
 };
 use primitive_types::{H160, U256};
 use sp_core::Pair;
@@ -66,7 +66,7 @@ const LOG_TARGET: &str = "messaging-outbound-claim";
 ///
 /// The payee is always the relayer's own Hyperbridge sr25519 account
 /// (`hyperbridge.signer.public()`) — the same account that already
-/// receives messaging fees, so all relayer earnings on HB land in one
+/// receives messaging incentives, so all relayer earnings on HB land in one
 /// place.
 pub async fn run(
 	hyperbridge: SubstrateClient<KeccakSubstrateChain>,
@@ -307,18 +307,16 @@ async fn process_claim(
 	.context("wait_for_state_machine_update")?;
 
 	// Build the 52-byte EIP-1186 key the EVM verifier expects:
-	// `handler_v2 (20) || keccak256(set_id || HANDLER_V2_EPOCHS_SLOT) (32)`.
-	// The EVM provider reads HandlerV2 from `EvmHost.hostParams().handler`
-	// so it stays in sync with whatever governance has set on chain.
+	// `evm_host (20) || keccak256(set_id || EVM_HOST_EPOCHS_SLOT) (32)`.
 	// Substrate destinations report `None` and are skipped — the claim
 	// flow is EVM-only.
-	let handler = dest.handler_v2_address().await.ok_or_else(|| {
+	let evm_host = dest.ismp_host_contract().ok_or_else(|| {
 		anyhow!(
-			"destination has no HandlerV2 address (non-EVM, or hostParams() RPC failed); \
+			"destination has no EvmHost address (non-EVM); \
 			 cannot derive _epochs[set_id] key",
 		)
 	})?;
-	let key = epochs_slot_key(handler, pending.set_id);
+	let key = epochs_slot_key(evm_host, pending.set_id);
 
 	let proof_bytes = dest
 		.query_state_proof(dest_height, StateProofQueryType::Arbitrary(vec![key]))
@@ -352,18 +350,18 @@ async fn process_claim(
 	Ok(())
 }
 
-/// 52-byte EIP-1186 storage key for `HandlerV2._epochs[set_id]`:
-/// `handler (20) || keccak256(set_id_be32 || HANDLER_V2_EPOCHS_SLOT_be32) (32)`.
+/// 52-byte EIP-1186 storage key for `EvmHost._epochs[set_id]`:
+/// `evm_host (20) || keccak256(set_id_be32 || EVM_HOST_EPOCHS_SLOT_be32) (32)`.
 /// Matches the pallet-side derivation in
 /// `process_outbound_consensus_delivery_claim` (which goes through
 /// `evm_state_machine::utils::derive_unhashed_map_key`); we use the
 /// equivalent off-chain helper from `tesseract-evm` so the hashing
 /// logic lives in one place instead of being re-implemented here.
-fn epochs_slot_key(handler: H160, set_id: u64) -> Vec<u8> {
+fn epochs_slot_key(evm_host: H160, set_id: u64) -> Vec<u8> {
 	let slot_hash =
-		derive_map_key(U256::from(set_id).to_big_endian().to_vec(), HANDLER_V2_EPOCHS_SLOT);
+		derive_map_key(U256::from(set_id).to_big_endian().to_vec(), EVM_HOST_EPOCHS_SLOT);
 	let mut key = Vec::with_capacity(52);
-	key.extend_from_slice(&handler.0);
+	key.extend_from_slice(&evm_host.0);
 	key.extend_from_slice(slot_hash.as_bytes());
 	key
 }

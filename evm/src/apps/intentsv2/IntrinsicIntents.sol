@@ -44,6 +44,9 @@ abstract contract IntrinsicIntents is IntentsBase {
      * and emits OrderFilled.
      * On partial fill: releases proportional escrow and emits PartialFill.
      *
+     * Orders that carry output calldata cannot be partially filled — they must be
+     * completed in a single fill, otherwise the call reverts with PartialFillNotAllowed.
+     *
      * @param order The order to fill.
      * @param options The fill options containing the solver's output token amounts.
      * @param commitment The keccak256 hash of the ABI-encoded order.
@@ -120,6 +123,11 @@ abstract contract IntrinsicIntents is IntentsBase {
             outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
         }
 
+        // Orders carrying output calldata must be filled completely in a single fill.
+        // The attached call is only executed on a full fill, so a partial fill would
+        // leave the intended side effect unexecuted while releasing proportional escrow.
+        if (order.output.call.length > 0 && !isFullyFilled) revert PartialFillNotAllowed();
+
         WithdrawalRequest memory body = WithdrawalRequest({
             commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
         });
@@ -127,10 +135,16 @@ abstract contract IntrinsicIntents is IntentsBase {
 
         if (isFullyFilled) {
             _execute(order, outputsLen);
-            emit OrderFilled({commitment: commitment, filler: msg.sender});
+            emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
         } else {
             delete _filled[commitment];
             emit PartialFill({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
+        }
+
+        // Refund any unspent native tokens to the solver.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
         }
     }
 

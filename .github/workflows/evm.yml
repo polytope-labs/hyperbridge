@@ -14,7 +14,7 @@ on:
             - "evm/**/*.js"
             - ".github/workflows/evm.yml"
 
-    pull_request_target:
+    pull_request:
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "evm/**/*.sol"
@@ -23,6 +23,8 @@ on:
             - "evm/**/foundry.toml"
             - "evm/**/package.json"
             - ".github/workflows/evm.yml"
+
+    workflow_dispatch:
 
 concurrency:
     group: evm-ci-${{ github.head_ref || github.ref_name }}
@@ -37,13 +39,13 @@ jobs:
     check-evm:
         name: Check EVM Contracts
         runs-on: ubuntu-latest
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         steps:
             - uses: actions/checkout@v3
               with:
                   submodules: recursive
                   token: ${{ secrets.GH_TOKEN }}
-                  ref: ${{ github.event.pull_request_target.head.sha }}
+                  ref: ${{ github.event.pull_request.head.sha }}
 
             - uses: pnpm/action-setup@v2
               with:
@@ -79,13 +81,13 @@ jobs:
     integration-tests-rust:
         name: Rust Integration Tests (revm)
         runs-on: ubuntu-latest
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         steps:
             - uses: actions/checkout@v3
               with:
                   submodules: recursive
                   token: ${{ secrets.GH_TOKEN }}
-                  ref: ${{ github.event.pull_request_target.head.sha }}
+                  ref: ${{ github.event.pull_request.head.sha }}
 
             - uses: pnpm/action-setup@v2
               with:
@@ -139,5 +141,5 @@ jobs:
                       exit 0
                   fi
                   cargo test -p evm-integration-tests --release \
-                      tests::beefy_v1::test_beefy_consensus_client \
+                      tests::ecdsa_beefy::test_beefy_consensus_client \
                       -- --ignored --nocapture

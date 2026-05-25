@@ -25,7 +25,7 @@ pallet-ismp-host-executive = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 
-ismp-solidity-abi = {workspace = true, default-features = true }
+ismp-abi = {workspace = true, default-features = true, features = ["test-helpers"] }
 alloy-primitives = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }
 alloy-sol-macro = { workspace = true }

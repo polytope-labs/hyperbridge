@@ -26,7 +26,7 @@ struct DispatchGet {
     bytes[] keys;
     // timeout for this request in seconds
     uint64 timeout;
-    // Hyperbridge protocol fees for processing this request.
+    // Optional relayer fee for delivering the response back to the source chain
     uint256 fee;
     // Application-specific metadata
     bytes context;
@@ -41,7 +41,7 @@ struct DispatchGet {
 | `height` | Block height at which to read the state. Only heights available on hyperbridge can be used.  |
 | `keys` | Array of storage keys to read. See the Storage Keys section for how to construct keys for different chain types. |
 | `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. If the timeout is set to a non-zero value, requests that have exceeded this timeout will be rejected. |
-| `fee` | Hyperbridge protocol fees for processing the request. |
+| `fee` | Optional relayer fee for delivering the response back to the source chain. Set to zero if self-relaying the `GetResponse`. |
 | `context` | Application-specific metadata that will be available in the `onGetResponse` callback. Use this to track which request is which. |
 
 ## Dispatching a GET Request
@@ -368,7 +368,7 @@ import { SubstrateChain } from "@hyperbridge/sdk"
 
 const hyperbridge = await SubstrateChain.connect({
   stateMachineId: "POLKADOT-3367",
-  wsUrl: "wss://nexus.ibp.network",
+  wsUrl: "wss://nexus.rpc.polytope.technology",
   consensusStateId: "DOT0",
   hasher: "Keccak"
 })
@@ -384,39 +384,7 @@ console.log(`Latest Ethereum height: ${latestHeight}`)
 
 ## Fees
 
-Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol. These protocol fees are **non-refundable** even if the request times out. 
-
-### Protocol Fee Calculation
-
-Currently, GET request fees are calculated with a minimum fee and context-based component, **In the future this may change**. The per-byte fee is queried from Hyperbridge (the host), and the actual fee is the maximum of either the minimum fee (32 bytes worth) or the context-based fee:
-
-```solidity lineNumbers
-uint256 perByteFee = perByteFee(host()); // Hyperbridge per-byte fee
-uint256 minimumFee = 32 * perByteFee;     // Minimum charge (one word)
-uint256 totalFee = get.fee + (perByteFee * context.length);
-uint256 actualFee = minimumFee > totalFee ? minimumFee : totalFee;
-```
-
-The `get.fee` parameter can be set to 0, making the total fee dependent only on the context size. However, even with an empty context, you'll always pay the minimum fee of 32 bytes. Larger context data increases fees linearly based on the per-byte fee.
-
-### Calculating Fees
-
-You can calculate the exact fee before dispatching by querying the per-byte fee for Hyperbridge and applying the formula above. To optimize fees, minimize your context size by using compact encoding and only including essential data. Also consider batching multiple storage keys into a single GET request rather than making multiple requests.
-
-```solidity lineNumbers
-// Query the per-byte fee for Hyperbridge (the host)
-bytes memory host = IDispatcher(hostAddr).host();
-uint256 perByteFee = IDispatcher(hostAddr).perByteFee(host);
-
-// Calculate minimum fee (32 bytes)
-uint256 minimumFee = 32 * perByteFee;
-
-// Calculate total fee based on context
-uint256 totalFee = 0 + (perByteFee * context.length); // get.fee = 0
-
-// Actual fee is the maximum
-uint256 actualFee = minimumFee > totalFee ? minimumFee : totalFee;
-```
+GET request fees are optional relayer fees that incentivize third-party relayers to deliver the GET response back to the source chain. If your application prefers to self-relay the `GetResponse`, you can set the fee to zero.
 
 ## Payment Methods
 
@@ -429,7 +397,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
 <Callout type="info">
-For testing purposes on testnet, you can use the testnet fee token, [Hyper USD](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177). The contract address is the same across several EVM chains. Check out the [guide](/developers/guides/testnet-fee-token) on how to get the token. 
+For testing purposes on testnet, you can use the testnet fee token, [Hyper USD](https://sepolia.etherscan.io/address/0xBe97E73126d66188d72FBf99029126d0340a7f18). The contract address is the same across several EVM chains. Check out the [guide](/developers/guides/testnet-fee-token) on how to get the token. 
 </Callout>
 
 ### Fee Token Payment (Recommended)
@@ -451,7 +419,8 @@ contract MyApp is HyperApp {
             keys: keys,
             timeout: 3600,
             fee: 0,
-            context: context
+            context: context,
+            payer: payer
         });
         
         // Automatically handles:
@@ -459,7 +428,7 @@ contract MyApp is HyperApp {
         // - Token transfer from payer
         // - Host approval
         // - Dispatch
-        return dispatchWithFeeToken(getRequest, payer);
+        return dispatchWithFeeToken(getRequest);
     }
 }
 ```
@@ -520,7 +489,7 @@ const getRequest = {
 const nativeCost = await publicClient.readContract({
   address: myAppAddress,
   abi: hyperAppAbi,
-  functionName: 'quoteNative',
+  functionName: 'quote',
   args: [getRequest]
 })
 
@@ -538,7 +507,7 @@ console.log(`Fee in fee token: ${feeTokenCost}`)
 ```
 
 <Callout type="warning" title="Estimate Fees Off-Chain">
-Use the `quoteNative()` view function from your frontend to estimate how much native token users need to send. **Do not call `quoteNative()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
+Use the `quote()` view function from your frontend to estimate how much native token users need to send. **Do not call `quote()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
 </Callout>
 
 
@@ -608,19 +577,20 @@ Your contract must implement [`onGetTimeout()`](/developers/evm/api/iapp#ongetti
 
 ```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
-    function onGetTimeout(GetRequest memory request)
+    function onGetTimeout(GetRequestTimeout memory incoming)
         external
         override
         onlyHost
     {
-        // Clean up any pending state associated with the request
-        bytes32 commitment = request.hash();
-        
+        // `incoming.request` is the timed-out GET request.
+        // `incoming.relayer` is the relayer that submitted the timeout proof.
+        bytes32 commitment = incoming.request.hash();
+
         // Remove tracked request
         delete pendingRequests[commitment];
-        
+
         // Emit event for off-chain tracking
-        emit GetRequestTimedOut(commitment, request.dest, request.keys);
+        emit GetRequestTimedOut(commitment, incoming.request.dest, incoming.request.keys);
     }
 }
 ```

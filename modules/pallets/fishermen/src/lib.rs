@@ -13,17 +13,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Enables fishermen keep hyperbridge safe by vetoing fraudulent state commitments.
+//! Enables collators keep hyperbridge safe by vetoing fraudulent state
+//! commitments. The set of accounts allowed to veto is the active collator
+//! set, sourced from the runtime's `IsCollator` predicate.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
+pub use extension::PrioritizeVeto;
 pub use pallet::*;
 use polkadot_sdk::*;
+
+mod extension;
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::pallet_prelude::*;
+	use frame_support::{dispatch::Pays, pallet_prelude::*, traits::Contains};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		consensus::{StateCommitment, StateMachineHeight},
@@ -41,16 +46,15 @@ pub mod pallet {
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
 
-		/// Origin for privileged actions
-		type FishermenOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+		/// Predicate that returns true when an account is currently entitled to
+		/// submit a veto. Runtimes wire this to the active collator set
+		/// (e.g. session validators intersected with collator-manager
+		/// controllers).
+		type IsCollator: Contains<Self::AccountId>;
 	}
 
-	/// Set of whitelisted fishermen accounts
-	#[pallet::storage]
-	#[pallet::getter(fn whitelist)]
-	pub type Fishermen<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, (), OptionQuery>;
-
-	/// Set of whitelisted fishermen accounts
+	/// Heights with a single recorded veto, awaiting a second distinct collator
+	/// to finalize the veto.
 	#[pallet::storage]
 	#[pallet::getter(fn pending_vetoes)]
 	pub type PendingVetoes<T: Config> =
@@ -58,28 +62,21 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Account Already Whitelisted
-		AlreadyAdded,
-		/// Account wasn't found in the set.
-		NotInSet,
-		/// An account not in the fishermen set attempted to execute a veto
+		/// Caller is not in the active collator set.
 		UnauthorizedAction,
-		/// State commitment was not found
+		/// State commitment was not found.
 		VetoFailed,
-		/// Invalid veto request
+		/// Invalid veto request (e.g. same collator submitted twice).
 		InvalidVeto,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// An account `account` has been added to the fishermen set.
-		Added { account: T::AccountId },
-		/// An account `account` has been removed from the fishermen set.
-		Removed { account: T::AccountId },
-		/// The provided state commitment was vetoed `state_machine` is by account
+		/// The provided state commitment was vetoed at `height`.
 		StateCommitmentVetoed { height: StateMachineHeight, commitment: StateCommitment },
-		/// The vetoe has been noted by the runtime
+		/// A first veto for `height` has been noted, awaiting a second distinct
+		/// collator to finalize.
 		VetoNoted { height: StateMachineHeight, fisherman: T::AccountId },
 	}
 
@@ -88,45 +85,22 @@ pub mod pallet {
 	where
 		T::AccountId: AsRef<[u8]>,
 	{
-		/// Adds a new fisherman to the set
+		/// A collator has determined that some [`StateCommitment`] (which is ideally still in its
+		/// challenge period) is in fact fraudulent and misrepresentative of the state changes at
+		/// the provided height. This allows them to veto the state commitment. They aren't
+		/// required to provide any proofs for this. Successful veto requires two distinct
+		/// collators.
+		///
+		/// Dispatches with `Pays::No`. The on-chain `IsCollator` check is the DOS guard, so the
+		/// signer does not need to hold a balance.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
-			T::FishermenOrigin::ensure_origin(origin)?;
-
-			ensure!(!Fishermen::<T>::contains_key(&account), Error::<T>::AlreadyAdded);
-			Fishermen::<T>::insert(&account, ());
-
-			Self::deposit_event(Event::Added { account });
-			Ok(())
-		}
-
-		/// Removes a fisherman from the set
-		#[pallet::call_index(1)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn remove(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
-			T::FishermenOrigin::ensure_origin(origin)?;
-
-			ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::NotInSet);
-			Fishermen::<T>::remove(&account);
-
-			Self::deposit_event(Event::Removed { account });
-			Ok(())
-		}
-
-		/// A fisherman has determined that some [`StateCommitment`] (which is ideally still in it's
-		/// challenge period) is infact fraudulent and misrepresentative of the state
-		/// changes at the provided height. This allows them to veto the state commitment.
-		/// They aren't required to provide any proofs for this.
-		/// Successful veto requires two fishermen
-		#[pallet::call_index(2)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3))]
+		#[pallet::weight((<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3), Pays::No))]
 		pub fn veto_state_commitment(
 			origin: OriginFor<T>,
 			height: StateMachineHeight,
 		) -> DispatchResult {
-			let account = ensure_signed(origin.clone())?;
-			ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
+			let account = ensure_signed(origin)?;
+			ensure!(T::IsCollator::contains(&account), Error::<T>::UnauthorizedAction);
 
 			if let Some(prev_veto) = PendingVetoes::<T>::get(height) {
 				if account == prev_veto {

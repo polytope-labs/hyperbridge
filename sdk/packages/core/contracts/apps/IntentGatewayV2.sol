@@ -114,7 +114,7 @@ struct DestinationFee {
     /// 10000 = 100%, 5000 = 50%, etc.
     uint256 destinationFeeBps;
     /// @dev The state machine ID associated with the destination fee.
-    bytes32 stateMachineId;
+    bytes chain;
 }
 
 /**
@@ -176,15 +176,15 @@ struct CancelOptions {
     /// @dev The fee paid to the relayer for processing transactions.
     uint256 relayerFee;
     /// @dev Stores the height value.
-    uint256 height;
+    uint64 height;
 }
 
 /**
  * @dev Request from hyperbridge for adding a new deployment of IntentGateway
  */
-struct NewDeployment {
+struct Deployment {
     /// @dev Identifier for the state machine.
-    bytes stateMachineId;
+    bytes chain;
     /// @dev An address variable to store the gateway identifier.
     address gateway;
 }

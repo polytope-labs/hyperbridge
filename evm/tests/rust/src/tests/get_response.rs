@@ -2,9 +2,9 @@ use super::utils::*;
 use alloy_primitives::{FixedBytes, U256};
 use ismp::{
 	host::StateMachine,
-	router::{self, Response, StorageValue},
+	router::{self, StorageValue},
 };
-use ismp_solidity_abi::handler::{GetResponseLeaf, GetResponseMessage, Proof};
+use ismp_abi::handler::{GetResponseLeaf, GetResponseMessage, Proof};
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::Leaf;
 use polkadot_sdk::*;
@@ -31,7 +31,7 @@ fn test_get_response() {
 	let values = vec![StorageValue { key, value: Some(H256::random().as_bytes().to_vec()) }];
 	let response = router::GetResponse { get: get.clone(), values };
 
-	let leaf = DataOrHash::Data(Leaf::Response(Response::Get(response.clone())));
+	let leaf = DataOrHash::Data(Leaf::GetResponse(response.clone()));
 	let (overlay_root, proof) = initialize_mmr_tree(leaf, 10).unwrap();
 
 	let consensus_proof = TestEnv::encode_consensus_proof(
@@ -43,7 +43,7 @@ fn test_get_response() {
 		U256::ZERO,
 	);
 
-	let mut sol_get: ismp_solidity_abi::evm_host::EvmHost::GetRequest = get.into();
+	let mut sol_get: ismp_abi::evm_host::EvmHost::GetRequest = get.into();
 
 	let message = GetResponseMessage {
 		proof,

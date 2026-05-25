@@ -118,7 +118,6 @@ impl<T> IsmpModule for Pallet<T> {
 	fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
         // Here you would perform validations on the post request data
         // Ensure it can be executed successfully before making any state changes
-        // You can also dispatch a post response after execution
         Self::deposit_event(Event::<T>::MessageReceived);
 		Ok(())
 	}
@@ -144,17 +143,9 @@ impl<T> IsmpModule for Pallet<T> {
 Now the pallet needs to be added to the runtime and also the `IsmpRouter`.
 
 ```rust showLineNumbers
-impl pallet_hyperbridge::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type IsmpHost = Ismp;
-}
-
 impl pallet_example::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // you can either use pallet_ismp or
-	// pallet_hyperbridge depending on your
-	// fee payment strategy
-    type IsmpDispatcher = pallet_hyperbridge::Pallet<Runtime>;
+    type IsmpDispatcher = pallet_ismp::Pallet<Runtime>;
 }
 
 // ... omitted impl blocks
@@ -162,7 +153,6 @@ impl pallet_example::Config for Runtime {
 construct_runtime! {
     // ...
     Ismp: pallet_ismp,
-    Hyperbridge: pallet_hyperbridge,
     Example: pallet_example
 }
 
@@ -172,7 +162,6 @@ struct ModuleRouter;
 impl IsmpRouter for ModuleRouter {
     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
         return match id.as_slice() {
-            PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
             id if id == EXAMPLE_MODULE_ID.to_bytes().as_slice() => Ok(Box::new(pallet_ismp::pallet_example::Pallet::<Runtime>::default()))
             // ... other modules
             _   => Err(Error::ModuleNotFound(id)),
@@ -180,6 +169,8 @@ impl IsmpRouter for ModuleRouter {
     }
 }
 ```
+
+`pallet-ismp` ships with a built-in `RefundingRouter` that wraps your `IsmpRouter`. It intercepts the reserved module id `b"HYPR-FEE"` to process relayer fee withdrawals initiated by Hyperbridge governance, and refunds escrowed relayer fees on timeout. No additional configuration is required.
 
 ## Security Considerations
 

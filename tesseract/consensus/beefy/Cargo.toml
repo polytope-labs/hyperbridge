@@ -35,7 +35,7 @@ pallet-ismp-rpc = { workspace = true }
 pallet-beefy-consensus-proofs = { workspace = true }
 ismp = { workspace = true }
 ismp-beefy = { workspace = true }
-ismp-solidity-abi = { workspace = true }
+ismp-abi = { workspace = true }
 substrate-state-machine = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }

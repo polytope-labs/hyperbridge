@@ -1,11 +1,11 @@
 ---
 title: Dispatching Messages
-description: This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages.
+description: This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 2 different kinds of cross-chain messages.
 ---
 
-# Dispatching Requests & Responses
+# Dispatching Requests
 
-This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages. We'll explore each of them Below.
+This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 2 different kinds of cross-chain messages. We'll explore each of them Below.
 
 ## POST Requests
 
@@ -51,7 +51,7 @@ trait IsmpDispatcher  {
 | `to` | Receiving module/contract address on the destination chain. |
 | `body` | Serialized byte representation of the message (to be decoded by the receiving contract). |
 | `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
-| `fee` | Optional relayer fees, should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. This can be set to zero if the application developers or users prefer to self-relay. If not this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`. |
+| `fee` | Optional relayer fee. Can be set to zero if the application developers or users prefer to self-relay. If non-zero, this is withdrawn from the `Currency` implementation configured on `pallet-ismp` and escrowed for the relayer that delivers the message (or refunded to the payer on timeout). |
 | `payer` | The account that should receive a refund of the relayer fees if the request times out. |
 
 ```rust showLineNumbers
@@ -66,63 +66,6 @@ pub fn send_message(
     let dispatcher = pallet_ismp::Pallet::<Runtime>::default();
     let commitment = dispatcher.dispatch_request(
         DispatchRequest::Post(post),
-        FeeMetadata {
-            payer: signer,
-            fee,
-        }
-    )?;
-
-    Ok(())
-}
-```
-
-## POST Responses
-
-Dispatching a POST response, going by it's name is, well, a response to a previously received POST request. Dispatching a POST response requires that the module has indeed received a post request from a counterparty chain in a previous transaction.
-
-```rust showLineNumbers
-pub struct PostResponse {
-    pub post: PostRequest,
-    pub response: Vec<u8>,
-    pub timeout_timestamp: u64,
-}
-
-trait IsmpDispatcher {
-    fn dispatch_response(
-        &self,
-        request: PostResponse,
-        fee: FeeMetadata<T>,
-    ) -> Result<H256, Error>;
-
-    // ...
-}
-```
-### Dispatch Parameters
-
-| Parameter | Description |
-|-----------|-------------|
-| `post` | The previously received request object. The full object is required to authenticate if the response is eligible for dispatch. |
-| `response` | Serialized byte representation of the response message (to be decoded by the receiving contract). |
-| `timeout_timestamp` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
-| `fee` | Optional relayer fees, should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. This can be set to zero if the application developers or users prefer to self-relay. If not this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`. |
-| `payer` | The account that should receive a refund of the relayer fees if the request times out. |
-
-```rust showLineNumbers
-#[pallet::weight(T::dispatch())]
-#[pallet::call_index(0)]
-pub fn send_response(
-    origin: OriginFor<T>,
-    request: PostRequest,
-    fee: T::Balance,
-) -> DispatchResultWithPostInfo {
-    let signer = ensure_signed(origin)?;
-    let dispatcher = pallet_ismp::Pallet::<Runtime>::default();
-    let commitment = dispatcher.dispatch_response(
-        PostResponse {
-            post: request, 
-            response: *b"Hello there".to_vec(),
-            timeout_timestamp: 0, // no timeout
-        },
         FeeMetadata {
             payer: signer,
             fee,
@@ -179,7 +122,7 @@ trait IsmpDispatcher  {
 | `keys` | Storage keys whose values should be fetched and verified. See the Storage Keys section below for detailed guidance on deriving keys for different chain types. |
 | `context` | Application-specific metadata relating to this request. This can be used to pass additional context that will be available in the response callback. |
 | `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
-| `fee` | Hyperbridge protocol fees for processing the request. This should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. If non-zero this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`. |
+| `fee` | Optional relayer fee for delivering the GET response back to the source chain. Set to zero if self-relaying the response. If non-zero, this is withdrawn from the `Currency` implementation configured on `pallet-ismp` and escrowed for the relayer. |
 | `payer` | The account initiating this request. |
 
 ### Storage Keys

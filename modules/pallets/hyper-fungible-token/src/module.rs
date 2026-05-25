@@ -25,12 +25,12 @@ use codec::{Decode, Encode};
 use frame_support::traits::{
 	fungibles::{self, Mutate},
 	tokens::Preservation,
-	Currency, ExistenceRequirement,
+	Contains, Currency, ExistenceRequirement,
 };
 use frame_system::RawOrigin;
 use ismp::{
 	module::IsmpModule,
-	router::{PostRequest, Request, Response, Timeout},
+	router::{GetResponse, PostRequest, Request},
 };
 use polkadot_sdk::*;
 use sp_core::{Get, H160, U256};
@@ -56,8 +56,7 @@ where
 			.ok_or(HftError::UnknownSourceContract(source))?;
 
 		// Decode the Message
-		let message = Message::abi_decode(&body)
-			.map_err(HftError::DecodeError)?;
+		let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 		// Convert recipient bytes to substrate AccountId
 		// If 32 bytes: use directly. If 20 bytes: left-pad with zeros.
@@ -82,7 +81,9 @@ where
 		};
 		let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), source)
 			.ok_or(HftError::DecimalsNotConfigured(source))?;
-		let amount = convert_to_balance::<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>(
+		let amount = convert_to_balance::<
+			<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
+		>(
 			U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
 			erc_decimals,
 			decimals,
@@ -130,9 +131,10 @@ where
 					MultiSignature::Ed25519(sig) => {
 						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							HftError::SignatureVerificationFailed
-						})?;
+						let pub_key = beneficiary_bytes
+							.as_slice()
+							.try_into()
+							.map_err(|_| HftError::SignatureVerificationFailed)?;
 						if !sp_io::crypto::ed25519_verify(&sig, msg.as_ref(), &pub_key) {
 							Err(HftError::SignatureVerificationFailed)?
 						}
@@ -140,9 +142,10 @@ where
 					MultiSignature::Sr25519(sig) => {
 						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							HftError::SignatureVerificationFailed
-						})?;
+						let pub_key = beneficiary_bytes
+							.as_slice()
+							.try_into()
+							.map_err(|_| HftError::SignatureVerificationFailed)?;
 						if !sp_io::crypto::sr25519_verify(&sig, msg.as_ref(), &pub_key) {
 							Err(HftError::SignatureVerificationFailed)?
 						}
@@ -166,8 +169,7 @@ where
 							Err(HftError::SignatureVerificationFailed)?
 						}
 					},
-					MultiSignature::Eth(_) =>
-						Err(HftError::EthSignatureUnsupported)?,
+					MultiSignature::Eth(_) => Err(HftError::EthSignatureUnsupported)?,
 				};
 
 				beneficiary.clone()
@@ -186,6 +188,12 @@ where
 
 			let runtime_call = T::RuntimeCall::decode(&mut &*substrate_data.runtime_call)
 				.map_err(HftError::RuntimeCallDecodeError)?;
+			// Apply the runtime's base call filter so that cross-chain calls cannot
+			// reach dispatchables that the runtime has otherwise filtered out (e.g.
+			// during a maintenance mode or a SafeMode period).
+			if !<T as frame_system::Config>::BaseCallFilter::contains(&runtime_call) {
+				Err(HftError::CallFiltered)?
+			}
 			use sp_runtime::traits::Dispatchable;
 			runtime_call
 				.dispatch(RawOrigin::Signed(origin.clone()).into())
@@ -203,17 +211,14 @@ where
 		Ok(T::DbWeight::get().reads_writes(5, 2))
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(HftError::ResponsesNotSupported)?
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, request: Request) -> Result<Weight, anyhow::Error> {
 		match request {
-			Timeout::Request(Request::Post(PostRequest {
-				body, to, dest, ..
-			})) => {
-				let message = Message::abi_decode(&body)
-					.map_err(HftError::DecodeError)?;
+			Request::Post(PostRequest { body, to, dest, .. }) => {
+				let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 				// Refund the original sender
 				let from_bytes = message.from.as_ref();
@@ -240,7 +245,9 @@ where
 				};
 				let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), dest)
 					.ok_or(HftError::DecimalsNotConfigured(dest))?;
-				let amount = convert_to_balance::<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>(
+				let amount = convert_to_balance::<
+					<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
+				>(
 					U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
 					erc_decimals,
 					decimals,
@@ -284,8 +291,7 @@ where
 				});
 				Ok(T::DbWeight::get().reads_writes(5, 2))
 			},
-			Timeout::Request(Request::Get(_)) => Err(HftError::UnsupportedTimeoutType)?,
-			Timeout::Response(_) => Err(HftError::UnsupportedTimeoutType)?,
+			Request::Get(_) => Err(HftError::UnsupportedTimeoutType)?,
 		}
 	}
 }

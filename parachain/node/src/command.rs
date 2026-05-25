@@ -358,6 +358,7 @@ pub fn run() -> Result<()> {
 			let mut runner = cli.create_runner(&cmd.rest.run.normalize())?;
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
+			let tesseract_config = cmd.tesseract_config.clone();
 
 			match config.chain_spec.id() {
 				chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -377,6 +378,34 @@ pub fn run() -> Result<()> {
 						let watcher_pool = pool.clone();
 						let watcher_cache = bid_cache.clone();
 						let watcher_sender = bid_sender.clone();
+						let is_authority = config.role.is_authority();
+
+						// Preflight the config now and defer the spawn until
+						// after start_simnode opens the RPC. Same rationale as
+						// the production path in service.rs.
+						let fisherman_path = if is_authority {
+							match tesseract_config.as_ref() {
+								Some(path) => {
+									hyperbridge_fisherman::load_and_validate(path)
+										.await
+										.map_err(|e| {
+											sc_service::Error::Other(format!(
+												"invalid tesseract config: {e:?}"
+											))
+										})?;
+									Some(path.clone())
+								},
+								None => None,
+							}
+						} else {
+							if tesseract_config.is_some() {
+								log::info!(
+									target: "fisherman",
+									"--tesseract-config provided to a non-authority simnode; ignoring (fisherman only runs on collators)",
+								);
+							}
+							None
+						};
 
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
@@ -417,6 +446,25 @@ pub fn run() -> Result<()> {
 								std::time::Duration::from_secs(180),
 							),
 						);
+
+						// start_simnode has brought the local RPC up, so the
+						// fisherman dial against `[hyperbridge].rpc_ws` is
+						// safe even when it loops back to this node. Simnode
+						// is a single instant-seal node with nothing to sync,
+						// so the spawn runs directly rather than behind the
+						// production sync watcher.
+						if let Some(path) = fisherman_path {
+							hyperbridge_fisherman::spawn(
+								&path,
+								task_manager.spawn_essential_handle(),
+							)
+							.await
+							.map_err(|e| {
+								sc_service::Error::Other(format!(
+									"failed to spawn fisherman task: {e:?}"
+								))
+							})?;
+						}
 
 						Ok(task_manager)
 					})
@@ -471,6 +519,7 @@ pub fn run() -> Result<()> {
 					collator_options,
 					id,
 					hwbench,
+					cli.tesseract_config.clone(),
 				)
 				.await
 				.map_err(Into::into)

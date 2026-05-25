@@ -56,7 +56,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 
 use alloc::borrow::Cow;
@@ -161,6 +161,7 @@ pub type SignedExtra = (
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+	pallet_fishermen::PrioritizeVeto<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -183,9 +184,9 @@ pub type Executive = frame_executive::Executive<
 /// All runtime migrations executed on each runtime upgrade in order.
 pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
-	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
-	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
+	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -248,7 +249,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 6_300,
+	spec_version: 7_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -376,7 +377,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<Everything, TxPause>;
+	type BaseCallFilter = InsideBoth<ReputationCallFilter, InsideBoth<Everything, TxPause>>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -762,6 +763,30 @@ parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
 
+/// Reputation tokens are soulbound — credited via the incentive pallets
+/// and consumed only by `pallet-collator-manager`'s per-session reset.
+/// The holder must not be able to send them anywhere, so this filter
+/// rejects every dispatched `Assets` call that could move balance out
+/// of a holder's account when the target asset is the reputation asset.
+/// Programmatic `fungible::Mutate` (mint / burn from runtime pallets)
+/// bypasses dispatch and is therefore unaffected.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
@@ -777,13 +802,6 @@ parameter_types! {
 	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
-parameter_types! {
-	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
-	];
-}
-
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -792,10 +810,14 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
-	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
+}
+
+impl pallet_messaging_incentives::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -885,16 +907,12 @@ mod runtime {
 	pub type CallDecompressor = pallet_call_decompressor;
 	#[runtime::pallet_index(58)]
 	pub type Assets = pallet_assets;
-	#[runtime::pallet_index(59)]
-	pub type TokenGovernor = pallet_token_governor;
 	#[runtime::pallet_index(60)]
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(61)]
 	pub type Fishermen = pallet_fishermen;
 	#[runtime::pallet_index(65)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
-	#[runtime::pallet_index(62)]
-	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(63)]
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(64)]
@@ -917,10 +935,15 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[cfg(not(feature = "no-bandwidth"))]
+	#[runtime::pallet_index(87)]
+	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(90)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(91)]
 	pub type HyperFungibleToken = pallet_hyper_fungible_token;
+	#[runtime::pallet_index(92)]
+	pub type MessagingIncentives = pallet_messaging_incentives;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -1176,7 +1199,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}
@@ -1205,7 +1228,7 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(
-			block: Block,
+			block: <Block as sp_runtime::traits::Block>::LazyBlock,
 			state_root_check: bool,
 			signature_check: bool,
 			select: frame_try_runtime::TryStateSelect,
@@ -1306,7 +1329,8 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-				frame_metadata_hash_extension::CheckMetadataHash::new(false)
+				frame_metadata_hash_extension::CheckMetadataHash::new(false),
+				pallet_fishermen::PrioritizeVeto::<Runtime>::new(),
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());

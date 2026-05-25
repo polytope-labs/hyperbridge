@@ -1,10 +1,11 @@
 mod child_trie_proof_check;
+mod pallet_bandwidth;
 mod pallet_call_decompressor;
 mod pallet_fishermen;
-mod pallet_hyperbridge;
 mod pallet_ismp;
 mod pallet_ismp_host_executive;
 mod pallet_ismp_relayer;
+mod pallet_state_coprocessor;
 
 mod common;
 mod ismp_pharos;
@@ -13,7 +14,6 @@ mod pallet_collator_manager;
 mod pallet_consensus_incentives;
 mod pallet_hyper_fungible_token;
 mod pallet_ismp_beefy;
-mod pallet_messaging_fees;
-mod pallet_token_gateway;
+mod pallet_messaging_incentives;
 mod pharos_state_machine;
 mod substrate_evm_state_machine;

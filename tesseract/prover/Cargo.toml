@@ -1,0 +1,25 @@
+[package]
+name = "tesseract-prover"
+version = "2.0.1"
+edition = "2021"
+description = "Standalone BEEFY consensus prover daemon"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[[bin]]
+name = "tesseract-prover"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.75"
+toml = "0.7.4"
+clap = { version = "4.3.5", features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+rustls = { version = "0.23.23", features = ["ring"] }
+subxt-utils = { workspace = true }
+
+tesseract-beefy = { workspace = true }
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true }
+
+zk-beefy = { path = "../consensus/beefy/zk" }

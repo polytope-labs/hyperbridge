@@ -7,8 +7,8 @@ use std::{
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{Request, RequestResponse, Response},
+	messaging::{hash_request, Message, Proof, RequestMessage},
+	router::Request,
 };
 use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query, TxResult};
 use transaction_fees::TransactionPayment;
@@ -103,37 +103,6 @@ pub async fn retry_unprofitable_messages(
 						unbatched_messages.push((Message::Request(_msg), id))
 					}
 				},
-				Message::Response(ResponseMessage {
-					datagram: RequestResponse::Response(responses),
-					proof: batch_proof,
-					..
-				}) =>
-					for resp in responses {
-						let hash = hash_response::<Hasher>(&resp);
-
-						let query = Query {
-							source_chain: resp.source_chain(),
-							dest_chain: resp.dest_chain(),
-							nonce: resp.nonce(),
-							commitment: hash,
-						};
-
-						let proof = hyperbridge
-							.query_responses_proof(
-								batch_proof.height.height,
-								vec![query],
-								dest.state_machine_id().state_id,
-							)
-							.await?;
-
-						let _msg = ResponseMessage {
-							datagram: RequestResponse::Response(vec![resp.clone()]),
-							proof: Proof { height: batch_proof.height, proof },
-							signer: dest.address(),
-						};
-
-						unbatched_messages.push((Message::Response(_msg), id))
-					},
 				_ => {},
 			}
 		}
@@ -141,77 +110,42 @@ pub async fn retry_unprofitable_messages(
 		if !unbatched_messages.is_empty() {
 			tracing::trace!(target: crate::LOG_TARGET, "Starting retries of previously unprofitable or failed messages");
 			let mut request_messages = vec![];
-			let mut response_messages = vec![];
 			let mut ids = BTreeSet::new();
 			let mut request_queries = vec![];
-			let mut response_queries = vec![];
 			let mut post_requests = vec![];
-			let mut post_responses = vec![];
 			// Store the highest proof height in this variable
 			let mut state_machine_height: Option<StateMachineHeight> = None;
-			unbatched_messages.into_iter().for_each(|(message, id)| {
-				match message {
-					Message::Request(msg) => {
-						let post = msg.requests.get(0).cloned().expect(
+			unbatched_messages.into_iter().for_each(|(message, id)| match message {
+				Message::Request(msg) => {
+					let post = msg.requests.get(0).cloned().expect(
 							"Inconsistent Database, withdraw all fees and  restart relayer with a fresh database",
 						);
-						let query = {
-							let req = Request::Post(post.clone());
-							let hash = hash_request::<Hasher>(&req);
+					let query = {
+						let req = Request::Post(post.clone());
+						let hash = hash_request::<Hasher>(&req);
 
-							Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment: hash,
-							}
-						};
-						if let Some(state_machine_height) = state_machine_height.as_mut() {
-							if msg.proof.height.height > state_machine_height.height {
-								*state_machine_height = msg.proof.height
-							}
-						} else {
-							state_machine_height = Some(msg.proof.height)
+						Query {
+							source_chain: req.source_chain(),
+							dest_chain: req.dest_chain(),
+							nonce: req.nonce(),
+							commitment: hash,
 						}
-						post_requests.push(post);
-						request_messages.push(Message::Request(msg));
-						request_queries.push(query);
-						ids.insert(id);
-					},
-					Message::Response(msg) => match &msg.datagram {
-						ismp::router::RequestResponse::Response(responses) => {
-							let post_response = match responses.get(0).cloned().expect(
-								"Inconsistent Database, withdraw all fees and restart relayer with a fresh database",
-							) {
-								Response::Post(post_response) => post_response,
-								Response::Get(_) =>
-									panic!("Inconsistent Db, withdraw all fees and restart relayer with a fresh database"),
-							};
-							let resp = Response::Post(post_response);
-							let hash = hash_response::<Hasher>(&resp);
-
-							let query = Query {
-								source_chain: resp.source_chain(),
-								dest_chain: resp.dest_chain(),
-								nonce: resp.nonce(),
-								commitment: hash,
-							};
-							if let Some(state_machine_height) = state_machine_height.as_mut() {
-								if msg.proof.height.height > state_machine_height.height {
-									*state_machine_height = msg.proof.height
-								}
-							} else {
-								state_machine_height = Some(msg.proof.height)
-							}
-							post_responses.push(resp);
-							response_messages.push(Message::Response(msg));
-							response_queries.push(query);
-							ids.insert(id);
-						},
-						_ => panic!("Inconsistent Db, withdraw all fees and restart relayer with a fresh database"),
-					},
-					_ => panic!("Inconsistent Db, withdraw all fees and restart relayer with a fresh database"),
-				}
+					};
+					if let Some(state_machine_height) = state_machine_height.as_mut() {
+						if msg.proof.height.height > state_machine_height.height {
+							*state_machine_height = msg.proof.height
+						}
+					} else {
+						state_machine_height = Some(msg.proof.height)
+					}
+					post_requests.push(post);
+					request_messages.push(Message::Request(msg));
+					request_queries.push(query);
+					ids.insert(id);
+				},
+				_ => panic!(
+					"Inconsistent Db, withdraw all fees and restart relayer with a fresh database"
+				),
 			});
 
 			let mut outgoing_messages = vec![];
@@ -292,81 +226,6 @@ pub async fn retry_unprofitable_messages(
 				},
 			}
 
-			match return_successful_queries(
-				dest.clone(),
-				response_messages,
-				response_queries,
-				config.minimum_profit_percentage,
-				coprocessor,
-				&client_map,
-				config.deliver_failed.unwrap_or_default(),
-				None,
-			)
-			.await
-			{
-				Ok(response_profitablility) => {
-					let post_responses: Vec<_> =
-						post_responses
-							.into_iter()
-							.zip(response_profitablility.queries.iter())
-							.filter_map(|(current_resp, current_query)| {
-								if current_query.is_some() {
-									Some(current_resp)
-								} else {
-									None
-								}
-							})
-							.collect();
-
-					let successful_queries: Vec<Query> = response_profitablility
-						.queries
-						.into_iter()
-						.filter_map(|query| query)
-						.collect();
-
-					if !successful_queries.is_empty() {
-						tracing::trace!(
-							target: crate::LOG_TARGET, "Unprofitable Messages Retries: Querying response proof for batch length {}",
-							successful_queries.len()
-						);
-						let chunks = chunk_size(dest.state_machine_id().state_id);
-						let query_chunks = successful_queries.chunks(chunks);
-						let post_response_chunks = post_responses.chunks(chunks);
-						for (queries, post_responses) in
-							query_chunks.into_iter().zip(post_response_chunks)
-						{
-							if let Some(state_machine_height) = state_machine_height {
-								if let Ok(responses_proof) = hyperbridge
-									.query_responses_proof(
-										state_machine_height.height,
-										queries.to_vec(),
-										dest.state_machine_id().state_id,
-									)
-									.await
-								{
-									let msg = ResponseMessage {
-										datagram: RequestResponse::Response(
-											post_responses.to_vec(),
-										),
-										proof: Proof {
-											height: state_machine_height,
-											proof: responses_proof,
-										},
-										signer: dest.address(),
-									};
-									outgoing_messages.push(Message::Response(msg));
-								}
-							}
-						}
-					}
-
-					new_unprofitable_messages.extend(response_profitablility.retriable_messages);
-				},
-				Err(err) => {
-					tracing::error!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Debug tracing failed: {err:?}")
-				},
-			}
-
 			if !outgoing_messages.is_empty() {
 				tracing::info!(
 					target: crate::LOG_TARGET,
@@ -385,14 +244,18 @@ pub async fn retry_unprofitable_messages(
 									receipts.len()
 								)
 							}
-							// Send receipts to the fee accumulation task
-							match fee_acc_sender.send(receipts).await {
-								Err(_sent) => {
-									tracing::error!(
-										target: crate::LOG_TARGET, "Fee auto accumulation failed You can try again manually"
-									)
-								},
-								_ => {},
+							// Send receipts to the fee accumulation task.
+							// `try_send` so this retry path never blocks on a
+							// backed-up consumer; deliveries were already
+							// persisted to the local DB just above, so the
+							// `accumulate-fees` subcommand can recover any
+							// dropped trigger.
+							if let Err(err) = fee_acc_sender.try_send(receipts) {
+								tracing::error!(
+									target: crate::LOG_TARGET,
+									?err,
+									"Fee auto accumulation channel send failed; you can try again manually",
+								);
 							}
 						}
 					}
@@ -423,19 +286,6 @@ pub async fn retry_unprofitable_messages(
 						Message::Request(req_msg) => {
 							let req = Request::Post(req_msg.requests[0].clone());
 							if req.timed_out(dest_timestamp) {
-								None
-							} else {
-								Some(msg.clone())
-							}
-						},
-						Message::Response(res_msg) => {
-							let res = match &res_msg.datagram {
-								RequestResponse::Request(_) => unreachable!(
-									"Relayer only ever processes post requests and post responses"
-								),
-								RequestResponse::Response(responses) => responses[0].clone(),
-							};
-							if res.timed_out(dest_timestamp) {
 								None
 							} else {
 								Some(msg.clone())

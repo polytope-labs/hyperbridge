@@ -14,14 +14,14 @@
 // limitations under the License.
 pragma solidity ^0.8.20;
 
-import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
-import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {IConsensusV2, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
 import {Codec} from "./Codec.sol";
-import {Header, HeaderImpl} from "./Header.sol";
 import {
+    Header,
+    HeaderImpl,
     AuthoritySetCommitment,
     BeefyConsensusState,
     MiniCommitment,
@@ -36,10 +36,17 @@ import {
  * @title The SP1 BEEFY Consensus Client.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification, authority set membership proof checks
- * and mmr leaf to an SP1 program.
+ * @notice Verifies BEEFY consensus proofs using an SP1 zero-knowledge proof, offloading
+ * secp256k1 signature verification, authority set membership checks, and MMR leaf
+ * inclusion to an off-chain SP1 program. The on-chain contract only verifies the
+ * resulting proof against a fixed verification key and a set of public inputs
+ * (authority set commitment, parachain header hashes, MMR leaf hash, and block number).
+ *
+ * @dev The verification key is set at construction time as an immutable. Stale proofs
+ * (where the commitment block number <= the trusted latest height) are treated as no-ops
+ * and return the existing state with no intermediates.
  */
-contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
+contract SP1Beefy is IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
@@ -63,10 +70,12 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+        return interfaceId == type(IConsensusV2).interfaceId
             || super.supportsInterface(interfaceId);
     }
 
+    /// @dev IConsensusV2 entry point. Decodes the proof, verifies the SP1 ZK proof, and returns
+    /// the updated state along with the latest authority set id.
     function verify(bytes calldata previousState, bytes calldata proof)
         external
         view
@@ -77,39 +86,15 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
             MiniCommitment memory commitment,
             PartialBeefyMmrLeaf memory leaf,
             ParachainHeader[] memory headers,
-            bytes memory plonkProof
+            bytes memory proofBytes
         ) = abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
         SP1BeefyProof memory sp1Proof =
-            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: plonkProof});
+            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: proofBytes});
 
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, sp1Proof);
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
-    }
-
-    /*
-     * @dev Given some opaque consensus proof, produce the new consensus state and newly finalized intermediate states.
-     */
-    function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
-        external
-        view
-        returns (bytes memory, IntermediateState[] memory)
-    {
-        BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (
-            MiniCommitment memory commitment,
-            PartialBeefyMmrLeaf memory leaf,
-            ParachainHeader[] memory headers,
-            bytes memory plonkProof
-        ) = abi.decode(encodedProof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
-        SP1BeefyProof memory proof =
-            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: plonkProof});
-
-        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
-            verifyConsensus(consensusState, proof);
-
-        return (abi.encode(newState), intermediates);
     }
 
     /**
@@ -121,8 +106,7 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
         returns (BeefyConsensusState memory, IntermediateState[] memory)
     {
         MiniCommitment memory commitment = proof.commitment;
-        // Stale proofs are a no-op: return the previous state with no intermediates so replays
-        // are idempotent rather than reverting.
+        // Stale proofs are a no-op
         if (trustedState.latestHeight >= commitment.blockNumber) {
             return (trustedState, new IntermediateState[](0));
         }
@@ -150,10 +134,10 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
                 authorities_len: authority.len,
                 authorities_root: authority.root,
                 headers: headers,
+                block_number: commitment.blockNumber,
                 leaf_hash: keccak256(Codec.Encode(proof.mmrLeaf))
             })
         );
-
         verifier.verifyProof(verificationKey, publicInputs, proof.proof);
 
         uint256 statesLen = proof.headers.length;
@@ -162,6 +146,7 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
             ParachainHeader memory para = proof.headers[i];
             Header memory header = Codec.DecodeHeader(para.header);
             if (header.number == 0) revert IllegalGenesisBlock();
+
             StateCommitment memory stateCommitment = header.stateCommitment();
             IntermediateState memory intermediate =
                 IntermediateState({stateMachineId: para.id, height: header.number, commitment: stateCommitment});
@@ -172,7 +157,6 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
             trustedState.nextAuthoritySet = proof.mmrLeaf.nextAuthoritySet;
         }
-
         trustedState.latestHeight = commitment.blockNumber;
 
         return (trustedState, intermediates);

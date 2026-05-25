@@ -17,10 +17,8 @@ pragma solidity ^0.8.17;
 import {IHost} from "./IHost.sol";
 import {
     PostRequestMessage,
-    PostResponseMessage,
     GetResponseMessage,
     PostRequestTimeoutMessage,
-    PostResponseTimeoutMessage,
     GetTimeoutMessage
 } from "../libraries/Message.sol";
 
@@ -59,15 +57,6 @@ interface IHandlerV2 {
     function handlePostRequests(IHost host, PostRequestMessage memory request) external;
 
     /**
-     * @notice Process a batch of incoming POST responses
-     * @dev Verifies response proofs, checks for timeouts, validates message delays, and dispatches valid responses to requesting apps.
-     * Matches responses to their original requests and ensures they haven't expired.
-     * @param host The Host contract that stores protocol state
-     * @param response Batch of POST responses with their merkle proofs
-     */
-    function handlePostResponses(IHost host, PostResponseMessage memory response) external;
-
-    /**
      * @notice Process a batch of GET responses (state queries)
      * @dev Verifies state proofs, checks for timeouts, and delivers the queried state data to requesting apps.
      * Ensures the state data comes from the requested height and hasn't expired.
@@ -84,15 +73,6 @@ interface IHandlerV2 {
      * @param message Batch of timed-out POST requests with non-membership proofs
      */
     function handlePostRequestTimeouts(IHost host, PostRequestTimeoutMessage memory message) external;
-
-    /**
-     * @notice Process POST response timeouts
-     * @dev Verifies non-membership proofs to confirm responses were not processed before timeout.
-     * Notifies responding apps about timed-out responses.
-     * @param host The Host contract that stores protocol state
-     * @param message Batch of timed-out POST responses with non-membership proofs
-     */
-    function handlePostResponseTimeouts(IHost host, PostResponseTimeoutMessage memory message) external;
 
     /**
      * @notice Process GET request timeouts

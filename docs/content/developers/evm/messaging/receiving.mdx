@@ -21,10 +21,8 @@ When Hyperbridge verifies an incoming message:
 The simplest way to receive messages is by extending [`HyperApp`](/developers/evm/api/hyperapp), which provides built-in host authorization and default implementations. You only need to override the callbacks you want to handle:
 
 - **[`onAccept()`](/developers/evm/api/hyperapp#onaccept)** - Handle incoming POST requests
-- **[`onPostResponse()`](/developers/evm/api/hyperapp#onpostresponse)** - Process POST responses
 - **[`onGetResponse()`](/developers/evm/api/hyperapp#ongetresponse)** - Handle GET responses with state data
 - **[`onPostRequestTimeout()`](/developers/evm/api/hyperapp#onpostrequesttimeout)** - Cleanup when requests timeout
-- **[`onPostResponseTimeout()`](/developers/evm/api/hyperapp#onpostresponsetimeout)** - Handle response timeouts
 - **[`onGetTimeout()`](/developers/evm/api/hyperapp#ongettimeout)** - Handle GET request timeouts
 
 See the full [`IApp` API reference](/developers/evm/api/iapp) for detailed specifications of each callback.
@@ -66,12 +64,14 @@ contract CrossChainMessenger is HyperApp {
     }
     
     // Optional: Handle timeouts
-    function onPostRequestTimeout(PostRequest memory request) 
+    function onPostRequestTimeout(PostRequestTimeout memory incoming) 
         external 
         override 
         onlyHost 
     {
-        // Cleanup logic when messages timeout
+        // Cleanup logic when messages timeout. `incoming.request` is the
+        // original POST request and `incoming.relayer` is the relayer that
+        // submitted the timeout proof.
     }
 }
 ```

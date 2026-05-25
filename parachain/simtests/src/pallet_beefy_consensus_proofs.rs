@@ -25,6 +25,7 @@
 #![cfg(test)]
 
 use std::{
+	collections::BTreeMap,
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
@@ -60,7 +61,7 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment,
 };
-use ismp_solidity_abi::beefy::{
+use ismp_abi::ecdsa_beefy::{
 	BeefyConsensusProof as SolBeefyConsensusProof, BeefyConsensusState as SolBeefyConsensusState,
 };
 use primitive_types::H256;
@@ -77,30 +78,74 @@ const MAX_UNCLE_PROVERS: usize = 5;
 /// `ismp-beefy` into simtests just for this constant is excessive.
 const BEEFY_CONSENSUS_ID: [u8; 4] = *b"BEEF";
 
-/// SCALE-encoded `beefy_verifier_primitives::ConsensusState` for the SP1 Groth16 fixture
-/// used in `evm/tests/foundry/SP1BeefyTest.sol::testVerifySp1Optional`. The first 4 bytes
-/// (`latest_beefy_height` LE) decode to 30_832_930 = 0x01d67922, which is below the
-/// fixture proof's `blockNumber = 0x01d6792a`. Used as the pre-proof snapshot the SP1
-/// verifier accepts inside the uncle path. Mirrors `TRUSTED_STATE_SCALE` in
-/// `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs`.
-const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+/// Path-embedded SP1 fixture produced by the prover (`zk-beefy::tests::test_sp1_beefy`)
+/// and consumed by the on-chain SP1Beefy fork test under `evm/tests/foundry/`. Sourcing
+/// from one JSON blob keeps prover, EVM and pallet tests in lock-step — bumping the
+/// SP1 program (e.g. adding a new public input) only needs the file regenerated.
+const SP1_FIXTURE_JSON: &str =
+	include_str!("../../../evm/tests/foundry/fixtures/sp1_beefy_fixture.json");
 
-/// Same fixture as `TRUSTED_STATE_SCALE` but with `latest_beefy_height` bumped to
-/// 30_832_938 = 0x01d6792a (first byte `22` → `2a`), which equals the fixture proof's
-/// `blockNumber`. Stored as the live BEEFY consensus state so dispatch hits the SP1
-/// verifier's own `StaleHeight` short-circuit and the pallet routes the proof to
-/// `settle_uncle_proof`. Mirrors `LIVE_STATE_SCALE` in `benchmarking.rs`.
-const LIVE_STATE_SCALE: [u8; 128] = hex_literal::hex!("2a79d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+#[derive(serde::Deserialize)]
+struct Sp1Fixture {
+	block_number: u32,
+	previous_state: String,
+	proof: String,
+}
 
-/// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi.encode(SP1BeefyProof)` (without the outer
-/// struct offset, matching what `<SP1BeefyProof as SolType>::abi_decode_params` accepts).
-/// ABI bytes lifted verbatim from `SP1BeefyTest.sol::testVerifySp1Optional`. Mirrors
-/// `WIRE_PROOF` in `benchmarking.rs`.
-const SP1_WIRE_PROOF: [u8; 1249] = hex_literal::hex!("010000000000000000000000000000000000000000000000000000000001d6792a000000000000000000000000000000000000000000000000000000000000127500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d67929e1dbc67b9da4b90227fb3dc2e7ffdce4e120d583502399e4bd083c02651ca5eb00000000000000000000000000000000000000000000000000000000000012760000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4963bc2eb07f9c83afe64eb8815b626cd0a7d2a1bbb4630a44a1896af297d0135d00000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000340000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000d2700000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000139739e9bd7f1addf87db9b6a762bd0e1713baa895c3b82b4595080e5ba02fb5b3cf2915702b49122c32b822e6a11384074d8902d5ea5f79c7cb0d7804e49501b8b532298f49e38d3f7140ce1ba61c243152e4e380b37eb628e08d5270d8b2c5e4ebedd84bb14066175726120fbc4d208000000000452505352902a869d4e00b3bb93f1e88e41a2b5f51fc637626b4ce1da15749ef2d79de4797a9ae459070449534d50010118a13886ac93d163a1d22cdef94e018eba5189424a66b7bd03a5ac232beb46bf08b0f9d2b979fff833d7e21a64a5183c61e2630c0b452236baba3c1b4ff41821044953544d20ca3be169000000000561757261010152d45dea4dcf058b0610e12981e0e4c97ad153f26481510c0b78beedf1848b4dd2abd37b8c6b800b72fa12199898eca7651471b49e38d6167a84fb6e2df7c7840000000000000000000000000000000000000000000000000000000000000000000000000001644388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000002ac5e596c552ee76353c176f0870e47a0aa765ceafc4c65b03dbf434e27fa9062f185bdc40f7aae982c1c8c6b766dd491a1e1cd60128efbc58da965e5be96320287f4ce1b04538f0c8287c8eff096c36df67dc17970032546c9b3d4dd5510c5c25e880e13469e1e1aca1b41c367f2ecf04da65f7602fb53ec212b03d0148157b2cd9a79a9779f350d240e6d4c980848302fca8c7447c5fa7ac8d3c6eefcd0c640acff8b27ea316db978652553e3d054765094cf0dab6085a616489cdb973c42b258e22f346ac3ceb3e2e6750c37dad1f98f6ca15d1f70659343caa52dbbcad150b75dd2dcf0ba0a664ea4605b291df54ab1aa5b4c55034b9425ba29cc87eca7b00000000000000000000000000000000000000000000000000000000");
+fn sp1_fixture() -> Sp1Fixture {
+	serde_json::from_str(SP1_FIXTURE_JSON).expect("sp1 fixture JSON malformed")
+}
 
-/// SP1 verification key the fixture proof was generated against.
-const SP1_FIXTURE_VKEY: &[u8] =
-	b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";
+/// Decode the ABI-encoded previous_state from the fixture and re-emit it as SCALE
+/// `beefy_verifier_primitives::ConsensusState` — the on-chain encoding pallet-ismp uses.
+fn fixture_state_scale(latest_beefy_height: u32) -> Vec<u8> {
+	use alloy_sol_types::SolValue;
+	use beefy_verifier_primitives::ConsensusState;
+	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+
+	let fx = sp1_fixture();
+	let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
+	let sol_state = <SolBeefyConsensusState as SolValue>::abi_decode(&raw).expect("abi state");
+	let mut state: ConsensusState = sol_state.into();
+	state.latest_beefy_height = latest_beefy_height;
+	state.encode()
+}
+
+/// Pre-proof snapshot the SP1 verifier accepts inside the uncle path. `latest_beefy_height`
+/// is held below the proof's `blockNumber` so verification succeeds.
+fn trusted_state_scale() -> Vec<u8> {
+	let fx = sp1_fixture();
+	let prev_height = {
+		use alloy_sol_types::SolValue;
+		use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
+		let raw = hex::decode(fx.previous_state.trim_start_matches("0x")).expect("hex state");
+		let sol = <SolBeefyConsensusState as SolValue>::abi_decode(&raw).expect("abi state");
+		u32::try_from(sol.latestHeight).expect("latest height fits u32")
+	};
+	fixture_state_scale(prev_height)
+}
+
+/// Same shape as `trusted_state_scale` but with `latest_beefy_height` bumped to equal the
+/// proof's `blockNumber`. Stored as the live BEEFY state so dispatch hits SP1Beefy's
+/// `StaleHeight` short-circuit and the pallet routes the proof to `settle_uncle_proof`.
+fn live_state_scale() -> Vec<u8> {
+	fixture_state_scale(sp1_fixture().block_number)
+}
+
+/// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi_encode_params(SP1BeefyProof)`.
+fn sp1_wire_proof() -> Vec<u8> {
+	let fx = sp1_fixture();
+	// Discriminant byte: 0x01 == PROOF_TYPE_SP1 (see
+	// `modules/pallets/beefy-consensus-proofs/src/types.rs`).
+	let mut out = vec![0x01u8];
+	out.extend_from_slice(&hex::decode(fx.proof.trim_start_matches("0x")).expect("hex proof"));
+	out
+}
+
+/// SP1 verification key the fixture proof was generated against — matches the mainnet
+/// SP1Beefy deployment at `0x82582f85cf370adCB61D97dab3068c0C4102Ccb6`.
+const SP1_FIXTURE_VKEY: [u8; 32] =
+	hex_literal::hex!("009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf");
 
 /// Storage-key builder for a `Twox64Concat` map (`twox_128(pallet) ++ twox_128(item) ++
 /// twox_64(key) ++ key`).
@@ -193,6 +238,22 @@ async fn fetch_storage_by_key<T: Decode>(
 	Ok(Some(decoded))
 }
 
+/// Highest parachain height tracked across both ring buffers. The pallet writes
+/// the proven height into `MessagingProofs` for non-rotating proofs and into
+/// `RotationProofs` for rotating ones, so neither map alone is a complete view
+/// after a successful first proof.
+async fn latest_recorded_height(client: &OnlineClient<Hyperbridge>) -> Result<u64, anyhow::Error> {
+	let messaging = fetch_storage::<Vec<u64>>(client, "MessagingProofs")
+		.await?
+		.and_then(|v| v.last().copied())
+		.unwrap_or(0);
+	let rotation = fetch_storage::<BTreeMap<u64, u64>>(client, "RotationProofs")
+		.await?
+		.and_then(|m| m.values().copied().max())
+		.unwrap_or(0);
+	Ok(messaging.max(rotation))
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyhow::Error> {
@@ -212,15 +273,15 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 	assert_eq!(on_chain, reward);
 
 	// 2. set_sp1_vkey_hash via Sudo, expect storage updated.
-	let vkey: Vec<u8> =
-		b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c".to_vec();
+	let vkey: [u8; 32] =
+		hex_literal::hex!("0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c");
 	let call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(&vkey)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&vkey)])],
 	);
 	submit_sudo(&client, &rpc_client, call).await?;
-	let on_chain_vkey: Vec<u8> = fetch_storage::<Vec<u8>>(&client, "Sp1VkeyHash")
+	let on_chain_vkey: [u8; 32] = fetch_storage::<[u8; 32]>(&client, "Sp1VkeyHash")
 		.await?
 		.ok_or_else(|| anyhow!("Sp1VkeyHash unset after set_sp1_vkey_hash"))?;
 	assert_eq!(on_chain_vkey, vkey);
@@ -509,6 +570,13 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 		"proof block {proof_block} must be ahead of trusted height {initial_height}",
 	);
 
+	// Same predicate the verifier uses to decide whether to rotate: the leaf's
+	// next-set id is strictly greater than the trusted state's next-set id. When
+	// rotation fires, the pallet routes the proof into `RotationProofs` instead
+	// of `MessagingProofs`, so we have to know in advance which bucket to check.
+	let will_rotate = consensus_message.mmr.latest_mmr_leaf.beefy_next_authority_set.id >
+		initial_state.next_authorities.id;
+
 	let abi_state: SolBeefyConsensusState = initial_state.into();
 	let abi_state_bytes = SolBeefyConsensusState::abi_encode(&abi_state);
 
@@ -554,28 +622,40 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 	submit_signed(&client, &rpc_client, submit_call, Keyring::Bob).await?;
 	eprintln!("[stage] submit_proof finalized");
 
-	// First-proof path appends `latest_height` to `MessagingProofs`. A non-empty vec
-	// after `submit_proof` returns success means dispatch ran the full BEEFY check,
-	// stored a parachain commitment, and ran ring-buffer eviction. Combined with
-	// `wait_for_finalized_success` having returned ok, that's sufficient evidence
-	// the naive happy path works end-to-end.
-	let messaging_proofs: Vec<u64> =
-		fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
-	assert!(
-		!messaging_proofs.is_empty(),
-		"MessagingProofs must contain the proven height after a successful first proof",
-	);
+	// The first-proof path writes the proven height into `MessagingProofs` when
+	// no rotation happened, and into `RotationProofs` when it did. A non-empty
+	// entry in the right bucket means dispatch ran the full BEEFY check, stored
+	// a parachain commitment, and ran ring-buffer eviction. Combined with
+	// `wait_for_finalized_success` having returned ok, that's sufficient
+	// evidence the naive happy path works end-to-end.
+	if will_rotate {
+		let rotation_proofs: BTreeMap<u64, u64> =
+			fetch_storage::<BTreeMap<u64, u64>>(&client, "RotationProofs")
+				.await?
+				.unwrap_or_default();
+		assert!(
+			!rotation_proofs.is_empty(),
+			"RotationProofs must contain the rotation height after a successful rotating proof",
+		);
+	} else {
+		let messaging_proofs: Vec<u64> =
+			fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
+		assert!(
+			!messaging_proofs.is_empty(),
+			"MessagingProofs must contain the proven height after a successful first proof",
+		);
+	}
 
 	Ok(())
 }
 
 /// Tier-3 SP1 uncle dispatch path. Mirrors the bench in
 /// `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs::submit_proof`: the live
-/// BEEFY consensus state is forced to `LIVE_STATE_SCALE` (whose `latest_beefy_height`
+/// BEEFY consensus state is forced to `live_state_scale()` (whose `latest_beefy_height`
 /// equals the SP1 fixture proof's `block_number`), so dispatch hits the SP1 verifier's
 /// own `StaleHeight` short-circuit before any cryptographic work and the pallet maps
 /// that to `StaleProof`, routing the proof to `settle_uncle_proof`. `ProofContext` is
-/// pre-seeded with the older `TRUSTED_STATE_SCALE` snapshot so SP1 verification inside
+/// pre-seeded with the older `trusted_state_scale()` snapshot so SP1 verification inside
 /// the uncle path actually succeeds.
 ///
 /// Multi-uncle accumulation is exercised by appending unique suffix bytes to the SP1
@@ -619,7 +699,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	let vkey_call = subxt::dynamic::tx(
 		"BeefyConsensusProofs",
 		"set_sp1_vkey_hash",
-		vec![Value::from_bytes(SP1_FIXTURE_VKEY)],
+		vec![Value::unnamed_composite(vec![Value::from_bytes(&SP1_FIXTURE_VKEY)])],
 	);
 	submit_sudo(&client, &rpc_client, vkey_call).await?;
 
@@ -630,13 +710,11 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	submit_sudo(&client, &rpc_client, zero_reward).await?;
 
 	// 3. `settle_uncle_proof` looks up `ProofContext[Self::latest_height()]`. After a successful
-	//    first proof, `settle_first_proof` pushes that same height into `MessagingProofs`, so its
-	//    last entry is a faithful proxy. When Tier-3 runs in isolation `MessagingProofs` is empty
-	//    and `latest_height()` is 0, matching what we'd seed.
-	let parachain_height: u64 = fetch_storage::<Vec<u64>>(&client, "MessagingProofs")
-		.await?
-		.and_then(|v| v.last().copied())
-		.unwrap_or(0);
+	//    first proof, `settle_first_proof` pushes that height into either `MessagingProofs` or
+	//    `RotationProofs` depending on whether the proof rotated. Taking the max across both ring
+	//    buffers keeps Tier-3 in lockstep with Tier-2 regardless of which path it took, and falls
+	//    back to 0 when Tier-3 runs in isolation.
+	let parachain_height = latest_recorded_height(&client).await?;
 	eprintln!("[stage] seeding ProofContext at parachain_height={parachain_height}");
 
 	// 4. Force the BEEFY consensus state and seed the uncle snapshot via `System::set_storage`. We
@@ -653,7 +731,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 		// `Ismp::ConsensusStates` is `Twox64Concat, ConsensusClientId -> Vec<u8>`.
 		(
 			twox_64_concat_key(b"Ismp", b"ConsensusStates", &BEEFY_CONSENSUS_ID),
-			LIVE_STATE_SCALE.to_vec().encode(),
+			live_state_scale().encode(),
 		),
 		// `Ismp::ConsensusStateClient` is `Blake2_128Concat, ConsensusStateId ->
 		// ConsensusClientId`. ConsensusClientId is `[u8; 4]`.
@@ -679,7 +757,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 				b"ProofContext",
 				&parachain_height.encode(),
 			),
-			TRUSTED_STATE_SCALE.to_vec().encode(),
+			trusted_state_scale().encode(),
 		),
 	];
 	let set_storage_call =
@@ -692,7 +770,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	// Groth16 proof from `polytope-labs/sp1-beefy`), so the multi-position fan-out is
 	// covered by the bench instead. Trailing-byte malleability is now rejected at the
 	// extrinsic boundary by `do_submit_proof`'s round-trip check.
-	let bob_proof = SP1_WIRE_PROOF.to_vec();
+	let bob_proof = sp1_wire_proof();
 	let ferdie_proof = bob_proof.clone();
 	let proof_context_key =
 		blake2_128_concat_key(b"BeefyConsensusProofs", b"ProofContext", &parachain_height.encode());

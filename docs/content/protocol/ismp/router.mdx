@@ -11,7 +11,7 @@ The router lives in-between the ISMP message handlers and modules, the router pr
 pub trait IsmpRouter {
     /// Should decode the module id and return a handler to the appropriate `IsmpModule`
     /// implementation
-    fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error>;
+    fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error>;
 }
 ```
 
@@ -23,16 +23,24 @@ Users cannot directly initiate requests or receive responses. Instead, they must
 /// Individual modules which live on a state machine must conform to this interface in order to send
 /// and receive ISMP requests and responses
 pub trait IsmpModule {
-    /// Called by the message handler on a module, to notify module of a new POST request
-    /// the module may choose to respond immediately, or in a later block
-    fn on_accept(&self, request: Post) -> Result<(), Error>;
+    /// Called by the message handler on a module, to notify module of a new POST request.
+    /// The module may choose to respond immediately, or in a later block.
+    fn on_accept(&self, _request: PostRequest) -> Result<Weight, anyhow::Error> {
+        Err(Error::CannotHandleMessage)?
+    }
 
     /// Called by the message handler on a module, to notify module of a response to a previously
-    /// sent out request
-    fn on_response(&self, response: Response) -> Result<(), Error>;
+    /// sent out GET request.
+    fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
+        Err(Error::CannotHandleMessage)?
+    }
 
-    /// Called by the message handler on a module, to notify module of requests that were previously
-    /// sent but have now timed-out
-    fn on_timeout(&self, request: Timeout) -> Result<(), Error>;
+    /// Called by the message handler on a module, to notify module of requests that were
+    /// previously sent but have now timed-out.
+    fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
+        Err(Error::CannotHandleMessage)?
+    }
 }
 ```
+
+Every method has a default implementation that returns `Error::CannotHandleMessage`, so modules only need to implement the handlers they actually use. The returned `Weight` is the weight consumed by the module's handler, which the framework uses to bill the message.

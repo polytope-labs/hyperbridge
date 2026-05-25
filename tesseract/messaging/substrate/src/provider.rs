@@ -42,22 +42,20 @@ use ismp::{
 	consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, CreateConsensusState, Message, ResponseMessage},
-	router::{Request, RequestResponse},
+	messaging::{hash_request, CreateConsensusState, Message},
+	router::Request,
 };
 use pallet_ismp::{
-	child_trie::{
-		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
-	},
+	child_trie::{request_commitment_storage_key, CHILD_TRIE_PREFIX},
 	offchain::ProofKeys,
 };
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::StateMachineProof;
 use subxt_utils::{
-	fisherman_storage_key, host_params_storage_key, send_extrinsic,
-	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
+	host_params_storage_key, send_extrinsic, state_machine_commitment_storage_key,
+	state_machine_update_time_storage_key,
 	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
@@ -271,50 +269,7 @@ where
 				let response: pallet_ismp_rpc::Proof =
 					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
-				Ok(proof.encode())
-			},
-			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
-		}
-	}
-
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		if keys.is_empty() {
-			Err(anyhow!("No queries provided"))?
-		}
-
-		match counterparty {
-			// Use mmr proofs for queries going to EVM chains
-			s if s.is_evm() => {
-				let keys =
-					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
-				let params = rpc_params![at, keys];
-				let response: pallet_ismp_rpc::Proof =
-					self.rpc_client.request("mmr_queryProof", params).await?;
-				Ok(response.proof)
-			},
-			// Use child trie proofs for queries going to substrate chains
-			s if s.is_substrate() => {
-				let keys: Vec<_> = keys
-					.into_iter()
-					.map(|key| response_commitment_storage_key(key.commitment))
-					.collect();
-				let params = rpc_params![at, keys];
-				let response: pallet_ismp_rpc::Proof =
-					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
-				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
@@ -332,10 +287,7 @@ where
 				let response: pallet_ismp_rpc::Proof =
 					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 			StateProofQueryType::Arbitrary(keys) => {
@@ -344,10 +296,7 @@ where
 					self.rpc_client.request("ismp_queryStateProof", params).await?;
 
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-				let proof = SubstrateStateProof::StateProof(StateMachineProof {
-					hasher: self.hashing.clone(),
-					storage_proof,
-				});
+				let proof = StateMachineProof { hasher: self.hashing.clone(), storage_proof };
 				Ok(proof.encode())
 			},
 		}
@@ -408,11 +357,6 @@ where
 		// Substrate hosts ISMP via a pallet, not a contract — there's no
 		// on-chain address. The outbound-consensus claim path is EVM-only
 		// and short-circuits on this `None`.
-		None
-	}
-
-	async fn handler_v2_address(&self) -> Option<H160> {
-		// Same as `ismp_host_contract`: substrate has no HandlerV2 contract.
 		None
 	}
 
@@ -521,26 +465,13 @@ where
 		}
 	}
 
-	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
-		let key = self.res_commitments_key(_hash);
-		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
-
-		let response: Option<StorageData> =
-			self.rpc_client.request("childstate_getStorage", params).await?;
-		let data = response.ok_or_else(|| anyhow!("Response fee metadata query returned None"))?;
-		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
-		Ok(leaf_meta.meta.fee.into())
-	}
-
 	async fn state_commitment_vetoed_notification(
 		&self,
 		from: u64,
 		update_height: StateMachineHeight,
 	) -> BoxStream<StateCommitmentVetoed> {
 		let client = self.clone();
-		let (tx, recv) = tokio::sync::mpsc::channel(32);
+		let (tx, recv) = tokio::sync::mpsc::channel(512);
 		tokio::task::spawn(async move {
 			let mut latest_height = from;
 			let state_machine = client.state_machine;
@@ -603,10 +534,29 @@ where
 
 				match event {
 					Some(event) => {
-						if let Err(err) = tx.send(Ok(event.clone())).await {
-							log::trace!(target: crate::LOG_TARGET, "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
-							return
-						};
+						// `try_send` so this poller never blocks on a
+						// stalled consumer of the veto stream. On
+						// `Closed` (consumer dropped) we exit the loop;
+						// on `Full` we warn and continue — the next
+						// query window will surface the same veto event.
+						match tx.try_send(Ok(event.clone())) {
+							Ok(()) => {},
+							Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+								log::warn!(
+									target: crate::LOG_TARGET,
+									"state commitment veto channel full on {state_machine:?} - {:?}; event dropped",
+									update_height.id.state_id,
+								);
+							},
+							Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+								log::trace!(
+									target: crate::LOG_TARGET,
+									"state commitment veto channel closed on {state_machine:?} - {:?}",
+									update_height.id.state_id,
+								);
+								return
+							},
+						}
 					},
 					None => {},
 				};
@@ -778,7 +728,7 @@ where
 		use futures::StreamExt;
 
 		let client = self.clone();
-		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(64);
+		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(512);
 
 		let initial_height = client.query_finalized_height().await?;
 		let state_machine = client.state_machine;
@@ -813,9 +763,21 @@ where
 					},
 				};
 
+				// `try_send` so the poller never blocks on a slow
+				// consumer. On `Closed`, the receiver is gone — exit.
 				for proof in proofs {
-					if tx.send(proof).await.is_err() {
-						return;
+					match tx.try_send(proof) {
+						Ok(()) => {},
+						Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+							log::warn!(
+								target: crate::LOG_TARGET,
+								"{state_machine:?} ProofAccepted channel full; pausing poll until consumer catches up",
+							);
+							break;
+						},
+						Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+							return;
+						},
 					}
 				}
 
@@ -904,7 +866,7 @@ where
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
 						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Request {
+							let tx_receipt = TxReceipt {
 								query: Query {
 									source_chain: req.source_chain(),
 									dest_chain: req.dest_chain(),
@@ -917,28 +879,8 @@ where
 							results.push(tx_receipt);
 						}
 					},
-				Message::Response(ResponseMessage {
-					datagram: RequestResponse::Response(resp),
-					..
-				}) =>
-					for res in resp {
-						let commitment = hash_response::<Hasher>(&res);
-						let request_commitment = hash_request::<Hasher>(&res.request());
-						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Response {
-								query: Query {
-									source_chain: res.source_chain(),
-									dest_chain: res.dest_chain(),
-									nonce: res.nonce(),
-									commitment,
-								},
-								request_commitment,
-								height,
-							};
-
-							results.push(tx_receipt);
-						}
-					},
+				// `Message::Response` carries only GetRequests being responded to post-#840;
+				// no relayer receipt to record.
 				_ => {},
 			}
 		}
@@ -971,14 +913,6 @@ where
 
 	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		vec![self.req_receipts_key(commitment)]
-	}
-
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		vec![self.res_commitments_key(commitment)]
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		vec![self.res_receipt_key(commitment)]
 	}
 
 	fn address(&self) -> Vec<u8> {
@@ -1025,17 +959,6 @@ where
 	}
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
-		let key = fisherman_storage_key(self.address());
-		let block_hash = self
-			.rpc
-			.chain_get_block_hash(None)
-			.await?
-			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let raw_params = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
-		if raw_params.is_none() {
-			return Ok(());
-		}
-
 		let binding = self.signer.public();
 
 		let public_key_slice: &[u8] = binding.as_ref();
@@ -1052,14 +975,14 @@ where
 			"veto_state_commitment",
 			vec![state_machine_height_to_value(&height)],
 		);
-		send_extrinsic(&self.client, &signer, &call, Some(100)).await?;
+		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
 		Ok(())
 	}
 
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		let key = host_params_storage_key(state_machine);
 		let block_hash = self
 			.rpc
@@ -1099,7 +1022,7 @@ fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 	return match msg {
 		Message::Request(request_message) => Some(keccak_256(&request_message.requests.encode())),
 		Message::Response(response_message) =>
-			Some(keccak_256(&response_message.datagram.encode())),
+			Some(keccak_256(&response_message.requests.encode())),
 		Message::Consensus(consensus_message) =>
 			Some(keccak_256(&consensus_message.consensus_proof)),
 		Message::FraudProof(_) | Message::Timeout(_) => None,

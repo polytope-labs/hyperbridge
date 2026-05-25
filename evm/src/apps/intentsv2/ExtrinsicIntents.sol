@@ -27,11 +27,11 @@ import {
     WithdrawalRequest,
     FillOptions,
     CancelOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 
 /**
  * @title ExtrinsicIntents
@@ -92,6 +92,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         uint256 msgValue = msg.value;
         address beneficiary = address(uint160(uint256(order.output.beneficiary)));
+        TokenInfo[] memory outputFills = new TokenInfo[](outputsLen);
 
         for (uint256 i; i < outputsLen; i++) {
             bytes32 outputToken = order.output.assets[i].token;
@@ -129,6 +130,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
                 }
             }
             if (protocolShare > 0) emit DustCollected(token, protocolShare);
+            outputFills[i] = TokenInfo({token: outputToken, amount: totalRequired});
         }
 
         _execute(order, outputsLen);
@@ -153,11 +155,18 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
             IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
+            msgValue -= options.nativeDispatchFee;
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
 
-        emit OrderFilled({commitment: commitment, filler: msg.sender});
+        // Refund any unspent native tokens to the solver.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
+        }
+
+        emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: order.inputs});
     }
 
     /**
@@ -198,16 +207,17 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             dest: order.destination,
             keys: keys,
             timeout: 0,
-            height: SafeCast.toUint64(options.height),
+            height: options.height,
             fee: options.relayerFee,
-            context: context
+            context: context,
+            payer: msg.sender
         });
 
         address hostAddr = host();
         if (msg.value > 0) {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
     }
 
@@ -251,7 +261,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         if (msg.value > 0) {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
-            dispatchWithFeeToken(request, msg.sender);
+            dispatchWithFeeToken(request);
         }
     }
 
@@ -284,7 +294,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
         // only hyperbridge is permitted to perform these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
         if (kind == RequestKind.NewDeployment) {
-            _addDeployment(abi.decode(incoming.request.body[1:], (NewDeployment)));
+            _addDeployment(abi.decode(incoming.request.body[1:], (Deployment)));
         } else if (kind == RequestKind.UpdateParams) {
             _updateParams(abi.decode(incoming.request.body[1:], (ParamsUpdate)));
         } else if (kind == RequestKind.SweepDust) {

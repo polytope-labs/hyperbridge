@@ -24,10 +24,11 @@ import {
     PaymentInfo,
     DispatchInfo,
     FillOptions,
-    CancelOptions
+    CancelOptions,
+    Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
-import {ICallDispatcher, Call} from "../../src/interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -57,9 +58,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         TokenInfo[] inputs,
         PaymentInfo output
     );
-    event OrderFilled(bytes32 indexed commitment, address indexed filler);
-    event EscrowReleased(bytes32 indexed commitment);
-    event EscrowRefunded(bytes32 indexed commitment);
+    event OrderFilled(bytes32 indexed commitment, address indexed filler, TokenInfo[] outputs, TokenInfo[] inputs);
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
     event DustCollected(address indexed token, uint256 amount);
 
     function setUp() public override {
@@ -82,7 +83,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.setParams(intentParams);
+        intentGateway.init(intentParams, new Deployment[](0));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -183,7 +184,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.setParams(intentParams);
+        gatewayWithFees.init(intentParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -370,7 +371,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels order before deadline (same-chain allows this)
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
@@ -423,7 +424,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels order after deadline (same-chain allows this)
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
@@ -481,7 +482,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel already-filled order
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -522,7 +523,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Other user tries to cancel
         vm.startPrank(otherUser);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -632,7 +633,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Cancel
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -694,7 +695,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel after fill
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -740,7 +741,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels first
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -1085,7 +1086,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel an order that was never placed
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.UnknownOrder.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -1217,7 +1218,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // User cancels the partially filled order
         uint256 userUsdcBefore = usdc.balanceOf(user);
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -1241,7 +1242,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels
         vm.prank(user);
-        intentGateway.cancelOrder(order, CancelOptions({height: block.number, relayerFee: 0}));
+        intentGateway.cancelOrder(order, CancelOptions({height: uint64(block.number), relayerFee: 0}));
 
         // Another solver tries to fill — should revert
         address solver2 = makeAddr("solver2");
@@ -1388,7 +1389,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     function testPartialFill_WithProtocolFee() public {
         IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
-        gatewayWithFees.setParams(
+        gatewayWithFees.init(
             Params({
                 host: address(host),
                 dispatcher: address(dispatcher),
@@ -1397,7 +1398,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 protocolFeeBps: PROTOCOL_FEE_BPS,
                 priceOracle: address(0)
             })
-        );
+        , new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 900 * 1e18;
@@ -1456,7 +1457,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
     }
 
-    function testPartialFill_CalldataOnlyAfterFullFill() public {
+    /// @notice Orders carrying output calldata cannot be partially filled: any fill that
+    /// does not complete the order reverts with PartialFillNotAllowed. A single full fill
+    /// succeeds and executes the attached calldata.
+    function testPartialFill_CalldataOrderRequiresFullFill() public {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
 
@@ -1496,28 +1500,27 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         order.source = host.host();
         order.nonce = 0;
 
-        // Partial fill — calldata should NOT execute
+        // Partial fill — must revert, partial fills are disallowed for calldata orders.
         vm.startPrank(solver);
         dai.approve(address(intentGateway), 500 * 1e18);
         TokenInfo[] memory outputs1 = new TokenInfo[](1);
         outputs1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs1}));
         vm.stopPrank();
 
-        // Allowance should still be 0 (calldata not executed yet)
+        // No escrow released and calldata not executed.
         assertEq(
             dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)),
             0,
-            "Calldata should not execute on partial fill"
+            "Calldata should not execute on rejected partial fill"
         );
 
-        // Complete the fill — calldata should execute
-        address solver2 = makeAddr("solver2");
-        deal(address(dai), solver2, 100000 * 1e18);
-        vm.startPrank(solver2);
-        dai.approve(address(intentGateway), 500 * 1e18);
+        // Full fill in a single transaction — calldata executes.
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
-        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs2}));
         vm.stopPrank();
 
@@ -1911,5 +1914,626 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Solver spent exactly solverEth in ETH
         assertEq(solverEthBefore - solver.balance, solverEth, "Solver should have spent exactly solverEth");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    DUPLICATE INPUT TOKEN REJECTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Placing an order with duplicate input tokens must revert.
+    /// Regression test for: same-chain partial fills over-release repeated input escrow.
+    function testRevert_PlaceOrder_DuplicateInputTokens() public {
+        // Two input legs both using USDC — this previously merged into one escrow bucket
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1200 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 2200 * 1e6);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Duplicate input tokens with protocol fees enabled must also revert.
+    function testRevert_PlaceOrder_DuplicateInputTokens_WithProtocolFee() public {
+        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        Params memory intentParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: SURPLUS_SHARE_BPS,
+            protocolFeeBps: PROTOCOL_FEE_BPS,
+            priceOracle: address(0)
+        });
+        gatewayWithFees.init(intentParams, new Deployment[](0));
+
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 300 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 400 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(gatewayWithFees), 1000 * 1e6);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gatewayWithFees.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Distinct input and output tokens must still work — no false positives from the duplicate check.
+    function testPlaceOrder_DistinctInputTokens_StillWorks() public {
+        uint256 usdcAmount = 1000 * 1e6;
+        uint256 daiAmount = 500 * 1e18;
+
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: 1 ether});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), usdcAmount);
+        dai.approve(address(intentGateway), daiAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify both tokens were escrowed
+        assertEq(usdc.balanceOf(address(intentGateway)), usdcAmount, "Gateway should hold escrowed USDC");
+        assertEq(dai.balanceOf(address(intentGateway)), daiAmount, "Gateway should hold escrowed DAI");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                   DUPLICATE OUTPUT TOKEN REJECTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Placing an order with duplicate output tokens must revert.
+    /// Regression test for: same-chain partial fills prematurely finalize repeated output legs.
+    function testRevert_PlaceOrder_DuplicateOutputTokens() public {
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+
+        // Two output legs both requesting DAI — shares one _partialFills bucket
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 400 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 600 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 1000 * 1e6);
+        dai.approve(address(intentGateway), 500 * 1e18);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Distinct output tokens must still work.
+    function testPlaceOrder_DistinctOutputTokens_StillWorks() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(intentGateway)), inputAmount, "Gateway should hold escrowed USDC");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                NATIVE TOKEN OVERPAYMENT REFUND TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Excess msg.value beyond native input legs is refunded to the user.
+    function testPlaceOrder_RefundsExcessNativeToken() public {
+        uint256 inputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount}); // native ETH
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userBalBefore = user.balance;
+
+        vm.prank(user);
+        intentGateway.placeOrder{value: inputAmount + overpayment}(order, bytes32(0));
+
+        // User should only have spent inputAmount, overpayment refunded
+        assertEq(user.balance, userBalBefore - inputAmount, "Overpayment should be refunded");
+        assertEq(address(intentGateway).balance, inputAmount, "Gateway should only hold escrowed amount");
+    }
+
+    /// @notice Exact msg.value with no overpayment still works.
+    function testPlaceOrder_ExactNativeToken_NoRefundNeeded() public {
+        uint256 inputAmount = 1 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userBalBefore = user.balance;
+
+        vm.prank(user);
+        intentGateway.placeOrder{value: inputAmount}(order, bytes32(0));
+
+        assertEq(user.balance, userBalBefore - inputAmount, "User should spend exactly inputAmount");
+    }
+
+    /// @notice Solver overpaying native ETH on fillOrder gets the excess refunded.
+    function testFillOrder_RefundsSolverExcessNativeToken() public {
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 outputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        // User places order: USDC -> ETH
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        // Solver fills with overpayment
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        uint256 solverBalBefore = solver.balance;
+
+        vm.prank(solver);
+        intentGateway.fillOrder{value: outputAmount + overpayment}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+
+        // Solver should only have spent outputAmount, overpayment refunded
+        assertEq(solver.balance, solverBalBefore - outputAmount, "Solver overpayment should be refunded");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                  FEE-ON-TRANSFER TOKEN TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Escrow correctly reflects actual received amount for fee-on-transfer tokens.
+    function testPlaceOrder_FeeOnTransferToken_EscrowMatchesReceived() public {
+        // Deploy a 1% fee-on-transfer token
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% = 100 bps
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 expectedReceived = inputAmount - (inputAmount * 100) / 10000; // 990
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Gateway should hold only what it actually received
+        assertEq(fot.balanceOf(address(intentGateway)), expectedReceived, "Gateway balance should match received amount");
+
+        // Reconstruct the order as placeOrder would have mutated it
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = expectedReceived;
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // Escrow should match actual received, not the user-specified amount
+        assertEq(
+            intentGateway._orders(commitment, address(fot)),
+            expectedReceived,
+            "Escrow should equal actual received amount"
+        );
+    }
+
+    /// @notice Fee-on-transfer with protocol fees: both deductions applied correctly.
+    function testPlaceOrder_FeeOnTransferToken_WithProtocolFee() public {
+        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        Params memory intentParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: SURPLUS_SHARE_BPS,
+            protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
+            priceOracle: address(0)
+        });
+        gatewayWithFees.init(intentParams, new Deployment[](0));
+
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 receivedAfterTransferFee = inputAmount - (inputAmount * 100) / 10000; // 990
+        uint256 protocolFee = (receivedAfterTransferFee * PROTOCOL_FEE_BPS) / 10000;
+        uint256 expectedEscrow = receivedAfterTransferFee - protocolFee;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(gatewayWithFees), inputAmount);
+        gatewayWithFees.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Reconstruct commitment: inputs mutated to received, then reduced by protocol fee
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = expectedEscrow; // commitment is hashed with reduced amount
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        assertEq(
+            gatewayWithFees._orders(commitment, address(fot)),
+            expectedEscrow,
+            "Escrow should equal received minus protocol fee"
+        );
+    }
+
+    /// @notice Full round-trip: place with fee-on-transfer, fill, solver withdraws exact escrow.
+    function testPlaceAndFill_FeeOnTransferToken_RoundTrip() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 receivedByGateway = inputAmount - (inputAmount * 100) / 10000; // 990
+        uint256 outputAmount = 900 * 1e18;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // Place order
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Reconstruct order as placeOrder mutated it
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = receivedByGateway; // actual received
+
+        // Solver fills
+        uint256 solverFotBefore = fot.balanceOf(solver);
+
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        vm.stopPrank();
+
+        // Solver should receive the escrowed FOT (with transfer fee applied on the way out)
+        uint256 solverFotReceived = fot.balanceOf(solver) - solverFotBefore;
+        uint256 expectedSolverReceived = receivedByGateway - (receivedByGateway * 100) / 10000; // 990 - 1% fee
+        assertEq(solverFotReceived, expectedSolverReceived, "Solver should receive escrowed FOT minus transfer fee");
+
+        // Gateway should have zero FOT left
+        assertEq(fot.balanceOf(address(intentGateway)), 0, "Gateway should have no FOT remaining");
+    }
+
+    /// @notice Fee-on-transfer through the predispatch path: escrow reflects actual received.
+    function testPlaceOrder_FeeOnTransferToken_Predispatch() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 predispatchAmount = 1000 * 1e18;
+        // After transferring to dispatcher: 1% fee = dispatcher receives 990
+        uint256 dispatcherReceived = predispatchAmount - (predispatchAmount * 100) / 10000;
+        // After dispatcher transfers to gateway: another 1% fee = gateway receives ~980.1
+        uint256 gatewayReceived = dispatcherReceived - (dispatcherReceived * 100) / 10000;
+
+        // Predispatch: send FOT to dispatcher, the "call" is a no-op (empty calls array)
+        TokenInfo[] memory predispatchAssets = new TokenInfo[](1);
+        predispatchAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: predispatchAmount});
+
+        // The predispatch call is an empty Call[] dispatch (no-op, tokens just sit on dispatcher)
+        Call[] memory emptyCalls = new Call[](0);
+        bytes memory predispatchCall = abi.encode(emptyCalls);
+
+        // Inputs: expect the FOT that lands on dispatcher after predispatch
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: dispatcherReceived});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: predispatchAssets, call: predispatchCall}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), predispatchAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Gateway should hold only what it actually received (double fee-on-transfer)
+        assertEq(fot.balanceOf(address(intentGateway)), gatewayReceived, "Gateway should hold double-taxed amount");
+
+        // Reconstruct commitment
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = gatewayReceived; // mutated to actual received
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        assertEq(
+            intentGateway._orders(commitment, address(fot)),
+            gatewayReceived,
+            "Escrow should match actual received after double transfer fee"
+        );
+    }
+}
+
+/// @dev ERC20 with a configurable transfer fee (in basis points).
+contract FeeOnTransferToken {
+    string public name = "FeeOnTransferToken";
+    string public symbol = "FOT";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    uint256 public feeBps;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    constructor(uint256 _feeBps) {
+        feeBps = _feeBps;
+    }
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        return _transfer(msg.sender, to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) {
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        return _transfer(from, to, amount);
+    }
+
+    function _transfer(address from, address to, uint256 amount) internal returns (bool) {
+        uint256 fee = (amount * feeBps) / 10_000;
+        uint256 received = amount - fee;
+        balanceOf[from] -= amount;
+        balanceOf[to] += received;
+        // fee is burned
+        totalSupply -= fee;
+        return true;
     }
 }

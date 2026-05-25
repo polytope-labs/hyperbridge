@@ -18,7 +18,7 @@ interface IHost is IDispatcher
 The Host contract is responsible for:
 - Storing and managing consensus states
 - Tracking state machine commitments
-- Managing request and response lifecycles
+- Managing request lifecycles
 - Dispatching incoming messages to applications
 - Handling timeouts and fee refunds
 - Maintaining the frozen state of the protocol
@@ -143,23 +143,9 @@ function unStakingPeriod() external view returns (uint256)
 
 ---
 
-### stateCommitmentFee()
-
-Returns the fee charged to 3rd party applications for accessing Hyperbridge state commitments.
-
-```solidity lineNumbers
-function stateCommitmentFee() external view returns (uint256)
-```
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `uint256` | State commitment fee in fee token |
-
----
-
 ### stateMachineCommitment()
 
-Retrieves the state commitment at a specific height. Charges the `stateCommitmentFee`.
+Retrieves the state commitment at a specific height.
 
 ```solidity lineNumbers
 function stateMachineCommitment(StateMachineHeight memory height) 
@@ -175,11 +161,6 @@ function stateMachineCommitment(StateMachineHeight memory height)
 | Returns | Type | Description |
 |---------|------|-------------|
 | - | `StateCommitment` | Contains overlay root, timestamp, and state root |
-
-**Payment:**
-- Can pay with native tokens (automatically swapped via Uniswap) or fee token
-- Must provide sufficient funds to cover `stateCommitmentFee`
-- If no native tokens provided, transfers from caller in fee token
 
 ---
 
@@ -219,24 +200,6 @@ function vetoes(uint256 paraId, uint256 height) external view returns (address)
 | Returns | Type | Description |
 |---------|------|-------------|
 | - | `address` | Fisherman who vetoed, or zero address if not vetoed |
-
----
-
-### responded()
-
-Checks if a request has received a response.
-
-```solidity lineNumbers
-function responded(bytes32 commitment) external view returns (bool)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | The request commitment hash |
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `bool` | True if request has been responded to |
 
 ---
 
@@ -287,24 +250,6 @@ function requestCommitments(bytes32 commitment) external view returns (FeeMetada
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `commitment` | `bytes32` | The request commitment hash |
-
-| Returns | Type | Description |
-|---------|------|-------------|
-| - | `FeeMetadata` | Contains relayer fee and sender address |
-
----
-
-### responseCommitments()
-
-Returns fee metadata for an outgoing response.
-
-```solidity lineNumbers
-function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | The response commitment hash |
 
 | Returns | Type | Description |
 |---------|------|-------------|
@@ -407,23 +352,6 @@ function dispatchIncoming(PostRequest memory request, address relayer) external
 
 ---
 
-### dispatchIncoming(PostResponse)
-
-Dispatches an incoming POST response to the source application's `onPostResponse()` callback.
-
-```solidity lineNumbers
-function dispatchIncoming(PostResponse memory response, address relayer) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response` | `PostResponse` | The POST response |
-| `relayer` | `address` | The relayer who delivered the response |
-
-**Access:** Restricted to handler
-
----
-
 ### dispatchIncoming(GetResponse)
 
 Dispatches an incoming GET response to the source application's `onGetResponse()` callback.
@@ -441,13 +369,13 @@ function dispatchIncoming(GetResponse memory response, address relayer) external
 
 ---
 
-### dispatchTimeOut(GetRequest)
+### dispatchTimeOut(GetRequestTimeout)
 
 Dispatches a timed-out GET request to the source application's `onGetTimeout()` callback.
 
 ```solidity lineNumbers
 function dispatchTimeOut(
-    GetRequest memory timeout, 
+    GetRequestTimeout memory timeout, 
     FeeMetadata memory meta, 
     bytes32 commitment
 ) external
@@ -455,7 +383,7 @@ function dispatchTimeOut(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `timeout` | `GetRequest` | The timed-out GET request |
+| `timeout` | `GetRequestTimeout` | The timed-out GET request bundled with the relayer that submitted the timeout proof |
 | `meta` | `FeeMetadata` | Fee metadata |
 | `commitment` | `bytes32` | Request commitment hash |
 
@@ -465,13 +393,13 @@ function dispatchTimeOut(
 
 ---
 
-### dispatchTimeOut(PostRequest)
+### dispatchTimeOut(PostRequestTimeout)
 
 Dispatches a timed-out POST request to the source application's `onPostRequestTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
 
 ```solidity lineNumbers
 function dispatchTimeOut(
-    PostRequest memory timeout, 
+    PostRequestTimeout memory timeout, 
     FeeMetadata memory meta, 
     bytes32 commitment
 ) external
@@ -479,7 +407,7 @@ function dispatchTimeOut(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `timeout` | `PostRequest` | The timed-out POST request |
+| `timeout` | `PostRequestTimeout` | The timed-out POST request bundled with the relayer that submitted the timeout proof |
 | `meta` | `FeeMetadata` | Fee metadata (contains payer and relayer fee) |
 | `commitment` | `bytes32` | Request commitment hash |
 
@@ -489,33 +417,9 @@ function dispatchTimeOut(
 
 ---
 
-### dispatchTimeOut(PostResponse)
-
-Dispatches a timed-out POST response to the source application's `onPostResponseTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
-
-```solidity lineNumbers
-function dispatchTimeOut(
-    PostResponse memory timeout, 
-    FeeMetadata memory meta, 
-    bytes32 commitment
-) external
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `timeout` | `PostResponse` | The timed-out POST response |
-| `meta` | `FeeMetadata` | Fee metadata (contains payer and relayer fee) |
-| `commitment` | `bytes32` | Response commitment hash |
-
-**Access:** Restricted to handler
-
-**Important:** Fee refund only happens if the application's timeout callback succeeds.
-
----
-
 ## Events
 
-**Note:** IHost extends IDispatcher and inherits all dispatch-related events. See [IDispatcher Events](/developers/evm/api/idispatcher#events) for `PostRequestEvent`, `PostResponseEvent`, `GetRequestEvent`, `RequestFunded`, and `PostResponseFunded`.
+**Note:** IHost extends IDispatcher and inherits all dispatch-related events. See [IDispatcher Events](/developers/evm/api/idispatcher#events) for `PostRequestEvent`, `GetRequestEvent`, and `RequestFunded`.
 
 ---
 
@@ -552,42 +456,6 @@ event PostRequestTimeoutHandled(
 |-----------|------|-------------|
 | `commitment` | `bytes32` | Commitment of the timed out request |
 | `dest` | `string` | Destination chain for this request |
-
----
-
-### PostResponseHandled
-
-Emitted when an incoming POST response is delivered to an application.
-
-```solidity lineNumbers
-event PostResponseHandled(
-    bytes32 indexed commitment,
-    address relayer
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | Commitment of the incoming response |
-| `relayer` | `address` | Relayer responsible for the delivery |
-
----
-
-### PostResponseTimeoutHandled
-
-Emitted when an outgoing POST response timeout is handled.
-
-```solidity lineNumbers
-event PostResponseTimeoutHandled(
-    bytes32 indexed commitment,
-    string dest
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `commitment` | `bytes32` | Commitment of the timed out response |
-| `dest` | `string` | Destination chain for this response |
 
 ---
 
@@ -711,33 +579,15 @@ Emitted when the host processes a withdrawal.
 event HostWithdrawal(
     uint256 amount,
     address beneficiary,
-    bool native
+    address token
 )
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `amount` | `uint256` | Amount that was withdrawn from the host's feeToken balance |
+| `amount` | `uint256` | Amount that was withdrawn |
 | `beneficiary` | `address` | The beneficiary address for this withdrawal |
-| `native` | `bool` | Flag for if the native token was withdrawn |
-
----
-
-### StateCommitmentRead
-
-Emitted when an application accesses the Hyperbridge state commitment.
-
-```solidity lineNumbers
-event StateCommitmentRead(
-    address indexed caller,
-    uint256 fee
-)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `caller` | `address` | The application responsible |
-| `fee` | `uint256` | The fee that was paid |
+| `token` | `address` | The token that was withdrawn (`address(0)` for native token) |
 
 ---
 

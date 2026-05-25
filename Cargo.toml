@@ -4,6 +4,7 @@ members = [
     # runtime
     "parachain/runtimes/gargantua",
     "parachain/runtimes/nexus",
+    "parachain/node/fisherman",
 
     # node
     "parachain/node",
@@ -19,13 +20,8 @@ members = [
     "modules/pallets/demo",
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
-    "modules/pallets/xcm-gateway",
-    "modules/pallets/token-governor",
     "modules/pallets/hyper-fungible-token",
-    "modules/pallets/token-gateway",
-    "modules/pallets/token-gateway/primitives",
-    "modules/pallets/token-gateway-inspector",
-    "modules/pallets/hyperbridge",
+    "modules/pallets/bandwidth",
     "modules/pallets/intents-coprocessor",
     "modules/pallets/intents-coprocessor/rpc",
     "modules/pallets/state-coprocessor",
@@ -74,15 +70,14 @@ members = [
     "modules/pallets/mmr/rpc",
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
-    "modules/ismp/state-machines/hyperbridge",
     "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
-    "modules/pallets/messaging-fees",
+    "modules/pallets/messaging-incentives",
     "modules/pallets/beefy-consensus-proofs",
 
     # evm stuff
     # "evm/tests/rust",
-    # "evm/abi",
+    # "evm/rust",
 
     # hyperclient
     # "modules/hyperclient",
@@ -102,7 +97,7 @@ members = [
     # "tesseract/messaging/primitives",
     # "tesseract/messaging/messaging",
     # "tesseract/messaging/substrate",
-    # "tesseract/messaging/relayer",
+    # "tesseract/messaging/fisherman",
     # "tesseract/messaging/evm",
     # "tesseract/messaging/tron",
     # "tesseract/messaging/evm-tendermint",
@@ -112,8 +107,6 @@ members = [
     # "tesseract/messaging/fees/prisma-cli",
     # "tesseract/messaging/telemetry",
     # "tesseract/messaging/config",
-    # "tesseract/messaging/fisherman",
-    # "tesseract/integration-test",
 
     # "tesseract/consensus/arb-host",
     # "tesseract/consensus/op-host",
@@ -124,7 +117,7 @@ members = [
     # "tesseract/consensus/integration-tests",
     # "tesseract/consensus/beefy",
     # "tesseract/consensus/beefy/zk",
-    # "tesseract/consensus/relayer",
+    # "tesseract/prover",
     # "tesseract/consensus/admin-relayer",
     # "tesseract/consensus/polygon",
     # "tesseract/consensus/tendermint",
@@ -267,15 +260,15 @@ ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clie
 pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
+
 pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
-pallet-token-gateway = { version = "2512.0.0", path = "modules/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "2512.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
+
 substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
-ismp-solidity-abi = { path = "./evm/abi", default-features = false }
+ismp-abi = { path = "./evm/rust", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
 integration-tests = { path = "parachain/integration-tests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }
@@ -314,7 +307,6 @@ ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features =
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
 pharos-state-machine = { path = "./modules/ismp/state-machines/pharos", default-features = false }
-hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # ismp modules
 pallet-fishermen = { path = "modules/pallets/fishermen", default-features = false }
@@ -323,15 +315,12 @@ pallet-ismp-relayer = { path = "modules/pallets/relayer", default-features = fal
 pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
 pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", default-features = false }
-pallet-messaging-fees= { path = "modules/pallets/messaging-fees", default-features = false }
+pallet-messaging-incentives = { path = "modules/pallets/messaging-incentives", default-features = false }
 pallet-beefy-consensus-proofs = { path = "modules/pallets/beefy-consensus-proofs", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
-pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
-pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
 pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
-pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false }
 
@@ -346,18 +335,18 @@ mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
+hyperbridge-fisherman = { path = "./parachain/node/fisherman" }
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
 messaging = { path = "tesseract/messaging/messaging" }
-tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-# tesseract-relayer = { path = "tesseract/messaging/relayer" }
+tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -371,7 +360,6 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-# tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }

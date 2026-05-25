@@ -21,7 +21,7 @@ import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.so
 import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
 import {IMulticallExtended} from "@uniswap/swap-router-contracts/contracts/interfaces/IMulticallExtended.sol";
 
-import {IWETH} from "../../interfaces/IWETH.sol";
+import {IWETH} from "@hyperbridge/core/interfaces/IWETH.sol";
 
 /**
  * @title UniV3UniswapV2Wrapper
@@ -54,11 +54,9 @@ contract UniV3UniswapV2Wrapper {
     bool private _initialized;
 
     /**
-     * @dev The deployer of the contract.
-     * The deployer may initialize the contract only once.
-     * They also receive all unspent ETH.
+     * @dev The address that deployed the wrapper. Only this address may call `init()`.
      */
-    address private _deployer;
+    address private immutable _deployer;
 
     /**
      * @dev Error indicating that a deposit operation has failed.
@@ -92,7 +90,7 @@ contract UniV3UniswapV2Wrapper {
     function init(Params memory params) public {
         if (_initialized || msg.sender != _deployer) revert Unauthorized();
         // approve the swap router to spend WETH
-        IWETH(params.WETH).approve(params.swapRouter, type(uint256).max);
+        IERC20(params.WETH).approve(params.swapRouter, type(uint256).max);
 
         _params = params;
         _initialized = true;
@@ -103,50 +101,6 @@ contract UniV3UniswapV2Wrapper {
      */
     function WETH() public view returns (address) {
         return _params.WETH;
-    }
-
-    /**
-     * @notice Swaps exact amount of ETH for tokens through V3 with deadline protection.
-     * @param amountOutMin The minimum amount of tokens to receive
-     * @param path Array of token addresses representing the swap path
-     * @param recipient Address that will receive the output tokens
-     * @param deadline Unix timestamp deadline by which the transaction must confirm
-     * @return amounts Array of amounts [ethSpent, tokensReceived]
-     */
-    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address recipient, uint256 deadline)
-        external
-        payable
-        returns (uint256[] memory)
-    {
-        address weth = _params.WETH;
-        if (path[0] != weth) revert InvalidWethAddress();
-
-        (bool sent,) = weth.call{value: msg.value}("");
-        if (!sent) revert DepositFailed();
-
-        IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams({
-            tokenIn: weth,
-            tokenOut: path[1],
-            fee: _params.maxFee,
-            recipient: recipient,
-            amountIn: msg.value,
-            amountOutMinimum: amountOutMin,
-            sqrtPriceLimitX96: 0
-        });
-
-        bytes memory swapCall = abi.encodeWithSelector(IV3SwapRouter.exactInputSingle.selector, params);
-
-        bytes[] memory data = new bytes[](1);
-        data[0] = swapCall;
-
-        bytes[] memory results = IMulticallExtended(_params.swapRouter).multicall(deadline, data);
-        uint256 amountReceived = abi.decode(results[0], (uint256));
-
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = msg.value;
-        amounts[1] = amountReceived;
-
-        return amounts;
     }
 
     /**
@@ -190,7 +144,7 @@ contract UniV3UniswapV2Wrapper {
             uint256 refund = msg.value - spent;
             IWETH(weth).withdraw(refund);
 
-            (bool success,) = _deployer.call{value: refund}("");
+            (bool success,) = msg.sender.call{value: refund}("");
             if (!success) revert RefundFailed();
         }
 
@@ -235,7 +189,8 @@ contract UniV3UniswapV2Wrapper {
         return amounts;
     }
 
-    /// @notice Accepts ETH transfers to this contract
-    /// @dev Fallback function to receive ETH payments, required for unwrapping WETH
-    receive() external payable {}
+    /// @notice Accepts ETH transfers only from WETH during withdraw; all other senders revert
+    receive() external payable {
+        if (msg.sender != _params.WETH) revert Unauthorized();
+    }
 }

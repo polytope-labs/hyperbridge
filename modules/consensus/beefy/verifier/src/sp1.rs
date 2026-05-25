@@ -37,6 +37,7 @@ sol! {
 		bytes32 authorities_root;
 		uint256 authorities_len;
 		bytes32 leaf_hash;
+		uint256 block_number;
 		ParachainHeaderHash[] headers;
 	}
 }
@@ -78,6 +79,7 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 		authorities_root: FixedBytes::from(Into::<[u8; 32]>::into(authority.keyset_commitment)),
 		authorities_len: U256::from(authority.len),
 		leaf_hash: FixedBytes::from(Into::<[u8; 32]>::into(H::keccak256(&proof.mmr_leaf.encode()))),
+		block_number: U256::from(proof.block_number),
 		headers,
 	}
 	.abi_encode();

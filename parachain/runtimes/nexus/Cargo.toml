@@ -39,24 +39,22 @@ ismp-grandpa = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
-pallet-token-governor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
-pallet-token-gateway-inspector = { workspace = true }
-pallet-hyperbridge = { workspace = true }
-pallet-token-gateway = { workspace = true }
-token-gateway-primitives = { workspace = true }
+pallet-bandwidth = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 mmr-primitives = { workspace = true }
-hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-pharos = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
-pallet-messaging-fees = { workspace = true }
+pallet-messaging-incentives = { workspace = true }
 pallet-collator-manager = { workspace = true }
+pallet-beefy-consensus-proofs = { workspace = true }
+ismp-beefy = { workspace = true }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
 
@@ -150,29 +148,27 @@ std = [
     "pallet-ismp-relayer/std",
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
-    "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
     "mmr-primitives/std",
     "simnode-runtime-api/std",
-    "hyperbridge-client-machine/std",
     "anyhow/std",
-    "pallet-token-gateway-inspector/std",
-    "pallet-hyperbridge/std",
-    "pallet-token-gateway/std",
-    "token-gateway-primitives/std",
+    "pallet-bandwidth/std",
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
     "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
     "ismp-optimism/std",
+    "ismp-pharos/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
     "ismp-polygon/std",
     "pallet-consensus-incentives/std",
-    "pallet-messaging-fees/std",
+    "pallet-messaging-incentives/std",
     "pallet-collator-manager/std",
+    "pallet-beefy-consensus-proofs/std",
+    "ismp-beefy/std",
     "ismp-tendermint/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
@@ -185,8 +181,9 @@ runtime-benchmarks = [
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
-    "pallet-messaging-fees/runtime-benchmarks",
-    "pallet-token-gateway/runtime-benchmarks",
+    "pallet-messaging-incentives/runtime-benchmarks",
+    "pallet-beefy-consensus-proofs/runtime-benchmarks",
+    "pallet-call-decompressor/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",
@@ -197,6 +194,7 @@ try-runtime = [
     "pallet-ismp-demo/try-runtime",
     "pallet-ismp-relayer/try-runtime",
     "pallet-ismp-host-executive/try-runtime",
+    "pallet-beefy-consensus-proofs/try-runtime",
 ]
 # This must be used when building for a runtime upgrade so metadata hash verification is possible
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]

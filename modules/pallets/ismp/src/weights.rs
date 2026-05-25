@@ -19,7 +19,7 @@ use polkadot_sdk::*;
 use crate::utils::ModuleId;
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
-use ismp::router::{PostRequest, Response, Timeout};
+use ismp::router::{GetResponse, PostRequest, Request};
 
 /// Interface for providing the weight information about [`IsmpModule`](ismp::module::IsmpModule)
 /// callbacks
@@ -27,19 +27,19 @@ pub trait IsmpModuleWeight {
 	/// Should return the weight used in processing this request
 	fn on_accept(&self, request: &PostRequest) -> Weight;
 	/// Should return the weight used in processing this timeout
-	fn on_timeout(&self, request: &Timeout) -> Weight;
+	fn on_timeout(&self, request: &Request) -> Weight;
 	/// Should return the weight used in processing this response
-	fn on_response(&self, response: &Response) -> Weight;
+	fn on_response(&self, response: &GetResponse) -> Weight;
 }
 
 impl IsmpModuleWeight for () {
 	fn on_accept(&self, _request: &PostRequest) -> Weight {
 		Weight::zero()
 	}
-	fn on_timeout(&self, _request: &Timeout) -> Weight {
+	fn on_timeout(&self, _request: &Request) -> Weight {
 		Weight::zero()
 	}
-	fn on_response(&self, _response: &Response) -> Weight {
+	fn on_response(&self, _response: &GetResponse) -> Weight {
 		Weight::zero()
 	}
 }

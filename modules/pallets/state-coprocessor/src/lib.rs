@@ -33,6 +33,11 @@ pub mod pallet {
 	use impls::GetRequestsWithProof;
 	use ismp::{host::IsmpHost, messaging::hash_request, router::Request};
 	use pallet_ismp::offchain::{Leaf, OffchainDBProvider};
+
+	/// Balance type of the reputation asset inherited from
+	/// [`pallet_messaging_incentives`].
+	pub type BalanceOf<T> = pallet_messaging_incentives::BalanceOf<T>;
+
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
@@ -40,7 +45,9 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
+		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>>
+		+ pallet_ismp::Config
+		+ pallet_messaging_incentives::Config
 	{
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
@@ -49,6 +56,19 @@ pub mod pallet {
 		///
 		/// Verified GetResponse(s) are stored in the mmr
 		type Mmr: OffchainDBProvider<Leaf = Leaf>;
+
+		/// Bandwidth gate that meters per-app data consumption. The
+		/// coprocessor charges `max(sum(keys.len()) + context.len(), 32)`
+		/// bytes per `GetRequest` against `(req.source, req.from)` before
+		/// any state proof work — fails fast for apps without allowance.
+		type BandwidthGate: pallet_bandwidth::BandwidthGate;
+	}
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// Reputation was minted to a relayer for delivering a verified batch.
+		ReputationMinted { relayer: T::AccountId, bytes: u32, amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]

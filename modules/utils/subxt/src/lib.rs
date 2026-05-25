@@ -69,8 +69,8 @@ pub mod signer {
 	use anyhow::Context;
 	use polkadot_sdk::sp_core::{sr25519, Pair};
 	use subxt::{
-		config::{ExtrinsicParams, HashFor},
-		tx::{DefaultParams, Signer},
+		config::{DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor},
+		tx::{DefaultParams, Signer, TxInBlock, TxProgress, TxStatus},
 		utils::{AccountId32, MultiSignature},
 		OnlineClient,
 	};
@@ -114,27 +114,91 @@ pub mod signer {
 		}
 	}
 
+	/// Re-fetch the chain's current [`RuntimeVersion`] and refresh the client's cached copy.
+	///
+	/// `OnlineClient` caches the runtime version (spec & transaction version) at construction.
+	/// After a runtime upgrade that cache goes stale, so the `CheckSpecVersion` signed extension
+	/// signs over the wrong `spec_version` and the node rejects the extrinsic with a bad-proof
+	/// error. Calling this before every signed submission keeps signing in step with the node's
+	/// current runtime.
+	async fn refresh_runtime_version<T: subxt::Config>(
+		client: &OnlineClient<T>,
+	) -> Result<(), anyhow::Error> {
+		let runtime_version = client
+			.backend()
+			.current_runtime_version()
+			.await
+			.context("Failed to fetch current runtime version")?;
+		client.set_runtime_version(runtime_version);
+		Ok(())
+	}
+
 	pub async fn send_extrinsic<T: subxt::Config, Tx: Payload>(
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
 		payload: &Tx,
 		_tip: Option<u128>,
+		wait_for_finalization: bool,
 	) -> Result<HashFor<T>, anyhow::Error>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature> + Send + Sync,
 		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: Send + Sync + DefaultParams,
 	{
+		refresh_runtime_version(client).await?;
 		let params = DefaultParams::default_params();
 		let ext = client.tx().create_signed(payload, signer, params).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Like [`send_extrinsic`], but submits with an explicit `nonce` rather than letting subxt
+	/// fetch one from the chain.
+	///
+	/// subxt sources the auto nonce from the latest *finalized* block (via its internal
+	/// `inject_account_nonce_and_block`). On a parachain, finality trails the best chain by
+	/// several blocks, so a submitter that only waits for in-block (not finalization) before its
+	/// next submission reuses an already-spent nonce and the node rejects it as
+	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from `system_accountNextIndex`)
+	/// avoids that. This uses `create_partial_offline`, which — unlike `create_signed` — does not
+	/// overwrite the nonce we set.
+	pub async fn send_extrinsic_with_nonce<T, Tx: Payload>(
+		client: &OnlineClient<T>,
+		signer: &InMemorySigner<T>,
+		payload: &Tx,
+		nonce: u64,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error>
+	where
+		T: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<T>>,
+		T::AccountId: Into<T::Address> + Clone + 'static,
+		T::Signature: From<MultiSignature> + Send + Sync,
+	{
+		refresh_runtime_version(client).await?;
+		let params = DefaultExtrinsicParamsBuilder::<T>::new().nonce(nonce).build();
+		let mut partial = client.tx().create_partial_offline(payload, params)?;
+		let ext = partial.sign(signer);
+		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Drive a submitted extrinsic to inclusion (or finalization), assert it executed
+	/// successfully, and return the hash of the block it landed in.
+	async fn await_extrinsic<T: subxt::Config>(
+		progress: TxProgress<T, OnlineClient<T>>,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error> {
 		let ext_hash = progress.extrinsic_hash();
 
-		let extrinsic = match progress.wait_for_finalized().await {
-			Ok(p) => p,
-			Err(err) => Err(refine_subxt_error(err)).context(format!(
-				"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
-			))?,
+		let extrinsic = if wait_for_finalization {
+			match progress.wait_for_finalized().await {
+				Ok(p) => p,
+				Err(err) => Err(refine_subxt_error(err)).context(format!(
+					"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
+				))?,
+			}
+		} else {
+			wait_for_inblock::<T>(progress).await?
 		};
 
 		match extrinsic.wait_for_success().await {
@@ -143,6 +207,24 @@ pub mod signer {
 				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 		};
 		Ok(extrinsic.block_hash())
+	}
+
+	/// Resolve once the extrinsic appears in a (best) block, without waiting for finality.
+	async fn wait_for_inblock<T: subxt::Config>(
+		mut progress: TxProgress<T, OnlineClient<T>>,
+	) -> Result<TxInBlock<T, OnlineClient<T>>, anyhow::Error> {
+		let ext_hash = progress.extrinsic_hash();
+		while let Some(status) = progress.next().await {
+			match status? {
+				TxStatus::InFinalizedBlock(s) | TxStatus::InBestBlock(s) => return Ok(s),
+				TxStatus::Error { .. } | TxStatus::Invalid { .. } | TxStatus::Dropped { .. } =>
+					return Err(anyhow!(
+						"signed extrinsic {ext_hash:?} failed before reaching a block"
+					)),
+				_ => {},
+			}
+		}
+		Err(anyhow!("signed extrinsic {ext_hash:?} stream ended without in-block status"))
 	}
 }
 
@@ -237,18 +319,4 @@ pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 	let key_1 = twox_64(&state_machine.encode()).to_vec();
 
 	[pallet_prefix, storage_prefix, key_1, state_machine.encode()].concat()
-}
-
-pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
-	let address = {
-		let mut dest = [0u8; 32];
-		dest.copy_from_slice(&address);
-		dest
-	};
-	let pallet_prefix = twox_128(b"Fishermen").to_vec();
-
-	let storage_prefix = twox_128(b"Fishermen").to_vec();
-	let key_1 = twox_64(&address.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
 }

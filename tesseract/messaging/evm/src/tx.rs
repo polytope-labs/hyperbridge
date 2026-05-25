@@ -18,14 +18,13 @@ use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, ResponseMessage},
-	router::{Request, RequestResponse, Response},
+	messaging::{hash_request, Message},
+	router::Request,
 };
-use ismp_solidity_abi::{
-	evm_host::{PostRequestHandled, PostResponseHandled},
+use ismp_abi::{
+	evm_host::{NewEpoch, PostRequestHandled},
 	handler::handler_v2::{
-		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
-		PostResponseMessage, Proof, StateMachineHeight,
+		HandlerV2Instance, PostRequestLeaf, PostRequestMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
@@ -83,7 +82,7 @@ fn build_solidity_proof(
 	})
 }
 
-/// Extract post-request and post-response handled commitments from a receipt's logs.
+/// Extract post-request handled commitments from a receipt's logs.
 fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 	receipt
 		.inner
@@ -93,16 +92,11 @@ fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 			PostRequestHandled::decode_log(&log.inner)
 				.map(|ev| H256::from_slice(ev.commitment.as_slice()))
 				.ok()
-				.or_else(|| {
-					PostResponseHandled::decode_log(&log.inner)
-						.map(|ev| H256::from_slice(ev.commitment.as_slice()))
-						.ok()
-				})
 		})
 		.collect()
 }
 
-/// Scan a receipt's logs for `HandlerV2::NewEpoch(set_id, relayer)`
+/// Scan a receipt's logs for `EvmHost::NewEpoch(set_id, relayer)`
 /// events addressed to `self_address`. Returns every `set_id` we won
 /// the race for in this submission — a single tx can carry multiple
 /// consensus messages (catch-up batches) and each one that lands a new
@@ -293,36 +287,8 @@ pub async fn generate_contract_calls(
 				(call.calldata().clone(), gas_with_buffer(gas))
 			},
 
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Response(responses),
-				proof,
-				..
-			}) => {
-				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
-				let mut leaves: Vec<PostResponseLeaf> = responses
-					.iter()
-					.zip(&leaf_indices)
-					.filter_map(|(res, &leaf_index)| match res {
-						Response::Post(res) => Some(PostResponseLeaf {
-							response: res.clone().into(),
-							index: AlloyU256::from(leaf_index),
-						}),
-						_ => None,
-					})
-					.collect();
-				leaves.sort_by_key(|l| l.index);
-				let solidity_proof = build_solidity_proof(&mmr_proof, &proof.height)?;
-				let call = contract.handlePostResponses(
-					ismp_host,
-					PostResponseMessage { proof: solidity_proof, responses: leaves },
-				);
-				let gas = call.estimate_gas().await.unwrap_or_else(|_| chain_gas_limit / 4);
-				(call.calldata().clone(), gas_with_buffer(gas))
-			},
-
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Request(..), ..
-			}) => return Err(anyhow!("Get requests are not supported by relayer")),
+			Message::Response(_) =>
+				return Err(anyhow!("Response messages not supported by relayer")),
 
 			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
 
@@ -338,7 +304,7 @@ pub async fn generate_contract_calls(
 /// Build the per-message inner calldata array for an `IHandlerV2.batchCall`.
 ///
 /// Each entry is an ABI-encoded HandlerV1 call (`handleConsensus`,
-/// `handlePostRequests`, `handlePostResponses`) — `batchCall` delegatecalls
+/// `handlePostRequests`) — `batchCall` delegatecalls
 /// self so those selectors still dispatch correctly against HandlerV2.
 async fn build_batch_inner_calls(
 	client: &EvmClient,
@@ -375,37 +341,8 @@ async fn build_batch_inner_calls(
 					.clone()
 			},
 
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Response(responses),
-				proof,
-				..
-			}) => {
-				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
-				let mut leaves: Vec<PostResponseLeaf> = responses
-					.iter()
-					.zip(&leaf_indices)
-					.filter_map(|(res, &leaf_index)| match res {
-						Response::Post(res) => Some(PostResponseLeaf {
-							response: res.clone().into(),
-							index: AlloyU256::from(leaf_index),
-						}),
-						_ => None,
-					})
-					.collect();
-				leaves.sort_by_key(|l| l.index);
-				let solidity_proof = build_solidity_proof(&mmr_proof, &proof.height)?;
-				contract
-					.handlePostResponses(
-						ismp_host,
-						PostResponseMessage { proof: solidity_proof, responses: leaves },
-					)
-					.calldata()
-					.clone()
-			},
-
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Request(..), ..
-			}) => return Err(anyhow!("Get requests are not supported by batchCall")),
+			Message::Response(_) =>
+				return Err(anyhow!("Response messages are not supported by batchCall")),
 
 			Message::Timeout(_) =>
 				return Err(anyhow!("Timeout messages are not supported by batchCall")),
@@ -672,8 +609,8 @@ pub async fn submit_messages(
 /// Wait for a transaction to be mined and verify it succeeded.
 ///
 /// Returns `Some((commitments, new_epochs))` on success — `commitments`
-/// from `PostRequest`/`PostResponseHandled` logs, `new_epochs` from
-/// every `HandlerV2::NewEpoch(set_id, relayer)` log that names this
+/// from `PostRequestHandled` logs, `new_epochs` from
+/// every `EvmHost::NewEpoch(set_id, relayer)` log that names this
 /// client as the relayer (empty when no such logs are present, multiple
 /// entries when a single tx batched multiple consensus messages). Each
 /// `NewEpochEvent` carries the destination block in which the log was
@@ -724,7 +661,7 @@ fn build_tx_receipts(
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
 					if receipts.contains(&commitment) {
-						results.push(TxReceipt::Request {
+						results.push(TxReceipt {
 							query: Query {
 								source_chain: req.source_chain(),
 								dest_chain: req.dest_chain(),
@@ -735,26 +672,8 @@ fn build_tx_receipts(
 						});
 					}
 				},
-			Message::Response(ResponseMessage {
-				datagram: RequestResponse::Response(resp),
-				..
-			}) =>
-				for res in resp {
-					let commitment = hash_response::<Hasher>(&res);
-					let request_commitment = hash_request::<Hasher>(&res.request());
-					if receipts.contains(&commitment) {
-						results.push(TxReceipt::Response {
-							query: Query {
-								source_chain: res.source_chain(),
-								dest_chain: res.dest_chain(),
-								nonce: res.nonce(),
-								commitment,
-							},
-							request_commitment,
-							height,
-						});
-					}
-				},
+			// `Message::Response` carries only GetRequests being responded to post-#840.
+			// GetResponse delivery is on-chain via dispatch; no relayer receipt to record here.
 			_ => {},
 		}
 	}

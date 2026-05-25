@@ -96,12 +96,12 @@ function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenN
 
 ---
 
-### onPostRequestTimeout(request)
+### onPostRequestTimeout(incoming)
 
 Called when a sent message times out. Re-mints tokens to the original sender.
 
 ```solidity lineNumbers
-function onPostRequestTimeout(PostRequest memory request) external onlyHost whenNotPaused
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external onlyHost whenNotPaused
 ```
 
 ---
@@ -146,9 +146,29 @@ function supportsInterface(bytes4 interfaceId) public view returns (bool)
 
 ---
 
+### quote(params)
+
+Returns the fee in the host's fee token for dispatching a cross-chain send. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(SendParams calldata params) public view returns (uint256)
+```
+
+---
+
+### quote(params)
+
+Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(SendParams calldata params) public view returns (uint256)
+```
+
+---
+
 ### quote(request)
 
-Returns the fee in the host's fee token for dispatching a cross-chain send. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+Returns the fee in the host's fee token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
 
 ```solidity lineNumbers
 function quote(DispatchPost memory request) public view returns (uint256)
@@ -156,12 +176,12 @@ function quote(DispatchPost memory request) public view returns (uint256)
 
 ---
 
-### quoteNative(request)
+### quote(request)
 
-Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+Returns the fee in the native token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
 
 ```solidity lineNumbers
-function quoteNative(DispatchPost memory request) public view returns (uint256)
+function quote(DispatchPost memory request) public view returns (uint256)
 ```
 
 ---

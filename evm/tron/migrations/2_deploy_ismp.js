@@ -2,13 +2,12 @@
  * TronBox Migration: Deploy Hyperbridge ISMP contracts to TRON
  *
  * Deployment order:
- *   1. BeefyV1FiatShamir  (consensus client)
- *   2. ConsensusRouter    (consensus router — only FiatShamir is active)
- *   3. HandlerV1          (message handler)
- *   4. HostManager        (cross-chain governance)
- *   5. TronHost           (ISMP host)
- *   6. CallDispatcher     (untrusted call dispatcher)
- *   7. IntentGatewayV2    (intent-based bridging)
+ *   1. ConsensusRouter    (consensus router — BeefyV1/Ecdsa)
+ *   2. HandlerV1          (message handler)
+ *   3. HostManager        (cross-chain governance)
+ *   4. TronHost           (ISMP host)
+ *   5. CallDispatcher     (untrusted call dispatcher)
+ *   6. IntentGatewayV2    (intent-based bridging)
  *
  * After deployment the script wires everything together:
  *   - HostManager.setIsmpHost(tronHost)
@@ -18,10 +17,8 @@
 
 const HeaderImpl = artifacts.require("HeaderImpl");
 const Codec = artifacts.require("Codec");
-const Transcript = artifacts.require("Transcript");
 const EthereumTrieDB = artifacts.require("EthereumTrieDB");
 const MerklePatricia = artifacts.require("MerklePatricia");
-const BeefyV1FiatShamir = artifacts.require("BeefyV1FiatShamir");
 const ConsensusRouter = artifacts.require("ConsensusRouter");
 const HandlerV1 = artifacts.require("HandlerV1");
 const HostManager = artifacts.require("HostManager");
@@ -88,7 +85,7 @@ module.exports = async function (deployer, network, accounts) {
     console.log("╚═══════════════════════════════════════════╝\n");
 
     // ═════════════════════════════════════════════════════════════════════
-    //  1a. Deploy libraries required by BeefyV1FiatShamir
+    //  1. Deploy libraries required by BeefyV1
     // ═════════════════════════════════════════════════════════════════════
     console.log("→ Deploying HeaderImpl library ...");
     await deployer.deploy(HeaderImpl);
@@ -98,34 +95,16 @@ module.exports = async function (deployer, network, accounts) {
     await deployer.deploy(Codec);
     console.log("  ✓ Codec:", Codec.address);
 
-    console.log("→ Deploying Transcript library ...");
-    await deployer.deploy(Transcript);
-    console.log("  ✓ Transcript:", Transcript.address);
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  1b. Link libraries and deploy BeefyV1FiatShamir
-    // ═════════════════════════════════════════════════════════════════════
-    console.log("→ Linking libraries → BeefyV1FiatShamir ...");
-    await deployer.link(HeaderImpl, BeefyV1FiatShamir);
-    await deployer.link(Codec, BeefyV1FiatShamir);
-    await deployer.link(Transcript, BeefyV1FiatShamir);
-
-    console.log("→ Deploying BeefyV1FiatShamir ...");
-    await deployer.deploy(BeefyV1FiatShamir);
-    const beefyV1FiatShamir = await BeefyV1FiatShamir.deployed();
-    console.log("  ✓ BeefyV1FiatShamir:", beefyV1FiatShamir.address);
-
     // ═════════════════════════════════════════════════════════════════════
     //  2. Deploy ConsensusRouter
-    //     Only BeefyV1FiatShamir is active; SP1Beefy and BeefyV1 are
-    //     set to address(0) since they are not used on TRON.
+    //     SP1Beefy and BeefyV1 are set to address(0) since they are not
+    //     used on TRON.
     // ═════════════════════════════════════════════════════════════════════
     console.log("→ Deploying ConsensusRouter ...");
     await deployer.deploy(
         ConsensusRouter,
         ZERO_ADDRESS_HEX, // sp1Beefy  — not deployed on TRON
-        ZERO_ADDRESS_HEX, // beefyV1   — not deployed on TRON
-        beefyV1FiatShamir.address, // beefyV1FiatShamir
+        ZERO_ADDRESS_HEX, // ecdsaBeefy — not deployed on TRON
     );
     const consensusRouter = await ConsensusRouter.deployed();
     console.log("  ✓ ConsensusRouter:", consensusRouter.address);
@@ -267,7 +246,6 @@ module.exports = async function (deployer, network, accounts) {
     console.log("\n╔═══════════════════════════════════════════════════════════╗");
     console.log("║              Deployment Summary                          ║");
     console.log("╠═══════════════════════════════════════════════════════════╣");
-    console.log(`║  BeefyV1FiatShamir : ${beefyV1FiatShamir.address}`);
     console.log(`║  ConsensusRouter   : ${consensusRouter.address}`);
     console.log(`║  HandlerV1         : ${handler.address}`);
     console.log(`║  HostManager       : ${hostManager.address}`);

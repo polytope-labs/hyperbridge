@@ -11,12 +11,13 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
-use pallet_hyperbridge::WithdrawalRequest;
-use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
+use pallet_ismp::{
+	child_trie::CHILD_TRIE_PREFIX, dispatcher::WithdrawalRequest, offchain::LeafIndexAndPos,
+};
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
-	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
 	OutboundConsensusDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
@@ -89,14 +90,14 @@ where
 		);
 
 		let sudo_payload = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
-		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
+		send_extrinsic(&self.client, &signer, &sudo_payload, None, true).await?;
 
 		Ok(())
 	}
 
 	pub async fn set_host_params(
 		&self,
-		params: BTreeMap<StateMachine, HostParam<u128>>,
+		params: BTreeMap<StateMachine, HostParam>,
 	) -> anyhow::Result<()> {
 		let host_executive_payload = subxt::dynamic::tx(
 			"HostExecutive",
@@ -106,7 +107,7 @@ where
 		let sudo_payload =
 			subxt::dynamic::tx("Sudo", "sudo", vec![host_executive_payload.into_value()]);
 		let signer = InMemorySigner::new(self.signer.clone());
-		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
+		send_extrinsic(&self.client, &signer, &sudo_payload, None, true).await?;
 
 		Ok(())
 	}
@@ -115,7 +116,7 @@ where
 	/// on Hyperbridge. The extrinsic is unsigned (validated via
 	/// `validate_unsigned`); the claim itself carries the relayer's ECDSA
 	/// signature which the pallet recovers and matches against the
-	/// destination's `HandlerV2._epochs[set_id]` slot.
+	/// destination's `EvmHost._epochs[set_id]` slot.
 	pub async fn submit_outbound_consensus_delivery_claim(
 		&self,
 		claim: OutboundConsensusDeliveryClaim,
@@ -192,18 +193,8 @@ where
 			U256::from(10u128 * 10u128.pow((*fee_token_decimals).into()))
 		{
 			// withdraws funds accumulated into hyperbridge address
-			let key = relayer_nonce_storage_key(self.address.clone(), chain);
-			let block_hash = self
-				.rpc
-				.chain_get_block_hash(None)
-				.await?
-				.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-			let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
-			let nonce = if let Some(raw_value) = raw_value {
-				Decode::decode(&mut &*raw_value)?
-			} else {
-				0u64
-			};
+			let nonce =
+				fetch_relayer_nonce(&self.client, &self.rpc, self.address.clone(), chain).await?;
 
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
 			let signature = { self.sign(&message) };
@@ -220,15 +211,8 @@ where
 			);
 		}
 		// withdraws funds accumulated into counterparty address
-		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let block_hash = self
-			.rpc
-			.chain_get_block_hash(None)
-			.await?
-			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		let nonce =
-			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+			fetch_relayer_nonce(&self.client, &self.rpc, counterparty.address(), chain).await?;
 
 		let message = message(nonce, chain, None);
 		let signature = { counterparty.sign(&message) };
@@ -242,24 +226,11 @@ where
 		}
 	}
 
-	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {
-		let params = match key {
-			Key::Request(req) => {
-				let key = self.req_commitments_key(req);
-				let child_storage_key =
-					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-				let storage_key = StorageKey(key);
-
-				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
-			},
-			Key::Response { response_commitment, .. } => {
-				let key = self.res_commitments_key(response_commitment);
-				let child_storage_key =
-					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-				let storage_key = StorageKey(key);
-				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
-			},
-		};
+	async fn check_claimed(&self, commitment: H256) -> anyhow::Result<bool> {
+		let key = self.req_commitments_key(commitment);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
 			self.rpc_client.request("childstate_getStorage", params).await?;
@@ -267,6 +238,10 @@ where
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 
 		Ok(leaf_meta.claimed)
+	}
+
+	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64> {
+		fetch_relayer_nonce(&self.client, &self.rpc, address, chain).await
 	}
 }
 
@@ -328,6 +303,23 @@ async fn relayer_account_balance<C: subxt::Config>(
 	Ok(balance)
 }
 
+async fn fetch_relayer_nonce<C: subxt::Config>(
+	client: &OnlineClient<C>,
+	rpc: &LegacyRpcMethods<C>,
+	address: Vec<u8>,
+	chain: StateMachine,
+) -> anyhow::Result<u64> {
+	let key = relayer_nonce_storage_key(address, chain);
+	let block_hash = rpc
+		.chain_get_block_hash(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+	let raw_value = client.storage().at(block_hash).fetch_raw(key).await?;
+	let nonce =
+		if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+	Ok(nonce)
+}
+
 async fn execute_withdrawal<C>(
 	client: &SubstrateClient<C>,
 	beneficiary: Option<Vec<u8>>,
@@ -377,9 +369,9 @@ where
 				let condition = post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 				match post.dest {
 					s if s.is_substrate() => {
-						if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
+						if let Ok(pallet_ismp::dispatcher::Message::WithdrawRelayerFees(
 							WithdrawalRequest { account, .. },
-						)) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
+						)) = pallet_ismp::dispatcher::Message::<AccountId32, u128>::decode(
 							&mut &*post.body,
 						) {
 							account.0.to_vec() == counterparty.address() && condition

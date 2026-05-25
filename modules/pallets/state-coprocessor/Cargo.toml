@@ -7,8 +7,6 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
-alloy-rlp = { workspace = true }
-alloy-primitives = { workspace = true }
 scale-info = { workspace = true }
 codec = { workspace = true }
 log = { workspace = true }
@@ -17,8 +15,8 @@ log = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 mmr-primitives = { workspace = true }
-evm-state-machine = { workspace = true }
-pallet-ismp-relayer = { workspace = true }
+pallet-bandwidth = { workspace = true }
+pallet-messaging-incentives = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -41,8 +39,7 @@ std = [
     "ismp/std",
     "pallet-ismp/std",
     "mmr-primitives/std",
-    "evm-state-machine/std",
-    "pallet-ismp-relayer/std",
-    "alloy-primitives/std",
+    "pallet-bandwidth/std",
+    "pallet-messaging-incentives/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

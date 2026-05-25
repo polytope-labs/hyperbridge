@@ -474,22 +474,17 @@ mod tests {
 		}
 
 		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete testnet EVM
-		/// set: L2s (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia) plus the required
-		/// non-L2 chains (Sepolia, BSC Chapel, Gnosis Chiado, Polygon Amoy). Each chain has
-		/// two distinct-host rpc_urls. The relayer section is left at its [`Default`]
-		/// (collators don't need to populate it).
+		/// set the fisherman supports: Arbitrum Sepolia and Base Sepolia on the L2 side, plus
+		/// Sepolia as the matching non-L2. Each chain has two distinct-host rpc_urls. The
+		/// relayer section is left at its [`Default`] (collators don't need to populate it).
 		fn complete_testnet_collator_config() -> HyperbridgeConfig {
 			let mut chains = HashMap::new();
 			for (chain_id, rpcs) in [
 				// L2s
 				(421614u32, ["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"]),
-				(11155420, ["https://opt-sepolia.alchemy.com/v2/k", "https://opt-sepolia.infura.io/v3/k"]),
-				(84532,    ["https://base-sepolia.alchemy.com/v2/k", "https://base-sepolia.infura.io/v3/k"]),
-				// Non-L2 testnets
-				(11155111, ["https://sepolia.alchemy.com/v2/k", "https://sepolia.infura.io/v3/k"]),
-				(97,       ["https://bsc-testnet.alchemy.com/v2/k", "https://bsc-testnet.infura.io/v3/k"]),
-				(10200,    ["https://chiado.alchemy.com/v2/k", "https://chiado.infura.io/v3/k"]),
-				(80002,    ["https://amoy.alchemy.com/v2/k", "https://amoy.infura.io/v3/k"]),
+				(84532,     ["https://base-sepolia.alchemy.com/v2/k", "https://base-sepolia.infura.io/v3/k"]),
+				// Non-L2 testnet
+				(11155111,  ["https://sepolia.alchemy.com/v2/k", "https://sepolia.infura.io/v3/k"]),
 			] {
 				chains.insert(StateMachine::Evm(chain_id), evm_chain(chain_id, &rpcs));
 			}
@@ -618,7 +613,7 @@ mod tests {
 			// All four testnet non-L2 chains are wired without a consensus block in the
 			// fixture; the complete config still validates.
 			let cfg = complete_testnet_collator_config();
-			for non_l2 in [11155111u32, 97, 10200, 80002] {
+			for non_l2 in [11155111u32] {
 				assert!(
 					cfg.chains
 						.get(&StateMachine::Evm(non_l2))

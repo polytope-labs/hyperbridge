@@ -104,11 +104,12 @@ pub const SUPPORTED_L2_CHAIN_IDS_MAINNET: &[u64] = &[
 
 /// Testnet counterparts of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`]. Listed
 /// separately so a collator pointed at a testnet deployment doesn't need
-/// mainnet entries (and vice-versa).
+/// mainnet entries (and vice-versa). The collator-side fisherman currently
+/// supports only Arbitrum Sepolia and Base Sepolia on the L2 side
+/// (Optimism Sepolia / Unichain Sepolia / Soneium testnet aren't covered).
 pub const SUPPORTED_L2_CHAIN_IDS_TESTNET: &[u64] = &[
-	421614,   // Arbitrum Sepolia
-	11155420, // Optimism Sepolia
-	84532,    // Base Sepolia
+	421614, // Arbitrum Sepolia
+	84532,  // Base Sepolia
 ];
 
 /// Non-L2 EVM chain IDs that Hyperbridge tracks directly (each has its own consensus client,
@@ -122,12 +123,12 @@ pub const SUPPORTED_NON_L2_CHAIN_IDS_MAINNET: &[u64] = &[
 	137, // Polygon
 ];
 
-/// Testnet counterparts of [`SUPPORTED_NON_L2_CHAIN_IDS_MAINNET`].
+/// Testnet counterparts of [`SUPPORTED_NON_L2_CHAIN_IDS_MAINNET`]. The collator-side
+/// fisherman covers only Sepolia on testnet — BSC Chapel, Gnosis Chiado and Polygon Amoy
+/// aren't required because Hyperbridge's testnet deployment settles those rollups against
+/// Sepolia only.
 pub const SUPPORTED_NON_L2_CHAIN_IDS_TESTNET: &[u64] = &[
 	11155111, // Sepolia
-	97,       // BSC Chapel
-	10200,    // Gnosis Chiado
-	80002,    // Polygon Amoy
 ];
 
 /// True when `chain_id` is a Hyperbridge-supported L2 (mainnet or testnet).

@@ -1233,10 +1233,10 @@
 		"name": "DestinationProtocolFeeUpdated",
 		"inputs": [
 			{
-				"name": "stateMachineId",
-				"type": "bytes32",
-				"indexed": true,
-				"internalType": "bytes32"
+				"name": "chain",
+				"type": "string",
+				"indexed": false,
+				"internalType": "string"
 			},
 			{
 				"name": "feeBps",
@@ -1361,13 +1361,13 @@
 	},
 	{
 		"type": "event",
-		"name": "NewDeploymentAdded",
+		"name": "DeploymentAdded",
 		"inputs": [
 			{
-				"name": "stateMachineId",
-				"type": "bytes",
+				"name": "chain",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "gateway",
@@ -1445,15 +1445,15 @@
 			},
 			{
 				"name": "source",
-				"type": "bytes",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "destination",
-				"type": "bytes",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "deadline",

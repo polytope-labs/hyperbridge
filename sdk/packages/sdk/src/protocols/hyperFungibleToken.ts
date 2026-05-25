@@ -204,13 +204,20 @@ export class HyperFungibleToken {
 			data,
 		}
 
-		// quote() always works; quoteNative() may fail if no Uniswap router
-		const totalFeeTokenCost = (await this.source.client.readContract({
-			address: params.token,
-			abi: HyperFungibleTokenABI,
-			functionName: "quote",
-			args: [sendParams],
-		})) as bigint
+		// Both quote() and quoteNative() route through the host's uniswapV2Router.
+		// On testnets where the router isn't configured, these calls revert; the
+		// caller must use payInFeeToken and the approval check below uses a sentinel.
+		let totalFeeTokenCost = 0n
+		try {
+			totalFeeTokenCost = (await this.source.client.readContract({
+				address: params.token,
+				abi: HyperFungibleTokenABI,
+				functionName: "quote",
+				args: [sendParams],
+			})) as bigint
+		} catch {
+			// uniswapV2Router unset on this host — quote unavailable.
+		}
 
 		let totalNativeCost = 0n
 		try {
@@ -222,7 +229,7 @@ export class HyperFungibleToken {
 			})) as bigint
 			totalNativeCost = (totalNativeCost * 101n) / 100n // 1% buffer
 		} catch {
-			// No Uniswap router — native quote unavailable, use feeToken path
+			// uniswapV2Router unset on this host — native quote unavailable.
 		}
 
 		return {
@@ -311,8 +318,11 @@ export class HyperFungibleToken {
 				args: [params.from, token],
 			})) as bigint
 
-			// Approve max to avoid repeated approvals and rounding issues
-			if (currentAllowance < fee.totalFeeTokenCost) {
+			// Approve max to avoid repeated approvals and rounding issues. When the
+			// on-chain quote was unavailable (testnet without uniswapV2Router),
+			// fall back to a sentinel so the first call still issues an approval.
+			const approvalThreshold = fee.totalFeeTokenCost > 0n ? fee.totalFeeTokenCost : 1n << 200n
+			if (currentAllowance < approvalThreshold) {
 				yield {
 					type: "approve",
 					tx: {

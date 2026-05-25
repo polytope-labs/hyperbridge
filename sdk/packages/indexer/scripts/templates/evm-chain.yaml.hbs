@@ -47,7 +47,7 @@ dataSources:
           handler: handleOrderPlacedEventV3
           filter:
             topics:
-              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
+              - 'OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
           handler: handleOrderFilledEventV3
           filter:

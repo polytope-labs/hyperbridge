@@ -94,6 +94,10 @@ pub enum Error {
 	/// The ismp host this client runs on isn't itself a parachain (Polkadot or Kusama).
 	#[error("Host state machine should be a parachain")]
 	HostStateMachineNotParachain,
+	/// The host is the coprocessor; the BEEFY client only seeds the coprocessor's own state
+	/// machine commitment and must not serve a state machine client for proof verification.
+	#[error("Host state machine is the coprocessor")]
+	HostStateMachineIsCoprocessor,
 	/// An MMR fraud proof failed to SCALE-decode.
 	#[error("Cannot decode MMR proof: {0}")]
 	DecodeMmrProof(String),

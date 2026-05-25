@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_000,
+	spec_version: 7_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -284,9 +284,9 @@ const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(5);
 /// `Operational` extrinsics.
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
-/// We allow for 0.5 of a second of compute with a 12 second average block time.
+/// We allow for 2 seconds of compute with a 12 second average block time.
 const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
-	WEIGHT_REF_TIME_PER_SECOND.saturating_div(2),
+	WEIGHT_REF_TIME_PER_SECOND.saturating_mul(2),
 	cumulus_primitives_core::relay_chain::MAX_POV_SIZE as u64,
 );
 
@@ -922,13 +922,6 @@ parameter_types! {
 	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
-parameter_types! {
-	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
-	];
-}
-
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -937,7 +930,6 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
-	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;

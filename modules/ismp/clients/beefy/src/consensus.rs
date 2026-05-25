@@ -81,6 +81,9 @@ where
 				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
 
 		let proof_type = proof.first().ok_or(BeefyError::EmptyProof)?;
+		if !C::allowed_proof_types().contains(proof_type) {
+			return Err(BeefyError::UnknownProofType(*proof_type).into());
+		}
 		let payload = &proof[1..];
 
 		let (new_state, verified_parachains) = match *proof_type {
@@ -223,6 +226,13 @@ where
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		// On the coprocessor the BEEFY client only seeds the coprocessor's own state machine
+		// commitment; it must never be used to verify state proofs for incoming messages.
+		let host = H::default();
+		if Some(host.host_state_machine()) == host.allowed_proxy() {
+			Err(BeefyError::HostStateMachineIsCoprocessor)?
+		}
+
 		let para_id = match id {
 			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
 			_ => Err(BeefyError::UnsupportedStateMachine(id))?,

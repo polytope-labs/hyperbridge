@@ -72,10 +72,10 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
+		consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 		handlers,
 		host::IsmpHost,
-		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
+		messaging::{ConsensusMessage as IsmpConsensusMessage, Message, StateCommitmentHeight},
 	};
 	use ismp_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 	use primitive_types::H256;
@@ -132,12 +132,6 @@ pub mod pallet {
 		/// Unbonding period passed to `pallet-ismp` on first `initialize_state`, in seconds.
 		#[pallet::constant]
 		type UnbondingPeriod: Get<u64>;
-
-		/// Allowed proof types. Controls which consensus proof formats the pallet
-		/// will accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
-		/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`.
-		#[pallet::constant]
-		type AllowedProofTypes: Get<&'static [u8]>;
 
 		/// Maximum number of uncle provers rewarded per parachain height, in addition to
 		/// the first prover. Total provers per height are therefore `MaxUncleProvers + 1`,
@@ -227,6 +221,8 @@ pub mod pallet {
 		UnknownProofType,
 		/// ABI decoding or conversion failed.
 		AbiDecodeFailed,
+		/// The submitted proof is not in canonical ABI form (e.g. trailing padding).
+		MalformedProof,
 		/// The BEEFY verifier rejected the proof.
 		VerificationFailed,
 		/// Rotation proof did not rotate to `NextAuthoritySetId`.
@@ -300,7 +296,12 @@ pub mod pallet {
 			let current_set_id = state.current_authorities.id;
 			let next_set_id = state.next_authorities.id;
 			let latest_beefy_height = state.latest_beefy_height;
+			let host = pallet_ismp::Pallet::<T>::default();
 
+			// Seed an initial commitment for the host state machine at the current block height.
+			let height = sp_runtime::SaturatedConversion::saturated_into::<u64>(
+				frame_system::Pallet::<T>::block_number(),
+			);
 			pallet_ismp::Pallet::<T>::create_consensus_client(
 				frame_system::RawOrigin::Root.into(),
 				ismp::messaging::CreateConsensusState {
@@ -309,7 +310,20 @@ pub mod pallet {
 					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					unbonding_period: T::UnbondingPeriod::get(),
 					challenge_periods: Default::default(),
-					state_machine_commitments: Default::default(),
+					state_machine_commitments: vec![(
+						StateMachineId {
+							consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+							state_id: host.host_state_machine(),
+						},
+						StateCommitmentHeight {
+							height,
+							commitment: StateCommitment {
+								timestamp: host.timestamp().as_secs(),
+								overlay_root: None,
+								state_root: H256::zero(),
+							},
+						},
+					)],
 				},
 			)
 			.map_err(|e| {
@@ -423,10 +437,11 @@ pub mod pallet {
 			// Size is enforced by the `BoundedVec<u8, T::MaxProofSize>` parameter on
 			// `submit_proof` — oversized payloads fail SCALE decoding inside the txpool
 			// and never reach this dispatch.
+			// The set of accepted proof types is gated by `ismp-beefy`'s
+			// `BeefyClientConfig::allowed_proof_types` during `verify_and_apply`; here we only
+			// need the type byte to drive canonical re-encoding. Unknown bytes still fall
+			// through to the `_ => UnknownProofType` arm of the match below.
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if !T::AllowedProofTypes::get().contains(&proof_type) {
-				Err(Error::<T>::UnknownProofType)?
-			}
 
 			// Decode the ABI payload then re-encode it canonically and hash *that* instead
 			// of the raw input. `alloy_sol_types::abi_decode_params` silently ignores
@@ -458,6 +473,14 @@ pub mod pallet {
 			canonical_proof.push(proof_type);
 			canonical_proof.extend_from_slice(&canonical_payload);
 			let proof_hash: H256 = sp_io::hashing::keccak_256(&canonical_proof).into();
+
+			// Reject any submission that isn't already in canonical form. If the raw input
+			// hashes differently from its canonical re-encoding it carries non-canonical
+			// bytes (trailing padding, alternate encodings), so it is malformed.
+			let submitted_hash: H256 = sp_io::hashing::keccak_256(&proof).into();
+			if submitted_hash != proof_hash {
+				Err(Error::<T>::MalformedProof)?
+			}
 
 			// Read the pre-proof consensus state before `verify_and_apply` mutates it.
 			// Used to seed `ProofContext` for the first-proof path.

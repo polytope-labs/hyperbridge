@@ -24,7 +24,8 @@ import {
     PaymentInfo,
     DispatchInfo,
     FillOptions,
-    CancelOptions
+    CancelOptions,
+    Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
@@ -82,7 +83,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.setParams(intentParams);
+        intentGateway.init(intentParams, new Deployment[](0));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -183,7 +184,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.setParams(intentParams);
+        gatewayWithFees.init(intentParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -1388,7 +1389,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     function testPartialFill_WithProtocolFee() public {
         IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
-        gatewayWithFees.setParams(
+        gatewayWithFees.init(
             Params({
                 host: address(host),
                 dispatcher: address(dispatcher),
@@ -1397,7 +1398,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 protocolFeeBps: PROTOCOL_FEE_BPS,
                 priceOracle: address(0)
             })
-        );
+        , new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 900 * 1e18;
@@ -1456,7 +1457,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
     }
 
-    function testPartialFill_CalldataOnlyAfterFullFill() public {
+    /// @notice Orders carrying output calldata cannot be partially filled: any fill that
+    /// does not complete the order reverts with PartialFillNotAllowed. A single full fill
+    /// succeeds and executes the attached calldata.
+    function testPartialFill_CalldataOrderRequiresFullFill() public {
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 1000 * 1e18;
 
@@ -1496,28 +1500,27 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         order.source = host.host();
         order.nonce = 0;
 
-        // Partial fill — calldata should NOT execute
+        // Partial fill — must revert, partial fills are disallowed for calldata orders.
         vm.startPrank(solver);
         dai.approve(address(intentGateway), 500 * 1e18);
         TokenInfo[] memory outputs1 = new TokenInfo[](1);
         outputs1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs1}));
         vm.stopPrank();
 
-        // Allowance should still be 0 (calldata not executed yet)
+        // No escrow released and calldata not executed.
         assertEq(
             dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)),
             0,
-            "Calldata should not execute on partial fill"
+            "Calldata should not execute on rejected partial fill"
         );
 
-        // Complete the fill — calldata should execute
-        address solver2 = makeAddr("solver2");
-        deal(address(dai), solver2, 100000 * 1e18);
-        vm.startPrank(solver2);
-        dai.approve(address(intentGateway), 500 * 1e18);
+        // Full fill in a single transaction — calldata executes.
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
-        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs2}));
         vm.stopPrank();
 
@@ -1963,7 +1966,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.setParams(intentParams);
+        gatewayWithFees.init(intentParams, new Deployment[](0));
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
@@ -2307,7 +2310,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
             priceOracle: address(0)
         });
-        gatewayWithFees.setParams(intentParams);
+        gatewayWithFees.init(intentParams, new Deployment[](0));
 
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
         fot.mint(user, 10000 * 1e18);

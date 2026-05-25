@@ -54,11 +54,9 @@ contract UniV3UniswapV2Wrapper {
     bool private _initialized;
 
     /**
-     * @dev The deployer of the contract.
-     * The deployer may initialize the contract only once.
-     * They also receive all unspent ETH.
+     * @dev The address that deployed the wrapper. Only this address may call `init()`.
      */
-    address private _deployer;
+    address private immutable _deployer;
 
     /**
      * @dev Error indicating that a deposit operation has failed.
@@ -146,7 +144,7 @@ contract UniV3UniswapV2Wrapper {
             uint256 refund = msg.value - spent;
             IWETH(weth).withdraw(refund);
 
-            (bool success,) = _deployer.call{value: refund}("");
+            (bool success,) = msg.sender.call{value: refund}("");
             if (!success) revert RefundFailed();
         }
 

@@ -4,27 +4,23 @@ use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_abi::{ecdsa_beefy::BeefyConsensusState, sp1_beefy::SP1BeefyProof};
-use pallet_ismp::{ConsensusDigest, ISMP_ID};
+use pallet_ismp::{ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID};
 use polkadot_sdk::*;
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use sp_runtime::{generic::Header as SubstrateHeader, traits::BlakeTwo256, DigestItem};
 
-/// The AURA consensus engine id, matching `HeaderImpl.AURA_CONSENSUS_ID` in
-/// `evm/src/consensus/Types.sol`. The contract reads the slot from the AURA
-/// preruntime digest and multiplies by SLOT_DURATION (12_000 ms).
-const AURA_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"aura";
-const SLOT_DURATION_MS: u64 = 12_000;
-
 /// Decode the (timestamp, overlayRoot, stateRoot) the on-chain SP1Beefy will
-/// produce for a parachain header, by parsing its ISMP and AURA digests the
-/// same way HeaderImpl.stateCommitment does.
+/// produce for a parachain header, by parsing its ISMP digests the same way
+/// `HeaderImpl.stateCommitment` does: the overlay/state roots come from the
+/// `ISMP` consensus digest, and the timestamp (seconds) from the `ISTM`
+/// `TimestampDigest` consensus digest deposited by pallet-ismp.
 fn expected_commitment(header_bytes: &[u8]) -> anyhow::Result<(u64, u32, [u8; 32], [u8; 32])> {
 	let header = SubstrateHeader::<u32, BlakeTwo256>::decode(&mut &*header_bytes)
 		.map_err(|e| anyhow!("decode parachain header: {e}"))?;
 	let mut overlay = None::<[u8; 32]>;
 	let mut state = None::<[u8; 32]>;
-	let mut timestamp_ms = None::<u64>;
+	let mut timestamp = None::<u64>;
 	for log in header.digest.logs.iter() {
 		match log {
 			DigestItem::Consensus(id, value) if id == &ISMP_ID => {
@@ -33,16 +29,16 @@ fn expected_commitment(header_bytes: &[u8]) -> anyhow::Result<(u64, u32, [u8; 32
 				overlay = Some(d.mmr_root.0);
 				state = Some(d.child_trie_root.0);
 			},
-			DigestItem::PreRuntime(id, value) if id == &AURA_ENGINE_ID => {
-				let slot =
-					u64::decode(&mut &value[..]).map_err(|e| anyhow!("decode AURA slot: {e}"))?;
-				timestamp_ms = Some(slot * SLOT_DURATION_MS);
+			DigestItem::Consensus(id, value) if id == &ISMP_TIMESTAMP_ID => {
+				let d = TimestampDigest::decode(&mut &value[..])
+					.map_err(|e| anyhow!("decode ISMP TimestampDigest: {e}"))?;
+				timestamp = Some(d.timestamp);
 			},
 			_ => {},
 		}
 	}
 	Ok((
-		timestamp_ms.ok_or_else(|| anyhow!("no AURA preruntime digest"))?,
+		timestamp.ok_or_else(|| anyhow!("no ISMP timestamp digest"))?,
 		header.number,
 		overlay.ok_or_else(|| anyhow!("no ISMP consensus digest"))?,
 		state.ok_or_else(|| anyhow!("no ISMP consensus digest"))?,

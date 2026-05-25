@@ -23,7 +23,7 @@ import {
     SweepDust,
     WithdrawalRequest,
     SelectOptions,
-    NewDeployment
+    Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -183,6 +183,17 @@ abstract contract IntentsBase is EIP712 {
      */
     error UnknownOrder();
 
+    /*
+     * @dev Thrown when the cross-chain peer is unknown.
+    */
+    error UnknownInstance();
+
+    /*
+     * @dev Thrown when a solver attempts to partially fill an order that carries
+     * output calldata. Such orders must be filled completely in a single fill.
+    */
+    error PartialFillNotAllowed();
+
     /**
      * @dev Emitted when a new intent order is placed and input tokens are escrowed.
      * @param user The order creator's address encoded as bytes32.
@@ -199,8 +210,8 @@ abstract contract IntentsBase is EIP712 {
      */
     event OrderPlaced(
         bytes32 user,
-        bytes source,
-        bytes destination,
+        string source,
+        string destination,
         uint256 deadline,
         uint256 nonce,
         uint256 fees,
@@ -253,10 +264,10 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when a new gateway instance is registered for a remote state machine.
-     * @param stateMachineId The state machine identifier for the new deployment.
+     * @param chain The state machine identifier for the new deployment.
      * @param gateway The address of the deployed gateway on that chain.
      */
-    event NewDeploymentAdded(bytes stateMachineId, address gateway);
+    event DeploymentAdded(string chain, address gateway);
 
     /**
      * @dev Emitted when surplus tokens are retained by the protocol. This includes
@@ -277,10 +288,10 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Emitted when a destination-specific protocol fee override is set via governance.
-     * @param stateMachineId The destination state machine identifier.
+     * @param chain The destination state machine identifier.
      * @param feeBps The protocol fee in basis points for orders targeting this destination.
      */
-    event DestinationProtocolFeeUpdated(bytes32 indexed stateMachineId, uint256 feeBps);
+    event DestinationProtocolFeeUpdated(string chain, uint256 feeBps);
 
     /**
      * @dev Returns the address of the Hyperbridge host contract. This function is virtual
@@ -309,7 +320,8 @@ abstract contract IntentsBase is EIP712 {
      */
     function _instance(bytes calldata stateMachineId) internal view returns (address) {
         address gateway = _instances[keccak256(stateMachineId)];
-        return gateway == address(0) ? address(this) : gateway;
+        if (gateway == address(0)) revert UnknownInstance();
+        return gateway;
     }
 
     /**
@@ -469,9 +481,9 @@ abstract contract IntentsBase is EIP712 {
      *
      * @param body The deployment info containing the state machine ID and gateway address.
      */
-    function _addDeployment(NewDeployment memory body) internal {
-        _instances[keccak256(body.stateMachineId)] = body.gateway;
-        emit NewDeploymentAdded({stateMachineId: body.stateMachineId, gateway: body.gateway});
+    function _addDeployment(Deployment memory body) internal {
+        _instances[keccak256(body.chain)] = body.gateway;
+        emit DeploymentAdded({chain: string(body.chain), gateway: body.gateway});
     }
 
     /**
@@ -506,15 +518,15 @@ abstract contract IntentsBase is EIP712 {
         _params = update.params;
 
         for (uint256 i; i < update.destinationFees.length;) {
-            bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
+            bytes memory chain = update.destinationFees[i].chain;
             uint256 feeBps = update.destinationFees[i].destinationFeeBps;
             if (feeBps >= 10_000) revert InvalidInput();
-            _destinationProtocolFees[stateMachineId] = feeBps;
+            _destinationProtocolFees[keccak256(chain)] = feeBps;
 
             unchecked {
                 ++i;
             }
-            emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
+            emit DestinationProtocolFeeUpdated(string(chain), feeBps);
         }
     }
 

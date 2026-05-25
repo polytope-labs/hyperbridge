@@ -25,7 +25,7 @@ use codec::{Decode, Encode};
 use frame_support::traits::{
 	fungibles::{self, Mutate},
 	tokens::Preservation,
-	Currency, ExistenceRequirement,
+	Contains, Currency, ExistenceRequirement,
 };
 use frame_system::RawOrigin;
 use ismp::{
@@ -188,6 +188,12 @@ where
 
 			let runtime_call = T::RuntimeCall::decode(&mut &*substrate_data.runtime_call)
 				.map_err(HftError::RuntimeCallDecodeError)?;
+			// Apply the runtime's base call filter so that cross-chain calls cannot
+			// reach dispatchables that the runtime has otherwise filtered out (e.g.
+			// during a maintenance mode or a SafeMode period).
+			if !<T as frame_system::Config>::BaseCallFilter::contains(&runtime_call) {
+				Err(HftError::CallFiltered)?
+			}
 			use sp_runtime::traits::Dispatchable;
 			runtime_call
 				.dispatch(RawOrigin::Signed(origin.clone()).into())

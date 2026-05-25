@@ -4,11 +4,12 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
+import {IntentGatewayV2, Params, Deployment} from "../src/apps/IntentGatewayV2.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -25,7 +26,37 @@ contract DeployScript is BaseScript {
         address priceOracle = address(0);
         // address priceOracle = deployPriceOracle(address(intentGateway));
 
-        intentGateway.setParams(
+        Deployment[] memory deployments = new Deployment[](7);
+        deployments[0] = Deployment({
+            chain: StateMachine.evm(1), // ethereum
+            gateway: address(intentGateway)
+        });
+        deployments[1] = Deployment({
+            chain: StateMachine.evm(10), // optimism 
+            gateway: address(intentGateway)
+        });
+        deployments[2] = Deployment({
+            chain: StateMachine.evm(42161), // arbitrum
+            gateway: address(intentGateway)
+        });
+        deployments[3] = Deployment({
+            chain: StateMachine.evm(8453), // base
+            gateway: address(intentGateway)
+        });
+        deployments[4] = Deployment({
+            chain: StateMachine.evm(56), // bsc
+            gateway: address(intentGateway)
+        });
+        deployments[5] = Deployment({
+            chain: StateMachine.evm(100), // gnosis
+            gateway: address(intentGateway)
+        });
+        deployments[6] = Deployment({
+            chain: StateMachine.evm(137), // polygon
+            gateway: address(intentGateway)
+        });
+
+        intentGateway.init(
             Params({
                 host: HOST_ADDRESS,
                 dispatcher: config.get("CALL_DISPATCHER").toAddress(),
@@ -33,7 +64,8 @@ contract DeployScript is BaseScript {
                 surplusShareBps: 5_000, // 50%
                 protocolFeeBps: 30, // 0.3%
                 priceOracle: address(priceOracle)
-            })
+            }),
+            deployments
         );
 
         vm.stopBroadcast();

@@ -52,6 +52,8 @@ pub enum HftError {
 	RuntimeCallDecodeError(codec::Error),
 	#[error("Call dispatch error: {0:?}")]
 	CallDispatchError(DispatchError),
+	#[error("Runtime call filtered by BaseCallFilter")]
+	CallFiltered,
 	#[error("Module does not accept responses")]
 	ResponsesNotSupported,
 	#[error("Unknown contract on timeout")]

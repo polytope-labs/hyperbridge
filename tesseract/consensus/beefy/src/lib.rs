@@ -20,7 +20,7 @@ use primitive_types::H256;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use subxt::{
-	config::{ExtrinsicParams, HashFor},
+	config::{substrate::SubstrateExtrinsicParams, ExtrinsicParams, HashFor},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
@@ -60,7 +60,7 @@ impl BeefyConfig {
 	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
-		P: subxt::Config + Send + Sync + Clone,
+		P: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<P>> + Send + Sync + Clone,
 		<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 		P::Signature: From<MultiSignature> + Send + Sync,
 		P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,

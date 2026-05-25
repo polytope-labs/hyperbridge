@@ -93,6 +93,16 @@ where
 				.map(|post| {
 					let cb = router.module_for_id(post.from.clone())?;
 					let request = Request::Post(post.clone());
+					// Re-check the commitment right before dispatch. The up-front
+					// pass above runs before any callback executes; a prior
+					// on_timeout in this same batch could have caused the
+					// commitment for this request to be removed (directly or by
+					// re-entering the handler), and we must not invoke
+					// on_timeout for a request that is no longer pending.
+					let commitment = hash_request::<H>(&request);
+					if host.request_commitment(commitment).is_err() {
+						Err(Error::UnknownRequest { meta: (&post).into() })?
+					}
 					// Delete commitment to prevent rentrancy attack
 					let meta = host.delete_request_commitment(&request)?;
 					let mut signer = None;
@@ -156,6 +166,16 @@ where
 				.map(|get| {
 					let cb = router.module_for_id(get.from.clone())?;
 					let request = Request::Get(get.clone());
+					// Re-check the commitment right before dispatch. The up-front
+					// pass above runs before any callback executes; a prior
+					// on_timeout in this same batch could have caused the
+					// commitment for this request to be removed (directly or by
+					// re-entering the handler), and we must not invoke
+					// on_timeout for a request that is no longer pending.
+					let commitment = hash_request::<H>(&request);
+					if host.request_commitment(commitment).is_err() {
+						Err(Error::UnknownRequest { meta: (&get).into() })?
+					}
 					// Delete commitment to prevent reentrancy
 					let meta = host.delete_request_commitment(&request)?;
 					let res = cb.on_timeout(request.clone()).map(|weight| {

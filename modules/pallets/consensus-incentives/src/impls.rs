@@ -16,6 +16,7 @@
 //! Implementation blocks for pallet-consensus-incentives.
 
 use crate::*;
+use alloc::collections::BTreeMap;
 use crypto_utils::verification::Signature;
 use frame_support::traits::tokens::Preservation;
 use ismp::{
@@ -108,19 +109,39 @@ where
 		});
 
 		if let Some(relayer_account) = maybe_relayer_account {
+			// When a batch contains multiple `StateMachineUpdated` events for the
+			// same `state_machine_id` (sequential consensus updates for the same
+			// chain), `calculate_reward` reads the same persisted
+			// `(latest_commitment_height, previous_commitment_height)` pair on
+			// every iteration and pays the same block-span reward N times.
+			// Collapse the per-state-machine event stream to the single highest
+			// `latest_height` so each state machine receives one reward per
+			// batch, sized by the actual span of its commitment advance.
+			let mut highest_per_state_machine: BTreeMap<StateMachineId, u64> = BTreeMap::new();
 			for event in events {
 				if let IsmpEvent::StateMachineUpdated(update) = event {
-					let state_machine_height = StateMachineHeight {
-						id: update.state_machine_id.clone(),
-						height: update.latest_height,
-					};
-
-					let _ = Self::process_message(
-						state_machine_height,
-						update.state_machine_id,
-						relayer_account.clone().into(),
-					);
+					highest_per_state_machine
+						.entry(update.state_machine_id)
+						.and_modify(|h| {
+							if update.latest_height > *h {
+								*h = update.latest_height;
+							}
+						})
+						.or_insert(update.latest_height);
 				}
+			}
+
+			for (state_machine_id, latest_height) in highest_per_state_machine {
+				let state_machine_height = StateMachineHeight {
+					id: state_machine_id.clone(),
+					height: latest_height,
+				};
+
+				let _ = Self::process_message(
+					state_machine_height,
+					state_machine_id,
+					relayer_account.clone().into(),
+				);
 			}
 		}
 

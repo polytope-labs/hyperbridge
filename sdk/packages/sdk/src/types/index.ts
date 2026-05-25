@@ -578,8 +578,8 @@ export interface DecodedOrderPlacedLog extends Log {
 	eventName: string
 	args: {
 		user: HexString
-		source: Hex
-		destination: Hex
+		source: string
+		destination: string
 		deadline: bigint
 		nonce: bigint
 		fees: bigint
@@ -649,13 +649,13 @@ export interface CancelOptions {
 }
 
 /**
- * Represents a new deployment of IntentGateway
+ * Represents a deployment of IntentGateway
  */
-export interface NewDeployment {
+export interface Deployment {
 	/**
-	 * Identifier for the state machine
+	 * The raw state machine ID bytes for the deployment chain (hashed on-chain)
 	 */
-	stateMachineId: HexString
+	chain: HexString
 
 	/**
 	 * The gateway identifier

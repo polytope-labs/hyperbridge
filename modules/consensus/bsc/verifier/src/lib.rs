@@ -123,6 +123,24 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	let next_validator_addresses: Option<NextValidators> =
         // If an epoch ancestry was provided, we try to extract the next validator set from it
         if !update.epoch_header_ancestry.is_empty() {
+            // Bind `epoch_header_ancestry[0]` to the epoch boundary immediately preceding
+            // `source_header`. Without this check the verifier accepts ancestry that walks
+            // back to a *stale* epoch boundary (the previous epoch's first block, reachable
+            // when `source_header` is itself the new epoch boundary and ancestry spans the
+            // full 1000-block prior epoch), letting a relayer stage the wrong validator set
+            // as `next_validators`.
+            let source_number = update.source_header.number.low_u64();
+            // When `source_header` is itself an epoch boundary the validator set lives in
+            // its own `extra_data` and no ancestry is required — the `else if` branch below
+            // handles that case. Reject any ancestry supplied here so a relayer cannot
+            // bypass that branch with a stale epoch header.
+            if source_number % epoch_length == 0 {
+                Err(Error::InvalidEpochAncestry)?
+            }
+            let expected_epoch_header_number = source_number - (source_number % epoch_length);
+            if update.epoch_header_ancestry[0].number.low_u64() != expected_epoch_header_number {
+                Err(Error::InvalidEpochAncestry)?
+            }
             let mut parent_hash = Header::from(&update.epoch_header_ancestry[0]).hash::<H>();
             for header in update.epoch_header_ancestry[1..].into_iter() {
                 if parent_hash != header.parent_hash {

@@ -118,14 +118,20 @@ impl<T: Config> Pallet<T>
 where
 	T::AccountId: From<[u8; 32]>,
 {
-	/// Same minimum-byte rule as the bandwidth gate (`max(body, 32)`)
-	/// so undersized payloads can't game the mint by being charged 0.
+	/// Same minimum-byte rule as the bandwidth gate (`max(body, 32)`),
+	/// applied **per request** so packing requests into one envelope
+	/// vs. splitting them across many produces identical mints.
+	/// Applying the floor once per envelope would let a relayer inflate
+	/// the mint by splitting (each split picks up its own 32-byte floor).
 	fn message_bytes(message: &Message) -> u32 {
-		let raw = match message {
-			Message::Request(req) => req.requests.iter().map(|p| p.body.len()).sum::<usize>(),
+		match message {
+			Message::Request(req) => req
+				.requests
+				.iter()
+				.map(|p| core::cmp::max(p.body.len() as u32, 32))
+				.sum::<u32>(),
 			_ => 0,
-		};
-		core::cmp::max(raw as u32, 32)
+		}
 	}
 
 	/// Recover the relayer's account from the sr25519 signature on a

@@ -5,7 +5,18 @@
 //! is set by governance and zero disables minting.
 
 use codec::Encode;
-use polkadot_sdk::{frame_support::traits::fungibles::Inspect, sp_runtime::Weight};
+use polkadot_sdk::{
+	frame_support::{
+		dispatch::GetDispatchInfo,
+		traits::{
+			fungible::Mutate as FungibleMutate,
+			fungibles::{Inspect, Mutate},
+			tokens::{Fortitude, Precision, Preservation},
+		},
+	},
+	frame_system, pallet_assets,
+	sp_runtime::{traits::Dispatchable, Weight},
+};
 use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair};
 
 use ismp::{
@@ -20,7 +31,8 @@ use pallet_messaging_incentives::MintPerByte;
 
 use crate::{
 	runtime::{
-		new_test_ext, Assets, MessagingRelayerIncentives, ReputationAssetId, RuntimeOrigin, Test,
+		new_test_ext, Assets, MessagingRelayerIncentives, ReputationAsset, ReputationAssetId,
+		RuntimeCall, RuntimeOrigin, Test, BOB,
 	},
 	tests::common::setup_relayer_and_asset,
 };
@@ -142,6 +154,137 @@ fn set_mint_per_byte_requires_admin_origin() {
 		MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::signed(alice), 5)
 			.expect_err("non-admin must be rejected");
 		assert_eq!(MintPerByte::<Test>::get(), 0);
+	});
+}
+
+/// Each `on_executed` call mints to the relayer; the soulbound semantics
+/// live in the runtime call filter, not in the mint path, so successive
+/// mints to the same account must accumulate normally.
+#[test]
+fn on_executed_mints_accumulate_across_deliveries() {
+	new_test_ext().execute_with(|| {
+		let relayer_pair = sr25519::Pair::from_seed(&[11u8; 32]);
+		let relayer_account = AccountId32::new(relayer_pair.public().0);
+		setup_relayer_and_asset(&relayer_account);
+
+		MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 1).unwrap();
+
+		let body = vec![0u8; 100];
+		MessagingRelayerIncentives::on_executed(
+			vec![signed_request(&relayer_pair, body.clone())],
+			vec![],
+		)
+		.unwrap();
+		assert_eq!(relayer_balance(&relayer_account), 100);
+
+		MessagingRelayerIncentives::on_executed(
+			vec![signed_request(&relayer_pair, body)],
+			vec![],
+		)
+		.unwrap();
+		assert_eq!(relayer_balance(&relayer_account), 200);
+	});
+}
+
+/// Reputation is burned by `pallet-collator-manager` on each session
+/// rotation to reset accumulated rewards. Soulbound enforcement lives at
+/// the dispatch layer (`ReputationCallFilter`) rather than at the asset
+/// layer, so programmatic `fungible::Mutate::burn_from` must keep working
+/// — otherwise the rotation reset would silently no-op and reputation
+/// would accumulate forever, breaking the per-session ranking.
+#[test]
+fn programmatic_burn_still_works_on_reputation_holder() {
+	new_test_ext().execute_with(|| {
+		let relayer_pair = sr25519::Pair::from_seed(&[12u8; 32]);
+		let relayer_account = AccountId32::new(relayer_pair.public().0);
+		setup_relayer_and_asset(&relayer_account);
+
+		MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 1).unwrap();
+		MessagingRelayerIncentives::on_executed(
+			vec![signed_request(&relayer_pair, vec![0u8; 200])],
+			vec![],
+		)
+		.unwrap();
+		assert_eq!(relayer_balance(&relayer_account), 200);
+
+		// Mirrors `pallet-collator-manager::new_session` — burn the full
+		// balance to reset reputation across sessions.
+		ReputationAsset::burn_from(
+			&relayer_account,
+			200,
+			Preservation::Expendable,
+			Precision::Exact,
+			Fortitude::Polite,
+		)
+		.expect("programmatic burn must succeed on a reputation holder");
+
+		assert_eq!(relayer_balance(&relayer_account), 0);
+	});
+}
+
+/// The whole point of the soulbound treatment: a relayer that earned
+/// reputation cannot dispatch a transfer of it to another account. The
+/// rejection must come from the runtime call filter (so an unsigned
+/// holder-driven dispatch fails); we verify that by routing through
+/// `RuntimeCall::dispatch`, which is what production extrinsics use.
+#[test]
+fn dispatched_transfer_of_reputation_is_filtered() {
+	new_test_ext().execute_with(|| {
+		let relayer_pair = sr25519::Pair::from_seed(&[13u8; 32]);
+		let relayer_account = AccountId32::new(relayer_pair.public().0);
+		setup_relayer_and_asset(&relayer_account);
+
+		MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 1).unwrap();
+		MessagingRelayerIncentives::on_executed(
+			vec![signed_request(&relayer_pair, vec![0u8; 100])],
+			vec![],
+		)
+		.unwrap();
+		assert_eq!(relayer_balance(&relayer_account), 100);
+
+		let call = RuntimeCall::Assets(pallet_assets::Call::transfer {
+			id: ReputationAssetId::get(),
+			target: BOB.clone().into(),
+			amount: 50,
+		});
+		// Bring `weigh_data` into scope so we exercise the same dispatch path
+		// the runtime uses; assert the filter rejects rather than the inner call.
+		let _ = call.get_dispatch_info();
+		let err = call
+			.dispatch(RuntimeOrigin::signed(relayer_account.clone()))
+			.expect_err("reputation transfer must be filtered");
+		assert_eq!(err.error, frame_system::Error::<Test>::CallFiltered.into());
+
+		assert_eq!(relayer_balance(&relayer_account), 100);
+		assert_eq!(relayer_balance(&BOB), 0);
+	});
+}
+
+/// A non-reputation asset must NOT be filtered — the call filter only
+/// targets the reputation asset id.
+#[test]
+fn dispatched_transfer_of_other_asset_not_filtered() {
+	new_test_ext().execute_with(|| {
+		use polkadot_sdk::frame_support::assert_ok;
+
+		let other_asset = sp_core::H256::repeat_byte(0x42);
+		assert_ok!(Assets::force_create(
+			RuntimeOrigin::root(),
+			other_asset,
+			crate::runtime::ALICE,
+			true,
+			1,
+		));
+		Assets::set_balance(other_asset, &crate::runtime::ALICE, 1_000);
+
+		let call = RuntimeCall::Assets(pallet_assets::Call::transfer {
+			id: other_asset,
+			target: BOB.clone().into(),
+			amount: 100,
+		});
+		call.dispatch(RuntimeOrigin::signed(crate::runtime::ALICE))
+			.expect("non-reputation asset transfer must pass the filter");
+		assert_eq!(Assets::balance(other_asset, &BOB), 100);
 	});
 }
 

@@ -29,6 +29,8 @@ pallet-ismp = { workspace = true }
 geth-primitives = { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }
+arb-host = { workspace = true }
+op-host = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
 

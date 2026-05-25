@@ -17,6 +17,7 @@ use alloy::{
 	sol_types::SolEvent,
 };
 use anyhow::anyhow;
+use arb_host::abi::{IRollup, IRollupBold};
 use arbitrum_verifier::{
 	compute_assertion_hash, get_state_hash, orbit_claim_hash, AssertionState, GlobalState,
 	MachineStatus,
@@ -29,59 +30,6 @@ use tesseract_evm::AlloyProvider;
 use tesseract_primitives::{Hasher, IsmpProvider};
 
 use crate::quorum::{decide, fetch_block_by_hash, FetchOutcome, QuorumDecision};
-
-alloy::sol! {
-	struct GlobalStateSol {
-		bytes32[2] bytes32Vals;
-		uint64[2] u64Vals;
-	}
-
-	struct AssertionStateSol {
-		GlobalStateSol globalState;
-		uint8 machineStatus;
-		bytes32 endHistoryRoot;
-	}
-
-	struct AssertionSol {
-		AssertionStateSol beforeState;
-		AssertionStateSol afterState;
-		uint64 numBlocks;
-	}
-
-	struct AssertionLite {
-		GlobalStateSol globalStateAfter;
-		uint8 machineStatusAfter;
-	}
-
-	#[sol(rpc)]
-	contract IRollupOrbit {
-		event NodeCreated(
-			uint64 indexed nodeNum,
-			bytes32 indexed parentNodeHash,
-			bytes32 indexed nodeHash,
-			bytes32 executionHash,
-			AssertionSol assertion,
-			bytes32 afterInboxBatchAcc,
-			bytes32 wasmModuleRoot,
-			uint256 inboxMaxCount
-		);
-	}
-
-	#[sol(rpc)]
-	contract IRollupBold {
-		event AssertionCreated(
-			bytes32 indexed assertionHash,
-			bytes32 indexed parentAssertionHash,
-			AssertionSol assertion,
-			bytes32 afterInboxBatchAcc,
-			bytes32 inboxAcc,
-			bytes32 wasmModuleRoot,
-			uint256 requiredStake,
-			address challengeManager,
-			uint64 challengePeriodBlocks
-		);
-	}
-}
 
 /// Per-L2 configuration for the arbitrum fisherman.
 #[derive(Clone)]
@@ -157,7 +105,7 @@ async fn scan_target(
 ) -> Result<(), anyhow::Error> {
 	let rollup_addr = Address::from_slice(&target.rollup_core.0);
 	let sig = match target.kind {
-		ArbitrumKind::Orbit => IRollupOrbit::NodeCreated::SIGNATURE_HASH,
+		ArbitrumKind::Orbit => IRollup::NodeCreated::SIGNATURE_HASH,
 		ArbitrumKind::Bold => IRollupBold::AssertionCreated::SIGNATURE_HASH,
 	};
 	let filter = Filter::new()
@@ -170,12 +118,22 @@ async fn scan_target(
 	for log in logs {
 		let (claim, after) = match target.kind {
 			ArbitrumKind::Orbit => {
-				let Ok(decoded) = IRollupOrbit::NodeCreated::decode_log(&log.inner) else {
+				let Ok(decoded) = IRollup::NodeCreated::decode_log(&log.inner) else {
 					continue;
 				};
 				let ev = decoded.data;
-				let after = decode_after_state(&ev.assertion.afterState);
-				// inbox_max_count is in the event payload for Orbit.
+				let after = AfterState {
+					global_state: GlobalState {
+						block_hash: H256(ev.assertion.afterState.globalState.bytes32Vals[0].0),
+						send_root: H256(ev.assertion.afterState.globalState.bytes32Vals[1].0),
+						inbox_position: ev.assertion.afterState.globalState.u64Vals[0],
+						position_in_message: ev.assertion.afterState.globalState.u64Vals[1],
+					},
+					machine_status: match ev.assertion.afterState.machineStatus.try_into() {
+						Ok(s) => s,
+						Err(_) => continue,
+					},
+				};
 				let state_hash = get_state_hash::<Hasher>(
 					after.global_state,
 					after.machine_status,
@@ -188,7 +146,18 @@ async fn scan_target(
 					continue;
 				};
 				let ev = decoded.data;
-				let after = decode_after_state(&ev.assertion.afterState);
+				let after = AfterState {
+					global_state: GlobalState {
+						block_hash: H256(ev.assertion.afterState.globalState.bytes32Vals[0].0),
+						send_root: H256(ev.assertion.afterState.globalState.bytes32Vals[1].0),
+						inbox_position: ev.assertion.afterState.globalState.u64Vals[0],
+						position_in_message: ev.assertion.afterState.globalState.u64Vals[1],
+					},
+					machine_status: match ev.assertion.afterState.machineStatus.try_into() {
+						Ok(s) => s,
+						Err(_) => continue,
+					},
+				};
 				let assertion_state = AssertionState {
 					global_state: after.global_state,
 					machine_status: after.machine_status,
@@ -243,21 +212,6 @@ async fn scan_target(
 struct AfterState {
 	global_state: GlobalState,
 	machine_status: MachineStatus,
-}
-
-fn decode_after_state(sol: &AssertionStateSol) -> AfterState {
-	let global_state = GlobalState {
-		block_hash: H256(sol.globalState.bytes32Vals[0].0),
-		send_root: H256(sol.globalState.bytes32Vals[1].0),
-		inbox_position: sol.globalState.u64Vals[0],
-		position_in_message: sol.globalState.u64Vals[1],
-	};
-	let machine_status = match sol.machineStatus {
-		0 => MachineStatus::Running,
-		1 => MachineStatus::Finished,
-		_ => MachineStatus::Errored,
-	};
-	AfterState { global_state, machine_status }
 }
 
 /// Verify the claim's L2 block (`globalState.block_hash`) exists on the L2 quorum and that

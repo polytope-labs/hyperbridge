@@ -20,25 +20,13 @@ use anyhow::anyhow;
 use futures::future::join_all;
 use geth_primitives::Header;
 use ismp::{consensus::StateMachineId, host::StateMachine};
+use op_host::abi::{DisputeGameFactory, FaultDisputeGame};
 use op_verifier::calculate_output_root;
 use primitive_types::{H160, H256};
 use tesseract_evm::AlloyProvider;
 use tesseract_primitives::{Hasher, IsmpProvider};
 
 use crate::quorum::{decide, fetch_block_by_number, FetchOutcome, QuorumDecision};
-
-alloy::sol! {
-	#[sol(rpc)]
-	contract DisputeGameFactory {
-		event DisputeGameCreated(address indexed disputeProxy, uint32 indexed gameType, bytes32 indexed rootClaim);
-	}
-
-	#[sol(rpc)]
-	contract FaultDisputeGame {
-		function l2BlockNumber() external view returns (uint256);
-		function l2SequenceNumber() external view returns (uint256);
-	}
-}
 
 /// Per-L2 configuration the watcher needs to evaluate a dispute game against an L2 RPC quorum.
 #[derive(Clone)]
@@ -210,8 +198,10 @@ async fn evaluate(
 	})
 }
 
-/// Read the proxy's claimed L2 block number from L1 storage. Different proxy implementations
-/// expose it under different names — try `l2BlockNumber()` first, then `l2SequenceNumber()`.
+/// Read the proxy's claimed L2 block number from L1 storage. The pinned `FaultDisputeGame`
+/// ABI exposes this as `l2SequenceNumber()` (the newer name; older deployments used
+/// `l2BlockNumber()` but the op-host ABI binding is generated from the current upstream and
+/// only carries `l2SequenceNumber`).
 async fn read_l2_block_number(
 	l1_provider: &AlloyProvider,
 	proxy: H160,
@@ -219,17 +209,13 @@ async fn read_l2_block_number(
 ) -> Result<u64, anyhow::Error> {
 	let proxy_addr = Address::from_slice(&proxy.0);
 	let contract = FaultDisputeGame::new(proxy_addr, l1_provider);
-	let block_id = BlockId::number(at_block);
-	if let Ok(n) = contract.l2BlockNumber().block(block_id).call().await {
-		return Ok(n.to::<u64>());
-	}
-	if let Ok(n) = contract.l2SequenceNumber().block(block_id).call().await {
-		return Ok(n.to::<u64>());
-	}
-	Err(anyhow!(
-		"fish_opstack: proxy {:?} exposes neither l2BlockNumber() nor l2SequenceNumber()",
-		proxy
-	))
+	let n = contract
+		.l2SequenceNumber()
+		.block(BlockId::number(at_block))
+		.call()
+		.await
+		.map_err(|e| anyhow!("fish_opstack: proxy {proxy:?}.l2SequenceNumber() failed: {e:?}"))?;
+	Ok(n.to::<u64>())
 }
 
 /// Per-provider: fetch the L2 block at `height`, fetch the message-parser storage proof at

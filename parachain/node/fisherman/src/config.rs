@@ -443,8 +443,8 @@ mod tests {
 		fn evm_chain(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
 			let consensus = match chain_id {
 				42161 | 421614 => Some(arbitrum_consensus()),
-				// L2 op-stack chains (Base, Optimism, Unichain, Soneium + testnets).
-				8453 | 130 | 10 | 1868 | 84532 | 11155420 => Some(opstack_consensus()),
+				// L2 op-stack chains (Base, Optimism, Soneium + testnets).
+				8453 | 10 | 1868 | 84532 | 11155420 => Some(opstack_consensus()),
 				// Non-L2 chains: collator doesn't require a consensus block on this side.
 				_ => None,
 			};

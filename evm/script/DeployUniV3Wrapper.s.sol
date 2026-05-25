@@ -29,5 +29,7 @@ contract DeployScript is BaseScript {
         vm.stopBroadcast();
         console.log("UniV3UniswapV2Wrapper deployed at:", address(wrapper));
         console.log("UniV3UniswapV2Wrapper initialized");
+        // Persist the deployed wrapper address into the UNISWAP_V2 config field.
+        config.set("UNISWAP_V2", address(wrapper));
     }
 }

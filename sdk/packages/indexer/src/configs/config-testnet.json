@@ -32,7 +32,7 @@
 	"sepolia": {
 		"type": "evm",
 		"chainId": "11155111",
-		"startBlock": 6876874,
+		"startBlock": 10873126,
 		"stateMachineId": "EVM-11155111",
 		"blockConfirmations": 5,
 		"contracts": {
@@ -44,7 +44,7 @@
 	"arbitrum-sepolia": {
 		"type": "evm",
 		"chainId": "421614",
-		"startBlock": 88722044,
+		"startBlock": 269281816,
 		"stateMachineId": "EVM-421614",
 		"contracts": {
 			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
@@ -55,7 +55,7 @@
 	"optimism-sepolia": {
 		"type": "evm",
 		"chainId": "11155420",
-		"startBlock": 18572226,
+		"startBlock": 43646072,
 		"stateMachineId": "EVM-11155420",
 		"contracts": {
 			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
@@ -66,7 +66,7 @@
 	"base-sepolia": {
 		"type": "evm",
 		"chainId": "84532",
-		"startBlock": 16589470,
+		"startBlock": 41663484,
 		"stateMachineId": "EVM-84532",
 		"contracts": {
 			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
@@ -77,7 +77,7 @@
 	"bsc-chapel": {
 		"type": "evm",
 		"chainId": "97",
-		"startBlock": 44742412,
+		"startBlock": 108117238,
 		"stateMachineId": "EVM-97",
 		"unfinalizedBlocks": false,
 		"contracts": {
@@ -102,7 +102,7 @@
 	"polygon-amoy": {
 		"type": "evm",
 		"chainId": "80002",
-		"startBlock": 24949552,
+		"startBlock": 38576607,
 		"stateMachineId": "EVM-80002",
 		"unfinalizedBlocks": false,
 		"contracts": {
@@ -114,7 +114,7 @@
 	"polkadot-testnet": {
 		"type": "evm",
 		"chainId": "420420417",
-		"startBlock": 4749233,
+		"startBlock": 8993857,
 		"stateMachineId": "EVM-420420417",
 		"unfinalizedBlocks": false,
 		"contracts": {
@@ -138,7 +138,7 @@
 "pharos-atlantic": {
 		"type": "evm",
 		"chainId": "688689",
-		"startBlock": 18128677,
+		"startBlock": 21994165,
 		"stateMachineId": "EVM-688689",
 		"contracts": {
 			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",

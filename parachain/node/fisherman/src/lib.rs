@@ -48,11 +48,6 @@ pub const LOG_TARGET: &str = "fisherman";
 /// Interval between sync-status polls while the fisherman startup is deferred.
 const SYNC_POLL_INTERVAL: Duration = Duration::from_secs(15);
 
-/// L1 blocks the rollup watchers lag behind the L1 tip when scanning, to avoid
-/// blacklisting events from reorged blocks. The on-chain blacklist has no
-/// undo path so reorg-safety is important.
-const L1_FINALITY_LAG: u64 = 32;
-
 /// Read the tesseract toml at `path` and run the sync preflight checks.
 /// Performs no network I/O so the call is safe to make before any chain
 /// init runs.
@@ -254,7 +249,6 @@ async fn spawn_rollup_watchers(
 			targets,
 			hyperbridge: hyperbridge.clone(),
 			poll_interval: None,
-			l1_finality_lag: L1_FINALITY_LAG,
 		};
 		let name = format!("fisherman-opstack-{l1_state_machine}");
 		spawn_handle.spawn_blocking(
@@ -277,7 +271,6 @@ async fn spawn_rollup_watchers(
 			targets,
 			hyperbridge: hyperbridge.clone(),
 			poll_interval: None,
-			l1_finality_lag: L1_FINALITY_LAG,
 		};
 		let name = format!("fisherman-arbitrum-{l1_state_machine}");
 		spawn_handle.spawn_blocking(

@@ -108,7 +108,6 @@ pub struct ArbitrumConfig {
 	pub targets: Vec<ArbitrumTarget>,
 	pub hyperbridge: Arc<dyn IsmpProvider>,
 	pub poll_interval: Option<Duration>,
-	pub l1_finality_lag: u64,
 }
 
 /// Run the arbitrum fisherman task. Runs forever; transient RPC failures are logged.
@@ -119,8 +118,7 @@ pub async fn fish_arbitrum(cfg: ArbitrumConfig) -> Result<(), anyhow::Error> {
 	}
 
 	let interval = cfg.poll_interval.unwrap_or(Duration::from_secs(30));
-	let mut last_scanned =
-		cfg.l1_provider.get_block_number().await?.saturating_sub(cfg.l1_finality_lag);
+	let mut last_scanned = cfg.l1_provider.get_block_number().await?;
 
 	loop {
 		tokio::time::sleep(interval).await;
@@ -132,23 +130,22 @@ pub async fn fish_arbitrum(cfg: ArbitrumConfig) -> Result<(), anyhow::Error> {
 				continue;
 			},
 		};
-		let scan_to = tip.saturating_sub(cfg.l1_finality_lag);
-		if scan_to <= last_scanned {
+		if tip <= last_scanned {
 			continue;
 		}
 		let from = last_scanned + 1;
 
 		for target in &cfg.targets {
-			if let Err(e) = scan_target(&cfg, target, from, scan_to).await {
+			if let Err(e) = scan_target(&cfg, target, from, tip).await {
 				log::warn!(
 					target: crate::LOG_TARGET,
-					"fish_arbitrum {} -> {} ({:?}): scan window [{from}, {scan_to}] failed: {e:?}",
+					"fish_arbitrum {} -> {} ({:?}): scan window [{from}, {tip}] failed: {e:?}",
 					cfg.l1_state_machine, target.state_machine, target.kind,
 				);
 			}
 		}
 
-		last_scanned = scan_to;
+		last_scanned = tip;
 	}
 }
 

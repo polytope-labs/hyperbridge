@@ -29,11 +29,10 @@
 //! destination state machine type.
 
 use crate::{
-	BalanceOf, Config, Error, Event, ModuleIdBound, OutboundRequestDeliveryReward,
+	BalanceOf, Config, Error, Event, ModuleIdBound, Nonce, OutboundRequestDeliveryReward,
 	OutboundRequestsClaimed, Pallet,
 };
-use alloc::{vec, vec::Vec};
-use alloy_primitives::Address;
+use alloc::vec;
 use codec::Encode;
 use crypto_utils::verification::Signature;
 use frame_support::{
@@ -70,11 +69,11 @@ use sp_runtime::traits::AccountIdConversion;
 /// 6. State proof against Hyperbridge's stored commitment for the destination yields a value at
 ///    `RequestReceipts[commitment]`.
 /// 7. The `signature` recovers the same address (EVM) or bytes (substrate) that the destination
-///    recorded as the delivering relayer, signing [`outbound_request_delivery_message`] of
-///    `(commitment, destination, payee)`.
+///    recorded as the delivering relayer, signing [`outbound_request_delivery_message`] of `(nonce,
+///    commitment, destination, payee)`.
 ///
-/// Replay protection comes from the on-chain `commitment` idempotency tag in
-/// [`crate::pallet::OutboundRequestsClaimed`].
+/// Replay is guarded twice: the per-relayer `Nonce` folded into the signature, and the on-chain
+/// `commitment` tag in [`crate::pallet::OutboundRequestsClaimed`].
 #[derive(
 	Clone,
 	Debug,
@@ -97,7 +96,7 @@ pub struct OutboundRequestDeliveryClaim {
 	/// Sr25519 public key on Hyperbridge that the reward is paid to.
 	pub payee: [u8; 32],
 	/// Signature over [`outbound_request_delivery_message`] of
-	/// `(commitment, destination, payee)`. For EVM destinations the recovered
+	/// `(nonce, commitment, destination, payee)`. For EVM destinations the recovered
 	/// secp256k1 address must equal the address proven in the receipt slot;
 	/// for substrate destinations the recovered signer bytes must equal the
 	/// relayer bytes proven in the receipt slot.
@@ -150,11 +149,13 @@ where
 
 		ensure!(destination == request.dest, Error::<T>::MismatchedStateMachine);
 
-		let receipt_key = Self::request_receipt_key(destination, commitment)
-			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
-
 		let state_machine = ismp::handlers::validate_state_machine(&host, state_proof.height)
 			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let receipt_key = state_machine
+			.receipts_state_trie_key(vec![commitment])
+			.into_iter()
+			.next()
+			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
 		let proof_results =
 			Self::verify_withdrawal_proof(&*state_machine, &state_proof, vec![receipt_key.clone()])
 				.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
@@ -164,10 +165,10 @@ where
 			.flatten()
 			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
-		let delivered_by = Self::decode_request_receipt_relayer(destination, &raw)?
-			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
+		let delivered_by = Self::decode_receipt_relayer(destination, &raw)?;
 
-		let msg = outbound_request_delivery_message(commitment, destination, payee);
+		let nonce = Nonce::<T>::get(&delivered_by, destination);
+		let msg = outbound_request_delivery_message(nonce, commitment, destination, payee);
 		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
 		ensure!(recovered == delivered_by, Error::<T>::OutboundRequestSignerMismatch);
 
@@ -184,6 +185,12 @@ where
 
 		OutboundRequestsClaimed::<T>::insert(commitment, ());
 
+		Nonce::<T>::try_mutate(&delivered_by, destination, |value| {
+			*value += 1;
+			Ok::<(), ()>(())
+		})
+		.map_err(|_: ()| Error::<T>::ErrorCompletingCall)?;
+
 		Self::deposit_event(Event::OutboundRequestDeliveryRewarded {
 			commitment,
 			state_machine: destination,
@@ -194,73 +201,16 @@ where
 
 		Ok(())
 	}
-
-	/// Storage key for the destination's `RequestReceipts[commitment]`.
-	///
-	/// EVM destinations use the 32-byte slot hash (identical to the EVM state
-	/// machine's `receipts_state_trie_key`), which the verifier routes to the
-	/// chain's ISMP host contract. Substrate destinations use the pallet-ismp
-	/// child-trie key. Returns `None` for state machines we don't decode
-	/// receipts on.
-	pub fn request_receipt_key(destination: StateMachine, commitment: H256) -> Option<Vec<u8>> {
-		match destination {
-			s if s.is_evm() => Some(
-				evm_state_machine::utils::derive_unhashed_map_key::<<T as Config>::IsmpHost>(
-					commitment.0.to_vec(),
-					evm_state_machine::presets::REQUEST_RECEIPTS_SLOT,
-				)
-				.0
-				.to_vec(),
-			),
-			s if s.is_substrate() =>
-				Some(pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(commitment)),
-			_ => None,
-		}
-	}
-
-	/// Decode the proven `RequestReceipts[commitment]` value into the
-	/// delivering relayer's identifier bytes. `Ok(None)` for state machines
-	/// we don't decode receipts on.
-	pub fn decode_request_receipt_relayer(
-		destination: StateMachine,
-		raw: &[u8],
-	) -> Result<Option<Vec<u8>>, Error<T>> {
-		match destination {
-			s if s.is_evm() => {
-				use alloy_rlp::Decodable;
-				let address = Address::decode(&mut &*raw)
-					.map_err(|_| Error::<T>::ProofValidationError)?
-					.0
-					.to_vec();
-				Ok(Some(address))
-			},
-			s if s.is_substrate() => {
-				use codec::Decode;
-				let bytes =
-					<Vec<u8>>::decode(&mut &*raw).map_err(|_| Error::<T>::ProofValidationError)?;
-				let signer = if bytes.len() > 32 {
-					Signature::decode(&mut &*bytes)
-						.map_err(|_| Error::<T>::SignatureDecodingError)?
-						.signer()
-				} else {
-					bytes
-				};
-				Ok(Some(signer))
-			},
-			_ => Ok(None),
-		}
-	}
 }
 
-/// Signed payload for [`OutboundRequestDeliveryClaim`]. Replay protection
-/// comes from the on-chain `commitment` idempotency tag in
-/// [`crate::pallet::OutboundRequestsClaimed`]; once a commitment has been
-/// claimed it cannot be claimed again, so a captured signature has no way to
-/// be reused.
+/// Signed payload for [`OutboundRequestDeliveryClaim`]. The per-relayer `nonce`
+/// keeps each signature single use, the same way the withdrawal and fee flows do,
+/// and [`crate::pallet::OutboundRequestsClaimed`] guards replay on chain.
 pub fn outbound_request_delivery_message(
+	nonce: u64,
 	commitment: H256,
 	dest_chain: StateMachine,
 	payee: [u8; 32],
 ) -> [u8; 32] {
-	sp_io::hashing::keccak_256(&(commitment, dest_chain, payee).encode())
+	sp_io::hashing::keccak_256(&(nonce, commitment, dest_chain, payee).encode())
 }

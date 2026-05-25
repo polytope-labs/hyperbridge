@@ -283,29 +283,10 @@ where
 				.cloned()
 				.flatten()
 				.ok_or_else(|| Error::<T>::ProofValidationError)?;
-			let address = match proof.dest_proof.height.id.state_id {
-				s if s.is_evm() => {
-					use alloy_rlp::Decodable;
-					Address::decode(&mut &*encoded_receipt)
-						.map_err(|_| Error::<T>::ProofValidationError)?
-						.0
-						.to_vec()
-				},
-				s if s.is_substrate() => {
-					use codec::Decode;
-					let relayer_bytes = <Vec<u8>>::decode(&mut &*encoded_receipt)
-						.map_err(|_| Error::<T>::ProofValidationError)?;
-					if relayer_bytes.len() > 32 {
-						let signature = Signature::decode(&mut &*relayer_bytes)
-							.map_err(|_| Error::<T>::SignatureDecodingError)?;
-						signature.signer()
-					} else {
-						relayer_bytes
-					}
-				},
-				// unsupported
-				_ => Err(Error::<T>::MismatchedStateMachine)?,
-			};
+			let address = Self::decode_receipt_relayer(
+				proof.dest_proof.height.id.state_id,
+				&encoded_receipt,
+			)?;
 			let entry = result.entry(address).or_insert(U256::zero());
 			*entry += fee;
 			commitments.push(commitment);
@@ -328,6 +309,35 @@ pub fn beneficiary_message(
 }
 
 impl<T: Config> Pallet<T> {
+	/// Decode a proven `RequestReceipts[commitment]` value into the delivering
+	/// relayer's bytes. EVM stores the address RLP encoded, substrate stores the
+	/// signer bytes or a signature to recover the signer from. Used by both fee
+	/// accumulation and the outbound request delivery claim.
+	pub fn decode_receipt_relayer(state_id: StateMachine, raw: &[u8]) -> Result<Vec<u8>, Error<T>> {
+		match state_id {
+			s if s.is_evm() => {
+				use alloy_rlp::Decodable;
+				Ok(Address::decode(&mut &*raw)
+					.map_err(|_| Error::<T>::ProofValidationError)?
+					.0
+					.to_vec())
+			},
+			s if s.is_substrate() => {
+				use codec::Decode;
+				let bytes =
+					<Vec<u8>>::decode(&mut &*raw).map_err(|_| Error::<T>::ProofValidationError)?;
+				Ok(if bytes.len() > 32 {
+					Signature::decode(&mut &*bytes)
+						.map_err(|_| Error::<T>::SignatureDecodingError)?
+						.signer()
+				} else {
+					bytes
+				})
+			},
+			_ => Err(Error::<T>::MismatchedStateMachine),
+		}
+	}
+
 	pub fn accumulate_fee_and_deposit_event(
 		state_machine: StateMachine,
 		address: Vec<u8>,

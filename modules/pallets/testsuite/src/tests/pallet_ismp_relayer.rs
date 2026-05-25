@@ -1498,7 +1498,8 @@ mod outbound_request_delivery {
 			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
+			let nonce = pallet_ismp_relayer::Nonce::<Test>::get(&relayer_bytes, SUBSTRATE_DEST);
+			let msg = outbound_request_delivery_message(nonce, commitment, SUBSTRATE_DEST, payee);
 			let signature = pair.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {
@@ -1514,7 +1515,7 @@ mod outbound_request_delivery {
 					proof: substrate_dest_proof(commitment, &relayer_bytes),
 				},
 				payee,
-				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
+				signature: Signature::Sr25519 { public_key: relayer_bytes.clone(), signature },
 			};
 
 			let payee_before = Balances::balance(&payee_account);
@@ -1526,6 +1527,11 @@ mod outbound_request_delivery {
 
 			assert_eq!(Balances::balance(&payee_account) - payee_before, REWARD);
 			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment));
+			assert_eq!(
+				pallet_ismp_relayer::Nonce::<Test>::get(&relayer_bytes, SUBSTRATE_DEST),
+				1,
+				"a successful claim must consume the relayer's nonce",
+			);
 		})
 	}
 
@@ -1543,7 +1549,7 @@ mod outbound_request_delivery {
 			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
+			let msg = outbound_request_delivery_message(0, commitment, SUBSTRATE_DEST, payee);
 			let other_sig = other.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {
@@ -1574,46 +1580,7 @@ mod outbound_request_delivery {
 		})
 	}
 
-	mod request_receipt_key {
-		use super::*;
-
-		const COMMITMENT: H256 = H256::repeat_byte(0x42);
-
-		#[test]
-		fn evm_returns_slot_hash() {
-			new_test_ext().execute_with(|| {
-				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
-					EVM_DEST, COMMITMENT
-				)
-				.is_some());
-			})
-		}
-
-		#[test]
-		fn substrate_returns_child_trie_key() {
-			new_test_ext().execute_with(|| {
-				let key = pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
-					SUBSTRATE_DEST,
-					COMMITMENT,
-				)
-				.unwrap();
-				assert_eq!(key, RequestReceipts::<Test>::storage_key(COMMITMENT));
-			})
-		}
-
-		#[test]
-		fn unsupported_returns_none() {
-			new_test_ext().execute_with(|| {
-				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
-					StateMachine::Tendermint(*b"cosm"),
-					COMMITMENT,
-				)
-				.is_none());
-			})
-		}
-	}
-
-	mod decode_request_receipt_relayer {
+	mod decode_receipt_relayer {
 		use super::*;
 
 		#[test]
@@ -1622,11 +1589,9 @@ mod outbound_request_delivery {
 				let address = alloy_primitives::Address::from([0x11u8; 20]);
 				let raw = alloy_rlp::encode(&address);
 
-				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
-					EVM_DEST, &raw,
-				)
-				.unwrap()
-				.unwrap();
+				let decoded =
+					pallet_ismp_relayer::Pallet::<Test>::decode_receipt_relayer(EVM_DEST, &raw)
+						.unwrap();
 				assert_eq!(decoded, address.0.to_vec());
 			})
 		}
@@ -1637,11 +1602,10 @@ mod outbound_request_delivery {
 				let pubkey = [0x77u8; 32];
 				let raw = pubkey.to_vec().encode();
 
-				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_receipt_relayer(
 					SUBSTRATE_DEST,
 					&raw,
 				)
-				.unwrap()
 				.unwrap();
 				assert_eq!(decoded, pubkey.to_vec());
 			})
@@ -1658,26 +1622,24 @@ mod outbound_request_delivery {
 				};
 				let raw = inner.encode().encode();
 
-				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_receipt_relayer(
 					SUBSTRATE_DEST,
 					&raw,
 				)
-				.unwrap()
 				.unwrap();
 				assert_eq!(decoded, pair.public().0.to_vec());
 			})
 		}
 
 		#[test]
-		fn unsupported_returns_none() {
+		fn unsupported_returns_error() {
 			new_test_ext().execute_with(|| {
 				let raw = vec![0u8; 21];
-				assert!(pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+				assert!(pallet_ismp_relayer::Pallet::<Test>::decode_receipt_relayer(
 					StateMachine::Tendermint(*b"cosm"),
 					&raw,
 				)
-				.unwrap()
-				.is_none());
+				.is_err());
 			})
 		}
 	}

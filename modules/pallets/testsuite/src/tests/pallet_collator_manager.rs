@@ -81,10 +81,7 @@ fn rotate_controller(
 		RuntimeOrigin::signed(new_controller.clone()),
 		stash.clone(),
 	));
-	assert_ok!(CollatorManager::set_controller(
-		RuntimeOrigin::signed(stash),
-		new_controller,
-	));
+	assert_ok!(CollatorManager::set_controller(RuntimeOrigin::signed(stash), new_controller,));
 }
 
 fn set_session_keys(who: <Test as frame_system::Config>::AccountId) {
@@ -594,10 +591,7 @@ fn approval_is_single_use_and_cleared_by_register() {
 		// Deregister the pair, then attempt to re-register without a fresh approval.
 		assert_ok!(CollatorManager::deregister(RuntimeOrigin::signed(stash.clone())));
 		assert_err!(
-			CollatorManager::register(
-				RuntimeOrigin::signed(stash.clone()),
-				controller.clone(),
-			),
+			CollatorManager::register(RuntimeOrigin::signed(stash.clone()), controller.clone(),),
 			Error::<Test>::ControllerApprovalMissing,
 		);
 	});
@@ -613,10 +607,7 @@ fn set_controller_fails_without_new_controller_approval() {
 		link_stash_to_controller(stash.clone(), old_controller);
 
 		assert_err!(
-			CollatorManager::set_controller(
-				RuntimeOrigin::signed(stash),
-				new_controller,
-			),
+			CollatorManager::set_controller(RuntimeOrigin::signed(stash), new_controller,),
 			Error::<Test>::ControllerApprovalMissing,
 		);
 	});
@@ -650,10 +641,7 @@ fn revoke_controller_approval_works() {
 
 		// A second revoke with nothing to revoke is rejected.
 		assert_err!(
-			CollatorManager::revoke_controller_approval(
-				RuntimeOrigin::signed(controller),
-				stash,
-			),
+			CollatorManager::revoke_controller_approval(RuntimeOrigin::signed(controller), stash,),
 			Error::<Test>::NoPendingApproval,
 		);
 	});

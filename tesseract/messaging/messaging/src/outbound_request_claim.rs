@@ -32,7 +32,7 @@
 //!      `delivery_height`.
 //!    - Build a state proof of `RequestReceipts[commitment]` at that height (32-byte EVM slot
 //!      routed to the ISMP host contract, or substrate child-trie key).
-//!    - Sign `outbound_request_delivery_message(commitment, destination, payee)` with the
+//!    - Sign `outbound_request_delivery_message(nonce, commitment, destination, payee)` with the
 //!      destination's signing key.
 //!    - Submit `pallet_ismp_relayer::claim_outbound_request_delivery_reward` (unsigned) on
 //!      Hyperbridge.
@@ -57,7 +57,8 @@ use sp_core::Pair;
 use subxt_utils::outbound_requests_claimed_storage_key;
 use tesseract_evm::derive_map_key;
 use tesseract_primitives::{
-	wait_for_state_machine_update, IsmpProvider, PendingRequestDeliveryClaim, StateProofQueryType,
+	wait_for_state_machine_update, HyperbridgeClaim, IsmpProvider, PendingRequestDeliveryClaim,
+	StateProofQueryType,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::Receiver;
@@ -281,7 +282,10 @@ async fn process_claim(
 		.await
 		.context("query_state_proof on destination")?;
 
-	let msg = outbound_request_delivery_message(commitment, destination, payee);
+	// Match the pallet's `Nonce` lookup (keyed by our delivery address and the
+	// destination) so the signature verifies and can't be replayed.
+	let nonce = hyperbridge.relayer_nonce(dest.address(), destination).await?;
+	let msg = outbound_request_delivery_message(nonce, commitment, destination, payee);
 	let signature = dest.sign(&msg);
 
 	let claim = OutboundRequestDeliveryClaim {
@@ -309,7 +313,7 @@ async fn process_claim(
 }
 
 /// Destination-side storage key for `RequestReceipts[commitment]`. Matches
-/// the pallet-side derivation in `Pallet::request_receipt_key`.
+/// the pallet-side derivation via `StateMachineClient::receipts_state_trie_key`.
 fn receipt_key_for(
 	destination: StateMachine,
 	commitment: H256,

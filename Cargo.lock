@@ -9285,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.7.0"
+version = "1.8.0"
 dependencies = [
  "clap",
  "futures",
@@ -28318,12 +28318,14 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "arb-host",
  "arbitrum-verifier",
  "async-trait",
  "futures",
  "geth-primitives",
  "ismp",
  "log",
+ "op-host",
  "op-verifier",
  "pallet-ismp",
  "parity-scale-codec",

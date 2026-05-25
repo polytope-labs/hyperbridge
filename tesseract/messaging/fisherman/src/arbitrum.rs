@@ -27,7 +27,7 @@ use geth_primitives::Header;
 use ismp::{consensus::StateMachineId, host::StateMachine};
 use primitive_types::{H256, U256};
 use tesseract_evm::AlloyProvider;
-use tesseract_primitives::{Hasher, IsmpProvider};
+use tesseract_primitives::{FishermanClaim, Hasher};
 
 use crate::quorum::{decide, fetch_block_by_hash, FetchOutcome, QuorumDecision};
 
@@ -54,7 +54,8 @@ pub struct ArbitrumConfig {
 	pub l1_provider: Arc<AlloyProvider>,
 	pub l1_state_machine: StateMachine,
 	pub targets: Vec<ArbitrumTarget>,
-	pub hyperbridge: Arc<dyn IsmpProvider>,
+	/// Hyperbridge substrate client — receives the `blacklist_arbitrum_claim` extrinsics.
+	pub hyperbridge: Arc<dyn FishermanClaim + Send + Sync>,
 	pub poll_interval: Option<Duration>,
 }
 

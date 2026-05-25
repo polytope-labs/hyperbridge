@@ -24,7 +24,7 @@ use op_host::abi::{DisputeGameFactory, FaultDisputeGame};
 use op_verifier::calculate_output_root;
 use primitive_types::{H160, H256};
 use tesseract_evm::AlloyProvider;
-use tesseract_primitives::{Hasher, IsmpProvider};
+use tesseract_primitives::{FishermanClaim, Hasher};
 
 use crate::quorum::{decide, fetch_block_by_number, FetchOutcome, QuorumDecision};
 
@@ -53,8 +53,10 @@ pub struct OpstackConfig {
 	pub l1_state_machine: StateMachine,
 	/// All L2 rollups on this L1 that the fisherman should watch.
 	pub targets: Vec<OpstackTarget>,
-	/// Hyperbridge provider — receives the `blacklist_dispute_game` extrinsics.
-	pub hyperbridge: Arc<dyn IsmpProvider>,
+	/// Hyperbridge substrate client — receives the `blacklist_dispute_game` extrinsics. This
+	/// is the only role hyperbridge plays in the rollup-claim watchers, so we accept the
+	/// narrower [`FishermanClaim`] trait instead of the full [`tesseract_primitives::IsmpProvider`].
+	pub hyperbridge: Arc<dyn FishermanClaim + Send + Sync>,
 	/// Poll interval. Defaults to 30 s if `None`.
 	pub poll_interval: Option<Duration>,
 }

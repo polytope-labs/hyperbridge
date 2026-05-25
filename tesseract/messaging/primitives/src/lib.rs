@@ -514,32 +514,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Temporary: Veto a misrepresentative state commiment at the provided height
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), anyhow::Error>;
 
-	/// Submit a `pallet-fishermen::blacklist_dispute_game` extrinsic against this provider.
-	/// Used by the off-chain fisherman watcher to permanently blacklist an opstack dispute-game
-	/// proxy that an RPC quorum has identified as fraudulent. Only meaningful on the hyperbridge
-	/// substrate provider; EVM providers return an unimplemented error.
-	async fn blacklist_dispute_game(
-		&self,
-		state_machine_id: StateMachineId,
-		proxy: H160,
-	) -> Result<(), anyhow::Error> {
-		let _ = (state_machine_id, proxy);
-		Err(anyhow!("blacklist_dispute_game not implemented for {}", self.name()))
-	}
-
-	/// Submit a `pallet-fishermen::blacklist_arbitrum_claim` extrinsic against this provider.
-	/// Used by the off-chain fisherman watcher to permanently blacklist an arbitrum claim hash
-	/// (BoLD `assertionHash` or Orbit derived hash). Only meaningful on the hyperbridge
-	/// substrate provider; EVM providers return an unimplemented error.
-	async fn blacklist_arbitrum_claim(
-		&self,
-		state_machine_id: StateMachineId,
-		claim: H256,
-	) -> Result<(), anyhow::Error> {
-		let _ = (state_machine_id, claim);
-		Err(anyhow!("blacklist_arbitrum_claim not implemented for {}", self.name()))
-	}
-
 	/// Fetch the host params for given state machine
 	async fn query_host_params(
 		&self,
@@ -615,6 +589,30 @@ pub trait HyperbridgeClaim {
 	/// Current relayer signature nonce stored on Hyperbridge for this `(address, chain)`
 	/// pair. Used to pin a beneficiary redirect signature to one accumulate call.
 	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64>;
+}
+
+/// Submit `pallet-fishermen` blacklist extrinsics. Implemented only on the hyperbridge
+/// substrate client — these calls have no meaning on EVM providers — so the trait is kept
+/// off `IsmpProvider` and parallels the [`HyperbridgeClaim`] / [`HandleGetResponse`] split.
+#[async_trait::async_trait]
+pub trait FishermanClaim {
+	/// Submit a `pallet-fishermen::blacklist_dispute_game` extrinsic. Used by the off-chain
+	/// fisherman watcher to permanently blacklist an opstack dispute-game proxy that an L2
+	/// RPC quorum has identified as fraudulent.
+	async fn blacklist_dispute_game(
+		&self,
+		state_machine_id: StateMachineId,
+		proxy: H160,
+	) -> Result<(), anyhow::Error>;
+
+	/// Submit a `pallet-fishermen::blacklist_arbitrum_claim` extrinsic. Used by the off-chain
+	/// fisherman watcher to permanently blacklist an arbitrum claim hash (BoLD `assertionHash`
+	/// or the Orbit derived hash).
+	async fn blacklist_arbitrum_claim(
+		&self,
+		state_machine_id: StateMachineId,
+		claim: H256,
+	) -> Result<(), anyhow::Error>;
 }
 
 #[async_trait::async_trait]

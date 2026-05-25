@@ -40,7 +40,7 @@ use tesseract_fisherman::{
 	fish_arbitrum, fish_opstack, ArbitrumConfig, ArbitrumKind, ArbitrumTarget, OpstackConfig,
 	OpstackTarget,
 };
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{FishermanClaim, IsmpProvider};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 
 pub const LOG_TARGET: &str = "fisherman";
@@ -114,10 +114,16 @@ pub async fn spawn(path: &Path, spawn_handle: SpawnEssentialTaskHandle) -> anyho
 		.await
 		.context("resolving hyperbridge SubstrateConfig for fisherman")?;
 	let hyperbridge_state_machine = hyperbridge_substrate.state_machine();
-	let hb_client = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_substrate)
-		.await
-		.context("creating hyperbridge SubstrateClient for fisherman")?;
-	let hyperbridge: Arc<dyn IsmpProvider> = Arc::new(hb_client);
+	let hb_client = Arc::new(
+		SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_substrate)
+			.await
+			.context("creating hyperbridge SubstrateClient for fisherman")?,
+	);
+	// Two trait views of the same underlying client: messaging uses IsmpProvider,
+	// rollup-claim watchers only need FishermanClaim (which is implemented just for the
+	// substrate client).
+	let hyperbridge: Arc<dyn IsmpProvider> = hb_client.clone();
+	let hyperbridge_claim: Arc<dyn FishermanClaim + Send + Sync> = hb_client.clone();
 
 	let mut spawned = 0usize;
 
@@ -143,7 +149,7 @@ pub async fn spawn(path: &Path, spawn_handle: SpawnEssentialTaskHandle) -> anyho
 	}
 
 	// L1 rollup-claim watchers, one task per (L1, kind).
-	spawn_rollup_watchers(&config, &hyperbridge, &spawn_handle).await?;
+	spawn_rollup_watchers(&config, &hyperbridge_claim, &spawn_handle).await?;
 
 	if spawned == 0 {
 		log::warn!(
@@ -161,7 +167,7 @@ pub async fn spawn(path: &Path, spawn_handle: SpawnEssentialTaskHandle) -> anyho
 /// and spawns one `fish_opstack` and up to two `fish_arbitrum` tasks per L1.
 async fn spawn_rollup_watchers(
 	config: &HyperbridgeConfig,
-	hyperbridge: &Arc<dyn IsmpProvider>,
+	hyperbridge: &Arc<dyn FishermanClaim + Send + Sync>,
 	spawn_handle: &SpawnEssentialTaskHandle,
 ) -> anyhow::Result<()> {
 	let mut opstack_by_l1: HashMap<StateMachine, (Vec<String>, Vec<OpstackTarget>)> =

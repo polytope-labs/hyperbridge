@@ -56,7 +56,7 @@ use substrate_state_machine::StateMachineProof;
 use subxt_utils::{
 	host_params_storage_key, send_extrinsic, state_machine_commitment_storage_key,
 	state_machine_update_time_storage_key,
-	values::{messages_to_value, state_machine_height_to_value, state_machine_id_to_value},
+	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider,
@@ -87,7 +87,7 @@ where
 {
 	/// Construct an in-memory signer for this client's configured key. Shared by every
 	/// extrinsic-submitting trait method.
-	fn in_memory_signer(&self) -> InMemorySigner<C>
+	pub(crate) fn in_memory_signer(&self) -> InMemorySigner<C>
 	where
 		<C as subxt::Config>::AccountId: From<subxt::utils::AccountId32>,
 	{
@@ -978,42 +978,6 @@ where
 			"Fishermen",
 			"veto_state_commitment",
 			vec![state_machine_height_to_value(&height)],
-		);
-		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
-		Ok(())
-	}
-
-	async fn blacklist_dispute_game(
-		&self,
-		state_machine_id: ismp::consensus::StateMachineId,
-		proxy: primitive_types::H160,
-	) -> Result<(), Error> {
-		let signer = self.in_memory_signer();
-		let call = subxt::dynamic::tx(
-			"Fishermen",
-			"blacklist_dispute_game",
-			vec![
-				state_machine_id_to_value(&state_machine_id),
-				subxt::ext::scale_value::Value::from_bytes(proxy.0.to_vec()),
-			],
-		);
-		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
-		Ok(())
-	}
-
-	async fn blacklist_arbitrum_claim(
-		&self,
-		state_machine_id: ismp::consensus::StateMachineId,
-		claim: primitive_types::H256,
-	) -> Result<(), Error> {
-		let signer = self.in_memory_signer();
-		let call = subxt::dynamic::tx(
-			"Fishermen",
-			"blacklist_arbitrum_claim",
-			vec![
-				state_machine_id_to_value(&state_machine_id),
-				subxt::ext::scale_value::Value::from_bytes(claim.0.to_vec()),
-			],
 		);
 		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
 		Ok(())

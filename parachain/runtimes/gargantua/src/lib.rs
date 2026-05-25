@@ -377,7 +377,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<Everything, TxPause>;
+	type BaseCallFilter = InsideBoth<ReputationCallFilter, InsideBoth<Everything, TxPause>>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -763,6 +763,30 @@ parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
 
+/// Reputation tokens are soulbound — credited via the incentive pallets
+/// and consumed only by `pallet-collator-manager`'s per-session reset.
+/// The holder must not be able to send them anywhere, so this filter
+/// rejects every dispatched `Assets` call that could move balance out
+/// of a holder's account when the target asset is the reputation asset.
+/// Programmatic `fungible::Mutate` (mint / burn from runtime pallets)
+/// bypasses dispatch and is therefore unaffected.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
@@ -778,13 +802,6 @@ parameter_types! {
 	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
-parameter_types! {
-	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
-	];
-}
-
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -793,7 +810,6 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
-	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;

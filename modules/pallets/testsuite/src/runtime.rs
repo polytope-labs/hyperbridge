@@ -203,7 +203,7 @@ parameter_types! {
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ReputationCallFilter;
 	type RuntimeOrigin = RuntimeOrigin;
 	type RuntimeCall = RuntimeCall;
 	type Hash = H256;
@@ -323,6 +323,26 @@ parameter_types! {
 pub type ReputationAsset =
 	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
 
+/// Mirror of the runtime `ReputationCallFilter` — rejects user-facing
+/// `Assets` transfer extrinsics targeting the reputation asset so the
+/// mock exercises the same soulbound semantics as nexus/gargantua.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
 sp_runtime::impl_opaque_keys! {
 	pub struct SessionKeys {
 		pub aura: AuraId,
@@ -437,6 +457,10 @@ impl ismp_beefy::BeefyClientConfig for Test {
 
 	fn sp1_vkey_hash() -> primitive_types::H256 {
 		Default::default()
+	}
+
+	fn allowed_proof_types() -> &'static [u8] {
+		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1]
 	}
 }
 

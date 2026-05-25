@@ -69,7 +69,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, InstanceFilter},
+	traits::{ConstU32, ConstU64, ConstU8, Contains, InsideBoth, InstanceFilter},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_200,
+	spec_version: 7_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -382,7 +382,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = TxPause;
+	type BaseCallFilter = InsideBoth<ReputationCallFilter, TxPause>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -702,6 +702,36 @@ parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
 
+/// Reputation tokens are soulbound — credited via the incentive pallets
+/// and consumed only by `pallet-collator-manager`'s per-session reset.
+/// The holder must not be able to send them anywhere, so this filter
+/// rejects every dispatched `Assets` call that could move balance out
+/// of a holder's account when the target asset is the reputation asset.
+/// Programmatic `fungible::Mutate` (mint / burn from runtime pallets)
+/// bypasses dispatch and is therefore unaffected.
+///
+/// `force_transfer` is left allowed because it already requires the
+/// asset's admin origin (privileged escape hatch). `cancel_approval` is
+/// allowed because `approve_transfer` is blocked, so there shouldn't be
+/// any approvals to cancel; if one slips through, letting the holder
+/// undo it is strictly safer.
+pub struct ReputationCallFilter;
+impl Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
 /// A way to pay from treasury
 impl pallet_treasury::Config for Runtime {
 	type Currency = Balances;
@@ -922,12 +952,6 @@ parameter_types! {
 	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
-parameter_types! {
-	pub const AllowedBeefyProofTypes: &'static [u8] = &[
-		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
-	];
-}
-
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -936,7 +960,6 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
-	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;

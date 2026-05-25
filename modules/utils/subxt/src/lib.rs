@@ -114,6 +114,25 @@ pub mod signer {
 		}
 	}
 
+	/// Re-fetch the chain's current [`RuntimeVersion`] and refresh the client's cached copy.
+	///
+	/// `OnlineClient` caches the runtime version (spec & transaction version) at construction.
+	/// After a runtime upgrade that cache goes stale, so the `CheckSpecVersion` signed extension
+	/// signs over the wrong `spec_version` and the node rejects the extrinsic with a bad-proof
+	/// error. Calling this before every signed submission keeps signing in step with the node's
+	/// current runtime.
+	async fn refresh_runtime_version<T: subxt::Config>(
+		client: &OnlineClient<T>,
+	) -> Result<(), anyhow::Error> {
+		let runtime_version = client
+			.backend()
+			.current_runtime_version()
+			.await
+			.context("Failed to fetch current runtime version")?;
+		client.set_runtime_version(runtime_version);
+		Ok(())
+	}
+
 	pub async fn send_extrinsic<T: subxt::Config, Tx: Payload>(
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
@@ -126,6 +145,7 @@ pub mod signer {
 		T::Signature: From<MultiSignature> + Send + Sync,
 		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: Send + Sync + DefaultParams,
 	{
+		refresh_runtime_version(client).await?;
 		let params = DefaultParams::default_params();
 		let ext = client.tx().create_signed(payload, signer, params).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
@@ -154,6 +174,7 @@ pub mod signer {
 		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature> + Send + Sync,
 	{
+		refresh_runtime_version(client).await?;
 		let params = DefaultExtrinsicParamsBuilder::<T>::new().nonce(nonce).build();
 		let mut partial = client.tx().create_partial_offline(payload, params)?;
 		let ext = partial.sign(signer);

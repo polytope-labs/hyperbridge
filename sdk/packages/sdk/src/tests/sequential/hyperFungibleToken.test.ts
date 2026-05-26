@@ -78,7 +78,7 @@ async function createIsmpClient(source: EvmChain, dest: EvmChain) {
 
 	console.log("[createIsmpClient] creating query client")
 	const queryClient = createQueryClient({
-		url: "https://gargantua.indexer.polytope.technology",
+		url: process.env.INDEXER_URL || "https://gargantua.indexer.polytope.technology",
 	})
 
 	console.log("[createIsmpClient] constructing IsmpClient")

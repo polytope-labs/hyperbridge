@@ -74,7 +74,7 @@ enum PointsActivityType {
 """
 Important Hyperbridge Stats for a specific chain
 """
-type HyperBridgeChainStats @entity {
+type HyperBridgeStats @entity {
 	"""
 	The chain the metrics are for
 	"""
@@ -101,14 +101,9 @@ type HyperBridgeChainStats @entity {
 	numberOfTimedOutMessages: BigInt! @index
 
 	"""
-	The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
+	The total amount of transfers sent into the Hyperbridge Host Contracts (relayer fees)
 	"""
 	totalTransfersIn: BigInt! @index
-
-	"""
-	Total amount of fees earned by Hyperbridge on the chain (protocol fees)
-	"""
-	protocolFeesEarned: BigInt! @index
 
 	"""
 	Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
@@ -1483,41 +1478,6 @@ type DailyVolumeUSD @entity {
 	Last 24hrs Volume in USD
 	"""
 	last24HoursVolumeUSD: String!
-}
-
-"""
-Daily Hyperbridge Protocol Fees Stats
-"""
-type DailyProtocolFeesStats @entity {
-	"""
-	Unique identifier of the daily protocol fees
-	"""
-	id: ID!
-
-	"""
-	The chain on which the protocol fees are charged
-	"""
-	chain: String! @index
-
-	"""
-	The ID of the StateMachine
-	"""
-	stateMachineId: String! @index
-
-	"""
-	Last updated at
-	"""
-	lastUpdatedAt: BigInt!
-
-	"""
-	The timestamp when this record was created
-	"""
-	createdAt: Date!
-
-	"""
-	Last 24Hrs Protocol Fees Earned
-	"""
-	last24HoursProtocolFeesEarned: BigInt! @index
 }
 
 """

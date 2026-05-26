@@ -171,7 +171,7 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 			{ handler: "handlePostRequestTimeoutHandledEvent", topics: ["PostRequestTimeoutHandled(bytes32,string)"] },
 			{
 				handler: "handleGetRequestEvent",
-				topics: ["GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256,bytes,uint256)"],
+				topics: ["GetRequestEvent(string,string,bytes,bytes[],uint256,uint256,uint256,bytes,uint256)"],
 			},
 			{ handler: "handleGetRequestHandledEvent", topics: ["GetRequestHandled(bytes32,address)"] },
 			{ handler: "handleGetRequestTimeoutHandledEvent", topics: ["GetRequestTimeoutHandled(bytes32,string)"] },

@@ -2,9 +2,6 @@ import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/Ethereum
 import { EthereumTransaction } from "@subql/types-ethereum"
 import { DailyProtocolFeesStats, RelayerV2, Transfer } from "@/configs/src/types/models"
 import { HyperBridgeChainStatsService } from "@/services/hyperbridgeChainStats.service"
-import { isHexString } from "ethers/lib/utils"
-import { EthereumHostAbi__factory } from "@/configs/src/types/contracts"
-import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
@@ -139,25 +136,18 @@ export class HyperBridgeService {
 		await chainStats.save()
 	}
 
+	/**
+	 * Per-dispatch protocol fees on EVM hosts have been removed — bandwidth is
+	 * pre-paid via `BandwidthManager.purchase()` and metered by `pallet-bandwidth`
+	 * on Hyperbridge. Returns 0 so the daily-protocol-fees stat shape is preserved
+	 * until indexing is rewired against bandwidth purchase events.
+	 */
 	static async computeProtocolFeeFromHexData(
-		contract_address: string,
-		data: string,
-		stateId: string,
+		_contract_address: string,
+		_data: string,
+		_stateId: string,
 	): Promise<bigint> {
-		data = isHexString(data) ? data.slice(2) : data
-		const noOfBytesInData = data.length / 2
-		const evmHostContract = EthereumHostAbi__factory.connect(contract_address, api)
-		logger.info(
-			`Computing protocol fee for data: ${JSON.stringify({
-				data,
-				noOfBytesInData,
-				stateId,
-			})}`,
-		)
-		const encoder = new TextEncoder()
-		const stateIdByte = encoder.encode(stateId)
-		const perByteFee = await evmHostContract.perByteFee(stateIdByte)
-		return perByteFee.mul(noOfBytesInData).toBigInt()
+		return 0n
 	}
 
 	static async updateDailyProtocolFees(blockHash: string, protocolFeeAmount: bigint, chain: string): Promise<void> {

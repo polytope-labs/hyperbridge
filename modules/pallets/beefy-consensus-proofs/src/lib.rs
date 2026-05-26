@@ -299,9 +299,6 @@ pub mod pallet {
 			let host = pallet_ismp::Pallet::<T>::default();
 
 			// Seed an initial commitment for the host state machine at the current block height.
-			let height = sp_runtime::SaturatedConversion::saturated_into::<u64>(
-				frame_system::Pallet::<T>::block_number(),
-			);
 			pallet_ismp::Pallet::<T>::create_consensus_client(
 				frame_system::RawOrigin::Root.into(),
 				ismp::messaging::CreateConsensusState {
@@ -316,7 +313,7 @@ pub mod pallet {
 							state_id: host.host_state_machine(),
 						},
 						StateCommitmentHeight {
-							height,
+							height: 1,
 							commitment: StateCommitment {
 								timestamp: host.timestamp().as_secs(),
 								overlay_root: None,

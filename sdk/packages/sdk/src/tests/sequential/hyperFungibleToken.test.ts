@@ -6,7 +6,7 @@ import { EvmChain } from "@/chains/evm"
 import { SubstrateChain } from "@/chains/substrate"
 import { IsmpClient } from "@/client"
 import { createQueryClient } from "@/queryClient"
-import { HyperFungibleToken } from "@/protocols/hyperFungibleToken"
+import { HyperFungibleToken, type BridgeParams, type QuoteResult } from "@/protocols/hyperFungibleToken"
 import EVM_HOST from "@/abis/evmHost"
 import type { HexString } from "@/types"
 
@@ -182,7 +182,7 @@ async function runBridgeFlow(params: {
 		dest: destStateMachine,
 		timeout: 7200n,
 		payInFeeToken: true,
-		relayerFee: 0n,
+		relayerFee: parseEther("5"),
 	})
 
 	const statuses: string[] = []
@@ -290,8 +290,7 @@ async function runBridgeFlow(params: {
 	return { commitment, statuses }
 }
 
-// Skipped: bridge tests need the redeployed host's uniswapV2Router configured and a funded test account.
-describe.skip("HyperFungibleToken SDK", () => {
+describe("HyperFungibleToken SDK", () => {
 	it("should detect WrappedHFT on BSC", async () => {
 		console.log("[test:detect-bsc] start — BSC_WRAPPED_HFT=", BSC_WRAPPED_HFT)
 		console.log("[test:detect-bsc] creating BSC->Polygon chains")
@@ -326,6 +325,12 @@ describe.skip("HyperFungibleToken SDK", () => {
 		const { ismpClient, hyperbridge } = await createIsmpClient(source, dest)
 		console.log("[test:lock-bsc] constructing HyperFungibleToken with client")
 		const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
+		// Bypass on-chain quote() — it routes through host.uniswapV2Router which isn't configured on the redeployed host.
+		hft.quote = async (p: BridgeParams): Promise<QuoteResult> => ({
+			totalNativeCost: 0n,
+			totalFeeTokenCost: p.relayerFee ?? 0n,
+			relayerFeeInFeeToken: p.relayerFee ?? 0n,
+		})
 		const account = privateKeyToAccount(PRIVATE_KEY)
 		console.log("[test:lock-bsc] account =", account.address)
 
@@ -366,6 +371,12 @@ describe.skip("HyperFungibleToken SDK", () => {
 		const { ismpClient, hyperbridge } = await createIsmpClient(source, dest)
 		console.log("[test:burn-polygon] constructing HyperFungibleToken with client")
 		const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
+		// Bypass on-chain quote() — it routes through host.uniswapV2Router which isn't configured on the redeployed host.
+		hft.quote = async (p: BridgeParams): Promise<QuoteResult> => ({
+			totalNativeCost: 0n,
+			totalFeeTokenCost: p.relayerFee ?? 0n,
+			relayerFeeInFeeToken: p.relayerFee ?? 0n,
+		})
 		const account = privateKeyToAccount(PRIVATE_KEY)
 		console.log("[test:burn-polygon] account =", account.address)
 

@@ -1,0 +1,235 @@
+---
+title: Purchasing
+description: How to call BandwidthManager.purchase() from a dapp — fee-token approval, decimal scaling, sponsorship, and reading the credit event from Hyperbridge.
+---
+
+# Purchasing Bandwidth
+
+A purchase is a single call to `BandwidthManager.purchase()` on the source chain. The contract pulls the tier price in the local fee token, dispatches a credit message to `pallet-bandwidth`, and returns the ISMP commitment for the dispatch.
+
+There's no two-step approve-then-dispatch wrapper — the caller is expected to approve the manager for the exact amount before calling `purchase()`. The contract uses `SafeERC20.safeTransferFrom` so any non-standard ERC-20 quirks surface cleanly.
+
+## The `purchase()` Function
+
+```solidity title="BandwidthManager.sol" lineNumbers
+function purchase(
+    bytes calldata app,
+    uint256 tier,
+    uint256 months,
+    bytes calldata chain
+) external returns (bytes32 commitment);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `app` | Recipient app identifier on the credit chain. Usually a 20-byte EVM address packed as `bytes`. The pallet truncates to a 32-byte `AppKey`. |
+| `tier` | Tier discriminant. Must match a configured `TierIndex` variant (`1`, `2`, `3`, or `4`) and must have a non-zero `tierPrice[tier]` on the manager. |
+| `months` | Multiplier on `tier.bytes` and `tier.duration_secs`. Must be `> 0`. |
+| `chain` | UTF-8 chain id of the **credit chain** — e.g. `"EVM-8453"` for Base or `"EVM-137"` for Polygon. Does not need to equal the source chain (see [Sponsorship](#sponsoring-another-chain)). |
+
+The function reverts with:
+
+- `InvalidPurchase()` — empty `app`, empty `chain`, or `months == 0`.
+- `UnknownTier()` — `tierPrice[tier] == 0` (tier not configured by governance).
+- `PriceNotRepresentable()` — the 18-decimal tier price doesn't divide cleanly into the local fee token's decimals (rare; see [Decimal scaling](#decimal-scaling)).
+
+On success it emits:
+
+```solidity
+event BandwidthPurchased(
+    address indexed payer,
+    address feeToken,
+    uint256 tier,
+    uint256 months,
+    uint256 amountPaid,
+    bytes app,
+    bytes chain,
+    bytes32 commitment
+);
+```
+
+## Minimal Example
+
+```solidity title="BuyBandwidth.sol" lineNumbers
+// SPDX-License-Identifier: Apache-2.0
+pragma solidity ^0.8.17;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+
+interface IBandwidthManager {
+    function purchase(bytes calldata app, uint256 tier, uint256 months, bytes calldata chain)
+        external
+        returns (bytes32 commitment);
+    function tierPrice(uint256 tier) external view returns (uint256 price18d);
+}
+
+contract BuyBandwidth {
+    IBandwidthManager public immutable manager;
+    address public immutable host;
+
+    constructor(address _manager, address _host) {
+        manager = IBandwidthManager(_manager);
+        host = _host;
+    }
+
+    /// Buy `months` of `tier` for `app` on `chain`.
+    /// Caller must have already approved `manager` to spend the
+    /// scaled fee-token amount returned by `quote()`.
+    function buy(bytes calldata app, uint256 tier, uint256 months, bytes calldata chain)
+        external
+        returns (bytes32 commitment)
+    {
+        // Pull the fee token from the caller into this contract,
+        // then re-approve the manager. (Or skip this contract and have
+        // the user approve the manager directly — see below.)
+        uint256 cost = quote(tier, months);
+        address feeToken = IDispatcher(host).feeToken();
+        IERC20(feeToken).transferFrom(msg.sender, address(this), cost);
+        IERC20(feeToken).approve(address(manager), cost);
+
+        commitment = manager.purchase(app, tier, months, chain);
+    }
+
+    /// Quote the fee-token cost of a `(tier, months)` purchase.
+    function quote(uint256 tier, uint256 months) public view returns (uint256) {
+        uint256 price18d = manager.tierPrice(tier);
+        uint256 total18d = price18d * months;
+        address feeToken = IDispatcher(host).feeToken();
+        uint8 dec = IERC20Metadata(feeToken).decimals();
+        return total18d / (10 ** (18 - dec));
+    }
+}
+```
+
+For a typical dapp the simpler integration is to have the **user** approve the manager directly and have the frontend call `purchase()` — no intermediate contract needed.
+
+## Direct Frontend Integration
+
+```typescript title="purchase.ts" icon="typescript" lineNumbers
+import { createWalletClient, createPublicClient, http, encodePacked, parseAbi } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+const MANAGER = "0x..."   // BandwidthManager address on the source chain
+const HOST    = "0x..."   // IHost address on the source chain
+const APP     = "0xYourAppAddressOnTheCreditChain"
+
+const managerAbi = parseAbi([
+  "function purchase(bytes app, uint256 tier, uint256 months, bytes chain) external returns (bytes32)",
+  "function tierPrice(uint256 tier) external view returns (uint256)",
+])
+
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function decimals() external view returns (uint8)",
+])
+
+const hostAbi = parseAbi(["function feeToken() external view returns (address)"])
+
+async function purchaseBandwidth() {
+  const account = privateKeyToAccount("0xYOUR_KEY")
+  const publicClient = createPublicClient({ transport: http("YOUR_RPC") })
+  const walletClient = createWalletClient({ account, transport: http("YOUR_RPC") })
+
+  // 1. Quote the cost.
+  const tier = 1n
+  const months = 3n
+  const price18d = await publicClient.readContract({
+    address: MANAGER, abi: managerAbi, functionName: "tierPrice", args: [tier],
+  })
+  const feeToken = await publicClient.readContract({
+    address: HOST, abi: hostAbi, functionName: "feeToken",
+  })
+  const dec = await publicClient.readContract({
+    address: feeToken, abi: erc20Abi, functionName: "decimals",
+  })
+  const total18d = price18d * months
+  const cost = total18d / 10n ** (18n - BigInt(dec))
+
+  // 2. Approve the manager.
+  await walletClient.writeContract({
+    address: feeToken, abi: erc20Abi, functionName: "approve",
+    args: [MANAGER, cost],
+  })
+
+  // 3. Buy. `chain` is the UTF-8 string of the credit chain id.
+  const app   = encodePacked(["address"], [APP])
+  const chain = new TextEncoder().encode("EVM-8453")  // Base
+
+  const txHash = await walletClient.writeContract({
+    address: MANAGER, abi: managerAbi, functionName: "purchase",
+    args: [app, tier, months, chain],
+  })
+
+  // The transaction receipt's `BandwidthPurchased` event carries the
+  // ISMP commitment you can use to track delivery on Hyperbridge.
+}
+```
+
+<Callout type="info" title="Chain id format">
+`chain` is the UTF-8 form of `StateMachine::Display`. EVM chains are `"EVM-<chain_id>"` — `"EVM-1"` for Ethereum, `"EVM-8453"` for Base, `"EVM-137"` for Polygon. The pallet parses this string into `StateMachine`, so any unrecognized format is rejected at decode time on Hyperbridge.
+</Callout>
+
+## Decimal Scaling
+
+Tier prices are stored as 18-decimal values on the manager. The local fee token may use fewer decimals (e.g. USDC uses 6, DAI uses 18), so the contract scales at purchase time:
+
+```solidity
+uint256 total18d = price18d * months;
+uint8   dec      = IERC20Metadata(feeToken).decimals();
+uint256 scale    = 10 ** (18 - dec);
+if (total18d % scale != 0) revert PriceNotRepresentable();
+uint256 amount = total18d / scale;
+```
+
+Two implications:
+
+1. **Fee tokens with `decimals > 18` would underflow `(18 - dec)`.** This is not a concern in practice — the supported fee tokens are all `≤ 18` decimals.
+2. **Tier prices must be representable at the local fee-token's decimals after multiplication by `months`.** A tier priced at `10**12` (a hypothetical sub-penny SKU) and a 6-decimal fee token would revert with `PriceNotRepresentable()` because the 18-decimal value doesn't divide cleanly. Set tier prices to multiples of `10**12` to keep them clean on 6-decimal fee tokens.
+
+The fee token comes from `IDispatcher(_host).feeToken()` — the same token used for relayer fees elsewhere in the protocol. Your dapp should always read it from the host rather than hardcoding an address.
+
+## Sponsoring Another Chain
+
+The `chain` argument is **not validated against the source chain** — see [Overview → Sponsorship](/developers/evm/bandwidth/overview#sponsorship) for the model. A buyer on Ethereum credits an app on Base by passing the credit chain id in `chain`:
+
+```solidity
+manager.purchase({
+    app:    abi.encodePacked(appAddressOnBase),
+    tier:   2,
+    months: 6,
+    chain:  bytes("EVM-8453")
+});
+```
+
+The pallet keys allowance storage on `(msg.chain, msg.app)`, so the credit lands on Base regardless of which chain sent the payment. The recommended pattern for teams running a central treasury is to deploy `BandwidthManager` on one low-fee chain and sponsor bandwidth for app instances elsewhere.
+
+## Reading the Pallet State
+
+The pallet exposes two read helpers for off-chain monitoring of an app's remaining bandwidth:
+
+| Function | Returns |
+|----------|---------|
+| `Pallet::remaining(app_chain, app)` | Sum of `remaining_bytes` across all *live* subscriptions. |
+| `Pallet::allowances(app_chain, app)` | `Vec<Subscription>` of live subscriptions in FIFO drain order. |
+
+Both filter expired entries on read, so the values reflect what the gate will see on the next dispatch. Query them via your Hyperbridge RPC or a custom runtime API exposing pallet storage.
+
+The on-chain `BandwidthConsumed { source, app, bytes, remaining }` event fires after every successful gate consumption — index this if you want to track usage patterns without polling.
+
+## Cost of a Purchase
+
+A purchase is an ordinary ISMP dispatch under the hood. The pallet-side credit pays no relayer fee (`fee: 0` in the dispatch) because the pallet itself is the recipient — there's no relayer network involvement in landing the credit. The only on-chain cost on the source side is:
+
+- The scaled tier price, in the fee token (paid to the manager and held until governance withdraws it).
+- Gas for `purchase()` — one ERC-20 transfer plus one `IDispatcher.dispatch()` call.
+
+## Failure Modes
+
+| Symptom | Likely cause |
+|---------|--------------|
+| `purchase()` reverts with `UnknownTier()` | Governance hasn't called `SetTiers` for that tier yet on this manager, or the tier was revoked (price reset to 0). |
+| `purchase()` reverts with `PriceNotRepresentable()` | Tier price isn't a multiple of `10**(18 - feeTokenDecimals)`. Coordinate with governance to round the price. |
+| `purchase()` reverts with `ERC20InsufficientAllowance` | Caller didn't approve the manager for the scaled amount, or approved for the 18-decimal value instead of the scaled value. |
+| Credit message dispatched but no `BandwidthCredited` event on Hyperbridge | The pallet rejected the message. Most common causes: source chain has no registered `BandwidthManager`, `request.from` doesn't match the registered manager address, or `tier` isn't configured on the pallet side. Check pallet logs / `on_accept` errors. |
+| `BandwidthCredited` fired but the `(chain, app)` bucket is empty next block | A `SubscriptionEvicted` event fired in the same block — the FIFO list was already at 1024 entries. |

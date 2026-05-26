@@ -5,6 +5,7 @@
         "messaging",
         "hyper-fungible-token",
         "intent-gateway",
+        "bandwidth",
         "lz-endpoint",
         "contract-addresses",
         "api"

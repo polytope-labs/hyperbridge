@@ -953,22 +953,6 @@ export interface StateMachineHeight {
  */
 export interface HostParams {
 	/**
-	 * The default timeout in seconds for messages. If messages are dispatched
-	 * with a timeout value lower than this this value will be used instead
-	 */
-	defaultTimeout: bigint
-	/**
-	 * The default per byte fee
-	 */
-	perByteFee: bigint
-	/**
-	 * The cost for applications to access the hyperbridge state commitment.
-	 * They might do so because the hyperbridge state contains the verified state commitments
-	 * for all chains and they want to directly read the state of these chains state bypassing
-	 * the ISMP protocol entirely.
-	 */
-	stateCommitmentFee: bigint
-	/**
 	 * The fee token contract address. This will typically be DAI.
 	 * but we allow it to be configurable to prevent future regrets.
 	 */

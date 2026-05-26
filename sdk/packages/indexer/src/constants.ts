@@ -45,11 +45,6 @@ export const BSC = {
 	mainnet: "EVM-56",
 } as const
 
-export const GNOSIS = {
-	testnet: "EVM-10200",
-	mainnet: "EVM-100",
-} as const
-
 export const SONEMIUM = {
 	testnet: "EVM-1946",
 	mainnet: "EVM-1868",

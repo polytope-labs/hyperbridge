@@ -87,18 +87,6 @@
 			"intentGatewayV3": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD"
 		}
 	},
-	"gnosis-chiado": {
-		"type": "evm",
-		"chainId": "10200",
-		"startBlock": 12294845,
-		"stateMachineId": "EVM-10200",
-		"blockConfirmations": 5,
-		"contracts": {
-			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
-			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
-			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
-		}
-	},
 	"polygon-amoy": {
 		"type": "evm",
 		"chainId": "80002",

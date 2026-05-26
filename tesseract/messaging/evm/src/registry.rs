@@ -82,6 +82,7 @@ pub fn ismp_host_for_chain_id(chain_id: u64) -> Option<H160> {
 		1868 => "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3", // Soneium
 		420420419 => "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3", // Polkadot Hub
 
+		// Unknown
 		_ => return None,
 	};
 	H160::from_str(addr).ok()

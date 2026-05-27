@@ -1,0 +1,127 @@
+---
+title: Configuration
+description: Per-chain bring-up checklist — deploy BandwidthManager, bind it to the ISMP host, register on pallet-bandwidth, and configure tiers on both sides.
+---
+
+# Deployment & Configuration
+
+Wiring a new source chain into the bandwidth system is a five-step checklist: deploy the manager, bind it to the local ISMP host, register it on the pallet, set the byte/duration side of each tier, push the prices to the manager. Until every step lands, purchases from that chain are rejected — usually with `UnknownManager` on the pallet or `UnknownTier()` on the manager.
+
+## Constants
+
+These values are baked into both sides of the system and must match exactly:
+
+| Constant | Value | Notes |
+|----------|-------|-------|
+| `PALLET_BANDWIDTH_MODULE_ID` | `"BWMARKET"` (8 bytes) | The `to` field on every purchase dispatch; equal to `pallet_bandwidth::PALLET_BANDWIDTH.0`. Changing it on either side breaks the round-trip. |
+| `OnAcceptActions.SetTiers` | discriminant `0` | Mirrors `ACTION_SET_TIERS` on the pallet. |
+| `OnAcceptActions.Withdraw` | discriminant `1` | Mirrors `ACTION_WITHDRAW` on the pallet. |
+| `TierIndex` | enum `{1, 2, 3, 4}` | Closed enum on both sides; adding a tier needs a coordinated upgrade. |
+| `MAX_SUBSCRIPTIONS` | `1024` | FIFO cap per `(chain, app)`. |
+
+## Deployment Matrix
+
+One `BandwidthManager` is deployed per source chain. The pallet's `BandwidthManager<T>` storage holds a `(source_chain → manager_address)` mapping, so adding a chain is purely additive — existing chains are unaffected.
+
+Tier *prices* are per-chain (set on each manager). Tier *byte budgets and durations* are global (set once on the pallet). The five-step checklist below covers both.
+
+## Step 1 — Deploy `BandwidthManager`
+
+```solidity
+import {BandwidthManager} from "@hyperbridge/core/apps/BandwidthManager.sol";
+
+address owner = 0x...; // governance multisig or admin
+BandwidthManager mgr = new BandwidthManager(owner);
+```
+
+The constructor only sets the `Ownable` owner. The host address and tier prices are bound *after* deploy.
+
+The owner's only responsibility is calling `setHost` exactly once (Step 2). Beyond that, ownership is dormant — governance operations (`SetTiers`, `Withdraw`) arrive over ISMP, not through `onlyOwner`.
+
+## Step 2 — Bind the ISMP host
+
+```solidity
+mgr.setHost(hostAddr);
+```
+
+This call is **one-shot** — once `_host != address(0)`, subsequent calls revert with `UnauthorizedAction`. The host address is what the contract uses to authenticate inbound governance (`request.source == IDispatcher(_host).hyperbridge()`), so making it mutable would weaken the trust model.
+
+If the local ISMP host is ever redeployed, the manager must be redeployed alongside it (and re-registered via Step 3).
+
+## Step 3 — Register the manager on Hyperbridge
+
+Governance binds the deployed contract address to the source chain on the pallet side:
+
+```rust
+BandwidthPallet::set_manager(
+    RawOrigin::Root.into(),
+    StateMachine::Evm(8453),                    // source chain id
+    H160::from_str("0xMANAGER...").unwrap(),    // address from Step 1
+);
+```
+
+Emits `ManagerRegistered { source, manager }`. From this point the pallet accepts purchases dispatched from `source` *if and only if* `request.from` matches the registered address — any other sender on that chain is rejected.
+
+Overwriting an existing registration is allowed (useful for redeployments); in-flight purchases from the old contract will fail after the swap.
+
+## Step 4 — Configure tier byte budgets
+
+```rust
+BandwidthPallet::set_tier(
+    RawOrigin::Root.into(),
+    TierIndex::TierOne,
+    Some(TierConfig {
+        bytes: 10_000_000,                  // 10 MB per month
+        duration_secs: 30 * 24 * 3600,      // 30-day window
+    }),
+);
+```
+
+The pallet rejects configs with zero `bytes` or zero `duration_secs` — use `None` to revoke instead. A tier without a `TierConfig` is unpurchasable; `on_accept` returns `tier X is not configured`.
+
+This step is **per-tier, not per-chain** — the byte/duration side is global on Hyperbridge. Repeat for each `TierIndex` you want to offer.
+
+## Step 5 — Push tier prices to the manager
+
+```rust
+BandwidthPallet::dispatch_set_tiers(
+    RawOrigin::Root.into(),
+    StateMachine::Evm(8453),
+    vec![
+        (TierIndex::TierOne,   U256::from(50e18 as u128)),
+        (TierIndex::TierTwo,   U256::from(200e18 as u128)),
+        (TierIndex::TierThree, U256::from(500e18 as u128)),
+        (TierIndex::TierFour,  U256::from(2_000e18 as u128)),
+    ],
+);
+```
+
+This dispatches a `SetTiers` message to the registered manager on `target`. The manager's `onAccept` writes `tierPrice[tier] = price18d` for each row and emits `TierSet(tier, price18d)`. Tiers not in the batch are left untouched.
+
+Prices are 18-decimal regardless of the local fee token's decimals — the contract scales at purchase time. See [Purchasing → Decimal scaling](/developers/evm/bandwidth/purchasing#decimal-scaling) for the rules and the `PriceNotRepresentable()` failure mode.
+
+Repeat for every chain that should sell the same tiers — tier prices are per-chain because the manager contract is per-chain.
+
+<Callout type="warn" title="Keep prices in sync">
+If you change a tier's price, dispatch the update to every chain where a manager is deployed — otherwise the same SKU costs different amounts depending on which chain a buyer is on. The pallet emits `TiersDispatched { target, count, commitment }` for each push so you can audit.
+</Callout>
+
+## Verification
+
+Before announcing a chain as live, verify the round-trip end-to-end:
+
+1. `BandwidthManager.host()` returns the local ISMP host (not zero).
+2. `BandwidthManager.tierPrice(tier)` returns the expected non-zero price on every configured tier.
+3. Pallet storage `BandwidthManager::get(source)` returns the deployed contract address.
+4. Pallet storage `Tiers::get(tier)` returns the expected `TierConfig` for every tier.
+5. A test purchase from a funded account succeeds end-to-end: `BandwidthPurchased` emits on the source chain, `BandwidthCredited` emits on Hyperbridge, `Pallet::remaining(chain, app)` reflects the bytes credited.
+
+## Upgrades
+
+| Change | Procedure |
+|--------|-----------|
+| Update a tier's price on one chain | `dispatch_set_tiers(target, [(tier, new_price18d)])` — single-chain push. |
+| Update a tier's byte budget or duration | `set_tier(tier, Some(new_config))` — global; affects every chain since this lives on the pallet. |
+| Revoke a tier on the pallet | `set_tier(tier, None)` — new purchases fail with `UnknownTier`. Existing subscriptions continue draining normally. |
+| Revoke a tier on one manager | `dispatch_set_tiers(target, [(tier, 0)])` — new purchases on that chain fail with `UnknownTier()`. |
+| Redeploy `BandwidthManager` | Deploy → `setHost` → `set_manager` → `dispatch_set_tiers` (every tier). The old address is now orphaned; any approve allowance against it is dead weight. |

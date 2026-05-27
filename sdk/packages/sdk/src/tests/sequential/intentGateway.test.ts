@@ -12,7 +12,8 @@ import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } 
 // Test Cases
 // ---------------------------------------------------------------------------
 
-describe("IntentGateway cross-chain estimate tests", () => {
+// Skipped: IntentGateway contracts not redeployed in the testnet redeployment.
+describe.skip("IntentGateway cross-chain estimate tests", () => {
 	for (const [src, dest] of CROSS_CHAIN_CASES) {
 		it(`Should estimate fee for ${src} => ${dest}`, async () => {
 			await runCrossChainEstimate(src, dest)
@@ -20,7 +21,8 @@ describe("IntentGateway cross-chain estimate tests", () => {
 	}
 })
 
-describe.sequential("IntentGateway same-chain estimate tests", () => {
+// Skipped: IntentGateway contracts not redeployed in the testnet redeployment.
+describe.skip("IntentGateway same-chain estimate tests", () => {
 	for (const chain of SAME_CHAIN_CASES) {
 		it(`Should estimate fee for ${chain} same-chain USDC => EXT`, async () => {
 			await runSameChainEstimate(chain)

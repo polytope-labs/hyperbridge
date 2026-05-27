@@ -694,30 +694,15 @@ export class EvmChain implements IChain {
 	}
 
 	/**
-	 * Calculates the fee required to send a post request to the destination chain.
-	 * The fee is calculated based on the per-byte fee for the destination chain
-	 * multiplied by the size of the request body.
+	 * Returns the protocol fee charged by the host on dispatch.
 	 *
-	 * @param request - The post request to calculate the fee for
-	 * @returns The total fee in wei required to send the post request
+	 * The per-byte fee model was removed from `EvmHost`; on-chain dispatch
+	 * now charges only the relayer fee carried in `DispatchPost.fee`.
+	 * Bandwidth is pre-paid out-of-band via `BandwidthManager.purchase()`
+	 * and metered on Hyperbridge by `pallet-bandwidth`.
 	 */
-	async quote(request: IPostRequest | IGetRequest): Promise<bigint> {
-		// Exclude 0x prefix from the body length, and get the byte length
-		const bodyByteLength =
-			"body" in request ? Math.floor((request.body.length - 2) / 2) : Math.floor((request.context.length - 2) / 2)
-
-		const args = "body" in request ? [toHex(request.dest)] : [toHex(request.source)]
-
-		const perByteFee = await this.publicClient.readContract({
-			address: this.params.host,
-			abi: EvmHost.ABI,
-			functionName: "perByteFee",
-			args: args as any,
-		})
-
-		const length = bodyByteLength < 32 ? 32 : bodyByteLength
-
-		return perByteFee * BigInt(length)
+	async quote(_request: IPostRequest | IGetRequest): Promise<bigint> {
+		return 0n
 	}
 
 	async quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint> {

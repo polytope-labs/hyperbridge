@@ -1,4 +1,4 @@
-import { toHex, formatUnits, encodeFunctionData, formatEther } from "viem"
+import { formatUnits, encodeFunctionData, formatEther } from "viem"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -101,35 +101,10 @@ export class ContractInteractionService {
 		}
 
 		for (const destChain of chainNames) {
-			const destClient = this.clientManager.getPublicClient(destChain)
 			const usdc = this.configService.getUsdcAsset(destChain)
 			const usdt = this.configService.getUsdtAsset(destChain)
 			await this.getTokenDecimals(usdc, destChain)
 			await this.getTokenDecimals(usdt, destChain)
-			for (const sourceChain of chainNames) {
-				// Same-chain intents don't dispatch cross-chain messages, so perByteFee is not needed.
-				// The SDK's estimateFillOrder skips quoteNative for same-chain orders.
-				if (sourceChain === destChain) continue
-				// Check cache before making RPC call to avoid duplicate requests when cache is shared
-				const cachedPerByteFee = this.cacheService.getPerByteFee(destChain, sourceChain)
-				if (cachedPerByteFee === null) {
-					const perByteFee = await retryPromise(
-						() =>
-							destClient.readContract({
-								address: this.configService.getHostAddress(destChain),
-								abi: EVM_HOST,
-								functionName: "perByteFee",
-								args: [toHex(sourceChain)],
-							}),
-						{
-							maxRetries: 3,
-							backoffMs: 250,
-							logMessage: "Failed to load perByteFee for cache initialization",
-						},
-					)
-					this.cacheService.setPerByteFee(destChain, sourceChain, perByteFee)
-				}
-			}
 		}
 	}
 

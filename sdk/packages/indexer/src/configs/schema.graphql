@@ -51,24 +51,6 @@ enum OrderStatus {
 }
 
 """
-The status of an asset teleported via the Token Gateway
-"""
-enum TeleportStatus {
-	"""
-	The asset has been teleported to another chain
-	"""
-	TELEPORTED
-	"""
-	The asset has been received on the destination chain
-	"""
-	RECEIVED
-	"""
-	The asset has been refunded due to failed teleport
-	"""
-	REFUNDED
-}
-
-"""
 Types of participants in the Hyperbridge Protocol
 """
 enum ProtocolParticipantType {
@@ -92,7 +74,7 @@ enum PointsActivityType {
 """
 Important Hyperbridge Stats for a specific chain
 """
-type HyperBridgeChainStats @entity {
+type HyperBridgeStats @entity {
 	"""
 	The chain the metrics are for
 	"""
@@ -119,14 +101,9 @@ type HyperBridgeChainStats @entity {
 	numberOfTimedOutMessages: BigInt! @index
 
 	"""
-	The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
+	The total amount of transfers sent into the Hyperbridge Host Contracts (relayer fees)
 	"""
 	totalTransfersIn: BigInt! @index
-
-	"""
-	Total amount of fees earned by Hyperbridge on the chain (protocol fees)
-	"""
-	protocolFeesEarned: BigInt! @index
 
 	"""
 	Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
@@ -610,61 +587,6 @@ type RewardsActivityLog
 	activityType: PointsActivityType
 	description: String!
 	createdAt: Date! @index
-}
-
-"""
-Record of assets teleported via the XCM Gateway
-"""
-type AssetTeleportedV2 @entity {
-	"""
-	Unique identifier of the teleported asset
-	"""
-	id: ID!
-
-	"""
-	The chain on which the teleport event occurred
-	"""
-	chain: String!
-
-	"""
-	Source account on the relaychain
-	"""
-	from: String! @index
-
-	"""
-	Beneficiary account on destination
-	"""
-	to: String! @index
-
-	"""
-	Amount transferred
-	"""
-	amount: BigInt! @index
-
-	"""
-	Destination chain
-	"""
-	dest: String! @index
-
-	"""
-	Request commitment
-	"""
-	commitment: String! @index
-
-	"""
-	The timestamp of the event
-	"""
-	createdAt: Date! @index
-
-	"""
-	The block in which the event occurred
-	"""
-	blockNumber: Int!
-
-	"""
-	The associated request for this teleport (linked via commitment)
-	"""
-	request: RequestV2
 }
 
 """
@@ -1519,142 +1441,6 @@ type IOrderV3EscrowRefundToken @entity {
 	index: Int!
 }
 
-"""
-Represents a teleport of assets through the TokenGateway contract.
-This entity tracks cross-chain asset teleports.
-"""
-type TokenGatewayAssetTeleportedV2 @entity {
-	"""
-	Unique identifier for the teleport (commitment)
-	"""
-	id: ID!
-
-	"""
-	Address of the user who initiated the teleport
-	"""
-	from: String!
-
-	"""
-	Beneficiary address that will receive the teleported assets
-	"""
-	to: String!
-
-	"""
-	Source chain identifier where the teleport originates from
-	"""
-	sourceChain: String!
-
-	"""
-	Destination chain identifier where the teleport will be executed
-	"""
-	destChain: String!
-
-	"""
-	Unique commitment hash of the teleport used for verification
-	"""
-	commitment: String!
-
-	"""
-	Amount of assets being teleported
-	"""
-	amount: BigInt!
-
-	"""
-	Amount of value in USD being teleported
-	"""
-	usdValue: BigInt!
-
-	"""
-	Asset ID being teleported
-	"""
-	assetId: String!
-
-	"""
-	Whether the assets should be redeemed on the destination chain
-	"""
-	redeem: Boolean!
-
-	"""
-	Status of the teleport
-	"""
-	status: TeleportStatus!
-
-	"""
-	Metadata about the teleport's progression through different statuses
-	"""
-	statusMetadata: [TeleportStatusMetadata]! @derivedFrom(field: "teleport")
-
-	"""
-	Timestamp when the teleport was created
-	"""
-	createdAt: Date!
-
-	"""
-	Block number where the teleport was initiated
-	"""
-	blockNumber: BigInt!
-
-	"""
-	Timestamp of the block where the teleport was initiated
-	"""
-	blockTimestamp: BigInt!
-
-	"""
-	Hash of the transaction that initiated the teleport
-	"""
-	transactionHash: String!
-
-	"""
-	The associated request for this teleport (linked via commitment)
-	"""
-	request: RequestV2
-}
-
-"""
-Metadata about the status of a Teleport
-"""
-type TeleportStatusMetadata @entity {
-	"""
-	The ID of the TeleportStatusMetadata
-	"""
-	id: ID!
-
-	"""
-	The status of the teleport
-	"""
-	status: TeleportStatus!
-
-	"""
-	The chain on which the status change occurred
-	"""
-	chain: String!
-
-	"""
-	The timestamp of the event
-	"""
-	timestamp: BigInt!
-
-	"""
-	The number of the block in which the event occurred
-	"""
-	blockNumber: String!
-
-	"""
-	The hash of the transaction in which the event occurred
-	"""
-	transactionHash: String!
-
-	"""
-	The teleport that owns this status change
-	"""
-	teleport: TokenGatewayAssetTeleportedV2!
-
-	"""
-	The timestamp when this record was created
-	"""
-	createdAt: Date!
-}
-
 type CumulativeVolumeUSD @entity {
 	"""
 	Unique identifier for the cumulative stats
@@ -1692,41 +1478,6 @@ type DailyVolumeUSD @entity {
 	Last 24hrs Volume in USD
 	"""
 	last24HoursVolumeUSD: String!
-}
-
-"""
-Daily Hyperbridge Protocol Fees Stats
-"""
-type DailyProtocolFeesStats @entity {
-	"""
-	Unique identifier of the daily protocol fees
-	"""
-	id: ID!
-
-	"""
-	The chain on which the protocol fees are charged
-	"""
-	chain: String! @index
-
-	"""
-	The ID of the StateMachine
-	"""
-	stateMachineId: String! @index
-
-	"""
-	Last updated at
-	"""
-	lastUpdatedAt: BigInt!
-
-	"""
-	The timestamp when this record was created
-	"""
-	createdAt: Date!
-
-	"""
-	Last 24Hrs Protocol Fees Earned
-	"""
-	last24HoursProtocolFeesEarned: BigInt! @index
 }
 
 """
@@ -1934,7 +1685,7 @@ type AccumulatedFee @entity {
 """
 Stores user data related to the Hyperbridge protocol
 """
-type UserActivity @entity {
+type UserActivityV2 @entity {
 	"""
 	Unique identifier for the user
 	"""
@@ -1959,22 +1710,6 @@ type UserActivity @entity {
 	Total volume in USD for filled orders that were placed by the user
 	"""
 	totalOrderFilledVolumeUSD: String!
-	"""
-	Total teleports initiated by the user
-	"""
-	totalTeleports: BigInt!
-	"""
-	Successful teleports initiated by the user
-	"""
-	totalSuccessfulTeleports: BigInt!
-	"""
-	Total volume in USD for teleports initiated by the user
-	"""
-	totalTeleportedVolumeUSD: String!
-	"""
-	Total volume in USD for successful teleports initiated by the user
-	"""
-	totalSuccessfulTeleportedVolumeUSD: String!
 	"""
 	Timestamp when the user was created
 	"""

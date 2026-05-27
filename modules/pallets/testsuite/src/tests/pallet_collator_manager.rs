@@ -81,10 +81,7 @@ fn rotate_controller(
 		RuntimeOrigin::signed(new_controller.clone()),
 		stash.clone(),
 	));
-	assert_ok!(CollatorManager::set_controller(
-		RuntimeOrigin::signed(stash),
-		new_controller,
-	));
+	assert_ok!(CollatorManager::set_controller(RuntimeOrigin::signed(stash), new_controller,));
 }
 
 fn set_session_keys(who: <Test as frame_system::Config>::AccountId) {
@@ -148,98 +145,40 @@ fn test_new_collators_are_selected_based_on_reputation() {
 }
 
 #[test]
-fn test_reuse_previous_collators_if_not_enough_candidates() {
+fn test_active_collator_that_is_still_a_candidate_is_reselected() {
 	new_test_ext().execute_with(|| {
 		create_reputation_asset();
 
+		let alice_stash = AccountId32::new([11; 32]);
+		Balances::set_balance(&alice_stash, INITIAL_BALANCE);
 		let charlie_stash = AccountId32::new([13; 32]);
 		Balances::set_balance(&charlie_stash, INITIAL_BALANCE);
 
+		// Alice is last session's collator and is still a registered candidate; Charlie is a
+		// fresh one. Both are selected, so already sitting in the active set no longer keeps a
+		// candidate out.
 		set_session_keys(ALICE);
-		set_session_keys(BOB);
-		pallet_session::Validators::<Test>::put(vec![ALICE, BOB]);
-		pallet_session::QueuedKeys::<Test>::put(vec![
-			(
-				ALICE,
-				crate::runtime::SessionKeys {
-					aura: Pair::from_seed(ALICE.as_ref()).public().into(),
-				},
-			),
-			(
-				BOB,
-				crate::runtime::SessionKeys { aura: Pair::from_seed(BOB.as_ref()).public().into() },
-			),
-		]);
-		set_reputation_balance(&ALICE, 50 * UNIT);
-		set_reputation_balance(&BOB, 30 * UNIT);
-		set_reputation_balance(&CHARLIE, 40 * UNIT);
+		pallet_session::Validators::<Test>::put(vec![ALICE]);
+		pallet_session::QueuedKeys::<Test>::put(vec![(
+			ALICE,
+			crate::runtime::SessionKeys { aura: Pair::from_seed(ALICE.as_ref()).public().into() },
+		)]);
 
-		// Previous collators are only reused while their stash stays bonded, so back
-		// both Alice and Bob with a bonded stash. Alice then wins the carried-over slot
-		// on reputation.
-		let alice_stash = AccountId32::new([11; 32]);
-		Balances::set_balance(&alice_stash, INITIAL_BALANCE);
 		link_stash_to_controller(alice_stash.clone(), ALICE);
-		assert_ok!(CollatorManager::reserve(&alice_stash, 100 * UNIT));
-
-		let bob_stash = AccountId32::new([12; 32]);
-		Balances::set_balance(&bob_stash, INITIAL_BALANCE);
-		link_stash_to_controller(bob_stash.clone(), BOB);
-		assert_ok!(CollatorManager::reserve(&bob_stash, 100 * UNIT));
+		register_candidate(alice_stash.clone());
+		set_reputation_balance(&ALICE, 50 * UNIT);
 
 		link_stash_to_controller(charlie_stash.clone(), CHARLIE);
-
 		set_session_keys(CHARLIE);
 		register_candidate(charlie_stash.clone());
-
-		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
+		set_reputation_balance(&CHARLIE, 40 * UNIT);
 
 		Session::on_initialize(2);
 		Session::on_initialize(3);
 
 		let mut new_collators = Session::validators();
 		new_collators.sort();
-		assert_eq!(new_collators, vec![ALICE, CHARLIE]); // Alice is chosen because the account has more
-		                                           // balances than Bob
-	});
-}
-
-#[test]
-fn test_unbonded_previous_collators_are_not_reused() {
-	new_test_ext().execute_with(|| {
-		create_reputation_asset();
-
-		// Alice and Bob are last session's collators. Only Alice is still bonded; Bob
-		// has no bonded stash. With no fresh candidates, the next set should reuse Alice
-		// and drop Bob, even though Bob still holds reputation.
-		let alice_stash = AccountId32::new([11; 32]);
-		Balances::set_balance(&alice_stash, INITIAL_BALANCE);
-
-		set_session_keys(ALICE);
-		set_session_keys(BOB);
-		pallet_session::Validators::<Test>::put(vec![ALICE, BOB]);
-		pallet_session::QueuedKeys::<Test>::put(vec![
-			(
-				ALICE,
-				crate::runtime::SessionKeys {
-					aura: Pair::from_seed(ALICE.as_ref()).public().into(),
-				},
-			),
-			(
-				BOB,
-				crate::runtime::SessionKeys { aura: Pair::from_seed(BOB.as_ref()).public().into() },
-			),
-		]);
-		set_reputation_balance(&ALICE, 50 * UNIT);
-		set_reputation_balance(&BOB, 30 * UNIT);
-
-		link_stash_to_controller(alice_stash.clone(), ALICE);
-		assert_ok!(CollatorManager::reserve(&alice_stash, 100 * UNIT));
-
-		Session::on_initialize(2);
-		Session::on_initialize(3);
-
-		assert_eq!(Session::validators(), vec![ALICE]);
+		assert_eq!(new_collators, vec![ALICE, CHARLIE]);
 	});
 }
 
@@ -646,10 +585,7 @@ fn approval_is_single_use_and_cleared_by_register() {
 		// Deregister the pair, then attempt to re-register without a fresh approval.
 		assert_ok!(CollatorManager::deregister(RuntimeOrigin::signed(stash.clone())));
 		assert_err!(
-			CollatorManager::register(
-				RuntimeOrigin::signed(stash.clone()),
-				controller.clone(),
-			),
+			CollatorManager::register(RuntimeOrigin::signed(stash.clone()), controller.clone(),),
 			Error::<Test>::ControllerApprovalMissing,
 		);
 	});
@@ -665,10 +601,7 @@ fn set_controller_fails_without_new_controller_approval() {
 		link_stash_to_controller(stash.clone(), old_controller);
 
 		assert_err!(
-			CollatorManager::set_controller(
-				RuntimeOrigin::signed(stash),
-				new_controller,
-			),
+			CollatorManager::set_controller(RuntimeOrigin::signed(stash), new_controller,),
 			Error::<Test>::ControllerApprovalMissing,
 		);
 	});
@@ -702,10 +635,7 @@ fn revoke_controller_approval_works() {
 
 		// A second revoke with nothing to revoke is rejected.
 		assert_err!(
-			CollatorManager::revoke_controller_approval(
-				RuntimeOrigin::signed(controller),
-				stash,
-			),
+			CollatorManager::revoke_controller_approval(RuntimeOrigin::signed(controller), stash,),
 			Error::<Test>::NoPendingApproval,
 		);
 	});

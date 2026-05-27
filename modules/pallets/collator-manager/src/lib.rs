@@ -388,25 +388,18 @@ pub mod pallet {
 		fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
 			T::IncentivesManager::reset_incentives();
 
-			let active_collators = <pallet_session::Pallet<T>>::validators();
 			let desired_collators = core::cmp::max(
 				pallet_collator_selection::DesiredCandidates::<T>::get(),
 				<T as pallet_collator_selection::Config>::MinEligibleCollators::get(),
 			) as usize;
 
-			let mut new_set_validators: Vec<<T as pallet_session::Config>::ValidatorId> =
-				Vec::new();
-
-			// select from registered candidates who are not in the current active set
-			// with session keys and highes balances.
+			// select registered candidates that have session keys, ranked by reputation.
 			let mut candidates = pallet_collator_selection::CandidateList::<T>::get()
 				.into_iter()
 				.map(|info| info.who)
 				.filter_map(|stash_account| Controller::<T>::get(&stash_account))
 				.filter(|controller_account| {
-					!active_collators.contains(&controller_account.clone().into()) &&
-						pallet_session::NextKeys::<T>::get(controller_account.clone().into())
-							.is_some()
+					pallet_session::NextKeys::<T>::get(controller_account.clone().into()).is_some()
 				})
 				.filter_map(|controller_account| {
 					let balance = T::ReputationAsset::balance(&controller_account);
@@ -416,36 +409,12 @@ pub mod pallet {
 
 			candidates.sort_by_key(|(balance, _)| *balance);
 
-			new_set_validators.extend(
-				candidates
-					.into_iter()
-					.rev()
-					.take(desired_collators)
-					.map(|(_, c)| c.clone().into()),
-			);
-
-			// fill remaining slots with the best of the previous set, but only carry over
-			// collators whose stash is still bonded. One that has since unbonded or
-			// deregistered shouldn't keep its slot just because it was active last session.
-			if new_set_validators.len() < desired_collators {
-				let needed = desired_collators - new_set_validators.len();
-				let mut reused_collators = active_collators
-					.clone()
-					.into_iter()
-					.filter(|validator| {
-						let controller: T::AccountId = validator.clone().into();
-						Stash::<T>::get(&controller)
-							.map(|stash| !Bonded::<T>::get(&stash).is_zero())
-							.unwrap_or(false)
-					})
-					.collect::<Vec<_>>();
-
-				reused_collators.sort_by_key(|a| {
-					let account_id: T::AccountId = a.clone().into();
-					T::ReputationAsset::balance(&account_id)
-				});
-				new_set_validators.extend(reused_collators.into_iter().rev().take(needed));
-			}
+			let new_set_validators: Vec<<T as pallet_session::Config>::ValidatorId> = candidates
+				.into_iter()
+				.rev()
+				.take(desired_collators)
+				.map(|(_, c)| c.clone().into())
+				.collect();
 
 			let new_set: Vec<T::AccountId> =
 				new_set_validators.iter().map(|v| v.clone().into()).collect();

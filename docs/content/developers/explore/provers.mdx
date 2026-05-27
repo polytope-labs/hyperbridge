@@ -45,7 +45,9 @@ The process for earning rewards is deterministic and transparent:
 
 ### Uncle Proofs
 
-To reward redundancy and keep proving live, Hyperbridge rewards more than just the single fastest prover. The **first** prover to land a valid proof for a given finality target advances the chain's state and is paid the full base reward (position 0). Additional **independent** provers that generate their own valid proof for the **same** target are accepted as **uncles** and paid on a *decreasing reward curve*, up to a governance-configured limit (`MaxUncleProvers`). The curve is set via `set_reward_curve`; uncle proofs apply to SP1 proofs only.
+To reward redundancy and keep proving live, Hyperbridge rewards more than just the single fastest prover. The **first** prover to land a valid proof for a given finality target advances the chain's state and earns the **full** reward. Additional **independent** provers that generate their own valid proof for the **same** target are accepted as **uncles** and paid on a *decreasing reward curve*, up to a governance-configured limit (`MaxUncleProvers`).
+
+The curve (set via `set_reward_curve`) pays each position a fraction of the base reward. The current curve is **100% / 50% / 30% / 20% / 10% / 5%** — the first prover receives the full reward (100%), and the next five uncles receive 50%, 30%, 20%, 10%, and 5% respectively. Uncle rewards apply to SP1 proofs only.
 
 ### Prover-Bound Proofs
 
@@ -62,7 +64,7 @@ This means that running a prover is a direct path to becoming a Collator and ear
 
 ## A Competitive, Permissionless Environment
 
-The incentive structure fosters a healthy, competitive market. The **first prover** to submit a proof for a given state advance earns the full reward and advances the chain, which rewards low-latency, efficient operations. Independent provers for the same target still earn a (decreasing) reward as uncles, so redundant provers are compensated for the liveness they provide rather than racing winner-take-all.
+The incentive structure fosters a healthy, competitive market. The **first prover** to submit a proof for a given state advance earns the full reward and advances the chain, which rewards low-latency, efficient operations. Independent provers for the same target still earn a smaller, decreasing reward as uncles, so redundant provers are compensated for the liveness they provide rather than racing winner-take-all.
 
 This model is inherently permissionless — no staking or whitelisting is required to participate. Any operator can run a prover and begin competing to submit proofs and earn rewards.
 

@@ -126,16 +126,17 @@ mod benchmarks {
 
 	#[benchmark]
 	fn set_reward_curve() {
-		// Suggested mainnet defaults: 100%, 80%, 60%, 40%, 20%. The curve is bounded by
-		// `MaxStoredProvers` (`MaxUncleProvers + 1`), covering position 0 plus every
-		// uncle slot.
+		// Mainnet curve: 100%, 50%, 30%, 20%, 10%, 5% — the first prover (position 0) earns the
+		// full reward and each successive uncle a decreasing share. The curve is bounded by
+		// `MaxStoredProvers` (`MaxUncleProvers + 1`), covering position 0 plus every uncle slot.
 		let curve: frame_support::BoundedVec<(u32, u32), pallet::MaxStoredProvers<T>> =
 			frame_support::BoundedVec::truncate_from(alloc::vec![
 				(1u32, 1u32),
-				(4, 5),
-				(3, 5),
-				(2, 5),
+				(1, 2),
+				(3, 10),
 				(1, 5),
+				(1, 10),
+				(1, 20),
 			]);
 
 		#[extrinsic_call]

@@ -5,15 +5,26 @@ description: Prepaid bandwidth subscriptions for Hyperbridge apps — tier-based
 
 # Bandwidth
 
-Hyperbridge meters outbound traffic per `(source chain, app)`. Instead of paying a relayer fee on every dispatch, an app pre-pays for a tier and earns a byte allowance that drains as it sends messages. The allowance is enforced by the **bandwidth gate** on Hyperbridge — a hook the ISMP router consults on every inbound request from a source chain. When the gate is empty, the message is rejected.
+Hyperbridge meters outbound traffic per `(source chain, app)`. Instead of paying a protocol fee on every dispatch, an app pre-pays for a tier and earns a byte allowance that drains as it sends messages. The allowance is enforced by the **bandwidth gate** on Hyperbridge — a hook the ISMP router consults on every inbound request from a source chain. When the gate is empty, the message is rejected.
 
 Bandwidth is sold per **tier** (a byte budget × a time window) and per **month** (a multiplier on both). Purchases are made from any source chain by calling `purchase()` on the [`BandwidthManager`](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/apps/BandwidthManager.sol) contract; the contract dispatches a credit message to [`pallet-bandwidth`](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/bandwidth/src/lib.rs) on Hyperbridge, which mints a new subscription for the target `(chain, app)`.
 
 ## Why Bandwidth
 
-Per-message relayer fees price each dispatch in isolation. That works for occasional cross-chain traffic but is awkward for apps that send a steady stream of small messages — every dispatch pays the same overhead and there's no way to commit upfront to a usage budget.
+Per-message protocol fees price each dispatch in isolation. That works for occasional cross-chain traffic but is awkward for apps that send a steady stream of small messages — every dispatch pays the same overhead and there's no way to commit upfront to a usage budget.
 
 Bandwidth swaps that model for a subscription. An app buys a tier once, the pallet tracks the remaining byte balance, and the gate silently passes messages until the balance is exhausted. There's no per-message fee path on dispatch — the cost was paid at purchase time.
+
+### Plans at a glance
+
+| Plan   | Bytes  | $/byte    | vs PAYG |
+| ------ | ------ | --------- | ------- |
+| $50    | 100 KB | $0.000500 | +67%    |
+| $100   | 300 KB | $0.000333 | +11%    |
+| $250   | 1 MB   | $0.000250 | -17%    |
+| $1000  | 8 MB   | $0.000125 | -58%    |
+
+Larger tiers trade upfront commitment for a steep per-byte discount — the $1000 plan is roughly 4× cheaper per byte than the $50 plan and ~58% cheaper than per-message protocol fees would be for the same payload volume.
 
 ## Architecture
 

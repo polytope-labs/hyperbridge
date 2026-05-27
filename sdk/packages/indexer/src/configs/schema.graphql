@@ -1453,9 +1453,9 @@ type CumulativeVolumeUSD @entity {
 	lastUpdatedAt: BigInt!
 
 	"""
-	Volume in USD
+	Volume in USD, scaled by 1e18 (18-decimal fixed-point integer)
 	"""
-	volumeUSD: String!
+	volumeUSD: BigInt!
 }
 
 type DailyVolumeUSD @entity {
@@ -1475,9 +1475,9 @@ type DailyVolumeUSD @entity {
 	createdAt: Date!
 
 	"""
-	Last 24hrs Volume in USD
+	Last 24hrs Volume in USD, scaled by 1e18 (18-decimal fixed-point integer)
 	"""
-	last24HoursVolumeUSD: String!
+	last24HoursVolumeUSD: BigInt!
 }
 
 """

@@ -2,25 +2,25 @@
 	"hyperbridge-nexus": {
 		"type": "substrate",
 		"chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
-		"startBlock": 2541729,
+		"startBlock": 10190400,
 		"stateMachineId": "POLKADOT-3367"
 	},
 	"bifrost-mainnet": {
 		"type": "substrate",
 		"chainId": "0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b",
-		"startBlock": 6425711,
+		"startBlock": 12398615,
 		"stateMachineId": "POLKADOT-2030"
 	},
 	"cere-mainnet": {
 		"type": "substrate",
 		"chainId": "0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c",
-		"startBlock": 19167175,
+		"startBlock": 25722657,
 		"stateMachineId": "SUBSTRATE-cere"
 	},
 	"argon-mainnet": {
 		"type": "substrate",
 		"chainId": "0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d",
-		"startBlock": 70515,
+		"startBlock": 753851,
 		"stateMachineId": "SUBSTRATE-argn"
 	},
 	"hydration-mainnet": {

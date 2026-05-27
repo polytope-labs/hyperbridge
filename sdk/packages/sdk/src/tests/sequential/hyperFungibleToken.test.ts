@@ -42,7 +42,7 @@ function createBscToPolygon() {
 		chainId: 80002,
 		rpcUrl: POLYGON_RPC,
 		host: POLYGON_HOST,
-		consensusStateId: "POL0",
+		consensusStateId: "POLY",
 	})
 
 	return { source, dest }
@@ -53,7 +53,7 @@ function createPolygonToBsc() {
 		chainId: 80002,
 		rpcUrl: POLYGON_RPC,
 		host: POLYGON_HOST,
-		consensusStateId: "POL0",
+		consensusStateId: "POLY",
 	})
 
 	const dest = EvmChain.fromParams({

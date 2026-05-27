@@ -608,7 +608,7 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 {
-	pub async fn new(config: ProverConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(config: ProverConfig, account: H256) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
 		let (relay_chain, relay_rpc_client) =
 			subxt_utils::client::ws_client::<R>(&config.relay_rpc_ws, max_rpc_payload_size).await?;
@@ -653,7 +653,7 @@ where
 		let prover = match config.proof_variant {
 			ProofVariant::Sp1 => {
 				let sp1_prover = zk_beefy::LocalProver::new().await?;
-				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover))
+				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover, account))
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
 		};

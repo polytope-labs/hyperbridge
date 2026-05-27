@@ -58,3 +58,47 @@ pub type ClearSp1VkeyHash<T> = VersionedMigration<
 	Pallet<T>,
 	<T as frame_system::Config>::DbWeight,
 >;
+
+mod v2 {
+	use super::*;
+	use frame_support::traits::{Get, PalletInfoAccess};
+
+	/// Clears the old `AcceptedProofHashes` map. Uncle dedup moved from `keccak256(proof)` to
+	/// the prover-bound submission account (stored under the new `AcceptedProvers` prefix), so
+	/// the old entries are dead storage under a prefix the runtime no longer reads or evicts.
+	pub struct ClearAcceptedProofHashes<T>(PhantomData<T>);
+
+	impl<T: Config> UncheckedOnRuntimeUpgrade for ClearAcceptedProofHashes<T> {
+		fn on_runtime_upgrade() -> Weight {
+			// `AcceptedProofHashes` was a `StorageMap`, so clear the whole prefix.
+			let result = frame_support::migration::clear_storage_prefix(
+				<Pallet<T> as PalletInfoAccess>::name().as_bytes(),
+				b"AcceptedProofHashes",
+				b"",
+				None,
+				None,
+			);
+
+			log::info!(
+				target: "pallet-beefy-consensus-proofs",
+				"ClearAcceptedProofHashes: cleared {} old uncle-dedup entries; dedup is now per submission account",
+				result.unique,
+			);
+
+			T::DbWeight::get().writes(result.unique.into())
+		}
+	}
+}
+
+/// Migration that clears the old `AcceptedProofHashes` map (v1 → v2).
+///
+/// Uncle deduplication changed from hashing proof bytes to keying on the prover-bound
+/// submission account (the new `AcceptedProvers` storage). The old entries are orphaned and
+/// cleared here.
+pub type ClearAcceptedProofHashes<T> = VersionedMigration<
+	1,
+	2,
+	v2::ClearAcceptedProofHashes<T>,
+	Pallet<T>,
+	<T as frame_system::Config>::DbWeight,
+>;

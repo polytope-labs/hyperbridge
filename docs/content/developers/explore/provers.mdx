@@ -32,16 +32,29 @@ Provers are rewarded with `$BRIDGE` tokens from the Hyperbridge treasury for eac
 - **Rotation proofs** — Proofs that carry a new BEEFY authority set transition.
 - **Messaging proofs** — Proofs that advance the proven parachain height past blocks containing new cross-chain message dispatches.
 
-The reward amount is configurable via governance through `pallet-beefy-consensus-proofs::set_proof_reward`.
+The base reward amount is configurable via governance through `pallet-beefy-consensus-proofs::set_proof_reward` (currently **100 `$BRIDGE`** per proof).
 
 ### The Reward Mechanism
 
 The process for earning rewards is deterministic and transparent:
 
 1. **The Triggering Action**: A prover monitors the relay chain for BEEFY finality and Hyperbridge for new cross-chain message dispatches.
-2. **Proof Generation**: When new work is detected, the prover generates a consensus proof (either ECDSA or SP1) and submits it to the Hyperbridge runtime.
+2. **Proof Generation**: When new work is detected, the prover generates a consensus proof (either ECDSA or SP1) and submits it as a **signed** extrinsic — the signer is the reward payee.
 3. **Verification and State Update**: The runtime verifies the proof. If it is valid and advances the proven state (either by rotating the authority set or proving new message dispatches), it is accepted.
-4. **Automated Reward Issuance**: Upon acceptance, the protocol transfers a fixed `$BRIDGE` reward from the treasury to the prover's account.
+4. **Automated Reward Issuance**: Upon acceptance, the protocol transfers a `$BRIDGE` reward from the treasury to the prover's account (the amount depends on the prover's position — see below — and an equal amount of non-transferable Reputation Asset is minted).
+
+### Uncle Proofs
+
+To reward redundancy and keep proving live, Hyperbridge rewards more than just the single fastest prover. The **first** prover to land a valid proof for a given finality target advances the chain's state and earns the **full** reward. Additional **independent** provers that generate their own valid proof for the **same** target are accepted as **uncles** and paid on a *decreasing reward curve*, up to a governance-configured limit (`MaxUncleProvers`).
+
+The curve (set via `set_reward_curve`) pays each position a fraction of the base reward. The current curve is **100% / 50% / 30% / 20% / 10% / 5%** — the first prover receives the full reward (100%), and the next five uncles receive 50%, 30%, 20%, 10%, and 5% respectively. Uncle rewards apply to SP1 proofs only.
+
+### Prover-Bound Proofs
+
+Each SP1 proof commits a nonce into its public values, and the runtime requires that nonce to equal the extrinsic signer. This binds a proof to the prover that produced it:
+
+- A proof **cannot be stolen** — copying the proof bytes from the mempool and submitting them under a different account is rejected, because the committed account no longer matches the signer.
+- Reward **deduplication is per-account** — an account is rewarded at most once per finality target, so a single prover cannot mint many byte-distinct variants of one proof (e.g. via Groth16 re-randomization) to sweep multiple uncle slots.
 
 ## Reputation and the Path to Becoming a Collator
 
@@ -51,7 +64,7 @@ This means that running a prover is a direct path to becoming a Collator and ear
 
 ## A Competitive, Permissionless Environment
 
-The incentive structure fosters a healthy, competitive market. Only the **first prover** to successfully submit a proof for a given state advance receives the reward. This encourages provers to optimize their operations for low latency and efficiency, ensuring that Hyperbridge's cross-chain message pipeline remains fast and reliable.
+The incentive structure fosters a healthy, competitive market. The **first prover** to submit a proof for a given state advance earns the full reward and advances the chain, which rewards low-latency, efficient operations. Independent provers for the same target still earn a smaller, decreasing reward as uncles, so redundant provers are compensated for the liveness they provide rather than racing winner-take-all.
 
 This model is inherently permissionless — no staking or whitelisting is required to participate. Any operator can run a prover and begin competing to submit proofs and earn rewards.
 

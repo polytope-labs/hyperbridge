@@ -382,7 +382,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<ReputationCallFilter, TxPause>;
+	type BaseCallFilter = InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, TxPause>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -727,6 +727,34 @@ impl Contains<RuntimeCall> for ReputationCallFilter {
 				pallet_assets::Call::approve_transfer { id, .. } |
 				pallet_assets::Call::transfer_approved { id, .. },
 			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
+/// Switches off two ismp calls on nexus. `fund_message` is disabled outright,
+/// and `handle_unsigned` is turned away whenever its batch carries a consensus
+/// update for the BEEFY client.
+///
+/// A consensus message only names the state it updates, so we ask the host which
+/// client that state belongs to and compare it against BEEFY. Reading it from the
+/// host stays correct if more states (Polkadot, Paseo) are ever bound to the same
+/// client.
+pub struct IsmpCallFilter;
+impl Contains<RuntimeCall> for IsmpCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		use ::ismp::{host::IsmpHost, messaging::Message};
+		match call {
+			RuntimeCall::Ismp(pallet_ismp::Call::fund_message { .. }) => false,
+			RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned { messages }) => {
+				let host = Ismp::default();
+				!messages.iter().any(|message| match message {
+					Message::Consensus(consensus) =>
+						host.consensus_client_id(consensus.consensus_state_id) ==
+							Some(ismp_beefy::BEEFY_CONSENSUS_ID),
+					_ => false,
+				})
+			},
 			_ => true,
 		}
 	}

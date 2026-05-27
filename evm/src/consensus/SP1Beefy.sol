@@ -86,10 +86,16 @@ contract SP1Beefy is IConsensusV2, ERC165 {
             MiniCommitment memory commitment,
             PartialBeefyMmrLeaf memory leaf,
             ParachainHeader[] memory headers,
-            bytes memory proofBytes
-        ) = abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
-        SP1BeefyProof memory sp1Proof =
-            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: proofBytes});
+            bytes memory proofBytes,
+            bytes32 nonce
+        ) = abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes, bytes32));
+        SP1BeefyProof memory sp1Proof = SP1BeefyProof({
+            commitment: commitment,
+            mmrLeaf: leaf,
+            headers: headers,
+            proof: proofBytes,
+            nonce: nonce
+        });
 
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, sp1Proof);
@@ -135,7 +141,8 @@ contract SP1Beefy is IConsensusV2, ERC165 {
                 authorities_root: authority.root,
                 headers: headers,
                 block_number: commitment.blockNumber,
-                leaf_hash: keccak256(Codec.Encode(proof.mmrLeaf))
+                leaf_hash: keccak256(Codec.Encode(proof.mmrLeaf)),
+                nonce: proof.nonce
             })
         );
         verifier.verifyProof(verificationKey, publicInputs, proof.proof);

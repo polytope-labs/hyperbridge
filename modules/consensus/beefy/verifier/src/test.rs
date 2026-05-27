@@ -269,6 +269,9 @@ fn dump_sp1_fixture_scale_bytes() {
 		mmr_leaf: leaf.into(),
 		headers: headers.into_iter().map(Into::into).collect(),
 		proof: plonk_proof.to_vec(),
+		// REGEN: fixtures predate the committed-nonce public input; regenerate with the
+		// rebuilt ELF/vkey and set this to the fixture's committed nonce.
+		nonce: Default::default(),
 	};
 
 	let mut wire = vec![PROOF_TYPE_SP1];
@@ -328,6 +331,9 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 		mmr_leaf: leaf.into(),
 		headers: headers.into_iter().map(Into::into).collect(),
 		proof: plonk_proof.to_vec(),
+		// REGEN: fixtures predate the committed-nonce public input; regenerate with the
+		// rebuilt ELF/vkey and set this to the fixture's committed nonce.
+		nonce: Default::default(),
 	};
 
 	// Mainnet SP1Beefy verification key — matches `SP1_VERIFICATION_KEY` in

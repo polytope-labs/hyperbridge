@@ -30,15 +30,24 @@
 //!
 //! Multiple SP1 provers running independently can each get rewarded for the same
 //! finality target via decreasing-curve uncle rewards. The first prover to land a
-//! proof advances state and gets position 0; subsequent independent provers
-//! (different proof bytes thanks to SP1 Groth16 witness randomization) for the
+//! proof advances state and gets position 0; subsequent independent provers for the
 //! same target are accepted as uncles, up to `MaxUncleProvers`, and rewarded at
 //! decreasing positions.
 //!
 //! Uncle verification reuses the consensus state snapshot taken before the first
 //! proof mutated it, so uncle proofs are checked cryptographically against the
-//! same trusted state the first prover used. `keccak256(proof)` is recorded per
-//! parachain height to reject re-submission of bytes that were already accepted.
+//! same trusted state the first prover used.
+//!
+//! ## Prover-bound proofs & deduplication
+//!
+//! Each SP1 proof commits a prover-chosen nonce into its public values, and the pallet
+//! requires that nonce to equal the extrinsic signer (the reward payee). This binds a proof
+//! to its submitter: a copied proof verifies cryptographically but cannot be claimed by a
+//! different account, so proofs cannot be stolen from the mempool. The committed account is
+//! also the dedup key — recorded per parachain height in [`pallet::AcceptedProvers`] — so an
+//! account is rewarded at most once per height. Because the nonce is committed (not derived
+//! from the proof bytes), Groth16 re-randomization or re-proving cannot mint extra reward
+//! slots: every variant a single prover can produce carries the same committed account.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -86,7 +95,7 @@ pub mod pallet {
 
 	/// `Get<u32>` adapter that yields `MaxUncleProvers + 1`, the total number of provers
 	/// (one first + `MaxUncleProvers` uncles) that may be rewarded per parachain height.
-	/// Used as the bound for `AcceptedProofHashes` and `RewardCurve`.
+	/// Used as the bound for `AcceptedProvers` and `RewardCurve`.
 	pub struct MaxStoredProvers<T>(core::marker::PhantomData<T>);
 	impl<T: Config> Get<u32> for MaxStoredProvers<T> {
 		fn get() -> u32 {
@@ -95,7 +104,7 @@ pub mod pallet {
 	}
 
 	/// Current storage version.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -193,12 +202,14 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type ProverCount<T: Config> = StorageMap<_, Blake2_128Concat, u64, u32, ValueQuery>;
 
-	/// `keccak256(proof_bytes)` for every proof accepted at a given parachain height.
-	/// SP1 Groth16 randomizes the witness so independent provers produce different
-	/// bytes; re-submission of the exact same bytes hits this set and is rejected.
-	/// Bounded by `MaxUncleProvers + 1` (one first + `MaxUncleProvers` uncles).
+	/// Submission accounts (the prover-chosen nonce committed into each SP1 proof, which the
+	/// pallet binds to the extrinsic signer) accepted at a given parachain height. Dedup is
+	/// per-account: a second proof from an account already present here is rejected, so an
+	/// account claims at most one reward slot per height regardless of how many distinct proof
+	/// bytes it produces (Groth16 re-randomization / re-proving). Bounded by `MaxUncleProvers +
+	/// 1` (one first + `MaxUncleProvers` uncles).
 	#[pallet::storage]
-	pub type AcceptedProofHashes<T: Config> =
+	pub type AcceptedProvers<T: Config> =
 		StorageMap<_, Blake2_128Concat, u64, BoundedVec<H256, MaxStoredProvers<T>>, ValueQuery>;
 
 	/// Reward fractions `(numerator, denominator)` indexed by prover position. The base
@@ -221,8 +232,10 @@ pub mod pallet {
 		UnknownProofType,
 		/// ABI decoding or conversion failed.
 		AbiDecodeFailed,
-		/// The submitted proof is not in canonical ABI form (e.g. trailing padding).
-		MalformedProof,
+		/// The nonce committed into the SP1 proof does not match the extrinsic signer. The proof
+		/// is bound to its committed account, so it can only be submitted by that account — this
+		/// rejects a copied/mempool-sniped proof being claimed under a different account.
+		UnauthorizedProof,
 		/// The BEEFY verifier rejected the proof.
 		VerificationFailed,
 		/// Rotation proof did not rotate to `NextAuthoritySetId`.
@@ -238,7 +251,7 @@ pub mod pallet {
 		NoNewWork,
 		/// `MaxUncleProvers` already accepted at this height.
 		UncleSlotsFull,
-		/// This exact proof has already been accepted at this height.
+		/// This account has already been rewarded for a proof at this height.
 		ProofAlreadySubmitted,
 		/// No first proof has been seen at this height, so no uncle slot exists.
 		NoUncleContext,
@@ -435,49 +448,39 @@ pub mod pallet {
 			// `submit_proof` — oversized payloads fail SCALE decoding inside the txpool
 			// and never reach this dispatch.
 			// The set of accepted proof types is gated by `ismp-beefy`'s
-			// `BeefyClientConfig::allowed_proof_types` during `verify_and_apply`; here we only
-			// need the type byte to drive canonical re-encoding. Unknown bytes still fall
-			// through to the `_ => UnknownProofType` arm of the match below.
+			// `BeefyClientConfig::allowed_proof_types` during `verify_and_apply`. Unknown bytes
+			// fall through to the `_ => UnknownProofType` arm below.
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
 
-			// Decode the ABI payload then re-encode it canonically and hash *that* instead
-			// of the raw input. `alloy_sol_types::abi_decode_params` silently ignores
-			// trailing bytes after the encoded sequence ends, so without this a submitter
-			// could pad a valid proof with junk to mint a fresh `keccak256(proof)` and
-			// bypass the `AcceptedProofHashes` dedup. Hashing the canonical re-encoding
-			// collapses every ABI-equivalent input to the same hash by construction.
-			let abi_payload = &proof[1..];
-			let canonical_payload = match proof_type {
+			// For SP1 proofs, decode the committed nonce and require it to equal the extrinsic
+			// signer. The nonce is committed into the proof's public values, so it can only be
+			// changed by re-running the SP1 program — a copied proof verifies cryptographically
+			// but is bound to the *original* prover's account, so a different signer cannot claim
+			// it. This is the anti-theft gate and also the dedup key: see [`AcceptedProvers`].
+			//
+			// Binding to the committed nonce also makes dedup robust without canonical
+			// re-encoding: Groth16 re-randomization (or re-proving) yields different proof bytes
+			// for the same statement, but all of them carry the same committed nonce, so they
+			// collapse to a single per-account slot regardless of trailing padding or alternate
+			// encodings.
+			let account = match proof_type {
 				types::PROOF_TYPE_SP1 => {
 					let p =
 						<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
-							abi_payload,
+							&proof[1..],
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					<ismp_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
+					let nonce = H256(p.nonce.0);
+					// `T::AccountId` is `AccountId32` in hyperbridge runtimes, which SCALE-encodes
+					// to its 32 raw bytes; compare those against the committed nonce.
+					if submitter.encode().as_slice() != nonce.as_bytes() {
+						Err(Error::<T>::UnauthorizedProof)?
+					}
+					Some(nonce)
 				},
-				types::PROOF_TYPE_NAIVE => {
-					let p =
-						<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
-							abi_payload,
-						)
-						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					<ismp_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
-				},
+				types::PROOF_TYPE_NAIVE => None,
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
-			let mut canonical_proof = Vec::with_capacity(1 + canonical_payload.len());
-			canonical_proof.push(proof_type);
-			canonical_proof.extend_from_slice(&canonical_payload);
-			let proof_hash: H256 = sp_io::hashing::keccak_256(&canonical_proof).into();
-
-			// Reject any submission that isn't already in canonical form. If the raw input
-			// hashes differently from its canonical re-encoding it carries non-canonical
-			// bytes (trailing padding, alternate encodings), so it is malformed.
-			let submitted_hash: H256 = sp_io::hashing::keccak_256(&proof).into();
-			if submitted_hash != proof_hash {
-				Err(Error::<T>::MalformedProof)?
-			}
 
 			// Read the pre-proof consensus state before `verify_and_apply` mutates it.
 			// Used to seed `ProofContext` for the first-proof path.
@@ -486,11 +489,11 @@ pub mod pallet {
 				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
 
-			match Self::verify_and_apply(&canonical_proof) {
+			match Self::verify_and_apply(&proof) {
 				Ok(outcome) => Self::settle_first_proof(
 					submitter,
-					canonical_proof,
-					proof_hash,
+					proof,
+					account,
 					proof_type,
 					prev_state_bytes,
 					outcome,
@@ -500,20 +503,26 @@ pub mod pallet {
 				// which is exactly the legitimate-uncle case. Other failures (corrupt
 				// bytes, bad signatures, wrong vkey) propagate so the submitter pays the
 				// fee instead of paying for a wasted second SP1 verification.
-				Err(Error::<T>::StaleProof) if proof_type == types::PROOF_TYPE_SP1 =>
-					Self::settle_uncle_proof(submitter, canonical_proof, proof_hash),
+				Err(Error::<T>::StaleProof) if proof_type == types::PROOF_TYPE_SP1 => {
+					// SP1 always yields `Some(account)` above.
+					let account = account.ok_or(Error::<T>::UnknownProofType)?;
+					Self::settle_uncle_proof(submitter, proof, account)
+				},
 				Err(e) => Err(e.into()),
 			}
 		}
 
 		/// First-proof path: state has been advanced inside `verify_and_apply`. Save the
-		/// pre-proof snapshot, record the proof hash, pay the reward at position 0, and
+		/// pre-proof snapshot, record the submitter account, pay the reward at position 0, and
 		/// run ring-buffer eviction across `MessagingProofs`/`RotationProofs`. When an
 		/// entry falls off either ring, prune the matching uncle rows.
+		///
+		/// `account` is the committed nonce (== signer) for SP1 proofs, and `None` for naive
+		/// proofs (which are ineligible for uncle rewards).
 		fn settle_first_proof(
 			submitter: T::AccountId,
 			proof: Vec<u8>,
-			proof_hash: H256,
+			account: Option<H256>,
 			proof_type: u8,
 			prev_state_bytes: Vec<u8>,
 			outcome: VerifyOutcome,
@@ -524,7 +533,8 @@ pub mod pallet {
 
 			// Record uncle metadata for SP1 proofs only. Naive proofs are ineligible.
 			if proof_type == types::PROOF_TYPE_SP1 {
-				Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, proof_hash)?;
+				let account = account.ok_or(Error::<T>::UnknownProofType)?;
+				Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, account)?;
 			}
 
 			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
@@ -552,7 +562,7 @@ pub mod pallet {
 				sp_io::offchain_index::clear(&types::offchain_key(height));
 				ProofContext::<T>::remove(height);
 				ProverCount::<T>::remove(height);
-				AcceptedProofHashes::<T>::remove(height);
+				AcceptedProvers::<T>::remove(height);
 			}
 
 			Self::deposit_event(Event::ProofAccepted {
@@ -571,7 +581,7 @@ pub mod pallet {
 		fn settle_uncle_proof(
 			submitter: T::AccountId,
 			proof: Vec<u8>,
-			proof_hash: H256,
+			account: H256,
 		) -> DispatchResultWithPostInfo {
 			// The first proof for the most-recent finality target advanced state to
 			// `latest_height` and snapshotted the pre-state under that key. Uncles that
@@ -593,8 +603,11 @@ pub mod pallet {
 				Err(Error::<T>::UncleSlotsFull)?
 			}
 
-			let hashes = AcceptedProofHashes::<T>::get(parachain_height);
-			if hashes.contains(&proof_hash) {
+			// Dedup on the submitter account: an account that already landed a proof (first or
+			// uncle) at this height cannot claim a second slot, regardless of how many distinct
+			// proof bytes it can produce for the same target via Groth16 re-randomization.
+			let accounts = AcceptedProvers::<T>::get(parachain_height);
+			if accounts.contains(&account) {
 				Err(Error::<T>::ProofAlreadySubmitted)?
 			}
 
@@ -629,7 +642,7 @@ pub mod pallet {
 
 			let reward_paid = Self::pay_position_reward(&submitter, position)?;
 
-			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
+			AcceptedProvers::<T>::try_mutate(parachain_height, |vec| vec.try_push(account))
 				.map_err(|_| Error::<T>::UncleSlotsFull)?;
 			ProverCount::<T>::insert(parachain_height, position.saturating_add(1));
 
@@ -643,17 +656,17 @@ pub mod pallet {
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 		}
 
-		/// Save the pre-proof snapshot keyed by `parachain_height` and register the
-		/// first proof's hash. Uncles for this height land in the same rows; eviction
+		/// Save the pre-proof snapshot keyed by `parachain_height` and register the first
+		/// proof's submitter account. Uncles for this height land in the same rows; eviction
 		/// from `MessagingProofs`/`RotationProofs` removes them in lockstep.
 		fn record_uncle_metadata(
 			parachain_height: u64,
 			prev_state_bytes: Vec<u8>,
-			proof_hash: H256,
+			account: H256,
 		) -> Result<(), Error<T>> {
 			ProofContext::<T>::insert(parachain_height, prev_state_bytes);
 
-			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
+			AcceptedProvers::<T>::try_mutate(parachain_height, |vec| vec.try_push(account))
 				.map_err(|_| Error::<T>::UncleSlotsFull)?;
 			ProverCount::<T>::mutate(parachain_height, |c| *c = c.saturating_add(1));
 

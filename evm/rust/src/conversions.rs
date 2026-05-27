@@ -409,6 +409,7 @@ mod beefy {
 				mmr_leaf: value.mmrLeaf.into(),
 				headers: value.headers.into_iter().map(Into::into).collect(),
 				proof: value.proof.to_vec(),
+				nonce: H256(value.nonce.0),
 			}
 		}
 	}

@@ -239,8 +239,15 @@ impl HyperbridgeHostConfig {
 		let host = match self.host {
 			ConsensusHost::Beefy { substrate, prover, beefy, redis } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
+				// Commit the submission signer as the SP1 nonce (see `pallet-beefy-consensus-proofs`).
+				// `SubstrateClient::address` is the signer's 32-byte sr25519 public key.
+				let account: [u8; 32] = client
+					.address
+					.clone()
+					.try_into()
+					.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?;
 				let prover_instance =
-					Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone()).await?;
+					Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone(), account).await?;
 
 				let backend =
 					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis).await?);

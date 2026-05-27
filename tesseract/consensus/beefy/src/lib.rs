@@ -67,7 +67,16 @@ impl BeefyConfig {
 		H256: From<HashFor<P>>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
-		let prover = Prover::<R, P, zk_beefy::LocalProver>::new(self.prover.clone()).await?;
+		// The SP1 nonce must equal the account that signs `submit_proof`, which is this client's
+		// signer. Commit it into every proof so the pallet's `nonce == signer` check passes.
+		// `SubstrateClient::address` is the signer's 32-byte sr25519 public key.
+		let account: [u8; 32] = client
+			.address
+			.clone()
+			.try_into()
+			.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?;
+		let prover =
+			Prover::<R, P, zk_beefy::LocalProver>::new(self.prover.clone(), account).await?;
 
 		let backend: Arc<dyn backend::ProofBackend> = match self.prover_config.backend.clone() {
 			backend::ProofBackendConfig::Redis { config } => {

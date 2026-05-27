@@ -17,10 +17,12 @@
 //!    `settle_uncle_proof` end-to-end. Forces the live BEEFY consensus state ahead of the SP1
 //!    fixture proof's block number (so the verifier returns `StaleHeight`), seeds `ProofContext`
 //!    with the older snapshot the SP1 verifier accepts, then submits the fixture proof from Bob
-//!    (uncle accept at position 0) and re-submits the identical bytes from Ferdie (rejected by
-//!    `AcceptedProofHashes` dedup with `ProofAlreadySubmitted`). The multi-position fan-out is
-//!    covered by the bench rather than here — generating multiple distinct valid SP1 proofs
-//!    requires running `polytope-labs/sp1-beefy` once per fixture. No live network access.
+//!    (uncle accept at position 0, recorded in `AcceptedProvers` by account) and re-submits the
+//!    identical bytes from Ferdie (rejected by the anti-theft `nonce == signer` check with
+//!    `UnauthorizedProof`, since the proof is bound to Bob's committed account). The
+//!    multi-position fan-out is covered by the bench rather than here — generating multiple
+//!    distinct valid SP1 proofs requires running `polytope-labs/sp1-beefy` once per fixture. No
+//!    live network access. REGEN: the SP1 fixture must commit Bob's account as its nonce.
 
 #![cfg(test)]
 
@@ -658,33 +660,26 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 /// pre-seeded with the older `trusted_state_scale()` snapshot so SP1 verification inside
 /// the uncle path actually succeeds.
 ///
-/// Multi-uncle accumulation is exercised by appending unique suffix bytes to the SP1
-/// fixture for each successive submitter. `alloy-sol-types` 1.5.7's
-/// `SP1BeefyProof::abi_decode_params` reads only the bytes the encoded struct needs and
-/// silently ignores any trailing junk, so each `WIRE_PROOF ++ <suffix>` decodes to the
-/// same `SP1BeefyProof` (verifies against the same Groth16 commitment + public inputs)
-/// while producing a distinct `keccak256(proof)` — distinct enough to land in fresh
-/// `AcceptedProofHashes` slots without tripping dedup. This is a test-only trick; in
-/// production every relayer's SP1 prover already produces independently-randomised
-/// proof bytes.
+/// Deduplication keys on the committed submission account (the proof's nonce, bound to the
+/// extrinsic signer), not the proof bytes. Each SP1 proof commits the submitter's account into
+/// its public values, so distinct provers produce proofs bound to distinct accounts; multi-uncle
+/// fan-out across accounts is covered by the bench, since each genuinely independent uncle needs
+/// its own SP1 Groth16 proof committing a different account (`polytope-labs/sp1-beefy`).
 ///
-/// Four sequential submissions cover the uncle outcomes the pallet exposes:
+/// Two sequential submissions exercise the surface here:
 ///
-/// 1. Bob (`WIRE_PROOF`): SP1 verifies, uncle accepted at position 0. `ProverCount` becomes 1 and
-///    the proof hash is recorded.
-/// 2. Charlie (`WIRE_PROOF ++ [0xAA]`): distinct hash, SP1 verifies again, uncle accepted at
-///    position 1. `ProverCount` becomes 2.
-/// 3. Dave (`WIRE_PROOF ++ [0xBB, 0xBB]`): distinct hash, uncle accepted at position 2.
-///    `ProverCount` becomes 3.
-/// 4. Ferdie (`WIRE_PROOF`, same bytes Bob already submitted): same hash as (1) → trips the
-///    `AcceptedProofHashes` dedup inside `settle_uncle_proof` and the dispatch fails with
-///    `ProofAlreadySubmitted`. State invariants must hold: `ProverCount` stays at 3 and
-///    `AcceptedProofHashes` retains exactly the three accepted hashes.
+/// 1. Bob (`WIRE_PROOF`, committing Bob's account): SP1 verifies, uncle accepted at position 0.
+///    `ProverCount` becomes 1 and Bob's account is recorded in `AcceptedProvers`.
+/// 2. Ferdie (Bob's exact bytes): the committed nonce is Bob's account, so the anti-theft
+///    `nonce == signer` check in `do_submit_proof` rejects it with `UnauthorizedProof` before any
+///    uncle work. State invariants hold: `ProverCount` stays at 1 and `AcceptedProvers` still
+///    holds only Bob's account. (Re-submission by the *same* account — the `ProofAlreadySubmitted`
+///    account-dedup path — needs a second proof committing Bob's account, so it is covered by the
+///    bench rather than here.)
 ///
-/// Together these prove the uncle dispatch surface is wired up end-to-end on the live
-/// runtime, that `ProverCount` advances correctly across multiple accepts, and that
-/// dedup keeps rejecting after several successful uncles. No live network access is
-/// required — the SP1 fixture is static.
+/// Together these prove the uncle dispatch surface is wired up end-to-end on the live runtime and
+/// that a proof cannot be claimed by an account other than the one it commits. No live network
+/// access is required — the SP1 fixture is static. REGEN: the fixture must commit Bob's account.
 #[tokio::test]
 #[ignore]
 async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
@@ -765,24 +760,27 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	submit_sudo(&client, &rpc_client, set_storage_call).await?;
 	eprintln!("[stage] consensus + uncle snapshot seeded");
 
-	// Bob lands the only valid SP1 fixture; Ferdie resubmits identical bytes to exercise
-	// dedup. We can't cook multiple distinct uncles cheaply (each needs its own SP1
-	// Groth16 proof from `polytope-labs/sp1-beefy`), so the multi-position fan-out is
-	// covered by the bench instead. Trailing-byte malleability is now rejected at the
-	// extrinsic boundary by `do_submit_proof`'s round-trip check.
+	// Bob lands the only valid SP1 fixture; Ferdie resubmits Bob's identical bytes to exercise
+	// the anti-theft gate. We can't cook multiple distinct uncles cheaply (each needs its own
+	// SP1 Groth16 proof from `polytope-labs/sp1-beefy`), so the multi-position fan-out is
+	// covered by the bench instead.
+	//
+	// REGEN: this fixture must commit Bob's account as its nonce (see `BeefyCommitment::nonce`),
+	// otherwise `do_submit_proof`'s `nonce == signer` check rejects Bob's own submission.
 	let bob_proof = sp1_wire_proof();
 	let ferdie_proof = bob_proof.clone();
 	let proof_context_key =
 		blake2_128_concat_key(b"BeefyConsensusProofs", b"ProofContext", &parachain_height.encode());
 	let prover_count_key =
 		blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode());
-	let accepted_hashes_key = blake2_128_concat_key(
+	let accepted_provers_key = blake2_128_concat_key(
 		b"BeefyConsensusProofs",
-		b"AcceptedProofHashes",
+		b"AcceptedProvers",
 		&parachain_height.encode(),
 	);
 
-	let bob_hash: H256 = keccak_256(&bob_proof).into();
+	// Dedup now keys on the submission account (the committed nonce), not the proof bytes.
+	let bob_account: H256 = H256(Keyring::Bob.to_account_id().0);
 
 	// 5. Bob: WIRE_PROOF as-is. Position 0.
 	eprintln!("[stage] submit (Bob) — expect uncle accept at position 0");
@@ -798,19 +796,18 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	)
 	.await?;
 	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
-	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+	let provers: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_provers_key)
 		.await?
 		.unwrap_or_default();
 	let ctx: Option<Vec<u8>> = fetch_storage_by_key::<Vec<u8>>(&client, &proof_context_key).await?;
 	assert_eq!(count, 1, "Bob's uncle should set ProverCount to 1");
-	assert_eq!(hashes, vec![bob_hash], "AcceptedProofHashes should record Bob's hash");
+	assert_eq!(provers, vec![bob_account], "AcceptedProvers should record Bob's account");
 	assert!(ctx.is_some(), "ProofContext snapshot must persist across uncle accepts");
 
-	// 6. Ferdie: WIRE_PROOF (same bytes as Bob). Same hash → `AcceptedProofHashes` dedup fires
-	//    inside `settle_uncle_proof`, dispatch errors with `ProofAlreadySubmitted`.
-	eprintln!(
-		"[stage] submit (Ferdie) — expect ProofAlreadySubmitted (Bob's hash already recorded)"
-	);
+	// 6. Ferdie: Bob's exact bytes. The committed nonce is Bob's account, not Ferdie's, so the
+	//    anti-theft `nonce == signer` check in `do_submit_proof` rejects it with
+	//    `UnauthorizedProof` — a sniped proof cannot be claimed by another account.
+	eprintln!("[stage] submit (Ferdie) — expect UnauthorizedProof (proof bound to Bob's account)");
 	let ferdie_result = submit_signed(
 		&client,
 		&rpc_client,
@@ -824,17 +821,17 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	.await;
 	assert!(
 		ferdie_result.is_err(),
-		"duplicate uncle submission must be rejected by AcceptedProofHashes dedup",
+		"a proof bound to Bob's account must be rejected when submitted by Ferdie",
 	);
 
-	// State invariants across the failed dispatch — dedup short-circuits before
-	// `ProverCount` is bumped or another hash is appended.
+	// State invariants across the failed dispatch — the anti-theft check short-circuits before
+	// `ProverCount` is bumped or another account is appended.
 	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
-	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+	let provers: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_provers_key)
 		.await?
 		.unwrap_or_default();
-	assert_eq!(count, 1, "rejected duplicate must not bump ProverCount past 1");
-	assert_eq!(hashes, vec![bob_hash], "rejected duplicate must not mutate AcceptedProofHashes",);
+	assert_eq!(count, 1, "rejected submission must not bump ProverCount past 1");
+	assert_eq!(provers, vec![bob_account], "rejected submission must not mutate AcceptedProvers",);
 
 	Ok(())
 }

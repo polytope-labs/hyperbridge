@@ -2,13 +2,13 @@
 	"hyperbridge-gargantua": {
 		"type": "substrate",
 		"chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
-		"startBlock": 2056979,
+		"startBlock": 8731862,
 		"stateMachineId": "KUSAMA-4009"
 	},
 	"bifrost-paseo": {
 		"type": "substrate",
 		"chainId": "0xec39b15e5a1945ff19b8e8c0f76990b5758ce19faa4578e8ed57eda33e844452",
-		"startBlock": 940053,
+		"startBlock": 6213793,
 		"stateMachineId": "KUSAMA-2030"
 	},
 	"zkverify-testnet": {

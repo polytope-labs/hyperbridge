@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-prover"
-version = "2.0.2"
+version = "2.1.0"
 edition = "2021"
 description = "Standalone BEEFY consensus prover daemon"
 authors = ["Polytope Labs <hello@polytope.technology>"]

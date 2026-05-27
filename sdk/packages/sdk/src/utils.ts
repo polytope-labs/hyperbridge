@@ -193,9 +193,35 @@ export function isValidUTF8(str: string): boolean {
  * @returns The commitment hash and the encode packed data.
  */
 export function postRequestCommitment(post: IPostRequest): { commitment: HexString; encodePacked: HexString } {
-	const data = encodePacked(
-		["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
-		[toHex(post.source), toHex(post.dest), post.nonce, post.timeoutTimestamp, post.from, post.to, post.body],
+	// Mirror the EVM host: keccak256(abi.encode(PostRequest)) with the outer tuple
+	// wrapper. Field order matches core/libraries/Message.sol#PostRequest:
+	// source, dest, nonce, from, to, timeoutTimestamp, body.
+	const data = encodeAbiParameters(
+		[
+			{
+				type: "tuple",
+				components: [
+					{ name: "source", type: "bytes" },
+					{ name: "dest", type: "bytes" },
+					{ name: "nonce", type: "uint64" },
+					{ name: "from", type: "bytes" },
+					{ name: "to", type: "bytes" },
+					{ name: "timeoutTimestamp", type: "uint64" },
+					{ name: "body", type: "bytes" },
+				],
+			},
+		],
+		[
+			[
+				toHex(post.source),
+				toHex(post.dest),
+				post.nonce,
+				post.from,
+				post.to,
+				post.timeoutTimestamp,
+				post.body,
+			],
+		],
 	)
 
 	return {
@@ -318,19 +344,37 @@ export async function retryPromise<T>(operation: () => Promise<T>, retryConfig: 
  * @returns The commitment hash.
  */
 export function getRequestCommitment(get: IGetRequest): HexString {
-	const keysEncoding = "0x".concat(get.keys.map((key) => key.slice(2)).join(""))
+	// Mirror the EVM host: keccak256(abi.encode(GetRequest)) with the outer tuple
+	// wrapper. Field order matches core/libraries/Message.sol#GetRequest:
+	// source, dest, nonce, from, timeoutTimestamp, keys, height, context.
 	return keccak256(
-		encodePacked(
-			["bytes", "bytes", "uint64", "uint64", "uint64", "bytes", "bytes", "bytes"],
+		encodeAbiParameters(
 			[
-				toHex(get.source),
-				toHex(get.dest),
-				get.nonce,
-				get.height,
-				get.timeoutTimestamp,
-				get.from,
-				keysEncoding as HexString,
-				get.context,
+				{
+					type: "tuple",
+					components: [
+						{ name: "source", type: "bytes" },
+						{ name: "dest", type: "bytes" },
+						{ name: "nonce", type: "uint64" },
+						{ name: "from", type: "bytes" },
+						{ name: "timeoutTimestamp", type: "uint64" },
+						{ name: "keys", type: "bytes[]" },
+						{ name: "height", type: "uint64" },
+						{ name: "context", type: "bytes" },
+					],
+				},
+			],
+			[
+				[
+					toHex(get.source),
+					toHex(get.dest),
+					get.nonce,
+					get.from,
+					get.timeoutTimestamp,
+					get.keys,
+					get.height,
+					get.context,
+				],
 			],
 		),
 	)

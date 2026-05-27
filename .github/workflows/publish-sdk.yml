@@ -40,10 +40,15 @@ jobs:
       - name: Build SDK
         run: pnpm --filter="@hyperbridge/sdk" build
 
-      - name: Publish to npm
+      - name: Authenticate with npm
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-          pnpm --filter="@hyperbridge/sdk" publish --no-git-checks
+          printf "//registry.npmjs.org/:_authToken=%s\n" "${NODE_AUTH_TOKEN}" > ~/.npmrc
+          npm whoami --registry=https://registry.npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: pnpm --filter="@hyperbridge/sdk" publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

@@ -162,7 +162,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 		// Commit Bob's well-known sr25519 dev account as the nonce so the generated fixture is
 		// usable by the pallet tests, which require `committed nonce == submit_proof signer`
 		// (the simtest signs as Bob).
-		hex!("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48"),
+		primitive_types::H256(hex!("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48")),
 	);
 
 	// Get initial consensus state — also the "previousState" the on-chain verify() consumes.

@@ -212,15 +212,15 @@ export function postRequestCommitment(post: IPostRequest): { commitment: HexStri
 			},
 		],
 		[
-			[
-				toHex(post.source),
-				toHex(post.dest),
-				post.nonce,
-				post.from,
-				post.to,
-				post.timeoutTimestamp,
-				post.body,
-			],
+			{
+				source: toHex(post.source),
+				dest: toHex(post.dest),
+				nonce: post.nonce,
+				from: post.from,
+				to: post.to,
+				timeoutTimestamp: post.timeoutTimestamp,
+				body: post.body,
+			},
 		],
 	)
 
@@ -365,16 +365,16 @@ export function getRequestCommitment(get: IGetRequest): HexString {
 				},
 			],
 			[
-				[
-					toHex(get.source),
-					toHex(get.dest),
-					get.nonce,
-					get.from,
-					get.timeoutTimestamp,
-					get.keys,
-					get.height,
-					get.context,
-				],
+				{
+					source: toHex(get.source),
+					dest: toHex(get.dest),
+					nonce: get.nonce,
+					from: get.from,
+					timeoutTimestamp: get.timeoutTimestamp,
+					keys: get.keys,
+					height: get.height,
+					context: get.context,
+				},
 			],
 		),
 	)

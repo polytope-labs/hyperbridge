@@ -424,10 +424,21 @@ pub mod pallet {
 					.map(|(_, c)| c.clone().into()),
 			);
 
-			// fill remaining slots with the best of the previous set.
+			// fill remaining slots with the best of the previous set, but only carry over
+			// collators whose stash is still bonded. One that has since unbonded or
+			// deregistered shouldn't keep its slot just because it was active last session.
 			if new_set_validators.len() < desired_collators {
 				let needed = desired_collators - new_set_validators.len();
-				let mut reused_collators = active_collators.clone();
+				let mut reused_collators = active_collators
+					.clone()
+					.into_iter()
+					.filter(|validator| {
+						let controller: T::AccountId = validator.clone().into();
+						Stash::<T>::get(&controller)
+							.map(|stash| !Bonded::<T>::get(&stash).is_zero())
+							.unwrap_or(false)
+					})
+					.collect::<Vec<_>>();
 
 				reused_collators.sort_by_key(|a| {
 					let account_id: T::AccountId = a.clone().into();

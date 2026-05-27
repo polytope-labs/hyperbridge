@@ -174,6 +174,19 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 		set_reputation_balance(&BOB, 30 * UNIT);
 		set_reputation_balance(&CHARLIE, 40 * UNIT);
 
+		// Previous collators are only reused while their stash stays bonded, so back
+		// both Alice and Bob with a bonded stash. Alice then wins the carried-over slot
+		// on reputation.
+		let alice_stash = AccountId32::new([11; 32]);
+		Balances::set_balance(&alice_stash, INITIAL_BALANCE);
+		link_stash_to_controller(alice_stash.clone(), ALICE);
+		assert_ok!(CollatorManager::reserve(&alice_stash, 100 * UNIT));
+
+		let bob_stash = AccountId32::new([12; 32]);
+		Balances::set_balance(&bob_stash, INITIAL_BALANCE);
+		link_stash_to_controller(bob_stash.clone(), BOB);
+		assert_ok!(CollatorManager::reserve(&bob_stash, 100 * UNIT));
+
 		link_stash_to_controller(charlie_stash.clone(), CHARLIE);
 
 		set_session_keys(CHARLIE);
@@ -188,6 +201,45 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 		new_collators.sort();
 		assert_eq!(new_collators, vec![ALICE, CHARLIE]); // Alice is chosen because the account has more
 		                                           // balances than Bob
+	});
+}
+
+#[test]
+fn test_unbonded_previous_collators_are_not_reused() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+
+		// Alice and Bob are last session's collators. Only Alice is still bonded; Bob
+		// has no bonded stash. With no fresh candidates, the next set should reuse Alice
+		// and drop Bob, even though Bob still holds reputation.
+		let alice_stash = AccountId32::new([11; 32]);
+		Balances::set_balance(&alice_stash, INITIAL_BALANCE);
+
+		set_session_keys(ALICE);
+		set_session_keys(BOB);
+		pallet_session::Validators::<Test>::put(vec![ALICE, BOB]);
+		pallet_session::QueuedKeys::<Test>::put(vec![
+			(
+				ALICE,
+				crate::runtime::SessionKeys {
+					aura: Pair::from_seed(ALICE.as_ref()).public().into(),
+				},
+			),
+			(
+				BOB,
+				crate::runtime::SessionKeys { aura: Pair::from_seed(BOB.as_ref()).public().into() },
+			),
+		]);
+		set_reputation_balance(&ALICE, 50 * UNIT);
+		set_reputation_balance(&BOB, 30 * UNIT);
+
+		link_stash_to_controller(alice_stash.clone(), ALICE);
+		assert_ok!(CollatorManager::reserve(&alice_stash, 100 * UNIT));
+
+		Session::on_initialize(2);
+		Session::on_initialize(3);
+
+		assert_eq!(Session::validators(), vec![ALICE]);
 	});
 }
 

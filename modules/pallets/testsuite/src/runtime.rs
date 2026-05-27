@@ -41,10 +41,7 @@ use ismp::{
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use polkadot_sdk::{
-	frame_support::{
-		traits::{FindAuthor, LockIdentifier},
-		weights::WeightToFee,
-	},
+	frame_support::{traits::FindAuthor, weights::WeightToFee},
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
 	xcm_simulator::{GeneralIndex, Junctions::X3, Location, PalletInstance, Parachain},
@@ -161,10 +158,6 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ConstU32<50>;
 	type MaxFreezes = ();
 	type DoneSlashHandler = ();
-}
-
-parameter_types! {
-	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
 }
 
 parameter_types! {
@@ -391,7 +384,7 @@ parameter_types! {
 
 impl pallet_collator_selection::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = CollatorManager;
+	type Currency = Balances;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -407,7 +400,6 @@ impl pallet_collator_manager::Config for Test {
 	type ReputationAsset = ReputationAsset;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
-	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryAccount;
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IncentivesManager = MessagingRelayerIncentives;

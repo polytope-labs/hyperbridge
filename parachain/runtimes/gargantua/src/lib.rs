@@ -187,6 +187,7 @@ pub type Migrations = (
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
+	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -249,7 +250,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_300,
+	spec_version: 7_301,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -405,7 +406,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -532,7 +533,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -574,7 +575,17 @@ impl pallet_collator_selection::Config for Runtime {
 	type KickThreshold = Period;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
+	type WeightInfo = ();
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IncentivesManager = MessagingIncentives;
 	type WeightInfo = ();
 }
 
@@ -904,6 +915,8 @@ mod runtime {
 	pub type AuraExt = cumulus_pallet_aura_ext;
 	#[runtime::pallet_index(25)]
 	pub type Sudo = pallet_sudo;
+	#[runtime::pallet_index(26)]
+	pub type CollatorManager = pallet_collator_manager;
 
 	// XCM helpers.
 	#[runtime::pallet_index(30)]

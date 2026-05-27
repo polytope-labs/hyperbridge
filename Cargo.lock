@@ -8288,6 +8288,7 @@ dependencies = [
  "pallet-beefy-consensus-proofs",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-manager",
  "pallet-fishermen",
  "pallet-hyper-fungible-token",
  "pallet-intents-coprocessor",
@@ -14717,6 +14718,7 @@ name = "pallet-collator-manager"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "log",
  "pallet-ismp",
  "pallet-messaging-incentives",
  "parity-scale-codec",

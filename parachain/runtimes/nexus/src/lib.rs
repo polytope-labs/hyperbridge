@@ -173,6 +173,7 @@ pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -335,7 +336,6 @@ use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -576,7 +576,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = CollatorManager;
+	type Currency = Balances;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -950,15 +950,10 @@ impl pallet_messaging_incentives::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
-parameter_types! {
-	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
-}
-
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
-	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryPalletId;
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingIncentives;

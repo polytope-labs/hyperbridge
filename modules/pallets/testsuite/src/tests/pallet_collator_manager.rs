@@ -1,22 +1,19 @@
 use crate::runtime::{
-	new_test_ext, Assets, Balance, Balances, CollatorBondLockId, CollatorManager,
-	CollatorSelection, ReputationAssetId, RuntimeOrigin, Session, Sudo, Test, Vesting, ALICE, BOB,
-	CHARLIE, DAVE, INITIAL_BALANCE, UNIT,
+	new_test_ext, Assets, Balances, CollatorManager, CollatorSelection, ReputationAssetId,
+	RuntimeOrigin, Session, Test, ALICE, BOB, CHARLIE, DAVE, INITIAL_BALANCE, UNIT,
 };
 use frame_system::Pallet as System;
 use pallet_collator_manager::Error;
 use pallet_session;
-use pallet_vesting::VestingInfo;
 use polkadot_sdk::{
 	frame_support::{
 		assert_err, assert_ok,
 		traits::{
-			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
+			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize,
 			ValidatorRegistration,
 		},
 	},
 	pallet_authorship::EventHandler,
-	pallet_balances::BalanceLock,
 	sp_core::{sr25519::Pair, Pair as _},
 	sp_runtime::traits::AccountIdConversion,
 	*,
@@ -31,20 +28,6 @@ fn create_reputation_asset() {
 		true,
 		1,
 	));
-}
-
-fn set_vesting_schedule(who: &<Test as frame_system::Config>::AccountId, amount: Balance) {
-	Balances::set_balance(&BOB, INITIAL_BALANCE);
-	let vesting_info = VestingInfo::new(amount, amount / 10, 100);
-	assert_ok!(Vesting::vested_transfer(RuntimeOrigin::signed(BOB), who.clone(), vesting_info));
-}
-
-fn get_collator_bond_lock(
-	who: &<Test as frame_system::Config>::AccountId,
-) -> Option<BalanceLock<Balance>> {
-	Balances::locks(who)
-		.into_iter()
-		.find(|lock| lock.id == CollatorBondLockId::get())
 }
 
 fn set_reputation_balance(who: &<Test as frame_system::Config>::AccountId, amount: u128) {
@@ -124,10 +107,6 @@ fn test_new_collators_are_selected_based_on_reputation() {
 		set_session_keys(DAVE);
 		register_candidate(charlie_stash.clone());
 		register_candidate(dave_stash.clone());
-
-		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
-
-		assert_ok!(CollatorManager::reserve(&dave_stash, 100 * UNIT));
 
 		set_reputation_balance(&CHARLIE, 20 * UNIT);
 		set_reputation_balance(&DAVE, 20 * UNIT);
@@ -216,73 +195,6 @@ fn test_collator_set_does_not_change_if_no_new_candidates() {
 }
 
 #[test]
-fn reserve_from_free_balance_should_work() {
-	new_test_ext().execute_with(|| {
-		let bond_amount = 100;
-		assert_ok!(CollatorManager::reserve(&ALICE, bond_amount));
-
-		assert_eq!(CollatorManager::reserved_balance(&ALICE), bond_amount);
-
-		let lock = get_collator_bond_lock(&ALICE).expect("lock should exist");
-		assert_eq!(lock.amount, bond_amount);
-	});
-}
-
-#[test]
-fn reserve_from_locked_vesting_balance_should_work() {
-	new_test_ext().execute_with(|| {
-		Balances::set_balance(&CHARLIE, INITIAL_BALANCE);
-
-		let vesting_amount = 5000;
-		set_vesting_schedule(&CHARLIE, vesting_amount);
-
-		assert_eq!(Balances::locks(&CHARLIE).len(), 1);
-		assert_eq!(Balances::locks(&CHARLIE)[0].amount, vesting_amount);
-
-		let bond_amount = INITIAL_BALANCE + 5000;
-		assert_ok!(CollatorManager::reserve(&CHARLIE, bond_amount));
-
-		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), bond_amount);
-		let lock = get_collator_bond_lock(&CHARLIE).expect("collator bond lock should exist");
-		assert_eq!(lock.amount, bond_amount);
-	});
-}
-
-#[test]
-fn reserve_fails_if_not_enough_total_balance() {
-	new_test_ext().execute_with(|| {
-		let bond_amount = INITIAL_BALANCE;
-		assert_err!(
-			CollatorManager::reserve(&CHARLIE, bond_amount),
-			Error::<Test>::InsufficientBalance
-		);
-	})
-}
-
-#[test]
-fn test_collator_candidate_bonding_works_with_vesting_tokens() {
-	new_test_ext().execute_with(|| {
-		let bond_amount = 10_000_000_000_000;
-		assert_ok!(Sudo::sudo(
-			RuntimeOrigin::root(),
-			Box::new(crate::runtime::RuntimeCall::CollatorSelection(
-				pallet_collator_selection::Call::set_candidacy_bond { bond: bond_amount }
-			))
-		));
-		set_vesting_schedule(&CHARLIE, bond_amount * 2);
-		assert_eq!(pallet_collator_selection::CandidateList::<Test>::get().len(), 0);
-
-		link_stash_to_controller(CHARLIE, DAVE);
-		set_session_keys(DAVE);
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(CHARLIE)));
-		assert_eq!(pallet_collator_selection::CandidateList::<Test>::get().len(), 1);
-		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), bond_amount);
-		let lock = get_collator_bond_lock(&CHARLIE).expect("collator bond lock should exist");
-		assert_eq!(lock.amount, bond_amount);
-	});
-}
-
-#[test]
 fn set_collator_reward_works() {
 	new_test_ext().execute_with(|| {
 		let new_reward = 100 * UNIT;
@@ -323,8 +235,6 @@ fn register_controller_works() {
 		let stash = ALICE;
 		let controller = BOB;
 
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
-
 		link_stash_to_controller(stash.clone(), controller.clone());
 
 		assert_eq!(
@@ -341,7 +251,6 @@ fn set_controller_works() {
 		let stash = ALICE;
 		let old_controller = BOB;
 		let new_controller = CHARLIE;
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		link_stash_to_controller(stash.clone(), old_controller.clone());
 
 		rotate_controller(stash.clone(), new_controller.clone());
@@ -360,7 +269,6 @@ fn deregister_works() {
 	new_test_ext().execute_with(|| {
 		let stash = ALICE;
 		let controller = BOB;
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		link_stash_to_controller(stash.clone(), controller.clone());
 
 		assert_ok!(CollatorManager::deregister(RuntimeOrigin::signed(stash.clone())));
@@ -385,7 +293,6 @@ fn validator_registration_returns_false_when_controller_has_no_session_keys() {
 		let stash = ALICE;
 		let controller = BOB;
 
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		link_stash_to_controller(stash.clone(), controller.clone());
 
 		assert!(!CollatorManager::is_registered(&stash));
@@ -398,7 +305,6 @@ fn validator_registration_returns_true_when_controller_has_session_keys() {
 		let stash = ALICE;
 		let controller = BOB;
 
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		link_stash_to_controller(stash.clone(), controller.clone());
 
 		set_session_keys(controller.clone());
@@ -414,7 +320,6 @@ fn validator_registration_returns_false_after_controller_changed_without_new_key
 		let old_controller = BOB;
 		let new_controller = CHARLIE;
 
-		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		link_stash_to_controller(stash.clone(), old_controller.clone());
 		set_session_keys(old_controller.clone());
 		assert!(CollatorManager::is_registered(&stash));
@@ -425,115 +330,6 @@ fn validator_registration_returns_false_after_controller_changed_without_new_key
 
 		set_session_keys(new_controller.clone());
 		assert!(CollatorManager::is_registered(&stash));
-	});
-}
-
-#[test]
-fn update_bond_fails_when_new_deposit_exceeds_account_balance() {
-	new_test_ext().execute_with(|| {
-		let stash = CHARLIE;
-		let controller = DAVE;
-
-		let account_balance = 100 * UNIT;
-		let initial_bond = 50 * UNIT;
-		let first_update = 100 * UNIT;
-		let over_balance = 150 * UNIT;
-
-		Balances::set_balance(&stash, account_balance);
-
-		assert_ok!(Sudo::sudo(
-			RuntimeOrigin::root(),
-			Box::new(crate::runtime::RuntimeCall::CollatorSelection(
-				pallet_collator_selection::Call::set_candidacy_bond { bond: initial_bond }
-			))
-		));
-
-		link_stash_to_controller(stash.clone(), controller.clone());
-		set_session_keys(controller);
-
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(stash.clone())));
-		assert_eq!(CollatorManager::reserved_balance(&stash), initial_bond);
-
-		assert_ok!(CollatorSelection::update_bond(
-			RuntimeOrigin::signed(stash.clone()),
-			first_update
-		));
-		assert_eq!(CollatorManager::reserved_balance(&stash), first_update);
-
-		assert_err!(
-			CollatorSelection::update_bond(RuntimeOrigin::signed(stash.clone()), over_balance),
-			Error::<Test>::InsufficientBalance
-		);
-
-		assert_eq!(CollatorManager::reserved_balance(&stash), first_update);
-		let lock = get_collator_bond_lock(&stash).expect("bond lock should exist");
-		assert_eq!(lock.amount, first_update);
-		assert_eq!(Balances::free_balance(&stash), account_balance);
-	});
-}
-
-#[test]
-fn take_candidate_slot_replaces_a_fully_bonded_candidate() {
-	new_test_ext().execute_with(|| {
-		let min_bond = 50 * UNIT;
-		let target_balance = 100 * UNIT;
-		let challenger_balance = 120 * UNIT;
-		let over_balance = 150 * UNIT;
-
-		assert_ok!(Sudo::sudo(
-			RuntimeOrigin::root(),
-			Box::new(crate::runtime::RuntimeCall::CollatorSelection(
-				pallet_collator_selection::Call::set_candidacy_bond { bond: min_bond }
-			))
-		));
-
-		let target_stash = AccountId32::new([31u8; 32]);
-		let target_controller = AccountId32::new([32u8; 32]);
-		let challenger_stash = AccountId32::new([33u8; 32]);
-		let challenger_controller = AccountId32::new([34u8; 32]);
-
-		Balances::set_balance(&target_stash, target_balance);
-		Balances::set_balance(&challenger_stash, challenger_balance);
-
-		link_stash_to_controller(target_stash.clone(), target_controller.clone());
-		set_session_keys(target_controller);
-
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(
-			target_stash.clone()
-		)));
-		assert_ok!(CollatorSelection::update_bond(
-			RuntimeOrigin::signed(target_stash.clone()),
-			target_balance
-		));
-
-		assert_err!(
-			CollatorSelection::update_bond(
-				RuntimeOrigin::signed(target_stash.clone()),
-				over_balance
-			),
-			Error::<Test>::InsufficientBalance
-		);
-
-		let target_info = pallet_collator_selection::CandidateList::<Test>::get()
-			.into_iter()
-			.find(|info| info.who == target_stash)
-			.expect("target should still be a candidate");
-		assert_eq!(target_info.deposit, target_balance);
-
-		link_stash_to_controller(challenger_stash.clone(), challenger_controller.clone());
-		set_session_keys(challenger_controller);
-
-		assert_ok!(CollatorSelection::take_candidate_slot(
-			RuntimeOrigin::signed(challenger_stash.clone()),
-			challenger_balance,
-			target_stash.clone()
-		));
-
-		let final_candidates = pallet_collator_selection::CandidateList::<Test>::get();
-		assert!(final_candidates
-			.iter()
-			.any(|info| info.who == challenger_stash && info.deposit == challenger_balance));
-		assert!(!final_candidates.iter().any(|info| info.who == target_stash));
 	});
 }
 
@@ -638,20 +434,5 @@ fn revoke_controller_approval_works() {
 			CollatorManager::revoke_controller_approval(RuntimeOrigin::signed(controller), stash,),
 			Error::<Test>::NoPendingApproval,
 		);
-	});
-}
-
-#[test]
-fn repeated_reserve_calls_respect_total_balance() {
-	new_test_ext().execute_with(|| {
-		Balances::set_balance(&CHARLIE, 100 * UNIT);
-
-		assert_ok!(CollatorManager::reserve(&CHARLIE, 60 * UNIT));
-		assert_ok!(CollatorManager::reserve(&CHARLIE, 40 * UNIT));
-
-		assert_err!(CollatorManager::reserve(&CHARLIE, 1), Error::<Test>::InsufficientBalance);
-
-		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), 100 * UNIT);
-		assert_eq!(Balances::free_balance(&CHARLIE), 100 * UNIT);
 	});
 }

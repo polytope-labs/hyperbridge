@@ -29,7 +29,7 @@ use subxt_utils::Hyperbridge;
 
 const NEXUS_RPC: &str = "wss://nexus.ibp.network";
 
-struct ProcessGuard(Child);
+pub(crate) struct ProcessGuard(pub(crate) Child);
 
 impl Drop for ProcessGuard {
 	fn drop(&mut self) {
@@ -37,7 +37,7 @@ impl Drop for ProcessGuard {
 	}
 }
 
-async fn build_binary_from_main_branch() -> Result<String, anyhow::Error> {
+pub(crate) async fn build_binary_from_main_branch() -> Result<String, anyhow::Error> {
 	let current_dir = env::current_dir()?;
 	let clone_dir = current_dir.join("hyperbridge-main-clone");
 
@@ -98,7 +98,7 @@ async fn build_binary_from_main_branch() -> Result<String, anyhow::Error> {
 	Ok(binary_dest.to_string_lossy().to_string())
 }
 
-async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
+pub(crate) async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
 	let current_dir = env::current_dir()?;
 
 	// Navigate to the repository root (assuming we're in parachain/simtests or similar)
@@ -137,7 +137,7 @@ async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
 	Ok(wasm_dest.to_string_lossy().to_string())
 }
 
-async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error> {
+pub(crate) async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error> {
 	let start = Instant::now();
 	while start.elapsed() < timeout {
 		if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
@@ -331,7 +331,7 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
-async fn batch_set_storage(
+pub(crate) async fn batch_set_storage(
 	client: &OnlineClient<Hyperbridge>,
 	rpc_client: &RpcClient,
 	sudo_account: &sp_core::crypto::AccountId32,
@@ -353,7 +353,7 @@ async fn batch_set_storage(
 	Ok(())
 }
 
-async fn submit_sudo(
+pub(crate) async fn submit_sudo(
 	client: &OnlineClient<Hyperbridge>,
 	rpc_client: &RpcClient,
 	sudo_account: &sp_core::crypto::AccountId32,

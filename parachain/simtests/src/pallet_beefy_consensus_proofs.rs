@@ -144,10 +144,10 @@ fn sp1_wire_proof() -> Vec<u8> {
 	out
 }
 
-/// SP1 verification key the fixture proof was generated against — matches the mainnet
-/// SP1Beefy deployment at `0x82582f85cf370adCB61D97dab3068c0C4102Ccb6`.
+/// SP1 verification key the fixture proof was generated against — sp1-beefy v1.1.0 program vkey
+/// (public values include the committed prover nonce).
 const SP1_FIXTURE_VKEY: [u8; 32] =
-	hex_literal::hex!("009ce9c86546ac790c9e694519e16e59ff34b633c309fe4d6a4f850b886cddcf");
+	hex_literal::hex!("007d1720c695842ed647a1a72e981751f9b5e26fc5ca038523b23430a1292f08");
 
 /// Storage-key builder for a `Twox64Concat` map (`twox_128(pallet) ++ twox_128(item) ++
 /// twox_64(key) ++ key`).
@@ -780,7 +780,7 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	);
 
 	// Dedup now keys on the submission account (the committed nonce), not the proof bytes.
-	let bob_account: H256 = H256(Keyring::Bob.to_account_id().0);
+	let bob_account: H256 = H256::from_slice(Keyring::Bob.to_account_id().as_ref());
 
 	// 5. Bob: WIRE_PROOF as-is. Position 0.
 	eprintln!("[stage] submit (Bob) — expect uncle accept at position 0");

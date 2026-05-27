@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
 
-import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v6.1.0/SP1VerifierGroth16.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {UniV4UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV4UniswapV2Wrapper.sol";
 import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";

@@ -28093,6 +28093,7 @@ dependencies = [
 name = "tesseract-beefy"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
@@ -28102,6 +28103,7 @@ dependencies = [
  "beefy-verifier-primitives",
  "bytes",
  "derive_more 1.0.0",
+ "dotenv",
  "finality-grandpa",
  "futures",
  "hex",

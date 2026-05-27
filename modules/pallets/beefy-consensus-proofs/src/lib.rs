@@ -322,7 +322,7 @@ pub mod pallet {
 					challenge_periods: Default::default(),
 					state_machine_commitments: vec![(
 						StateMachineId {
-							consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+							consensus_state_id: T::ConsensusStateId::get(),
 							state_id: host.host_state_machine(),
 						},
 						StateCommitmentHeight {

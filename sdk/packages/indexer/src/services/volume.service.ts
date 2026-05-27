@@ -4,29 +4,37 @@ import { CumulativeVolumeUSD, DailyVolumeUSD } from "@/configs/src/types"
 import { getDateFormatFromTimestamp, timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 
+/** Decimal places used for the BigInt fixed-point representation of USD volumes. */
+const USD_SCALE = 18
+const USD_SCALE_FACTOR = new Decimal(10).pow(USD_SCALE)
+
+/** Convert a decimal-string USD value (e.g. "1.5") to a scaled BigInt (e.g. 1_500_000_000_000_000_000n). */
+function toScaledUsd(volumeUSD: string): bigint {
+	return BigInt(new Decimal(volumeUSD).mul(USD_SCALE_FACTOR).toFixed(0))
+}
+
 export class VolumeService {
 	/**
 	 * Update cumulative volume for a given identifier
 	 * @param baseId - The identifier for the cumulative volume record
-	 * @param volumeUSD - The volume in USD to add
+	 * @param volumeUSD - The volume in USD to add (decimal string)
 	 * @param timestamp - The timestamp of the transaction
 	 */
 	static async updateCumulativeVolume(baseId: string, volumeUSD: string, timestamp: bigint): Promise<void> {
 		const id = this.getChainTypeId(baseId)
+		const scaled = toScaledUsd(volumeUSD)
 		let cumulativeVolumeUSD = await CumulativeVolumeUSD.get(id)
 
 		if (!cumulativeVolumeUSD) {
 			cumulativeVolumeUSD = CumulativeVolumeUSD.create({
 				id,
-				volumeUSD: new Decimal(volumeUSD).toFixed(18),
+				volumeUSD: scaled,
 				lastUpdatedAt: timestamp,
 			})
 		}
 
 		if (cumulativeVolumeUSD.lastUpdatedAt !== timestamp) {
-			cumulativeVolumeUSD.volumeUSD = new Decimal(cumulativeVolumeUSD.volumeUSD)
-				.plus(new Decimal(volumeUSD))
-				.toFixed(18)
+			cumulativeVolumeUSD.volumeUSD = cumulativeVolumeUSD.volumeUSD + scaled
 			cumulativeVolumeUSD.lastUpdatedAt = timestamp
 		}
 
@@ -37,7 +45,7 @@ export class VolumeService {
 	 * Update daily volume for a given identifier
 	 * Creates a new record every 24 hours
 	 * @param baseId - The base identifier for the daily volume record
-	 * @param volumeUSD - The volume in USD to add
+	 * @param volumeUSD - The volume in USD to add (decimal string)
 	 * @param timestamp - The timestamp of the transaction
 	 */
 	static async updateDailyVolume(baseId: string, volumeUSD: string, timestamp: bigint): Promise<void> {
@@ -52,15 +60,13 @@ export class VolumeService {
 		if (!dailyVolumeUSD) {
 			dailyVolumeUSD = DailyVolumeUSD.create({
 				id: dailyRecordId,
-				last24HoursVolumeUSD: "0",
+				last24HoursVolumeUSD: 0n,
 				lastUpdatedAt: timestamp,
 				createdAt: day,
 			})
 		}
 
-		dailyVolumeUSD.last24HoursVolumeUSD = new Decimal(dailyVolumeUSD.last24HoursVolumeUSD)
-			.plus(new Decimal(volumeUSD))
-			.toFixed(18)
+		dailyVolumeUSD.last24HoursVolumeUSD = dailyVolumeUSD.last24HoursVolumeUSD + toScaledUsd(volumeUSD)
 		dailyVolumeUSD.lastUpdatedAt = timestamp
 
 		await dailyVolumeUSD.save()

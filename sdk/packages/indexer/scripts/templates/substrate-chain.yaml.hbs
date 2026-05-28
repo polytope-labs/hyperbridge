@@ -71,6 +71,8 @@ dataSources:
           kind: substrate/BlockHandler
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
+        - handler: handlePendingStatusFlush
+          kind: substrate/BlockHandler
 {{/if}}
 {{#if enablePriceIndexing}}
         - handler: handlePriceIndexing

@@ -5,9 +5,9 @@ import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
 
-import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v6.1.0/SP1VerifierGroth16.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
+import {UniV4UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV4UniswapV2Wrapper.sol";
 import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
@@ -65,24 +65,36 @@ contract DeployScript is BaseScript {
         if (isMainnet) {
             // use feeToken configured in environment variables
             address uniswap = config.get("UNISWAP_V2").toAddress();
-            // if existing univ2 address isn't available, deploy univ3 wrapper
+            // if existing univ2 address isn't available, deploy univ4 wrapper
             if (uniswap == address(0)) {
-                UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
-                wrapper.init(
-                    UniV3UniswapV2Wrapper.Params({
-                        WETH: config.get("WETH").toAddress(),
-                        swapRouter: config.get("SWAP_ROUTER").toAddress(),
-                        quoter: config.get("QUOTER").toAddress(),
-                        maxFee: uint24(config.get("MAX_FEE").toUint256())
-                    })
-                );
-                uniswapV2 = address(wrapper);
+                address universalRouter = config.get("UNIVERSAL_ROUTER").toAddress();
+                if (universalRouter != address(0)) {
+                    UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
+                    wrapper.init(
+                        UniV4UniswapV2Wrapper.Params({
+                            universalRouter: universalRouter,
+                            quoter: config.get("V4_QUOTER").toAddress(),
+                            WETH: config.get("WETH").toAddress(),
+                            defaultFee: uint24(config.get("DEFAULT_FEE").toUint256()),
+                            defaultTickSpacing: int24(config.get("DEFAULT_TICK_SPACING").toInt256())
+                        })
+                    );
+                    uniswapV2 = address(wrapper);
+                }
             } else {
                 uniswapV2 = uniswap;
             }
 
             feeToken = config.get("FEE_TOKEN").toAddress();
-            decimals = IERC20Metadata(feeToken).decimals();
+            // Allow the fee token's decimals to be set explicitly in config. Needed on chains
+            // where the fee token is a runtime asset precompile (e.g. Polkadot Hub USDC) whose
+            // decimals() cannot be executed in forge's local fork. Falls back to an on-chain
+            // read when not configured.
+            if (config.exists("FEE_TOKEN_DECIMALS")) {
+                decimals = config.get("FEE_TOKEN_DECIMALS").toUint256();
+            } else {
+                decimals = IERC20Metadata(feeToken).decimals();
+            }
             hyperbridge = StateMachine.polkadot(paraId);
         } else {
             // Deploy our own feetoken contract & faucet
@@ -139,13 +151,15 @@ contract DeployScript is BaseScript {
         vm.stopBroadcast();
 
         // ============= Write addresses to config =============
-        if (!isMainnet) config.set("TOKEN_FAUCET", address(faucet));
+        if (!isMainnet) {
+            config.set("TOKEN_FAUCET", address(faucet));
+            config.set("FEE_TOKEN", feeToken);
+        }
         config.set("HOST", address(host));
         config.set("ECDSA_BEEFY", address(ecdsaBeefy));
         config.set("SP1_BEEFY", address(sp1Beefy));
         config.set("HANDLER_V2", address(handler));
         config.set("CONSENSUS_ROUTER", address(consensusRouter));
-        config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
         config.set("BANDWIDTH_MANAGER", address(bandwidthManager));
     }

@@ -823,152 +823,6 @@
 	},
 	{
 		"type": "function",
-		"name": "onPostResponse",
-		"inputs": [
-			{
-				"name": "",
-				"type": "tuple",
-				"internalType": "struct IncomingPostResponse",
-				"components": [
-					{
-						"name": "response",
-						"type": "tuple",
-						"internalType": "struct PostResponse",
-						"components": [
-							{
-								"name": "request",
-								"type": "tuple",
-								"internalType": "struct PostRequest",
-								"components": [
-									{
-										"name": "source",
-										"type": "bytes",
-										"internalType": "bytes"
-									},
-									{
-										"name": "dest",
-										"type": "bytes",
-										"internalType": "bytes"
-									},
-									{
-										"name": "nonce",
-										"type": "uint64",
-										"internalType": "uint64"
-									},
-									{
-										"name": "from",
-										"type": "bytes",
-										"internalType": "bytes"
-									},
-									{
-										"name": "to",
-										"type": "bytes",
-										"internalType": "bytes"
-									},
-									{
-										"name": "timeoutTimestamp",
-										"type": "uint64",
-										"internalType": "uint64"
-									},
-									{
-										"name": "body",
-										"type": "bytes",
-										"internalType": "bytes"
-									}
-								]
-							},
-							{
-								"name": "response",
-								"type": "bytes",
-								"internalType": "bytes"
-							},
-							{
-								"name": "timeoutTimestamp",
-								"type": "uint64",
-								"internalType": "uint64"
-							}
-						]
-					},
-					{
-						"name": "relayer",
-						"type": "address",
-						"internalType": "address"
-					}
-				]
-			}
-		],
-		"outputs": [],
-		"stateMutability": "nonpayable"
-	},
-	{
-		"type": "function",
-		"name": "onPostResponseTimeout",
-		"inputs": [
-			{
-				"name": "",
-				"type": "tuple",
-				"internalType": "struct PostResponse",
-				"components": [
-					{
-						"name": "request",
-						"type": "tuple",
-						"internalType": "struct PostRequest",
-						"components": [
-							{
-								"name": "source",
-								"type": "bytes",
-								"internalType": "bytes"
-							},
-							{
-								"name": "dest",
-								"type": "bytes",
-								"internalType": "bytes"
-							},
-							{
-								"name": "nonce",
-								"type": "uint64",
-								"internalType": "uint64"
-							},
-							{
-								"name": "from",
-								"type": "bytes",
-								"internalType": "bytes"
-							},
-							{
-								"name": "to",
-								"type": "bytes",
-								"internalType": "bytes"
-							},
-							{
-								"name": "timeoutTimestamp",
-								"type": "uint64",
-								"internalType": "uint64"
-							},
-							{
-								"name": "body",
-								"type": "bytes",
-								"internalType": "bytes"
-							}
-						]
-					},
-					{
-						"name": "response",
-						"type": "bytes",
-						"internalType": "bytes"
-					},
-					{
-						"name": "timeoutTimestamp",
-						"type": "uint64",
-						"internalType": "uint64"
-					}
-				]
-			}
-		],
-		"outputs": [],
-		"stateMutability": "nonpayable"
-	},
-	{
-		"type": "function",
 		"name": "params",
 		"inputs": [],
 		"outputs": [
@@ -1233,10 +1087,10 @@
 		"name": "DestinationProtocolFeeUpdated",
 		"inputs": [
 			{
-				"name": "stateMachineId",
-				"type": "bytes32",
-				"indexed": true,
-				"internalType": "bytes32"
+				"name": "chain",
+				"type": "string",
+				"indexed": false,
+				"internalType": "string"
 			},
 			{
 				"name": "feeBps",
@@ -1361,13 +1215,13 @@
 	},
 	{
 		"type": "event",
-		"name": "NewDeploymentAdded",
+		"name": "DeploymentAdded",
 		"inputs": [
 			{
-				"name": "stateMachineId",
-				"type": "bytes",
+				"name": "chain",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "gateway",
@@ -1445,15 +1299,15 @@
 			},
 			{
 				"name": "source",
-				"type": "bytes",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "destination",
-				"type": "bytes",
+				"type": "string",
 				"indexed": false,
-				"internalType": "bytes"
+				"internalType": "string"
 			},
 			{
 				"name": "deadline",

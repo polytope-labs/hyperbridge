@@ -74,7 +74,7 @@ export const handleSubstratePostRequestHandledEvent = wrap(async (event: Substra
 	// Non-critical operations: Update hyperbridge stats
 	try {
 		logger.info(`Updating Hyperbridge chain stats for ${host}`)
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
+		await HyperBridgeService.handleRequestHandledEvent(relayer_id, host, blockTimestamp)
 	} catch (error) {
 		logger.error(`Error in non-critical operations for PostRequestHandled: ${stringify(error)}`)
 	}

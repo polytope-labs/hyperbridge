@@ -1,8 +1,20 @@
 import Decimal from "decimal.js"
 import { ethers } from "ethers"
 import type { Hex } from "viem"
-import { keccak256, encodeAbiParameters, toHex } from "viem"
+import { keccak256, encodeAbiParameters, toHex, type AbiParameter } from "viem"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
+import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
+
+// Derive the Order tuple type from the canonical ABI so this stays in sync with
+// the on-chain struct (which the contract hashes via keccak256(abi.encode(order))).
+const ORDER_TUPLE_TYPE: AbiParameter = (() => {
+	const placeOrder = (IntentGatewayV3Abi as readonly any[]).find(
+		(item) => item.type === "function" && item.name === "placeOrder",
+	)
+	const order = placeOrder?.inputs?.[0]
+	if (!order) throw new Error("placeOrder.order not found in IntentGatewayV3 ABI")
+	return order as AbiParameter
+})()
 
 import { OrderStatus, PendingStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
@@ -35,6 +47,9 @@ export interface TokenInfo {
 }
 
 const ENTITY_TYPE = "IOrderV3"
+
+const decodeChain = (value: string): string =>
+	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
 
 export interface DispatchInfo {
 	assets: TokenInfo[]
@@ -204,7 +219,7 @@ export class IntentGatewayV3Service {
 
 			await PointsService.awardPoints(
 				order.user,
-				ethers.utils.toUtf8String(order.sourceChain),
+				decodeChain(order.sourceChain),
 				BigInt(pointsToAward),
 				ProtocolParticipantType.USER,
 				PointsActivityType.ORDER_PLACED_POINTS,
@@ -215,7 +230,7 @@ export class IntentGatewayV3Service {
 
 			await VolumeService.updateVolume("IntentGatewayV3.USER", inputUSD, timestamp)
 
-			// Convert user to 20 bytes for UserActivity ID, but keep referrer as 32 bytes
+			// Convert user to 20 bytes for UserActivityV2 ID, but keep referrer as 32 bytes
 			const userAddress20 = bytes32ToBytes20(order.user)
 			let user = await getOrCreateUser(userAddress20, referrer, timestamp)
 			user.totalOrdersPlaced = user.totalOrdersPlaced + BigInt(1)
@@ -268,7 +283,7 @@ export class IntentGatewayV3Service {
 
 				await PointsService.awardPoints(
 					order.user,
-					ethers.utils.toUtf8String(order.sourceChain),
+					decodeChain(order.sourceChain),
 					BigInt(pointsToAward),
 					ProtocolParticipantType.USER,
 					PointsActivityType.ORDER_PLACED_POINTS,
@@ -404,7 +419,7 @@ export class IntentGatewayV3Service {
 				// Rewards
 				await PointsService.awardPoints(
 					filler,
-					ethers.utils.toUtf8String(orderPlaced.destChain),
+					decodeChain(orderPlaced.destChain),
 					BigInt(pointsToAward),
 					ProtocolParticipantType.FILLER,
 					PointsActivityType.ORDER_FILLED_POINTS,
@@ -413,7 +428,7 @@ export class IntentGatewayV3Service {
 					timestamp,
 				)
 
-				// User - convert to 20 bytes for UserActivity ID, referrer is already 32 bytes
+				// User - convert to 20 bytes for UserActivityV2 ID, referrer is already 32 bytes
 				const userAddress20 = bytes32ToBytes20(orderPlaced.user)
 				let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
 				user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
@@ -427,7 +442,7 @@ export class IntentGatewayV3Service {
 					const referrerPointsToAward = Math.floor(pointsToAward / 2)
 					await PointsService.awardPoints(
 						user.referrer,
-						ethers.utils.toUtf8String(orderPlaced.sourceChain),
+						decodeChain(orderPlaced.sourceChain),
 						BigInt(referrerPointsToAward),
 						ProtocolParticipantType.REFERRER,
 						PointsActivityType.ORDER_REFERRED_POINTS,
@@ -757,70 +772,19 @@ export class IntentGatewayV3Service {
 	}
 
 	static computeOrderCommitment(order: OrderV3): string {
+		// Legacy DB rows store state-machine ids as hex bytes; new event data
+		// arrives as plain strings (e.g. "EVM-97"). Normalise both to the hex
+		// form the Order struct's `bytes source/destination` fields expect.
+		const toBytes = (value: string): `0x${string}` =>
+			value.startsWith("0x") ? (value as `0x${string}`) : toHex(value)
+
 		const encoded = encodeAbiParameters(
-			[
-				{
-					name: "order",
-					type: "tuple",
-					components: [
-						{ name: "user", type: "bytes32" },
-						{ name: "source", type: "bytes" },
-						{ name: "destination", type: "bytes" },
-						{ name: "deadline", type: "uint256" },
-						{ name: "nonce", type: "uint256" },
-						{ name: "fees", type: "uint256" },
-						{ name: "session", type: "address" },
-						{
-							name: "predispatch",
-							type: "tuple",
-							components: [
-								{
-									name: "assets",
-									type: "tuple[]",
-									components: [
-										{ name: "token", type: "bytes32" },
-										{ name: "amount", type: "uint256" },
-									],
-								},
-								{ name: "call", type: "bytes" },
-							],
-						},
-						{
-							name: "inputs",
-							type: "tuple[]",
-							components: [
-								{ name: "token", type: "bytes32" },
-								{ name: "amount", type: "uint256" },
-							],
-						},
-						{
-							name: "output",
-							type: "tuple",
-							components: [
-								{ name: "beneficiary", type: "bytes32" },
-								{
-									name: "assets",
-									type: "tuple[]",
-									components: [
-										{ name: "token", type: "bytes32" },
-										{ name: "amount", type: "uint256" },
-									],
-								},
-								{ name: "call", type: "bytes" },
-							],
-						},
-					],
-				},
-			],
+			[ORDER_TUPLE_TYPE],
 			[
 				{
 					user: order.user,
-					source: order.sourceChain.startsWith("0x")
-						? (order.sourceChain as `0x${string}`)
-						: toHex(order.sourceChain),
-					destination: order.destChain.startsWith("0x")
-						? (order.destChain as `0x${string}`)
-						: toHex(order.destChain),
+					source: toBytes(order.sourceChain),
+					destination: toBytes(order.destChain),
 					deadline: order.deadline,
 					nonce: order.nonce,
 					fees: order.fees,
@@ -837,7 +801,7 @@ export class IntentGatewayV3Service {
 						assets: order.outputs.assets.map((a) => ({ token: a.token, amount: a.amount })),
 						call: order.outputs.call,
 					},
-				},
+				} as any,
 			],
 		)
 

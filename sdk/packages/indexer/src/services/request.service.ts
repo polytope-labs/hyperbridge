@@ -236,14 +236,17 @@ export class RequestService {
 			})}`,
 		)
 
-		// Convert source, dest, from, to, body to bytes
+		// Convert source/dest from state-machine strings ("EVM-97" etc.) to bytes.
 		const sourceByte = ethers.utils.toUtf8Bytes(source)
 		const destByte = ethers.utils.toUtf8Bytes(dest)
 
-		let hash = solidityKeccak256(
-			["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
-			[sourceByte, destByte, nonce, timeoutTimestamp, from, to, body],
+		// Mirror the EVM host's commitment: keccak256(abi.encode(PostRequest)),
+		// with the outer tuple wrapper. Field order matches the PostRequest struct
+		// in core/libraries/Message.sol: source, dest, nonce, from, to, timeoutTimestamp, body.
+		const encoded = ethers.utils.defaultAbiCoder.encode(
+			["tuple(bytes,bytes,uint64,bytes,bytes,uint64,bytes)"],
+			[[sourceByte, destByte, nonce, from, to, timeoutTimestamp, body]],
 		)
-		return hash
+		return ethers.utils.keccak256(encoded)
 	}
 }

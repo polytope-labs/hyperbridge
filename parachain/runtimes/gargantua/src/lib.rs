@@ -187,6 +187,7 @@ pub type Migrations = (
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -377,7 +378,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<Everything, TxPause>;
+	type BaseCallFilter = InsideBoth<ReputationCallFilter, InsideBoth<Everything, TxPause>>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -761,6 +762,30 @@ pub type ReputationAsset =
 
 parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
+/// Reputation tokens are soulbound — credited via the incentive pallets
+/// and consumed only by `pallet-collator-manager`'s per-session reset.
+/// The holder must not be able to send them anywhere, so this filter
+/// rejects every dispatched `Assets` call that could move balance out
+/// of a holder's account when the target asset is the reputation asset.
+/// Programmatic `fungible::Mutate` (mint / burn from runtime pallets)
+/// bypasses dispatch and is therefore unaffected.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
 }
 
 parameter_types! {

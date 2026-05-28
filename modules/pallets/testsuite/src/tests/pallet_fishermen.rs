@@ -22,18 +22,18 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 };
-use sp_core::{crypto::AccountId32, H256};
+use pallet_fishermen::FishermanBlacklist;
+use sp_core::{crypto::AccountId32, H160, H256};
 use sp_runtime::{DispatchError, ModuleError};
 
 #[test]
 fn test_can_veto_state_commitments() {
 	new_test_ext().execute_with(|| {
-		let collator_a: AccountId32 = H256::random().0.into();
-		let collator_b: AccountId32 = H256::random().0.into();
+		let collator: AccountId32 = H256::random().0.into();
 		let outsider: AccountId32 = H256::random().0.into();
 
-		// Seed the active collator set. Outsider deliberately not included.
-		CollatorSet::set(vec![collator_a.clone(), collator_b.clone()]);
+		// Only the collator is in the active set.
+		CollatorSet::set(vec![collator.clone()]);
 
 		let host = Ismp::default();
 		let height = StateMachineHeight {
@@ -50,48 +50,121 @@ fn test_can_veto_state_commitments() {
 
 		// A non-collator cannot veto.
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(outsider.clone()),
-			height,
-		);
-		assert_eq!(
-			result,
-			Err(DispatchError::Module(ModuleError {
-				index: 8,
-				error: [0, 0, 0, 0],
-				message: Some("UnauthorizedAction"),
-			}))
-		);
-
-		// First collator records a pending veto.
-		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(collator_a.clone()),
-			height,
-		);
-		assert_eq!(result, Ok(()));
-		assert_eq!(pallet_fishermen::PendingVetoes::<Test>::get(height), Some(collator_a.clone()));
-
-		// Same collator submitting again is rejected.
-		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(collator_a.clone()),
+			RuntimeOrigin::signed(outsider),
 			height,
 		);
 		assert!(matches!(
 			result,
-			Err(sp_runtime::DispatchError::Module(ModuleError {
-				index: 8,
-				error: [2, 0, 0, 0,],
-				message: Some("InvalidVeto",),
-			}))
+			Err(DispatchError::Module(ModuleError { message: Some("UnauthorizedAction"), .. }))
 		));
 
-		// Second distinct collator finalizes the veto and the commitment is gone.
-		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
-			RuntimeOrigin::signed(collator_b.clone()),
-			height,
+		// A single collator's call deletes the commitment.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::veto_state_commitment(
+				RuntimeOrigin::signed(collator),
+				height,
+			),
+			Ok(()),
 		);
-		assert_eq!(result, Ok(()));
-
 		let result = host.state_machine_commitment(height);
 		assert!(matches!(result, Err(Error::StateCommitmentNotFound { .. })));
+	})
+}
+
+#[test]
+fn test_can_blacklist_dispute_games() {
+	new_test_ext().execute_with(|| {
+		let collator: AccountId32 = H256::random().0.into();
+		let outsider: AccountId32 = H256::random().0.into();
+		CollatorSet::set(vec![collator.clone()]);
+
+		let state_machine_id =
+			StateMachineId { state_id: StateMachine::Evm(10), consensus_state_id: *b"OPTI" };
+		let proxy = H160::repeat_byte(0xab);
+
+		// Outsider rejected.
+		let result = pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+			RuntimeOrigin::signed(outsider),
+			state_machine_id,
+			proxy,
+		);
+		assert!(matches!(
+			result,
+			Err(DispatchError::Module(ModuleError { message: Some("UnauthorizedAction"), .. }))
+		));
+
+		// Not blacklisted yet.
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, proxy,
+		));
+
+		// A single collator's call finalizes the blacklist.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+				RuntimeOrigin::signed(collator.clone()),
+				state_machine_id,
+				proxy,
+			),
+			Ok(()),
+		);
+		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, proxy,
+		));
+		// The submitting fisherman is recorded.
+		assert_eq!(
+			pallet_fishermen::BlacklistedDisputeGames::<Test>::get(state_machine_id, proxy),
+			Some(collator.clone()),
+		);
+
+		// Idempotent: a second call is silently Ok and doesn't overwrite the recorded fisherman.
+		let second_collator: AccountId32 = H256::random().0.into();
+		CollatorSet::set(vec![collator.clone(), second_collator.clone()]);
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_dispute_game(
+				RuntimeOrigin::signed(second_collator),
+				state_machine_id,
+				proxy,
+			),
+			Ok(()),
+		);
+		assert_eq!(
+			pallet_fishermen::BlacklistedDisputeGames::<Test>::get(state_machine_id, proxy),
+			Some(collator),
+		);
+
+		// A different proxy on the same chain is still un-blacklisted.
+		let other_proxy = H160::repeat_byte(0xcd);
+		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+			state_machine_id, other_proxy,
+		));
+	})
+}
+
+#[test]
+fn test_can_blacklist_arbitrum_claims() {
+	new_test_ext().execute_with(|| {
+		let collator: AccountId32 = H256::random().0.into();
+		CollatorSet::set(vec![collator.clone()]);
+
+		let state_machine_id =
+			StateMachineId { state_id: StateMachine::Evm(42161), consensus_state_id: *b"ARBC" };
+		let claim = H256::repeat_byte(0x55);
+
+		// A single collator's call finalizes the blacklist.
+		assert_eq!(
+			pallet_fishermen::Pallet::<Test>::blacklist_arbitrum_claim(
+				RuntimeOrigin::signed(collator.clone()),
+				state_machine_id,
+				claim,
+			),
+			Ok(()),
+		);
+		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
+			state_machine_id, claim,
+		));
+		assert_eq!(
+			pallet_fishermen::BlacklistedArbitrumClaims::<Test>::get(state_machine_id, claim),
+			Some(collator),
+		);
 	})
 }

@@ -26,7 +26,7 @@ contract DeployScript is BaseScript {
         address priceOracle = address(0);
         // address priceOracle = deployPriceOracle(address(intentGateway));
 
-        Deployment[] memory deployments = new Deployment[](7);
+        Deployment[] memory deployments = new Deployment[](9);
         deployments[0] = Deployment({
             chain: StateMachine.evm(1), // ethereum
             gateway: address(intentGateway)
@@ -53,6 +53,14 @@ contract DeployScript is BaseScript {
         });
         deployments[6] = Deployment({
             chain: StateMachine.evm(137), // polygon
+            gateway: address(intentGateway)
+        });
+        deployments[7] = Deployment({
+            chain: StateMachine.evm(420420419), // polkadot
+            gateway: address(intentGateway)
+        });
+        deployments[8] = Deployment({
+            chain: StateMachine.evm(1868), // soneium
             gateway: address(intentGateway)
         });
 

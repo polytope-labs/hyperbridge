@@ -97,6 +97,10 @@ pub enum Error {
 		counteredByIntermediateRootIndexPlusOne != 0"
 	)]
 	AggregateVerifierChallenged,
+	/// The dispute game proxy referenced by this proof has been blacklisted by the fishermen
+	/// pallet. The consensus verifier refuses to process any further proofs for it.
+	#[error("Dispute game proxy {0:?} has been blacklisted by fishermen")]
+	DisputeGameBlacklisted(H160),
 
 	// -- ismp-optimism client wrapper --
 	/// The submitted consensus proof failed to SCALE-decode into an `OptimismUpdate`.

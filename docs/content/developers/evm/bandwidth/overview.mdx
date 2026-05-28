@@ -1,0 +1,153 @@
+---
+title: Overview
+description: Prepaid bandwidth subscriptions for Hyperbridge apps — tier-based byte allowances credited via on-chain purchases and enforced on Hyperbridge by pallet-bandwidth.
+---
+
+# Bandwidth
+
+Hyperbridge meters outbound traffic per `(source chain, app)`. Instead of paying a protocol fee on every dispatch, an app pre-pays for a tier and earns a byte allowance that drains as it sends messages. The allowance is enforced by the **bandwidth gate** on Hyperbridge — a hook the ISMP router consults on every inbound request from a source chain. When the gate is empty, the message is rejected.
+
+Bandwidth is sold per **tier** (a byte budget × a time window) and per **month** (a multiplier on both). Purchases are made from any source chain by calling `purchase()` on the [`BandwidthManager`](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/apps/BandwidthManager.sol) contract; the contract dispatches a credit message to [`pallet-bandwidth`](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/bandwidth/src/lib.rs) on Hyperbridge, which mints a new subscription for the target `(chain, app)`.
+
+## Why Bandwidth
+
+Per-message protocol fees price each dispatch in isolation. That works for occasional cross-chain traffic but is awkward for apps that send a steady stream of small messages — every dispatch pays the same overhead and there's no way to commit upfront to a usage budget.
+
+Bandwidth swaps that model for a subscription. An app buys a tier once, the pallet tracks the remaining byte balance, and the gate silently passes messages until the balance is exhausted. There's no per-message fee path on dispatch — the cost was paid at purchase time.
+
+### Plans at a glance
+
+| Plan   | Bytes  | $/byte    |
+| ------ | ------ | --------- |
+| $50    | 100 KB | $0.000500 |
+| $100   | 300 KB | $0.000333 |
+| $250   | 1 MB   | $0.000250 |
+| $1000  | 8 MB   | $0.000125 |
+
+Larger tiers trade upfront commitment for a steep per-byte discount — the $1000 plan is roughly 4× cheaper per byte than the $50 plan.
+
+## Architecture
+
+Two contracts plus the runtime gate form a closed loop:
+
+| Component                                                                                                          | Where                      | Role                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [`BandwidthManager.sol`](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/apps/BandwidthManager.sol) | One per source chain (EVM) | Storefront. Holds tier prices, pulls the fee token on `purchase()`, dispatches the credit message to Hyperbridge.    |
+| [`pallet-bandwidth`](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/bandwidth/src/lib.rs)  | Hyperbridge runtime        | Subscription ledger. Credits a `(chain, app)` bucket on inbound purchase messages; provides the gate that drains it. |
+| `BandwidthGate`                                                                                                    | Hyperbridge ISMP router    | Atomic check-and-deduct consulted on every non-purchase request from a managed source chain.                         |
+
+The pallet owns the bytes-and-duration side of each tier; the manager owns the price side. Governance keeps the two in sync by dispatching a `SetTiers` message from the pallet to each registered manager whenever prices change.
+
+## The Tier Model
+
+A tier is a `(bytes, duration_secs)` SKU on the pallet, paired with an 18-decimal price on the manager. Purchases scale both axes linearly by `months`:
+
+```
+allowance.bytes        = tier.bytes        × months
+allowance.duration_secs = tier.duration_secs × months
+allowance.expires_at    = block_time + allowance.duration_secs
+allowance.cost          = tier.price × months   (18-decimal, scaled to fee-token decimals)
+```
+
+Tier discriminants are a closed enum on both sides — `TierOne` (1), `TierTwo` (2), `TierThree` (3), `TierFour` (4). Adding a tier requires a coordinated upgrade of the pallet enum and the manager contract; the wire format is just the `uint256` discriminant.
+
+A tier is **unconfigured** until both sides have set it. The pallet rejects purchases against a tier without a `TierConfig`; the manager rejects purchases against a tier with a zero price.
+
+## Subscription Lifecycle
+
+Each `(chain, app)` row holds a FIFO list of subscriptions, capped at **1024** entries. Every purchase appends a new subscription — same-tier repurchases don't stack, they queue.
+
+A subscription is immutable across its lifetime:
+
+| Field             | Behavior                                                                       |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `tier`            | Recorded at purchase time. Used for events and analytics, not for gating.      |
+| `remaining_bytes` | Drains as the gate consumes messages. Pops once it hits zero.                  |
+| `expires_at`      | Fixed at purchase. Never extends — a repurchase is a _new_ row, not a renewal. |
+| `purchased_at`    | Insertion timestamp. Fixes FIFO order under same-block buys.                   |
+
+### Drain order
+
+The gate drains from the **head** of the list. Once the head is fully consumed it pops and continues into the next. If the next entry is expired it's swept silently — what you paid for is yours only until it expires.
+
+This matters when you queue multiple tiers: the cheapest/oldest entry is consumed first regardless of which tier it came from. Plan top-ups so a higher tier doesn't sit behind a soon-to-expire lower tier you'd rather burn last.
+
+### Eviction
+
+Pushing onto a full list (1024 entries) evicts the **oldest** entry and emits `SubscriptionEvicted` with the lost bytes so the loss is auditable on-chain. In practice this only happens under pathological repeat-buy behavior — at the default of one purchase per cycle, 1024 buys is years of headroom.
+
+### Expiry sweep
+
+The gate retains expired entries in storage until the next consume call, at which point it filters them out in place. Reading `Pallet::remaining(chain, app)` or `Pallet::allowances(chain, app)` always returns the live-filtered view — expired entries never leak into the public-facing API.
+
+## The Gate
+
+Every non-purchase POST request from a registered source chain runs through `BandwidthGate::try_consume(source, app, bytes)`:
+
+1. If the app is on the **allowlist** for that source, return `Ok` without touching the ledger.
+2. Sweep expired subscriptions in place.
+3. If no live subscriptions remain → `GateError::NoAllowance`.
+4. Sum `remaining_bytes` across live entries. If the sum is short → `GateError::Insufficient { remaining, required }`. **No mutation happens in this case** — the caller can retry after a top-up.
+5. Otherwise drain from the head until the requested bytes are satisfied. Pop entries that hit zero. Emit `BandwidthConsumed` with the post-deduct remaining.
+
+The "no mutation on insufficient" property is load-bearing: it means a top-up race is safe — if a message arrives between when an app notices it's short and when the top-up lands, the message stays rejectable rather than half-consuming the subscription.
+
+### Allowlist bypass
+
+The `Allowlist` storage map is a per-`(source, app)` flag that short-circuits the gate. It exists for two reasons:
+
+- **Phased rollout.** Protocol-sponsored apps (e.g. core token gateways) that haven't yet migrated to the bandwidth model bypass the gate while their integration is in flight.
+- **Migration paths.** Apps that need a brief unpaid window during a contract upgrade can be allowlisted and revoked once they're back on the meter.
+
+Allowlist membership is admin-only and emits `AllowlistChanged` on every flip.
+
+### Purchase messages skip the gate
+
+The router uses `Pallet::is_purchase_message(request)` to identify a purchase from a registered manager (`request.source` is managed _and_ `request.from` matches the registered manager address). Purchase messages bypass the gate — otherwise a depleted app couldn't ever recharge.
+
+## Sponsorship
+
+The purchase message carries its own `chain` (the _credit chain_) which is **independent of the source chain** that sent the message. This means a buyer on Ethereum can credit an app on Base by dispatching a purchase whose payload sets `chain = "EVM-8453"`.
+
+The pallet keys allowance storage by `(app_chain, app)` taken from the message body, not by `request.source`. The event `BandwidthCredited` carries both — `app_chain` (where the credit lands) and `paid_from` (where the payment came from) — so the cross-chain payer is auditable.
+
+This is what makes the system multi-tenant friendly: a treasury on a single chain can sponsor bandwidth for an app deployed across many chains, without having to deploy `BandwidthManager` on each chain the app lives on.
+
+## End-to-End Flow
+
+The full lifecycle of a buyer-app pair, from cold-start to dispatch:
+
+**Setup (one-time, per source chain):**
+
+1. **Deploy.** `BandwidthManager(owner)` is deployed on the source chain.
+2. **Bind host.** Owner calls `setHost(hostAddr)` — one-shot.
+3. **Register.** Governance calls `pallet-bandwidth::set_manager(source, manager_addr)` on Hyperbridge.
+4. **Configure tiers.** Governance sets `(bytes, duration_secs)` on the pallet via `set_tier`, then pushes the price side to the manager via `dispatch_set_tiers`.
+
+Until every step lands, purchases fail — usually `UnknownManager` (pallet) or `UnknownTier()` (manager).
+
+**Purchase (per top-up):**
+
+5. **Approve.** Buyer approves the manager for `tier.price × months` scaled to the local fee token's decimals.
+6. **Call `purchase()`.** Manager pulls the fee token, encodes a `BandwidthPurchaseMsg { app, tier, months, chain }`, and dispatches an ISMP POST to `pallet-bandwidth` (recipient `"BWMARKET"`) with `timeout: 0` and `fee: 0`. Emits `BandwidthPurchased` with the dispatch commitment.
+7. **Deliver.** A relayer carries the message to Hyperbridge.
+8. **Credit.** Pallet's `on_accept` checks `request.from` matches the registered manager, decodes the body, looks up `TierConfig`, computes `bytes × months` and `duration_secs × months`, and appends a fresh `Subscription` to the `(app_chain, app)` FIFO list. Emits `BandwidthCredited { app_chain, app, paid_from, tier, bytes, expires_at }`. If the list was at the 1024 cap, the oldest entry is evicted with `SubscriptionEvicted`.
+
+**Dispatch (per message):**
+
+9. **App dispatches.** A contract on the source chain calls `IDispatcher.dispatch(...)` for a normal ISMP message.
+10. **Router consults the gate.** Hyperbridge's ISMP router calls `BandwidthGate::try_consume(source, app, bytes)` before processing the request.
+11. **Gate decision.** Allowlist bypass returns `Ok` immediately. Otherwise: sweep expired entries, sum live `remaining_bytes`, drain FIFO head. `Insufficient` rejects without mutation; success emits `BandwidthConsumed { source, app, bytes, remaining }` and the message flows.
+
+`force_credit` from governance and `Withdraw` messages dispatched back to the manager are off-path operations on the same ledger — see [Governance](/developers/evm/bandwidth/governance).
+
+## Where to Next
+
+- **[Purchasing](/developers/evm/bandwidth/purchasing)** — call `purchase()` from your dapp, scale prices across fee tokens, handle sponsorship.
+- **[Governance](/developers/evm/bandwidth/governance)** — ongoing operations: tier updates, treasury withdrawals, allowlists, force-credits.
+- **[Configuration](/developers/evm/bandwidth/configuration)** — per-chain bring-up checklist: deploy, bind host, register on the pallet, set tiers.
+
+## Implementations
+
+- [`BandwidthManager.sol`](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/apps/BandwidthManager.sol)
+- [`pallet-bandwidth`](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/bandwidth/src/lib.rs)

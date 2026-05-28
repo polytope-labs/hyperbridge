@@ -625,6 +625,30 @@ pub trait HyperbridgeClaim {
 	async fn relayer_nonce(&self, address: Vec<u8>, chain: StateMachine) -> anyhow::Result<u64>;
 }
 
+/// Submit `pallet-fishermen` blacklist extrinsics. Implemented only on the hyperbridge
+/// substrate client — these calls have no meaning on EVM providers — so the trait is kept
+/// off `IsmpProvider` and parallels the [`HyperbridgeClaim`] / [`HandleGetResponse`] split.
+#[async_trait::async_trait]
+pub trait FishermanClaim {
+	/// Submit a `pallet-fishermen::blacklist_dispute_game` extrinsic. Used by the off-chain
+	/// fisherman watcher to permanently blacklist an opstack dispute-game proxy that an L2
+	/// RPC quorum has identified as fraudulent.
+	async fn blacklist_dispute_game(
+		&self,
+		state_machine_id: StateMachineId,
+		proxy: H160,
+	) -> Result<(), anyhow::Error>;
+
+	/// Submit a `pallet-fishermen::blacklist_arbitrum_claim` extrinsic. Used by the off-chain
+	/// fisherman watcher to permanently blacklist an arbitrum claim hash (BoLD `assertionHash`
+	/// or the Orbit derived hash).
+	async fn blacklist_arbitrum_claim(
+		&self,
+		state_machine_id: StateMachineId,
+		claim: H256,
+	) -> Result<(), anyhow::Error>;
+}
+
 #[async_trait::async_trait]
 pub trait HandleGetResponse {
 	async fn submit_get_response(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {

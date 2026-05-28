@@ -2,18 +2,20 @@ import "log-timestamp"
 
 import type { HexString, IEvmConfig, ISubstrateConfig } from "@/types"
 import { EvmChain, SubstrateChain } from "@/chain"
+import { chainConfigs } from "@/configs/chain"
+
+const BSC_CHAPEL_HOST = chainConfigs[97].addresses.Host as HexString
 
 describe.sequential("State Queries", () => {
 	let bscConfig: IEvmConfig
 	let hyperbridgeConfig: ISubstrateConfig
 
-	beforeAll(async () => {
-		const { bscIsmpHostAddress } = await bscSetup()
+	beforeAll(() => {
 		bscConfig = {
 			consensusStateId: "BSC0",
 			rpcUrl: process.env.BSC_CHAPEL!,
 			stateMachineId: "EVM-97",
-			host: bscIsmpHostAddress,
+			host: BSC_CHAPEL_HOST,
 		}
 
 		hyperbridgeConfig = {
@@ -120,9 +122,3 @@ describe.sequential("State Queries", () => {
 		}
 	}, 300_000)
 })
-
-async function bscSetup() {
-	return {
-		bscIsmpHostAddress: process.env.BSC_ISMP_HOST_ADDRESS! as HexString,
-	}
-}

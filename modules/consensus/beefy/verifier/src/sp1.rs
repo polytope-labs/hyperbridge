@@ -39,6 +39,7 @@ sol! {
 		bytes32 leaf_hash;
 		uint256 block_number;
 		ParachainHeaderHash[] headers;
+		bytes32 nonce;
 	}
 }
 
@@ -81,6 +82,7 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 		leaf_hash: FixedBytes::from(Into::<[u8; 32]>::into(H::keccak256(&proof.mmr_leaf.encode()))),
 		block_number: U256::from(proof.block_number),
 		headers,
+		nonce: FixedBytes::from(proof.nonce.0),
 	}
 	.abi_encode();
 

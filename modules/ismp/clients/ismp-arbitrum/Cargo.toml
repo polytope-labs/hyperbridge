@@ -13,6 +13,7 @@ evm-state-machine = { workspace = true }
 primitive-types = { workspace = true }
 arbitrum-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+pallet-fishermen = { workspace = true, default-features = false }
 
 # crates.io
 codec = { workspace = true, default-features = false }
@@ -35,6 +36,7 @@ std = [
     "evm-state-machine/std",
     "arbitrum-verifier/std",
     "primitive-types/std",
+    "pallet-fishermen/std",
 ]
 
 try-runtime = ["polkadot-sdk/try-runtime"]

@@ -1,0 +1,122 @@
+---
+title: Governance
+description: Ongoing operations on pallet-bandwidth — tier updates, treasury withdrawals, allowlists, force-credits, and the events you can watch.
+---
+
+# Governance
+
+Initial bring-up of a chain (deploy, bind host, register, set tiers) lives in [Configuration](/developers/evm/bandwidth/configuration). This page covers the *ongoing* operations: tier updates, treasury withdrawals, allowlist toggles, and admin force-credits.
+
+Every privileged call on the pallet uses `pallet_ismp::Config::AdminOrigin` — the same origin that admins the ISMP host on Hyperbridge.
+
+## Authentication
+
+Two flows, two trust models:
+
+- **Pallet → manager** (outbound governance). `BandwidthManager.onAccept` checks `request.source == IDispatcher(_host).hyperbridge()`. Only messages dispatched from Hyperbridge are honored. The `to` field is the manager's address — no module-id lookup.
+- **Manager → pallet** (inbound purchases). The pallet rejects any purchase whose `request.from` doesn't equal the address stored under `BandwidthManager<T>::get(request.source)`. An attacker who deploys their own contract on a source chain cannot mint subscriptions.
+
+## Pallet Calls
+
+All six are gated by `AdminOrigin`:
+
+| Call | Effect | Emits |
+|------|--------|-------|
+| `set_manager(source, manager)` | Register or overwrite the `BandwidthManager` authorised to send purchases from `source`. | `ManagerRegistered` |
+| `set_tier(tier, config)` | Create, update, or revoke (`config: None`) a tier's `(bytes, duration_secs)`. Pallet-side only. | `TierSet` |
+| `dispatch_set_tiers(target, updates)` | Push a `SetTiers` message to the `BandwidthManager` on `target`. Updates EVM-side prices. | `TiersDispatched` |
+| `dispatch_withdraw(target, token, beneficiary, amount)` | Push a `Withdraw` message to the `BandwidthManager` on `target`. Drains the manager's treasury. | `WithdrawalDispatched` |
+| `set_allowlist(source, app, on)` | Toggle gate bypass for an `(source, app)` pair. | `AllowlistChanged` |
+| `force_credit(params)` | Append a subscription to a `(chain, app)` bucket without a purchase. | `ForceCredited` |
+
+`set_manager`, `set_tier`, and `dispatch_set_tiers` are covered in [Configuration](/developers/evm/bandwidth/configuration). The remaining three are detailed below.
+
+## Treasury Withdrawals
+
+The fee tokens collected by `BandwidthManager.purchase()` accumulate in the manager contract. Governance drains them with `dispatch_withdraw`:
+
+```rust
+BandwidthPallet::dispatch_withdraw(
+    RawOrigin::Root.into(),
+    StateMachine::Evm(8453),
+    fee_token_address,              // ERC-20 to withdraw. Use H160::zero() for native ETH.
+    treasury_address,               // Beneficiary.
+    U256::from(1_000_000_000u128),  // Amount, in fee-token decimals.
+);
+```
+
+The pallet dispatches `[ACTION_WITHDRAW, abi.encode(Withdrawal)]` where `Withdrawal { token, beneficiary, amount }`. The manager's `onAccept` handler:
+
+- If `token != address(0)`: `IERC20(token).safeTransfer(beneficiary, amount)`.
+- If `token == address(0)`: `beneficiary.call{value: amount}("")` — reverts with `InsufficientNativeToken` if the call fails (insufficient balance, beneficiary rejects ETH, etc.).
+
+The `token` field is named explicitly because the host occasionally swaps fee tokens (e.g. accepting native ETH on dispatch and routing through Uniswap). Stale balances of an old fee token still sit in the manager and are recoverable by specifying the old token's address.
+
+Emits `Withdrawn(token, beneficiary, amount)` on the manager and `WithdrawalDispatched { target, token, beneficiary, amount, commitment }` on the pallet.
+
+## Allowlist Management
+
+The `Allowlist` storage map flips an `(source, app)` pair into bypass mode. While set, `BandwidthGate::try_consume` returns `Ok` for that pair without touching its subscriptions:
+
+```rust
+// Allow protocol-sponsored TokenGateway on Ethereum to bypass the gate.
+BandwidthPallet::set_allowlist(
+    RawOrigin::Root.into(),
+    StateMachine::Evm(1),
+    AppKey::truncate_from(token_gateway_address.to_vec()),
+    true,
+);
+
+// Later, revoke.
+BandwidthPallet::set_allowlist(
+    RawOrigin::Root.into(),
+    StateMachine::Evm(1),
+    AppKey::truncate_from(token_gateway_address.to_vec()),
+    false,
+);
+```
+
+Intended for:
+
+- **Phased rollout.** Apps that haven't yet migrated to bandwidth pricing are allowlisted while their integration is in flight.
+- **Upgrade windows.** An app being redeployed can be allowlisted for the duration of the migration and removed once it's back on the meter.
+
+Not intended as a long-term subsidy mechanism — every entry is a permanent gate bypass until governance revokes it.
+
+## Force-Credit (Migrations & Refunds)
+
+`force_credit` appends a subscription to any `(chain, app)` bucket without going through a purchase flow:
+
+```rust
+BandwidthPallet::force_credit(
+    RawOrigin::Root.into(),
+    ForceCreditParams {
+        app_chain: StateMachine::Evm(8453),
+        app: AppKey::truncate_from(app_address.to_vec()),
+        tier: TierIndex::TierOne,        // label only — doesn't need to be configured
+        bytes: 5_000_000,
+        duration_secs: 30 * 24 * 3600,
+    },
+);
+```
+
+Unlike a real purchase, the `tier` field here is **just a label** — it doesn't have to match a configured `TierConfig`. This is the admin escape hatch: refunds for bad purchases, credits during a runtime migration, one-off grants. The same FIFO/cap rules apply — pushing onto a full list evicts the oldest entry with `SubscriptionEvicted`.
+
+## Events Cheat-Sheet
+
+Subscribe for audit and monitoring:
+
+| Side | Event | Fires on |
+|------|-------|----------|
+| Pallet | `ManagerRegistered { source, manager }` | `set_manager` |
+| Pallet | `TierSet { tier, config }` | `set_tier` |
+| Pallet | `TiersDispatched { target, count, commitment }` | `dispatch_set_tiers` |
+| Pallet | `WithdrawalDispatched { target, token, beneficiary, amount, commitment }` | `dispatch_withdraw` |
+| Pallet | `AllowlistChanged { source, app, on }` | `set_allowlist` |
+| Pallet | `ForceCredited { app_chain, app, tier, bytes, expires_at }` | `force_credit` |
+| Pallet | `BandwidthCredited { app_chain, app, paid_from, tier, bytes, expires_at }` | Purchase received via `on_accept` |
+| Pallet | `BandwidthConsumed { source, app, bytes, remaining }` | Gate consumes bytes |
+| Pallet | `SubscriptionEvicted { app_chain, app, tier, lost_bytes }` | FIFO cap hit, oldest entry dropped |
+| Manager | `BandwidthPurchased(payer, feeToken, tier, months, amountPaid, app, chain, commitment)` | `purchase()` |
+| Manager | `TierSet(tier, price18d)` | `onAccept` `SetTiers` row applied |
+| Manager | `Withdrawn(token, beneficiary, amount)` | `onAccept` `Withdraw` transfer succeeded |

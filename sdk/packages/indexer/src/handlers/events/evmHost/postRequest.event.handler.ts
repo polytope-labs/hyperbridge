@@ -97,7 +97,7 @@ export const handlePostRequestEvent = wrap(async (event: PostRequestEventLog): P
 
 	// Non critical features should be inside a try catch, in case it errors it should not lead to inconsistent data for core indexing functionality
 	try {
-		await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event)
+		await HyperBridgeService.handlePostRequestEvent(chain, event)
 		for (const [index, log] of safeArray(transaction?.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue

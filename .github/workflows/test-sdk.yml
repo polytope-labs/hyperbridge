@@ -24,8 +24,6 @@ on:
 
 jobs:
     test:
-        # Disabled during protocol rewrite — re-enable once the SDK is stable.
-        if: false
         runs-on: ubuntu-latest
         defaults:
             run:

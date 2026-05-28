@@ -30,7 +30,7 @@ use sync_committee_prover::middleware::SwitchProviderMiddleware;
 use tesseract_evm::{derive_map_key, AlloyProvider, AlloySignerProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
-mod abi;
+pub mod abi;
 mod host;
 
 #[cfg(test)]

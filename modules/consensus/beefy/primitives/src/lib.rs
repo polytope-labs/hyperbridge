@@ -139,6 +139,11 @@ pub struct Sp1BeefyProof {
 	pub headers: Vec<ParachainHeader>,
 	/// SP1 proof bytes
 	pub proof: Vec<u8>,
+	/// Prover-chosen nonce committed into the SP1 public values. The verifier reconstructs the
+	/// committed public inputs with this value, so the proof is only valid for this exact nonce.
+	/// Rewarding verifiers (`pallet-beefy-consensus-proofs`) bind it to the extrinsic submission
+	/// account, making the proof non-transferable.
+	pub nonce: H256,
 }
 
 /// finality proof

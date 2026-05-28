@@ -292,6 +292,9 @@ for chain in "${CHAIN_ARRAY[@]}"; do
         polkadot-testnet)
             VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout-testnet.polkadot.io/api/"
             ;;
+        polkadot)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout.polkadot.io/api/"
+            ;;
         pharos-testnet)
             # Pharos uses SocialScan. Its etherscan-compatible endpoint requires any
             # non-empty --verifier-api-key (the value is ignored). See
@@ -354,6 +357,7 @@ for tx in data.get('transactions', []):
                 inkchain) FORGE_CHAIN_NAME="ink" ;;
                 pharos-testnet) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
                 polkadot-testnet) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
+                polkadot) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
             esac
 
             if forge verify-contract "$contract_address" "$VERIFY_NAME" \

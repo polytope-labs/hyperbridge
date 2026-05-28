@@ -18,6 +18,7 @@ arbitrum-verifier = { workspace = true }
 primitive-types = { workspace = true }
 op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+pallet-fishermen = { workspace = true, default-features = false }
 
 # crates.io
 hex = { workspace = true, default-features = false }
@@ -53,6 +54,7 @@ std = [
     "arbitrum-verifier/std",
     "op-verifier/std",
     "primitive-types/std",
+    "pallet-fishermen/std",
 ]
 
 disable-panic-handler = [

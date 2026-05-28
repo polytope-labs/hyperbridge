@@ -39,6 +39,10 @@ pub enum Error {
 	HashChainBroken,
 	#[error("Slot offset is out of bounds for the parent node")]
 	SlotOutOfBounds,
+	#[error("MSU root slot offset does not match the offset derived from the key")]
+	MsuOffsetMismatch,
+	#[error("Key is empty, cannot derive the MSU root slot offset")]
+	EmptyKey,
 	#[error("Computed root hash does not match the expected root")]
 	RootMismatch,
 	#[error("Terminal node is not a valid internal node")]
@@ -141,11 +145,12 @@ fn is_leaf(node: &[u8]) -> bool {
 
 /// Bottom-up hash chain walk from last node to root.
 ///
-/// Uses `nibble_at_depth(sha256(key))` to locate child slots in internal nodes
-/// (index > 0), ensuring the proof path follows the key's trie path. The MSU root
-/// (index 0) uses `next_begin_offset` because its 256-slot addressing scheme is
-/// Pharos-specific and opaque; the MSU root content is pinned to the state root
-/// via its hash, so an attacker cannot substitute a different MSU root.
+/// Internal nodes (index > 0) locate their child slot with `nibble_at_depth(sha256(key))`,
+/// so the path follows the key's trie route. The MSU root (index 0) is addressed by the
+/// key's last byte: it holds 256 slots of 32 bytes each, so the slot offset is
+/// `key[last] * 32`. We derive that offset here and reject the proof when the prover's
+/// `next_begin_offset` disagrees, rather than trusting it. Trusting the prover at this
+/// layer would let it aim the proof at an unrelated MSU subtree.
 fn verify_proof_walk(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
@@ -159,7 +164,12 @@ fn verify_proof_walk(
 		let parent = &proof_nodes[i];
 
 		let start = if i == 0 {
-			parent.next_begin_offset as usize
+			let msu_slot = *key.last().ok_or(Error::EmptyKey)? as usize;
+			let expected_offset = msu_slot * INTERNAL_NODE_SLOT_SIZE;
+			if parent.next_begin_offset as usize != expected_offset {
+				return Err(Error::MsuOffsetMismatch);
+			}
+			expected_offset
 		} else {
 			let trie_depth = i - 1;
 			let nibble =
@@ -290,10 +300,8 @@ pub fn verify_non_existence_proof(
 			return Err(Error::UnboundTerminalLeaf);
 		}
 		for depth in 0..internal_count {
-			let key_nibble =
-				nibble_at_depth(&key_hash, depth).ok_or(Error::ProofTooDeep)?;
-			let leaf_nibble =
-				nibble_at_depth(leaf_key_hash, depth).ok_or(Error::ProofTooDeep)?;
+			let key_nibble = nibble_at_depth(&key_hash, depth).ok_or(Error::ProofTooDeep)?;
+			let leaf_nibble = nibble_at_depth(leaf_key_hash, depth).ok_or(Error::ProofTooDeep)?;
 			if key_nibble != leaf_nibble {
 				return Err(Error::UnboundTerminalLeaf);
 			}
@@ -433,22 +441,22 @@ mod tests {
 		// This proves why sibling proofs are necessary for non-existence!
 	}
 
-	/// Build a 3-node proof (MSU root → internal → leaf) that follows the
-	/// key's nibble path. The internal node slot is derived from the key.
+	/// Build a 3-node proof (MSU root -> internal -> leaf) that follows the key's
+	/// trie path. The internal node slot comes from the key's nibble at depth 0 and
+	/// the MSU root slot from the key's last byte.
 	fn build_proof_for_key(key: &[u8], value: &[u8]) -> (Vec<PharosProofNode>, [u8; 32]) {
 		let leaf_data = make_leaf(key, value);
 		let leaf_hash = sha256(&leaf_data);
 
-		// Internal node slot must match key's nibble at depth 0
 		let key_hash = sha256(key);
 		let nibble = nibble_at_depth(&key_hash, 0).unwrap() as usize;
 		let internal = make_internal_with_child(nibble, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
 
-		// MSU root — slot is arbitrary (uses next_begin_offset)
-		let msu_root = make_msu_root_with_child(7, &internal_hash);
+		let msu_slot = *key.last().unwrap() as usize;
+		let msu_root = make_msu_root_with_child(msu_slot, &internal_hash);
 		let root = sha256(&msu_root);
-		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
@@ -490,6 +498,23 @@ mod tests {
 	}
 
 	#[test]
+	fn test_msu_offset_derived_from_key_not_prover() {
+		// The MSU root slot offset comes from the key's last byte. A proof whose
+		// child sits at the right slot but whose prover-supplied offset points
+		// elsewhere is rejected, so the prover can no longer aim the walk at an
+		// unrelated MSU subtree.
+		let key = b"test_key";
+		let value = b"test_value";
+		let (mut proof, root) = build_proof_for_key(key, value);
+
+		assert!(verify_proof(&proof, key, value, &root).is_ok());
+
+		let bad_slot = (*key.last().unwrap() as usize + 1) % 256;
+		proof[0].next_begin_offset = (bad_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+		assert!(matches!(verify_proof(&proof, key, value, &root), Err(Error::MsuOffsetMismatch)));
+	}
+
+	#[test]
 	fn test_non_existence_case1_leaf_mismatch() {
 		// Proof ends at a leaf with a different key. For Case 1 to be valid,
 		// the query key and the leaf key must share the same nibble path through
@@ -497,21 +522,21 @@ mod tests {
 		let query_key = b"missing_key";
 		let query_key_hash = sha256(query_key);
 		let query_nibble = nibble_at_depth(&query_key_hash, 0).unwrap();
+		let msu_slot = *query_key.last().unwrap() as usize;
 
 		// The terminal leaf belongs to a different key, but it must genuinely
-		// occupy the query key's trie path: with one internal node, its key
-		// hash must collide with the query key on nibble 0.
+		// occupy the query key's trie path: it shares the query key's last byte
+		// (same MSU slot) and collides on nibble 0 (same internal slot).
 		let other_value = b"other_value";
 		let (other_key, _) = (0u32..)
 			.map(|i| {
 				let mut k = b"collide_".to_vec();
 				k.extend_from_slice(&i.to_le_bytes());
+				k.push(query_key[query_key.len() - 1]);
 				let h = sha256(&k);
 				(k, h)
 			})
-			.find(|(_, h)| {
-				nibble_at_depth(h, 0).unwrap() == query_nibble && *h != query_key_hash
-			})
+			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() == query_nibble && *h != query_key_hash)
 			.unwrap();
 
 		let leaf_data = make_leaf(&other_key, other_value);
@@ -521,9 +546,9 @@ mod tests {
 		let internal = make_internal_with_child(query_nibble as usize, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
 
-		let msu_root = make_msu_root_with_child(7, &internal_hash);
+		let msu_root = make_msu_root_with_child(msu_slot, &internal_hash);
 		let root = sha256(&msu_root);
-		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
@@ -540,76 +565,62 @@ mod tests {
 
 	#[test]
 	fn test_non_existence_case1_forged_relabel_rejected() {
-		// Regression: SkipEmpty hashing makes a single-child internal node's
-		// hash independent of which slot holds the child. An attacker can take
-		// a genuine single-child inclusion path for an unrelated existing leaf
-		// and relabel it onto the queried key's nibbles without changing any
-		// hash, forging a non-existence proof for a key that genuinely exists.
-		let k_key = b"genuine_key_K";
-		let k_value = b"k_value";
-		let k_hash = sha256(k_key);
-		let k_nibble0 = nibble_at_depth(&k_hash, 0).unwrap();
+		// SkipEmpty hashing makes a single-child internal node's hash independent
+		// of which slot holds the child. An attacker can take the genuine inclusion
+		// path of an unrelated leaf and relabel it onto the queried key's nibble
+		// without changing any hash, forging a non-existence proof. The terminal
+		// leaf binding check is what rejects it.
+		//
+		// The unrelated leaf shares the queried key's last byte, so the forged proof
+		// clears the MSU offset check and reaches the binding check, which then
+		// catches the divergent internal nibble.
+		let query_key = b"genuine_key_K";
+		let query_hash = sha256(query_key);
+		let query_nibble0 = nibble_at_depth(&query_hash, 0).unwrap();
+		let msu_slot = *query_key.last().unwrap() as usize;
 
-		// An unrelated existing key whose hash differs from K at nibble 0.
-		let (lx_key, _) = (0u32..)
+		let (other_key, other_hash) = (0u32..)
 			.map(|i| {
 				let mut k = b"unrelated_".to_vec();
 				k.extend_from_slice(&i.to_le_bytes());
+				k.push(query_key[query_key.len() - 1]);
 				let h = sha256(&k);
 				(k, h)
 			})
-			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() != k_nibble0)
+			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() != query_nibble0)
 			.unwrap();
-		let lx_value = b"lx_value";
-		let lx_hash = sha256(&lx_key);
-		let lx_nibble0 = nibble_at_depth(&lx_hash, 0).unwrap();
+		let other_value = b"other_value";
+		let other_nibble0 = nibble_at_depth(&other_hash, 0).unwrap() as usize;
 
-		// Genuine trie: MSU root with two single-child internal subtrees —
-		// slot 0 -> internal_b -> leaf_K, slot 1 -> internal_a -> leaf_Lx.
-		let leaf_k = make_leaf(k_key, k_value);
-		let leaf_k_hash = sha256(&leaf_k);
-		let internal_b = make_internal_with_child(k_nibble0 as usize, &leaf_k_hash);
-		let internal_b_hash = hash_internal_node(&internal_b);
+		// Genuine single-child path for the unrelated leaf.
+		let leaf = make_leaf(&other_key, other_value);
+		let leaf_hash = sha256(&leaf);
+		let internal = make_internal_with_child(other_nibble0, &leaf_hash);
+		let internal_hash = hash_internal_node(&internal);
 
-		let leaf_lx = make_leaf(&lx_key, lx_value);
-		let leaf_lx_hash = sha256(&leaf_lx);
-		let internal_a = make_internal_with_child(lx_nibble0 as usize, &leaf_lx_hash);
-		let internal_a_hash = hash_internal_node(&internal_a);
-
-		let mut msu_root = vec![0u8; MSU_ROOT_NODE_LEN];
-		msu_root[0..32].copy_from_slice(&internal_b_hash);
-		msu_root[INTERNAL_NODE_SLOT_SIZE..INTERNAL_NODE_SLOT_SIZE + 32]
-			.copy_from_slice(&internal_a_hash);
+		let msu_root = make_msu_root_with_child(msu_slot, &internal_hash);
 		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
-		// K genuinely exists in this trie.
-		let membership_proof = vec![
-			node(msu_root.clone(), 0, 32),
-			node(internal_b, 0, 0),
-			node(leaf_k, 0, 0),
-		];
-		assert!(verify_membership_proof(&membership_proof, k_key, &root).is_ok());
+		// Relabel the single-child node onto the queried key's nibble. SkipEmpty
+		// leaves the hash unchanged, so the chain still validates against the root.
+		let forged_internal = make_internal_with_child(query_nibble0 as usize, &leaf_hash);
+		assert_eq!(hash_internal_node(&forged_internal), internal_hash);
 
-		// Forgery: relabel internal_a so leaf_Lx sits at K's nibble-0 slot.
-		// Single-child => SkipEmpty hash is unchanged, so it still chains to root.
-		let forged_internal = make_internal_with_child(k_nibble0 as usize, &leaf_lx_hash);
-		assert_eq!(hash_internal_node(&forged_internal), internal_a_hash);
-
-		let msu_offset_a = INTERNAL_NODE_SLOT_SIZE as u32;
 		let forged_proof = vec![
-			node(msu_root, msu_offset_a, msu_offset_a + 32),
+			node(msu_root, msu_offset, msu_offset + 32),
 			node(forged_internal, 0, 0),
-			node(leaf_lx, 0, 0),
+			node(leaf, 0, 0),
 		];
 
-		// The hash chain itself still validates against the trusted root —
-		// this is the SkipEmpty structural weakness the binding check defends.
-		assert!(verify_proof_walk(&forged_proof, k_key, &root).is_ok());
+		// The hash chain still validates against the trusted root; this is the
+		// SkipEmpty structural weakness the binding check defends.
+		assert!(verify_proof_walk(&forged_proof, query_key, &root).is_ok());
 
-		// But non-existence verification now rejects it: the terminal leaf is
-		// not bound to K's trie path.
+		// Non-existence verification rejects it: the terminal leaf is not bound to
+		// the queried key's trie path.
 		assert!(matches!(
-			verify_non_existence_proof(&forged_proof, k_key, &root, &[]),
+			verify_non_existence_proof(&forged_proof, query_key, &root, &[]),
 			Err(Error::UnboundTerminalLeaf)
 		));
 	}
@@ -618,19 +629,18 @@ mod tests {
 	fn test_non_existence_case1_no_internal_node_rejected() {
 		// A Case 1 proof with no internal node ([MSU root, leaf]) cannot bind
 		// the terminal leaf to the queried key's path and must be rejected.
+		let query_key = b"queried_key";
+		let msu_slot = *query_key.last().unwrap() as usize;
 		let leaf_data = make_leaf(b"some_other_key", b"v");
 		let leaf_hash = sha256(&leaf_data);
-		let msu_root = make_msu_root_with_child(3, &leaf_hash);
+		let msu_root = make_msu_root_with_child(msu_slot, &leaf_hash);
 		let root = sha256(&msu_root);
-		let msu_offset = (3 * INTERNAL_NODE_SLOT_SIZE) as u32;
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
-		let proof = vec![
-			node(msu_root, msu_offset, msu_offset + 32),
-			node(leaf_data, 0, 0),
-		];
+		let proof = vec![node(msu_root, msu_offset, msu_offset + 32), node(leaf_data, 0, 0)];
 
 		assert!(matches!(
-			verify_non_existence_proof(&proof, b"queried_key", &root, &[]),
+			verify_non_existence_proof(&proof, query_key, &root, &[]),
 			Err(Error::UnboundTerminalLeaf)
 		));
 	}
@@ -653,15 +663,15 @@ mod tests {
 
 		let internal = make_internal_with_child(wrong_slot, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
-		let wrong_offset = (INTERNAL_NODE_HEADER + wrong_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
-		let msu_root = make_msu_root_with_child(7, &internal_hash);
+		let msu_slot = *query_key.last().unwrap() as usize;
+		let msu_root = make_msu_root_with_child(msu_slot, &internal_hash);
 		let root = sha256(&msu_root);
-		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
-			node(internal, wrong_offset, wrong_offset + 32),
+			node(internal, 0, 0),
 			node(leaf_data, 0, 0),
 		];
 
@@ -671,50 +681,61 @@ mod tests {
 
 	#[test]
 	fn test_non_existence_case2_empty_slot_all_zero_terminal() {
-		// Terminal node is all zeros, no sibling proofs needed
+		// An all-zero terminal hashes to zero, so its parent and the MSU root are
+		// all-zero too. The target nibble slot is empty and no sibling proofs are needed.
+		let query = b"any_key";
+		let msu_slot = *query.last().unwrap() as usize;
+
 		let empty_internal = vec![0u8; INTERNAL_NODE_LEN];
-		let empty_hash = ZERO_HASH; // all-zero node hashes to zero
-
-		let parent = make_internal_with_child(5, &empty_hash);
-		let parent_hash = hash_internal_node(&parent);
-		let parent_offset = (INTERNAL_NODE_HEADER + 5 * INTERNAL_NODE_SLOT_SIZE) as u32;
-
-		let msu_root = make_msu_root_with_child(2, &parent_hash);
+		let parent = vec![0u8; INTERNAL_NODE_LEN];
+		let msu_root = vec![0u8; MSU_ROOT_NODE_LEN];
 		let root = sha256(&msu_root);
-		let msu_offset = (2 * INTERNAL_NODE_SLOT_SIZE) as u32;
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
-			node(parent, parent_offset, parent_offset + 32),
+			node(parent, 0, 0),
 			node(empty_internal, 0, 0),
 		];
 
-		assert!(verify_non_existence_proof(&proof, b"any_key", &root, &[]).is_ok());
+		assert!(verify_non_existence_proof(&proof, query, &root, &[]).is_ok());
 	}
 
 	#[test]
 	fn test_non_existence_missing_sibling_rejected() {
-		// Terminal node has a non-empty slot but no sibling proof provided
+		// Route the proof by the query key's nibbles so the terminal node is the
+		// one the walk lands on. The terminal holds a child in a slot other than
+		// the target, so a sibling proof is required to pin it.
+		let query = b"any_key";
+		let key_hash = sha256(query);
+		let parent_slot = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let target_slot = nibble_at_depth(&key_hash, 1).unwrap() as usize;
+		let sibling_slot = (target_slot + 1) % INTERNAL_NODE_SLOTS;
+
 		let child_hash = sha256(b"some_child");
-		let terminal = make_internal_with_child(5, &child_hash);
+		let terminal = make_internal_with_child(sibling_slot, &child_hash);
 		let terminal_hash = hash_internal_node(&terminal);
 
-		let parent_offset = (INTERNAL_NODE_HEADER + 3 * INTERNAL_NODE_SLOT_SIZE) as u32;
-		let parent = make_internal_with_child(3, &terminal_hash);
+		let parent = make_internal_with_child(parent_slot, &terminal_hash);
 		let parent_hash = hash_internal_node(&parent);
 
-		let msu_root = make_msu_root_with_child(0, &parent_hash);
+		let msu_slot = *query.last().unwrap() as usize;
+		let msu_root = make_msu_root_with_child(msu_slot, &parent_hash);
 		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
-			node(msu_root, 0, 32),
-			node(parent, parent_offset, parent_offset + 32),
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(parent, 0, 0),
 			node(terminal, 0, 0),
 		];
 
-		// Terminal has 1 non-empty slot (slot 5) but 0 sibling proofs
-		// This must fail, attacker could have moved a hash via SkipEmpty
-		assert!(verify_non_existence_proof(&proof, b"any_key", &root, &[]).is_err());
+		// One non-empty sibling slot but no sibling proof: SkipEmpty means the
+		// attacker could have moved that hash, so the proof must be rejected.
+		assert!(matches!(
+			verify_non_existence_proof(&proof, query, &root, &[]),
+			Err(Error::SiblingCountMismatch)
+		));
 	}
 
 	#[test]

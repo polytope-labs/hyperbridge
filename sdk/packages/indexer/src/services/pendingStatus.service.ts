@@ -31,16 +31,24 @@ export class PendingStatusService {
 	 */
 	static async flushBatch(limit: number): Promise<void> {
 		const perType = Math.max(1, Math.ceil(limit / ENTITY_TYPES.length))
+		logger.info(
+			`[PendingStatusService.flushBatch] starting, limit=${limit} perType=${perType} entityTypes=${ENTITY_TYPES.join(",")}`,
+		)
 
 		for (const entityType of ENTITY_TYPES) {
 			const batch = await PendingStatusMetadata.getByEntityType(entityType, {
 				limit: perType,
 			})
+			logger.info(
+				`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s) for entityType=${entityType}`,
+			)
 
 			for (const pending of batch) {
 				await this.materialize(pending, entityType)
 			}
 		}
+
+		logger.info(`[PendingStatusService.flushBatch] finished`)
 	}
 
 	private static async materialize(
@@ -50,7 +58,12 @@ export class PendingStatusService {
 		switch (entityType) {
 			case "RequestV2": {
 				const parent = await RequestV2.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] RequestV2 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = RequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -71,7 +84,12 @@ export class PendingStatusService {
 			}
 			case "GetRequestV2": {
 				const parent = await GetRequestV2.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] GetRequestV2 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = GetRequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -92,7 +110,12 @@ export class PendingStatusService {
 			}
 			case "IOrderV3": {
 				const parent = await IOrderV3.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] IOrderV3 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = IOrderV3StatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					orderId: pending.commitment,

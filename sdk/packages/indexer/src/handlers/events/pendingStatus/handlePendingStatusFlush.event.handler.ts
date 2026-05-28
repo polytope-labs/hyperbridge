@@ -12,20 +12,12 @@ const FLUSH_LIMIT = 10
  * another chain, or when a chain reorg dropped the original flush).
  */
 export const handlePendingStatusFlush = wrap(async (event: SubstrateBlock): Promise<void> => {
-	const blockNumber = event.block.header.number.toString()
-	const blockHash = event.block.header.hash.toHex()
-	logger.info(
-		`[handlePendingStatusFlush] chain=${chainId} entered at block #${blockNumber} (${blockHash}), limit=${FLUSH_LIMIT}`,
-	)
 	try {
 		await PendingStatusService.flushBatch(FLUSH_LIMIT)
-		logger.info(
-			`[handlePendingStatusFlush] chain=${chainId} completed for block #${blockNumber}`,
-		)
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
 		logger.error(
-			`[handlePendingStatusFlush] chain=${chainId} failed at block #${blockNumber}: ${message}`,
+			`[handlePendingStatusFlush] chain=${chainId} failed at block #${event.block.header.number}: ${message}`,
 		)
 	}
 })

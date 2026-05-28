@@ -32,59 +32,14 @@ export class PendingStatusService {
 	 * each row's own `entityType` field after the read.
 	 */
 	static async flushBatch(limit: number): Promise<void> {
-		logger.info(`[PendingStatusService.flushBatch] starting, limit=${limit}`)
-
-		// === diagnostic block ===
-		// Three independent lookup paths against one known-existing BSC pending row
-		// (see GraphQL dump 2026-05-28). Each path takes a different code path in
-		// @subql/node-core; the one that returns the row tells us which API to
-		// use, and the ones that don't pinpoint the bug.
-		const knownCommitment = "0x10bf3434ba6396bd44105ef95139b62c8799676c02bc5d03934eb8fec68fc447"
-		const knownId = `${knownCommitment}.RequestV2.DESTINATION`
-		try {
-			const byId = await PendingStatusMetadata.get(knownId)
-			logger.info(`[diag] get(knownId) → ${byId ? "FOUND" : "MISSING"}`)
-		} catch (e) {
-			const m = e instanceof Error ? e.message : String(e)
-			logger.error(`[diag] get(knownId) threw: ${m}`)
-		}
-		try {
-			const byComm = await PendingStatusMetadata.getByCommitment(knownCommitment, {
-				limit: 5,
-			})
-			logger.info(
-				`[diag] getByCommitment(known) → ${byComm.length} row(s): ${byComm
-					.map((p) => `${p.entityType}/${p.status}@${p.chain}`)
-					.join(", ")}`,
-			)
-		} catch (e) {
-			const m = e instanceof Error ? e.message : String(e)
-			logger.error(`[diag] getByCommitment threw: ${m}`)
-		}
-		try {
-			const eqEntityType = await PendingStatusMetadata.getByFields(
-				[["entityType", "=", "RequestV2"]],
-				{ limit: 5 },
-			)
-			logger.info(
-				`[diag] getByFields(entityType='=' 'RequestV2') → ${eqEntityType.length} row(s)`,
-			)
-		} catch (e) {
-			const m = e instanceof Error ? e.message : String(e)
-			logger.error(`[diag] getByFields(eq) threw: ${m}`)
-		}
-		// === end diagnostic ===
-
 		const batch = await PendingStatusMetadata.getByFields(
 			[["entityType", "in", [...KNOWN_ENTITY_TYPES]]],
 			{ limit },
 		)
+		if (batch.length === 0) return
+
 		logger.info(
-			`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s); ` +
-				`sample=${batch
-					.slice(0, 3)
-					.map((p) => `${p.entityType}@${p.chain}:${p.id}`)
-					.join(", ")}`,
+			`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s)`,
 		)
 
 		for (const pending of batch) {
@@ -96,8 +51,6 @@ export class PendingStatusService {
 			}
 			await this.materialize(pending, pending.entityType)
 		}
-
-		logger.info(`[PendingStatusService.flushBatch] finished`)
 	}
 
 	private static async materialize(
@@ -107,12 +60,7 @@ export class PendingStatusService {
 		switch (entityType) {
 			case "RequestV2": {
 				const parent = await RequestV2.get(pending.commitment)
-				if (!parent) {
-					logger.info(
-						`[PendingStatusService] RequestV2 ${pending.commitment} not yet present, leaving pending`,
-					)
-					return
-				}
+				if (!parent) return
 				const statusMetadata = RequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -133,12 +81,7 @@ export class PendingStatusService {
 			}
 			case "GetRequestV2": {
 				const parent = await GetRequestV2.get(pending.commitment)
-				if (!parent) {
-					logger.info(
-						`[PendingStatusService] GetRequestV2 ${pending.commitment} not yet present, leaving pending`,
-					)
-					return
-				}
+				if (!parent) return
 				const statusMetadata = GetRequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -159,12 +102,7 @@ export class PendingStatusService {
 			}
 			case "IOrderV3": {
 				const parent = await IOrderV3.get(pending.commitment)
-				if (!parent) {
-					logger.info(
-						`[PendingStatusService] IOrderV3 ${pending.commitment} not yet present, leaving pending`,
-					)
-					return
-				}
+				if (!parent) return
 				const statusMetadata = IOrderV3StatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					orderId: pending.commitment,

@@ -11,22 +11,12 @@ const FLUSH_LIMIT = 10
  * each chain has to clean up the rows it wrote.
  */
 export const handlePendingStatusFlushEvm = wrap(async (event: EthereumBlock): Promise<void> => {
-	const blockNumber = event.number.toString()
-	const blockTsUnix = Number(event.timestamp)
-	const blockTsIso = new Date(blockTsUnix * 1000).toISOString()
-	logger.info(
-		`[handlePendingStatusFlushEvm] chain=${chainId} entered at block #${blockNumber}, ` +
-			`block.timestamp=${blockTsUnix} (${blockTsIso}), limit=${FLUSH_LIMIT}`,
-	)
 	try {
 		await PendingStatusService.flushBatch(FLUSH_LIMIT)
-		logger.info(
-			`[handlePendingStatusFlushEvm] chain=${chainId} completed for block #${blockNumber}`,
-		)
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
 		logger.error(
-			`[handlePendingStatusFlushEvm] chain=${chainId} failed at block #${blockNumber}: ${message}`,
+			`[handlePendingStatusFlushEvm] chain=${chainId} failed at block #${event.number}: ${message}`,
 		)
 	}
 })

@@ -9,7 +9,7 @@ use polkadot_sdk::{
 	frame_support::{
 		assert_err, assert_ok,
 		traits::{
-			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize,
+			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
 			ValidatorRegistration,
 		},
 	},
@@ -433,6 +433,122 @@ fn revoke_controller_approval_works() {
 		assert_err!(
 			CollatorManager::revoke_controller_approval(RuntimeOrigin::signed(controller), stash,),
 			Error::<Test>::NoPendingApproval,
+		);
+	});
+}
+
+/// Make `stash` a bonded candidate paired to `controller` with session keys.
+fn setup_bonded_collator(
+	stash: <Test as frame_system::Config>::AccountId,
+	controller: <Test as frame_system::Config>::AccountId,
+) {
+	Balances::set_balance(&stash, INITIAL_BALANCE);
+	link_stash_to_controller(stash.clone(), controller.clone());
+	set_session_keys(controller);
+	assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(stash)));
+}
+
+#[test]
+fn unbond_fails_when_not_a_candidate() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		assert_err!(CollatorManager::unbond(RuntimeOrigin::signed(ALICE)), Error::<Test>::NoBond);
+	});
+}
+
+#[test]
+fn unbond_stops_the_collator_being_selected() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let alice_stash = AccountId32::new([11; 32]);
+		let bob_stash = AccountId32::new([12; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+		setup_bonded_collator(bob_stash.clone(), BOB);
+		set_reputation_balance(&ALICE, 50 * UNIT);
+		set_reputation_balance(&BOB, 40 * UNIT);
+
+		let mut selected =
+			<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(0)
+				.unwrap();
+		selected.sort();
+		assert_eq!(selected, vec![ALICE, BOB]);
+
+		assert_ok!(CollatorManager::unbond(RuntimeOrigin::signed(alice_stash.clone())));
+		assert!(pallet_collator_manager::Unbonding::<Test>::contains_key(&alice_stash));
+
+		let selected =
+			<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(1)
+				.unwrap();
+		assert_eq!(selected, vec![BOB]);
+	});
+}
+
+#[test]
+fn withdraw_unbonded_fails_before_the_delay() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+
+		assert_ok!(CollatorManager::unbond(RuntimeOrigin::signed(alice_stash.clone())));
+		assert_err!(
+			CollatorManager::withdraw_unbonded(RuntimeOrigin::signed(alice_stash)),
+			Error::<Test>::UnbondingPeriodNotElapsed
+		);
+	});
+}
+
+#[test]
+fn withdraw_unbonded_releases_the_bond_after_the_delay() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let bond = 100 * UNIT;
+		pallet_collator_selection::CandidacyBond::<Test>::put(bond);
+
+		// `leave_intent` (used internally) needs more than `MinEligibleCollators` candidates, so
+		// three are bonded and only one unbonds.
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+		setup_bonded_collator(AccountId32::new([12; 32]), BOB);
+		setup_bonded_collator(AccountId32::new([13; 32]), CHARLIE);
+		assert_eq!(Balances::reserved_balance(&alice_stash), bond);
+
+		assert_ok!(CollatorManager::unbond(RuntimeOrigin::signed(alice_stash.clone())));
+		let withdrawable_at =
+			pallet_collator_manager::Unbonding::<Test>::get(&alice_stash).unwrap();
+		System::<Test>::set_block_number(withdrawable_at);
+
+		assert_ok!(CollatorManager::withdraw_unbonded(RuntimeOrigin::signed(alice_stash.clone())));
+
+		assert_eq!(Balances::reserved_balance(&alice_stash), 0);
+		assert!(pallet_collator_manager::Unbonding::<Test>::get(&alice_stash).is_none());
+		assert!(!pallet_collator_selection::CandidateList::<Test>::get()
+			.iter()
+			.any(|candidate| candidate.who == alice_stash));
+	});
+}
+
+#[test]
+fn root_can_remove_and_reinstate_a_validator() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+		set_reputation_balance(&ALICE, 50 * UNIT);
+		pallet_session::Validators::<Test>::put(vec![ALICE]);
+
+		assert_ok!(CollatorManager::remove_validator(RuntimeOrigin::root(), ALICE));
+		assert!(pallet_collator_manager::RemovedValidators::<Test>::contains_key(&ALICE));
+		assert!(!pallet_session::Validators::<Test>::get().contains(&ALICE));
+		// A removed validator is skipped even though it is still a bonded candidate.
+		assert!(<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(0)
+			.is_none());
+
+		assert_ok!(CollatorManager::reinstate_validator(RuntimeOrigin::root(), ALICE));
+		assert!(!pallet_collator_manager::RemovedValidators::<Test>::contains_key(&ALICE));
+		assert_eq!(
+			<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(1),
+			Some(vec![ALICE])
 		);
 	});
 }

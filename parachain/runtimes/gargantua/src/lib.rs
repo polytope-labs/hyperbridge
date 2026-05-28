@@ -379,7 +379,7 @@ impl frame_system::Config for Runtime {
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
 	type BaseCallFilter = InsideBoth<
-		InsideBoth<ReputationCallFilter, IsmpCallFilter>,
+		InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, CollatorSelectionCallFilter>,
 		InsideBoth<Everything, TxPause>,
 	>;
 	/// Weight information for the extrinsics of this pallet.
@@ -579,6 +579,11 @@ impl pallet_collator_selection::Config for Runtime {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	/// Collators wait seven days between `unbond` and withdrawing their candidacy bond.
+	pub const CollatorUnbondingPeriod: BlockNumber = 7 * DAYS;
+}
+
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type Balance = Balance;
@@ -586,6 +591,7 @@ impl pallet_collator_manager::Config for Runtime {
 	type TreasuryAccount = TreasuryPalletId;
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingIncentives;
+	type UnbondingPeriod = CollatorUnbondingPeriod;
 	type WeightInfo = ();
 }
 
@@ -826,6 +832,18 @@ impl frame_support::traits::Contains<RuntimeCall> for IsmpCallFilter {
 			},
 			_ => true,
 		}
+	}
+}
+
+/// Blocks collator-selection's `leave_intent`. Collators leave through collator-manager's
+/// `unbond`, which enforces the seven day unbonding delay, so the instant exit is closed off.
+pub struct CollatorSelectionCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for CollatorSelectionCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		!matches!(
+			call,
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+		)
 	}
 }
 

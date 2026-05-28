@@ -54,7 +54,7 @@ pub mod pallet {
 	use scale_info::TypeInfo;
 	use sp_runtime::{
 		FixedPointOperand,
-		traits::{AccountIdConversion, AtLeast32BitUnsigned, Zero},
+		traits::{AccountIdConversion, AtLeast32BitUnsigned, Convert, Saturating, Zero},
 	};
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
@@ -107,6 +107,11 @@ pub mod pallet {
 		/// Trait implementation for resetting messaging incentives.
 		type IncentivesManager: pallet_messaging_incentives::IncentivesManager;
 
+		/// How long a collator must wait, in blocks, between calling `unbond` and being able to
+		/// withdraw its candidacy bond. Set to roughly seven days per runtime.
+		#[pallet::constant]
+		type UnbondingPeriod: Get<BlockNumberFor<Self>>;
+
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
@@ -142,6 +147,18 @@ pub mod pallet {
 	pub type CollatorReward<T: Config> =
 		StorageValue<_, <T as pallet::Config>::Balance, ValueQuery>;
 
+	/// Validators removed by root. They are dropped from the active set straight away and skipped
+	/// by `new_session`, so they are never reselected until reinstated.
+	#[pallet::storage]
+	pub type RemovedValidators<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+	/// Stashes that have started unbonding, mapped to the block at which their bond can be
+	/// withdrawn. An unbonding stash stops being selected by `new_session`.
+	#[pallet::storage]
+	pub type Unbonding<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, BlockNumberFor<T>, OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// The specified account is not a stash account.
@@ -158,6 +175,12 @@ pub mod pallet {
 		ControllerApprovalMissing,
 		/// There is no pending controller approval to revoke for the given pair.
 		NoPendingApproval,
+		/// The account already has an unbonding request in progress.
+		AlreadyUnbonding,
+		/// The account is not currently unbonding.
+		NotUnbonding,
+		/// The unbonding period has not elapsed yet.
+		UnbondingPeriodNotElapsed,
 	}
 
 	#[pallet::event]
@@ -217,6 +240,28 @@ pub mod pallet {
 			/// The controller account that revoked approval.
 			controller: T::AccountId,
 			/// The stash account whose approval was revoked.
+			stash: T::AccountId,
+		},
+		/// Root removed a validator from the active set.
+		ValidatorRemoved {
+			/// The validator that was removed.
+			validator: T::AccountId,
+		},
+		/// Root reinstated a previously removed validator.
+		ValidatorReinstated {
+			/// The validator that was reinstated.
+			validator: T::AccountId,
+		},
+		/// A collator started unbonding its candidacy bond.
+		UnbondStarted {
+			/// The stash that is unbonding.
+			stash: T::AccountId,
+			/// The block at which the bond becomes withdrawable.
+			withdrawable_at: BlockNumberFor<T>,
+		},
+		/// A collator withdrew its candidacy bond after the unbonding period.
+		Withdrawn {
+			/// The stash whose bond was released.
 			stash: T::AccountId,
 		},
 	}
@@ -337,6 +382,92 @@ pub mod pallet {
 			Self::deposit_event(Event::ControllerApprovalRevoked { controller, stash });
 			Ok(())
 		}
+
+		/// Remove a validator from the active set and keep it out of future sessions.
+		///
+		/// Drops the validator from `pallet-session`'s active set right away and records it so
+		/// `new_session` won't reselect it. The bond is left alone; the operator reclaims it
+		/// through the normal `unbond` flow. Reverse with `reinstate_validator`.
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::remove_validator())]
+		pub fn remove_validator(origin: OriginFor<T>, validator: T::AccountId) -> DispatchResult {
+			<T as pallet::Config>::AdminOrigin::ensure_origin(origin)?;
+			RemovedValidators::<T>::insert(&validator, ());
+			if let Some(validator_id) =
+				<T as pallet_session::Config>::ValidatorIdOf::convert(validator.clone())
+			{
+				pallet_session::Validators::<T>::mutate(|validators| {
+					validators.retain(|id| *id != validator_id);
+				});
+			}
+			Self::deposit_event(Event::ValidatorRemoved { validator });
+			Ok(())
+		}
+
+		/// Reinstate a validator previously removed by `remove_validator`, letting `new_session`
+		/// consider it again.
+		#[pallet::call_index(7)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::reinstate_validator())]
+		pub fn reinstate_validator(
+			origin: OriginFor<T>,
+			validator: T::AccountId,
+		) -> DispatchResult {
+			<T as pallet::Config>::AdminOrigin::ensure_origin(origin)?;
+			RemovedValidators::<T>::remove(&validator);
+			Self::deposit_event(Event::ValidatorReinstated { validator });
+			Ok(())
+		}
+
+		/// Start unbonding the caller's candidacy bond.
+		///
+		/// The caller stops being selected from the next session, and the bond becomes
+		/// withdrawable after `UnbondingPeriod` blocks via `withdraw_unbonded`. This is the only
+		/// way for a collator to leave, since collator-selection's `leave_intent` is filtered out.
+		#[pallet::call_index(8)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::unbond())]
+		pub fn unbond(origin: OriginFor<T>) -> DispatchResult {
+			let stash = ensure_signed(origin)?;
+			ensure!(
+				pallet_collator_selection::CandidateList::<T>::get()
+					.iter()
+					.any(|candidate| candidate.who == stash),
+				Error::<T>::NoBond
+			);
+			ensure!(!Unbonding::<T>::contains_key(&stash), Error::<T>::AlreadyUnbonding);
+
+			let withdrawable_at = frame_system::Pallet::<T>::block_number()
+				.saturating_add(<T as pallet::Config>::UnbondingPeriod::get());
+			Unbonding::<T>::insert(&stash, withdrawable_at);
+
+			Self::deposit_event(Event::UnbondStarted { stash, withdrawable_at });
+			Ok(())
+		}
+
+		/// Withdraw the candidacy bond once the unbonding period has elapsed.
+		///
+		/// Releases the bond by leaving collator-selection, which unreserves it, and clears the
+		/// stash's controller pairing.
+		#[pallet::call_index(9)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::withdraw_unbonded())]
+		pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
+			let stash = ensure_signed(origin.clone())?;
+			let withdrawable_at = Unbonding::<T>::get(&stash).ok_or(Error::<T>::NotUnbonding)?;
+			ensure!(
+				frame_system::Pallet::<T>::block_number() >= withdrawable_at,
+				Error::<T>::UnbondingPeriodNotElapsed
+			);
+
+			// Reuse collator-selection's leave path to drop candidacy and unreserve the bond.
+			pallet_collator_selection::Pallet::<T>::leave_intent(origin).map_err(|e| e.error)?;
+
+			Unbonding::<T>::remove(&stash);
+			if let Some(controller) = Controller::<T>::take(&stash) {
+				Stash::<T>::remove(&controller);
+			}
+
+			Self::deposit_event(Event::Withdrawn { stash });
+			Ok(())
+		}
 	}
 
 	impl<T: Config> pallet_authorship::EventHandler<T::AccountId, BlockNumberFor<T>> for Pallet<T> {
@@ -381,9 +512,12 @@ pub mod pallet {
 			let mut candidates = pallet_collator_selection::CandidateList::<T>::get()
 				.into_iter()
 				.map(|info| info.who)
+				.filter(|stash_account| !Unbonding::<T>::contains_key(stash_account))
 				.filter_map(|stash_account| Controller::<T>::get(&stash_account))
 				.filter(|controller_account| {
-					pallet_session::NextKeys::<T>::get(controller_account.clone().into()).is_some()
+					!RemovedValidators::<T>::contains_key(controller_account) &&
+						pallet_session::NextKeys::<T>::get(controller_account.clone().into())
+							.is_some()
 				})
 				.map(|controller_account| {
 					(T::ReputationAsset::balance(&controller_account), controller_account)
@@ -392,9 +526,13 @@ pub mod pallet {
 
 			candidates.sort_by_key(|(balance, _)| *balance);
 
-			// Invulnerables always collate; the highest reputation candidates fill the rest.
+			// Invulnerables always collate unless root has removed them; the highest reputation
+			// candidates fill the rest.
 			let mut new_set: Vec<T::AccountId> =
-				pallet_collator_selection::Invulnerables::<T>::get().to_vec();
+				pallet_collator_selection::Invulnerables::<T>::get()
+					.into_iter()
+					.filter(|validator| !RemovedValidators::<T>::contains_key(validator))
+					.collect();
 			for (_, controller) in candidates.into_iter().rev().take(desired_collators) {
 				if !new_set.contains(&controller) {
 					new_set.push(controller);
@@ -462,6 +600,14 @@ pub trait WeightInfo {
 	fn set_controller() -> Weight;
 	/// deregisters a stash account, unbinding it's controller.
 	fn deregister() -> Weight;
+	/// root removes a validator from the active set
+	fn remove_validator() -> Weight;
+	/// root reinstates a removed validator
+	fn reinstate_validator() -> Weight;
+	/// starts unbonding a candidacy bond
+	fn unbond() -> Weight;
+	/// withdraws an unbonded candidacy bond
+	fn withdraw_unbonded() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
@@ -476,6 +622,18 @@ impl WeightInfo for () {
 		Weight::from_parts(10_000_000, 0)
 	}
 	fn deregister() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn remove_validator() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn reinstate_validator() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn unbond() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn withdraw_unbonded() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
 }

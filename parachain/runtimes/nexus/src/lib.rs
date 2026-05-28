@@ -377,7 +377,10 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, TxPause>;
+	type BaseCallFilter = InsideBoth<
+		InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, CollatorSelectionCallFilter>,
+		TxPause,
+	>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -755,6 +758,18 @@ impl Contains<RuntimeCall> for IsmpCallFilter {
 	}
 }
 
+/// Blocks collator-selection's `leave_intent`. Collators leave through collator-manager's
+/// `unbond`, which enforces the seven day unbonding delay, so the instant exit is closed off.
+pub struct CollatorSelectionCallFilter;
+impl Contains<RuntimeCall> for CollatorSelectionCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		!matches!(
+			call,
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+		)
+	}
+}
+
 /// A way to pay from treasury
 impl pallet_treasury::Config for Runtime {
 	type Currency = Balances;
@@ -945,6 +960,11 @@ impl pallet_messaging_incentives::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
+parameter_types! {
+	/// Collators wait seven days between `unbond` and withdrawing their candidacy bond.
+	pub const CollatorUnbondingPeriod: BlockNumber = 7 * DAYS;
+}
+
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type Balance = Balance;
@@ -952,6 +972,7 @@ impl pallet_collator_manager::Config for Runtime {
 	type TreasuryAccount = TreasuryPalletId;
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingIncentives;
+	type UnbondingPeriod = CollatorUnbondingPeriod;
 	type WeightInfo = ();
 }
 

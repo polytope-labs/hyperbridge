@@ -241,3 +241,22 @@ async fn ismp_call_filter_blocks_only_beefy_consensus_and_fund_message() -> Resu
 
 	Ok(())
 }
+
+#[tokio::test]
+#[ignore]
+async fn collator_selection_leave_intent_is_filtered() -> Result<(), anyhow::Error> {
+	let port = env::var("PORT").unwrap_or_else(|_| "9990".into());
+	let url = format!("ws://127.0.0.1:{port}");
+	let (client, rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
+
+	// The filter runs before the call body, so the caller doesn't need to be a candidate.
+	let leave_intent = subxt::dynamic::tx("CollatorSelection", "leave_intent", vec![]);
+	let err = dispatch_error(&client, &rpc_client, leave_intent, Keyring::Bob).await?;
+	assert!(
+		is_call_filtered(&err),
+		"CollatorSelection::leave_intent must be blocked by the base call filter, got {err:?}"
+	);
+
+	Ok(())
+}

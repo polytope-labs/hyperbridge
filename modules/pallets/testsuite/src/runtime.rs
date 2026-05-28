@@ -403,6 +403,7 @@ impl pallet_collator_manager::Config for Test {
 	type TreasuryAccount = TreasuryAccount;
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IncentivesManager = MessagingRelayerIncentives;
+	type UnbondingPeriod = ConstU64<10>;
 	type WeightInfo = ();
 }
 

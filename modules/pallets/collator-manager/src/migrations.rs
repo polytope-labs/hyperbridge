@@ -20,9 +20,10 @@ use core::marker::PhantomData;
 use polkadot_sdk::*;
 
 use frame_support::{
+	migrations::VersionedMigration,
 	pallet_prelude::*,
 	storage_alias,
-	traits::{LockIdentifier, LockableCurrency, OnRuntimeUpgrade, ReservableCurrency},
+	traits::{LockIdentifier, LockableCurrency, ReservableCurrency, UncheckedOnRuntimeUpgrade},
 };
 
 /// Lock identifier the pallet used for collator bonds before they moved to collator-selection
@@ -39,28 +40,39 @@ pub type Bonded<T: Config> = StorageMap<
 	ValueQuery,
 >;
 
-/// Moves every collator bond from the old pallet lock to a collator-selection reserve.
-///
-/// Collator-selection now holds the candidacy bond as a plain reserve, so for each bonded
-/// account we drop the `collbond` lock and reserve the same amount, then clear the legacy
-/// ledger. Draining the ledger makes it safe to run the migration more than once.
-pub struct MigrateBondsToReserves<T>(PhantomData<T>);
+mod version_unchecked {
+	use super::*;
 
-impl<T: Config> OnRuntimeUpgrade for MigrateBondsToReserves<T> {
-	fn on_runtime_upgrade() -> Weight {
-		let mut migrated = 0u64;
-		for (who, bond) in Bonded::<T>::drain() {
-			T::NativeCurrency::remove_lock(COLLATOR_BOND_LOCK_ID, &who);
-			if let Err(err) = T::NativeCurrency::reserve(&who, bond) {
-				log::warn!(
-					target: "pallet-collator-manager",
-					"bond migration could not reserve {bond:?} for {who:?}: {err:?}",
-				);
+	pub struct MigrateBondsToReserves<T>(PhantomData<T>);
+
+	impl<T: Config> UncheckedOnRuntimeUpgrade for MigrateBondsToReserves<T> {
+		fn on_runtime_upgrade() -> Weight {
+			let mut migrated = 0u64;
+			// Draining the ledger both processes and clears it, so nothing is left behind.
+			for (who, bond) in Bonded::<T>::drain() {
+				T::NativeCurrency::remove_lock(COLLATOR_BOND_LOCK_ID, &who);
+				if let Err(err) = T::NativeCurrency::reserve(&who, bond) {
+					log::warn!(
+						target: "pallet-collator-manager",
+						"bond migration could not reserve {bond:?} for {who:?}: {err:?}",
+					);
+				}
+				migrated = migrated.saturating_add(1);
 			}
-			migrated = migrated.saturating_add(1);
-		}
 
-		<T as frame_system::Config>::DbWeight::get()
-			.reads_writes(migrated, migrated.saturating_mul(3))
+			<T as frame_system::Config>::DbWeight::get()
+				.reads_writes(migrated, migrated.saturating_mul(3))
+		}
 	}
 }
+
+/// Moves every collator bond from the old `collbond` lock into a collator-selection reserve and
+/// drains the legacy ledger. Wrapped in `VersionedMigration` so it runs once, on the v0 to v1
+/// upgrade, rather than on every runtime upgrade.
+pub type MigrateBondsToReserves<T> = VersionedMigration<
+	0,
+	1,
+	version_unchecked::MigrateBondsToReserves<T>,
+	Pallet<T>,
+	<T as frame_system::Config>::DbWeight,
+>;

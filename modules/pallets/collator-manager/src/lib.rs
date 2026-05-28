@@ -59,7 +59,11 @@ pub mod pallet {
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
 
+	/// Bumped to 1 by the migration that moves collator bonds into collator-selection reserves.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
@@ -361,10 +365,7 @@ pub mod pallet {
 
 	impl<T: Config> SessionManager<T::AccountId> for Pallet<T>
 	where
-		<T as pallet_session::Config>::ValidatorId: Into<T::AccountId> + Clone,
-		T::AccountId: From<<T as pallet_session::Config>::ValidatorId>,
 		T::AccountId: Into<<T as pallet_session::Config>::ValidatorId> + Clone,
-		<T as pallet_session::Config>::ValidatorId: From<T::AccountId>,
 	{
 		fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
 			T::IncentivesManager::reset_incentives();
@@ -374,7 +375,9 @@ pub mod pallet {
 				<T as pallet_collator_selection::Config>::MinEligibleCollators::get(),
 			) as usize;
 
-			// select registered candidates that have session keys, ranked by reputation.
+			// Rank candidate controllers that have session keys by reputation, highest first.
+			// We keep every eligible candidate, even those with no reputation, so the set never
+			// shrinks below what's needed to keep producing blocks; reputation only orders them.
 			let mut candidates = pallet_collator_selection::CandidateList::<T>::get()
 				.into_iter()
 				.map(|info| info.who)
@@ -382,31 +385,33 @@ pub mod pallet {
 				.filter(|controller_account| {
 					pallet_session::NextKeys::<T>::get(controller_account.clone().into()).is_some()
 				})
-				.filter_map(|controller_account| {
-					let balance = T::ReputationAsset::balance(&controller_account);
-					if balance.is_zero() { None } else { Some((balance, controller_account)) }
+				.map(|controller_account| {
+					(T::ReputationAsset::balance(&controller_account), controller_account)
 				})
 				.collect::<Vec<_>>();
 
 			candidates.sort_by_key(|(balance, _)| *balance);
 
-			let new_set_validators: Vec<<T as pallet_session::Config>::ValidatorId> = candidates
-				.into_iter()
-				.rev()
-				.take(desired_collators)
-				.map(|(_, c)| c.clone().into())
-				.collect();
+			// Invulnerables always collate; the highest reputation candidates fill the rest.
+			let mut new_set: Vec<T::AccountId> =
+				pallet_collator_selection::Invulnerables::<T>::get().to_vec();
+			for (_, controller) in candidates.into_iter().rev().take(desired_collators) {
+				if !new_set.contains(&controller) {
+					new_set.push(controller);
+				}
+			}
 
-			let new_set: Vec<T::AccountId> =
-				new_set_validators.iter().map(|v| v.clone().into()).collect();
 			if new_set.is_empty() {
 				return None;
 			}
 
 			for account_id in &new_set {
-				let balance = T::ReputationAsset::balance(&account_id);
+				let balance = T::ReputationAsset::balance(account_id);
+				if balance.is_zero() {
+					continue;
+				}
 				let result = T::ReputationAsset::burn_from(
-					&account_id,
+					account_id,
 					balance,
 					Preservation::Expendable,
 					Precision::Exact,

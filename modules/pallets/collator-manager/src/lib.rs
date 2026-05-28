@@ -54,7 +54,7 @@ pub mod pallet {
 	use scale_info::TypeInfo;
 	use sp_runtime::{
 		FixedPointOperand,
-		traits::{AccountIdConversion, AtLeast32BitUnsigned, Convert, Saturating, Zero},
+		traits::{AccountIdConversion, AtLeast32BitUnsigned, Saturating, Zero},
 	};
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
@@ -383,23 +383,25 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Remove a validator from the active set and keep it out of future sessions.
+		/// Keep a validator out of future sessions.
 		///
-		/// Drops the validator from `pallet-session`'s active set right away and records it so
-		/// `new_session` won't reselect it. The bond is left alone; the operator reclaims it
-		/// through the normal `unbond` flow. Reverse with `reinstate_validator`.
+		/// Records the validator in `RemovedValidators` so the next `new_session` skips it.
+		/// `pallet_session::Validators` is **not** mutated: the runtime's `FindAuthor` is
+		/// `FindAccountFromAuthorIndex<Self, Aura>`, which maps an aura slot index into that
+		/// vector to credit the block author. Removing an entry mid-session shifts those
+		/// indices without touching aura's authority list (which is fixed for the session),
+		/// so the removed validator would keep producing blocks while its slot's reward
+		/// silently went to whoever now sits at the old index. The active set is rebuilt at
+		/// the next session boundary instead — the same place the rest of the selection
+		/// logic runs.
+		///
+		/// The bond is left alone; the operator reclaims it through the normal `unbond` flow.
+		/// Reverse with `reinstate_validator`.
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::remove_validator())]
 		pub fn remove_validator(origin: OriginFor<T>, validator: T::AccountId) -> DispatchResult {
 			<T as pallet::Config>::AdminOrigin::ensure_origin(origin)?;
 			RemovedValidators::<T>::insert(&validator, ());
-			if let Some(validator_id) =
-				<T as pallet_session::Config>::ValidatorIdOf::convert(validator.clone())
-			{
-				pallet_session::Validators::<T>::mutate(|validators| {
-					validators.retain(|id| *id != validator_id);
-				});
-			}
 			Self::deposit_event(Event::ValidatorRemoved { validator });
 			Ok(())
 		}

@@ -539,7 +539,11 @@ fn root_can_remove_and_reinstate_a_validator() {
 
 		assert_ok!(CollatorManager::remove_validator(RuntimeOrigin::root(), ALICE));
 		assert!(pallet_collator_manager::RemovedValidators::<Test>::contains_key(&ALICE));
-		assert!(!pallet_session::Validators::<Test>::get().contains(&ALICE));
+		// `Validators` is intentionally left alone — mutating it mid-session would shift
+		// the indices `FindAccountFromAuthorIndex` reads, mis-attributing block rewards
+		// for the remainder of the session. The removal only takes effect at the next
+		// session boundary, via the `new_session` filter below.
+		assert!(pallet_session::Validators::<Test>::get().contains(&ALICE));
 		// A removed validator is skipped even though it is still a bonded candidate.
 		assert!(<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(0)
 			.is_none());

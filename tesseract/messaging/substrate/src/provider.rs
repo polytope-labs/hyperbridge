@@ -85,6 +85,20 @@ impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 {
+	/// Construct an in-memory signer for this client's configured key. Shared by every
+	/// extrinsic-submitting trait method.
+	pub(crate) fn in_memory_signer(&self) -> InMemorySigner<C>
+	where
+		<C as subxt::Config>::AccountId: From<subxt::utils::AccountId32>,
+	{
+		let binding = self.signer.public();
+		let public_key_slice: &[u8] = binding.as_ref();
+		let public_key_array: [u8; 32] =
+			public_key_slice.try_into().expect("Public key must be 32 bytes");
+		let account_id = AccountId32::from(public_key_array);
+		InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() }
+	}
+
 	/// Scans `frame_system::Events` across parachain blocks `(cursor, tip]` in
 	/// a single `state_queryStorage` call, decodes every
 	/// `pallet_beefy_consensus_proofs::Event::ProofAccepted` found, and
@@ -959,17 +973,7 @@ where
 	}
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
-		let binding = self.signer.public();
-
-		let public_key_slice: &[u8] = binding.as_ref();
-
-		let public_key_array: [u8; 32] =
-			public_key_slice.try_into().expect("Public key must be 32 bytes");
-
-		let account_id = AccountId32::from(public_key_array);
-
-		let signer = InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() };
-
+		let signer = self.in_memory_signer();
 		let call = subxt::dynamic::tx(
 			"Fishermen",
 			"veto_state_commitment",

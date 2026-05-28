@@ -31,6 +31,10 @@ mod tests;
 pub struct Prover<R: subxt::Config, P: subxt::Config, B: BeefyProver> {
 	pub inner: beefy_prover::Prover<R, P>,
 	pub sp1_beefy: Arc<B>,
+	/// The extrinsic submission account (the `submit_proof` signer). Committed verbatim into
+	/// each SP1 proof as its nonce, so `pallet-beefy-consensus-proofs` can bind the proof to
+	/// this account and reject it if submitted by anyone else.
+	pub account: H256,
 }
 
 impl<R, P, B> Clone for Prover<R, P, B>
@@ -41,7 +45,11 @@ where
 	beefy_prover::Prover<R, P>: Clone,
 {
 	fn clone(&self) -> Self {
-		Self { inner: self.inner.clone(), sp1_beefy: self.sp1_beefy.clone() }
+		Self {
+			inner: self.inner.clone(),
+			sp1_beefy: self.sp1_beefy.clone(),
+			account: self.account,
+		}
 	}
 }
 
@@ -51,8 +59,8 @@ where
 	P: subxt::Config,
 	B: BeefyProver,
 {
-	pub fn new(prover: beefy_prover::Prover<R, P>, sp1_beefy: B) -> Self {
-		Self { inner: prover, sp1_beefy: Arc::new(sp1_beefy) }
+	pub fn new(prover: beefy_prover::Prover<R, P>, sp1_beefy: B, account: H256) -> Self {
+		Self { inner: prover, sp1_beefy: Arc::new(sp1_beefy), account }
 	}
 
 	pub async fn consensus_proof(
@@ -60,6 +68,10 @@ where
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 		consensus_state: ConsensusState,
 	) -> Result<SP1BeefyProof, anyhow::Error> {
+		// Submission account committed into the proof as its nonce (see struct field docs).
+		// Use the raw bytes at each commit site so the conversion is agnostic to the exact
+		// `H256`/`FixedBytes` type each consumer expects.
+		let account: [u8; 32] = self.account.0;
 		let authority = match signed_commitment.commitment.validator_set_id {
 			id if id == consensus_state.current_authorities.id =>
 				consensus_state.current_authorities,
@@ -170,6 +182,10 @@ where
 				proof: para_header_witness,
 				total_count: paras_len,
 			},
+			// Commit our submission account as the proof's nonce. `pallet-beefy-consensus-proofs`
+			// requires this to equal the `submit_proof` signer, binding the proof to us so it
+			// can't be sniped from the mempool and submitted under another account.
+			nonce: account.into(),
 		};
 
 		let proof = self.sp1_beefy.prove(commitment).await?;
@@ -182,6 +198,8 @@ where
 			mmrLeaf: message.mmr.latest_mmr_leaf.into(),
 			proof: proof.bytes().into(),
 			headers: message.parachain.parachains.into_iter().map(|i| i.into()).collect(),
+			// Carry the committed nonce so the verifier reconstructs matching public inputs.
+			nonce: account.into(),
 		})
 	}
 }

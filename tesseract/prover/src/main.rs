@@ -16,6 +16,7 @@
 
 use anyhow::anyhow;
 use clap::Parser;
+use primitive_types::H256;
 use std::sync::Arc;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_primitives::IsmpProvider;
@@ -47,13 +48,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
 	let mut config = tokio::fs::read_to_string(cli.config).await?.parse::<toml::Table>()?;
 
-	let prover = {
-		let prover_config = config
-			.remove("prover")
-			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		Prover::new(prover_config.try_into()?).await?
-	};
-
 	let substrate = {
 		let substrate_config: tesseract_substrate::SubstrateConfig = config
 			.remove("substrate")
@@ -61,6 +55,20 @@ async fn main() -> Result<(), anyhow::Error> {
 			.try_into()?;
 		// Auto-fill state_machine + consensus_state_id from the chain when omitted.
 		SubstrateClient::new(substrate_config.resolve().await?).await?
+	};
+
+	// The SP1 nonce committed into each proof must equal the account that submits it, which is
+	// this prover's substrate signer (see `pallet-beefy-consensus-proofs`). `address` is the
+	// signer's 32-byte sr25519 public key.
+	let account: H256 = <[u8; 32]>::try_from(substrate.address.as_slice())
+		.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?
+		.into();
+
+	let prover = {
+		let prover_config = config
+			.remove("prover")
+			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
+		Prover::new(prover_config.try_into()?, account).await?
 	};
 
 	let beefy_prover = {

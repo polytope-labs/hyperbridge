@@ -48,7 +48,8 @@ import { TronWeb } from "tronweb"
 // Test Suites
 // ============================================================================
 
-describe("Filler V2 - Solver Selection ON", () => {
+// Skipped: IntentGateway contracts not redeployed in the testnet redeployment.
+describe.skip("Filler V2 - Solver Selection ON", () => {
 	it.skip("Should place order, filler submits bid, user selects bid, order filled", async () => {
 		const {
 			bscIntentGatewayV2,

@@ -33,6 +33,10 @@ struct SP1BeefyProof {
     ParachainHeader[] headers;
     // SP1 plonk proof for BEEFY consensus
     bytes proof;
+    // Prover-chosen nonce committed into the proof's public values. Carried verbatim so the
+    // verifier can reconstruct the committed public inputs; rewarding verifiers bind it to the
+    // submission account to make a proof non-transferable.
+    bytes32 nonce;
 }
 
 struct MiniCommitment {
@@ -66,6 +70,8 @@ struct PublicInputs {
     uint256 block_number;
     // Parachain header hashes
     ParachainHeaderHash[] headers;
+    // Prover-chosen nonce, committed verbatim by the SP1 program
+    bytes32 nonce;
 }
 
 struct Payload {

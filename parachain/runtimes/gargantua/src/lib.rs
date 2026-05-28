@@ -187,6 +187,7 @@ pub type Migrations = (
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 );
 

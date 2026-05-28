@@ -67,11 +67,6 @@ dataSources:
           filter:
             module: bandwidth
             method: TierSet
-        - handler: handleSubstrateAssetTeleportedEvent
-          kind: substrate/EventHandler
-          filter:
-            module: xcmGateway
-            method: AssetTeleported
         - handler: handleBridgeTokenSupplyIndexing
           kind: substrate/BlockHandler
           filter:

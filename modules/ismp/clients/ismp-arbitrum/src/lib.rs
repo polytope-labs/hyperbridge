@@ -21,10 +21,11 @@ extern crate alloc;
 
 pub mod pallet;
 use arbitrum_verifier::{
-	ArbitrumBoldProof, ArbitrumPayloadProof, Error as ArbitrumError, verify_arbitrum_bold,
-	verify_arbitrum_payload,
+	ArbitrumBoldProof, ArbitrumPayloadProof, Error as ArbitrumError, compute_assertion_hash,
+	get_state_hash, orbit_claim_hash, verify_arbitrum_bold, verify_arbitrum_payload,
 };
 use pallet::{Pallet, SupportedStateMachines};
+use pallet_fishermen::FishermanBlacklist;
 
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
@@ -131,6 +132,21 @@ impl<
 		{
 			match proof {
 				ArbitrumConsensusProof::ArbitrumOrbit(proof) => {
+					// Derive the unified claim hash and refuse blacklisted entries before the
+					// heavy proof verification.
+					let state_hash = get_state_hash::<H>(
+						proof.global_state,
+						proof.machine_status,
+						proof.inbox_max_count,
+					);
+					let claim = orbit_claim_hash::<H>(state_hash, proof.node_number);
+					if <T as pallet::Config>::FishermanBlacklist::is_arbitrum_claim_blacklisted(
+						state_machine_id,
+						claim,
+					) {
+						return Err(ArbitrumError::ClaimBlacklisted(claim).into());
+					}
+
 					let state = verify_arbitrum_payload::<H>(
 						proof,
 						state_root,
@@ -158,6 +174,19 @@ impl<
 					consensus_state.finalized_height = state.height.height;
 				},
 				ArbitrumConsensusProof::ArbitrumBold(proof) => {
+					// BoLD assertions use the on-chain `assertionHash` directly as the claim key.
+					let assertion_hash = compute_assertion_hash(
+						proof.previous_assertion_hash,
+						proof.after_state.hash(),
+						proof.sequencer_batch_acc,
+					);
+					if <T as pallet::Config>::FishermanBlacklist::is_arbitrum_claim_blacklisted(
+						state_machine_id,
+						assertion_hash,
+					) {
+						return Err(ArbitrumError::ClaimBlacklisted(assertion_hash).into());
+					}
+
 					let state = verify_arbitrum_bold::<H>(
 						proof,
 						state_root,

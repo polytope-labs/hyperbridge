@@ -67,7 +67,6 @@ interface CacheData {
 	pairClassifications: Record<string, PairClassificationsCache>
 	fundingPrepends: Record<string, FundingPrependsCache>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
-	perByteFees: Record<string, Record<string, bigint>>
 	tokenDecimals: Record<string, Record<HexString, number>>
 	solverSelection: Record<string, boolean>
 }
@@ -85,7 +84,6 @@ export class CacheService {
 			pairClassifications: {},
 			fundingPrepends: {},
 			feeTokens: {},
-			perByteFees: {},
 			tokenDecimals: {},
 			solverSelection: {},
 		}
@@ -363,36 +361,6 @@ export class CacheService {
 			this.cacheData.feeTokens[chain] = { address, decimals }
 		} catch (error) {
 			this.logger.error({ chain: chain, err: error }, "Error setting fee token with decimals")
-			throw error
-		}
-	}
-
-	getPerByteFee(sourceChain: string, destChain: string): bigint | null {
-		try {
-			const sourceMap = this.cacheData.perByteFees[sourceChain]
-			if (sourceMap && sourceMap[destChain]) {
-				return sourceMap[destChain]
-			}
-			return null
-		} catch (error) {
-			this.logger.error({ err: error }, "Error getting per byte fee")
-			return null
-		}
-	}
-
-	setPerByteFee(sourceChain: string, destChain: string, perByteFee: bigint): void {
-		try {
-			this.cleanupStaleData()
-
-			if (!this.cacheData.perByteFees[sourceChain]) {
-				this.cacheData.perByteFees[sourceChain] = {}
-			}
-			this.cacheData.perByteFees[sourceChain][destChain] = perByteFee
-		} catch (error) {
-			this.logger.error(
-				{ sourceChain: sourceChain, destChain: destChain, err: error },
-				"Error setting per byte fee",
-			)
 			throw error
 		}
 	}

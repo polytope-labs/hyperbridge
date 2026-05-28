@@ -24,6 +24,7 @@ zstd-safe = { version = "7.1.0" }
 primitive-types-old = { package = "primitive-types", version = "0.12.1", features = [
     "codec",
 ] } # Added for subxt compatibility when  decoding events
+primitive-types = { workspace = true, default-features = true }
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main" }
 
 tesseract-primitives = { workspace = true }

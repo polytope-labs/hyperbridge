@@ -169,7 +169,13 @@ pub type Executive = frame_executive::Executive<
 >;
 
 /// All runtime migrations executed on each runtime upgrade in order.
-pub type Migrations = (pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,);
+pub type Migrations = (
+	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
+	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
+	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
+    pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
+);
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.
@@ -231,7 +237,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_300,
+	spec_version: 7_400,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

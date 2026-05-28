@@ -47,7 +47,7 @@ dataSources:
           handler: handleOrderPlacedEventV3
           filter:
             topics:
-              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
+              - 'OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
           handler: handleOrderFilledEventV3
           filter:
@@ -79,34 +79,6 @@ dataSources:
             topics:
               - 'DustSwept(address,uint256,address)'
   {{/if}}
-  {{#if config.contracts.tokenGateway}}
-  - kind: ethereum/Runtime
-    startBlock: {{blockNumber}}
-    options:
-      abi: tokenGateway
-      address: '{{config.contracts.tokenGateway}}'
-    assets:
-      tokenGateway:
-        file: ./abis/TokenGateway.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleAssetTeleportedEvent
-          filter:
-            topics:
-              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetReceivedEvent
-          filter:
-            topics:
-              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetRefundedEvent
-          filter:
-            topics:
-              - 'AssetRefunded(uint256,bytes32,address,bytes32)'
-  {{/if}}
   # - kind: ethereum/Runtime
   #   startBlock: {{blockNumber}}
   #   options:
@@ -122,10 +94,6 @@ dataSources:
   #         kind: ethereum/TransactionHandler
   #         function: >-
   #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
-  #       - handler: handlePostResponseTransactionHandler
-  #         kind: ethereum/TransactionHandler
-  #         function: >-
-  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
 
 
 repository: 'https://github.com/polytope-labs/hyperbridge'

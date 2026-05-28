@@ -45,11 +45,6 @@ export const BSC = {
 	mainnet: "EVM-56",
 } as const
 
-export const GNOSIS = {
-	testnet: "EVM-10200",
-	mainnet: "EVM-100",
-} as const
-
 export const SONEMIUM = {
 	testnet: "EVM-1946",
 	mainnet: "EVM-1868",
@@ -67,12 +62,10 @@ import ENV_CONFIG from "./env-config.json"
 import { CHAIN_IDS_BY_GENESIS } from "./chain-ids-by-genesis"
 import { CHAINS_BY_ISMP_HOST } from "./chains-by-ismp-host"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "./intent-gateway-v3-addresses"
-import { TOKEN_GATEWAY_ADDRESSES } from "./token-gateway-addresses"
 export {
 	CHAIN_IDS_BY_GENESIS,
 	CHAINS_BY_ISMP_HOST,
 	ENV_CONFIG,
-	TOKEN_GATEWAY_ADDRESSES,
 	INTENT_GATEWAY_V3_ADDRESSES,
 }
 

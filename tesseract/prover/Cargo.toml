@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-prover"
-version = "2.0.1"
+version = "2.1.0"
 edition = "2021"
 description = "Standalone BEEFY consensus prover daemon"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -16,6 +16,7 @@ clap = { version = "4.3.5", features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 rustls = { version = "0.23.23", features = ["ring"] }
+primitive-types = { workspace = true }
 subxt-utils = { workspace = true }
 
 tesseract-beefy = { workspace = true }

@@ -104,7 +104,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 			{ handler: "handleSubstrateRequestEvent", module: "ismp", method: "Request" },
 			{ handler: "handleSubstrateResponseEvent", module: "ismp", method: "Response" },
 			{ handler: "handleSubstratePostRequestHandledEvent", module: "ismp", method: "PostRequestHandled" },
-			{ handler: "handleSubstratePostResponseHandledEvent", module: "ismp", method: "PostResponseHandled" },
 			{
 				handler: "handleSubstratePostRequestTimeoutHandledEvent",
 				module: "ismp",
@@ -115,11 +114,6 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 				handler: "handleSubstrateGetRequestTimeoutHandledEvent",
 				module: "ismp",
 				method: "GetRequestTimeoutHandled",
-			},
-			{
-				handler: "handleSubstratePostResponseTimeoutHandledEvent",
-				module: "ismp",
-				method: "PostResponseTimeoutHandled",
 			},
 		],
 	}
@@ -173,20 +167,11 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 				handler: "handlePostRequestEvent",
 				topics: ["PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)"],
 			},
-			{
-				handler: "handlePostResponseEvent",
-				topics: ["PostResponseEvent(string,string,address,bytes,uint256,uint256,bytes,bytes,uint256,uint256)"],
-			},
 			{ handler: "handlePostRequestHandledEvent", topics: ["PostRequestHandled(bytes32,address)"] },
-			{ handler: "handlePostResponseHandledEvent", topics: ["PostResponseHandled(bytes32,address)"] },
 			{ handler: "handlePostRequestTimeoutHandledEvent", topics: ["PostRequestTimeoutHandled(bytes32,string)"] },
 			{
-				handler: "handlePostResponseTimeoutHandledEvent",
-				topics: ["PostResponseTimeoutHandled(bytes32,string)"],
-			},
-			{
 				handler: "handleGetRequestEvent",
-				topics: ["GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256,bytes,uint256)"],
+				topics: ["GetRequestEvent(string,string,bytes,bytes[],uint256,uint256,uint256,bytes,uint256)"],
 			},
 			{ handler: "handleGetRequestHandledEvent", topics: ["GetRequestHandled(bytes32,address)"] },
 			{ handler: "handleGetRequestTimeoutHandledEvent", topics: ["GetRequestTimeoutHandled(bytes32,string)"] },
@@ -249,22 +234,6 @@ const generateChainsByIsmpHost = () => {
 
 	fs.writeFileSync(root + "/src/chains-by-ismp-host.ts", chainsByIsmpHostContent)
 	console.log("Generated chains-by-ismp-host.ts")
-}
-
-const generateChainsTokenGatewayAddresses = () => {
-	const tokenGateway = {}
-
-	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
-		if (config.type === "evm" && config.contracts?.tokenGateway) {
-			tokenGateway[config.stateMachineId] = config.contracts.tokenGateway
-		}
-	})
-
-	const value = `// Auto-generated, DO NOT EDIT \nexport const TOKEN_GATEWAY_ADDRESSES = ${JSON.stringify(tokenGateway, null, 2)}`
-
-	fs.writeFileSync(root + "/src/token-gateway-addresses.ts", value)
-	console.log("Generated token-gateway-addresses.ts")
 }
 
 const generateChainsIntentGatewayV3Addresses = () => {
@@ -342,7 +311,6 @@ try {
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayV3Addresses()
-	generateChainsTokenGatewayAddresses()
 	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()
 	process.exit(0)

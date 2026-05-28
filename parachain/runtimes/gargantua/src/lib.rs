@@ -188,6 +188,7 @@ pub type Migrations = (
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
+	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -250,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_300,
+	spec_version: 7_301,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -378,7 +379,10 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<ReputationCallFilter, InsideBoth<Everything, TxPause>>;
+	type BaseCallFilter = InsideBoth<
+		InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, CollatorSelectionCallFilter>,
+		InsideBoth<Everything, TxPause>,
+	>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -403,7 +407,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -530,7 +534,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -572,7 +576,23 @@ impl pallet_collator_selection::Config for Runtime {
 	type KickThreshold = Period;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	/// Collators wait seven days between `unbond` and withdrawing their candidacy bond.
+	pub const CollatorUnbondingPeriod: BlockNumber = 7 * DAYS;
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IncentivesManager = MessagingIncentives;
+	type UnbondingPeriod = CollatorUnbondingPeriod;
 	type WeightInfo = ();
 }
 
@@ -788,6 +808,51 @@ impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
 	}
 }
 
+/// Gargantua routes all BEEFY consensus updates through `pallet-beefy-consensus-proofs`, which
+/// requires each proof to pass SP1 zkVM verification before it can advance the BEEFY state.
+/// Allowing raw updates through `handle_unsigned` would bypass that requirement entirely, so
+/// any batch that carries a BEEFY consensus message is rejected here. `fund_message` is also
+/// disabled because gargantua uses the bandwidth model for request fees; per-message top-ups
+/// have no role in that accounting.
+///
+/// A consensus message only names the state it updates, so we ask the host which client owns
+/// that state and compare against BEEFY. Reading from the host remains correct even as more
+/// states (Polkadot, Paseo) are bound to the same client over time.
+pub struct IsmpCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for IsmpCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		use ::ismp::{host::IsmpHost, messaging::Message};
+		match call {
+			RuntimeCall::Ismp(pallet_ismp::Call::fund_message { .. }) => false,
+			RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned { messages }) => {
+				let host = Ismp::default();
+				!messages.iter().any(|message| match message {
+					Message::Consensus(consensus) =>
+						host.consensus_client_id(consensus.consensus_state_id) ==
+							Some(ismp_beefy::BEEFY_CONSENSUS_ID),
+					_ => false,
+				})
+			},
+			_ => true,
+		}
+	}
+}
+
+/// Collator exits on gargantua go through `pallet-collator-manager`'s `unbond` flow, which
+/// holds the bond for seven days before it can be reclaimed. That window exists so the protocol
+/// can act on any detected misbehaviour — a fisherman veto or a future slashing condition —
+/// before the operator walks away with their stake. `leave_intent` would bypass that delay
+/// entirely, so it is closed off here.
+pub struct CollatorSelectionCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for CollatorSelectionCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		!matches!(
+			call,
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+		)
+	}
+}
+
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
@@ -874,6 +939,8 @@ mod runtime {
 	pub type AuraExt = cumulus_pallet_aura_ext;
 	#[runtime::pallet_index(25)]
 	pub type Sudo = pallet_sudo;
+	#[runtime::pallet_index(26)]
+	pub type CollatorManager = pallet_collator_manager;
 
 	// XCM helpers.
 	#[runtime::pallet_index(30)]

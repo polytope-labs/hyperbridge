@@ -23,7 +23,7 @@ The primary responsibilities for Collators on Hyperbridge are:
 - **Collecting Transactions**: They gather transactions from users.
 - **Producing Blocks**: They ensure the production of blocks.
 - **Submitting to Polkadot Validators**: They submit blocks along with proof to the relay chain validators, in this case, Polkadot.
-- **Running the Fisherman Task**: Every collator runs an in-node fisherman that monitors each supported L2 across at least two distinct RPC
+- **Running the Fisherman Task**: Every collator runs an in-node fisherman that monitors each supported L2 across multiple independent RPC
   providers. When the providers reach a supermajority on an L2 state that disagrees with what Hyperbridge is about to commit, the fisherman
   signs a `pallet-fishermen.veto_state_commitment` extrinsic with the collator's AURA key. The collator binary will not start without a valid
   tesseract config (see Step 2, Action 4).
@@ -263,10 +263,11 @@ startup, before block production:
    - Mainnet: Arbitrum (42161), Base (8453), Optimism (10), Unichain (130), Soneium (1868).
    - Testnet: Arbitrum Sepolia (421614), Optimism Sepolia (11155420), Base Sepolia (84532).
 
-2. **Each L2 needs at least two `rpc_urls`, and they must come from distinct providers.** The fisherman computes a supermajority
-   quorum (`floor(2/3 * N) + 1`) across the listed RPCs, so duplicate endpoints add no safety. The validator extracts the host
-   portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
-   (for example one Alchemy endpoint and one Infura endpoint), not two API keys against the same provider.
+2. **Each L2 needs at least two `rpc_urls` from distinct providers, and three is strongly recommended.** The fisherman computes a
+   supermajority quorum (`floor(2/3 * N) + 1`) across the listed RPCs, so duplicate endpoints add no safety. The validator extracts
+   the host portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
+   (for example Alchemy, Infura, and QuickNode), not multiple API keys against the same provider. See the fisherman documentation for
+   guidance on choosing quality endpoints.
 
 A minimal mainnet collator config looks like this. The `[hyperbridge]` table holds the substrate host fields directly, and each L2
 is a top-level `[<chain>]` table with `type = "evm"`. The `[relayer]` section is optional for collators and can be omitted, since
@@ -281,9 +282,8 @@ rpc_ws = "ws://127.0.0.1:9933"
 # Your Controller account's private key
 signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 
-# Each of the five mainnet L2s must be present, with at least two
-# distinct-host rpc_urls. URLs that share a host (case-insensitive) are
-# rejected as the same provider, even if the API key in the path differs.
+# Each of the five mainnet L2s must be present, with at least two distinct-host
+# rpc_urls. Three is strongly recommended. URLs that share a host are rejected.
 [arbitrum]
 type = "evm"
 rpc_urls = [
@@ -421,3 +421,31 @@ If you are not selected:
 - Continue operating your relayer or prover to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.
+
+## Exiting as a Collator
+
+When you are ready to stop collating and reclaim your candidacy bond, the exit follows a two-step unbonding process managed by `pallet-collator-manager`. The direct `collatorSelection.leaveIntent` extrinsic is blocked on Hyperbridge — all exits must go through this flow.
+
+The seven day delay between starting and completing unbonding exists so the protocol has time to act on any detected misbehaviour — such as a fisherman veto — before the operator can walk away with their stake.
+
+### Step 1: Start unbonding from your Stash account
+
+Call `collatorManager.unbond` from your **Stash** account. This marks your Stash as unbonding: it stops being selected in future sessions and records the block at which your bond becomes withdrawable (current block plus seven days of blocks).
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your **Stash** account.
+- Choose the `collatorManager` pallet and the `unbond` extrinsic.
+- Sign and submit.
+
+After this transaction, your Stash is removed from session selection. Your node can be shut down once the current session ends.
+
+### Step 2: Withdraw your bond after the delay
+
+Once seven days have passed, call `collatorManager.withdrawUnbonded` from your **Stash** account. This drops your candidacy from `pallet-collator-selection`, unreserves your bond, and clears the stash–controller pairing.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your **Stash** account.
+- Choose the `collatorManager` pallet and the `withdrawUnbonded` extrinsic.
+- Sign and submit.
+
+The transaction will fail with `UnbondingPeriodNotElapsed` if the seven days have not yet passed. Once it succeeds, your bond is fully released and the account is no longer registered as a candidate.

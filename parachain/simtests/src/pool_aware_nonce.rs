@@ -89,7 +89,8 @@ fn remark(tag: &[u8]) -> subxt::tx::DynamicPayload {
 async fn pool_aware_nonce_survives_finalization_lag() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or_else(|_| "9990".into());
 	let url = format!("ws://127.0.0.1:{port}");
-	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
+	let (client, rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
 
 	// Bob is endowed in the gargantua dev genesis, so a client-side signed extrinsic is valid
 	// and funded. Signing client-side (rather than via `simnode_authorExtrinsic`) is the point:
@@ -104,8 +105,8 @@ async fn pool_aware_nonce_survives_finalization_lag() -> Result<(), anyhow::Erro
 		.await
 		.map_err(|e| anyhow!("system_accountNextIndex failed: {e:?}"))?;
 
-	// 1. Land a first extrinsic in a *best but unfinalized* block — the exact condition the
-	//    prover hits: the proof is in-block, but finality (subxt's auto-nonce source) lags.
+	// 1. Land a first extrinsic in a *best but unfinalized* block — the exact condition the prover
+	//    hits: the proof is in-block, but finality (subxt's auto-nonce source) lags.
 	submit_with_nonce_sealing(&client, &rpc_client, &signer, &remark(b"nonce-test-1"), next0)
 		.await
 		.context("first submission should land in a block")?;
@@ -123,19 +124,29 @@ async fn pool_aware_nonce_survives_finalization_lag() -> Result<(), anyhow::Erro
 	// 3. Bug reproduction: submitting with the stale finalized nonce — what subxt's `create_signed`
 	//    auto path would pick — is rejected by the node (surfaces to the prover as the production
 	//    `Invalid Transaction (1010)`). It fails at submission, so no block needs sealing.
-	let stale_res =
-		send_extrinsic_with_nonce(&client, &signer, &remark(b"nonce-test-stale"), finalized_nonce, false)
-			.await;
+	let stale_res = send_extrinsic_with_nonce(
+		&client,
+		&signer,
+		&remark(b"nonce-test-stale"),
+		finalized_nonce,
+		false,
+	)
+	.await;
 	assert!(
 		stale_res.is_err(),
 		"submitting with the stale finalized nonce ({finalized_nonce}) must be rejected, got {stale_res:?}",
 	);
 
 	// 4. The fix: submitting with the pool-aware nonce lands cleanly despite the finality lag.
-	let last_block =
-		submit_with_nonce_sealing(&client, &rpc_client, &signer, &remark(b"nonce-test-2"), pool_nonce)
-			.await
-			.context("submission with the pool-aware nonce should succeed despite finality lag")?;
+	let last_block = submit_with_nonce_sealing(
+		&client,
+		&rpc_client,
+		&signer,
+		&remark(b"nonce-test-2"),
+		pool_nonce,
+	)
+	.await
+	.context("submission with the pool-aware nonce should succeed despite finality lag")?;
 
 	// Finalize the last sealed block (and its ancestors) so we don't leave `best > finalized`
 	// for subsequent `--test-threads=1` simnode tests.

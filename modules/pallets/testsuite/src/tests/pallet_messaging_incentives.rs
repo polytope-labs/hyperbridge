@@ -177,11 +177,8 @@ fn on_executed_mints_accumulate_across_deliveries() {
 		.unwrap();
 		assert_eq!(relayer_balance(&relayer_account), 100);
 
-		MessagingRelayerIncentives::on_executed(
-			vec![signed_request(&relayer_pair, body)],
-			vec![],
-		)
-		.unwrap();
+		MessagingRelayerIncentives::on_executed(vec![signed_request(&relayer_pair, body)], vec![])
+			.unwrap();
 		assert_eq!(relayer_balance(&relayer_account), 200);
 	});
 }

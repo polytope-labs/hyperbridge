@@ -34,9 +34,47 @@ export class PendingStatusService {
 	static async flushBatch(limit: number): Promise<void> {
 		logger.info(`[PendingStatusService.flushBatch] starting, limit=${limit}`)
 
-		// Use an indexed-field `in` filter so the query is non-empty and predictable.
-		// `entityType` is `@index`-ed on the schema, so this passes the SubQuery
-		// indexed-field assert in @subql/node-core store.js.
+		// === diagnostic block ===
+		// Three independent lookup paths against one known-existing BSC pending row
+		// (see GraphQL dump 2026-05-28). Each path takes a different code path in
+		// @subql/node-core; the one that returns the row tells us which API to
+		// use, and the ones that don't pinpoint the bug.
+		const knownCommitment = "0x10bf3434ba6396bd44105ef95139b62c8799676c02bc5d03934eb8fec68fc447"
+		const knownId = `${knownCommitment}.RequestV2.DESTINATION`
+		try {
+			const byId = await PendingStatusMetadata.get(knownId)
+			logger.info(`[diag] get(knownId) → ${byId ? "FOUND" : "MISSING"}`)
+		} catch (e) {
+			const m = e instanceof Error ? e.message : String(e)
+			logger.error(`[diag] get(knownId) threw: ${m}`)
+		}
+		try {
+			const byComm = await PendingStatusMetadata.getByCommitment(knownCommitment, {
+				limit: 5,
+			})
+			logger.info(
+				`[diag] getByCommitment(known) → ${byComm.length} row(s): ${byComm
+					.map((p) => `${p.entityType}/${p.status}@${p.chain}`)
+					.join(", ")}`,
+			)
+		} catch (e) {
+			const m = e instanceof Error ? e.message : String(e)
+			logger.error(`[diag] getByCommitment threw: ${m}`)
+		}
+		try {
+			const eqEntityType = await PendingStatusMetadata.getByFields(
+				[["entityType", "=", "RequestV2"]],
+				{ limit: 5 },
+			)
+			logger.info(
+				`[diag] getByFields(entityType='=' 'RequestV2') → ${eqEntityType.length} row(s)`,
+			)
+		} catch (e) {
+			const m = e instanceof Error ? e.message : String(e)
+			logger.error(`[diag] getByFields(eq) threw: ${m}`)
+		}
+		// === end diagnostic ===
+
 		const batch = await PendingStatusMetadata.getByFields(
 			[["entityType", "in", [...KNOWN_ENTITY_TYPES]]],
 			{ limit },

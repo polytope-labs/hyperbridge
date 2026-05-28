@@ -12,8 +12,11 @@ const FLUSH_LIMIT = 10
  */
 export const handlePendingStatusFlushEvm = wrap(async (event: EthereumBlock): Promise<void> => {
 	const blockNumber = event.number.toString()
+	const blockTsUnix = Number(event.timestamp)
+	const blockTsIso = new Date(blockTsUnix * 1000).toISOString()
 	logger.info(
-		`[handlePendingStatusFlushEvm] chain=${chainId} entered at block #${blockNumber}, limit=${FLUSH_LIMIT}`,
+		`[handlePendingStatusFlushEvm] chain=${chainId} entered at block #${blockNumber}, ` +
+			`block.timestamp=${blockTsUnix} (${blockTsIso}), limit=${FLUSH_LIMIT}`,
 	)
 	try {
 		await PendingStatusService.flushBatch(FLUSH_LIMIT)

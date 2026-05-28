@@ -1420,6 +1420,46 @@ mod outbound_request_delivery {
 		})
 	}
 
+	#[test]
+	fn proof_destination_must_match_request_dest() {
+		// Defense-in-depth: even with a registered, unclaimed, allowlisted request, a
+		// claim whose state proof is for a different destination than the request's
+		// declared `dest` must be rejected before any proof verification runs. The
+		// commitment is unique per `(request, dest)` so the wrong-destination proof
+		// would normally just show an empty receipt slot, but the explicit equality
+		// check catches the mismatch up front with a clearer error.
+		new_test_ext().execute_with(|| {
+			let req = post_request(EVM_DEST, MODULE_ID);
+			register_request(&req);
+			set_reward(EVM_DEST, MODULE_ID, REWARD);
+			fund_treasury(REWARD * 10);
+
+			// `req.dest = EVM_DEST` but the proof is for `SUBSTRATE_DEST`.
+			let claim = OutboundRequestDeliveryClaim {
+				request: req,
+				state_proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: SUBSTRATE_DEST,
+							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+						},
+						height: HEIGHT,
+					},
+					proof: vec![],
+				},
+				payee: [0xAA; 32],
+				signature: Signature::Evm { address: vec![0; 20], signature: vec![0; 65] },
+			};
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				claim,
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::MismatchedStateMachine.into());
+		})
+	}
+
 	/// Builds a substrate destination trie with `RequestReceipts[commitment]`
 	/// set to `relayer_value`, registers the resulting state commitment on the
 	/// mock ISMP host, and returns the encoded state proof to embed in a claim.

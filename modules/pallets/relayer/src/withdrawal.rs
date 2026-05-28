@@ -19,12 +19,11 @@
 //! [`crate::accumulate`], relayers withdraw them via [`Pallet::withdraw`].
 //! The flow:
 //!
-//! 1. The relayer signs a `(nonce, dest_chain, beneficiary?)` payload with their per-chain
-//!    key (EVM secp256k1 / sr25519 / ed25519).
-//! 2. The pallet verifies the signature, increments the per-relayer nonce, and dispatches an
-//!    ISMP POST request to the destination's host manager (EVM) or `HYPERBRIDGE_MODULE_ID`
-//!    (substrate) instructing it to disburse `available_amount` of the fee token to the
-//!    beneficiary.
+//! 1. The relayer signs a `(nonce, dest_chain, beneficiary?)` payload with their per-chain key (EVM
+//!    secp256k1 / sr25519 / ed25519).
+//! 2. The pallet verifies the signature, increments the per-relayer nonce, and dispatches an ISMP
+//!    POST request to the destination's host manager (EVM) or `HYPERBRIDGE_MODULE_ID` (substrate)
+//!    instructing it to disburse `available_amount` of the fee token to the beneficiary.
 //! 3. The `Fees` entry is zeroed so the same balance cannot be withdrawn twice.
 //!
 //! The on-chain effect is just dispatching the message; the destination chain settles the

@@ -22,6 +22,7 @@ pub mod fees;
 mod get_requests;
 pub mod outbound;
 pub mod outbound_claim;
+pub mod outbound_request_claim;
 /// Unprofitable-message retry loop. Kept public for callers that want to wire
 /// it up; **not** spawned by [`inbound`] in the consolidated relayer — the
 /// design is that retrying unprofitable messages is the outbound task's
@@ -303,9 +304,7 @@ async fn handle_update(
 
 			events
 				.into_iter()
-				.filter(|ev| {
-					filter_events(&config, coprocessor, chain_a.state_machine_id().state_id, ev)
-				})
+				.filter(|ev| filter_events(&config, chain_a.state_machine_id().state_id, ev))
 				.collect::<Vec<_>>()
 		},
 		Err(err) => {

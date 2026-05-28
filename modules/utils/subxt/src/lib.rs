@@ -281,6 +281,31 @@ pub fn outbound_consensus_rotations_claimed_storage_key(
 	[pallet_prefix, storage_prefix, key_1, destination.encode(), key_2, set_id.encode()].concat()
 }
 
+/// Storage key for `pallet_ismp_relayer::OutboundRequestsClaimed[commitment]`.
+/// The map hashes with `Blake2_128Concat` so the layout is
+/// `twox_128("Relayer") || twox_128("OutboundRequestsClaimed")
+/// || blake2_128(commitment) || commitment`.
+///
+/// Used by the outbound-request-claim task to short-circuit claims some
+/// other relayer already redeemed.
+pub fn outbound_requests_claimed_storage_key(commitment: H256) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+	let storage_prefix = twox_128(b"OutboundRequestsClaimed").to_vec();
+	let encoded = commitment.encode();
+	let hashed = blake2_128(&encoded).to_vec();
+
+	[pallet_prefix, storage_prefix, hashed, encoded].concat()
+}
+
+/// Prefix for the `pallet_ismp_relayer::OutboundRequestDeliveryReward`
+/// map (`twox_128("Relayer") || twox_128("OutboundRequestDeliveryReward")`).
+/// Pass to `state_getKeysPaged` to enumerate every `module_id` with a
+/// reward configured. The key hashes with `Blake2_128Concat`, so each
+/// entry key continues as `blake2_128(module_id_encoded) || module_id_encoded`.
+pub fn outbound_request_delivery_reward_prefix() -> Vec<u8> {
+	[twox_128(b"Relayer").to_vec(), twox_128(b"OutboundRequestDeliveryReward").to_vec()].concat()
+}
+
 pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
 	let storage_prefix = twox_128(b"BoundedStateMachineUpdateTime").to_vec();

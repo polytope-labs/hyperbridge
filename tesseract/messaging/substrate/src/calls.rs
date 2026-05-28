@@ -18,7 +18,7 @@ use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Signature, WithdrawalInputData, WithdrawalProof},
-	OutboundConsensusDeliveryClaim,
+	OutboundConsensusDeliveryClaim, OutboundRequestDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use polkadot_sdk::sp_core::Pair;
@@ -26,7 +26,10 @@ use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
 	config::{ExtrinsicParams, HashFor, Header},
@@ -43,7 +46,8 @@ use subxt_utils::{
 	values::{
 		create_consensus_state_to_value, get_requests_with_proof_to_value,
 		host_params_btreemap_to_value, outbound_consensus_delivery_claim_to_value,
-		state_machine_id_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
+		outbound_request_delivery_claim_to_value, state_machine_id_to_value,
+		withdrawal_input_data_to_value, withdrawal_proof_to_value,
 	},
 };
 use tesseract_primitives::{
@@ -128,6 +132,67 @@ where
 		);
 		send_unsigned_extrinsic(&self.client, payload, true).await?;
 		Ok(())
+	}
+
+	/// Submit `pallet_ismp_relayer::claim_outbound_request_delivery_reward`
+	/// on Hyperbridge. Unsigned; the claim carries the relayer's signature
+	/// which the pallet recovers and matches against the destination's
+	/// `RequestReceipts[commitment]` slot.
+	pub async fn submit_outbound_request_delivery_claim(
+		&self,
+		claim: OutboundRequestDeliveryClaim,
+	) -> anyhow::Result<()> {
+		let payload = subxt::dynamic::tx(
+			"Relayer",
+			"claim_outbound_request_delivery_reward",
+			vec![outbound_request_delivery_claim_to_value(&claim)],
+		);
+		send_unsigned_extrinsic(&self.client, payload, true).await?;
+		Ok(())
+	}
+
+	/// Enumerate every `module_id` on hyperbridge with a non-zero
+	/// `OutboundRequestDeliveryReward`. Modules not present (zero reward)
+	/// are ineligible and the relayer will not get paid for delivering
+	/// their hyperbridge-originated requests.
+	pub async fn incentivized_outbound_request_modules(&self) -> anyhow::Result<BTreeSet<Vec<u8>>> {
+		use codec::Decode;
+		use subxt_utils::outbound_request_delivery_reward_prefix;
+		// Single page is enough: the allowlist is governance-curated and won't
+		// approach this bound in practice.
+		const PAGE: u32 = 1000;
+
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("Failed to query latest hyperbridge block hash"))?;
+		let prefix = outbound_request_delivery_reward_prefix();
+		let keys = self
+			.rpc
+			.state_get_keys_paged(&prefix, PAGE, None, Some(block_hash.into()))
+			.await?;
+
+		let mut out: BTreeSet<Vec<u8>> = BTreeSet::new();
+		for key in &keys {
+			let raw = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
+			let Some(bytes) = raw else { continue };
+			let reward: u128 = match Decode::decode(&mut &bytes[..]) {
+				Ok(r) => r,
+				Err(_) => continue,
+			};
+			if reward == 0 {
+				continue;
+			}
+			let mut suffix = &key[prefix.len() + 16..]; // skip blake2_128(module_id)
+			let module_id = match <Vec<u8>>::decode(&mut suffix) {
+				Ok(m) => m,
+				Err(_) => continue,
+			};
+			out.insert(module_id);
+		}
+
+		Ok(out)
 	}
 }
 

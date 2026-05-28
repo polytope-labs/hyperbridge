@@ -94,9 +94,12 @@ fn test_can_blacklist_dispute_games() {
 		));
 
 		// Not blacklisted yet.
-		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
-			state_machine_id, proxy,
-		));
+		assert!(
+			!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+				state_machine_id,
+				proxy,
+			)
+		);
 
 		// A single collator's call finalizes the blacklist.
 		assert_eq!(
@@ -107,9 +110,12 @@ fn test_can_blacklist_dispute_games() {
 			),
 			Ok(()),
 		);
-		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
-			state_machine_id, proxy,
-		));
+		assert!(
+			<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+				state_machine_id,
+				proxy,
+			)
+		);
 		// The submitting fisherman is recorded.
 		assert_eq!(
 			pallet_fishermen::BlacklistedDisputeGames::<Test>::get(state_machine_id, proxy),
@@ -134,9 +140,12 @@ fn test_can_blacklist_dispute_games() {
 
 		// A different proxy on the same chain is still un-blacklisted.
 		let other_proxy = H160::repeat_byte(0xcd);
-		assert!(!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
-			state_machine_id, other_proxy,
-		));
+		assert!(
+			!<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_dispute_game_blacklisted(
+				state_machine_id,
+				other_proxy,
+			)
+		);
 	})
 }
 
@@ -159,9 +168,12 @@ fn test_can_blacklist_arbitrum_claims() {
 			),
 			Ok(()),
 		);
-		assert!(<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
-			state_machine_id, claim,
-		));
+		assert!(
+			<pallet_fishermen::Pallet<Test> as FishermanBlacklist>::is_arbitrum_claim_blacklisted(
+				state_machine_id,
+				claim,
+			)
+		);
 		assert_eq!(
 			pallet_fishermen::BlacklistedArbitrumClaims::<Test>::get(state_machine_id, claim),
 			Some(collator),

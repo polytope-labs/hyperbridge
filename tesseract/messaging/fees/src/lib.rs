@@ -62,6 +62,18 @@ pub struct OutboundRotationClaimRow {
 	pub rotation_height: i64,
 }
 
+/// Row view of a persisted outbound-request delivery claim. Sibling shape
+/// to [`OutboundRotationClaimRow`] keyed by the hyperbridge request
+/// commitment instead of `(dest, set_id)`. `encoded_request` is the
+/// SCALE-encoded `PostRequest` the claim was made for.
+#[derive(Debug, Clone, ::serde::Deserialize)]
+pub struct OutboundRequestClaimRow {
+	pub dest: String,
+	pub commitment: String,
+	pub encoded_request: Vec<u8>,
+	pub delivery_height: i64,
+}
+
 impl TransactionPayment {
 	/// Create the local database if it does not exist
 	pub async fn initialize(url: &str) -> anyhow::Result<Self> {
@@ -172,6 +184,82 @@ impl TransactionPayment {
 				dest: data.dest,
 				set_id: data.set_id,
 				rotation_height: data.rotation_height,
+			})
+			.collect())
+	}
+
+	/// Persist pending outbound-request delivery claims, one row per
+	/// hyperbridge-originated request just delivered to `destination`.
+	/// `rows` is `[(commitment_hex, encoded_request, delivery_height)]`.
+	/// Idempotent on the commitment unique key so re-triggers (e.g.
+	/// crash-replay) overwrite the stored row in place.
+	pub async fn insert_pending_request_claims(
+		&self,
+		destination: &str,
+		rows: &[(String, Vec<u8>, u64)],
+	) -> anyhow::Result<()> {
+		use crate::db::outbound_request_claims;
+		if rows.is_empty() {
+			return Ok(());
+		}
+		let now = chrono::Utc::now().timestamp() as i32;
+		let actions: Vec<_> = rows
+			.iter()
+			.map(|(commitment, encoded_request, delivery_height)| {
+				self.db.outbound_request_claims().upsert(
+					outbound_request_claims::UniqueWhereParam::CommitmentEquals(commitment.clone()),
+					outbound_request_claims::create(
+						destination.to_string(),
+						commitment.clone(),
+						encoded_request.clone(),
+						*delivery_height as i64,
+						outbound_rotation_claim_status::PENDING.to_string(),
+						now,
+						now,
+						vec![],
+					),
+					vec![],
+				)
+			})
+			.collect();
+		self.db._batch(actions).await?;
+		Ok(())
+	}
+
+	/// Delete the persisted request-claim row after the extrinsic lands on
+	/// Hyperbridge. Best-effort: if the delete fails, the next startup will
+	/// replay the row and the pallet's `commitment` idempotency tag will
+	/// reject the duplicate.
+	pub async fn delete_request_claim(&self, commitment: &str) -> anyhow::Result<()> {
+		use crate::db::{outbound_request_claims::WhereParam, read_filters::StringFilter};
+		self.db
+			.outbound_request_claims()
+			.delete_many(vec![WhereParam::Commitment(StringFilter::Equals(commitment.to_string()))])
+			.exec()
+			.await?;
+		Ok(())
+	}
+
+	/// Load every request claim still in `pending`, ordered by creation
+	/// time.
+	pub async fn list_pending_request_claims(
+		&self,
+	) -> anyhow::Result<Vec<OutboundRequestClaimRow>> {
+		use crate::db::outbound_request_claims::OrderByParam;
+		let rows = self
+			.db
+			.outbound_request_claims()
+			.find_many(vec![])
+			.order_by(OrderByParam::CreatedAt(prisma_client_rust::Direction::Asc))
+			.exec()
+			.await?;
+		Ok(rows
+			.into_iter()
+			.map(|data| OutboundRequestClaimRow {
+				dest: data.dest,
+				commitment: data.commitment,
+				encoded_request: data.encoded_request,
+				delivery_height: data.delivery_height,
 			})
 			.collect())
 	}

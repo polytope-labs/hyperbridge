@@ -98,6 +98,40 @@ pub struct PendingConsensusDeliveryClaim {
 	/// Authority set id brought in by the rotation.
 	pub set_id: u64,
 }
+
+/// In-flight outbound request delivery reward claim.
+///
+/// Pushed by the outbound task after a hyperbridge-originated request is
+/// delivered to `request.dest`. The claim task waits for Hyperbridge's
+/// consensus client for the destination to verify `delivery_height`, builds
+/// a state proof of `RequestReceipts[commitment]`, signs the claim message
+/// with the destination's signing key, and submits
+/// `pallet_ismp_relayer::claim_outbound_request_delivery_reward`.
+///
+/// Carries the full [`PostRequest`] so the on-chain extrinsic can hash it,
+/// verify the source, and look up the reward by `request.from`. Supports
+/// both EVM and substrate destinations.
+#[derive(Debug, Clone)]
+pub struct PendingRequestDeliveryClaim {
+	/// The hyperbridge-originated request being claimed against.
+	pub request: PostRequest,
+	/// Destination block height at which the request was delivered.
+	pub delivery_height: u64,
+}
+
+impl PendingRequestDeliveryClaim {
+	/// Destination chain the request was delivered to.
+	pub fn destination(&self) -> StateMachine {
+		self.request.dest
+	}
+
+	/// Hyperbridge-side commitment of the delivered request, derived from
+	/// the request bytes. Computed locally with [`Hasher`] (keccak), which
+	/// matches what hyperbridge runs on chain.
+	pub fn commitment(&self) -> H256 {
+		ismp::messaging::hash_request::<Hasher>(&ismp::router::Request::Post(self.request.clone()))
+	}
+}
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},

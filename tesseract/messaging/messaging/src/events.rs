@@ -254,28 +254,17 @@ pub async fn translate_events_to_messages(
 	Ok((messages, unprofitable))
 }
 
-/// Return true for Request and Response events designated for the counterparty
-pub fn filter_events(
-	config: &RelayerConfig,
-	router_id: StateMachine,
-	counterparty: StateMachine,
-	ev: &IsmpEvent,
-) -> bool {
-	// Is the counterparty the routing chain?
-	let is_router = router_id == counterparty;
-
-	let allow_module = |module: &[u8]| {
-		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
-			is_allowed_module(config, module)
-	};
+/// Return true for Request events designated for the counterparty.
+///
+/// Events are gated by `module_filter` via `is_allowed_module`, so operators
+/// can scope which modules they deliver. With no `module_filter` configured,
+/// `is_allowed_module` permits every module. The on-chain reward allowlist
+/// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
+/// separately by the outbound task.
+pub fn filter_events(config: &RelayerConfig, counterparty: StateMachine, ev: &IsmpEvent) -> bool {
 	match ev {
-		// We filter out events whose origin is the coprocessor unless the source module is
-		// explicitly allowed in the module filter
 		IsmpEvent::PostRequest(post) =>
-			(post.dest == counterparty &&
-				(post.source != router_id ||
-					(post.source == router_id && allow_module(&post.from)))) ||
-				is_router,
+			post.dest == counterparty && is_allowed_module(config, &post.from),
 		_ => false,
 	}
 }

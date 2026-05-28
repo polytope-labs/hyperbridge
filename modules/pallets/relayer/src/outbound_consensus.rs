@@ -132,8 +132,7 @@ where
 		// `pallet-ismp-host-executive` in `EvmHosts`. Non-EVM destinations
 		// are absent from that map and are rejected here, since the
 		// attribution mechanism is EVM-specific.
-		let evm_host =
-			EvmHosts::<T>::get(destination).ok_or(Error::<T>::OutboundHostNotKnown)?;
+		let evm_host = EvmHosts::<T>::get(destination).ok_or(Error::<T>::OutboundHostNotKnown)?;
 
 		// 52-byte storage key the EVM state proof verifier expects:
 		// `evm_host (20) || keccak256(set_id || EVM_HOST_EPOCHS_SLOT) (32)`.
@@ -146,9 +145,8 @@ where
 		key.extend_from_slice(&slot_hash.0);
 
 		let host = <T as Config>::IsmpHost::default();
-		let state_machine =
-			ismp::handlers::validate_state_machine(&host, state_proof.height)
-				.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let state_machine = ismp::handlers::validate_state_machine(&host, state_proof.height)
+			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
 		let proof_results =
 			Self::verify_withdrawal_proof(&*state_machine, &state_proof, vec![key.clone()])
 				.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;

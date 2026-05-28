@@ -4,13 +4,16 @@
 //! Simnode integration tests for `pallet-fishermen` and the collator-side
 //! fisherman task.
 //!
-//! Tests one through four exercise the on-chain veto flow via
-//! `simnode_authorExtrinsic`. Test five spawns the real fisherman task
-//! against mocked L2 RPCs and asserts it reaches `EvmClient::new` on every
-//! provider. Test six is the full end-to-end check: it spawns the fisherman
-//! task, injects a `pallet_ismp::Event::StateMachineUpdated` into a simnode
-//! block via sudo, and asserts the task reacts by submitting a veto whose
-//! effect lands in `PendingVetoes`.
+//! Tests one through three exercise the on-chain veto flow via
+//! `simnode_authorExtrinsic` — a non-collator is rejected, a single collator
+//! call deletes the commitment, and the priority extension keeps vetoes
+//! ahead of normally-priced extrinsics in the same block. Test four spawns
+//! the real fisherman task against mocked L2 RPCs and asserts it reaches
+//! `EvmClient::new` on every provider. Test five is the full end-to-end
+//! check: it spawns the fisherman task, injects a
+//! `pallet_ismp::Event::StateMachineUpdated` into a simnode block via sudo,
+//! and asserts the task reacts by submitting a veto whose effect is the
+//! commitment being deleted from `pallet_ismp` storage.
 //!
 //! All tests are `#[ignore]`d. Run them with a simnode listening on
 //! `PORT=9990` (default) via:
@@ -64,17 +67,7 @@ const PHASE_INITIALIZATION: u8 = 2;
 
 const SIMNODE_PORT_DEFAULT: &str = "9990";
 
-/// Storage key for `pallet_fishermen::PendingVetoes` at the supplied height.
-/// `Blake2_128Concat` map: `pallet_prefix || storage_prefix || blake2_128(key) || key`.
-fn pending_vetoes_key(height: StateMachineHeight) -> Vec<u8> {
-	let pallet_prefix = sp_core::twox_128(b"Fishermen").to_vec();
-	let storage_prefix = sp_core::twox_128(b"PendingVetoes").to_vec();
-	let encoded = height.encode();
-	let hash = sp_core::blake2_128(&encoded).to_vec();
-	[pallet_prefix, storage_prefix, hash, encoded].concat()
-}
-
-/// Per-test fixture height. Each test takes a distinct `slot` so PendingVetoes
+/// Per-test fixture height. Each test takes a distinct `slot` so seeded
 /// state from one test doesn't leak into the next when running sequentially
 /// against a single simnode.
 fn fixture_height(slot: u64) -> StateMachineHeight {
@@ -180,17 +173,19 @@ async fn submit_veto_signed_by(
 	Ok((block.hash, dispatch_ok))
 }
 
-/// Fetch the optional `PendingVetoes` value at the supplied height.
-async fn fetch_pending_veto(
+/// Returns true iff `pallet_ismp::StateCommitments[height]` is set on the
+/// latest finalized block.
+async fn state_commitment_present(
 	client: &subxt::OnlineClient<Hyperbridge>,
 	height: StateMachineHeight,
-) -> Result<Option<sp_core::crypto::AccountId32>> {
-	let key = pending_vetoes_key(height);
-	let raw = client.storage().at_latest().await?.fetch_raw(key).await?;
-	match raw {
-		Some(bytes) => Ok(Some(sp_core::crypto::AccountId32::decode(&mut &*bytes)?)),
-		None => Ok(None),
-	}
+) -> Result<bool> {
+	let raw = client
+		.storage()
+		.at_latest()
+		.await?
+		.fetch_raw(state_machine_commitment_storage_key(height))
+		.await?;
+	Ok(raw.is_some())
 }
 
 #[tokio::test]
@@ -211,14 +206,16 @@ async fn outsider_cannot_veto() -> Result<()> {
 
 	let (_, ok) = submit_veto_signed_by(&client, &rpc_client, &outsider_ss58, height).await?;
 	assert!(!ok, "outsider's veto should have been rejected by IsCollator gate");
-	let pending = fetch_pending_veto(&client, height).await?;
-	assert!(pending.is_none(), "outsider's veto must not have been recorded");
+	assert!(
+		state_commitment_present(&client, height).await?,
+		"state commitment must still be present after a rejected outsider veto",
+	);
 	Ok(())
 }
 
 #[tokio::test]
 #[ignore]
-async fn first_collator_records_pending_veto() -> Result<()> {
+async fn single_collator_veto_deletes_commitment() -> Result<()> {
 	let port = env::var("PORT").unwrap_or(SIMNODE_PORT_DEFAULT.into());
 	let url = format!("ws://127.0.0.1:{port}");
 	let (client, rpc_client) =
@@ -227,49 +224,17 @@ async fn first_collator_records_pending_veto() -> Result<()> {
 
 	let height = fixture_height(2);
 	seed_state_commitment(&client, &rpc_client, height).await?;
-
-	let alice = Keyring::Alice.to_account_id();
-	let alice_ss58 = alice.to_ss58check();
-	let (_, ok) = submit_veto_signed_by(&client, &rpc_client, &alice_ss58, height).await?;
-	assert!(ok, "Alice (collator) must be allowed to veto");
-
-	let pending = fetch_pending_veto(&client, height).await?;
-	assert_eq!(pending, Some(alice), "first veto must be recorded as pending");
-	Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn two_distinct_collators_finalize_veto() -> Result<()> {
-	let port = env::var("PORT").unwrap_or(SIMNODE_PORT_DEFAULT.into());
-	let url = format!("ws://127.0.0.1:{port}");
-	let (client, rpc_client) =
-		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
-	let _rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
-
-	let height = fixture_height(3);
-	seed_state_commitment(&client, &rpc_client, height).await?;
+	assert!(state_commitment_present(&client, height).await?, "fixture must be seeded");
 
 	let alice_ss58 = Keyring::Alice.to_account_id().to_ss58check();
 	let (_, ok) = submit_veto_signed_by(&client, &rpc_client, &alice_ss58, height).await?;
-	assert!(ok);
+	assert!(ok, "Alice (collator) must be allowed to veto");
 
-	let bob_ss58 = Keyring::Bob.to_account_id().to_ss58check();
-	let (_, ok) = submit_veto_signed_by(&client, &rpc_client, &bob_ss58, height).await?;
-	assert!(ok);
-
-	// PendingVetoes should be cleared after the second distinct collator finalizes.
-	let pending = fetch_pending_veto(&client, height).await?;
-	assert!(pending.is_none(), "pending veto must be cleared after finalization");
-
-	// State commitment storage at the fixture height should also be gone.
-	let raw = client
-		.storage()
-		.at_latest()
-		.await?
-		.fetch_raw(state_machine_commitment_storage_key(height))
-		.await?;
-	assert!(raw.is_none(), "state commitment must be deleted after veto finalizes");
+	// Single-collator veto finalizes immediately — the commitment is gone after one call.
+	assert!(
+		!state_commitment_present(&client, height).await?,
+		"state commitment must be deleted after a single collator's veto",
+	);
 	Ok(())
 }
 
@@ -282,7 +247,7 @@ async fn veto_lands_above_normal_extrinsic_in_block() -> Result<()> {
 		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
 	let _rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
-	let height = fixture_height(4);
+	let height = fixture_height(3);
 	seed_state_commitment(&client, &rpc_client, height).await?;
 
 	// Submit a normal signed extrinsic (Bob's `System::remark`) FIRST.
@@ -354,7 +319,7 @@ async fn veto_lands_above_normal_extrinsic_in_block() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5: fisherman task end-to-end against mocked L2 RPCs.
+// Test 4: fisherman task end-to-end against mocked L2 RPCs.
 // ---------------------------------------------------------------------------
 
 /// JSON-RPC response factory for a minimal `eth_chainId` reply.
@@ -519,9 +484,10 @@ async fn fisherman_task_spawns_against_simnode_and_mock_l2_rpcs() -> Result<()> 
 }
 
 // ---------------------------------------------------------------------------
-// Test 6: end-to-end byzantine detection.
+// Test 5: end-to-end byzantine detection.
 // Spawns the fisherman task, injects a `StateMachineUpdated` event into a
-// simnode block, and asserts the task reacts by submitting a veto.
+// simnode block, and asserts the task reacts by submitting a veto whose
+// effect is the recorded state commitment being deleted.
 // ---------------------------------------------------------------------------
 
 /// Storage key for `frame_system::Events` (a `StorageValue`, so the key is
@@ -609,6 +575,7 @@ async fn fisherman_task_detects_disagreement_and_submits_veto() -> Result<()> {
 	// The recorded root is irrelevant — disagreement among the two mocks
 	// triggers the veto before recorded-vs-quorum is checked.
 	seed_state_commitment(&client, &rpc_client, l2_height).await?;
+	assert!(state_commitment_present(&client, l2_height).await?, "fixture must be seeded");
 
 	// Spawn the fisherman BEFORE injecting the event so its initial
 	// `query_finalized_height` baseline sits below the block we'll author.
@@ -628,26 +595,25 @@ async fn fisherman_task_detects_disagreement_and_submits_veto() -> Result<()> {
 
 	// The fisherman polls every 3s. Wait long enough for it to see the new
 	// block, query both mocks, observe the disagreement, and push the veto
-	// extrinsic into the txpool.
-	let alice = Keyring::Alice.to_account_id();
-	let mut detected: Option<sp_core::crypto::AccountId32> = None;
+	// extrinsic into the txpool. With single-collator finalization the veto
+	// deletes the commitment in one shot, so we watch for that.
+	let mut deleted = false;
 	for _ in 0..20 {
 		// Drive a block so any queued veto extrinsic gets included.
 		let block: CreatedBlock<H256> =
 			rpc_client.request("engine_createBlock", rpc_params![true, false]).await?;
 		let _: bool = rpc_client.request("engine_finalizeBlock", rpc_params![block.hash]).await?;
-		if let Some(account) = fetch_pending_veto(&client, l2_height).await? {
-			detected = Some(account);
+		if !state_commitment_present(&client, l2_height).await? {
+			deleted = true;
 			break;
 		}
 		tokio::time::sleep(Duration::from_secs(1)).await;
 	}
 
 	drop(task_manager);
-	assert_eq!(
-		detected,
-		Some(alice),
-		"fisherman task should have detected disagreement and submitted a veto signed by Alice",
+	assert!(
+		deleted,
+		"fisherman task should have detected disagreement and submitted a veto that deleted the commitment",
 	);
 	Ok(())
 }

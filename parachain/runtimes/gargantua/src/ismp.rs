@@ -15,8 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Assets, Balance, Balances, Fishermen, Ismp, IsmpParachain, Mmr,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -118,11 +118,13 @@ impl pallet_intents_coprocessor::Config for Runtime {
 impl ismp_arbitrum::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
+	type FishermanBlacklist = Fishermen;
 }
 
 impl ismp_optimism::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
+	type FishermanBlacklist = Fishermen;
 }
 
 impl ismp_tendermint::pallet::Config for Runtime {

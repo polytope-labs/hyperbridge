@@ -103,17 +103,74 @@ pub const SUPPORTED_L2_CHAIN_IDS_MAINNET: &[u64] = &[
 
 /// Testnet counterparts of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`]. Listed
 /// separately so a collator pointed at a testnet deployment doesn't need
-/// mainnet entries (and vice-versa).
+/// mainnet entries (and vice-versa). The collator-side fisherman currently
+/// supports only Arbitrum Sepolia and Base Sepolia on the L2 side
+/// (Optimism Sepolia / Unichain Sepolia / Soneium testnet aren't covered).
 pub const SUPPORTED_L2_CHAIN_IDS_TESTNET: &[u64] = &[
-	421614,   // Arbitrum Sepolia
-	11155420, // Optimism Sepolia
-	84532,    // Base Sepolia
+	421614, // Arbitrum Sepolia
+	84532,  // Base Sepolia
+];
+
+/// Non-L2 EVM chain IDs that Hyperbridge tracks directly (each has its own consensus client,
+/// not rolled up to an L1). The collator-side fisherman config validation requires every one
+/// of these to be present alongside the L2 set so the messaging path has counterparties on
+/// each chain we settle commitments against.
+pub const SUPPORTED_NON_L2_CHAIN_IDS_MAINNET: &[u64] = &[
+	1,   // Ethereum
+	56,  // BNB Smart Chain
+	100, // Gnosis
+	137, // Polygon
+];
+
+/// Testnet counterparts of [`SUPPORTED_NON_L2_CHAIN_IDS_MAINNET`]. The collator-side
+/// fisherman covers only Sepolia on testnet — BSC Chapel, Gnosis Chiado and Polygon Amoy
+/// aren't required because Hyperbridge's testnet deployment settles those rollups against
+/// Sepolia only.
+pub const SUPPORTED_NON_L2_CHAIN_IDS_TESTNET: &[u64] = &[
+	11155111, // Sepolia
 ];
 
 /// True when `chain_id` is a Hyperbridge-supported L2 (mainnet or testnet).
 pub fn is_supported_l2(chain_id: u64) -> bool {
 	SUPPORTED_L2_CHAIN_IDS_MAINNET.contains(&chain_id) ||
 		SUPPORTED_L2_CHAIN_IDS_TESTNET.contains(&chain_id)
+}
+
+/// True when `chain_id` is a Hyperbridge-supported non-L2 EVM chain (mainnet or testnet).
+pub fn is_supported_non_l2(chain_id: u64) -> bool {
+	SUPPORTED_NON_L2_CHAIN_IDS_MAINNET.contains(&chain_id) ||
+		SUPPORTED_NON_L2_CHAIN_IDS_TESTNET.contains(&chain_id)
+}
+
+/// Union of [`is_supported_l2`] and [`is_supported_non_l2`].
+pub fn is_supported_chain(chain_id: u64) -> bool {
+	is_supported_l2(chain_id) || is_supported_non_l2(chain_id)
+}
+
+/// True for Arbitrum-family L2s (`arbitrum_orbit` consensus). Used by the collator-side
+/// fisherman to validate that the operator wired the expected consensus client kind per chain.
+pub fn is_arbitrum_l2(chain_id: u64) -> bool {
+	matches!(chain_id, 42161 | 421614)
+}
+
+/// True for OP-Stack-family L2s (`op_stack` consensus): Base, Optimism, Soneium, and their
+/// testnets.
+pub fn is_opstack_l2(chain_id: u64) -> bool {
+	is_supported_l2(chain_id) && !is_arbitrum_l2(chain_id)
+}
+
+/// The expected tesseract consensus client kind for a supported L2. Returns `None` for any
+/// other chain — non-L2 chains don't require a `[<chain>.consensus]` block on the collator
+/// side, only the L2s do (the on-chain rollup-claim fisherman needs the rollup-core /
+/// dispute-game factory addresses that live in those L2 consensus configs).
+pub fn expected_consensus_kind(chain_id: u64) -> Option<&'static str> {
+	if is_arbitrum_l2(chain_id) {
+		Some("arbitrum_orbit")
+	} else if is_opstack_l2(chain_id) {
+		Some("op_stack")
+	} else {
+		None
+	}
 }
 
 /// Fetches the chain's numeric ID via `eth_chainId` against the first RPC URL

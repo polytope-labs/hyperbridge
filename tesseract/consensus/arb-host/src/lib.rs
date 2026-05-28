@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, AlloyProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-mod abi;
+pub mod abi;
 mod host;
 #[cfg(test)]
 mod tests;

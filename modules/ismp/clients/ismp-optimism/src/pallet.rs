@@ -29,6 +29,7 @@ pub mod pallet {
 		host::{IsmpHost, StateMachine},
 	};
 	use op_verifier::GameTypeConfig;
+	use pallet_fishermen::FishermanBlacklist;
 	use primitive_types::H160;
 
 	#[pallet::pallet]
@@ -43,6 +44,11 @@ pub mod pallet {
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
+		/// Read-only view of the fisherman blacklist; consulted in `verify_consensus` to refuse
+		/// consensus proofs that reference a blacklisted dispute-game proxy. Wire to
+		/// `pallet_fishermen::Pallet<Runtime>` in runtimes that include the fishermen pallet,
+		/// or to `()` for a no-op blacklist.
+		type FishermanBlacklist: FishermanBlacklist;
 	}
 
 	#[pallet::error]

@@ -10,9 +10,15 @@
 //! local RPC server is up.
 //!
 //! Rules layered on top of the relayer schema: the signer must be set,
-//! every supported L2 in [`tesseract_evm::registry`] must be configured,
-//! and every L2 needs at least two distinct host `rpc_urls` so the
-//! byzantine handler has independent providers to quorum across.
+//! every supported chain in [`tesseract_evm::registry`] — both L2 rollups
+//! and non-L2 EVM chains (Ethereum, BNB, Gnosis, Polygon, with their
+//! testnet counterparts) — must be configured with at least two distinct
+//! host `rpc_urls` so the byzantine handler has independent providers
+//! to quorum across. Only L2 chains additionally need a
+//! `[<chain>.consensus]` sub-table — the on-chain rollup-claim fisherman
+//! reads the rollup-core / dispute-game-factory addresses from there.
+//! Non-L2 chains are required to be present but their consensus block
+//! is optional from the collator's perspective.
 
 use std::collections::HashSet;
 
@@ -20,13 +26,16 @@ use anyhow::{anyhow, Context};
 use ismp::host::StateMachine;
 use tesseract::config::HyperbridgeConfig;
 use tesseract_config::AnyConfig;
+use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 use tesseract_evm::registry::{
-	is_supported_l2, SUPPORTED_L2_CHAIN_IDS_MAINNET, SUPPORTED_L2_CHAIN_IDS_TESTNET,
+	expected_consensus_kind, is_supported_chain, SUPPORTED_L2_CHAIN_IDS_MAINNET,
+	SUPPORTED_L2_CHAIN_IDS_TESTNET, SUPPORTED_NON_L2_CHAIN_IDS_MAINNET,
+	SUPPORTED_NON_L2_CHAIN_IDS_TESTNET,
 };
 use toml::{Table, Value};
 use url::Url;
 
-const MIN_RPC_URLS_PER_L2: usize = 2;
+const MIN_RPC_URLS_PER_L2: usize = 3;
 
 /// Validate the operator's tesseract toml without parsing it through
 /// [`HyperbridgeConfig::parse_conf`]. The full parser dials each RPC to
@@ -75,7 +84,7 @@ pub fn preflight(toml_str: &str) -> anyhow::Result<()> {
 			continue;
 		};
 
-		if !is_supported_l2(chain_id) {
+		if !is_supported_chain(chain_id) {
 			continue;
 		}
 
@@ -89,18 +98,41 @@ pub fn preflight(toml_str: &str) -> anyhow::Result<()> {
 			.collect::<anyhow::Result<_>>()?;
 		if urls.len() < MIN_RPC_URLS_PER_L2 {
 			return Err(anyhow!(
-				"L2 chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
+				"chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
 				urls.len(),
 				MIN_RPC_URLS_PER_L2,
 			));
 		}
 		ensure_distinct_hosts(chain_id, &urls)?;
+		ensure_consensus_section_raw(name, chain_table, chain_id)?;
 		configured_l2s.push(chain_id);
 	}
 
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_MAINNET, "mainnet")?;
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_TESTNET, "testnet")?;
+	require_complete_set(&configured_l2s, &mainnet_chain_set(), "mainnet")?;
+	require_complete_set(&configured_l2s, &testnet_chain_set(), "testnet")?;
 	Ok(())
+}
+
+/// Concatenation of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`] and
+/// [`SUPPORTED_NON_L2_CHAIN_IDS_MAINNET`] — the full set of EVM chains a mainnet collator
+/// must configure.
+fn mainnet_chain_set() -> Vec<u64> {
+	let mut v = Vec::with_capacity(
+		SUPPORTED_L2_CHAIN_IDS_MAINNET.len() + SUPPORTED_NON_L2_CHAIN_IDS_MAINNET.len(),
+	);
+	v.extend_from_slice(SUPPORTED_L2_CHAIN_IDS_MAINNET);
+	v.extend_from_slice(SUPPORTED_NON_L2_CHAIN_IDS_MAINNET);
+	v
+}
+
+/// Testnet counterpart of [`mainnet_chain_set`].
+fn testnet_chain_set() -> Vec<u64> {
+	let mut v = Vec::with_capacity(
+		SUPPORTED_L2_CHAIN_IDS_TESTNET.len() + SUPPORTED_NON_L2_CHAIN_IDS_TESTNET.len(),
+	);
+	v.extend_from_slice(SUPPORTED_L2_CHAIN_IDS_TESTNET);
+	v.extend_from_slice(SUPPORTED_NON_L2_CHAIN_IDS_TESTNET);
+	v
 }
 
 /// Pull the chain id out of an `"EVM-<chain_id>"` state machine string.
@@ -121,27 +153,28 @@ pub fn validate(config: &HyperbridgeConfig) -> anyhow::Result<()> {
 		));
 	}
 
-	let mut configured_l2s: Vec<u64> = Vec::new();
+	let mut configured_chains: Vec<u64> = Vec::new();
 	for (state_machine, per_chain) in &config.chains {
 		let AnyConfig::Evm(evm) = &per_chain.messaging else { continue };
 		let StateMachine::Evm(chain_id) = state_machine else { continue };
-		if !is_supported_l2(*chain_id as u64) {
+		if !is_supported_chain(*chain_id as u64) {
 			continue;
 		}
 		if evm.rpc_urls.len() < MIN_RPC_URLS_PER_L2 {
 			return Err(anyhow!(
-				"L2 chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
+				"chain (chain_id {chain_id}) has only {} rpc_urls, need at least {} different RPC providers for quorum",
 				evm.rpc_urls.len(),
 				MIN_RPC_URLS_PER_L2,
 			));
 		}
 		ensure_distinct_hosts(*chain_id as u64, &evm.rpc_urls)?;
+		ensure_consensus_section(*chain_id as u64, per_chain.consensus.as_ref())?;
 
-		configured_l2s.push(*chain_id as u64);
+		configured_chains.push(*chain_id as u64);
 	}
 
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_MAINNET, "mainnet")?;
-	require_complete_set(&configured_l2s, SUPPORTED_L2_CHAIN_IDS_TESTNET, "testnet")?;
+	require_complete_set(&configured_chains, &mainnet_chain_set(), "mainnet")?;
+	require_complete_set(&configured_chains, &testnet_chain_set(), "testnet")?;
 	Ok(())
 }
 
@@ -169,6 +202,85 @@ fn ensure_distinct_hosts(chain_id: u64, urls: &[String]) -> anyhow::Result<()> {
 /// the byzantine handler should not be tricked into thinking they do.
 fn rpc_host(url: &str) -> Option<String> {
 	Url::parse(url).ok()?.host_str().map(str::to_ascii_lowercase)
+}
+
+/// Enforce that the operator has wired the matching consensus client for `chain_id`. The
+/// fisherman reads the existing `op-host` / `arb-host` configs (`OpConfig.host` /
+/// `ArbConfig.host`) for the rollup-core / dispute-game-factory addresses; without it the L1
+/// rollup-claim watcher has nothing to monitor for this chain.
+fn ensure_consensus_section(
+	chain_id: u64,
+	consensus: Option<&ConsensusConfig>,
+) -> anyhow::Result<()> {
+	let Some(expected) = expected_consensus_kind(chain_id) else {
+		// Unknown L2 (not in the supported registry). The caller already filtered to known
+		// L2s; this branch is just defensive.
+		return Ok(());
+	};
+	let Some(consensus) = consensus else {
+		return Err(anyhow!(
+			"L2 chain (chain_id {chain_id}) has no [<chain>.consensus] section; \
+			fisherman requires a {expected:?} consensus block for each L2 so it can read the \
+			rollup-core / dispute-game factory address"
+		));
+	};
+	let actual = consensus_kind_str(consensus);
+	if actual != expected {
+		return Err(anyhow!(
+			"L2 chain (chain_id {chain_id}) has [<chain>.consensus] type {actual:?}, \
+			expected {expected:?}"
+		));
+	}
+	Ok(())
+}
+
+/// String tag for a [`ConsensusConfig`] variant, matching the serde `type = "..."` discriminant.
+fn consensus_kind_str(consensus: &ConsensusConfig) -> &'static str {
+	match consensus {
+		ConsensusConfig::Sepolia { .. } => "sepolia",
+		ConsensusConfig::Ethereum { .. } => "ethereum",
+		ConsensusConfig::ArbitrumOrbit { .. } => "arbitrum_orbit",
+		ConsensusConfig::OpStack { .. } => "op_stack",
+		ConsensusConfig::BscTestnet { .. } => "bsc_testnet",
+		ConsensusConfig::Bsc { .. } => "bsc",
+		ConsensusConfig::Chiado { .. } => "chiado",
+		ConsensusConfig::Gnosis { .. } => "gnosis",
+		ConsensusConfig::Grandpa { .. } => "grandpa",
+		ConsensusConfig::Parachain { .. } => "parachain",
+		ConsensusConfig::Polygon { .. } => "polygon",
+		ConsensusConfig::Tendermint { .. } => "tendermint",
+		ConsensusConfig::EvmHost { .. } => "evm_host",
+		ConsensusConfig::Pharos { .. } => "pharos",
+	}
+}
+
+/// Preflight version of [`ensure_consensus_section`] that operates on the raw TOML table for
+/// a chain. Reads `[<chain>.consensus]` and checks its `type` matches the expected kind.
+fn ensure_consensus_section_raw(
+	chain_name: &str,
+	chain_table: &Table,
+	chain_id: u64,
+) -> anyhow::Result<()> {
+	let Some(expected) = expected_consensus_kind(chain_id) else {
+		return Ok(());
+	};
+	let consensus = chain_table.get("consensus").and_then(Value::as_table).ok_or_else(|| {
+		anyhow!(
+			"L2 chain {chain_name:?} (chain_id {chain_id}) has no [{chain_name}.consensus] \
+			sub-table; fisherman requires a {expected:?} consensus block for each L2"
+		)
+	})?;
+	let actual = consensus.get("type").and_then(Value::as_str).ok_or_else(|| {
+		anyhow!(
+			"[{chain_name}.consensus] is missing the `type` field; expected type = {expected:?}"
+		)
+	})?;
+	if actual != expected {
+		return Err(anyhow!(
+			"[{chain_name}.consensus].type is {actual:?}, expected {expected:?}"
+		));
+	}
+	Ok(())
 }
 
 /// If any chain in `set` is configured, all of them must be configured. A
@@ -281,24 +393,68 @@ mod tests {
 	mod parses_tesseract_config {
 		use std::collections::HashMap;
 
+		use arb_host::ArbConfig;
 		use ismp::host::StateMachine;
+		use op_host::OpConfig;
+		use primitive_types::H160;
 		use tesseract::config::{
 			HyperbridgeConfig, HyperbridgeSection, PerChainConfig, RelayerConfig,
 		};
 		use tesseract_config::AnyConfig;
+		use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 		use tesseract_evm::EvmConfig;
 		use tesseract_substrate::SubstrateConfig;
 
 		use crate::config::validate;
 
-		fn evm_l2(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
+		fn arbitrum_consensus() -> ConsensusConfig {
+			ConsensusConfig::ArbitrumOrbit {
+				inner: ArbConfig {
+					host: arb_host::HostConfig {
+						ethereum_rpc_url: vec!["https://eth-l1.example/v2/k".into()],
+						rollup_core: H160::repeat_byte(0x11),
+						l1_state_machine: StateMachine::Evm(11155111),
+						l1_consensus_state_id: "ETH0".into(),
+						consensus_state_id: "ARBC".into(),
+						consensus_update_frequency: None,
+					},
+				},
+			}
+		}
+
+		fn opstack_consensus() -> ConsensusConfig {
+			ConsensusConfig::OpStack {
+				inner: OpConfig {
+					host: op_host::HostConfig {
+						ethereum_rpc_url: vec!["https://eth-l1.example/v2/k".into()],
+						l2_oracle: None,
+						dispute_game_factory: Some(H160::repeat_byte(0x22)),
+						message_parser: H160::repeat_byte(0x33),
+						proposer_config: None,
+						l1_state_machine: StateMachine::Evm(11155111),
+						l1_consensus_state_id: "ETH0".into(),
+						consensus_state_id: "OPTI".into(),
+						consensus_update_frequency: None,
+					},
+				},
+			}
+		}
+
+		fn evm_chain(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
+			let consensus = match chain_id {
+				42161 | 421614 => Some(arbitrum_consensus()),
+				// L2 op-stack chains (Base, Optimism, Soneium + testnets).
+				8453 | 10 | 1868 | 84532 | 11155420 => Some(opstack_consensus()),
+				// Non-L2 chains: collator doesn't require a consensus block on this side.
+				_ => None,
+			};
 			PerChainConfig {
 				messaging: AnyConfig::Evm(EvmConfig {
 					rpc_urls: rpc_urls.iter().map(|s| (*s).to_string()).collect(),
 					state_machine: Some(StateMachine::Evm(chain_id)),
 					..EvmConfig::default()
 				}),
-				consensus: None,
+				consensus,
 			}
 		}
 
@@ -317,30 +473,41 @@ mod tests {
 			}
 		}
 
-		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete
-		/// testnet L2 set (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia)
-		/// with two distinct-host rpc_urls each. The relayer section is left
-		/// at its [`Default`] (collators don't need to populate it).
+		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete testnet EVM
+		/// set the fisherman supports: Arbitrum Sepolia and Base Sepolia on the L2 side, plus
+		/// Sepolia as the matching non-L2. Each chain has two distinct-host rpc_urls. The
+		/// relayer section is left at its [`Default`] (collators don't need to populate it).
 		fn complete_testnet_collator_config() -> HyperbridgeConfig {
 			let mut chains = HashMap::new();
 			for (chain_id, rpcs) in [
+				// L2s
 				(
 					421614u32,
-					["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"],
-				),
-				(
-					11155420,
-					["https://opt-sepolia.alchemy.com/v2/k", "https://opt-sepolia.infura.io/v3/k"],
+					[
+						"https://arb-sepolia.alchemy.com/v2/k",
+						"https://arb-sepolia.infura.io/v3/k",
+						"https://arb-sepolia.ankr.com/k",
+					],
 				),
 				(
 					84532,
 					[
 						"https://base-sepolia.alchemy.com/v2/k",
 						"https://base-sepolia.infura.io/v3/k",
+						"https://base-sepolia.ankr.com/k",
+					],
+				),
+				// Non-L2 testnet
+				(
+					11155111,
+					[
+						"https://sepolia.alchemy.com/v2/k",
+						"https://sepolia.infura.io/v3/k",
+						"https://sepolia.ankr.com/k",
 					],
 				),
 			] {
-				chains.insert(StateMachine::Evm(chain_id), evm_l2(chain_id, &rpcs));
+				chains.insert(StateMachine::Evm(chain_id), evm_chain(chain_id, &rpcs));
 			}
 			HyperbridgeConfig {
 				hyperbridge: HyperbridgeSection {
@@ -414,10 +581,71 @@ mod tests {
 			evm.rpc_urls = vec![
 				"https://arb-sepolia.alchemy.com/v2/key1".into(),
 				"https://arb-sepolia.alchemy.com/v2/key2".into(),
+				"https://arb-sepolia.alchemy.com/v2/key3".into(),
 			];
 			let err = validate(&cfg).unwrap_err().to_string();
 			assert!(err.contains("arb-sepolia.alchemy.com"), "error: {err}");
 			assert!(err.contains("distinct providers"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_l2_missing_consensus() {
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.get_mut(&StateMachine::Evm(421614)).unwrap().consensus = None;
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("421614"), "error: {err}");
+			assert!(err.contains("consensus"), "error: {err}");
+			assert!(err.contains("arbitrum_orbit"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_l2_with_wrong_consensus_kind() {
+			let mut cfg = complete_testnet_collator_config();
+			// Arbitrum Sepolia mistakenly wired with an opstack consensus block.
+			cfg.chains.get_mut(&StateMachine::Evm(421614)).unwrap().consensus =
+				Some(opstack_consensus());
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("421614"), "error: {err}");
+			assert!(err.contains("op_stack"), "error: {err}");
+			assert!(err.contains("arbitrum_orbit"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_opstack_l2_missing_consensus() {
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.get_mut(&StateMachine::Evm(84532)).unwrap().consensus = None;
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("84532"), "error: {err}");
+			assert!(err.contains("op_stack"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_missing_non_l2_chain() {
+			// Drop Sepolia entirely and the testnet coverage check must fire — non-L2 chains
+			// don't need a consensus block but they do need to be present.
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.remove(&StateMachine::Evm(11155111));
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("testnet"), "error: {err}");
+			assert!(err.contains("11155111"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_accepts_non_l2_without_consensus() {
+			// All four testnet non-L2 chains are wired without a consensus block in the
+			// fixture; the complete config still validates.
+			let cfg = complete_testnet_collator_config();
+			for non_l2 in [11155111u32] {
+				assert!(
+					cfg.chains
+						.get(&StateMachine::Evm(non_l2))
+						.expect("non-L2 fixture present")
+						.consensus
+						.is_none(),
+					"non-L2 chain {non_l2} fixture should leave consensus unset",
+				);
+			}
+			validate(&cfg).expect("non-L2 chains do not need a consensus block on the collator");
 		}
 	}
 }

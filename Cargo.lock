@@ -9285,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.7.0"
+version = "1.8.0"
 dependencies = [
  "clap",
  "futures",
@@ -9322,12 +9322,17 @@ dependencies = [
 name = "hyperbridge-fisherman"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
+ "arb-host",
  "ismp",
  "log",
+ "op-host",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "tesseract",
  "tesseract-config",
+ "tesseract-consensus-config",
  "tesseract-evm",
  "tesseract-fisherman",
  "tesseract-primitives",
@@ -10433,6 +10438,7 @@ dependencies = [
  "arbitrum-verifier",
  "evm-state-machine",
  "ismp",
+ "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -10510,6 +10516,7 @@ dependencies = [
  "ismp",
  "log",
  "op-verifier",
+ "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -15122,6 +15129,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "scale-info",
 ]
 
@@ -28308,13 +28316,27 @@ dependencies = [
 name = "tesseract-fisherman"
 version = "0.1.1"
 dependencies = [
+ "alloy",
+ "alloy-primitives 1.5.7",
+ "alloy-sol-types 1.5.7",
  "anyhow",
+ "arb-host",
+ "arbitrum-verifier",
+ "async-trait",
  "futures",
+ "geth-primitives",
  "ismp",
  "log",
+ "op-host",
+ "op-verifier",
  "pallet-ismp",
+ "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "serde",
+ "serde-hex-utils",
  "sp-core",
+ "tesseract-evm",
  "tesseract-primitives",
  "tokio",
  "tracing",
@@ -28563,6 +28585,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "polkadot-sdk",
  "primitive-types 0.12.2",
+ "primitive-types 0.13.1",
  "serde",
  "serde-hex-utils",
  "sp-core",

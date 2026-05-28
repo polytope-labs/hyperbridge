@@ -43,11 +43,11 @@ use subxt_utils::{
 	values::{
 		create_consensus_state_to_value, get_requests_with_proof_to_value,
 		host_params_btreemap_to_value, outbound_consensus_delivery_claim_to_value,
-		withdrawal_input_data_to_value, withdrawal_proof_to_value,
+		state_machine_id_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
 	},
 };
 use tesseract_primitives::{
-	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
+	FishermanClaim, HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
 };
 
 #[derive(codec::Encode, codec::Decode)]
@@ -279,6 +279,53 @@ where
 			DryRunResult::Success => Ok(()),
 			_ => Err(anyhow!("Tracing of get response message returned an error")),
 		}
+	}
+}
+
+#[async_trait::async_trait]
+impl<C> FishermanClaim for SubstrateClient<C>
+where
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
+{
+	async fn blacklist_dispute_game(
+		&self,
+		state_machine_id: ismp::consensus::StateMachineId,
+		proxy: primitive_types::H160,
+	) -> anyhow::Result<()> {
+		let signer = self.in_memory_signer();
+		let call = subxt::dynamic::tx(
+			"Fishermen",
+			"blacklist_dispute_game",
+			vec![
+				state_machine_id_to_value(&state_machine_id),
+				subxt::ext::scale_value::Value::from_bytes(proxy.0.to_vec()),
+			],
+		);
+		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
+		Ok(())
+	}
+
+	async fn blacklist_arbitrum_claim(
+		&self,
+		state_machine_id: ismp::consensus::StateMachineId,
+		claim: primitive_types::H256,
+	) -> anyhow::Result<()> {
+		let signer = self.in_memory_signer();
+		let call = subxt::dynamic::tx(
+			"Fishermen",
+			"blacklist_arbitrum_claim",
+			vec![
+				state_machine_id_to_value(&state_machine_id),
+				subxt::ext::scale_value::Value::from_bytes(claim.0.to_vec()),
+			],
+		);
+		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
+		Ok(())
 	}
 }
 

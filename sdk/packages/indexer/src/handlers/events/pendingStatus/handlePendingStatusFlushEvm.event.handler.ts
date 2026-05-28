@@ -21,9 +21,9 @@ export const handlePendingStatusFlushEvm = wrap(async (event: EthereumBlock): Pr
 			`[handlePendingStatusFlushEvm] chain=${chainId} completed for block #${blockNumber}`,
 		)
 	} catch (error) {
-		// @ts-ignore
+		const message = error instanceof Error ? error.message : String(error)
 		logger.error(
-			`[handlePendingStatusFlushEvm] chain=${chainId} failed at block #${blockNumber}: ${error.message}`,
+			`[handlePendingStatusFlushEvm] chain=${chainId} failed at block #${blockNumber}: ${message}`,
 		)
 	}
 })

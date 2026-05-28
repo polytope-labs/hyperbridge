@@ -23,9 +23,9 @@ export const handlePendingStatusFlush = wrap(async (event: SubstrateBlock): Prom
 			`[handlePendingStatusFlush] chain=${chainId} completed for block #${blockNumber}`,
 		)
 	} catch (error) {
-		// @ts-ignore
+		const message = error instanceof Error ? error.message : String(error)
 		logger.error(
-			`[handlePendingStatusFlush] chain=${chainId} failed at block #${blockNumber}: ${error.message}`,
+			`[handlePendingStatusFlush] chain=${chainId} failed at block #${blockNumber}: ${message}`,
 		)
 	}
 })

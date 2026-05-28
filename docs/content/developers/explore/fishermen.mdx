@@ -1,23 +1,66 @@
 ---
-title: Pallet Fishermen
-description: The Fishermen module is responsible for tracking a permissioned set of accounts who are given the privilege to veto any misrepresentative state commitments which are submitted to the Hyperbridge blockchain.
+title: Fishermen
+description: Fishermen are collators that guard Hyperbridge against fraudulent L2 state commitments, earning 2 BRIDGE per block produced while fulfilling this critical security role.
 ---
 
-# Pallet Fishermen
+# Fishermen
 
-The Fishermen module is responsible for tracking a permissioned set of accounts who are given the privilege to veto any misrepresentative state commitments which are submitted to the Hyperbridge blockchain. They are able to do this without providing any cryptographic proofs. Recall that state commitments are the outputs of consensus proof verification by the relevant consensus client on the Hyperbridge blockchain. In a scenario where the source chain's validators become byzantine, the fishermen keep the applications that rely on the Hyperbridge blockchain safe from any byzantine attacks.
+Every collator on Hyperbridge doubles as a fisherman. The fisherman task runs inside the collator binary and watches each connected L2 across multiple independent RPC providers. When those providers reach a supermajority agreeing on an L2 state that contradicts what Hyperbridge is about to commit to its state trie, the fisherman submits a `veto_state_commitment` extrinsic signed by the collator's AURA key. This veto prevents the fraudulent commitment from being finalised on Hyperbridge, protecting every application that relies on cross-chain state proofs.
 
-This of course has some drawbacks, as the fishermen themselves could become malicious and begin to veto **valid state commitments**. However this can only constitute a griefing attack that temporarily prevents Hyperbridge from processing new cross-chain messages. Fishermen **cannot censor specific cross-chain messages**, this is because the state commitment of a blockchain is an **accumulator**. Even if they veto the state commitment for a specific height, later state commitments will still include the messages from the censored height. If any fishermen are found to be malicious, they can be removed from the fishermen set by the Hyperbridge governance.
+Collators are compensated 2 `$BRIDGE` per block produced. This reward covers both block production and the ongoing cost of operating a high-quality fisherman setup — running premium RPC endpoints across multiple independent providers is part of the job, and the block reward is sized to make that sustainable.
 
-## Incentives
+## What a Fisherman Can Do
 
-Fishermen who veto misrepresentative state commitments are rewarded with the Hyperbridge native token. This incentivizes them to keep the Hyperbridge blockchain secure and free from any byzantine attacks. The fishermen module is a critical component of the Hyperbridge blockchain, as it ensures that the state commitments which are submitted to the blockchain are accurate and truthful. This is essential for the security of the Hyperbridge blockchain and the applications that rely on it.
+A fisherman holding a seat in the active collator set can:
+
+- **Veto a state commitment** by calling `pallet-fishermen.veto_state_commitment` with a specific `StateMachineHeight`. The veto is accepted without requiring a cryptographic proof — the fisherman's inclusion in the collator set is the trust anchor.
+- **Block cross-chain message delivery** for the vetoed height. Because a state commitment is an accumulator, messages from a vetoed height will still be included in a later commitment once the correct state is finalised. A veto delays processing; it cannot censor a specific message permanently.
+- **Prevent a compromised or faulty consensus client** from anchoring fraudulent L2 state on Hyperbridge, which would otherwise let attackers fabricate state proofs and drain applications of funds.
+
+A fisherman cannot selectively censor individual messages. The veto operates at the state commitment level — either the entire state at a given height is accepted or it is rejected.
+
+## RPC Endpoint Quality is Critical
+
+> **Warning: using low-quality or unreliable RPC endpoints exposes you to governance punishment.**
+>
+> If your fisherman vetoes a valid state commitment because one of your RPC providers returned stale, incorrect, or temporarily unavailable data, that veto harms the network. Governance can remove a fisherman from the collator set for submitting bad vetoes, and in the future slashing conditions may apply. The 2 `$BRIDGE` block reward is large enough to cover the cost of premium endpoints — there is no excuse for cutting corners here.
+
+The fisherman reaches a supermajority quorum (`floor(2/3 * N) + 1`) across all configured RPC URLs before it will veto. With only two endpoints, a single bad response from one provider can swing the quorum. With three, two providers must agree before the fisherman acts — this is why **three premium RPC URLs per L2 is the strong recommendation**, even though the minimum enforced by the node is two.
+
+### What "premium" means
+
+- **Dedicated, non-shared endpoints** from a provider that guarantees archive access and high availability SLAs. Free-tier public nodes are not acceptable.
+- **Three genuinely distinct providers** — Alchemy, Infura, QuickNode, Ankr, and similar infrastructure vendors all count as distinct. Multiple API keys from the same provider resolve to the same host and are rejected by the config validator.
+- **Low latency and high reliability**. A provider that regularly lags behind the chain head can cause your quorum to disagree with reality during the brief window Hyperbridge is verifying a new state commitment.
+
+A minimal three-provider config for a single L2 looks like this:
+
+```toml
+[arbitrum]
+type = "evm"
+rpc_urls = [
+    "https://arb-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://arbitrum-mainnet.infura.io/v3/<your-infura-key>",
+    "https://arbitrum-mainnet.quiknode.pro/<your-quicknode-key>/",
+]
+```
+
+## Governance and Punishment
+
+The fisherman set is permissioned — membership is tied to holding an active collator seat. Governance has the power to remove a collator from the active set, which simultaneously removes their fisherman privileges.
+
+Reasons governance may act against a fisherman:
+
+- **Submitting vetoes on valid state commitments.** This is the most serious offence. It disrupts message delivery for legitimate users and, if done repeatedly, constitutes an attack on the liveness of the network.
+- **Running the node without adequate RPC coverage.** If a fisherman can be shown to have submitted a bad veto because they relied on a single provider or a low-quality endpoint, that is treated as negligence.
+- **Coordinated griefing.** A coalition of fishermen that consistently vetoes correct state would be treated the same as a direct attack.
+
+Governance action is currently the enforcement mechanism. A future upgrade will introduce cryptographic slashing conditions, at which point a fisherman who vetoes a provably valid commitment will lose a portion of their bond automatically, without requiring a governance vote.
 
 ## Future
 
-Long term, the fishermen module will be replaced by a permissionless mechanism that will allow any user to challenge the state commitments that are verified by the Hyperbridge blockchain through cryptographic proofs. Either through consensus fault proofs, or through full block re-execution. This will ensure that the Hyperbridge blockchain remains secure and free from any byzantine attacks, even in the absence of a permissioned fishermen set.
-
+The permissioned fisherman model is a stepping stone. Long term, anyone will be able to challenge a state commitment using a consensus fault proof or a full block re-execution proof, making the security model permissionless and fully trustless. Until that infrastructure exists, the fisherman set backed by collator economic incentives and governance enforcement is the live safety net for every application built on Hyperbridge.
 
 ## Implementation
 
- - [pallet-fishermen](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/fishermen/src/lib.rs)
+- [pallet-fishermen](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/fishermen/src/lib.rs)

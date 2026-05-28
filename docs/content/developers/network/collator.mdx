@@ -23,7 +23,7 @@ The primary responsibilities for Collators on Hyperbridge are:
 - **Collecting Transactions**: They gather transactions from users.
 - **Producing Blocks**: They ensure the production of blocks.
 - **Submitting to Polkadot Validators**: They submit blocks along with proof to the relay chain validators, in this case, Polkadot.
-- **Running the Fisherman Task**: Every collator runs an in-node fisherman that monitors each supported L2 across at least two distinct RPC
+- **Running the Fisherman Task**: Every collator runs an in-node fisherman that monitors each supported L2 across multiple independent RPC
   providers. When the providers reach a supermajority on an L2 state that disagrees with what Hyperbridge is about to commit, the fisherman
   signs a `pallet-fishermen.veto_state_commitment` extrinsic with the collator's AURA key. The collator binary will not start without a valid
   tesseract config (see Step 2, Action 4).
@@ -263,10 +263,11 @@ startup, before block production:
    - Mainnet: Arbitrum (42161), Base (8453), Optimism (10), Unichain (130), Soneium (1868).
    - Testnet: Arbitrum Sepolia (421614), Optimism Sepolia (11155420), Base Sepolia (84532).
 
-2. **Each L2 needs at least two `rpc_urls`, and they must come from distinct providers.** The fisherman computes a supermajority
-   quorum (`floor(2/3 * N) + 1`) across the listed RPCs, so duplicate endpoints add no safety. The validator extracts the host
-   portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
-   (for example one Alchemy endpoint and one Infura endpoint), not two API keys against the same provider.
+2. **Each L2 needs at least two `rpc_urls` from distinct providers, and three is strongly recommended.** The fisherman computes a
+   supermajority quorum (`floor(2/3 * N) + 1`) across the listed RPCs, so duplicate endpoints add no safety. The validator extracts
+   the host portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
+   (for example Alchemy, Infura, and QuickNode), not multiple API keys against the same provider. See the fisherman documentation for
+   guidance on choosing quality endpoints.
 
 A minimal mainnet collator config looks like this. The `[hyperbridge]` table holds the substrate host fields directly, and each L2
 is a top-level `[<chain>]` table with `type = "evm"`. The `[relayer]` section is optional for collators and can be omitted, since
@@ -281,9 +282,8 @@ rpc_ws = "ws://127.0.0.1:9933"
 # Your Controller account's private key
 signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 
-# Each of the five mainnet L2s must be present, with at least two
-# distinct-host rpc_urls. URLs that share a host (case-insensitive) are
-# rejected as the same provider, even if the API key in the path differs.
+# Each of the five mainnet L2s must be present, with at least two distinct-host
+# rpc_urls. Three is strongly recommended. URLs that share a host are rejected.
 [arbitrum]
 type = "evm"
 rpc_urls = [

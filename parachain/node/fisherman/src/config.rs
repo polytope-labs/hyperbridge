@@ -35,7 +35,7 @@ use tesseract_evm::registry::{
 use toml::{Table, Value};
 use url::Url;
 
-const MIN_RPC_URLS_PER_L2: usize = 3;
+const MIN_RPC_URLS_PER_L2: usize = 2;
 
 /// Validate the operator's tesseract toml without parsing it through
 /// [`HyperbridgeConfig::parse_conf`]. The full parser dials each RPC to

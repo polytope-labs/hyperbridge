@@ -174,6 +174,7 @@ pub type Migrations = (
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
+	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -336,7 +337,6 @@ use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -383,7 +383,10 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<ReputationCallFilter, TxPause>;
+	type BaseCallFilter = InsideBoth<
+		InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, CollatorSelectionCallFilter>,
+		TxPause,
+	>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -577,7 +580,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = CollatorManager;
+	type Currency = Balances;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -730,6 +733,50 @@ impl Contains<RuntimeCall> for ReputationCallFilter {
 			) => *id != rep,
 			_ => true,
 		}
+	}
+}
+
+/// Nexus routes all BEEFY consensus updates through `pallet-beefy-consensus-proofs`, which
+/// requires each proof to pass SP1 zkVM verification before it can advance the BEEFY state.
+/// Allowing raw updates through `handle_unsigned` would bypass that requirement entirely, so
+/// any batch that carries a BEEFY consensus message is rejected here. `fund_message` is also
+/// disabled because it will change the child trie root allowing beefy proofs that have no economic value
+///
+/// A consensus message only names the state it updates, so we ask the host which client owns
+/// that state and compare against BEEFY. Reading from the host remains correct even as more
+/// states (Polkadot, Paseo) are bound to the same client over time.
+pub struct IsmpCallFilter;
+impl Contains<RuntimeCall> for IsmpCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		use ::ismp::{host::IsmpHost, messaging::Message};
+		match call {
+			RuntimeCall::Ismp(pallet_ismp::Call::fund_message { .. }) => false,
+			RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned { messages }) => {
+				let host = Ismp::default();
+				!messages.iter().any(|message| match message {
+					Message::Consensus(consensus) =>
+						host.consensus_client_id(consensus.consensus_state_id) ==
+							Some(ismp_beefy::BEEFY_CONSENSUS_ID),
+					_ => false,
+				})
+			},
+			_ => true,
+		}
+	}
+}
+
+/// Collator exits on nexus go through `pallet-collator-manager`'s `unbond` flow, which holds
+/// the bond for seven days before it can be reclaimed. That window exists so the protocol can
+/// act on any detected misbehaviour — a fisherman veto or a future slashing condition — before
+/// the operator walks away with their stake. `leave_intent` would bypass that delay entirely,
+/// so it is closed off here.
+pub struct CollatorSelectionCallFilter;
+impl Contains<RuntimeCall> for CollatorSelectionCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		!matches!(
+			call,
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+		)
 	}
 }
 
@@ -924,17 +971,18 @@ impl pallet_messaging_incentives::Config for Runtime {
 }
 
 parameter_types! {
-	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
+	/// Collators wait seven days between `unbond` and withdrawing their candidacy bond.
+	pub const CollatorUnbondingPeriod: BlockNumber = 7 * DAYS;
 }
 
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
-	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryPalletId;
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingIncentives;
+	type UnbondingPeriod = CollatorUnbondingPeriod;
 	type WeightInfo = ();
 }
 

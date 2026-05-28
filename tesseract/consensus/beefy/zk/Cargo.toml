@@ -25,11 +25,11 @@ polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
 
 [dependencies.sp1-beefy]
-git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+git = "https://github.com/polytope-labs/sp1-beefy"
 tag = "v1.1.0"
 
 [dependencies.sp1-beefy-primitives]
-git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+git = "https://github.com/polytope-labs/sp1-beefy"
 tag = "v1.1.0"
 
 [dev-dependencies]

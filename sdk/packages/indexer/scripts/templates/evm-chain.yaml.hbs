@@ -79,6 +79,15 @@ dataSources:
             topics:
               - 'DustSwept(address,uint256,address)'
   {{/if}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handlePendingStatusFlushEvm
+          kind: ethereum/BlockHandler
+          filter:
+            modulo: 50 # Each chain instance flushes its own pending writes — historical filter hides cross-chain rows.
   # - kind: ethereum/Runtime
   #   startBlock: {{blockNumber}}
   #   options:

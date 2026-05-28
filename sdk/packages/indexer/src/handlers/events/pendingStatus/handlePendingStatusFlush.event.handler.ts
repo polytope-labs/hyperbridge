@@ -15,13 +15,17 @@ export const handlePendingStatusFlush = wrap(async (event: SubstrateBlock): Prom
 	const blockNumber = event.block.header.number.toString()
 	const blockHash = event.block.header.hash.toHex()
 	logger.info(
-		`[handlePendingStatusFlush] entered at block #${blockNumber} (${blockHash}), limit=${FLUSH_LIMIT}`,
+		`[handlePendingStatusFlush] chain=${chainId} entered at block #${blockNumber} (${blockHash}), limit=${FLUSH_LIMIT}`,
 	)
 	try {
 		await PendingStatusService.flushBatch(FLUSH_LIMIT)
-		logger.info(`[handlePendingStatusFlush] completed for block #${blockNumber}`)
+		logger.info(
+			`[handlePendingStatusFlush] chain=${chainId} completed for block #${blockNumber}`,
+		)
 	} catch (error) {
 		// @ts-ignore
-		logger.error(`[handlePendingStatusFlush] failed at block #${blockNumber}: ${error.message}`)
+		logger.error(
+			`[handlePendingStatusFlush] chain=${chainId} failed at block #${blockNumber}: ${error.message}`,
+		)
 	}
 })

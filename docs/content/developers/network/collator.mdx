@@ -421,3 +421,31 @@ If you are not selected:
 - Continue operating your relayer or prover to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.
+
+## Exiting as a Collator
+
+When you are ready to stop collating and reclaim your candidacy bond, the exit follows a two-step unbonding process managed by `pallet-collator-manager`. The direct `collatorSelection.leaveIntent` extrinsic is blocked on Hyperbridge — all exits must go through this flow.
+
+The seven day delay between starting and completing unbonding exists so the protocol has time to act on any detected misbehaviour — such as a fisherman veto — before the operator can walk away with their stake.
+
+### Step 1: Start unbonding from your Stash account
+
+Call `collatorManager.unbond` from your **Stash** account. This marks your Stash as unbonding: it stops being selected in future sessions and records the block at which your bond becomes withdrawable (current block plus seven days of blocks).
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your **Stash** account.
+- Choose the `collatorManager` pallet and the `unbond` extrinsic.
+- Sign and submit.
+
+After this transaction, your Stash is removed from session selection. Your node can be shut down once the current session ends.
+
+### Step 2: Withdraw your bond after the delay
+
+Once seven days have passed, call `collatorManager.withdrawUnbonded` from your **Stash** account. This drops your candidacy from `pallet-collator-selection`, unreserves your bond, and clears the stash–controller pairing.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your **Stash** account.
+- Choose the `collatorManager` pallet and the `withdrawUnbonded` extrinsic.
+- Sign and submit.
+
+The transaction will fail with `UnbondingPeriodNotElapsed` if the seven days have not yet passed. Once it succeeds, your bond is fully released and the account is no longer registered as a candidate.

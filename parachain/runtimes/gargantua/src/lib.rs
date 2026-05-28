@@ -808,14 +808,16 @@ impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
 	}
 }
 
-/// Switches off two ismp calls on gargantua. `fund_message` is disabled outright,
-/// and `handle_unsigned` is turned away whenever its batch carries a consensus
-/// update for the BEEFY client.
+/// Gargantua routes all BEEFY consensus updates through `pallet-beefy-consensus-proofs`, which
+/// requires each proof to pass SP1 zkVM verification before it can advance the BEEFY state.
+/// Allowing raw updates through `handle_unsigned` would bypass that requirement entirely, so
+/// any batch that carries a BEEFY consensus message is rejected here. `fund_message` is also
+/// disabled because gargantua uses the bandwidth model for request fees; per-message top-ups
+/// have no role in that accounting.
 ///
-/// A consensus message only names the state it updates, so we ask the host which
-/// client that state belongs to and compare it against BEEFY. Reading it from the
-/// host stays correct if more states (Polkadot, Paseo) are ever bound to the same
-/// client.
+/// A consensus message only names the state it updates, so we ask the host which client owns
+/// that state and compare against BEEFY. Reading from the host remains correct even as more
+/// states (Polkadot, Paseo) are bound to the same client over time.
 pub struct IsmpCallFilter;
 impl frame_support::traits::Contains<RuntimeCall> for IsmpCallFilter {
 	fn contains(call: &RuntimeCall) -> bool {
@@ -836,8 +838,11 @@ impl frame_support::traits::Contains<RuntimeCall> for IsmpCallFilter {
 	}
 }
 
-/// Blocks collator-selection's `leave_intent`. Collators leave through collator-manager's
-/// `unbond`, which enforces the seven day unbonding delay, so the instant exit is closed off.
+/// Collator exits on gargantua go through `pallet-collator-manager`'s `unbond` flow, which
+/// holds the bond for seven days before it can be reclaimed. That window exists so the protocol
+/// can act on any detected misbehaviour — a fisherman veto or a future slashing condition —
+/// before the operator walks away with their stake. `leave_intent` would bypass that delay
+/// entirely, so it is closed off here.
 pub struct CollatorSelectionCallFilter;
 impl frame_support::traits::Contains<RuntimeCall> for CollatorSelectionCallFilter {
 	fn contains(call: &RuntimeCall) -> bool {

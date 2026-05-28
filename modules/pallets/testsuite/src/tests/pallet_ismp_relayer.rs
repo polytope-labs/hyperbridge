@@ -1258,6 +1258,8 @@ mod outbound_request_delivery {
 
 	const NEXUS: StateMachine = StateMachine::Kusama(100);
 	const EVM_DEST: StateMachine = StateMachine::Evm(11155111);
+	// Echo-backed EVM destination (see `EchoStateMachine`) for the request-claim pipeline test.
+	const EVM_ECHO_DEST: StateMachine = StateMachine::Evm(11155112);
 	const SUBSTRATE_DEST: StateMachine = StateMachine::Kusama(2001);
 	const REWARD: u128 = 1_000_000_000_000;
 	const HEIGHT: u64 = 100;
@@ -1484,6 +1486,86 @@ mod outbound_request_delivery {
 		StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof }.encode()
 	}
 
+	/// Set up the host's view of the echo-backed EVM destination and return the
+	/// proof bytes, which `EchoStateMachine` hands back verbatim as the proven
+	/// receipt value. The bytes are the relayer address rlp encoded, the shape an
+	/// EVM `RequestReceipts` slot decodes to.
+	fn evm_dest_proof(eth_addr: &[u8]) -> Vec<u8> {
+		use alloy_primitives::Address;
+
+		let host = Ismp::default();
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: EVM_ECHO_DEST,
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			height: HEIGHT,
+		};
+		host.store_state_machine_commitment(
+			height,
+			StateCommitment { timestamp: 100, overlay_root: None, state_root: Default::default() },
+		)
+		.unwrap();
+		host.store_state_machine_update_time(height, Duration::from_secs(100)).unwrap();
+		host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
+		host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
+		host.store_challenge_period(
+			StateMachineId { state_id: EVM_ECHO_DEST, consensus_state_id: MOCK_CONSENSUS_STATE_ID },
+			0,
+		)
+		.unwrap();
+
+		alloy_rlp::encode(Address::from_slice(eth_addr))
+	}
+
+	#[test]
+	fn evm_destination_pays_relayer() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let eth_address = pair.public().to_eth_address().unwrap().to_vec();
+			let payee = [0xAA; 32];
+			let payee_account: AccountId32 = payee.into();
+
+			let req = post_request(EVM_ECHO_DEST, MODULE_ID);
+			let commitment = register_request(&req);
+			set_reward(EVM_ECHO_DEST, MODULE_ID, REWARD);
+			fund_treasury(REWARD * 10);
+
+			let proof = evm_dest_proof(&eth_address);
+			let msg = outbound_request_delivery_message(commitment, EVM_ECHO_DEST, payee);
+			let signature = pair.sign_prehashed(&msg).to_vec();
+
+			let claim = OutboundRequestDeliveryClaim {
+				request: req,
+				state_proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: EVM_ECHO_DEST,
+							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+						},
+						height: HEIGHT,
+					},
+					proof,
+				},
+				payee,
+				signature: Signature::Evm { address: eth_address, signature },
+			};
+
+			let payee_before = Balances::balance(&payee_account);
+			pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				claim,
+			)
+			.unwrap();
+
+			assert_eq!(Balances::balance(&payee_account) - payee_before, REWARD);
+			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment));
+		})
+	}
+
 	#[test]
 	fn substrate_destination_pays_relayer() {
 		new_test_ext().execute_with(|| {
@@ -1498,8 +1580,7 @@ mod outbound_request_delivery {
 			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let nonce = pallet_ismp_relayer::Nonce::<Test>::get(&relayer_bytes, SUBSTRATE_DEST);
-			let msg = outbound_request_delivery_message(nonce, commitment, SUBSTRATE_DEST, payee);
+			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
 			let signature = pair.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {
@@ -1515,7 +1596,7 @@ mod outbound_request_delivery {
 					proof: substrate_dest_proof(commitment, &relayer_bytes),
 				},
 				payee,
-				signature: Signature::Sr25519 { public_key: relayer_bytes.clone(), signature },
+				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
 			};
 
 			let payee_before = Balances::balance(&payee_account);
@@ -1527,11 +1608,6 @@ mod outbound_request_delivery {
 
 			assert_eq!(Balances::balance(&payee_account) - payee_before, REWARD);
 			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment));
-			assert_eq!(
-				pallet_ismp_relayer::Nonce::<Test>::get(&relayer_bytes, SUBSTRATE_DEST),
-				1,
-				"a successful claim must consume the relayer's nonce",
-			);
 		})
 	}
 
@@ -1549,7 +1625,7 @@ mod outbound_request_delivery {
 			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let msg = outbound_request_delivery_message(0, commitment, SUBSTRATE_DEST, payee);
+			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
 			let other_sig = other.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {

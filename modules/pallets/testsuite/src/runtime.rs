@@ -633,6 +633,10 @@ impl ConsensusClient for MockConsensusClient {
 		let state_machine: Box<dyn StateMachineClient> = match _id {
 			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
 				Box::new(SubstrateStateMachine::<Test>::default()),
+			// Dedicated id for the request-claim EVM pipeline test: echoes the
+			// proof bytes back as the receipt value so the EVM decode branch and
+			// signature recovery run end to end. Other EVM ids stay on the mock.
+			StateMachine::Evm(11155112) => Box::new(EchoStateMachine),
 			_ => Box::new(MockStateMachine),
 		};
 		Ok(state_machine)
@@ -679,6 +683,52 @@ impl StateMachineClient for MockStateMachine {
 		_proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
 		Ok(Default::default())
+	}
+}
+
+/// State machine client that echoes the proof bytes back as the proven value.
+/// Lets the request-claim EVM pipeline run end to end (decode branch, signature
+/// recovery, payout) without hand-building a real state proof; the proof
+/// verification itself is covered by the `evm-state-machine` crate tests.
+pub struct EchoStateMachine;
+
+impl StateMachineClient for EchoStateMachine {
+	fn verify_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), IsmpError> {
+		MockStateMachine.verify_membership(host, commitments, root, proof)
+	}
+
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		MockStateMachine.commitment_state_trie_key(commitments)
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		commitments.into_iter().map(|c| c.0.to_vec()).collect()
+	}
+
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), IsmpError> {
+		MockStateMachine.verify_non_membership(host, commitments, root, proof)
+	}
+
+	fn verify_state_proof(
+		&self,
+		_host: &dyn IsmpHost,
+		keys: Vec<Vec<u8>>,
+		_root: H256,
+		proof: &Proof,
+	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
+		Ok(keys.into_iter().map(|key| (key, Some(proof.proof.clone()))).collect())
 	}
 }
 

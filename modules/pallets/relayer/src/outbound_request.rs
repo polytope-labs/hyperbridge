@@ -29,7 +29,7 @@
 //! destination state machine type.
 
 use crate::{
-	BalanceOf, Config, Error, Event, ModuleIdBound, Nonce, OutboundRequestDeliveryReward,
+	BalanceOf, Config, Error, Event, ModuleIdBound, OutboundRequestDeliveryReward,
 	OutboundRequestsClaimed, Pallet,
 };
 use alloc::vec;
@@ -69,11 +69,12 @@ use sp_runtime::traits::AccountIdConversion;
 /// 6. State proof against Hyperbridge's stored commitment for the destination yields a value at
 ///    `RequestReceipts[commitment]`.
 /// 7. The `signature` recovers the same address (EVM) or bytes (substrate) that the destination
-///    recorded as the delivering relayer, signing [`outbound_request_delivery_message`] of `(nonce,
-///    commitment, destination, payee)`.
+///    recorded as the delivering relayer, signing [`outbound_request_delivery_message`] of
+///    `(commitment, destination, payee)`.
 ///
-/// Replay is guarded twice: the per-relayer `Nonce` folded into the signature, and the on-chain
-/// `commitment` tag in [`crate::pallet::OutboundRequestsClaimed`].
+/// Replay protection comes from the on-chain `commitment` idempotency tag in
+/// [`crate::pallet::OutboundRequestsClaimed`]; once a commitment is claimed it cannot be claimed
+/// again, so a captured signature has no way to be reused.
 #[derive(
 	Clone,
 	Debug,
@@ -96,7 +97,7 @@ pub struct OutboundRequestDeliveryClaim {
 	/// Sr25519 public key on Hyperbridge that the reward is paid to.
 	pub payee: [u8; 32],
 	/// Signature over [`outbound_request_delivery_message`] of
-	/// `(nonce, commitment, destination, payee)`. For EVM destinations the recovered
+	/// `(commitment, destination, payee)`. For EVM destinations the recovered
 	/// secp256k1 address must equal the address proven in the receipt slot;
 	/// for substrate destinations the recovered signer bytes must equal the
 	/// relayer bytes proven in the receipt slot.
@@ -167,8 +168,7 @@ where
 
 		let delivered_by = Self::decode_receipt_relayer(destination, &raw)?;
 
-		let nonce = Nonce::<T>::get(&delivered_by, destination);
-		let msg = outbound_request_delivery_message(nonce, commitment, destination, payee);
+		let msg = outbound_request_delivery_message(commitment, destination, payee);
 		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
 		ensure!(recovered == delivered_by, Error::<T>::OutboundRequestSignerMismatch);
 
@@ -185,12 +185,6 @@ where
 
 		OutboundRequestsClaimed::<T>::insert(commitment, ());
 
-		Nonce::<T>::try_mutate(&delivered_by, destination, |value| {
-			*value += 1;
-			Ok::<(), ()>(())
-		})
-		.map_err(|_: ()| Error::<T>::ErrorCompletingCall)?;
-
 		Self::deposit_event(Event::OutboundRequestDeliveryRewarded {
 			commitment,
 			state_machine: destination,
@@ -203,14 +197,13 @@ where
 	}
 }
 
-/// Signed payload for [`OutboundRequestDeliveryClaim`]. The per-relayer `nonce`
-/// keeps each signature single use, the same way the withdrawal and fee flows do,
-/// and [`crate::pallet::OutboundRequestsClaimed`] guards replay on chain.
+/// Signed payload for [`OutboundRequestDeliveryClaim`]. Replay protection comes from
+/// the on-chain `commitment` tag in [`crate::pallet::OutboundRequestsClaimed`], so a
+/// captured signature can't be reused once the commitment is claimed.
 pub fn outbound_request_delivery_message(
-	nonce: u64,
 	commitment: H256,
 	dest_chain: StateMachine,
 	payee: [u8; 32],
 ) -> [u8; 32] {
-	sp_io::hashing::keccak_256(&(nonce, commitment, dest_chain, payee).encode())
+	sp_io::hashing::keccak_256(&(commitment, dest_chain, payee).encode())
 }

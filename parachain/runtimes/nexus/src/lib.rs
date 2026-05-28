@@ -740,8 +740,7 @@ impl Contains<RuntimeCall> for ReputationCallFilter {
 /// requires each proof to pass SP1 zkVM verification before it can advance the BEEFY state.
 /// Allowing raw updates through `handle_unsigned` would bypass that requirement entirely, so
 /// any batch that carries a BEEFY consensus message is rejected here. `fund_message` is also
-/// disabled because nexus uses the bandwidth model for request fees; per-message top-ups have
-/// no role in that accounting.
+/// disabled because it will change the child trie root allowing beefy proofs that have no economic value
 ///
 /// A consensus message only names the state it updates, so we ask the host which client owns
 /// that state and compare against BEEFY. Reading from the host remains correct even as more

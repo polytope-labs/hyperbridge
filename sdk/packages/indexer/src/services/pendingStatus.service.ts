@@ -13,34 +13,41 @@ import { IOrderV3StatusMetadata } from "@/configs/src/types/models/IOrderV3Statu
 // Entity types we know how to materialize a real *StatusMetadata for.
 // Must match the `ENTITY_TYPE` constants in the per-service handlers that
 // write PendingStatusMetadata rows.
-const ENTITY_TYPES = ["RequestV2", "GetRequestV2", "IOrderV3"] as const
-type KnownEntityType = (typeof ENTITY_TYPES)[number]
+const KNOWN_ENTITY_TYPES = ["RequestV2", "GetRequestV2", "IOrderV3"] as const
+type KnownEntityType = (typeof KNOWN_ENTITY_TYPES)[number]
+
+function isKnownEntityType(value: string): value is KnownEntityType {
+	return (KNOWN_ENTITY_TYPES as readonly string[]).includes(value)
+}
 
 export class PendingStatusService {
 	/**
-	 * Scan a small batch of pending status rows across the known entity types
-	 * and materialize the real *StatusMetadata for any whose parent now exists,
-	 * deleting the pending row. Rows whose parent is still missing are left
-	 * untouched for a future tick.
+	 * Scan a small batch of pending status rows and materialize the real
+	 * *StatusMetadata for any whose parent now exists, deleting the pending
+	 * row. Rows whose parent is still missing are left untouched for a
+	 * future tick.
 	 *
-	 * `limit` caps the total rows examined per call, distributed across the
-	 * entity types so a backlog on one type cannot starve the others. We
-	 * cannot order by `createdAt` because that column isn't indexed on the
-	 * existing table; rows we successfully flush are deleted, so even with
-	 * arbitrary ordering the queue drains over successive blocks.
+	 * Fetches via `getByFields([], { limit })` so a stale or mismatched
+	 * `entityType` index value can't hide rows from us — we dispatch on
+	 * each row's own `entityType` field after the read.
 	 */
 	static async flushBatch(limit: number): Promise<void> {
-		const perType = Math.max(1, Math.ceil(limit / ENTITY_TYPES.length))
+		logger.info(`[PendingStatusService.flushBatch] starting, limit=${limit}`)
 
-		for (const entityType of ENTITY_TYPES) {
-			const batch = await PendingStatusMetadata.getByEntityType(entityType, {
-				limit: perType,
-			})
+		const batch = await PendingStatusMetadata.getByFields([], { limit })
+		logger.info(`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s)`)
 
-			for (const pending of batch) {
-				await this.materialize(pending, entityType)
+		for (const pending of batch) {
+			if (!isKnownEntityType(pending.entityType)) {
+				logger.warn(
+					`[PendingStatusService] unknown entityType=${pending.entityType} on pending ${pending.id}, skipping`,
+				)
+				continue
 			}
+			await this.materialize(pending, pending.entityType)
 		}
+
+		logger.info(`[PendingStatusService.flushBatch] finished`)
 	}
 
 	private static async materialize(
@@ -50,7 +57,12 @@ export class PendingStatusService {
 		switch (entityType) {
 			case "RequestV2": {
 				const parent = await RequestV2.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] RequestV2 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = RequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -71,7 +83,12 @@ export class PendingStatusService {
 			}
 			case "GetRequestV2": {
 				const parent = await GetRequestV2.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] GetRequestV2 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = GetRequestStatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					requestId: pending.commitment,
@@ -92,7 +109,12 @@ export class PendingStatusService {
 			}
 			case "IOrderV3": {
 				const parent = await IOrderV3.get(pending.commitment)
-				if (!parent) return
+				if (!parent) {
+					logger.info(
+						`[PendingStatusService] IOrderV3 ${pending.commitment} not yet present, leaving pending`,
+					)
+					return
+				}
 				const statusMetadata = IOrderV3StatusMetadata.create({
 					id: `${pending.commitment}.${pending.status}`,
 					orderId: pending.commitment,

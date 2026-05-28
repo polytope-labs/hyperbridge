@@ -73,6 +73,8 @@ dataSources:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
         - handler: handlePendingStatusFlush
           kind: substrate/BlockHandler
+          filter:
+            modulo: 10 # Run pending-status flush every 10 blocks (~1 minute on a 6s chain).
 {{/if}}
 {{#if enablePriceIndexing}}
         - handler: handlePriceIndexing

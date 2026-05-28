@@ -34,8 +34,20 @@ export class PendingStatusService {
 	static async flushBatch(limit: number): Promise<void> {
 		logger.info(`[PendingStatusService.flushBatch] starting, limit=${limit}`)
 
-		const batch = await PendingStatusMetadata.getByFields([], { limit })
-		logger.info(`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s)`)
+		// Use an indexed-field `in` filter so the query is non-empty and predictable.
+		// `entityType` is `@index`-ed on the schema, so this passes the SubQuery
+		// indexed-field assert in @subql/node-core store.js.
+		const batch = await PendingStatusMetadata.getByFields(
+			[["entityType", "in", [...KNOWN_ENTITY_TYPES]]],
+			{ limit },
+		)
+		logger.info(
+			`[PendingStatusService.flushBatch] fetched ${batch.length} pending row(s); ` +
+				`sample=${batch
+					.slice(0, 3)
+					.map((p) => `${p.entityType}@${p.chain}:${p.id}`)
+					.join(", ")}`,
+		)
 
 		for (const pending of batch) {
 			if (!isKnownEntityType(pending.entityType)) {

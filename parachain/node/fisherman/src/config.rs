@@ -35,7 +35,7 @@ use tesseract_evm::registry::{
 use toml::{Table, Value};
 use url::Url;
 
-const MIN_RPC_URLS_PER_L2: usize = 2;
+const MIN_RPC_URLS_PER_L2: usize = 3;
 
 /// Validate the operator's tesseract toml without parsing it through
 /// [`HyperbridgeConfig::parse_conf`]. The full parser dials each RPC to
@@ -481,10 +481,31 @@ mod tests {
 			let mut chains = HashMap::new();
 			for (chain_id, rpcs) in [
 				// L2s
-				(421614u32, ["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"]),
-				(84532,     ["https://base-sepolia.alchemy.com/v2/k", "https://base-sepolia.infura.io/v3/k"]),
+				(
+					421614u32,
+					[
+						"https://arb-sepolia.alchemy.com/v2/k",
+						"https://arb-sepolia.infura.io/v3/k",
+						"https://arb-sepolia.ankr.com/k",
+					],
+				),
+				(
+					84532,
+					[
+						"https://base-sepolia.alchemy.com/v2/k",
+						"https://base-sepolia.infura.io/v3/k",
+						"https://base-sepolia.ankr.com/k",
+					],
+				),
 				// Non-L2 testnet
-				(11155111,  ["https://sepolia.alchemy.com/v2/k", "https://sepolia.infura.io/v3/k"]),
+				(
+					11155111,
+					[
+						"https://sepolia.alchemy.com/v2/k",
+						"https://sepolia.infura.io/v3/k",
+						"https://sepolia.ankr.com/k",
+					],
+				),
 			] {
 				chains.insert(StateMachine::Evm(chain_id), evm_chain(chain_id, &rpcs));
 			}
@@ -560,6 +581,7 @@ mod tests {
 			evm.rpc_urls = vec![
 				"https://arb-sepolia.alchemy.com/v2/key1".into(),
 				"https://arb-sepolia.alchemy.com/v2/key2".into(),
+				"https://arb-sepolia.alchemy.com/v2/key3".into(),
 			];
 			let err = validate(&cfg).unwrap_err().to_string();
 			assert!(err.contains("arb-sepolia.alchemy.com"), "error: {err}");

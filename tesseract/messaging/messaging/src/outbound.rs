@@ -365,7 +365,7 @@ async fn submit_for_dest(
 	// so the filter keeps every event routed to this destination.
 	let mut events = events
 		.into_iter()
-		.filter(|ev| filter_events(&relayer_config, dest_state_machine, ev))
+		.filter(|ev| filter_events(&relayer_config, dest_state_machine, coprocessor, ev))
 		.collect::<Vec<_>>();
 
 	retain_incentivized_requests(&mut events, coprocessor, incentivized.as_deref());

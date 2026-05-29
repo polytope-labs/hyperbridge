@@ -543,6 +543,61 @@ fn test_fund_message() {
 	});
 }
 
+// Regression test for the "Priority is too low (100 vs 100)" pool rejection:
+// consensus updates that advance no state machine (e.g. validator-set rotations
+// during sync) must each get a content-unique `provides` tag and a priority
+// above the 100 used for request batches, otherwise distinct updates collide in
+// the transaction pool and the client can never sync.
+#[test]
+fn consensus_messages_without_state_update_get_unique_provides_tags() {
+	use ismp::messaging::ConsensusMessage;
+	use polkadot_sdk::{
+		frame_support::pallet_prelude::ValidateUnsigned,
+		sp_runtime::transaction_validity::TransactionSource,
+	};
+
+	new_test_ext().execute_with(|| {
+		let host = Ismp::default();
+		setup_mock_client::<_, Test>(&host);
+
+		// Builds a consensus message whose proof carries the sentinel prefix so the
+		// mock consensus client returns no commitments (no StateMachineUpdated).
+		let make = |suffix: &[u8]| {
+			let mut consensus_proof = b"__no_state_update__".to_vec();
+			consensus_proof.extend_from_slice(suffix);
+			Message::Consensus(ConsensusMessage {
+				consensus_proof,
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				signer: vec![],
+			})
+		};
+
+		let validate = |msg: Message| {
+			let call = pallet_ismp::Call::<Test>::handle_unsigned { messages: vec![msg] };
+			<pallet_ismp::Pallet<Test> as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			)
+			.expect("consensus message should be a valid unsigned transaction")
+		};
+
+		let a = validate(make(b"a"));
+		let b = validate(make(b"b"));
+
+		// Distinct consensus updates must not share a `provides` tag, otherwise the
+		// second is rejected with "Priority is too low".
+		assert_ne!(a.provides, b.provides);
+
+		// Consensus messages are prioritised above request batches (priority 100).
+		assert_eq!(a.priority, 200);
+		assert_eq!(b.priority, 200);
+
+		// An identical resubmission still yields the same tag so the pool can dedupe.
+		let a_again = validate(make(b"a"));
+		assert_eq!(a.provides, a_again.provides);
+	})
+}
+
 #[test]
 fn should_charge_fee_for_request() {
 	new_test_ext().execute_with(|| {

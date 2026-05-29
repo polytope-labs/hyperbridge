@@ -825,7 +825,7 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				messaging::{hash_request, FraudProofMessage, RequestMessage},
+				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
 			let messages = match call {
@@ -856,9 +856,31 @@ pub mod pallet {
 				});
 			}
 
-			let mut requests = messages
+			// No state machine was advanced by these messages. Build a content-unique
+			// `provides` tag from the messages themselves so that distinct submissions
+			// never collide in the transaction pool.
+			//
+			// A consensus message that doesn't advance a state machine (e.g. a
+			// validator-set rotation during sync) previously mapped to an empty request
+			// list via the catch-all arm. Every such message therefore produced an
+			// identical `provides` tag and a fixed priority of 100, so the pool rejected
+			// any two of them with "Priority is too low (100 vs 100)". Hashing the
+			// consensus message (excluding the signer, so equivalent submissions from
+			// different relayers dedupe) gives each update a unique tag.
+			let mut has_consensus = false;
+			let mut tags = messages
 				.into_iter()
 				.map(|message| match message {
+					Message::Consensus(ConsensusMessage {
+						consensus_proof,
+						consensus_state_id,
+						..
+					}) => {
+						has_consensus = true;
+						vec![H256(sp_io::hashing::keccak_256(
+							&(consensus_state_id, consensus_proof).encode(),
+						))]
+					},
 					Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
 						H256(sp_io::hashing::keccak_256(&proof_1)),
 						H256(sp_io::hashing::keccak_256(&proof_2)),
@@ -877,21 +899,22 @@ pub mod pallet {
 						.iter()
 						.map(|request| hash_request::<Pallet<T>>(request))
 						.collect::<Vec<_>>(),
-					_ => vec![],
 				})
 				.collect::<Vec<_>>();
-			requests.sort();
+			tags.sort();
 
-			if requests.is_empty() {
+			if tags.is_empty() {
 				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
 			}
 
 			// this is so we can reject duplicate batches at the mempool level
-			let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
+			let msg_hash = sp_io::hashing::keccak_256(&tags.encode()).to_vec();
 
 			Ok(ValidTransaction {
-				// they should all have the same priority so they can be rejected
-				priority: 100,
+				// consensus messages unblock everything else, so they are included ahead
+				// of request batches; identical submissions still share a priority so the
+				// pool can dedupe them
+				priority: if has_consensus { 200 } else { 100 },
 				// they are all self-contained batches that have no dependencies
 				requires: vec![],
 				// provides this unique hash of transactions

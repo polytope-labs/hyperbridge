@@ -65,16 +65,23 @@ pub async fn consensus_notification(
 		},
 		false => {
 			log::trace!(target: crate::LOG_TARGET, "No match found between onchain validator set latest header, will begin syncing");
-			// Backward traversal
-			let mut height = latest_height - 1;
+			// Binary search for the highest height whose validator set still
+			// matches the trusted state. Validator sets only rotate at span
+			// boundaries, so the predicate "validator set matches the trusted
+			// state" is monotonic over height: true at/just above the trusted
+			// height and false once the set rotates. We want the largest matching
+			// height to advance the client as far as possible in a single update.
+			let mut lo = trusted_state.height + 1;
+			let mut hi = latest_height - 1;
 			let mut matched_header = None;
-			while height > trusted_state.height {
-				log::trace!(target: crate::LOG_TARGET, "Checking for validator set match at {height}");
-				let header_res = client.prover.signed_header(height).await;
-				let header = match header_res {
+			let mut matched_height = 0u64;
+			while lo <= hi {
+				let mid = lo + (hi - lo) / 2;
+				log::trace!(target: crate::LOG_TARGET, "Checking for validator set match at {mid}");
+				let header = match client.prover.signed_header(mid).await {
 					Ok(h) => h,
 					Err(e) => {
-						log::trace!(target: crate::LOG_TARGET, "Error fetching tendermint header for {height}, will retry \n {e:?}");
+						log::trace!(target: crate::LOG_TARGET, "Error fetching tendermint header for {mid}, will retry \n {e:?}");
 						continue;
 					},
 				};
@@ -90,15 +97,16 @@ pub async fn consensus_notification(
 					true,
 				);
 				if validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {
-					log::trace!(target: crate::LOG_TARGET, "validator set match found at {height}");
+					log::trace!(target: crate::LOG_TARGET, "validator set match found at {mid}");
 					matched_header = Some(header);
-					break;
+					matched_height = mid;
+					lo = mid + 1;
+				} else {
+					hi = mid - 1;
 				}
-				height -= 1;
 			}
 
 			if matched_header.is_some() {
-				let matched_height = height;
 				let matched_header = matched_header.expect("Header must be present if found");
 				let next_validators = client.prover.next_validators(matched_height).await?;
 

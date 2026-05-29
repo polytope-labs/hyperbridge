@@ -601,8 +601,14 @@ impl ConsensusClient for MockConsensusClient {
 		_host: &dyn IsmpHost,
 		_cs_id: ismp::consensus::ConsensusStateId,
 		_trusted_consensus_state: Vec<u8>,
-		_proof: Vec<u8>,
+		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), IsmpError> {
+		// Allows tests to exercise consensus updates that advance no state machine
+		// (e.g. a validator-set rotation during sync) by returning an empty
+		// commitment map for proofs carrying this sentinel prefix.
+		if proof.starts_with(b"__no_state_update__") {
+			return Ok((vec![], Default::default()));
+		}
 		let verified_commitments: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			mock_state_commitments();
 		Ok((vec![], verified_commitments))

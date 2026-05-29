@@ -13,4 +13,5 @@ cargo release \
 -p grandpa-verifier \
 -p ismp-grandpa \
 -p ismp-parachain-runtime-api \
+-p pallet-hyper-fungible-token \
 --execute

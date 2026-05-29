@@ -262,7 +262,7 @@ pallet-ismp-rpc = { version = "2512.1.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
 
-pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
+pallet-hyper-fungible-token = { version = "2512.1.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
 
 substrate-state-machine = { version = "2512.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 

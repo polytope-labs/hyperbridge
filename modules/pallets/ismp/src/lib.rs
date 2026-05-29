@@ -825,7 +825,7 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				messaging::{hash_request, FraudProofMessage, RequestMessage},
+				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
 			let messages = match call {
@@ -865,14 +865,21 @@ pub mod pallet {
 			// list via the catch-all arm. Every such message therefore produced an
 			// identical `provides` tag and a fixed priority of 100, so the pool rejected
 			// any two of them with "Priority is too low (100 vs 100)". Hashing the
-			// whole consensus message gives each update a unique tag.
+			// consensus message (excluding the signer, so equivalent submissions from
+			// different relayers dedupe) gives each update a unique tag.
 			let mut has_consensus = false;
 			let mut tags = messages
 				.into_iter()
 				.map(|message| match message {
-					Message::Consensus(message) => {
+					Message::Consensus(ConsensusMessage {
+						consensus_proof,
+						consensus_state_id,
+						..
+					}) => {
 						has_consensus = true;
-						vec![H256(sp_io::hashing::keccak_256(&message.encode()))]
+						vec![H256(sp_io::hashing::keccak_256(
+							&(consensus_state_id, consensus_proof).encode(),
+						))]
 					},
 					Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
 						H256(sp_io::hashing::keccak_256(&proof_1)),

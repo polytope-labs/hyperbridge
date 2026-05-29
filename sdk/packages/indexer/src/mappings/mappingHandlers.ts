@@ -34,6 +34,7 @@ export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handle
 
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"
+export { handlePendingStatusFlushEvm } from "@/handlers/events/pendingStatus/handlePendingStatusFlushEvm.event.handler"
 
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"
 export { handleFeeRewardedEvent } from "@/handlers/events/incentives/feeRewarded.event.handler"

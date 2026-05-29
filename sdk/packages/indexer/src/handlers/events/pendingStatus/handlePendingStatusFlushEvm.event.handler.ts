@@ -1,0 +1,22 @@
+import { EthereumBlock } from "@subql/types-ethereum"
+import { PendingStatusService } from "@/services/pendingStatus.service"
+import { wrap } from "@/utils/event.utils"
+
+const FLUSH_LIMIT = 10
+
+/**
+ * EVM block handler that drains up to FLUSH_LIMIT pending status rows
+ * on each chain's own instance. The historical-by-timestamp filter
+ * hides rows written by other chains from the Hyperbridge instance, so
+ * each chain has to clean up the rows it wrote.
+ */
+export const handlePendingStatusFlushEvm = wrap(async (event: EthereumBlock): Promise<void> => {
+	try {
+		await PendingStatusService.flushBatch(FLUSH_LIMIT)
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		logger.error(
+			`[handlePendingStatusFlushEvm] chain=${chainId} failed at block #${event.number}: ${message}`,
+		)
+	}
+})

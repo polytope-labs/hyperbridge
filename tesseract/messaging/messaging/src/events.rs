@@ -261,10 +261,23 @@ pub async fn translate_events_to_messages(
 /// `is_allowed_module` permits every module. The on-chain reward allowlist
 /// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
 /// separately by the outbound task.
-pub fn filter_events(config: &RelayerConfig, counterparty: StateMachine, ev: &IsmpEvent) -> bool {
+///
+/// When the counterparty is the coprocessor, every post request flows through
+/// regardless of its final destination or the module filter — the coprocessor
+/// needs to ingest all requests so it can process and forward them.
+pub fn filter_events(
+	config: &RelayerConfig,
+	counterparty: StateMachine,
+	coprocessor: StateMachine,
+	ev: &IsmpEvent,
+) -> bool {
 	match ev {
-		IsmpEvent::PostRequest(post) =>
-			post.dest == counterparty && is_allowed_module(config, &post.from),
+		IsmpEvent::PostRequest(post) => {
+			if counterparty == coprocessor {
+				return true;
+			}
+			post.dest == counterparty && is_allowed_module(config, &post.from)
+		},
 		_ => false,
 	}
 }

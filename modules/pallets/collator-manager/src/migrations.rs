@@ -76,3 +76,72 @@ pub type MigrateBondsToReserves<T> = VersionedMigration<
 	Pallet<T>,
 	<T as frame_system::Config>::DbWeight,
 >;
+
+mod version_unchecked_v2 {
+	use super::*;
+	use pallet_collator_selection::Config as CollatorSelectionConfig;
+
+	pub struct ReserveUnreservedBonds<T>(PhantomData<T>);
+
+	impl<T: Config> UncheckedOnRuntimeUpgrade for ReserveUnreservedBonds<T> {
+		fn on_runtime_upgrade() -> Weight {
+			let mut fixed = 0u64;
+
+			pallet_collator_selection::CandidateList::<T>::mutate(|list| {
+				list.retain(|candidate| {
+					let stash = &candidate.who;
+					let expected = candidate.deposit;
+					let reserved =
+						<T as CollatorSelectionConfig>::Currency::reserved_balance(stash);
+
+					if reserved >= expected {
+						return true;
+					}
+
+					let shortfall = expected - reserved;
+					match <T as CollatorSelectionConfig>::Currency::reserve(stash, shortfall) {
+						Ok(_) => {
+							fixed = fixed.saturating_add(1);
+							true
+						},
+						Err(err) => {
+							// Not enough free balance to cover the bond — remove from the candidate
+							// set and clear the per-stash bookkeeping this pallet owns: the
+							// stash/controller pairing and any in-flight `Unbonding` row. The
+							// `Unbonding` sweep matters because leaving the row behind would
+							// trip `AlreadyUnbonding` if the operator ever re-registers and tries
+							// to leave through the same flow.
+							//
+							// `RemovedValidators` is **not** touched — it is only ever written by
+							// the root-gated `remove_validator` extrinsic, so any entry there
+							// represents an explicit governance decision that this migration
+							// must not silently reverse.
+							log::warn!(
+								target: "pallet-collator-manager",
+								"removing candidate {stash:?}: reserve of {shortfall:?} failed: {err:?}",
+							);
+							crate::Unbonding::<T>::remove(stash);
+							if let Some(controller) = crate::Controller::<T>::take(stash) {
+								crate::Stash::<T>::remove(&controller);
+							}
+							false
+						},
+					}
+				});
+			});
+
+			<T as frame_system::Config>::DbWeight::get().reads_writes(fixed + 1, fixed + 1)
+		}
+	}
+}
+
+/// Reserves the candidacy bond for any collator whose bond was not reserved by
+/// `MigrateBondsToReserves` — typically because the account had no free balance above the
+/// existential deposit at migration time. Runs once on the v1 to v2 upgrade.
+pub type ReserveUnreservedBonds<T> = VersionedMigration<
+	1,
+	2,
+	version_unchecked_v2::ReserveUnreservedBonds<T>,
+	Pallet<T>,
+	<T as frame_system::Config>::DbWeight,
+>;

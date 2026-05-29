@@ -9,8 +9,8 @@ use polkadot_sdk::{
 	frame_support::{
 		assert_err, assert_ok,
 		traits::{
-			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
-			ValidatorRegistration,
+			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, OnRuntimeUpgrade,
+			ReservableCurrency, StorageVersion, ValidatorRegistration,
 		},
 	},
 	pallet_authorship::EventHandler,
@@ -554,5 +554,76 @@ fn root_can_remove_and_reinstate_a_validator() {
 			<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(1),
 			Some(vec![ALICE])
 		);
+	});
+}
+
+#[test]
+fn reserve_unreserved_bonds_migration_reserves_missing_bond() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let bond = 100 * UNIT;
+		pallet_collator_selection::CandidacyBond::<Test>::put(bond);
+
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+
+		// Simulate the broken post-migration state: force-unreserve Alice's bond so she is in
+		// CandidateList but has nothing reserved, exactly as the ED edge case left things.
+		Balances::unreserve(&alice_stash, bond);
+		assert_eq!(Balances::reserved_balance(&alice_stash), 0);
+
+		// Rewind the on-chain storage version to 1 so the v1→v2 migration fires.
+		StorageVersion::new(1).put::<CollatorManager>();
+
+		pallet_collator_manager::migrations::ReserveUnreservedBonds::<Test>::on_runtime_upgrade();
+
+		assert_eq!(Balances::reserved_balance(&alice_stash), bond);
+	});
+}
+
+#[test]
+fn reserve_unreserved_bonds_migration_kicks_candidate_when_balance_is_insufficient() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let bond = 100 * UNIT;
+		pallet_collator_selection::CandidacyBond::<Test>::put(bond);
+
+		// Need at least MinEligibleCollators+1 candidates so the second one can be registered.
+		let bob_stash = AccountId32::new([12; 32]);
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+		setup_bonded_collator(bob_stash.clone(), BOB);
+
+		// Unreserve Bob's bond and then drain his free balance to nothing so the migration
+		// cannot reserve it back — this is the path where the candidate must be kicked.
+		Balances::unreserve(&bob_stash, bond);
+		Balances::set_balance(&bob_stash, 0);
+
+		// Seed an in-flight unbond so the kick path's `Unbonding` cleanup is exercised.
+		// Without that sweep the row would survive the kick and trip `AlreadyUnbonding`
+		// if the operator later re-registers and tries to leave again.
+		pallet_collator_manager::Unbonding::<Test>::insert(&bob_stash, 42u64);
+		// And a governance `remove_validator` decision on BOB that must survive the
+		// kick — the migration must not silently reinstate someone root removed.
+		pallet_collator_manager::RemovedValidators::<Test>::insert(&BOB, ());
+
+		assert_eq!(Balances::reserved_balance(&bob_stash), 0);
+		assert!(pallet_collator_manager::Controller::<Test>::contains_key(&bob_stash));
+
+		StorageVersion::new(1).put::<CollatorManager>();
+
+		pallet_collator_manager::migrations::ReserveUnreservedBonds::<Test>::on_runtime_upgrade();
+
+		// Bob should have been removed from the candidate list; Alice's entry must survive.
+		let candidates = pallet_collator_selection::CandidateList::<Test>::get();
+		assert!(!candidates.iter().any(|c| c.who == bob_stash));
+		assert!(candidates.iter().any(|c| c.who == alice_stash));
+
+		// Stash/controller pairing and the in-flight Unbonding row should be cleared.
+		assert!(!pallet_collator_manager::Controller::<Test>::contains_key(&bob_stash));
+		assert!(!pallet_collator_manager::Stash::<Test>::contains_key(&BOB));
+		assert!(!pallet_collator_manager::Unbonding::<Test>::contains_key(&bob_stash));
+		// The governance-set RemovedValidators entry must survive — only root manages it.
+		assert!(pallet_collator_manager::RemovedValidators::<Test>::contains_key(&BOB));
 	});
 }

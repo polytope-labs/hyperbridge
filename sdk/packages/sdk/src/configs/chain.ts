@@ -316,7 +316,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -371,7 +371,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
@@ -427,7 +427,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -484,7 +484,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -542,7 +542,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
@@ -652,7 +652,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
@@ -686,7 +686,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
+			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xB2e26652e4BAd1e56055A051f922E06760cA0BFE", // Mocked

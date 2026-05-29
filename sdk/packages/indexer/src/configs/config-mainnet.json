@@ -137,8 +137,9 @@
 	"polkadot-hub-mainnet": {
 		"type": "evm",
 		"chainId": "420420419",
-		"startBlock": 16215883,
+		"startBlock": 16215884,
 		"stateMachineId": "EVM-420420419",
+		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",

@@ -87,30 +87,37 @@ mod version_unchecked_v2 {
 		fn on_runtime_upgrade() -> Weight {
 			let mut fixed = 0u64;
 
-			for candidate in pallet_collator_selection::CandidateList::<T>::get() {
-				let stash = &candidate.who;
-				let expected = candidate.deposit;
-				let reserved = <T as CollatorSelectionConfig>::Currency::reserved_balance(stash);
+			pallet_collator_selection::CandidateList::<T>::mutate(|list| {
+				list.retain(|candidate| {
+					let stash = &candidate.who;
+					let expected = candidate.deposit;
+					let reserved =
+						<T as CollatorSelectionConfig>::Currency::reserved_balance(stash);
 
-				if reserved >= expected {
-					continue;
-				}
+					if reserved >= expected {
+						return true;
+					}
 
-				let shortfall = expected - reserved;
-				if let Err(err) =
-					<T as CollatorSelectionConfig>::Currency::reserve(stash, shortfall)
-				{
-					log::warn!(
-						target: "pallet-collator-manager",
-						"reserve fix-up failed for {stash:?}: could not reserve {shortfall:?}: {err:?}",
-					);
-					continue;
-				}
+					let shortfall = expected - reserved;
+					match <T as CollatorSelectionConfig>::Currency::reserve(stash, shortfall) {
+						Ok(_) => {
+							fixed = fixed.saturating_add(1);
+							true
+						},
+						Err(err) => {
+							// Not enough free balance to cover the bond — remove them from the
+							// candidate set rather than leaving the entry in an inconsistent state.
+							log::warn!(
+								target: "pallet-collator-manager",
+								"removing candidate {stash:?} from collator set: reserve of {shortfall:?} failed: {err:?}",
+							);
+							false
+						},
+					}
+				});
+			});
 
-				fixed = fixed.saturating_add(1);
-			}
-
-			<T as frame_system::Config>::DbWeight::get().reads_writes(fixed + 1, fixed)
+			<T as frame_system::Config>::DbWeight::get().reads_writes(fixed + 1, fixed + 1)
 		}
 	}
 }

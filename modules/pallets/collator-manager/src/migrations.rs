@@ -106,12 +106,16 @@ mod version_unchecked_v2 {
 						},
 						Err(err) => {
 							// Not enough free balance to cover the bond — remove from the candidate
-							// set and clear every entry this pallet keyed on the stash or its
-							// controller. Leaving an `Unbonding` row behind would wedge the
-							// (re-)`unbond` flow if the operator ever rejoins (the `AlreadyUnbonding`
-							// guard would fire), and a stale `RemovedValidators` entry would silently
-							// keep them off the next selection round even after governance
-							// reinstates them.
+							// set and clear the per-stash bookkeeping this pallet owns: the
+							// stash/controller pairing and any in-flight `Unbonding` row. The
+							// `Unbonding` sweep matters because leaving the row behind would
+							// trip `AlreadyUnbonding` if the operator ever re-registers and tries
+							// to leave through the same flow.
+							//
+							// `RemovedValidators` is **not** touched — it is only ever written by
+							// the root-gated `remove_validator` extrinsic, so any entry there
+							// represents an explicit governance decision that this migration
+							// must not silently reverse.
 							log::warn!(
 								target: "pallet-collator-manager",
 								"removing candidate {stash:?}: reserve of {shortfall:?} failed: {err:?}",
@@ -119,7 +123,6 @@ mod version_unchecked_v2 {
 							crate::Unbonding::<T>::remove(stash);
 							if let Some(controller) = crate::Controller::<T>::take(stash) {
 								crate::Stash::<T>::remove(&controller);
-								crate::RemovedValidators::<T>::remove(&controller);
 							}
 							false
 						},

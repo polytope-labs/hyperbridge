@@ -599,11 +599,12 @@ fn reserve_unreserved_bonds_migration_kicks_candidate_when_balance_is_insufficie
 		Balances::unreserve(&bob_stash, bond);
 		Balances::set_balance(&bob_stash, 0);
 
-		// Seed the secondary state the kick path is responsible for cleaning. An
-		// in-progress unbond would otherwise wedge any future re-registration
-		// (`AlreadyUnbonding`), and a stale `RemovedValidators` entry would silently
-		// keep the controller off the next selection round even after reinstatement.
+		// Seed an in-flight unbond so the kick path's `Unbonding` cleanup is exercised.
+		// Without that sweep the row would survive the kick and trip `AlreadyUnbonding`
+		// if the operator later re-registers and tries to leave again.
 		pallet_collator_manager::Unbonding::<Test>::insert(&bob_stash, 42u64);
+		// And a governance `remove_validator` decision on BOB that must survive the
+		// kick — the migration must not silently reinstate someone root removed.
 		pallet_collator_manager::RemovedValidators::<Test>::insert(&BOB, ());
 
 		assert_eq!(Balances::reserved_balance(&bob_stash), 0);
@@ -618,10 +619,11 @@ fn reserve_unreserved_bonds_migration_kicks_candidate_when_balance_is_insufficie
 		assert!(!candidates.iter().any(|c| c.who == bob_stash));
 		assert!(candidates.iter().any(|c| c.who == alice_stash));
 
-		// Every entry this pallet keyed on the stash or its controller should be gone.
+		// Stash/controller pairing and the in-flight Unbonding row should be cleared.
 		assert!(!pallet_collator_manager::Controller::<Test>::contains_key(&bob_stash));
 		assert!(!pallet_collator_manager::Stash::<Test>::contains_key(&BOB));
 		assert!(!pallet_collator_manager::Unbonding::<Test>::contains_key(&bob_stash));
-		assert!(!pallet_collator_manager::RemovedValidators::<Test>::contains_key(&BOB));
+		// The governance-set RemovedValidators entry must survive — only root manages it.
+		assert!(pallet_collator_manager::RemovedValidators::<Test>::contains_key(&BOB));
 	});
 }

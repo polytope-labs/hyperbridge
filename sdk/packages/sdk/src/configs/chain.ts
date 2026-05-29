@@ -318,7 +318,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -374,7 +374,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -431,7 +431,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -489,7 +489,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -548,7 +548,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -658,7 +658,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 		},
 		addresses: {
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
@@ -692,7 +692,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 		},
 		addresses: {
-			IntentGatewayV2: "0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+			IntentGatewayV2: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
 			SolverAccount: "0x774AF567850450Ccd122833F2AA1F0c4372919A5",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",

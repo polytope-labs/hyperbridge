@@ -105,12 +105,16 @@ mod version_unchecked_v2 {
 							true
 						},
 						Err(err) => {
-							// Not enough free balance to cover the bond — remove them from the
-							// candidate set rather than leaving the entry in an inconsistent state.
+							// Not enough free balance to cover the bond — remove from the candidate
+							// set and clear the stash/controller pairing so no dangling state
+							// remains.
 							log::warn!(
 								target: "pallet-collator-manager",
-								"removing candidate {stash:?} from collator set: reserve of {shortfall:?} failed: {err:?}",
+								"removing candidate {stash:?}: reserve of {shortfall:?} failed: {err:?}",
 							);
+							if let Some(controller) = crate::Controller::<T>::take(stash) {
+								crate::Stash::<T>::remove(&controller);
+							}
 							false
 						},
 					}

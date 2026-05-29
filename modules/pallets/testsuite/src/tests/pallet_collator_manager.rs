@@ -580,3 +580,39 @@ fn reserve_unreserved_bonds_migration_reserves_missing_bond() {
 		assert_eq!(Balances::reserved_balance(&alice_stash), bond);
 	});
 }
+
+#[test]
+fn reserve_unreserved_bonds_migration_kicks_candidate_when_balance_is_insufficient() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let bond = 100 * UNIT;
+		pallet_collator_selection::CandidacyBond::<Test>::put(bond);
+
+		// Need at least MinEligibleCollators+1 candidates so the second one can be registered.
+		let bob_stash = AccountId32::new([12; 32]);
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+		setup_bonded_collator(bob_stash.clone(), BOB);
+
+		// Unreserve Bob's bond and then drain his free balance to nothing so the migration
+		// cannot reserve it back — this is the path where the candidate must be kicked.
+		Balances::unreserve(&bob_stash, bond);
+		Balances::set_balance(&bob_stash, 0);
+
+		assert_eq!(Balances::reserved_balance(&bob_stash), 0);
+		assert!(pallet_collator_manager::Controller::<Test>::contains_key(&bob_stash));
+
+		StorageVersion::new(1).put::<CollatorManager>();
+
+		pallet_collator_manager::migrations::ReserveUnreservedBonds::<Test>::on_runtime_upgrade();
+
+		// Bob should have been removed from the candidate list.
+		assert!(!pallet_collator_selection::CandidateList::<Test>::get()
+			.iter()
+			.any(|c| c.who == bob_stash));
+
+		// His stash/controller pairing should be gone too.
+		assert!(!pallet_collator_manager::Controller::<Test>::contains_key(&bob_stash));
+		assert!(!pallet_collator_manager::Stash::<Test>::contains_key(&BOB));
+	});
+}

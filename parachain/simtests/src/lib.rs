@@ -1,5 +1,4 @@
 mod base_call_filter;
-mod collator_bond_migration;
 mod intents_rpc;
 mod legacy_storage_items_state_drain_test;
 mod migration_test;

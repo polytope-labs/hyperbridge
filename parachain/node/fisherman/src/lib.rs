@@ -179,12 +179,18 @@ async fn spawn_rollup_watchers(
 		let Some(consensus) = &per_chain.consensus else { continue };
 		// L2 RPCs come from the messaging EVM config (same endpoints messaging uses for inbound).
 		let AnyConfig::Evm(evm_cfg) = &per_chain.messaging else { continue };
-		let l2_providers = match tesseract_evm::create_provider(&evm_cfg.rpc_urls) {
-			Ok(p) => vec![Arc::new(p)],
+		// One independent provider per configured RPC URL — the quorum must fan out across
+		// distinct backends. `create_provider` would instead merge every URL into a single
+		// first-Ok-wins FallbackService, collapsing the advertised 2/3·N+1 quorum into a
+		// quorum-of-one where a single lagging (`Ok(None)`) or poisoned RPC response could
+		// permanently blacklist an honest L2 route. Config validation already guarantees
+		// >= 2 distinct-host URLs per supported L2 (see config::MIN_RPC_URLS_PER_L2).
+		let l2_providers = match tesseract_evm::create_providers_per_url(&evm_cfg.rpc_urls) {
+			Ok(providers) => providers,
 			Err(e) => {
 				log::warn!(
 					target: LOG_TARGET,
-					"fisherman: skipping {state_machine} — failed to build L2 provider: {e:?}",
+					"fisherman: skipping {state_machine} — failed to build L2 providers: {e:?}",
 				);
 				continue;
 			},

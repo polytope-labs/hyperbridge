@@ -9,8 +9,8 @@ use polkadot_sdk::{
 	frame_support::{
 		assert_err, assert_ok,
 		traits::{
-			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
-			ValidatorRegistration,
+			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, OnRuntimeUpgrade,
+			ReservableCurrency, StorageVersion, ValidatorRegistration,
 		},
 	},
 	pallet_authorship::EventHandler,
@@ -554,5 +554,29 @@ fn root_can_remove_and_reinstate_a_validator() {
 			<CollatorManager as pallet_session::SessionManager<AccountId32>>::new_session(1),
 			Some(vec![ALICE])
 		);
+	});
+}
+
+#[test]
+fn reserve_unreserved_bonds_migration_reserves_missing_bond() {
+	new_test_ext().execute_with(|| {
+		create_reputation_asset();
+		let bond = 100 * UNIT;
+		pallet_collator_selection::CandidacyBond::<Test>::put(bond);
+
+		let alice_stash = AccountId32::new([11; 32]);
+		setup_bonded_collator(alice_stash.clone(), ALICE);
+
+		// Simulate the broken post-migration state: force-unreserve Alice's bond so she is in
+		// CandidateList but has nothing reserved, exactly as the ED edge case left things.
+		Balances::unreserve(&alice_stash, bond);
+		assert_eq!(Balances::reserved_balance(&alice_stash), 0);
+
+		// Rewind the on-chain storage version to 1 so the v1→v2 migration fires.
+		StorageVersion::new(1).put::<CollatorManager>();
+
+		pallet_collator_manager::migrations::ReserveUnreservedBonds::<Test>::on_runtime_upgrade();
+
+		assert_eq!(Balances::reserved_balance(&alice_stash), bond);
 	});
 }

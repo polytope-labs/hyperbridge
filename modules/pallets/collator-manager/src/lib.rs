@@ -59,8 +59,8 @@ pub mod pallet {
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
 
-	/// Bumped to 1 by the migration that moves collator bonds into collator-selection reserves.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	/// Bumped to 2 by the fix-up migration that reserves bonds skipped by the v0→v1 migration.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]

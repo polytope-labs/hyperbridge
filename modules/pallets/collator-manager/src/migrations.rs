@@ -76,3 +76,52 @@ pub type MigrateBondsToReserves<T> = VersionedMigration<
 	Pallet<T>,
 	<T as frame_system::Config>::DbWeight,
 >;
+
+mod version_unchecked_v2 {
+	use super::*;
+	use pallet_collator_selection::Config as CollatorSelectionConfig;
+
+	pub struct ReserveUnreservedBonds<T>(PhantomData<T>);
+
+	impl<T: Config> UncheckedOnRuntimeUpgrade for ReserveUnreservedBonds<T> {
+		fn on_runtime_upgrade() -> Weight {
+			let mut fixed = 0u64;
+
+			for candidate in pallet_collator_selection::CandidateList::<T>::get() {
+				let stash = &candidate.who;
+				let expected = candidate.deposit;
+				let reserved = <T as CollatorSelectionConfig>::Currency::reserved_balance(stash);
+
+				if reserved >= expected {
+					continue;
+				}
+
+				let shortfall = expected - reserved;
+				if let Err(err) =
+					<T as CollatorSelectionConfig>::Currency::reserve(stash, shortfall)
+				{
+					log::warn!(
+						target: "pallet-collator-manager",
+						"reserve fix-up failed for {stash:?}: could not reserve {shortfall:?}: {err:?}",
+					);
+					continue;
+				}
+
+				fixed = fixed.saturating_add(1);
+			}
+
+			<T as frame_system::Config>::DbWeight::get().reads_writes(fixed + 1, fixed)
+		}
+	}
+}
+
+/// Reserves the candidacy bond for any collator whose bond was not reserved by
+/// `MigrateBondsToReserves` — typically because the account had no free balance above the
+/// existential deposit at migration time. Runs once on the v1 to v2 upgrade.
+pub type ReserveUnreservedBonds<T> = VersionedMigration<
+	1,
+	2,
+	version_unchecked_v2::ReserveUnreservedBonds<T>,
+	Pallet<T>,
+	<T as frame_system::Config>::DbWeight,
+>;

@@ -13,7 +13,4 @@ cargo release \
 -p grandpa-verifier \
 -p ismp-grandpa \
 -p ismp-parachain-runtime-api \
--p ismp-parachain-inherent \
--p token-gateway-primitives \
--p pallet-token-gateway \
 --execute

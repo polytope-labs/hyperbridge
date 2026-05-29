@@ -15,3 +15,4 @@ Thumbs.db
 # Foundry artifacts
 out/
 cache/
+lib/

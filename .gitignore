@@ -17,6 +17,7 @@ dist/
 evm/out/
 evm/cache/
 evm/broadcast/
+evm/lib/forge-std/
 evm/integration-tests/target/
 evm/foundry.lock
 

@@ -369,9 +369,13 @@ async fn submit_for_dest(
 		.collect::<Vec<_>>();
 
 	retain_incentivized_requests(&mut events, coprocessor, incentivized.as_deref());
-	let has_events_for_dest = events
-		.iter()
-		.any(|ev| matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine));
+	// When the destination is the coprocessor we forward every post request
+	// regardless of its final destination, so any post-request event counts.
+	let has_events_for_dest = events.iter().any(|ev| match ev {
+		Event::PostRequest(req) =>
+			dest_state_machine == coprocessor || req.dest == dest_state_machine,
+		_ => false,
+	});
 
 	if !has_events_for_dest && !is_mandatory {
 		// Messaging-only proof with nothing for this chain — skip. Rotation

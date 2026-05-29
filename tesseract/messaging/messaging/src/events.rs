@@ -262,8 +262,9 @@ pub async fn translate_events_to_messages(
 /// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
 /// separately by the outbound task.
 ///
-/// When the counterparty is the coprocessor, the module filter is bypassed so
-/// all messages destined for the coprocessor are delivered.
+/// When the counterparty is the coprocessor, every post request flows through
+/// regardless of its final destination or the module filter — the coprocessor
+/// needs to ingest all requests so it can process and forward them.
 pub fn filter_events(
 	config: &RelayerConfig,
 	counterparty: StateMachine,
@@ -271,9 +272,12 @@ pub fn filter_events(
 	ev: &IsmpEvent,
 ) -> bool {
 	match ev {
-		IsmpEvent::PostRequest(post) =>
-			post.dest == counterparty &&
-				(counterparty == coprocessor || is_allowed_module(config, &post.from)),
+		IsmpEvent::PostRequest(post) => {
+			if counterparty == coprocessor {
+				return true;
+			}
+			post.dest == counterparty && is_allowed_module(config, &post.from)
+		},
 		_ => false,
 	}
 }

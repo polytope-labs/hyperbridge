@@ -164,7 +164,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			polygonAmoyPublicClient,
-			chainConfigService.getIntentGatewayV2Address(polygonAmoyId),
+			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -380,7 +380,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			polygonAmoyPublicClient,
-			chainConfigService.getIntentGatewayV2Address(polygonAmoyId),
+			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -517,7 +517,7 @@ async function setUp() {
 	const polygonAmoyPublicClient = chainClientManager.getPublicClient(polygonAmoyId)
 
 	const bscIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(bscChapelId),
+		address: chainConfigService.getIntentGatewayAddress(bscChapelId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: bscPublicClient, wallet: bscWalletClient },
 	})

@@ -150,7 +150,7 @@ export class BidManager {
 			throw new Error("No valid bids found")
 		}
 
-		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(
+		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(
 			normalizeStateMachineId(order.destination),
 		)
 

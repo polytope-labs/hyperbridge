@@ -298,7 +298,7 @@ export class IntentFiller {
 		}
 
 		const sourceClient = this.chainClientManager.getPublicClient(order.source)
-		const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
+		const intentGatewayAddress = this.configService.getIntentGatewayAddress(order.source)
 		const commitment = order.id as HexString
 
 		try {

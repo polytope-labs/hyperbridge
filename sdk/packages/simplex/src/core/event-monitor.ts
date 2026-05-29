@@ -162,7 +162,7 @@ export class EventMonitor extends EventEmitter {
 
 		for (const [chainId, chain] of this.chains.entries()) {
 			try {
-				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(`EVM-${chainId}`)
+				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
 
 				const quorumClient = this.quorumClients.get(chainId)
 				if (!quorumClient) {
@@ -295,7 +295,7 @@ export class EventMonitor extends EventEmitter {
 				const source = sourceFromTxHash
 					? (hexToString(sourceFromTxHash.args.source) as HexString)
 					: undefined
-				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(source!)
+				const intentGatewayAddress = this.configService.getIntentGatewayAddress(source!)
 				return chain.getPlaceOrderCalldata!(txHash, intentGatewayAddress, occurrenceIndex)
 			},
 			onError: (err, decodedLog, occurrenceIndex) => {

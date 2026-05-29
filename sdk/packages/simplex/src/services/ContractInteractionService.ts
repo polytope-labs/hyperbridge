@@ -414,7 +414,7 @@ export class ContractInteractionService {
 		const params = await client.readContract({
 			abi: INTENT_GATEWAY_V2_ABI,
 			functionName: "params",
-			address: this.configService.getIntentGatewayV2Address(chain),
+			address: this.configService.getIntentGatewayAddress(chain),
 		})
 
 		this.cacheService.setSolverSelection(chain, params.solverSelection)
@@ -643,7 +643,7 @@ export class ContractInteractionService {
 	): Promise<HexString> {
 		const chain = order.destination
 		const destClient = this.clientManager.getPublicClient(chain)
-		const intentGatewayV2Address = this.configService.getIntentGatewayV2Address(chain)
+		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
 
 		// Aggregate required amounts per ERC20 token
 		const perTokenRequired = new Map<string, bigint>()

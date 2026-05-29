@@ -1,7 +1,6 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import IntentGateway from "@/abis/IntentGateway"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -22,7 +21,6 @@ import type {
 	FillOrderEstimate,
 	FillOptions,
 	IPostRequest,
-	DispatchPost,
 	Order,
 } from "@/types"
 import type { HexString } from "@/types"
@@ -87,7 +85,7 @@ export class GasEstimator {
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
 		const souceStateMachineId = isHex(order.source) ? hexToString(order.source) : order.source
 		const destStateMachineId = isHex(order.destination) ? hexToString(order.destination) : order.destination
-		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachineId)
+		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachineId)
 		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(destStateMachineId)
 		const chainId = BigInt(Number.parseInt(destStateMachineId.split("-")[1]))
 
@@ -381,13 +379,13 @@ export class GasEstimator {
 			body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
 			timeoutTimestamp: 0n,
 			nonce,
-			from: this.ctx.source.configService.getIntentGatewayV2Address(destChainId),
-			to: this.ctx.source.configService.getIntentGatewayV2Address(sourceChainId),
+			from: this.ctx.source.configService.getIntentGatewayAddress(destChainId),
+			to: this.ctx.source.configService.getIntentGatewayAddress(sourceChainId),
 		}
 
-		let protocolFeeInNativeToken = await this.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() =>
-			this.ctx.dest.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() => 0n),
-		)
+		let protocolFeeInNativeToken = await this.ctx.dest
+			.quoteNative(postRequest, postRequestFeeInDestFeeToken)
+			.catch(() => 0n)
 
 		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
 		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
@@ -567,34 +565,5 @@ export class GasEstimator {
 		} catch {
 			return null
 		}
-	}
-
-	/**
-	 * Quotes the native token cost of dispatching an ISMP POST request through
-	 * the IntentGateway (v1) `quoteNative` function.
-	 *
-	 * Uses the v1 IntentGateway ABI (not IntentGatewayV2) because the dispatch
-	 * call is routed through the legacy gateway contract.
-	 *
-	 * @param postRequest - The ISMP POST request to quote.
-	 * @param fee - The relayer fee (in dest fee token) to include in the quote.
-	 * @returns The native token amount required to dispatch the request.
-	 */
-	private async quoteNative(postRequest: IPostRequest, fee: bigint): Promise<bigint> {
-		const dispatchPost: DispatchPost = {
-			dest: toHex(postRequest.dest),
-			to: postRequest.to,
-			body: postRequest.body,
-			timeout: postRequest.timeoutTimestamp,
-			fee: fee,
-			payer: postRequest.from,
-		}
-
-		return await this.ctx.dest.client.readContract({
-			address: this.ctx.dest.configService.getIntentGatewayAddress(postRequest.dest),
-			abi: IntentGateway.ABI,
-			functionName: "quoteNative",
-			args: [dispatchPost],
-		})
 	}
 }

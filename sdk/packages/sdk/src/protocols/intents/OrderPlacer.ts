@@ -80,7 +80,7 @@ export class OrderPlacer {
 			args: [transformOrderForContract(order), graffiti],
 		}) as HexString
 
-		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
+		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(
 			normalizeStateMachineId(order.source),
 		)
 

@@ -34,7 +34,7 @@ export class OrderStatusChecker {
 			? hexToString(order.destination as HexString)
 			: order.destination
 
-		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachineId)
+		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachineId)
 
 		const filledSlot = await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
@@ -67,7 +67,7 @@ export class OrderStatusChecker {
 		const commitment = (order.id ?? orderCommitment(order)) as HexString
 		const sourceStateMachineId = isHex(order.source) ? hexToString(order.source as HexString) : order.source
 
-		const intentGatewayV2Address = this.ctx.source.configService.getIntentGatewayV2Address(sourceStateMachineId)
+		const intentGatewayV2Address = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachineId)
 
 		for (const input of order.inputs) {
 			const tokenAddress = bytes32ToBytes20(input.token)

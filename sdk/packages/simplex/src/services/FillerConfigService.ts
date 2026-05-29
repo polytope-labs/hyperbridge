@@ -171,8 +171,8 @@ export class FillerConfigService {
 		}
 	}
 
-	getIntentGatewayV2Address(chain: string): `0x${string}` {
-		return this.chainConfigService.getIntentGatewayV2Address(chain)
+	getIntentGatewayAddress(chain: string): `0x${string}` {
+		return this.chainConfigService.getIntentGatewayAddress(chain)
 	}
 
 	getHostAddress(chain: string): `0x${string}` {

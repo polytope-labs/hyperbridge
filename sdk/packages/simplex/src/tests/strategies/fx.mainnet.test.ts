@@ -176,7 +176,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			polygonPublicClient,
-			chainConfigService.getIntentGatewayV2Address(polygonMainnetId),
+			chainConfigService.getIntentGatewayAddress(polygonMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -293,7 +293,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 				const onChainFilled = await checkIfOrderFilled(
 					order.id as HexString,
 					basePublicClient,
-					chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+					chainConfigService.getIntentGatewayAddress(baseMainnetId),
 				).catch(() => false)
 
 				console.error(`\n[TIMEOUT] FILLED event not received within ${FILL_TIMEOUT_MS / 1000}s`)
@@ -353,7 +353,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			basePublicClient,
-			chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+			chainConfigService.getIntentGatewayAddress(baseMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -965,7 +965,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			basePublicClient,
-			chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+			chainConfigService.getIntentGatewayAddress(baseMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -1291,7 +1291,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			basePublicClient,
-			chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+			chainConfigService.getIntentGatewayAddress(baseMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -1409,7 +1409,7 @@ describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 				const onChainFilled = await checkIfOrderFilled(
 					order.id as HexString,
 					bscPublicClient,
-					chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+					chainConfigService.getIntentGatewayAddress(bscMainnetId),
 				).catch(() => false)
 
 				console.error(`\n[TIMEOUT] FILLED event not received within ${FILL_TIMEOUT_MS / 1000}s`)
@@ -1469,7 +1469,7 @@ describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			bscPublicClient,
-			chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+			chainConfigService.getIntentGatewayAddress(bscMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -1606,7 +1606,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const isFilled = await pollForOrderFilled(
 			order.id as HexString,
 			arbitrumPublicClient,
-			chainConfigService.getIntentGatewayV2Address(arbitrumMainnetId),
+			chainConfigService.getIntentGatewayAddress(arbitrumMainnetId),
 		)
 		expect(isFilled).toBe(true)
 
@@ -1754,7 +1754,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const isFilled = await pollForOrderFilled(
 				order.id as HexString,
 				basePublicClient,
-				chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+				chainConfigService.getIntentGatewayAddress(baseMainnetId),
 			)
 			expect(isFilled).toBe(true)
 
@@ -1819,7 +1819,7 @@ async function setUpMainnetFx() {
 	const polygonPublicClient = chainClientManager.getPublicClient(polygonMainnetId)
 
 	const polygonIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(polygonMainnetId),
+		address: chainConfigService.getIntentGatewayAddress(polygonMainnetId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: polygonPublicClient, wallet: polygonWalletClient },
 	})
@@ -1871,7 +1871,7 @@ async function setUpMainnetFxBase() {
 	const basePublicClient = chainClientManager.getPublicClient(baseMainnetId)
 
 	const baseIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+		address: chainConfigService.getIntentGatewayAddress(baseMainnetId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: basePublicClient, wallet: baseWalletClient },
 	})
@@ -1925,7 +1925,7 @@ async function setUpMainnetFxBsc() {
 	const bscPublicClient = chainClientManager.getPublicClient(bscMainnetId)
 
 	const bscIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+		address: chainConfigService.getIntentGatewayAddress(bscMainnetId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: bscPublicClient, wallet: bscWalletClient },
 	})
@@ -1977,7 +1977,7 @@ async function setUpMainnetFxArbitrum() {
 	const arbitrumPublicClient = chainClientManager.getPublicClient(arbitrumMainnetId)
 
 	const arbitrumIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(arbitrumMainnetId),
+		address: chainConfigService.getIntentGatewayAddress(arbitrumMainnetId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: arbitrumPublicClient, wallet: arbitrumWalletClient },
 	})
@@ -2038,7 +2038,7 @@ async function setUpMainnetFxArbitrumToBase() {
 	const basePublicClient = chainClientManager.getPublicClient(baseMainnetId)
 
 	const arbitrumIntentGatewayV2 = getContract({
-		address: chainConfigService.getIntentGatewayV2Address(arbitrumMainnetId),
+		address: chainConfigService.getIntentGatewayAddress(arbitrumMainnetId),
 		abi: INTENT_GATEWAY_V2_ABI,
 		client: { public: arbitrumPublicClient, wallet: arbitrumWalletClient },
 	})

@@ -179,10 +179,6 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.popularTokens ?? []
 	}
 
-	getIntentGatewayV2Address(chain: string): HexString {
-		return (this.getConfig(chain)?.addresses.IntentGatewayV2 ?? "0x") as HexString
-	}
-
 	getEntryPointV08Address(chain: string): HexString {
 		return this.getConfig(chain)?.addresses.EntryPointV08!
 	}

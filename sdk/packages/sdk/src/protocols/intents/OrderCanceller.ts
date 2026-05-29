@@ -83,7 +83,7 @@ export class OrderCanceller {
 		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const height = order.deadline + 1n
 
-		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayV2Address(
+		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(
 			normalizeStateMachineId(order.destination),
 		)
 		const slotHash = await this.ctx.dest.client.readContract({
@@ -99,7 +99,7 @@ export class OrderCanceller {
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
 			dest: normalizeStateMachineId(order.destination),
-			from: this.ctx.source.configService.getIntentGatewayV2Address(normalizeStateMachineId(order.destination)),
+			from: this.ctx.source.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination)),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
 			keys: [key],
@@ -167,7 +167,7 @@ export class OrderCanceller {
 	private async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
 		const isSameChain = order.source === order.destination
-		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
+		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(
 			normalizeStateMachineId(order.source),
 		)
 
@@ -340,8 +340,8 @@ export class OrderCanceller {
 		const destStateMachine = normalizeStateMachineId(order.destination)
 		const sourceStateMachine = normalizeStateMachineId(order.source)
 
-		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachine)
-		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayV2Address(sourceStateMachine)
+		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
+		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
 
 		const relayerFee = await this.estimateRelayerFee(sourceStateMachine, destStateMachine)
 
@@ -385,7 +385,7 @@ export class OrderCanceller {
 		const orderId = order.id!
 
 		const destStateMachine = normalizeStateMachineId(order.destination)
-		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachine)
+		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 
 		let commitment: HexString | null = await this.ctx.cancellationStorage.getItem(
 			STORAGE_KEYS.postCommitment(orderId),
@@ -511,7 +511,7 @@ export class OrderCanceller {
 			}
 
 			try {
-				const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(
+				const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(
 					this.ctx.dest.config.stateMachineId,
 				)
 				const orderId = order.id!

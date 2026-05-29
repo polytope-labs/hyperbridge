@@ -39,7 +39,7 @@ export {
 	EvmLanguage,
 } from "@/utils"
 export * from "@/protocols/intents"
-export { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+export { ABI as IntentGatewayABI } from "@/abis/IntentGatewayV2"
 export { ABI as EvmHostABI } from "@/abis/evmHost"
 export * from "@/protocols/tokenGateway"
 export * from "@/protocols/hyperFungibleToken"

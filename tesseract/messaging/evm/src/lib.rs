@@ -75,6 +75,50 @@ pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
 	}
 }
 
+/// Create one independent [`RootProvider`] per URL, for callers that run a
+/// quorum/byzantine check and must fan out across *distinct* transports.
+///
+/// Unlike [`create_provider`], which merges multiple URLs into a single
+/// first-`Ok`-wins [`alloy::transports::layers::FallbackService`] transport,
+/// this returns a separate provider per endpoint. A 2/3·N+1 quorum built on top
+/// of these therefore genuinely polls every configured backend independently,
+/// instead of collapsing N endpoints into a quorum-of-one where a single lagging
+/// or poisoned RPC response (e.g. an `Ok(None)` from a backend that hasn't
+/// imported the block yet) single-handedly decides the outcome.
+pub fn create_providers_per_url(urls: &[String]) -> Result<Vec<Arc<RootProvider>>, anyhow::Error> {
+	if urls.is_empty() {
+		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
+	}
+	urls.iter()
+		.map(|u| Ok(Arc::new(RootProvider::new_http(u.parse()?))))
+		.collect()
+}
+
+#[cfg(test)]
+mod create_provider_tests {
+	use super::create_providers_per_url;
+
+	/// The quorum watchers must fan out across every configured backend. Building
+	/// one provider per URL (rather than merging them into a single
+	/// FallbackService) is what keeps `quorum_threshold(N)` meaningful instead of
+	/// collapsing to a quorum-of-one.
+	#[test]
+	fn create_providers_per_url_returns_one_provider_per_url() {
+		let urls = vec![
+			"https://a.example/rpc".to_string(),
+			"https://b.example/rpc".to_string(),
+			"https://c.example/rpc".to_string(),
+		];
+		let providers = create_providers_per_url(&urls).expect("valid urls build providers");
+		assert_eq!(providers.len(), urls.len());
+	}
+
+	#[test]
+	fn create_providers_per_url_rejects_empty() {
+		assert!(create_providers_per_url(&[]).is_err());
+	}
+}
+
 /// Recommended fillers for transaction sending (gas, blob gas, nonce, chain ID)
 type RecommendedFills =
 	JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>;

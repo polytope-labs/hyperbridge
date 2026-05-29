@@ -118,3 +118,89 @@ pub fn decide<T>(outcomes: Vec<FetchOutcome<T>>, agrees: impl Fn(&T) -> bool) ->
 		QuorumDecision::Mismatch
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn quorum_threshold_is_supermajority() {
+		assert_eq!(quorum_threshold(1), 1);
+		assert_eq!(quorum_threshold(2), 2);
+		assert_eq!(quorum_threshold(3), 3);
+		assert_eq!(quorum_threshold(4), 3);
+		assert_eq!(quorum_threshold(5), 4);
+		assert_eq!(quorum_threshold(6), 5);
+	}
+
+	/// A single lagging RPC (one `Missing`) among a genuine N-way fan-out must NOT
+	/// trigger a blacklist — it falls through to `InsufficientQuorum` (abstain).
+	/// This is exactly the false-positive the quorum-of-one regression produced
+	/// when all N URLs were collapsed into a single provider.
+	#[test]
+	fn single_lagging_rpc_among_quorum_abstains() {
+		let outcomes =
+			vec![FetchOutcome::Found(1u8), FetchOutcome::Found(1u8), FetchOutcome::Missing];
+		assert!(matches!(
+			decide(outcomes, |v| *v == 1),
+			QuorumDecision::InsufficientQuorum
+		));
+	}
+
+	/// But when a real quorum of providers reports the block missing we DO act —
+	/// we don't abstain when the quorum genuinely returns the block as missing.
+	#[test]
+	fn quorum_of_missing_blacklists() {
+		let outcomes: Vec<FetchOutcome<u8>> =
+			vec![FetchOutcome::Missing, FetchOutcome::Missing, FetchOutcome::Missing];
+		assert!(matches!(
+			decide(outcomes, |_| true),
+			QuorumDecision::MissingFromQuorum
+		));
+	}
+
+	/// Below quorum on the missing side, abstain rather than blacklist: two of
+	/// three missing is not enough when the threshold is three.
+	#[test]
+	fn sub_quorum_missing_abstains() {
+		let outcomes =
+			vec![FetchOutcome::Missing, FetchOutcome::Missing, FetchOutcome::Found(1u8)];
+		assert!(matches!(
+			decide(outcomes, |v| *v == 1),
+			QuorumDecision::InsufficientQuorum
+		));
+	}
+
+	/// Documents the hazard the fix removes: a *single* outcome makes
+	/// `quorum_threshold(1) == 1`, so one `Missing` (or one disagreeing `Found`)
+	/// is by itself a "quorum". Collapsing N RPC URLs into one provider is what
+	/// produced this 1-element outcome vector in the rollup watcher.
+	#[test]
+	fn single_outcome_is_a_quorum_of_one() {
+		let missing: Vec<FetchOutcome<u8>> = vec![FetchOutcome::Missing];
+		assert!(matches!(
+			decide(missing, |_| true),
+			QuorumDecision::MissingFromQuorum
+		));
+		let wrong = vec![FetchOutcome::Found(2u8)];
+		assert!(matches!(decide(wrong, |v| *v == 1), QuorumDecision::Mismatch));
+	}
+
+	#[test]
+	fn unanimous_agreement_verifies() {
+		let outcomes =
+			vec![FetchOutcome::Found(1u8), FetchOutcome::Found(1u8), FetchOutcome::Found(1u8)];
+		assert!(matches!(decide(outcomes, |v| *v == 1), QuorumDecision::Verified));
+	}
+
+	/// Transport errors are non-signals and never on their own drive a decision.
+	#[test]
+	fn all_errored_is_insufficient_quorum() {
+		let outcomes: Vec<FetchOutcome<u8>> =
+			vec![FetchOutcome::Errored, FetchOutcome::Errored, FetchOutcome::Errored];
+		assert!(matches!(
+			decide(outcomes, |_| true),
+			QuorumDecision::InsufficientQuorum
+		));
+	}
+}

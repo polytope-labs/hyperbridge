@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 codec = { workspace = true, features = ["derive"] }
 alloy-primitives = { workspace = true }
-crypto-utils = { workspace = true, default-features = false }
+bls-utils = { workspace = true, default-features = false }
 primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
 hex-literal = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -24,7 +24,7 @@ default = ["std"]
 std = [
     "codec/std",
     "alloy-primitives/std",
-    "crypto-utils/std",
+    "bls-utils/std",
     "primitive-types/std",
     "anyhow/std",
     "sp-io/std",

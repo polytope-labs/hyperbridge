@@ -187,7 +187,7 @@ fn verify_bls_signature(
 	}
 
 	let aggregate_pubkey =
-		crypto_utils::aggregate_public_keys(participants).map_err(Error::BlsError)?;
+		bls_utils::aggregate_public_keys(participants).map_err(Error::BlsError)?;
 
 	// The message signed is the block_proof_hash
 	let message = block_proof_hash.as_bytes().to_vec();

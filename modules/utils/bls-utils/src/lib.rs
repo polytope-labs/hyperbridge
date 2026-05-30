@@ -16,4 +16,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-pub mod verification;
+pub mod bls;
+pub mod ssz;
+
+pub use bls::{
+	aggregate_public_keys, pubkey_to_projective, BlsPublicKey, BlsSignature,
+	BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN,
+};
+pub use ssz::ByteVector;

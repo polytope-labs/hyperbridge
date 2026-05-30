@@ -12,4 +12,4 @@ fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T)
 }
 
 pub use byte_list::ByteList;
-pub use crypto_utils::ssz::ByteVector;
+pub use bls_utils::ByteVector;

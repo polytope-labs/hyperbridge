@@ -19,7 +19,7 @@
 use polkadot_sdk::*;
 
 use alloc::vec::Vec;
-use crypto_utils::aggregate_public_keys;
+use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitives::{BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE, parse_extra};

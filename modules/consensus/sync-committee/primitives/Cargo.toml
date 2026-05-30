@@ -16,7 +16,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 hex = { workspace = true, default-features = false, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
-crypto-utils = { workspace = true, default-features = false }
+bls-utils = { workspace = true, default-features = false }
 
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
@@ -32,6 +32,6 @@ std = [
     "primitive-types/std",
     "serde",
     "serde-hex-utils/std",
-    "crypto-utils/std",
+    "bls-utils/std",
 ]
 nofulu = []

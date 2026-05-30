@@ -18,7 +18,7 @@ primitive-types = { workspace = true }
 codec = { workspace = true }
 ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
-crypto-utils = { workspace = true, default-features = false }
+bls-utils = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 bls = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
@@ -39,7 +39,7 @@ std = [
     "alloy-primitives/std",
     "alloy-rlp/std",
     "bls/std",
-    "crypto-utils/std",
+    "bls-utils/std",
     "sync-committee-primitives/std",
     "geth-primitives/std",
     "ssz-rs/std",

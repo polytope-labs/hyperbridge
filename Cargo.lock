@@ -3172,6 +3172,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bls-utils"
+version = "0.1.0"
+dependencies = [
+ "bls_on_arkworks",
+ "parity-scale-codec",
+ "serde",
+ "serde-hex-utils",
+ "ssz-rs",
+]
+
+[[package]]
 name = "bls_on_arkworks"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3555,8 +3566,8 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
+ "bls-utils",
  "bls_on_arkworks",
- "crypto-utils",
  "geth-primitives",
  "ismp",
  "log",
@@ -4813,15 +4824,10 @@ name = "crypto-utils"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "bls_on_arkworks",
- "hex",
  "parity-scale-codec",
  "scale-info",
- "serde",
- "serde-hex-utils",
  "sp-core",
  "sp-io",
- "ssz-rs",
 ]
 
 [[package]]
@@ -17182,7 +17188,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "anyhow",
- "crypto-utils",
+ "bls-utils",
  "geth-primitives",
  "hex-literal 0.4.1",
  "ismp",
@@ -17238,8 +17244,8 @@ name = "pharos-verifier"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bls-utils",
  "bls_on_arkworks",
- "crypto-utils",
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
@@ -27627,7 +27633,7 @@ name = "sync-committee-primitives"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "crypto-utils",
+ "bls-utils",
  "hex",
  "hex-literal 0.4.1",
  "parity-scale-codec",

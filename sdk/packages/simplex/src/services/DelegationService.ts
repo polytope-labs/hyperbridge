@@ -33,7 +33,13 @@ export class DelegationService {
 	) {}
 
 	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
-		const encoded = toRlp([toHex(chainId), contractAddress, toHex(nonce)])
+		// EIP-7702 requires canonical RLP: integer 0 encodes as empty bytes (0x80), not 0x00.
+		// viem's `toHex(0)` returns '0x0' which RLP-encodes as the single byte 0x00 — wrong.
+		const encoded = toRlp([
+			chainId ? toHex(chainId) : "0x",
+			contractAddress,
+			nonce ? toHex(nonce) : "0x",
+		])
 		return keccak256(concat(["0x05", encoded])) as HexString
 	}
 

@@ -20,7 +20,7 @@ use codec::DecodeLimit;
 use frame_support::{
 	dispatch::DispatchResult,
 	ensure,
-	traits::{Get, IsSubType},
+	traits::{Contains, Get, IsSubType},
 };
 pub use pallet::*;
 pub use weights::WeightInfo;
@@ -152,6 +152,10 @@ pub mod pallet {
 			)
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
+			if !<T as frame_system::Config>::BaseCallFilter::contains(&runtime_call) {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			}
+
 			let provides = if let Some(call) =
 				IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
 			{
@@ -253,6 +257,11 @@ where
 			&mut &call_bytes[..],
 		)
 		.map_err(|_| Error::<T>::ErrorDecodingCall)?;
+
+		// use call filter to filter out unwanted calls
+		if !<T as frame_system::Config>::BaseCallFilter::contains(&runtime_call) {
+			return Err(Error::<T>::CallNotSupported.into());
+		}
 
 		if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
 			match call {

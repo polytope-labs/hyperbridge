@@ -870,11 +870,6 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
-impl pallet_bridge_airdrop::Config for Runtime {
-	type Currency = Balances;
-	type BridgeDropOrigin = EnsureRoot<Self::AccountId>;
-}
-
 parameter_types! {
 	// One storage item; key size 32, value size 8; .
 	pub const ProxyDepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
@@ -1128,8 +1123,6 @@ mod runtime {
 	pub type Scheduler = pallet_scheduler;
 	#[runtime::pallet_index(86)]
 	pub type Preimage = pallet_preimage;
-	#[runtime::pallet_index(87)]
-	pub type BridgeDrop = pallet_bridge_airdrop;
 	#[runtime::pallet_index(88)]
 	pub type Vesting = pallet_vesting;
 	#[runtime::pallet_index(89)]

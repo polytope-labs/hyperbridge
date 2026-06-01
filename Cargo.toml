@@ -128,8 +128,6 @@ members = [
 
     "tesseract/relayer",
 
-    # Airdrop
-    "modules/pallets/bridge-drop",
 ]
 
 # Config for 'cargo dist'
@@ -323,7 +321,6 @@ pallet-collator-manager = { path = "modules/pallets/collator-manager", default-f
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
 pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
-pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false }
 
 # merkle trees

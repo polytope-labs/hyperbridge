@@ -51,7 +51,6 @@ pallet-bandwidth = { workspace = true }
 
 pallet-hyper-fungible-token = { workspace = true }
 
-pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
@@ -166,7 +165,6 @@ std = [
     "anyhow/std",
     "cumulus-pallet-parachain-system/std",
     "frame-benchmarking/std",
-    "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-polygon/std",

@@ -8292,7 +8292,6 @@ dependencies = [
  "mmr-primitives",
  "pallet-bandwidth",
  "pallet-beefy-consensus-proofs",
- "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
  "pallet-fishermen",
@@ -13130,7 +13129,6 @@ dependencies = [
  "mmr-primitives",
  "pallet-bandwidth",
  "pallet-beefy-consensus-proofs",
- "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
  "pallet-consensus-incentives",
@@ -14576,19 +14574,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-bridge-airdrop"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "log",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "rs_merkle",
- "scale-info",
-]
-
-[[package]]
 name = "pallet-bridge-grandpa"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15439,7 +15424,6 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-bandwidth",
- "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
  "pallet-consensus-incentives",
@@ -24138,7 +24122,6 @@ dependencies = [
  "mmr-primitives",
  "mockito",
  "nexus-runtime",
- "pallet-bridge-airdrop",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",
@@ -24164,6 +24147,7 @@ dependencies = [
  "tesseract-substrate",
  "tokio",
  "trie-db",
+ "zstd-safe 7.2.4",
 ]
 
 [[package]]

@@ -230,7 +230,9 @@ async fn merge_pending(
 		merged.entry((pending.destination, pending.set_id)).or_insert(pending);
 	}
 
-	merged.into_values().collect()
+	let mut result: Vec<_> = merged.into_values().collect();
+	result.sort_by_key(|c| (c.delivery_height, c.set_id));
+	result
 }
 
 /// Split `pending` into `(already_claimed, still_unclaimed)` by reading

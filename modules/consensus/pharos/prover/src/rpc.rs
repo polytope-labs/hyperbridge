@@ -93,6 +93,7 @@ pub struct RpcProofNode {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcSiblingProof {
+	pub trie_depth: u8,
 	pub slot_index: u8,
 	pub leftmost_leaf_key: String,
 	pub proof_path: Vec<RpcProofNode>,

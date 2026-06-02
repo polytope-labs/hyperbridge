@@ -164,11 +164,14 @@ pub struct PharosProofNode {
 	pub next_end_offset: u32,
 }
 
-/// Sibling proof for non-existence verification — proves a non-empty sibling slot
-/// is genuine by providing a path to its leftmost leaf.
+/// Proves a non-empty sibling slot is genuine by providing a path to its leftmost
+/// leaf. `trie_depth` identifies which proof-path node holds the sibling slot (0 =
+/// first internal node after the MSU root), allowing siblings to be anchored at any
+/// ancestor rather than only the terminal.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct SiblingLeftmostLeafProof {
+	pub trie_depth: u8,
 	pub slot_index: u8,
 	pub leftmost_leaf_key: Vec<u8>,
 	pub proof_path: Vec<PharosProofNode>,

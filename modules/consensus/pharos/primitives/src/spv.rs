@@ -18,7 +18,7 @@
 //! Node types: MSU Root (8192 bytes), Internal (515 bytes), Leaf (65 bytes).
 //! Internal nodes use SkipEmpty hashing: `sha256(header || non-zero child slots)`.
 
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 
 use crate::types::{PharosProofNode, SiblingLeftmostLeafProof};
 
@@ -329,62 +329,93 @@ pub fn verify_non_existence_proof(
 
 	verify_proof_walk(proof_nodes, key, root)?;
 
-	let non_empty_count = (0..INTERNAL_NODE_SLOTS)
-		.filter(|&i| {
-			i != nibble && {
-				let s = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
-				!is_zero_slot(&last[s..s + INTERNAL_NODE_SLOT_SIZE])
+	// Sibling proofs must cover every non-empty, non-path slot across all internal
+	// nodes on the proof path, not only the terminal. SkipEmpty hashing is position-
+	// independent, so a single-child node has the same hash regardless of which slot
+	// holds the child — requiring ancestor coverage closes that gap.
+	let mut required: Vec<(u8, usize)> = Vec::new();
+	for node_idx in 1..proof_nodes.len() {
+		let node = &proof_nodes[node_idx].proof_node;
+		if node.len() != INTERNAL_NODE_LEN {
+			continue;
+		}
+		let node_trie_depth = (node_idx - 1) as u8;
+		let queried_nibble =
+			nibble_at_depth(&key_hash, node_idx - 1).ok_or(Error::ProofTooDeep)? as usize;
+		for i in 0..INTERNAL_NODE_SLOTS {
+			if i == queried_nibble {
+				continue;
 			}
-		})
-		.count();
+			let s = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
+			if !is_zero_slot(&node[s..s + INTERNAL_NODE_SLOT_SIZE]) {
+				required.push((node_trie_depth, i));
+			}
+		}
+	}
 
-	if non_empty_count > 0 {
-		if sibling_proofs.len() != non_empty_count {
-			return Err(Error::SiblingCountMismatch);
+	if sibling_proofs.len() != required.len() {
+		return Err(Error::SiblingCountMismatch);
+	}
+
+	let mut seen: BTreeSet<(u8, usize)> = BTreeSet::new();
+
+	for sib in sibling_proofs {
+		let sib_depth = sib.trie_depth as usize;
+		let idx = sib.slot_index as usize;
+
+		if idx >= INTERNAL_NODE_SLOTS {
+			return Err(Error::InvalidSiblingSlot);
 		}
 
-		let parent_nodes = &proof_nodes[..proof_nodes.len() - 1];
-		let mut proven_slots = [false; INTERNAL_NODE_SLOTS];
-
-		for sib in sibling_proofs {
-			let idx = sib.slot_index as usize;
-			if idx >= INTERNAL_NODE_SLOTS || idx == nibble {
-				return Err(Error::InvalidSiblingSlot);
-			}
-			let s = INTERNAL_NODE_HEADER + idx * INTERNAL_NODE_SLOT_SIZE;
-			if is_zero_slot(&last[s..s + INTERNAL_NODE_SLOT_SIZE]) {
-				return Err(Error::InvalidSiblingSlot);
-			}
-
-			if proven_slots[idx] {
-				return Err(Error::DuplicateSiblingSlot);
-			}
-			proven_slots[idx] = true;
-
-			if sib.proof_path.is_empty() {
-				return Err(Error::EmptySiblingPath);
-			}
-
-			let sib_key_hash = sha256(&sib.leftmost_leaf_key);
-			if nibble_at_depth(&sib_key_hash, depth).ok_or(Error::ProofTooDeep)? as usize != idx {
-				return Err(Error::SiblingNibbleMismatch);
-			}
-
-			let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
-			combined.extend_from_slice(&sib.proof_path);
-
-			let is_valid_leaf = combined.last().map_or(false, |last| {
-				is_leaf(&last.proof_node) &&
-					last.proof_node[1..33] == sha256(&sib.leftmost_leaf_key)
-			});
-
-			if !is_valid_leaf {
-				return Err(Error::SiblingProofInvalid(alloc::boxed::Box::new(Error::InvalidLeaf)));
-			}
-
-			verify_proof_walk(&combined, &sib.leftmost_leaf_key, root)
-				.map_err(|e| Error::SiblingProofInvalid(alloc::boxed::Box::new(e)))?;
+		let node_idx = sib_depth + 1;
+		if node_idx >= proof_nodes.len() {
+			return Err(Error::InvalidSiblingSlot);
 		}
+
+		let node = &proof_nodes[node_idx].proof_node;
+		if node.len() != INTERNAL_NODE_LEN {
+			return Err(Error::InvalidSiblingSlot);
+		}
+
+		let queried_nibble =
+			nibble_at_depth(&key_hash, sib_depth).ok_or(Error::ProofTooDeep)? as usize;
+
+		if idx == queried_nibble {
+			return Err(Error::InvalidSiblingSlot);
+		}
+
+		let s = INTERNAL_NODE_HEADER + idx * INTERNAL_NODE_SLOT_SIZE;
+		if is_zero_slot(&node[s..s + INTERNAL_NODE_SLOT_SIZE]) {
+			return Err(Error::InvalidSiblingSlot);
+		}
+
+		if !seen.insert((sib.trie_depth, idx)) {
+			return Err(Error::DuplicateSiblingSlot);
+		}
+
+		if sib.proof_path.is_empty() {
+			return Err(Error::EmptySiblingPath);
+		}
+
+		let sib_key_hash = sha256(&sib.leftmost_leaf_key);
+		if nibble_at_depth(&sib_key_hash, sib_depth).ok_or(Error::ProofTooDeep)? as usize != idx {
+			return Err(Error::SiblingNibbleMismatch);
+		}
+
+		let parent_nodes = &proof_nodes[..node_idx];
+		let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
+		combined.extend_from_slice(&sib.proof_path);
+
+		let is_valid_leaf = combined.last().map_or(false, |last| {
+			is_leaf(&last.proof_node) && last.proof_node[1..33] == sha256(&sib.leftmost_leaf_key)
+		});
+
+		if !is_valid_leaf {
+			return Err(Error::SiblingProofInvalid(alloc::boxed::Box::new(Error::InvalidLeaf)));
+		}
+
+		verify_proof_walk(&combined, &sib.leftmost_leaf_key, root)
+			.map_err(|e| Error::SiblingProofInvalid(alloc::boxed::Box::new(e)))?;
 	}
 
 	Ok(())
@@ -699,6 +730,47 @@ mod tests {
 		];
 
 		assert!(verify_non_existence_proof(&proof, query, &root, &[]).is_ok());
+	}
+
+	// Moving a child hash to a different slot in the parent is hash-preserving under
+	// SkipEmpty, but the non-empty non-path slot in the parent now demands a sibling proof.
+	#[test]
+	fn test_poc_empty_terminal_forgery_rejected() {
+		let key = b"delivered_receipt_key";
+		let value = b"receipt_exists";
+		let (membership_proof, root) = build_proof_for_key(key, value);
+
+		assert!(verify_membership_proof(&membership_proof, key, &root).is_ok());
+
+		let leaf_data = &membership_proof[2].proof_node;
+		let leaf_hash = sha256(leaf_data);
+		let key_hash = sha256(key);
+		let queried_slot = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let forged_slot = (queried_slot + 1) % INTERNAL_NODE_SLOTS;
+
+		let forged_parent = make_internal_with_child(forged_slot, &leaf_hash);
+		assert_eq!(
+			hash_internal_node(&membership_proof[1].proof_node),
+			hash_internal_node(&forged_parent)
+		);
+
+		let queried_slot_start = INTERNAL_NODE_HEADER + queried_slot * INTERNAL_NODE_SLOT_SIZE;
+		assert_eq!(
+			&forged_parent[queried_slot_start..queried_slot_start + INTERNAL_NODE_SLOT_SIZE],
+			&ZERO_HASH
+		);
+
+		let forged_proof = vec![
+			membership_proof[0].clone(),
+			node(forged_parent, 0, 0),
+			node(vec![0u8; INTERNAL_NODE_LEN], 0, 0),
+		];
+
+		assert!(verify_proof_walk(&forged_proof, key, &root).is_ok());
+		assert!(matches!(
+			verify_non_existence_proof(&forged_proof, key, &root, &[]),
+			Err(Error::SiblingCountMismatch)
+		));
 	}
 
 	#[test]

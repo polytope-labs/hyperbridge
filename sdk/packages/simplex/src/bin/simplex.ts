@@ -9,7 +9,6 @@ import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
 import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
-import Decimal from "decimal.js"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -615,27 +614,6 @@ function validateConfig(config: FillerTomlConfig): void {
 				for (const point of strategy.askPriceCurve!) {
 					if (point.amount === undefined || point.price === undefined) {
 						throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
-					}
-				}
-
-				// Prices are quoted as "exotic per USD" (an inverted price), so a profitable
-				// spread requires bid ≥ ask at every order size: the filler must hand out fewer
-				// exotic when selling (ask) than it demands when buying (bid). bid < ask is an
-				// inverted spread that loses money on every fill — reject it up front instead of
-				// silently filling at a loss. Both curves are piecewise-linear, so the bid−ask
-				// difference is minimised at a breakpoint; checking the union of points suffices.
-				const bidPolicy = new FillerPricePolicy({ points: strategy.bidPriceCurve! })
-				const askPolicy = new FillerPricePolicy({ points: strategy.askPriceCurve! })
-				const breakpoints = [...strategy.bidPriceCurve!, ...strategy.askPriceCurve!].map((p) => new Decimal(p.amount))
-				for (const amount of breakpoints) {
-					const bid = bidPolicy.getPrice(amount)
-					const ask = askPolicy.getPrice(amount)
-					if (bid.lt(ask)) {
-						throw new Error(
-							`hyperfx: inverted price spread at amount ${amount.toString()} — bidPriceCurve (${bid.toString()}) ` +
-								`must be ≥ askPriceCurve (${ask.toString()}). Prices are 'exotic per USD', so the bid (buying ` +
-								`exotic) is the higher number; a lower bid loses money on every fill.`,
-						)
 					}
 				}
 			}

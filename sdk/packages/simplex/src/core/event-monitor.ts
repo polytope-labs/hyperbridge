@@ -6,7 +6,7 @@ import {
 	Order,
 	TronChain,
 	orderCommitment,
-	hexToString,
+	normalizeStateMachineId,
 	retryPromise,
 	DecodedOrderPlacedLog,
 	HexString,
@@ -50,8 +50,8 @@ export async function reconstructOrdersFromLogs(
 			try {
 				let order: Order = {
 					user: decodedLog.args.user,
-					source: hexToString(decodedLog.args.source) as HexString,
-					destination: hexToString(decodedLog.args.destination) as HexString,
+					source: normalizeStateMachineId(decodedLog.args.source) as HexString,
+					destination: normalizeStateMachineId(decodedLog.args.destination) as HexString,
 					deadline: decodedLog.args.deadline,
 					nonce: decodedLog.args.nonce,
 					fees: decodedLog.args.fees,
@@ -234,10 +234,7 @@ export class EventMonitor extends EventEmitter {
 		const maxBlockRange = 1000n
 		const toBlock = fromBlock + maxBlockRange > currentBlock ? currentBlock : fromBlock + maxBlockRange
 
-		this.logger.debug(
-			{ chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) },
-			"Scanning blocks",
-		)
+		this.logger.debug({ chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) }, "Scanning blocks")
 
 		let logs: any[]
 		try {
@@ -263,9 +260,7 @@ export class EventMonitor extends EventEmitter {
 		}
 
 		const placedLogs = logs.filter((l: any) => l.eventName === "OrderPlaced")
-		const filledLogs = logs.filter(
-			(l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill",
-		)
+		const filledLogs = logs.filter((l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill")
 
 		if (placedLogs.length > 0) {
 			this.logger.info(
@@ -289,11 +284,9 @@ export class EventMonitor extends EventEmitter {
 	private async processOrderPlacedLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {
 		const results = await reconstructOrdersFromLogs(logs as DecodedOrderPlacedLog[], {
 			getPlaceOrderCalldata: (txHash, occurrenceIndex) => {
-				const sourceFromTxHash = (logs as DecodedOrderPlacedLog[]).find(
-					(l) => l.transactionHash === txHash,
-				)
+				const sourceFromTxHash = (logs as DecodedOrderPlacedLog[]).find((l) => l.transactionHash === txHash)
 				const source = sourceFromTxHash
-					? (hexToString(sourceFromTxHash.args.source) as HexString)
+					? (normalizeStateMachineId(sourceFromTxHash.args.source) as HexString)
 					: undefined
 				const intentGatewayAddress = this.configService.getIntentGatewayAddress(source!)
 				return chain.getPlaceOrderCalldata!(txHash, intentGatewayAddress, occurrenceIndex)

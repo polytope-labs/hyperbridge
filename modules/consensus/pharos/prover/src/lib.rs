@@ -509,7 +509,6 @@ pub fn rpc_to_sibling_proofs(
 		.iter()
 		.map(|s| {
 			Ok(SiblingLeftmostLeafProof {
-				trie_depth: s.trie_depth,
 				slot_index: s.slot_index,
 				leftmost_leaf_key: hex_to_bytes(&s.leftmost_leaf_key)?,
 				proof_path: rpc_to_proof_nodes(&s.proof_path)?,

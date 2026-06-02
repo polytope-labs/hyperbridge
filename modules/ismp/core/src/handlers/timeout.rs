@@ -125,8 +125,8 @@ where
 						// Module callback failed; restore commitment so the request
 						// can be retried.
 						host.store_request_commitment(&request, meta)?;
-						if host.host_state_machine() != post.source && signer.is_some() {
-							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
+						if let Some(ref signer) = signer {
+							host.store_request_receipt(&request, signer)?;
 						}
 					}
 					Ok::<_, anyhow::Error>(res)

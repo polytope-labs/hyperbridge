@@ -418,8 +418,12 @@ impl<T: Config> Pallet<T> {
 			consensus_client_id: PARACHAIN_CONSENSUS_ID,
 			state_machine_commitments: vec![],
 		};
-		handlers::create_client(&host, message)
-			.expect("Failed to initialize parachain consensus client");
+		if let Err(e) = handlers::create_client(&host, message) {
+			log::error!(
+				target: "pallet-ismp-parachain",
+				"Failed to initialize parachain consensus client: {e:?}"
+			);
+		}
 	}
 }
 

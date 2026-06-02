@@ -239,8 +239,7 @@ where
 		// append new leaves to MMR
 		let range = 0u64..buffer_len;
 		for index in range {
-			let leaf = IntermediateLeaves::<T, I>::get(index)
-				.expect("Infallible: Leaf was inserted in this block");
+			let leaf = IntermediateLeaves::<T, I>::get(index).ok_or(Error::Push)?;
 			// Mmr push should never fail
 			match mmr.push(leaf) {
 				None => {

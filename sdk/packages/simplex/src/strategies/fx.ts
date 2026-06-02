@@ -279,6 +279,11 @@ export class FXFiller implements FillerStrategy {
 			const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
 			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
 			const fillerOutputs: TokenInfo[] = []
+			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
+			// (insufficient balance, exhausted budget), so `fillerOutputs[k]` is the k-th
+			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
+			// original input/pair via this array rather than by position.
+			const fillerOutputLegs: number[] = []
 			let remainingUsd = cappedOrderUsd
 			let anyLegClamped = false
 
@@ -427,6 +432,7 @@ export class FXFiller implements FillerStrategy {
 				balanceCache.set(tokenAddress, remaining > 0n ? remaining : 0n)
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
+				fillerOutputLegs.push(i)
 
 				if (remainingUsd.lte(0)) {
 					break
@@ -460,13 +466,17 @@ export class FXFiller implements FillerStrategy {
 			// - When filler sells exotic (stable→exotic): value exotic we give at acquisition cost (bid).
 			// - When filler buys exotic (exotic→stable): value exotic we receive at resale (ask).
 			// Also accumulates totalInputUsd / totalOutputUsd for the input-over-output check.
+			//
+			// `fillerOutputs[i]` is the i-th *surviving* leg; realign to its original input/pair
+			// via `fillerOutputLegs` — skipped legs would otherwise shift the indices.
 			let spreadProfitUsd = new Decimal(0)
 			let totalInputUsdValued = new Decimal(0)
 			let totalOutputUsdValued = new Decimal(0)
 			for (let i = 0; i < fillerOutputs.length; i++) {
-				const input = order.inputs[i]
+				const legIndex = fillerOutputLegs[i]
+				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
-				const pair = pairs[i]
+				const pair = pairs[legIndex]
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,

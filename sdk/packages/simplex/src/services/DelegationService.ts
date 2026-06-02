@@ -1,11 +1,11 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { CryptoUtils, BundlerMethod } from "@hyperbridge/sdk"
-import { concat, keccak256, toHex, toRlp, zeroAddress } from "viem"
+import { concat, formatEther, formatUnits, keccak256, toHex, toRlp, zeroAddress } from "viem"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
-import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
+import { buildPaymasterAndData, getUsdcBalanceStatus, hasPaymaster } from "./paymaster"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
 /** EIP-7702 delegation indicator prefix */
@@ -163,6 +163,29 @@ export class DelegationService {
 		const chainId = this.configService.getChainId(chain)
 
 		try {
+			// The paymaster sponsors gas in USDC; without enough USDC it can't pay and the
+			// bundler path is impossible. Check up front so we log a precise reason rather
+			// than a generic "no paymaster" further down.
+			const usdcDecimals = this.configService.getUsdcDecimals(chain)
+			const usdc = await getUsdcBalanceStatus(
+				publicClient,
+				solverAccount,
+				this.configService.getUsdcAsset(chain),
+				usdcDecimals,
+			)
+			if (!usdc.sufficient) {
+				this.logger.warn(
+					{
+						chain,
+						solverAccount,
+						usdcBalance: formatUnits(usdc.balance, usdcDecimals),
+						requiredUsdc: formatUnits(usdc.required, usdcDecimals),
+					},
+					"Insufficient USDC balance to sponsor delegation via paymaster; falling back to direct tx",
+				)
+				return false
+			}
+
 			// Build EIP-7702 authorization (bundler submits tx, so use current nonce)
 			const authorization = await this.buildAuthorization(chain, solverAccountContract, true)
 
@@ -181,7 +204,10 @@ export class DelegationService {
 				configService: this.configService,
 			})
 			if (pmResult.type === "none") {
-				this.logger.warn({ chain }, "No paymaster available for delegation")
+				this.logger.warn(
+					{ chain, solverAccount },
+					"Paymaster data unavailable despite sufficient USDC; falling back to direct tx",
+				)
 				return false
 			}
 			const paymasterAndData = pmResult.paymasterAndData
@@ -330,10 +356,31 @@ export class DelegationService {
 
 		// Fallback: direct type-0x04 transaction (requires native token)
 		const publicClient = this.clientManager.getPublicClient(chain)
+		const authority = this.signer.account.address as HexString
+
+		// The direct tx pays gas in native ETH. If the EOA can't cover it, delegation fails
+		// outright (the paymaster path already failed too) — surface the deficit explicitly.
+		const [nativeBalance, gasPrice] = await Promise.all([
+			publicClient.getBalance({ address: authority }),
+			publicClient.getGasPrice(),
+		])
+		const requiredNative = DELEGATION_TX_GAS_FLOOR * gasPrice
+		if (nativeBalance < requiredNative) {
+			this.logger.error(
+				{
+					chain,
+					authority,
+					nativeBalance: formatEther(nativeBalance),
+					requiredNative: formatEther(requiredNative),
+				},
+				"Delegation failed: insufficient native balance for direct EIP-7702 tx and paymaster path unavailable",
+			)
+			return false
+		}
 
 		try {
 			this.logger.info(
-				{ chain, authority: this.signer.account.address, solverAccountContract, mode: this.signer.mode },
+				{ chain, authority, solverAccountContract, mode: this.signer.mode },
 				"Setting up EIP-7702 delegation via direct tx",
 			)
 

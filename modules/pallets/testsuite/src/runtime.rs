@@ -92,7 +92,6 @@ frame_support::construct_runtime!(
 		IsmpBsc: ismp_bsc::pallet,
 		HyperFungibleToken: pallet_hyper_fungible_token,
 		Vesting: pallet_vesting,
-		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_consensus_incentives,
 		MessagingRelayerIncentives: pallet_messaging_incentives,
 		IsmpGrandpa: ismp_grandpa::pallet,
@@ -488,11 +487,6 @@ impl pallet_call_decompressor::Config for Test {
 	type WeightInfo = ();
 }
 
-impl pallet_bridge_airdrop::Config for Test {
-	type Currency = Balances;
-	type BridgeDropOrigin = EnsureRoot<AccountId32>;
-}
-
 impl pallet_consensus_incentives::Config for Test {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
@@ -797,7 +791,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		balances: vec![
 			(ALICE, INITIAL_BALANCE),
 			(HyperFungibleToken::pallet_account(), INITIAL_BALANCE),
-			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
 		..Default::default()
 	}

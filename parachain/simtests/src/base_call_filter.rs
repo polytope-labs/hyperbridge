@@ -30,7 +30,7 @@ use ismp::messaging::{ConsensusMessage, Message};
 use primitive_types::H256;
 use subxt::{
 	dynamic::Value,
-	error::DispatchError,
+	error::{DispatchError, RpcError},
 	ext::{
 		scale_value::Composite,
 		subxt_rpcs::{rpc_params, RpcClient},
@@ -238,6 +238,45 @@ async fn ismp_call_filter_blocks_only_beefy_consensus_and_fund_message() -> Resu
 		is_bad_origin(&err),
 		"unmapped consensus handle_unsigned must pass the filter, got {err:?}"
 	);
+
+	Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn call_decompressor_rejects_beefy_consensus_update() -> Result<(), anyhow::Error> {
+	let port = env::var("PORT").unwrap_or_else(|_| "9990".into());
+	let url = format!("ws://127.0.0.1:{port}");
+	let (client, rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
+
+	// Seed the BEEFY state → client mapping so the filter can resolve it.
+	let kv_list: Vec<(Vec<u8>, Vec<u8>)> =
+		vec![(consensus_state_client_key(&BEEFY_STATE_ID), BEEFY_CONSENSUS_ID.encode())];
+	let set_storage =
+		subxt::dynamic::tx("System", "set_storage", vec![storage_kv_list_to_value(&kv_list)]);
+	submit_sudo(&client, &rpc_client, set_storage).await?;
+
+	// Get the encoded call bytes for a BEEFY consensus handle_unsigned, then compress them.
+	let inner = consensus_batch(BEEFY_STATE_ID);
+	let call_bytes = client.tx().call_data(&inner)?;
+	let encoded_len = call_bytes.len() as u32;
+
+	let mut buf = vec![0u8; call_bytes.len() * 2 + 64];
+	let compressed_len = zstd_safe::compress(&mut buf, &call_bytes, 3)
+		.map_err(|code| anyhow!("zstd compress failed with code {code}"))?;
+	let compressed = buf[..compressed_len].to_vec();
+
+	let tx = subxt::dynamic::tx(
+		"CallDecompressor",
+		"decompress_call",
+		vec![Value::from_bytes(compressed), Value::u128(encoded_len as u128)],
+	);
+
+	let err = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
+	let subxt::Error::Rpc(RpcError::ClientError(_)) = err else {
+		panic!("expected txpool rejection for a compressed BEEFY consensus update, got {err:?}");
+	};
 
 	Ok(())
 }

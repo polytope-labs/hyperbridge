@@ -9,7 +9,6 @@ mod pallet_state_coprocessor;
 
 mod common;
 mod ismp_pharos;
-mod pallet_bridge_airdrop;
 mod pallet_collator_manager;
 mod pallet_consensus_incentives;
 mod pallet_hyper_fungible_token;

@@ -49,7 +49,6 @@ serde_json = "1.0.140"
 subxt-signer = "0.41.0"
 nexus-runtime = { workspace = true, default-features = true}
 gargantua-runtime = { workspace = true, default-features = true}
-pallet-bridge-airdrop = { workspace = true, default-features = true}
 crypto-utils = { workspace = true, default-features = true }
 pallet-messaging-incentives = { workspace = true, default-features = true}
 hyperbridge-fisherman = { workspace = true }
@@ -58,6 +57,7 @@ tesseract-fisherman = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
 mockito = "1.5"
+zstd-safe = "7.1.0"
 
 [dependencies.polkadot-sdk]
 workspace = true

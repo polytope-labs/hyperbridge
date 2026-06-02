@@ -251,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_301,
+	spec_version: 7_400,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -755,11 +755,6 @@ impl pallet_collective::Config for Runtime {
 	type Consideration = ();
 }
 
-impl pallet_bridge_airdrop::Config for Runtime {
-	type Currency = Balances;
-	type BridgeDropOrigin = EnsureRoot<AccountId>;
-}
-
 parameter_types! {
 	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
 	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
@@ -989,8 +984,6 @@ mod runtime {
 	// Governance
 	#[runtime::pallet_index(80)]
 	pub type TechnicalCollective = pallet_collective;
-	#[runtime::pallet_index(81)]
-	pub type BridgeDrop = pallet_bridge_airdrop;
 	#[runtime::pallet_index(82)]
 	pub type Vesting = pallet_vesting;
 

@@ -42,7 +42,6 @@ pallet-call-decompressor = { workspace = true, default-features = true }
 pallet-hyper-fungible-token = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
-pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-consensus-incentives = { workspace = true, default-features = true }
 pallet-messaging-incentives = { workspace = true, default-features = true }
 pallet-collator-manager = { workspace = true, default-features = true }

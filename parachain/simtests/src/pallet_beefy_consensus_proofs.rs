@@ -19,10 +19,10 @@
 //!    with the older snapshot the SP1 verifier accepts, then submits the fixture proof from Bob
 //!    (uncle accept at position 0, recorded in `AcceptedProvers` by account) and re-submits the
 //!    identical bytes from Ferdie (rejected by the anti-theft `nonce == signer` check with
-//!    `UnauthorizedProof`, since the proof is bound to Bob's committed account). The
-//!    multi-position fan-out is covered by the bench rather than here — generating multiple
-//!    distinct valid SP1 proofs requires running `polytope-labs/sp1-beefy` once per fixture. No
-//!    live network access. REGEN: the SP1 fixture must commit Bob's account as its nonce.
+//!    `UnauthorizedProof`, since the proof is bound to Bob's committed account). The multi-position
+//!    fan-out is covered by the bench rather than here — generating multiple distinct valid SP1
+//!    proofs requires running `polytope-labs/sp1-beefy` once per fixture. No live network access.
+//!    REGEN: the SP1 fixture must commit Bob's account as its nonce.
 
 #![cfg(test)]
 
@@ -670,12 +670,12 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 ///
 /// 1. Bob (`WIRE_PROOF`, committing Bob's account): SP1 verifies, uncle accepted at position 0.
 ///    `ProverCount` becomes 1 and Bob's account is recorded in `AcceptedProvers`.
-/// 2. Ferdie (Bob's exact bytes): the committed nonce is Bob's account, so the anti-theft
-///    `nonce == signer` check in `do_submit_proof` rejects it with `UnauthorizedProof` before any
-///    uncle work. State invariants hold: `ProverCount` stays at 1 and `AcceptedProvers` still
-///    holds only Bob's account. (Re-submission by the *same* account — the `ProofAlreadySubmitted`
-///    account-dedup path — needs a second proof committing Bob's account, so it is covered by the
-///    bench rather than here.)
+/// 2. Ferdie (Bob's exact bytes): the committed nonce is Bob's account, so the anti-theft `nonce ==
+///    signer` check in `do_submit_proof` rejects it with `UnauthorizedProof` before any uncle work.
+///    State invariants hold: `ProverCount` stays at 1 and `AcceptedProvers` still holds only Bob's
+///    account. (Re-submission by the *same* account — the `ProofAlreadySubmitted` account-dedup
+///    path — needs a second proof committing Bob's account, so it is covered by the bench rather
+///    than here.)
 ///
 /// Together these prove the uncle dispatch surface is wired up end-to-end on the live runtime and
 /// that a proof cannot be claimed by an account other than the one it commits. No live network

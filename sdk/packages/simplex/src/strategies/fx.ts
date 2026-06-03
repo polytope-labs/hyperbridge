@@ -507,7 +507,6 @@ export class FXFiller implements FillerStrategy {
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
 			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
-			// FX profitability is trusted to the bid/ask curves; fxMarginUsd is reported, never gated.
 			if (order.fees < totalCostInSourceFeeToken) {
 				this.logger.info(
 					{
@@ -520,8 +519,9 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 			const feeProfit = order.fees - totalCostInSourceFeeToken
-			const feeProfitParsed = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
-			const totalProfit = feeProfitParsed + fxMarginUsd.toNumber()
+			// FX bids are gated on fee profit only. fxMarginUsd is a theoretical mark-to-model
+			// value (open leg priced at the opposite curve) and is reported separately, never summed in.
+			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{

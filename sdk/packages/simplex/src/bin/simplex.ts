@@ -587,12 +587,13 @@ function validateConfig(config: FillerTomlConfig): void {
 				)
 			}
 
-			const hasStaticCurves = bidLen >= 2 && askLen >= 2
+			// A single point is a valid flat curve — FillerPricePolicy returns that price at every size.
+			const hasStaticCurves = bidLen >= 1 && askLen >= 1
 			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
 			if (!hasStaticCurves && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide bid+ask price curves (≥2 points each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					"hyperfx: provide bid+ask price curves (≥1 point each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
@@ -603,9 +604,6 @@ function validateConfig(config: FillerTomlConfig): void {
 			}
 
 			if (bidLen > 0) {
-				if (!hasStaticCurves) {
-					throw new Error("hyperfx: bid and ask price curves must each have at least 2 points when provided")
-				}
 				for (const point of strategy.bidPriceCurve!) {
 					if (point.amount === undefined || point.price === undefined) {
 						throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")

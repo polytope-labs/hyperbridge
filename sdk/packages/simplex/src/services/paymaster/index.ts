@@ -33,7 +33,12 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 	const usdcAddress = configService.getUsdcAsset(chain)
 	const usdcDecimals = configService.getUsdcDecimals(chain)
 
-	if (!usdcAddress || !(await hasSufficientBalance(publicClient, solverAccount, usdcAddress, usdcDecimals))) {
+	if (!usdcAddress) {
+		return { paymasterAndData: "0x" as HexString, type: "none" }
+	}
+
+	const { sufficient } = await getUsdcBalanceStatus(publicClient, solverAccount, usdcAddress, usdcDecimals)
+	if (!sufficient) {
 		return { paymasterAndData: "0x" as HexString, type: "none" }
 	}
 
@@ -47,12 +52,17 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-async function hasSufficientBalance(
+/**
+ * Reads `account`'s token balance and reports it against the 1-token minimum the paymaster
+ * needs to sponsor a UserOp. Returns the raw balance and required amount too, so callers can
+ * log a precise deficit rather than a bare boolean.
+ */
+export async function getUsdcBalanceStatus(
 	publicClient: PaymasterOptions["publicClient"],
 	account: HexString,
 	tokenAddress: HexString,
 	tokenDecimals: number,
-): Promise<boolean> {
+): Promise<{ balance: bigint; required: bigint; sufficient: boolean }> {
 	const balance = (await publicClient.readContract({
 		address: tokenAddress,
 		abi: erc20Abi,
@@ -60,6 +70,6 @@ async function hasSufficientBalance(
 		args: [account],
 	})) as bigint
 
-	const minBalance = 10n ** BigInt(tokenDecimals)
-	return balance >= minBalance
+	const required = 10n ** BigInt(tokenDecimals)
+	return { balance, required, sufficient: balance >= required }
 }

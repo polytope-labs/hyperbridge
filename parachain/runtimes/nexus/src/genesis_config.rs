@@ -18,7 +18,7 @@ use crate::{
 	RuntimeGenesisConfig, SessionConfig, SessionKeys, EXISTENTIAL_DEPOSIT,
 };
 
-use alloc::{vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 
 use polkadot_sdk::{sp_core::Pair, staging_xcm as xcm, *};
 
@@ -47,7 +47,7 @@ fn testnet_genesis(
 	invulnerables: Vec<(AccountId, AuraId)>,
 	endowed_accounts: Vec<AccountId>,
 	id: ParaId,
-) -> Value {
+) -> Result<Value, String> {
 	let genesis = RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
@@ -83,10 +83,10 @@ fn testnet_genesis(
 		..Default::default()
 	};
 
-	json::to_value(genesis).expect("Could not build genesis config.")
+	json::to_value(genesis).map_err(|e| format!("{e}"))
 }
 
-fn local_testnet_genesis() -> Value {
+fn local_testnet_genesis() -> Result<Value, String> {
 	testnet_genesis(
 		// initial collators.
 		vec![
@@ -111,7 +111,7 @@ fn local_testnet_genesis() -> Value {
 	)
 }
 
-fn development_config_genesis() -> Value {
+fn development_config_genesis() -> Result<Value, String> {
 	testnet_genesis(
 		// initial collators.
 		vec![
@@ -141,15 +141,11 @@ fn development_config_genesis() -> Value {
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<vec::Vec<u8>> {
 	let patch = match id.as_str().try_into() {
-		Ok(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET) => local_testnet_genesis(),
-		Ok(sp_genesis_builder::DEV_RUNTIME_PRESET) => development_config_genesis(),
+		Ok(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET) => local_testnet_genesis().ok()?,
+		Ok(sp_genesis_builder::DEV_RUNTIME_PRESET) => development_config_genesis().ok()?,
 		_ => return None,
 	};
-	Some(
-		json::to_string(&patch)
-			.expect("serialization to json is expected to work. qed.")
-			.into_bytes(),
-	)
+	Some(json::to_string(&patch).ok()?.into_bytes())
 }
 
 /// List of supported presets.

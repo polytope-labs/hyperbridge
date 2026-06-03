@@ -196,9 +196,7 @@ pub mod pallet {
 				(params.clone(), update);
 			inner.update(update);
 
-			let body = inner
-				.abi_encode_with_variant()
-				.expect("u128 will always fit inside a U256; qed");
+			let body = inner.abi_encode_with_variant().map_err(|_| Error::<T>::DispatchFailed)?;
 
 			let post = DispatchPost {
 				dest: state_machine,

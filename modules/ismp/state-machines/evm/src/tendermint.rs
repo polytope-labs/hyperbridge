@@ -124,7 +124,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			let key = storage_key_for(
 				proof.height.id.state_id,
 				&contract_address.0,
-				slot.clone().try_into().expect("32 bytes"),
+				slot.clone().try_into().map_err(|_| TendermintEvmError::UnsupportedKeyLength)?,
 			);
 
 			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
@@ -191,7 +191,13 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
 			// Determine contract address and 32-byte slot based on key length
 			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
-				(default_contract_address, key_bytes.clone().try_into().expect("32 bytes"))
+				(
+					default_contract_address,
+					key_bytes
+						.clone()
+						.try_into()
+						.map_err(|_| TendermintEvmError::UnsupportedKeyLength)?,
+				)
 			} else {
 				// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
 				let addr = H160::from_slice(&key_bytes[..20]);
@@ -277,7 +283,13 @@ pub fn verify_evm_kv_proofs(
 	for (key_bytes, ev) in keys.drain(..).zip(proofs.into_iter()) {
 		// Determine contract address and 32-byte slot based on key length
 		let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
-			(default_contract_address, key_bytes.clone().try_into().expect("32 bytes"))
+			(
+				default_contract_address,
+				key_bytes
+					.clone()
+					.try_into()
+					.map_err(|_| TendermintEvmError::UnsupportedKeyLength)?,
+			)
 		} else {
 			// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
 			let addr = H160::from_slice(&key_bytes[..20]);

@@ -820,8 +820,8 @@ pub mod pallet {
 				Err(Error::<T>::StaleProof)?
 			};
 
-			let coprocessor = T::Coprocessor::get().unwrap();
-			let latest_height = Self::latest_height();
+			let coprocessor = T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?;
+			let latest_height = Self::latest_height()?;
 
 			if latest_height <= prev_height {
 				Err(Error::<T>::StaleProof)?

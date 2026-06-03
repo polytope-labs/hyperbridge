@@ -125,7 +125,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 
 		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 120_000, pollIntervalMs: 5_000 })
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 120_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
 		if (result.value?.status === "AWAITING_PLACE_ORDER") {
 			const { to, data, value } = result.value
@@ -244,7 +244,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		console.log("Preparing to place order...")
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI)
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 0 })
 		let result = await gen.next()
 		if (result.value?.status === "AWAITING_PLACE_ORDER") {
 			const { to, data, value } = result.value
@@ -348,7 +348,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 
 		const userSdkHelper = await IntentGateway.create(tronChain, polygonAmoyEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 240_000, pollIntervalMs: 5_000 })
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 240_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
 		if (result.value?.status === "AWAITING_PLACE_ORDER") {
 			const { data } = result.value

@@ -19,6 +19,7 @@ import type {
 	IntentOrderStatusUpdate,
 	SelectBidResult,
 	FillerBid,
+	Bid,
 } from "@/types"
 import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
@@ -126,7 +127,7 @@ export class IntentGateway {
 		const gasEstimator = new GasEstimator(this.ctx, crypto)
 
 		this.orderPlacer = new OrderPlacer(this.ctx)
-		this.orderExecutor = new OrderExecutor(this.ctx, bidManager, crypto)
+		this.orderExecutor = new OrderExecutor(this.ctx, bidManager)
 		this.orderCanceller = new OrderCanceller(this.ctx)
 		this.orderStatusChecker = new OrderStatusChecker(this.ctx)
 		this.bidManager = bidManager
@@ -222,7 +223,7 @@ export class IntentGateway {
 			pollIntervalMs?: number
 			solver?: { address: HexString; timeoutMs: number }
 		},
-	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
+	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
 		let value: bigint | undefined
 
 		if (!order.fees || order.fees === 0n) {
@@ -250,7 +251,7 @@ export class IntentGateway {
 
 		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }
 
-		const placeOrderSecond = await placeOrderGen.next(signedTransaction)
+		const placeOrderSecond = await placeOrderGen.next(signedTransaction as HexString)
 		if (placeOrderSecond.done === false) {
 			throw new Error("placeOrder generator yielded unexpectedly after signing")
 		}
@@ -261,17 +262,38 @@ export class IntentGateway {
 
 		yield { status: "ORDER_PLACED", order: finalizedOrder, receipt: placementReceipt }
 
-		for await (const status of this.orderExecutor.executeOrder({
-			order: finalizedOrder,
-			sessionPrivateKey,
-			auctionTimeMs: options.auctionTimeMs,
-			pollIntervalMs: options.pollIntervalMs,
-			solver: options.solver,
-		})) {
-			yield status
-		}
+		yield* this.driveExecution(
+			this.orderExecutor.executeOrder({
+				order: finalizedOrder,
+				sessionPrivateKey,
+				auctionTimeMs: options.auctionTimeMs,
+				pollIntervalMs: options.pollIntervalMs,
+				solver: options.solver,
+			}),
+		)
 
 		return
+	}
+
+	/**
+	 * Forwards updates from the executor's bidirectional generator to the caller,
+	 * threading the {@link SelectBidResult} the caller feeds back after a
+	 * `BIDS_RECEIVED` yield into the executor's `.next()`. Other yields expect no
+	 * feedback. This is what lets the consumer own `bid.execute()` while the
+	 * executor keeps tracking fills and continuing the auction.
+	 */
+	private async *driveExecution(
+		execGen: AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined>,
+	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
+		let input: SelectBidResult | undefined
+		while (true) {
+			const { value, done } = await execGen.next(input)
+			input = undefined
+			if (done) break
+
+			const fed = yield value
+			if (value.status === "BIDS_RECEIVED") input = fed as SelectBidResult | undefined
+		}
 	}
 
 	/**
@@ -312,17 +334,86 @@ export class IntentGateway {
 	async *resume(
 		order: Order,
 		options: ResumeIntentOrderOptions,
-	): AsyncGenerator<IntentOrderStatusUpdate, void> {
+	): AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined> {
 		this.assertOrderCanResume(order)
 
-		for await (const status of this.orderExecutor.executeOrder({
-			order,
-			sessionPrivateKey: options.sessionPrivateKey,
-			auctionTimeMs: options.auctionTimeMs,
-			pollIntervalMs: options.pollIntervalMs,
-			solver: options.solver,
-		})) {
-			yield status
+		yield* this.driveExecution(
+			this.orderExecutor.executeOrder({
+				order,
+				sessionPrivateKey: options.sessionPrivateKey,
+				auctionTimeMs: options.auctionTimeMs,
+				pollIntervalMs: options.pollIntervalMs,
+				solver: options.solver,
+			}),
+		)
+	}
+
+	/**
+	 * Batteries-included variant of {@link execute}: places the order and then
+	 * auto-selects the best bid each round via {@link selectAndExecuteBest}, with
+	 * no bid-selection input from the caller — the SDK's historical behaviour.
+	 *
+	 * The caller still signs the placement transaction: this generator yields
+	 * `AWAITING_PLACE_ORDER` and the caller must hand the signed tx back via
+	 * `gen.next(signedTx)` exactly as with {@link execute}. Every other stage
+	 * (`BIDS_RECEIVED`, `BID_SELECTED`, `FILLED`, …) is handled automatically and
+	 * surfaced for observation, so the rest of the loop needs no feedback.
+	 *
+	 * @param order - The order to place and execute.
+	 * @param graffiti - Optional orderflow-attribution tag.
+	 * @param options - Same tuning parameters as {@link execute}.
+	 * @yields {@link IntentOrderStatusUpdate} at each lifecycle stage.
+	 */
+	async *executeBest(
+		order: Order,
+		graffiti: HexString = DEFAULT_GRAFFITI,
+		options: {
+			auctionTimeMs: number
+			maxPriorityFeePerGasBumpPercent?: number
+			maxFeePerGasBumpPercent?: number
+			pollIntervalMs?: number
+			solver?: { address: HexString; timeoutMs: number }
+		},
+	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
+		const gen = this.execute(order, graffiti, options)
+		let input: HexString | SelectBidResult | undefined
+		while (true) {
+			const { value, done } = await gen.next(input)
+			input = undefined
+			if (done) break
+
+			if (value.status === "BIDS_RECEIVED") {
+				yield value
+				input = await this.selectAndExecuteBest(order, value.bids)
+			} else if (value.status === "AWAITING_PLACE_ORDER") {
+				input = yield value
+			} else {
+				yield value
+			}
+		}
+	}
+
+	/**
+	 * Batteries-included variant of {@link resume}: auto-selects the best bid each
+	 * round via {@link selectAndExecuteBest}, with no bid-selection input from the
+	 * caller. A plain `for await` loop is sufficient — there is no placement step.
+	 *
+	 * @param order - A previously placed order with a valid `id` and `session`.
+	 * @param options - Optional tuning parameters for bid collection and execution.
+	 * @yields {@link IntentOrderStatusUpdate} at each execution stage.
+	 */
+	async *resumeBest(order: Order, options: ResumeIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
+		const gen = this.resume(order, options)
+		let input: SelectBidResult | undefined
+		while (true) {
+			const { value, done } = await gen.next(input)
+			input = undefined
+			if (done) break
+
+			yield value
+			if (value.status === "BIDS_RECEIVED") {
+				input = await this.selectAndExecuteBest(order, value.bids)
+			}
 		}
 	}
 
@@ -390,10 +481,57 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Selects the best available bid, simulates it, and submits the UserOperation
-	 * to the bundler.
+	 * Decodes raw filler bids into first-class {@link Bid} objects that can be
+	 * ranked, simulated, and executed by the consumer.
 	 *
-	 * Delegates to {@link BidManager.selectBid}.
+	 * Delegates to {@link BidManager.buildBids}.
+	 *
+	 * @param order - The placed order the bids are competing to fill.
+	 * @param bids - Raw filler bids fetched from the coprocessor.
+	 * @param sessionPrivateKey - Optional session key override; looked up from
+	 *   storage by `order.session` if omitted.
+	 * @returns Array of executable {@link Bid} objects.
+	 */
+	buildBids(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString): Bid[] {
+		return this.bidManager.buildBids(order, bids, sessionPrivateKey)
+	}
+
+	/**
+	 * Sorts bids by output value using the same strategy the autopilot uses.
+	 *
+	 * Delegates to {@link BidManager.sortBids}.
+	 *
+	 * @param order - The placed order whose output spec drives sorting.
+	 * @param bids - Bids to sort (from {@link buildBids}).
+	 * @returns Sorted array of {@link Bid} objects.
+	 */
+	async sortBids(order: Order, bids: Bid[]): Promise<Bid[]> {
+		return this.bidManager.sortBids(order, bids)
+	}
+
+	/**
+	 * Autopilot bid selection: sorts the given bids, simulates each until one
+	 * passes, then executes it. Preserves the SDK's historical "pick the best and
+	 * go" behaviour on top of the {@link Bid} API.
+	 *
+	 * Delegates to {@link BidManager.selectAndExecuteBest}.
+	 *
+	 * @param order - The placed order to fill.
+	 * @param bids - Candidate bids (from {@link buildBids}).
+	 * @returns A {@link SelectBidResult} with the submitted UserOperation, hashes,
+	 *   and fill status.
+	 */
+	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
+		return this.bidManager.selectAndExecuteBest(order, bids)
+	}
+
+	/**
+	 * Drop-in for the historical auto-select path: decodes, sorts, simulates,
+	 * signs, and submits the best of the given raw filler bids with no per-bid
+	 * input from the caller.
+	 *
+	 * Delegates to {@link BidManager.selectBid}. Prefer {@link buildBids} +
+	 * {@link selectAndExecuteBest} (or {@link executeBest}) for new code.
 	 *
 	 * @param order - The placed order to fill.
 	 * @param bids - Raw filler bids fetched from the coprocessor.

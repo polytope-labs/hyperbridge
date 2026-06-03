@@ -1,4 +1,5 @@
 import type { ConsolaInstance } from "consola"
+import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
@@ -1326,6 +1327,53 @@ export interface SelectOptions {
 	signature: HexString
 }
 
+/**
+ * A first-class, executable solver bid surfaced to consumers of the intents SDK.
+ *
+ * Each `Bid` wraps a single decoded {@link FillerBid} and exposes the metadata
+ * needed to rank it (preferred solvers, reputation, USD value, etc.) alongside
+ * the two primitives required to act on it: {@link Bid.simulate} to pre-check a
+ * bid off-chain, and {@link Bid.execute} to sign the solver selection and submit
+ * the UserOperation to the bundler.
+ *
+ * Consumers receive `Bid` instances via the `NEW_BID` / `BIDS_RECEIVED` status
+ * updates, pick one according to their own logic, and feed the
+ * {@link SelectBidResult} returned by {@link Bid.execute} back into the execution
+ * generator so it can continue tracking fills.
+ */
+export interface Bid {
+	/** The solver account that submitted this bid (`userOp.sender`). */
+	readonly solverAddress: HexString
+	/** Decoded `FillOptions.outputs` — the tokens and amounts the solver offers. */
+	readonly outputs: TokenInfo[]
+	/** Relayer fee from the decoded fill options. */
+	readonly relayerFee: bigint
+	/** Hyperbridge native dispatch fee from the decoded fill options. */
+	readonly nativeDispatchFee: bigint
+	/** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
+	readonly userOp: PackedUserOperation
+	/**
+	 * Runs the batched `select` + `fillOrder` `eth_call` simulation so a bid can
+	 * be pre-checked before it is shown to a user or submitted.
+	 *
+	 * @throws If the simulation reverts.
+	 */
+	simulate(): Promise<void>
+	/**
+	 * Signs the `SelectSolver` EIP-712 message with the order's session key, packs
+	 * the final UserOp signature, and submits it to the bundler.
+	 *
+	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
+	 *   the solver address, transaction hash, and fill status.
+	 */
+	execute(): Promise<SelectBidResult>
+	/**
+	 * Prices the bid's outputs in USD using the same on-chain DEX-quote helpers
+	 * used for sorting. Returns `null` when any output token cannot be priced.
+	 */
+	outputUsdValue(): Promise<Decimal | null>
+}
+
 // =============================================================================
 // Intent Order Flow Types
 // =============================================================================
@@ -1353,8 +1401,8 @@ export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
-	| { status: "NEW_BID"; commitment: HexString; bidCount: number; bids: FillerBid[] }
-	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
+	| { status: "NEW_BID"; commitment: HexString; bid: Bid }
+	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: Bid[] }
 	| {
 			status: "BID_SELECTED"
 			commitment: HexString

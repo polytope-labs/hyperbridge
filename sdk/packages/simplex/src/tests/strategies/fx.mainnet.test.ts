@@ -127,7 +127,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		// Same-chain: source and destination EvmChain are both Polygon
 		const userSdkHelper = await IntentGateway.create(polygonEvmChain, polygonEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 10_000,
 			pollIntervalMs: 2_000,
 		})
@@ -260,7 +260,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 15_000,
 			pollIntervalMs: 5_000,
 		})
@@ -493,7 +493,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		tlog("IntentGateway ready", { chainId: 8453, bundlerUrl: destBundlerUrl })
 
 		// `execute()` handles placement, then the same bid/fill pipeline as OrderExecutor (no local IntentFiller).
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 10_000,
 			pollIntervalMs: 2_000,
 		})
@@ -916,7 +916,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 10_000,
 			pollIntervalMs: 2_000,
 		})
@@ -1242,7 +1242,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 10_000,
 			pollIntervalMs: 2_000,
 		})
@@ -1376,7 +1376,7 @@ describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 
 		const userSdkHelper = await IntentGateway.create(bscEvmChain, bscEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 15_000,
 			pollIntervalMs: 5_000,
 		})
@@ -1557,7 +1557,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 
 		const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, arbitrumEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 			auctionTimeMs: 10_000,
 			pollIntervalMs: 2_000,
 		})
@@ -1705,7 +1705,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 
 			const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, baseEvmChain, intentsCoprocessor)
 
-			const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, {
 				auctionTimeMs: 10_000,
 				pollIntervalMs: 2_000,
 			})

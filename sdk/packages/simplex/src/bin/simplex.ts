@@ -4,6 +4,7 @@ import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
+import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
@@ -15,6 +16,7 @@ import {
 	FillerConfigService,
 	type UserProvidedChainConfig,
 	type ResolvedChainConfig,
+	type AllowlistConfig,
 	FillerConfig as FillerServiceConfig,
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
@@ -191,6 +193,8 @@ interface FillerTomlConfig {
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
+	/** Restricts order processing to listed user addresses. Omit to accept all users. */
+	allowlist?: AllowlistConfig
 }
 
 const program = new Command()
@@ -250,6 +254,7 @@ program
 				targetGasUnits: config.simplex.targetGasUnits,
 				gasFeeBump: config.simplex.gasFeeBump,
 				overfillProtection: config.simplex.overfillProtection,
+				allowlist: config.allowlist,
 			}
 
 			const configService = new FillerConfigService(resolvedChains, fillerConfigForService)
@@ -532,6 +537,25 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")
+		}
+	}
+
+	// Validate allowlist addresses (when present)
+	if (config.allowlist) {
+		for (const user of config.allowlist.users ?? []) {
+			if (!isAddress(user)) {
+				throw new Error(`allowlist.users contains an invalid address: ${user}`)
+			}
+		}
+		for (const [chain, users] of Object.entries(config.allowlist.bySource ?? {})) {
+			if (!Array.isArray(users)) {
+				throw new Error(`allowlist.bySource."${chain}" must be an array of addresses`)
+			}
+			for (const user of users) {
+				if (!isAddress(user)) {
+					throw new Error(`allowlist.bySource."${chain}" contains an invalid address: ${user}`)
+				}
+			}
 		}
 	}
 

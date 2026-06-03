@@ -366,6 +366,14 @@ export class IntentFiller {
 					return
 				}
 
+				if (!this.configService.isUserAllowed(order.user, order.source)) {
+					this.logger.debug(
+						{ orderId: order.id, user: order.user, source: order.source },
+						"Order user not in allowlist, skipping",
+					)
+					return
+				}
+
 				// Guard against phantom commitments: the off-chain order reconstruction
 				// can mis-pair OrderPlaced logs with placeOrder calldata when a single tx
 				// contains multiple placeOrder calls, yielding a commitment that has no

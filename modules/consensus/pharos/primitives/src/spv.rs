@@ -341,6 +341,11 @@ pub fn verify_non_existence_proof(
 
 	// When the terminal is all-zero it only marks the end of an empty path; the actual
 	// sibling evidence lives in the deepest ancestor that has non-empty non-path slots.
+	//
+	// The two branches differ in parent_end by design: for a non-empty terminal the
+	// anchor is excluded and must reappear as sib.proof_path[0] (re-routed via the
+	// sibling slot); for an all-zero terminal the anchor is an ancestor already
+	// committed in parent_nodes, so sib.proof_path begins at the sibling slot's child.
 	let (anchor, anchor_depth, anchor_queried_nibble, anchor_non_empty_count, parent_end) =
 		if non_empty_count > 0 {
 			(last as &[u8], depth, nibble, non_empty_count, proof_nodes.len() - 1)
@@ -743,6 +748,62 @@ mod tests {
 		];
 
 		assert!(verify_non_existence_proof(&proof, query, &root, &[]).is_ok());
+	}
+
+	// Honest Pharos non-existence proof: all-zero terminal with a branching ancestor.
+	// The anchor (deepest ancestor with non-empty non-path siblings) must be covered by
+	// sibling proofs; the proof is rejected without them.
+	#[test]
+	fn test_non_existence_case2_all_zero_terminal_with_anchor_sibling() {
+		let query_key = b"missing_key";
+		let key_hash = sha256(query_key);
+		let msu_slot = *query_key.last().unwrap() as usize;
+		let queried_nibble = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let sibling_slot = (queried_nibble + 1) % INTERNAL_NODE_SLOTS;
+		let query_last_byte = *query_key.last().unwrap();
+
+		// Find a sibling key that routes through sibling_slot at depth 0 and shares the
+		// same last byte as the query key (same MSU subtree, so the walk root check passes).
+		let (sib_key, _) = (0u32..)
+			.map(|i| {
+				let mut k = b"sibling_".to_vec();
+				k.extend_from_slice(&i.to_le_bytes());
+				k.push(query_last_byte);
+				let h = sha256(&k);
+				(k, h)
+			})
+			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() as usize == sibling_slot)
+			.unwrap();
+
+		let sib_leaf = make_leaf(&sib_key, b"v");
+		let sib_leaf_hash = sha256(&sib_leaf);
+
+		let mut anchor_data = vec![0u8; INTERNAL_NODE_LEN];
+		let s = INTERNAL_NODE_HEADER + sibling_slot * INTERNAL_NODE_SLOT_SIZE;
+		anchor_data[s..s + 32].copy_from_slice(&sib_leaf_hash);
+		let anchor_hash = hash_internal_node(&anchor_data);
+
+		let msu_root = make_msu_root_with_child(msu_slot, &anchor_hash);
+		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let proof = vec![
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(anchor_data, 0, 0),
+			node(vec![0u8; INTERNAL_NODE_LEN], 0, 0),
+		];
+
+		let sibling = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: sib_key,
+			proof_path: vec![node(sib_leaf, 0, 0)],
+		};
+
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[sibling]).is_ok());
+		assert!(matches!(
+			verify_non_existence_proof(&proof, query_key, &root, &[]),
+			Err(Error::SiblingCountMismatch)
+		));
 	}
 
 	// Moving the leaf to a sibling slot makes the parent the deepest anchor; it requires

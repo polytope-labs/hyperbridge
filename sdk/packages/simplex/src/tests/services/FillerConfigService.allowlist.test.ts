@@ -41,6 +41,14 @@ describe("FillerConfigService allowlist", () => {
 		expect(svc.isUserAllowed(USER_C, "EVM-1")).toBe(false)
 	})
 
+	it("enforces per-source overrides when no global users list is configured", () => {
+		const svc = service({ bySource: { "EVM-1": [USER_B] } })
+		expect(svc.isUserAllowed(USER_B, "EVM-1")).toBe(true)
+		// No global list and no override for this chain rejects all.
+		expect(svc.isUserAllowed(USER_B, "EVM-42161")).toBe(false)
+		expect(svc.isUserAllowed(USER_A, "EVM-1")).toBe(false)
+	})
+
 	it("rejects every user when the allowlist is present but empty for a chain", () => {
 		const svc = service({ users: [], bySource: { "EVM-1": [USER_B] } })
 		// Chain with no override and an empty global list rejects all.

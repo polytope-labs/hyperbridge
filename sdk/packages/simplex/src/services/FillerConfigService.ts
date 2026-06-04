@@ -155,10 +155,10 @@ export class FillerConfigService {
 	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
 	private fillerConfig?: FillerConfig
-	/** Lowercased global allowlist users, or undefined when no allowlist is configured. */
+	/** Lowercased global allowlist users, or undefined when no global list is configured. */
 	private allowlistGlobal?: Set<string>
-	/** Lowercased per-source allowlist users, keyed by state machine id. */
-	private allowlistBySource: Map<string, Set<string>> = new Map()
+	/** Lowercased per-source allowlist users keyed by state machine id, or undefined when no per-source list is configured. */
+	private allowlistBySource?: Map<string, Set<string>>
 
 	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
 		chainConfigs.forEach((config) => {
@@ -176,11 +176,16 @@ export class FillerConfigService {
 		this.fillerConfig = fillerConfig
 
 		const allowlist = fillerConfig?.allowlist
-		if (allowlist) {
-			this.allowlistGlobal = new Set((allowlist.users ?? []).map((u) => u.toLowerCase()))
-			for (const [chain, users] of Object.entries(allowlist.bySource ?? {})) {
-				this.allowlistBySource.set(chain, new Set(users.map((u) => u.toLowerCase())))
-			}
+		if (allowlist?.users) {
+			this.allowlistGlobal = new Set(allowlist.users.map((u) => u.toLowerCase()))
+		}
+		if (allowlist?.bySource) {
+			this.allowlistBySource = new Map(
+				Object.entries(allowlist.bySource).map(([chain, users]) => [
+					chain,
+					new Set(users.map((u) => u.toLowerCase())),
+				]),
+			)
 		}
 	}
 
@@ -195,10 +200,10 @@ export class FillerConfigService {
 	 * merged set rejects every order on that chain.
 	 */
 	isUserAllowed(user: string, chain: string): boolean {
-		if (!this.allowlistGlobal) return true
+		if (!this.allowlistGlobal && !this.allowlistBySource) return true
 		const normalized = user.toLowerCase()
-		if (this.allowlistGlobal.has(normalized)) return true
-		return this.allowlistBySource.get(chain)?.has(normalized) ?? false
+		if (this.allowlistGlobal?.has(normalized)) return true
+		return this.allowlistBySource?.get(chain)?.has(normalized) ?? false
 	}
 
 	getChainConfig(chain: string): ChainConfig {

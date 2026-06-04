@@ -127,7 +127,13 @@ export class IntentFiller {
 			)
 			const result = await this.delegationService.setupDelegationOnChains(chainsWithSolverSelection)
 			if (!result.success) {
-				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
+				const failedChains = Object.entries(result.results)
+					.filter(([, ok]) => !ok)
+					.map(([chain]) => chain)
+				this.logger.error({ results: result.results }, "EIP-7702 delegation setup failed; shutting down")
+				throw new Error(
+					`EIP-7702 delegation failed on chains: ${failedChains.join(", ")}. Shutting down for restart.`,
+				)
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains

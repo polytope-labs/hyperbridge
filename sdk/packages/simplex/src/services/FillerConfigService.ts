@@ -1,5 +1,5 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
-import { ChainConfigService } from "@hyperbridge/sdk"
+import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
@@ -177,13 +177,13 @@ export class FillerConfigService {
 
 		const allowlist = fillerConfig?.allowlist
 		if (allowlist?.users) {
-			this.allowlistGlobal = new Set(allowlist.users.map((u) => u.toLowerCase()))
+			this.allowlistGlobal = new Set(allowlist.users.map((u) => bytes32ToBytes20(u).toLowerCase()))
 		}
 		if (allowlist?.bySource) {
 			this.allowlistBySource = new Map(
 				Object.entries(allowlist.bySource).map(([chain, users]) => [
 					chain,
-					new Set(users.map((u) => u.toLowerCase())),
+					new Set(users.map((u) => bytes32ToBytes20(u).toLowerCase())),
 				]),
 			)
 		}
@@ -201,7 +201,9 @@ export class FillerConfigService {
 	 */
 	isUserAllowed(user: string, chain: string): boolean {
 		if (!this.allowlistGlobal && !this.allowlistBySource) return true
-		const normalized = user.toLowerCase()
+		// order.user arrives as the bytes32 (left-padded) form from OrderPlaced; the
+		// allowlist is configured with 20-byte addresses. Canonicalize both to compare.
+		const normalized = bytes32ToBytes20(user).toLowerCase()
 		if (this.allowlistGlobal?.has(normalized)) return true
 		return this.allowlistBySource?.get(chain)?.has(normalized) ?? false
 	}

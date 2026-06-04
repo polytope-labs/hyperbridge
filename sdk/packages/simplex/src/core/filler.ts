@@ -130,9 +130,19 @@ export class IntentFiller {
 				const failedChains = Object.entries(result.results)
 					.filter(([, ok]) => !ok)
 					.map(([chain]) => chain)
-				this.logger.error({ results: result.results }, "EIP-7702 delegation setup failed; shutting down")
-				throw new Error(
-					`EIP-7702 delegation failed on chains: ${failedChains.join(", ")}. Shutting down for restart.`,
+				const allFailed = failedChains.length === chainsWithSolverSelection.length
+				if (allFailed) {
+					this.logger.error(
+						{ results: result.results },
+						"EIP-7702 delegation failed on all chains; shutting down",
+					)
+					throw new Error(
+						`EIP-7702 delegation failed on all chains: ${failedChains.join(", ")}. Shutting down for restart.`,
+					)
+				}
+				this.logger.warn(
+					{ failedChains, results: result.results },
+					"Some chains failed EIP-7702 delegation setup; continuing on remaining chains",
 				)
 			}
 

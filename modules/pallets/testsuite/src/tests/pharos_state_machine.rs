@@ -266,6 +266,14 @@ async fn test_pharos_non_existence_account_proof() {
 	let sibling_proofs = rpc_to_sibling_proofs(&proof.sibling_leftmost_leaf_proofs)
 		.expect("Failed to convert sibling proofs");
 
+	// The Pharos non-existence proof format always terminates at an all-zero internal
+	// node. The verifier's ancestor-anchor logic depends on this.
+	let terminal = proof_nodes.last().expect("proof is non-empty");
+	assert!(
+		terminal.proof_node.iter().all(|&b| b == 0),
+		"Pharos non-existence proof no longer terminates at an all-zero node — notify the Pharos team"
+	);
+
 	let address_bytes: [u8; 20] = fake_address.0;
 	spv::verify_non_existence_proof(&proof_nodes, &address_bytes, &state_root.0, &sibling_proofs)
 		.expect("Non-existence proof should be valid for fake account");
@@ -312,6 +320,14 @@ async fn test_pharos_non_existence_storage_proof() {
 			.expect("Failed to convert storage proof nodes");
 		let sibling_proofs = rpc_to_sibling_proofs(&storage_entry.sibling_leftmost_leaf_proofs)
 			.expect("Failed to convert sibling proofs");
+
+		// Guard the format invariant the verifier depends on. If Pharos changes their
+		// proof format and the terminal is no longer all-zero, notify the Pharos team.
+		let terminal = proof_nodes.last().expect("proof is non-empty");
+		assert!(
+			terminal.proof_node.iter().all(|&b| b == 0),
+			"Pharos non-existence proof no longer terminates at an all-zero node — notify the Pharos team"
+		);
 
 		let address_bytes: [u8; 20] = address.0;
 		let mut slot_key = [0u8; 32];

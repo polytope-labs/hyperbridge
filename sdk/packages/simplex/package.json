@@ -23,7 +23,7 @@
 		"build": "bash ./scripts/build.sh",
 		"prepublishOnly": "npm run build",
 		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
-		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts src/tests/quorum-public-client.test.ts",
+		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.testnet.test.ts src/tests/quorum-public-client.test.ts",
 		"test:basic:testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
 		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
 		"test:fx-testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.testnet.test.ts",

@@ -120,6 +120,25 @@ impl<C: Config> BscPosProver<C> {
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
+		// BEP-126 fast finality only finalizes `source_header` once the justified
+		// `target_header` is its direct child (two consecutive justified blocks).
+		// A non-adjacent vote leaves `source_header` merely justified and still
+		// reorg-able, so never emit such an update: the on-chain verifier rejects
+		// it (`NonConsecutiveFinalization`) and committing a reorg-able source as
+		// finalized would be unsound.
+		if target_header.number.low_u64() != source_header.number.low_u64().saturating_add(1) ||
+			target_header.parent_hash.0 != source_hash.0
+		{
+			trace!(
+				target: "bsc-prover",
+				"skipping non-adjacent vote: source #{} target #{} (target parent {:?} != source {source_hash:?})",
+				source_header.number.low_u64(),
+				target_header.number.low_u64(),
+				target_header.parent_hash,
+			);
+			return Ok(None);
+		}
+
 		let mut epoch_header_ancestry = vec![];
 		let epoch_header_number = params.epoch * params.epoch_length;
 		// If we are still in authority rotation period get the epoch header ancestry alongside

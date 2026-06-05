@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE, parse_extra};
+use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
@@ -96,6 +96,18 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		target_header_hash.0 != extra_data.vote_data.target_hash.0
 	{
 		Err(Error::HeaderVoteDataMismatch)?
+	}
+
+	// BEP-126 fast finality only *finalizes* `source_header` once the justified
+	// `target_header` is its direct child (two consecutive justified blocks). A
+	// supermajority-signed but non-adjacent vote justifies `target_header` yet
+	// leaves `source_header` merely justified and still reorg-able, so committing
+	// its state root as a finalized BSC state commitment would be unsound.
+	if update.target_header.number.low_u64() !=
+		update.source_header.number.low_u64().saturating_add(1) ||
+		update.target_header.parent_hash.0 != source_header_hash.0
+	{
+		Err(Error::NonConsecutiveFinalization)?
 	}
 
 	let participants: Vec<BlsPublicKey> = current_validators
@@ -202,7 +214,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloy_primitives::{B256, Bytes, FixedBytes};
+	use alloy_primitives::{Bytes, FixedBytes, B256};
 	use alloy_rlp::Encodable;
 	use geth_primitives::CodecHeader;
 	use primitive_types::{H160, H256, U256};
@@ -335,5 +347,44 @@ mod tests {
 		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
 			.expect_err("under-threshold update must be rejected");
 		assert!(format!("{err}").contains("Not enough participants"), "unexpected error: {err:?}");
+	}
+
+	/// Minimal header at a given block number (no vote attestation).
+	fn plain_header(number: u64, parent_hash: H256) -> CodecHeader {
+		let mut header = header_with_vote_set(0, B256::ZERO, B256::ZERO);
+		header.extra_data = Vec::new();
+		header.number = U256::from(number);
+		header.parent_hash = parent_hash;
+		header
+	}
+
+	/// A supermajority-signed vote whose `target` is NOT the direct child of
+	/// `source` must be rejected: committing a merely-justified (reorg-able)
+	/// `source` as finalized violates BEP-126's two-consecutive-justified rule.
+	#[test]
+	fn rejects_non_adjacent_source_target() {
+		let validators = dummy_validators(21);
+		let mask: u64 = (1u64 << 21) - 1;
+
+		// source #10 and target #15 — not consecutive, and target.parent != source.
+		let source_header = plain_header(10, H256::repeat_byte(0x11));
+		let source_hash = Header::from(&source_header).hash::<TestHost>();
+		let target_header = plain_header(15, H256::repeat_byte(0x22));
+		let target_hash = Header::from(&target_header).hash::<TestHost>();
+
+		// The attestation carries the genuine source/target header hashes, so the
+		// header<->vote binding check passes and we reach the adjacency check.
+		let attested_header =
+			header_with_vote_set(mask, B256::from(source_hash.0), B256::from(target_hash.0));
+		let update = BscClientUpdate {
+			source_header,
+			target_header,
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		};
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
+			.expect_err("non-adjacent vote must be rejected");
+		assert!(format!("{err}").contains("not the direct child"), "unexpected error: {err:?}");
 	}
 }

@@ -11,8 +11,10 @@ import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
-/** Floor for set-code (0x04) txs; L2s like Arbitrum reject viem's default ~94k with "intrinsic gas too low". */
-const DELEGATION_TX_GAS_FLOOR = 350_000n
+/**
+ * Fixed gas limit for set-code (0x04) txs.
+ */
+const DELEGATION_TX_GAS_FLOOR = 650_000n
 
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
@@ -35,11 +37,7 @@ export class DelegationService {
 	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
 		// EIP-7702 requires canonical RLP: integer 0 encodes as empty bytes (0x80), not 0x00.
 		// viem's `toHex(0)` returns '0x0' which RLP-encodes as the single byte 0x00 — wrong.
-		const encoded = toRlp([
-			chainId ? toHex(chainId) : "0x",
-			contractAddress,
-			nonce ? toHex(nonce) : "0x",
-		])
+		const encoded = toRlp([chainId ? toHex(chainId) : "0x", contractAddress, nonce ? toHex(nonce) : "0x"])
 		return keccak256(concat(["0x05", encoded])) as HexString
 	}
 

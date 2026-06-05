@@ -1,5 +1,6 @@
 import { IntentFiller } from "@/core/filler"
 import {
+	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -8,7 +9,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { BasicFiller } from "@/strategies/basic"
+import { FXFiller } from "@/strategies/fx"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -22,7 +23,7 @@ import {
 	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerBpsPolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	getContract,
 	maxUint256,
@@ -42,9 +43,13 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 // ============================================================================
 // Test Suites
 // ============================================================================
+//
+// FX (cross-token) fill over the BSC Chapel -> Polygon Amoy path. The user
+// pays USDC on BSC and receives an "exotic" token on Polygon; for testnet we
+// use Polygon's USDC as the stand-in exotic (configured via FXFiller.token1).
 
-describe("Filler V2 - Solver Selection ON", () => {
-	it("Should place order, filler submits bid, user selects bid, order filled", async () => {
+describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
+	it("Should place USDC->Exotic order on BSC, filler submits bid, user selects bid, order filled on Polygon", async () => {
 		const {
 			bscIntentGatewayV2,
 			polygonAmoyPublicClient,
@@ -58,22 +63,23 @@ describe("Filler V2 - Solver Selection ON", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = await createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
+		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
 		await intentFiller.initialize()
 		intentFiller.start()
 
 		const sourceUsdc = chainConfigService.getUsdcAsset(bscChapelId)
-		const destUsdc = chainConfigService.getUsdcAsset(polygonAmoyId)
+		// Treat Polygon's USDC as the exotic output token for this FX test.
+		const destExotic = chainConfigService.getUsdcAsset(polygonAmoyId)
 
 		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, bscChapelId)
-		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, polygonAmoyId)
+		const destExoticDecimals = await contractService.getTokenDecimals(destExotic, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdcDecimals)
 
 		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
 		const outputs: TokenInfo[] = [
 			{
-				token: bytes20ToBytes32(destUsdc),
-				amount: amount - parseUnits("0.094", destUsdcDecimals),
+				token: bytes20ToBytes32(destExotic),
+				amount: parseUnits("0.006", destExoticDecimals),
 			},
 		]
 
@@ -176,10 +182,11 @@ describe("Filler V2 - Solver Selection ON", () => {
 // Shared Helpers
 // ============================================================================
 
-async function createIntentFiller(
+async function createFxIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
+	exoticChainId: string,
 ): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
@@ -187,10 +194,17 @@ async function createIntentFiller(
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	const bpsPolicy = new FillerBpsPolicy({
+	// Exotic ≈ $1 (Polygon USDC stand-in), so price is 1 exotic token per USD.
+	const bidPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", value: 50 },
-			{ amount: "10000", value: 50 },
+			{ amount: "1", price: "1" },
+			{ amount: "10000", price: "1" },
+		],
+	})
+	const askPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: "1" },
+			{ amount: "10000", price: "1" },
 		],
 	})
 
@@ -209,9 +223,19 @@ async function createIntentFiller(
 		},
 	})
 
+	const token1: Record<string, HexString> = {
+		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
+	}
+
 	const strategies = [
-		new BasicFiller(signer, chainConfigService, chainClientManager, contractService, bpsPolicy, confirmationPolicy),
+		new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
+			bidPricePolicy,
+			askPricePolicy,
+			confirmationPolicy,
+		}),
 	]
+
+	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
 
 	return new IntentFiller(
 		chainConfigs,
@@ -221,6 +245,8 @@ async function createIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		undefined,
+		bidStorage,
 	)
 }
 

@@ -221,6 +221,15 @@ where
 		compressed_bytes: Vec<u8>,
 		encoded_call_size: u32,
 	) -> Result<Vec<u8>, DispatchError> {
+		// Bound the claimed decompressed size against the configured maximum here,
+		// at the single choke point every caller flows through. Previously this
+		// gate lived only in `decompress_call` (the dispatch path); the unsigned
+		// `validate_unsigned` mempool path called `decompress` directly with no
+		// bound, so a fee-less attacker could claim `encoded_call_size = u32::MAX`
+		// and have a tiny zstd "bomb" expanded to gigabytes during transaction-pool
+		// validation, before any size check. Enforcing it here protects both paths.
+		ensure!(encoded_call_size < T::MaxCallSize::get() * ONE_MB, Error::<T>::CallSizeOutOfBound);
+
 		let mut decoder = StreamingDecoder::new(compressed_bytes.as_slice())
 			.map_err(|_| Error::<T>::DecompressionFailed)?;
 

@@ -198,7 +198,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: { balanceSlot: 151, allowanceSlot: 152 },
 		},
 		addresses: {
-			IntentGateway: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
+			IntentGateway: "0xE13fB34CAe12505ae51BaC8C405AF8EB27AC8058",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			UniswapRouter02: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
@@ -208,7 +208,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0xCDFcFeD7A14154846808FddC8Ba971A2f8a830a3",
+			SolverAccount: "0x0b5cfBc16ef60AD6930ba5A90Bb09475B7BF3815",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -611,7 +611,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			WETH: "0x360ad4f9a9A8EFe9A8DCB5f461c4Cc1047E1Dcf9", //wmatic, change it to wpol
 			DAI: "0x0000000000000000000000000000000000000000",
 			USDC: "0x693b854d6965ffeaae21c74049dea644b56fcacb",
-			USDT: "0x693b854d6965ffeaae21c74049dea644b56fcacb",
+			USDT: "0x0000000000000000000000000000000000000000",
 		},
 		tokenDecimals: {
 			USDC: 18,
@@ -622,13 +622,13 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
 		},
 		addresses: {
-			IntentGateway: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
+			IntentGateway: "0xE13fB34CAe12505ae51BaC8C405AF8EB27AC8058",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0xCDFcFeD7A14154846808FddC8Ba971A2f8a830a3",
+			SolverAccount: "0x0b5cfBc16ef60AD6930ba5A90Bb09475B7BF3815",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",

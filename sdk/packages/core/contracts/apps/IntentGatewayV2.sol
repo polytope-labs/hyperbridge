@@ -247,8 +247,8 @@ interface IIntentGatewayV2 {
      */
     event OrderPlaced(
         bytes32 user,
-        bytes source,
-        bytes destination,
+        string source,
+        string destination,
         uint256 deadline,
         uint256 nonce,
         uint256 fees,

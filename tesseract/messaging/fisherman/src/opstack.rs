@@ -178,7 +178,21 @@ async fn evaluate(
 		));
 	}
 
-	let l2_block_number = read_l2_block_number(&cfg.l1_provider, proxy, l1_block).await?;
+	let l2_block_number = match read_l2_block_number(&cfg.l1_provider, proxy, l1_block).await? {
+		Some(height) => height,
+		None => {
+			// An `l2SequenceNumber` that does not fit in u64 cannot correspond to any real L2
+			// block, so the game's claim is unverifiable and invalid. Blacklist it by default
+			// rather than abstaining, so a crafted out-of-range game can't slip past the
+			// fisherman.
+			log::warn!(
+				target: crate::LOG_TARGET,
+				"fish_opstack: proxy {proxy:?} on {} reports an out-of-range l2SequenceNumber; blacklisting",
+				target.state_machine,
+			);
+			return Ok(false);
+		},
+	};
 
 	let outcomes = join_all(target.l2_providers.iter().map(|p| async move {
 		compute_quorum_root(p.as_ref(), &target.message_parser, l2_block_number).await
@@ -204,11 +218,18 @@ async fn evaluate(
 /// ABI exposes this as `l2SequenceNumber()` (the newer name; older deployments used
 /// `l2BlockNumber()` but the op-host ABI binding is generated from the current upstream and
 /// only carries `l2SequenceNumber`).
+///
+/// Returns `Ok(None)` when the on-chain value does not fit in `u64`. The value is a `uint256`
+/// derived from caller-supplied `extraData`, so a permissionless dispute-game creator can set
+/// it above `u64::MAX`; converting with `n.to::<u64>()` would panic (aborting this essential
+/// task and shutting the collator down), so we convert fallibly instead. An out-of-range value
+/// cannot name a real L2 block, so the caller treats `None` as an invalid game and blacklists
+/// it. A genuine RPC failure is still surfaced as `Err` (transient — the caller abstains).
 async fn read_l2_block_number(
 	l1_provider: &AlloyProvider,
 	proxy: H160,
 	at_block: u64,
-) -> Result<u64, anyhow::Error> {
+) -> Result<Option<u64>, anyhow::Error> {
 	let proxy_addr = Address::from_slice(&proxy.0);
 	let contract = FaultDisputeGame::new(proxy_addr, l1_provider);
 	let n = contract
@@ -217,7 +238,7 @@ async fn read_l2_block_number(
 		.call()
 		.await
 		.map_err(|e| anyhow!("fish_opstack: proxy {proxy:?}.l2SequenceNumber() failed: {e:?}"))?;
-	Ok(n.to::<u64>())
+	Ok(u64::try_from(n).ok())
 }
 
 /// Per-provider: fetch the L2 block at `height`, fetch the message-parser account at that

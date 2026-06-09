@@ -144,22 +144,9 @@ export class BidManager {
 	}
 
 	/**
-	 * Autopilot bid selection: sorts the given bids by output value, simulates
-	 * each in order until one passes, then executes that bid.
-	 *
-	 * This preserves the SDK's historical "pick the best and go" behaviour on top
-	 * of the {@link Bid} API, for consumers that do not need custom selection logic.
-	 *
-	 * @param order - The placed order to fill.
-	 * @param bids - Candidate bids (from {@link buildBids}).
-	 * @returns A {@link SelectBidResult} for the executed bid.
-	 * @throws If no valid bids exist, all simulations fail, or the bundler rejects
-	 *   the UserOperation.
-	 */
-	/**
-	 * Drop-in for the historical auto-select path: decodes raw filler bids, sorts
-	 * them, simulates each until one passes, signs the `SelectSolver` message, and
-	 * submits — all with no per-bid input from the caller.
+	 * Decodes raw filler bids, sorts them, simulates each until one passes, signs
+	 * the `SelectSolver` message, and submits — all with no per-bid input from the
+	 * caller.
 	 *
 	 * Equivalent to `selectAndExecuteBest(order, buildBids(order, bids, key))`.
 	 *
@@ -173,6 +160,17 @@ export class BidManager {
 		return this.selectAndExecuteBest(order, this.buildBids(order, bids, sessionPrivateKey))
 	}
 
+	/**
+	 * Autopilot bid selection: sorts the given bids by output value, simulates
+	 * each in order until one passes, then executes that bid. For consumers that
+	 * do not need custom selection logic.
+	 *
+	 * @param order - The placed order to fill.
+	 * @param bids - Candidate bids (from {@link buildBids}).
+	 * @returns A {@link SelectBidResult} for the executed bid.
+	 * @throws If no valid bids exist, all simulations fail, or the bundler rejects
+	 *   the UserOperation.
+	 */
 	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
 		console.log(`[BidManager] selectAndExecuteBest called for commitment=${commitment}, ${bids.length} bid(s)`)

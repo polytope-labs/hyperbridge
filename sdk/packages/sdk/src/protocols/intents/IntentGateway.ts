@@ -285,14 +285,21 @@ export class IntentGateway {
 	private async *driveExecution(
 		execGen: AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined>,
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
-		let input: SelectBidResult | undefined
-		while (true) {
-			const { value, done } = await execGen.next(input)
-			input = undefined
-			if (done) break
+		try {
+			let input: SelectBidResult | undefined
+			while (true) {
+				const { value, done } = await execGen.next(input)
+				input = undefined
+				if (done) break
 
-			const fed = yield value
-			if (value.status === "BIDS_RECEIVED") input = fed as SelectBidResult | undefined
+				const fed = yield value
+				if (value.status === "BIDS_RECEIVED") input = fed as SelectBidResult | undefined
+			}
+		} finally {
+			// If the consumer stops early (e.g. breaks out / calls `.return()` after
+			// BID_SELECTED on a cross-chain order), propagate the teardown so the
+			// executor's own `finally` runs and stops its bid/deadline polling.
+			await execGen.return()
 		}
 	}
 
@@ -351,7 +358,7 @@ export class IntentGateway {
 	/**
 	 * Batteries-included variant of {@link execute}: places the order and then
 	 * auto-selects the best bid each round via {@link selectAndExecuteBest}, with
-	 * no bid-selection input from the caller — the SDK's historical behaviour.
+	 * no bid-selection input from the caller.
 	 *
 	 * The caller still signs the placement transaction: this generator yields
 	 * `AWAITING_PLACE_ORDER` and the caller must hand the signed tx back via
@@ -376,20 +383,26 @@ export class IntentGateway {
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
 		const gen = this.execute(order, graffiti, options)
-		let input: HexString | SelectBidResult | undefined
-		while (true) {
-			const { value, done } = await gen.next(input)
-			input = undefined
-			if (done) break
+		try {
+			let input: HexString | SelectBidResult | undefined
+			while (true) {
+				const { value, done } = await gen.next(input)
+				input = undefined
+				if (done) break
 
-			if (value.status === "BIDS_RECEIVED") {
-				yield value
-				input = await this.autoSelect(order, value.bids)
-			} else if (value.status === "AWAITING_PLACE_ORDER") {
-				input = yield value
-			} else {
-				yield value
+				if (value.status === "BIDS_RECEIVED") {
+					yield value
+					input = await this.autoSelect(order, value.bids)
+				} else if (value.status === "AWAITING_PLACE_ORDER") {
+					input = yield value
+				} else {
+					yield value
+				}
 			}
+		} finally {
+			// Propagate early teardown (consumer break / `.return()`) into the
+			// underlying execute() generator so the executor stops polling.
+			await gen.return()
 		}
 	}
 
@@ -404,16 +417,22 @@ export class IntentGateway {
 	 */
 	async *resumeBest(order: Order, options: ResumeIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		const gen = this.resume(order, options)
-		let input: SelectBidResult | undefined
-		while (true) {
-			const { value, done } = await gen.next(input)
-			input = undefined
-			if (done) break
+		try {
+			let input: SelectBidResult | undefined
+			while (true) {
+				const { value, done } = await gen.next(input)
+				input = undefined
+				if (done) break
 
-			yield value
-			if (value.status === "BIDS_RECEIVED") {
-				input = await this.autoSelect(order, value.bids)
+				yield value
+				if (value.status === "BIDS_RECEIVED") {
+					input = await this.autoSelect(order, value.bids)
+				}
 			}
+		} finally {
+			// Propagate early teardown (consumer break / `.return()`) into the
+			// underlying resume() generator so the executor stops polling.
+			await gen.return()
 		}
 	}
 
@@ -424,10 +443,10 @@ export class IntentGateway {
 	 * feed back to the executor. If selection fails this round — all bids fail
 	 * simulation, no valid bids, or the bundler rejects the UserOp — it swallows
 	 * the error and returns `undefined`, which tells the executor to keep polling
-	 * for fresh bids until the deadline. This preserves the pre-#946 auto-select
-	 * resilience (the old path retried on failure rather than aborting the order)
-	 * and keeps the executor's `finally` teardown intact by never throwing across
-	 * the suspended generators.
+	 * for fresh bids until the deadline rather than aborting the order. Swallowing
+	 * the error here (rather than letting it propagate) also keeps the executor's
+	 * `finally` teardown intact, since nothing throws across the suspended
+	 * generators.
 	 */
 	private async autoSelect(order: Order, bids: Bid[]): Promise<SelectBidResult | undefined> {
 		try {
@@ -536,8 +555,7 @@ export class IntentGateway {
 
 	/**
 	 * Autopilot bid selection: sorts the given bids, simulates each until one
-	 * passes, then executes it. Preserves the SDK's historical "pick the best and
-	 * go" behaviour on top of the {@link Bid} API.
+	 * passes, then executes it.
 	 *
 	 * Delegates to {@link BidManager.selectAndExecuteBest}.
 	 *
@@ -551,9 +569,8 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Drop-in for the historical auto-select path: decodes, sorts, simulates,
-	 * signs, and submits the best of the given raw filler bids with no per-bid
-	 * input from the caller.
+	 * Decodes, sorts, simulates, signs, and submits the best of the given raw
+	 * filler bids with no per-bid input from the caller.
 	 *
 	 * Delegates to {@link BidManager.selectBid}. Prefer {@link buildBids} +
 	 * {@link selectAndExecuteBest} (or {@link executeBest}) for new code.

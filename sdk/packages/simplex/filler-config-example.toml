@@ -115,7 +115,7 @@ triggerPercentage = 0.5
 # You can configure multiple strategies
 # All strategies use the configured simplex signer (privateKey or mpcVault)
 [[strategies]]
-type = "basic"
+type = "stable"
 # Filler BPS (basis points) curve based on order value
 # Uses polynomial interpolation to create a smooth curve through all points
 # - Small orders: Higher BPS to make filling worthwhile

@@ -22,14 +22,14 @@ import type { FundingVenue } from "@/funding/types"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { SigningAccount } from "@/services/wallet"
 
-export class BasicFiller implements FillerStrategy {
-	name = "BasicFiller"
+export class StableFiller implements FillerStrategy {
+	name = "StableFiller"
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
 	private bpsPolicy: FillerBpsPolicy
 	private signer: SigningAccount
-	private logger = getLogger("basic-simplex")
+	private logger = getLogger("stable-simplex")
 	/** Ceiling bps above user-requested output. Sourced from filler config. */
 	private readonly maxOverfillBps: bigint
 	/** On-chain liquidity sources for topping up output-token shortfalls (e.g. Aave V3). */
@@ -75,7 +75,7 @@ export class BasicFiller implements FillerStrategy {
 	 */
 	async canFill(order: Order): Promise<boolean> {
 		try {
-			// Validate basic structure
+			// Validate order structure
 			if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
 				this.logger.debug(
 					{ inputs: order.inputs.length, outputs: order.output.assets.length },

@@ -6,7 +6,7 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { BasicFiller } from "@/strategies/basic"
+import { StableFiller } from "@/strategies/stable"
 import { FXFiller } from "@/strategies/fx"
 import type { AaveV3ReserveConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
@@ -60,8 +60,8 @@ interface ChainConfirmationPolicy {
 	}>
 }
 
-interface BasicStrategyConfig {
-	type: "basic"
+interface StableStrategyConfig {
+	type: "stable"
 	/**
 	 * Array of (amount, value) coordinates defining the BPS curve.
 	 * value = basis points at that order amount
@@ -140,7 +140,7 @@ interface FxStrategyConfig {
 	}
 }
 
-type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
+type StrategyConfig = StableStrategyConfig | FxStrategyConfig
 
 /** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
 const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
@@ -339,32 +339,32 @@ program
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
 				switch (strategyConfig.type) {
-					case "basic": {
+					case "stable": {
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
-						const mergedBasicPolicies = {
+						const mergedStablePolicies = {
 							...DEFAULT_CONFIRMATION_POLICIES,
 							...(strategyConfig.confirmationPolicies ?? {}),
 						}
-						const confirmationPolicy = new ConfirmationPolicy(mergedBasicPolicies)
-						const basicFundingVenues: FundingVenue[] = []
+						const confirmationPolicy = new ConfirmationPolicy(mergedStablePolicies)
+						const stableFundingVenues: FundingVenue[] = []
 						if (strategyConfig.vault?.aaveV3?.reserves?.length) {
 							const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
 							for (const row of strategyConfig.vault.aaveV3.reserves) {
 								if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
 								reservesByChain[row.chain].push({ asset: row.asset })
 							}
-							basicFundingVenues.push(
+							stableFundingVenues.push(
 								new AaveV3FundingPlanner(chainClientManager, { reservesByChain }, configService),
 							)
 						}
-						return new BasicFiller(
+						return new StableFiller(
 							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
-							basicFundingVenues,
+							stableFundingVenues,
 						)
 					}
 					case "hyperfx": {
@@ -424,7 +424,7 @@ program
 
 			// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller || strategy instanceof BasicFiller) {
+				if (strategy instanceof FXFiller || strategy instanceof StableFiller) {
 					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
@@ -601,14 +601,14 @@ function validateConfig(config: FillerTomlConfig): void {
 			throw new Error("Strategy type is required")
 		}
 
-		if (!["basic", "hyperfx"].includes(strategy.type)) {
+		if (!["stable", "hyperfx"].includes(strategy.type)) {
 			throw new Error(`Invalid strategy type: ${strategy.type}`)
 		}
 
-		if (strategy.type === "basic") {
+		if (strategy.type === "stable") {
 			// Validate BPS curve
 			if (!strategy.bpsCurve || !Array.isArray(strategy.bpsCurve) || strategy.bpsCurve.length < 2) {
-				throw new Error("Basic strategy must have a 'bpsCurve' array with at least 2 points")
+				throw new Error("Stable strategy must have a 'bpsCurve' array with at least 2 points")
 			}
 
 			for (const point of strategy.bpsCurve) {

@@ -8,7 +8,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { BasicFiller } from "@/strategies/basic"
+import { StableFiller } from "@/strategies/stable"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -210,7 +210,7 @@ async function createIntentFiller(
 	})
 
 	const strategies = [
-		new BasicFiller(signer, chainConfigService, chainClientManager, contractService, bpsPolicy, confirmationPolicy),
+		new StableFiller(signer, chainConfigService, chainClientManager, contractService, bpsPolicy, confirmationPolicy),
 	]
 
 	return new IntentFiller(

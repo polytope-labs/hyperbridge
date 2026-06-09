@@ -72,6 +72,12 @@ interface BasicStrategyConfig {
 	}>
 	/** Per-chain confirmation policies keyed by chain ID string. Defaults provided for ETH, BSC, Base, Arbitrum. */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
+	/** Optional Aave V3 sourcing for output-token shortfalls on same-token fills. */
+	vault?: {
+		aaveV3?: {
+			reserves?: AaveV3ReserveToml[]
+		}
+	}
 }
 
 /** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
@@ -340,6 +346,17 @@ program
 							...(strategyConfig.confirmationPolicies ?? {}),
 						}
 						const confirmationPolicy = new ConfirmationPolicy(mergedBasicPolicies)
+						const basicFundingVenues: FundingVenue[] = []
+						if (strategyConfig.vault?.aaveV3?.reserves?.length) {
+							const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
+							for (const row of strategyConfig.vault.aaveV3.reserves) {
+								if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
+								reservesByChain[row.chain].push({ asset: row.asset })
+							}
+							basicFundingVenues.push(
+								new AaveV3FundingPlanner(chainClientManager, { reservesByChain }, configService),
+							)
+						}
 						return new BasicFiller(
 							runtimeSigner,
 							configService,
@@ -347,6 +364,7 @@ program
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
+							basicFundingVenues,
 						)
 					}
 					case "hyperfx": {
@@ -404,9 +422,9 @@ program
 				}
 			})
 
-			// Initialise FXFiller strategies (hydrate funding venue state)
+			// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller) {
+				if (strategy instanceof FXFiller || strategy instanceof BasicFiller) {
 					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
@@ -597,6 +615,10 @@ function validateConfig(config: FillerTomlConfig): void {
 				if (point.amount === undefined || point.value === undefined) {
 					throw new Error("Each BPS curve point must have 'amount' and 'value'")
 				}
+			}
+
+			if (strategy.vault?.aaveV3?.reserves?.length) {
+				AaveV3FundingPlanner.validateConfig(strategy.vault.aaveV3.reserves)
 			}
 
 			// Validate user-provided confirmation policies (defaults are always present)

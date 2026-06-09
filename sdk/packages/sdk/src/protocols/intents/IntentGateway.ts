@@ -384,7 +384,7 @@ export class IntentGateway {
 
 			if (value.status === "BIDS_RECEIVED") {
 				yield value
-				input = await this.selectAndExecuteBest(order, value.bids)
+				input = await this.autoSelect(order, value.bids)
 			} else if (value.status === "AWAITING_PLACE_ORDER") {
 				input = yield value
 			} else {
@@ -412,8 +412,33 @@ export class IntentGateway {
 
 			yield value
 			if (value.status === "BIDS_RECEIVED") {
-				input = await this.selectAndExecuteBest(order, value.bids)
+				input = await this.autoSelect(order, value.bids)
 			}
+		}
+	}
+
+	/**
+	 * Auto-select wrapper used by {@link executeBest} / {@link resumeBest}.
+	 *
+	 * Runs {@link selectAndExecuteBest} and returns the {@link SelectBidResult} to
+	 * feed back to the executor. If selection fails this round — all bids fail
+	 * simulation, no valid bids, or the bundler rejects the UserOp — it swallows
+	 * the error and returns `undefined`, which tells the executor to keep polling
+	 * for fresh bids until the deadline. This preserves the pre-#946 auto-select
+	 * resilience (the old path retried on failure rather than aborting the order)
+	 * and keeps the executor's `finally` teardown intact by never throwing across
+	 * the suspended generators.
+	 */
+	private async autoSelect(order: Order, bids: Bid[]): Promise<SelectBidResult | undefined> {
+		try {
+			return await this.selectAndExecuteBest(order, bids)
+		} catch (err) {
+			console.warn(
+				`[IntentGateway] autoSelect: bid selection failed this round, continuing to poll: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			)
+			return undefined
 		}
 	}
 

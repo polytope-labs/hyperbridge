@@ -278,10 +278,18 @@ export class OrderExecutor {
 			// here because those do not forward values passed to `.next()`.
 			let input: SelectBidResult | undefined
 			while (true) {
-				const winner = await Promise.race([
-					executionStream.next(input).then((r) => ({ from: "exec" as const, r })),
-					deadlinePromise.then((r) => ({ from: "deadline" as const, r })),
-				])
+				// When we are delivering a fed-back result (the consumer already
+				// executed a bid), process it without racing the deadline so an
+				// already-submitted UserOp is never dropped by a deadline that
+				// elapsed while the consumer was busy in `bid.execute()`. Only
+				// poll steps (no pending result) race against the deadline.
+				const winner =
+					input !== undefined
+						? { from: "exec" as const, r: await executionStream.next(input) }
+						: await Promise.race([
+								executionStream.next(undefined).then((r) => ({ from: "exec" as const, r })),
+								deadlinePromise.then((r) => ({ from: "deadline" as const, r })),
+							])
 				input = undefined
 
 				if (winner.from === "deadline") {

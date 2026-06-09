@@ -8,8 +8,9 @@ import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
-import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
+import type { AaveV3ReserveConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
+import { AaveV3FundingPlanner } from "@/funding/aaveV3/AaveV3FundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -79,6 +80,12 @@ interface UniswapV4PositionToml {
 	tokenId: string // bigint as string in TOML
 }
 
+/** TOML row for an Aave V3 reserve; chain + underlying asset address. */
+interface AaveV3ReserveToml {
+	chain: string
+	asset: HexString
+}
+
 interface FxStrategyConfig {
 	type: "hyperfx"
 	/**
@@ -120,6 +127,9 @@ interface FxStrategyConfig {
 	vault?: {
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
+		}
+		aaveV3?: {
+			reserves?: AaveV3ReserveToml[]
 		}
 	}
 }
@@ -365,6 +375,14 @@ program
 								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
 							)
 						}
+						if (strategyConfig.vault?.aaveV3?.reserves?.length) {
+							const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
+							for (const row of strategyConfig.vault.aaveV3.reserves) {
+								if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
+								reservesByChain[row.chain].push({ asset: row.asset })
+							}
+							fundingVenues.push(new AaveV3FundingPlanner(chainClientManager, { reservesByChain }, configService))
+						}
 						return new FXFiller(
 							runtimeSigner,
 							configService,
@@ -601,6 +619,10 @@ function validateConfig(config: FillerTomlConfig): void {
 		if (strategy.type === "hyperfx") {
 			if (strategy.vault?.uniswapV4?.positions?.length) {
 				UniswapV4FundingPlanner.validateConfig(strategy.vault.uniswapV4.positions)
+			}
+
+			if (strategy.vault?.aaveV3?.reserves?.length) {
+				AaveV3FundingPlanner.validateConfig(strategy.vault.aaveV3.reserves)
 			}
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0

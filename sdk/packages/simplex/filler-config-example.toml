@@ -208,6 +208,13 @@ points = [
 #     { chain = "EVM-8453", tokenId = "123456789" },
 # ]
 #
+# # Source stablecoins from the solver's supplied Aave V3 positions (Pool.withdraw).
+# # One-sided: tokens not listed fall back to the wallet balance / other venues.
+# [strategies.vault.aaveV3]
+# reserves = [
+#     { chain = "EVM-8453", asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }, # USDC on Base
+# ]
+#
 
 
 # Chain configuration - RPC and bundler URLs are required

@@ -118,9 +118,50 @@ export interface UniswapV4OutputFundingConfig {
 }
 
 // =========================================================================
+// Aave V3 Types
+// =========================================================================
+
+/**
+ * A single Aave V3 reserve the filler is willing to source from. Only the
+ * underlying asset address is needed; the aToken address and decimals are
+ * resolved on-chain during initialisation.
+ */
+export interface AaveV3ReserveConfig {
+	/** Underlying ERC-20 asset address (e.g. USDC, USDT). */
+	asset: HexString
+}
+
+/**
+ * Runtime representation of an Aave V3 reserve after on-chain hydration.
+ */
+export interface HydratedAaveV3Reserve {
+	asset: HexString
+	/** aToken minted for supplying `asset`; balance ≈ current underlying claim. */
+	aToken: HexString
+	decimals: number
+
+	// --- live state (updated on refresh) ---
+	/** Solver's aToken balance (current underlying claim incl. accrued interest). */
+	aTokenBalance: bigint
+	/** Underlying held by the aToken contract — the pool's withdrawable reserve. */
+	availableReserve: bigint
+	/** Sourceable amount after consume() accounting for pending fills this round. */
+	remaining: bigint
+}
+
+/**
+ * Top-level Aave V3 funding config.
+ */
+export interface AaveV3OutputFundingConfig {
+	/** Chain identifier → reserves to source liquidity from. */
+	reservesByChain: Record<string, AaveV3ReserveConfig[]>
+}
+
+// =========================================================================
 // Combined Output Funding Config
 // =========================================================================
 
 export interface OutputFundingConfig {
 	uniswapV4?: UniswapV4OutputFundingConfig
+	aaveV3?: AaveV3OutputFundingConfig
 }

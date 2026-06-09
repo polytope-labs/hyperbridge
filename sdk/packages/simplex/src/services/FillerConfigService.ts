@@ -341,6 +341,10 @@ export class FillerConfigService {
 		return this.chainConfigService.getUniswapV4StateViewAddress(chain)
 	}
 
+	getAaveV3PoolAddress(chain: string): HexString {
+		return this.chainConfigService.getAaveV3PoolAddress(chain)
+	}
+
 	getPermit2Address(chain: string): HexString {
 		return this.chainConfigService.getPermit2Address(chain)
 	}

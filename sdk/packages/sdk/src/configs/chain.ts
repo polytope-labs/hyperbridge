@@ -166,6 +166,8 @@ export interface ChainConfigData {
 		UniswapV4StateView?: `0x${string}`
 		/** Circle Paymaster contract address (USDC-based ERC-4337 paymaster) */
 		CirclePaymaster?: `0x${string}`
+		/** Aave V3 Pool (proxy) for sourcing supplied liquidity via withdraw */
+		AaveV3Pool?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -333,6 +335,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee",
+			AaveV3Pool: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
 		},
 		rpcEnvKey: "ETH_MAINNET",
 		defaultRpcUrl: "https://eth-mainnet.g.alchemy.com/v2/demo",
@@ -386,6 +389,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			AaveV3Pool: "0x6807dc923806fE8Fd134338EABCA509979a7e0cB",
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
@@ -444,6 +448,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92",
+			AaveV3Pool: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
 		defaultRpcUrl: "https://arbitrum-one.public.blastapi.io",
@@ -501,6 +506,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
 			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
 			UniswapV4StateView: "0xa3c0c9b65bad0b08107aa264b0f3db444b867a71",
+			AaveV3Pool: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
 			// Usdt0Oft: Not available on Base
 		},
 		rpcEnvKey: "BASE_MAINNET",
@@ -559,6 +565,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6BA10300f0DC58B7a1e4c0e41f5daBb7D7829e13",
+			AaveV3Pool: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
 		defaultRpcUrl: "https://polygon-bor-rpc.publicnode.com",
@@ -664,6 +671,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			UniswapV4PositionManager: "0x3c3ea4b57a46241e54610e5f022e5c45859a1017",
 			UniswapV4PoolManager: "0x9a13f98cb987694c9f086b1f5eb990eea8264ec3",
+			AaveV3Pool: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
 		},
 		defaultRpcUrl: "https://mainnet.optimism.io",
 		consensusStateId: "ETH0",
@@ -693,6 +701,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			AaveV3Pool: "0xb50201558B00496A145fE76f7424749556E326D8",
 		},
 		defaultRpcUrl: "https://rpc.gnosischain.com",
 		consensusStateId: "GNO0",

@@ -348,6 +348,16 @@ contract HyperFungibleTokenUpgradeable is
         emit Refunded({to: refundee, amount: message.amount});
     }
 
+    /// @notice Pauses ERC20 transfers
+    function transfer(address to, uint256 value) public override whenNotPaused returns (bool) {
+        return super.transfer(to, value);
+    }
+
+    /// @notice Pauses ERC20 transferFrom
+    function transferFrom(address from, address to, uint256 value) public override whenNotPaused returns (bool) {
+        return super.transferFrom(from, to, value);
+    }
+
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {
         if (b.length != 20) revert InvalidAddress(b.length);

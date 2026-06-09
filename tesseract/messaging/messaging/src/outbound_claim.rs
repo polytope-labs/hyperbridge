@@ -13,30 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Outbound consensus delivery reward claim task.
+//! Periodic task that claims outbound consensus delivery rewards.
 //!
-//! Modeled on the fee accumulation task. For every batch of
-//! [`PendingConsensusDeliveryClaim`]s pushed by the outbound delivery task:
-//!
-//! 1. Pull every persisted row from the local DB (`list_pending_rotation_claims`) and merge it with
-//!    the incoming trigger vec, deduplicated on `(destination, set_id)`. The DB is the source of
-//!    truth for surviving a crash; the trigger vec carries the freshly-delivered rotations that may
-//!    not yet have been queried back from the DB.
-//! 2. Filter against `pallet_ismp_relayer::OutboundConsensusRotationsClaimed` on Hyperbridge: any
-//!    `(destination, set_id)` already present there has been claimed by some other relayer. Those
-//!    rows are queued for deletion from the local DB and skipped — there is no reward left to
-//!    collect, and resubmitting would just waste a Hyperbridge extrinsic on a guaranteed revert.
-//! 3. For each surviving (still-unclaimed) row:
-//!    - Wait for Hyperbridge's consensus client for the destination to verify a height >=
-//!      `delivery_height`.
-//!    - Build an EIP-1186 storage proof of `EvmHost._epochs[set_id]` at that height.
-//!    - Sign `outbound_consensus_delivery_message(set_id, destination, payee)` with the
-//!      destination's EVM key.
-//!    - Submit `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward` (unsigned) on
-//!      Hyperbridge.
-//!    - Delete the persisted claim row.
+//! Each time the relayer delivers a mandatory BEEFY rotation to an EVM destination, the delivery
+//! path writes a row to the local DB. This task wakes on a fixed interval, reads those rows,
+//! skips anything already claimed on Hyperbridge, and submits the remaining claims in parallel.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context as _};
 use codec::Decode;
@@ -53,66 +36,40 @@ use tesseract_primitives::{
 	wait_for_state_machine_update, IsmpProvider, PendingConsensusDeliveryClaim, StateProofQueryType,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
-use tokio::{sync::mpsc::Receiver, time::MissedTickBehavior};
+use tokio::time::MissedTickBehavior;
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
 const LOG_TARGET: &str = "messaging-outbound-claim";
 
-/// Drive a single relayer's outbound consensus delivery claims. Mirrors
-/// [`fee_accumulation`](crate::fee_accumulation) shape: receive a trigger
-/// (now a vector of newly-delivered rotations), pull every pending row
-/// from the DB, merge both, drop anything Hyperbridge already records as
-/// claimed, then process whatever's left.
-///
-/// The payee is always the relayer's own Hyperbridge sr25519 account
-/// (`hyperbridge.signer.public()`) — the same account that already
-/// receives messaging incentives, so all relayer earnings on HB land in one
-/// place.
 pub async fn run(
 	hyperbridge: SubstrateClient<KeccakSubstrateChain>,
 	destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
-	mut receiver: Receiver<Vec<PendingConsensusDeliveryClaim>>,
 	tx_payment: Option<Arc<TransactionPayment>>,
 ) -> Result<(), anyhow::Error> {
 	let hb_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
 	let payee_bytes: [u8; 32] = hyperbridge.signer.public().0;
 
-	// Periodic scan so stuck rows in the DB are retried even when deliveries
-	// stop (no new trigger would otherwise wake the loop).
-	let mut retry_interval = tokio::time::interval(Duration::from_secs(600));
-	retry_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+	let mut interval = tokio::time::interval(Duration::from_secs(600));
+	interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
 	loop {
-		let trigger = tokio::select! {
-			maybe = receiver.recv() => match maybe {
-				Some(t) => t,
-				None => return Err(anyhow!("outbound-claim channel closed")),
-			},
-			_ = retry_interval.tick() => vec![],
-		};
+		interval.tick().await;
 
-		// Merge the live trigger with everything still pending in the DB,
-		// deduped on `(destination, set_id)`. The DB is the source of truth
-		// for surviving a crash; the trigger vec covers freshly-delivered
-		// rotations that may not have round-tripped through the DB yet.
-		let merged = merge_pending(&tx_payment, trigger).await;
-		if merged.is_empty() {
+		let pending = read_pending_claims(&tx_payment).await;
+		if pending.is_empty() {
 			continue;
 		}
 
-		// Drop anything Hyperbridge already records as claimed — resubmitting
-		// would just burn a round-trip on a guaranteed revert.
-		let (claimed, unclaimed) = match partition_claimed(&hyperbridge, &merged).await {
+		let (claimed, unclaimed) = match partition_claimed(&hyperbridge, &pending).await {
 			Ok(parts) => parts,
 			Err(err) => {
 				tracing::warn!(
 					target: LOG_TARGET,
 					?err,
-					"OutboundConsensusRotationsClaimed lookup failed; processing all rows \
-					 without filtering — duplicates will revert on Hyperbridge",
+					"could not check claimed status on Hyperbridge; processing all rows without filtering",
 				);
-				(Vec::new(), merged)
+				(Vec::new(), pending)
 			},
 		};
 
@@ -123,25 +80,22 @@ pub async fn run(
 				"dropping claims already redeemed on Hyperbridge",
 			);
 			if let Some(tp) = &tx_payment {
-				for pending in &claimed {
-					if let Err(err) = tp
-						.delete_rotation_claim(&pending.destination.to_string(), pending.set_id)
-						.await
+				for row in &claimed {
+					if let Err(err) =
+						tp.delete_rotation_claim(&row.destination.to_string(), row.set_id).await
 					{
 						tracing::warn!(
 							target: LOG_TARGET,
 							?err,
-							destination = %pending.destination,
-							set_id = pending.set_id,
-							"failed to delete already-claimed row; will retry next trigger",
+							destination = %row.destination,
+							set_id = row.set_id,
+							"failed to delete already-claimed row",
 						);
 					}
 				}
 			}
 		}
 
-		// Process all unclaimed rows in parallel so a slow state-machine-update
-		// wait on one destination cannot block claims for others.
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
@@ -153,7 +107,7 @@ pub async fn run(
 			let dest = destinations.get(&pending.destination).cloned();
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
-			let tx_payment = tx_payment.clone();
+			let tp = tx_payment.clone();
 			tasks.push(
 				async move {
 					let Some(dest) = dest else {
@@ -163,7 +117,7 @@ pub async fn run(
 					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
 						Ok(()) => {
 							tracing::info!(target: LOG_TARGET, "claim submitted");
-							if let Some(tp) = &tx_payment {
+							if let Some(tp) = &tp {
 								let _ = tp
 									.delete_rotation_claim(
 										&pending.destination.to_string(),
@@ -176,7 +130,7 @@ pub async fn run(
 							tracing::error!(
 								target: LOG_TARGET,
 								?err,
-								"claim submission failed; row left in DB for next trigger",
+								"claim failed; will retry on next tick",
 							);
 						},
 					}
@@ -189,22 +143,15 @@ pub async fn run(
 	}
 }
 
-/// Read `list_pending_rotation_claims` and union-merge it with the
-/// trigger vec. The merged vec is deduplicated on `(destination, set_id)`
-/// so each pair is processed at most once per wake-up. DB rows take
-/// precedence on conflict — they carry the persisted `delivery_height`
-/// in the same `rotation_height` column the writer used.
-async fn merge_pending(
+async fn read_pending_claims(
 	tx_payment: &Option<Arc<TransactionPayment>>,
-	trigger: Vec<PendingConsensusDeliveryClaim>,
 ) -> Vec<PendingConsensusDeliveryClaim> {
-	let mut merged: HashMap<(StateMachine, u64), PendingConsensusDeliveryClaim> = HashMap::new();
-
-	if let Some(tp) = tx_payment {
-		match tp.list_pending_rotation_claims().await {
-			Ok(rows) =>
-				for row in rows {
-					use std::str::FromStr;
+	let Some(tp) = tx_payment else { return Vec::new() };
+	match tp.list_pending_rotation_claims().await {
+		Ok(rows) => {
+			let mut claims: Vec<PendingConsensusDeliveryClaim> = rows
+				.into_iter()
+				.filter_map(|row| {
 					let destination = match StateMachine::from_str(&row.dest) {
 						Ok(sm) => sm,
 						Err(err) => {
@@ -212,49 +159,28 @@ async fn merge_pending(
 								target: LOG_TARGET,
 								dest = %row.dest,
 								?err,
-								"unparseable state machine in DB; skipping row",
+								"unparseable state machine in DB row; skipping",
 							);
-							continue;
+							return None;
 						},
 					};
-					let set_id = row.set_id as u64;
-					merged.insert(
-						(destination, set_id),
-						PendingConsensusDeliveryClaim {
-							destination,
-							delivery_height: row.rotation_height as u64,
-							set_id,
-						},
-					);
-				},
-			Err(err) => {
-				tracing::warn!(
-					target: LOG_TARGET,
-					?err,
-					"list_pending_rotation_claims failed; trigger-only this cycle",
-				);
-			},
-		}
+					Some(PendingConsensusDeliveryClaim {
+						destination,
+						delivery_height: row.rotation_height as u64,
+						set_id: row.set_id as u64,
+					})
+				})
+				.collect();
+			claims.sort_by_key(|c| (c.delivery_height, c.set_id));
+			claims
+		},
+		Err(err) => {
+			tracing::warn!(target: LOG_TARGET, ?err, "could not read pending claims; skipping tick");
+			Vec::new()
+		},
 	}
-
-	for pending in trigger {
-		merged.entry((pending.destination, pending.set_id)).or_insert(pending);
-	}
-
-	let mut result: Vec<_> = merged.into_values().collect();
-	result.sort_by_key(|c| (c.delivery_height, c.set_id));
-	result
 }
 
-/// Split `pending` into `(already_claimed, still_unclaimed)` by reading
-/// `pallet_ismp_relayer::OutboundConsensusRotationsClaimed[(destination,
-/// set_id)]` on Hyperbridge. The storage value is `()` so a non-empty
-/// raw fetch (i.e. `Some(_)`) means the `(destination, set_id)` is
-/// closed.
-///
-/// Lookups are sequential — the surface is small (typically a handful
-/// of rows per trigger) and parallelism would just dogpile the HB RPC
-/// for no real win.
 pub async fn partition_claimed(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	pending: &[PendingConsensusDeliveryClaim],
@@ -263,38 +189,33 @@ pub async fn partition_claimed(
 		.rpc
 		.chain_get_block_hash(None)
 		.await?
-		.ok_or_else(|| anyhow!("Failed to query latest hyperbridge block hash"))?;
+		.ok_or_else(|| anyhow!("failed to fetch latest Hyperbridge block hash"))?;
 
 	let mut claimed = Vec::new();
 	let mut unclaimed = Vec::new();
 
-	for pending in pending {
-		let key =
-			outbound_consensus_rotations_claimed_storage_key(pending.destination, pending.set_id);
+	for item in pending {
+		let key = outbound_consensus_rotations_claimed_storage_key(item.destination, item.set_id);
 		let raw = hyperbridge.client.storage().at(block_hash).fetch_raw(key).await.with_context(
 			|| {
 				format!(
 					"OutboundConsensusRotationsClaimed lookup ({:?}, {})",
-					pending.destination, pending.set_id,
+					item.destination, item.set_id,
 				)
 			},
 		)?;
 
-		// Stored value is `()`, so any presence — even an empty `Vec` —
-		// means the entry exists. `OptionQuery` ensures absence is
-		// `None`. `Decode` against `()` is the strict version of this
-		// check; we keep it cheap with the `is_some` shortcut and only
-		// fall through to decode if some chain encoded the unit value
-		// explicitly.
+		// The stored value is `()` — any presence (including empty bytes from OptionQuery)
+		// means the slot is taken.
 		let is_claimed = match raw {
 			Some(bytes) => <()>::decode(&mut &*bytes).is_ok() || bytes.is_empty(),
 			None => false,
 		};
 
 		if is_claimed {
-			claimed.push(pending.clone());
+			claimed.push(item.clone());
 		} else {
-			unclaimed.push(pending.clone());
+			unclaimed.push(item.clone());
 		}
 	}
 
@@ -308,9 +229,6 @@ pub async fn process_claim(
 	pending: &PendingConsensusDeliveryClaim,
 	payee: [u8; 32],
 ) -> anyhow::Result<()> {
-	// Wait for HB's view of the destination to cross the delivery block,
-	// with a timeout so a permanently-stalled destination (e.g. Polkadot Hub
-	// without parachain inherents) does not block this task indefinitely.
 	let dest_height = tokio::time::timeout(
 		Duration::from_secs(300),
 		wait_for_state_machine_update(
@@ -323,33 +241,26 @@ pub async fn process_claim(
 	.await
 	.map_err(|_| {
 		anyhow!(
-			"timed out waiting for state machine update for {} at height {}",
+			"timed out waiting for Hyperbridge to see {} at height {}",
 			pending.destination,
 			pending.delivery_height,
 		)
 	})?
 	.context("wait_for_state_machine_update")?;
 
-	// Build the 52-byte EIP-1186 key the EVM verifier expects:
-	// `evm_host (20) || keccak256(set_id || EVM_HOST_EPOCHS_SLOT) (32)`.
-	// Substrate destinations report `None` and are skipped — the claim
-	// flow is EVM-only.
-	let evm_host = dest.ismp_host_contract().ok_or_else(|| {
-		anyhow!(
-			"destination has no EvmHost address (non-EVM); \
-			 cannot derive _epochs[set_id] key",
-		)
-	})?;
-	let key = epochs_slot_key(evm_host, pending.set_id);
+	let evm_host = dest
+		.ismp_host_contract()
+		.ok_or_else(|| anyhow!("destination {} has no EvmHost address", pending.destination))?;
 
 	let proof_bytes = dest
-		.query_state_proof(dest_height, StateProofQueryType::Arbitrary(vec![key]))
+		.query_state_proof(
+			dest_height,
+			StateProofQueryType::Arbitrary(vec![epochs_slot_key(evm_host, pending.set_id)]),
+		)
 		.await
-		.context("query_state_proof on destination")?;
+		.context("query_state_proof")?;
 
 	let msg = outbound_consensus_delivery_message(pending.set_id, pending.destination, payee);
-	let signature = dest.sign(&msg);
-
 	let claim = OutboundConsensusDeliveryClaim {
 		state_proof: Proof {
 			height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
@@ -357,7 +268,7 @@ pub async fn process_claim(
 		},
 		set_id: pending.set_id,
 		payee,
-		signature,
+		signature: dest.sign(&msg),
 	};
 
 	tracing::info!(
@@ -365,22 +276,16 @@ pub async fn process_claim(
 		destination = %pending.destination,
 		set_id = pending.set_id,
 		dest_height,
-		"submitting outbound consensus delivery claim to hyperbridge",
+		"submitting outbound consensus delivery claim",
 	);
+
 	hyperbridge
 		.submit_outbound_consensus_delivery_claim(claim)
 		.await
-		.context("submit_outbound_consensus_delivery_claim")?;
-	Ok(())
+		.context("submit_outbound_consensus_delivery_claim")
 }
 
-/// 52-byte EIP-1186 storage key for `EvmHost._epochs[set_id]`:
-/// `evm_host (20) || keccak256(set_id_be32 || EVM_HOST_EPOCHS_SLOT_be32) (32)`.
-/// Matches the pallet-side derivation in
-/// `process_outbound_consensus_delivery_claim` (which goes through
-/// `evm_state_machine::utils::derive_unhashed_map_key`); we use the
-/// equivalent off-chain helper from `tesseract-evm` so the hashing
-/// logic lives in one place instead of being re-implemented here.
+/// Builds the 52-byte EIP-1186 storage key for `EvmHost._epochs[set_id]`.
 fn epochs_slot_key(evm_host: H160, set_id: u64) -> Vec<u8> {
 	let slot_hash =
 		derive_map_key(U256::from(set_id).to_big_endian().to_vec(), EVM_HOST_EPOCHS_SLOT);

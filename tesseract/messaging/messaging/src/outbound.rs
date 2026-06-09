@@ -31,8 +31,8 @@ use ismp::{
 use primitive_types::H256;
 use tesseract_primitives::{
 	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpProvider, NewEpochEvent,
-	PendingConsensusDeliveryClaim, PendingRequestDeliveryClaim, ProofAccepted, RotationProof,
-	StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
+	PendingRequestDeliveryClaim, ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt,
+	BEEFY_CONSENSUS_STATE_ID,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::Sender;
@@ -58,7 +58,6 @@ pub async fn run(
 	relayer_config: RelayerConfig,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>>,
-	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
 	request_claim_sender: Option<Sender<Vec<PendingRequestDeliveryClaim>>>,
 ) -> Result<(), anyhow::Error> {
@@ -93,19 +92,18 @@ pub async fn run(
 			let hb = hyperbridge.clone();
 			let dest = dest.clone();
 			let proof_source = proof_source.clone();
-			let claim_sender = claim_sender.clone();
 			let claim_tx_payment = claim_tx_payment.clone();
 			let dest_name = dest.name();
 			let dest_state_machine = dest.state_machine_id().state_id;
 			startup_tasks.push(
 				async move {
 					let result = catch_up_rotations(&hb, &dest, &proof_source, None).await;
-					(dest_name, dest_state_machine, result, claim_sender, claim_tx_payment)
+					(dest_name, dest_state_machine, result, claim_tx_payment)
 				}
 				.boxed(),
 			);
 		}
-		while let Some((dest_name, dest_state_machine, result, claim_sender, claim_tx_payment)) =
+		while let Some((dest_name, dest_state_machine, result, claim_tx_payment)) =
 			startup_tasks.next().await
 		{
 			match result {
@@ -118,16 +116,10 @@ pub async fn run(
 							rotations = new_epochs.len(),
 							"startup rotation catch-up landed rotations",
 						);
-						// Forward the earned `NewEpoch` events so the
-						// outbound-claim task can collect their
-						// `OutboundConsensusDeliveryReward`. Same
-						// channel and DB persistence the per-proof
-						// path uses.
 						forward_consensus_delivery_claims(
 							&dest_name,
 							dest_state_machine,
 							new_epochs,
-							&claim_sender,
 							&claim_tx_payment,
 						)
 						.await;
@@ -246,7 +238,6 @@ pub async fn run(
 			let dest_ctx = DestinationContext {
 				dest: dest.clone(),
 				fee_sender,
-				claim_sender: claim_sender.clone(),
 				claim_tx_payment: claim_tx_payment.clone(),
 				request_claim_sender: request_claim_sender.clone(),
 			};
@@ -301,7 +292,6 @@ struct OutboundEventContext {
 struct DestinationContext {
 	dest: Arc<dyn IsmpProvider>,
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
-	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
 	request_claim_sender: Option<Sender<Vec<PendingRequestDeliveryClaim>>>,
 }
@@ -324,13 +314,7 @@ async fn submit_for_dest(
 		new_set_id,
 		incentivized,
 	} = event_ctx;
-	let DestinationContext {
-		dest,
-		fee_sender,
-		claim_sender,
-		claim_tx_payment,
-		request_claim_sender,
-	} = dest_ctx;
+	let DestinationContext { dest, fee_sender, claim_tx_payment, request_claim_sender } = dest_ctx;
 	let dest_state_machine = dest.state_machine_id().state_id;
 	let dest_name = dest.name();
 	// Bring the destination's BEEFY light client up to HB's current
@@ -380,13 +364,12 @@ async fn submit_for_dest(
 		tracing::trace!(target: LOG_TARGET, dest = %dest_name, "skipping — no events for this chain, not mandatory");
 		// Even though we're not submitting anything else, the catch-up
 		// loop above may already have landed rotation proofs on this dest
-		// — forward those new_epochs so the claim task can collect their
+		// — persist those new_epochs so the claim task can collect their
 		// `OutboundConsensusDeliveryReward`.
 		forward_consensus_delivery_claims(
 			&dest_name,
 			dest_state_machine,
 			catchup_new_epochs,
-			&claim_sender,
 			&claim_tx_payment,
 		)
 		.await;
@@ -436,12 +419,11 @@ async fn submit_for_dest(
 	if batch.len() == 1 && !is_mandatory {
 		tracing::trace!(target: LOG_TARGET,dest = %dest_name, "skipping — consensus-only batch, not mandatory");
 		// As above: catch-up rotations already landed on the dest carry
-		// claim-eligible new_epochs; forward them before bailing out.
+		// claim-eligible new_epochs; persist them before bailing out.
 		forward_consensus_delivery_claims(
 			&dest_name,
 			dest_state_machine,
 			catchup_new_epochs,
-			&claim_sender,
 			&claim_tx_payment,
 		)
 		.await;
@@ -544,7 +526,6 @@ async fn submit_for_dest(
 		&dest_name,
 		dest_state_machine,
 		combined_new_epochs,
-		&claim_sender,
 		&claim_tx_payment,
 	)
 	.await;
@@ -568,98 +549,30 @@ fn retain_incentivized_requests(
 	});
 }
 
-/// Forward a vec of just-landed `NewEpoch` events to the outbound-claim
-/// task, persisting them to the local DB first so a crash between this
-/// call and the channel push doesn't lose the reward (the claim task
-/// reads the DB on every trigger and replays anything pending).
-///
-/// `delivery_height` for each claim is the receipt block in which the
-/// `NewEpoch(set_id, self)` log was emitted. That block is guaranteed to
-/// have `_epochs[set_id]` populated, so the storage proof the claim task
-/// later builds verifies on first try — no race against the destination
-/// chain mining the outbound tx, and no race against HB's view of the
-/// destination catching up to a guessed-at "finalized" head.
-///
-/// No-op if `new_epochs` is empty or there's no `claim_sender` configured
-/// (e.g. tests, or any wiring that disables the claim pipeline). Each
-/// failure path warns and continues — claim forwarding is best-effort.
 async fn forward_consensus_delivery_claims(
 	dest_name: &str,
 	dest_state_machine: StateMachine,
 	new_epochs: Vec<NewEpochEvent>,
-	claim_sender: &Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
 	if new_epochs.is_empty() {
 		return;
 	}
-	let Some(sender) = claim_sender else {
-		return;
-	};
+
+	let Some(tx_payment) = claim_tx_payment else { return };
 
 	let dest_str = dest_state_machine.to_string();
 	let claim_rows: Vec<(u64, u64)> =
 		new_epochs.iter().map(|ev| (ev.set_id, ev.block_number)).collect();
 
-	if let Some(tx_payment) = claim_tx_payment {
-		if let Err(err) = tx_payment.insert_pending_rotation_claims(&dest_str, &claim_rows).await {
-			tracing::warn!(
-				target: LOG_TARGET,
-				?err,
-				dest = %dest_name,
-				?claim_rows,
-				"failed to persist outbound-consensus claims; the channel send may \
-				 still succeed but the claims will not survive a restart",
-			);
-		}
-	}
-
-	// One trigger per call: the claim task merges with the DB, dedupes,
-	// then filters against `OutboundConsensusRotationsClaimed` on
-	// Hyperbridge before submitting. Bounding the channel that way keeps
-	// it sane even when a catch-up + main batch land several rotations in
-	// the same outbound cycle.
-	let claims: Vec<PendingConsensusDeliveryClaim> = new_epochs
-		.iter()
-		.map(|ev| PendingConsensusDeliveryClaim {
-			destination: dest_state_machine,
-			delivery_height: ev.block_number,
-			set_id: ev.set_id,
-		})
-		.collect();
-	let summary: Vec<(u64, u64)> = claim_rows.clone();
-	// `try_send` instead of `send().await`: the outbound task must never
-	// block on a downstream consumer. If `outbound_claim::run` gets stuck
-	// (e.g. inside `wait_for_state_machine_update` waiting on a stream
-	// that silently stalled) the channel fills up; a blocking `send` here
-	// would pin `submit_for_dest`, which pins `tasks.next().await` in the
-	// outbound run loop, which kills the outer heartbeat and stops new
-	// `ProofAccepted` events being polled. We've seen this in production
-	// (claim task wedged ~8 h before outbound silently froze on the next
-	// proof).
-	//
-	// On `Full`: the persisted DB row written above will be picked up on
-	// the next outbound trigger via `outbound_claim::merge_pending`, so
-	// dropping the in-memory trigger is safe; on `Closed`: the receiver
-	// is gone, nothing more to do — log and move on.
-	match sender.try_send(claims) {
-		Ok(()) => {},
-		Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-			tracing::warn!(
-				target: LOG_TARGET,
-				dest = %dest_name,
-				?summary,
-				"outbound-consensus claim channel full; trigger dropped — DB row will replay on next outbound cycle",
-			);
-		},
-		Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-			tracing::warn!(
-				target: LOG_TARGET,
-				dest = %dest_name,
-				?summary,
-				"outbound-consensus claim channel closed; receiver gone",
-			);
-		},
+	if let Err(err) = tx_payment.insert_pending_rotation_claims(&dest_str, &claim_rows).await {
+		tracing::warn!(
+			target: LOG_TARGET,
+			?err,
+			dest = %dest_name,
+			?claim_rows,
+			"failed to persist outbound-consensus claims to DB; will retry on next delivery",
+		);
 	}
 }
 
@@ -956,11 +869,7 @@ pub async fn initialize(
 		}
 	}
 
-	// Outbound consensus delivery reward claim task. Reads pending rows
-	// from the DB on every trigger and processes them, so no startup
-	// replay is needed in the caller.
-	let (claim_sender, claim_receiver) =
-		tokio::sync::mpsc::channel::<Vec<PendingConsensusDeliveryClaim>>(512);
+	// Periodic task that claims outbound consensus delivery rewards from the DB.
 	let claim_hb = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 	let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
@@ -972,13 +881,9 @@ pub async fn initialize(
 		"outbound",
 		async move {
 			tracing::trace!(target: LOG_TARGET, "task started");
-			let res = crate::outbound_claim::run(
-				claim_hb,
-				claim_destinations,
-				claim_receiver,
-				Some(claim_tx_payment),
-			)
-			.await;
+			let res =
+				crate::outbound_claim::run(claim_hb, claim_destinations, Some(claim_tx_payment))
+					.await;
 			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
 		}
 		.instrument(claim_span)
@@ -1040,7 +945,6 @@ pub async fn initialize(
 				relayer_config,
 				provider_clients,
 				fee_senders,
-				Some(claim_sender),
 				Some(outbound_tx_payment),
 				Some(request_claim_sender),
 			)
@@ -1143,7 +1047,6 @@ mod tests {
 			DestinationContext {
 				dest,
 				fee_sender: None,
-				claim_sender: None,
 				claim_tx_payment: None,
 				request_claim_sender: None,
 			},
@@ -1183,7 +1086,6 @@ mod tests {
 			DestinationContext {
 				dest,
 				fee_sender: None,
-				claim_sender: None,
 				claim_tx_payment: None,
 				request_claim_sender: None,
 			},
@@ -1226,7 +1128,6 @@ mod tests {
 			DestinationContext {
 				dest,
 				fee_sender: None,
-				claim_sender: None,
 				claim_tx_payment: None,
 				request_claim_sender: None,
 			},

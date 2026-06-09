@@ -10,7 +10,10 @@ importers:
     dependencies:
       '@openzeppelin/contracts':
         specifier: ^5.4.0
-        version: 5.4.0
+        version: 5.6.1
+      '@openzeppelin/contracts-upgradeable':
+        specifier: ^5.6.1
+        version: 5.6.1(@openzeppelin/contracts@5.6.1)
       '@polytope-labs/solidity-merkle-trees':
         specifier: ^0.6.0
         version: 0.6.0
@@ -23,8 +26,13 @@ importers:
 
 packages:
 
-  '@openzeppelin/contracts@5.4.0':
-    resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
+  '@openzeppelin/contracts-upgradeable@5.6.1':
+    resolution: {integrity: sha512-n4a/vfRs114lXyUdYg7pyY8LvFKWvCDF5lEcRRAVxap8g6ZEdLqm+9tmt2zTtRHcNMxTYp9y5t6KBof4tHp7Og==}
+    peerDependencies:
+      '@openzeppelin/contracts': 5.6.1
+
+  '@openzeppelin/contracts@5.6.1':
+    resolution: {integrity: sha512-Ly6SlsVJ3mj+b18W3R8gNufB7dTICT105fJhodGAGgyC2oqnBAhqSiNDJ8V8DLY05cCz81GLI0CU5vNYA1EC/w==}
 
   '@polytope-labs/solidity-merkle-trees@0.6.0':
     resolution: {integrity: sha512-xegw7vwbbac2d8nFmklxk37J6izabfTb1JuMc7mIX/PJg68B8FSIqfa92l9gGOImb9zocakCqePq5U0IR44F6Q==}
@@ -50,7 +58,11 @@ packages:
 
 snapshots:
 
-  '@openzeppelin/contracts@5.4.0': {}
+  '@openzeppelin/contracts-upgradeable@5.6.1(@openzeppelin/contracts@5.6.1)':
+    dependencies:
+      '@openzeppelin/contracts': 5.6.1
+
+  '@openzeppelin/contracts@5.6.1': {}
 
   '@polytope-labs/solidity-merkle-trees@0.6.0':
     dependencies:

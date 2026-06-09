@@ -397,8 +397,12 @@ impl FromStr for StateMachine {
 					.split('-')
 					.last()
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let bytes = name.as_bytes();
+				if bytes.len() != 4 {
+					Err(format!("invalid state machine: {name}"))?
+				}
 				let mut id = [0u8; 4];
-				id.copy_from_slice(name.as_bytes());
+				id.copy_from_slice(bytes);
 				StateMachine::Substrate(id)
 			},
 			name if name.starts_with("TNDRMINT-") => {
@@ -406,8 +410,12 @@ impl FromStr for StateMachine {
 					.split('-')
 					.last()
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let bytes = name.as_bytes();
+				if bytes.len() != 4 {
+					Err(format!("invalid state machine: {name}"))?
+				}
 				let mut id = [0u8; 4];
-				id.copy_from_slice(name.as_bytes());
+				id.copy_from_slice(bytes);
 				StateMachine::Tendermint(id)
 			},
 			name => Err(format!("Unknown state machine: {name}"))?,
@@ -457,5 +465,26 @@ mod tests {
 		assert_eq!(grandpa_string, "SUBSTRATE-XXXX".to_string());
 		assert_eq!(beefy_string, "TNDRMINT-XXXX".to_string());
 		assert_eq!(solo_string, "RELAY-XXXX-1000".to_string());
+	}
+
+	// A malformed `SUBSTRATE-`/`TNDRMINT-` id whose byte length is not exactly 4
+	// must return an error rather than panic. The id is copied into a `[u8; 4]`,
+	// and `copy_from_slice` traps on a length mismatch — in the runtime this is a
+	// wasm trap reachable from untrusted input (e.g. `BandwidthManager.purchase`),
+	// so the length is now checked up-front (matching the `RELAY-` arm).
+	#[test]
+	fn from_str_rejects_non_four_byte_consensus_ids() {
+		for s in ["SUBSTRATE-", "SUBSTRATE-AB", "SUBSTRATE-ABCDE", "TNDRMINT-XYZ"] {
+			assert!(StateMachine::from_str(s).is_err(), "expected error for {s:?}");
+		}
+		// Exactly-4-byte ids still parse.
+		assert_eq!(
+			StateMachine::from_str("SUBSTRATE-ABCD").unwrap(),
+			StateMachine::Substrate(*b"ABCD")
+		);
+		assert_eq!(
+			StateMachine::from_str("TNDRMINT-ABCD").unwrap(),
+			StateMachine::Tendermint(*b"ABCD")
+		);
 	}
 }

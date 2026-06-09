@@ -430,14 +430,13 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Returns the latest proven parachain height from `pallet-ismp` for the
 		/// coprocessor state machine.
-		fn latest_height() -> u64 {
+		fn latest_height() -> Result<u64, Error<T>> {
 			let host = pallet_ismp::Pallet::<T>::default();
 			let id = ismp::consensus::StateMachineId {
-				state_id: T::Coprocessor::get()
-					.expect("coprocessor must be set in hyperbridge runtime; qed"),
+				state_id: T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?,
 				consensus_state_id: T::ConsensusStateId::get(),
 			};
-			host.latest_commitment_height(id).unwrap_or_default()
+			Ok(host.latest_commitment_height(id).unwrap_or_default())
 		}
 
 		/// Top-level dispatch. On success, settle as the first proof; on any failure for
@@ -590,7 +589,7 @@ pub mod pallet {
 			// `latest_height` is for the *newer* first proof; the uncle's lower
 			// `proof.block_number` will fail SP1 verification against it (StaleHeight),
 			// so a stale uncle pays the tx fee.
-			let parachain_height = Self::latest_height();
+			let parachain_height = Self::latest_height()?;
 
 			let snapshot_bytes =
 				ProofContext::<T>::get(parachain_height).ok_or(Error::<T>::NoUncleContext)?;
@@ -758,7 +757,7 @@ pub mod pallet {
 			let prev_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &prev_state_bytes[..])
 					.map_err(|_| Error::<T>::NotInitialized)?;
-			let prev_height = Self::latest_height();
+			let prev_height = Self::latest_height()?;
 
 			let consensus_proof = match proof_type {
 				types::PROOF_TYPE_SP1 => {
@@ -821,8 +820,8 @@ pub mod pallet {
 				Err(Error::<T>::StaleProof)?
 			};
 
-			let coprocessor = T::Coprocessor::get().unwrap();
-			let latest_height = Self::latest_height();
+			let coprocessor = T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?;
+			let latest_height = Self::latest_height()?;
 
 			if latest_height <= prev_height {
 				Err(Error::<T>::StaleProof)?

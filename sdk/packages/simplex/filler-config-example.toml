@@ -93,6 +93,24 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
+# Allowlist configuration (optional)
+# Restricts which order `user` addresses the filler will process.
+# - Omit the entire [allowlist] section to accept orders from all users (default).
+# - When present, only listed users are accepted. A source chain whose merged set
+#   (global `users` + its bySource override) is empty rejects every order.
+# - Address comparisons are case-insensitive.
+#
+# [allowlist]
+# Users eligible across all source chains:
+# users = [
+#     "0x1111111111111111111111111111111111111111",
+# ]
+#
+# Per-source-chain overrides, keyed by state machine id. Merged with the global list.
+# [allowlist.bySource]
+# "EVM-1"     = ["0x2222222222222222222222222222222222222222"]  # Ethereum-only partner
+# "EVM-42161" = ["0x3333333333333333333333333333333333333333"]  # Arbitrum-only partner
+
 # Strategy configuration
 # You can configure multiple strategies
 # All strategies use the configured simplex signer (privateKey or mpcVault)

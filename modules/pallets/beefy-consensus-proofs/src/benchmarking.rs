@@ -92,7 +92,8 @@ mod benchmarks {
 		// The committed nonce in the fixture is Bob's account, so the signer must be Bob for
 		// the `nonce == signer` check to pass.
 		let submitter: T::AccountId =
-			hex_literal::hex!("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48").into();
+			hex_literal::hex!("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48")
+				.into();
 
 		let proof =
 			frame_support::BoundedVec::<u8, T::MaxProofSize>::truncate_from(WIRE_PROOF.to_vec());

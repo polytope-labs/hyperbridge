@@ -1,5 +1,5 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
-import { ChainConfigService } from "@hyperbridge/sdk"
+import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
@@ -108,6 +108,13 @@ export interface OverfillProtectionConfig {
 	maxConsecutiveClamps?: number
 }
 
+export interface AllowlistConfig {
+	/** Hex addresses eligible across all chains. */
+	users?: string[]
+	/** Per-source-chain overrides, keyed by state machine id (e.g. "EVM-1"). Merged with the global list. */
+	bySource?: Record<string, string[]>
+}
+
 export interface FillerConfig {
 	maxConcurrentOrders: number
 	logging?: LogLevel
@@ -131,6 +138,12 @@ export interface FillerConfig {
 	 * (maxOverfillBps=100, maxConsecutiveClamps=3).
 	 */
 	overfillProtection?: OverfillProtectionConfig
+	/**
+	 * Restricts which order `user` addresses the filler processes. When omitted, all
+	 * users are accepted. When present, only listed users (global ∪ per-source) are
+	 * accepted; a chain whose merged set is empty rejects every order.
+	 */
+	allowlist?: AllowlistConfig
 }
 
 /**
@@ -142,6 +155,10 @@ export class FillerConfigService {
 	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
 	private fillerConfig?: FillerConfig
+	/** Lowercased global allowlist users, or undefined when no global list is configured. */
+	private allowlistGlobal?: Set<string>
+	/** Lowercased per-source allowlist users keyed by state machine id, or undefined when no per-source list is configured. */
+	private allowlistBySource?: Map<string, Set<string>>
 
 	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
 		chainConfigs.forEach((config) => {
@@ -157,6 +174,38 @@ export class FillerConfigService {
 
 		this.chainConfigService = new ChainConfigService({})
 		this.fillerConfig = fillerConfig
+
+		const allowlist = fillerConfig?.allowlist
+		if (allowlist?.users) {
+			this.allowlistGlobal = new Set(allowlist.users.map((u) => bytes32ToBytes20(u).toLowerCase()))
+		}
+		if (allowlist?.bySource) {
+			this.allowlistBySource = new Map(
+				Object.entries(allowlist.bySource).map(([chain, users]) => [
+					chain,
+					new Set(users.map((u) => bytes32ToBytes20(u).toLowerCase())),
+				]),
+			)
+		}
+	}
+
+	getAllowlist(): AllowlistConfig | undefined {
+		return this.fillerConfig?.allowlist
+	}
+
+	/**
+	 * Whether an order from `user` on `chain` (a source state machine id, e.g. "EVM-1")
+	 * may be processed. Returns true when no allowlist is configured. Otherwise the user
+	 * must appear in the global list or the per-source override for that chain; an empty
+	 * merged set rejects every order on that chain.
+	 */
+	isUserAllowed(user: string, chain: string): boolean {
+		if (!this.allowlistGlobal && !this.allowlistBySource) return true
+		// order.user arrives as the bytes32 (left-padded) form from OrderPlaced; the
+		// allowlist is configured with 20-byte addresses. Canonicalize both to compare.
+		const normalized = bytes32ToBytes20(user).toLowerCase()
+		if (this.allowlistGlobal?.has(normalized)) return true
+		return this.allowlistBySource?.get(chain)?.has(normalized) ?? false
 	}
 
 	getChainConfig(chain: string): ChainConfig {

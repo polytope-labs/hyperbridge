@@ -279,6 +279,11 @@ export class FXFiller implements FillerStrategy {
 			const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
 			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
 			const fillerOutputs: TokenInfo[] = []
+			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
+			// (insufficient balance, exhausted budget), so `fillerOutputs[k]` is the k-th
+			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
+			// original input/pair via this array rather than by position.
+			const fillerOutputLegs: number[] = []
 			let remainingUsd = cappedOrderUsd
 			let anyLegClamped = false
 
@@ -427,6 +432,7 @@ export class FXFiller implements FillerStrategy {
 				balanceCache.set(tokenAddress, remaining > 0n ? remaining : 0n)
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
+				fillerOutputLegs.push(i)
 
 				if (remainingUsd.lte(0)) {
 					break
@@ -456,17 +462,18 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Spread profit (bid/ask): value received minus cost, using opposite side of spread for valuation.
-			// - When filler sells exotic (stable→exotic): value exotic we give at acquisition cost (bid).
-			// - When filler buys exotic (exotic→stable): value exotic we receive at resale (ask).
-			// Also accumulates totalInputUsd / totalOutputUsd for the input-over-output check.
-			let spreadProfitUsd = new Decimal(0)
-			let totalInputUsdValued = new Decimal(0)
-			let totalOutputUsdValued = new Decimal(0)
+			// Realized FX margin, report-only — never rejects an order. A single fill is half a
+			// round-trip, so the open leg is marked at the opposite side of the spread:
+			// - sells exotic (stable→exotic): value the exotic given at bid (rebuy cost).
+			// - buys exotic (exotic→stable): value the exotic received at ask (resale value).
+			// Positive by construction when bid ≥ ask. `fillerOutputs[i]` is the i-th *surviving*
+			// leg; realign to its original input/pair via `fillerOutputLegs`.
+			let fxMarginUsd = new Decimal(0)
 			for (let i = 0; i < fillerOutputs.length; i++) {
-				const input = order.inputs[i]
+				const legIndex = fillerOutputLegs[i]
+				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
-				const pair = pairs[i]
+				const pair = pairs[legIndex]
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -484,43 +491,37 @@ export class FXFiller implements FillerStrategy {
 				const askPrice = venuePriceProfit?.ask ?? policyAskPrice
 
 				if (pair.inputIsStable) {
-					// Filler sells exotic (stable→exotic): receives stable, gives exotic. Value exotic at bid (acquisition cost).
+					// Sells exotic: receives stable, gives exotic valued at bid (rebuy cost).
 					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
 					const outputExotic = new Decimal(formatUnits(output.amount, exoticDecimalsLeg))
-					const outputUsd = outputExotic.div(bidPrice)
-					spreadProfitUsd = spreadProfitUsd.plus(inputUsd.minus(outputUsd))
-					totalInputUsdValued = totalInputUsdValued.plus(inputUsd)
-					totalOutputUsdValued = totalOutputUsdValued.plus(outputUsd)
+					fxMarginUsd = fxMarginUsd.plus(inputUsd.minus(outputExotic.div(bidPrice)))
 				} else {
-					// Filler buys exotic (exotic→stable): receives exotic, gives stable. Value exotic at ask (resale value).
+					// Buys exotic: gives stable, receives exotic valued at ask (resale value).
 					const inputExotic = new Decimal(formatUnits(input.amount, exoticDecimalsLeg))
 					const outputUsd = new Decimal(formatUnits(output.amount, stableDecimals))
-					const inputUsd = inputExotic.div(askPrice)
-					spreadProfitUsd = spreadProfitUsd.plus(inputUsd.minus(outputUsd))
-					totalInputUsdValued = totalInputUsdValued.plus(inputUsd)
-					totalOutputUsdValued = totalOutputUsdValued.plus(outputUsd)
+					fxMarginUsd = fxMarginUsd.plus(inputExotic.div(askPrice).minus(outputUsd))
 				}
-			}
-
-			// Input USD must always exceed output USD — filler cannot pay more than it receives.
-			if (totalOutputUsdValued.gte(totalInputUsdValued)) {
-				this.logger.warn(
-					{
-						orderId: order.id,
-						totalInputUsd: totalInputUsdValued.toString(),
-						totalOutputUsd: totalOutputUsdValued.toString(),
-					},
-					"Rejecting order: output USD ≥ input USD",
-				)
-				return 0
 			}
 
 			this.recordOrderOutcome(anyLegClamped, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			const feeProfit = order.fees > totalCostInSourceFeeToken ? order.fees - totalCostInSourceFeeToken : 0n
-			const feeProfitParsed = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
-			const totalProfit = feeProfitParsed + spreadProfitUsd.toNumber()
+			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
+			if (order.fees < totalCostInSourceFeeToken) {
+				this.logger.info(
+					{
+						orderId: order.id,
+						orderFees: formatUnits(order.fees, feeTokenDecimals),
+						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+					},
+					"Skipping order: attached fees do not cover estimated execution cost",
+				)
+				return 0
+			}
+			const feeProfit = order.fees - totalCostInSourceFeeToken
+			// FX bids are gated on fee profit only. fxMarginUsd is a theoretical mark-to-model
+			// value (open leg priced at the opposite curve) and is reported separately, never summed in.
+			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -536,7 +537,7 @@ export class FXFiller implements FillerStrategy {
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
 					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
-					spreadProfitUsd: spreadProfitUsd.toString(),
+					fxMarginUsd: fxMarginUsd.toString(),
 					totalProfit,
 					profitable: totalProfit > 0,
 				},

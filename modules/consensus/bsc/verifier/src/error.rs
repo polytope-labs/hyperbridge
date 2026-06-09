@@ -37,6 +37,12 @@ pub enum Error {
 	/// The hashed source/target headers don't match the vote data.
 	#[error("Target and source headers do not match vote data")]
 	HeaderVoteDataMismatch,
+	/// The justified `target_header` is not the direct child of the finalized
+	/// `source_header`. BEP-126 fast finality only finalizes a block once it and
+	/// its direct child are both justified, so a non-adjacent vote attestation
+	/// must not be accepted as finalizing `source_header`.
+	#[error("Target header is not the direct child of the source header")]
+	NonConsecutiveFinalization,
 	/// One or more participant public keys failed to decompress.
 	#[error("Failed to aggregate participant public keys: {0}")]
 	AggregatePublicKeys(String),

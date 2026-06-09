@@ -271,6 +271,46 @@ fn should_reject_decompression_when_actual_size_diverges_from_claim() {
 }
 
 #[test]
+fn decompress_rejects_oversize_claim_before_decompressing() {
+	use frame_support::pallet_prelude::{InvalidTransaction, TransactionSource, ValidateUnsigned};
+
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		// A tiny, perfectly valid zstd frame; the inflated *claim* is the attack.
+		let payload = b"a small decompressible payload".to_vec();
+		let mut buffer = vec![0u8; 1_000];
+		let compressed = zstd_safe::compress(&mut buffer[..], &payload, 3).unwrap();
+		let compressed = buffer[..compressed].to_vec();
+
+		// `u32::MAX` is far above `MaxCallSize * ONE_MB`. The gate inside
+		// `decompress` must reject it up-front (`CallSizeOutOfBound`) before the
+		// decompression loop expands anything — this is the mempool zstd-bomb guard.
+		let res =
+			pallet_call_decompressor::Pallet::<Test>::decompress(compressed.clone(), u32::MAX);
+		assert!(
+			matches!(
+				res,
+				Err(DispatchError::Module(ModuleError { message: Some("CallSizeOutOfBound"), .. }))
+			),
+			"oversize claim must be rejected by the size gate, got {res:?}",
+		);
+
+		// And the unsigned mempool path (`validate_unsigned`) must reject it too,
+		// without performing the decompression first.
+		let call = pallet_call_decompressor::Call::<Test>::decompress_call {
+			compressed,
+			encoded_call_size: u32::MAX,
+		};
+		let validity =
+			<pallet_call_decompressor::Pallet<Test> as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			);
+		assert_eq!(validity, Err(InvalidTransaction::Call.into()));
+	});
+}
+
+#[test]
 fn decompress_stack_exhaustion_poc() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {

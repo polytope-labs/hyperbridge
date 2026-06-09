@@ -2,21 +2,27 @@ import { SignerType, type SignerConfig, type SigningAccount } from "./types"
 import { createMpcVaultSigningAccount } from "./accounts/mpc"
 import { createPrivateKeySigningAccount } from "./accounts/privatekey"
 import { createTurnkeySigningAccount } from "./accounts/turnkey"
+import { getLogger } from "@/services/Logger"
+
+const logger = getLogger("signer")
 
 export async function createSimplexSigner(config: SignerConfig): Promise<SigningAccount> {
+	let account: SigningAccount
 	if (config.type === SignerType.PrivateKey) {
-		return createPrivateKeySigningAccount(config.key)
+		account = await createPrivateKeySigningAccount(config.key)
+	} else if (config.type === SignerType.MpcVault) {
+		account = await createMpcVaultSigningAccount(config)
+	} else if (config.type === SignerType.Turnkey) {
+		account = await createTurnkeySigningAccount(config)
+	} else {
+		throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 	}
 
-	if (config.type === SignerType.MpcVault) {
-		return createMpcVaultSigningAccount(config)
-	}
-
-	if (config.type === SignerType.Turnkey) {
-		return createTurnkeySigningAccount(config)
-	}
-
-	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
+	logger.info(
+		{ signingStrategy: account.mode, address: account.account.address },
+		`EVM signing strategy: ${account.mode}`,
+	)
+	return account
 }
 
 export function validateSignerConfig(config: SignerConfig): void {

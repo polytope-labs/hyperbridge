@@ -18,7 +18,7 @@
 //! Node types: MSU Root (8192 bytes), Internal (515 bytes), Leaf (65 bytes).
 //! Internal nodes use SkipEmpty hashing: `sha256(header || non-zero child slots)`.
 
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 
 use crate::types::{PharosProofNode, SiblingLeftmostLeafProof};
 
@@ -262,9 +262,10 @@ pub fn verify_membership_proof(
 
 /// Verify that a key does NOT exist in the trie (non-inclusion proof).
 ///
-/// Case 1: Proof ends at a leaf with a different key_hash (path collision).
-/// Case 2: Proof ends at an internal node where the target nibble slot is empty.
-///         Sibling proofs pin the non-empty slots to the same root, preventing forgery.
+/// Case 1: proof ends at a leaf with a different key hash (path collision).
+/// Case 2: proof ends at an internal node where the queried slot is empty. When the
+///         terminal has siblings they are verified directly; when it is all-zero the
+///         sibling evidence is taken from the deepest ancestor with non-empty non-path slots.
 pub fn verify_non_existence_proof(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
@@ -338,53 +339,101 @@ pub fn verify_non_existence_proof(
 		})
 		.count();
 
-	if non_empty_count > 0 {
-		if sibling_proofs.len() != non_empty_count {
-			return Err(Error::SiblingCountMismatch);
-		}
-
-		let parent_nodes = &proof_nodes[..proof_nodes.len() - 1];
-		let mut proven_slots = [false; INTERNAL_NODE_SLOTS];
-
-		for sib in sibling_proofs {
-			let idx = sib.slot_index as usize;
-			if idx >= INTERNAL_NODE_SLOTS || idx == nibble {
-				return Err(Error::InvalidSiblingSlot);
-			}
-			let s = INTERNAL_NODE_HEADER + idx * INTERNAL_NODE_SLOT_SIZE;
-			if is_zero_slot(&last[s..s + INTERNAL_NODE_SLOT_SIZE]) {
-				return Err(Error::InvalidSiblingSlot);
-			}
-
-			if proven_slots[idx] {
-				return Err(Error::DuplicateSiblingSlot);
-			}
-			proven_slots[idx] = true;
-
-			if sib.proof_path.is_empty() {
-				return Err(Error::EmptySiblingPath);
-			}
-
-			let sib_key_hash = sha256(&sib.leftmost_leaf_key);
-			if nibble_at_depth(&sib_key_hash, depth).ok_or(Error::ProofTooDeep)? as usize != idx {
-				return Err(Error::SiblingNibbleMismatch);
-			}
-
-			let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
-			combined.extend_from_slice(&sib.proof_path);
-
-			let is_valid_leaf = combined.last().map_or(false, |last| {
-				is_leaf(&last.proof_node) &&
-					last.proof_node[1..33] == sha256(&sib.leftmost_leaf_key)
+	// When the terminal is all-zero it only marks the end of an empty path; the actual
+	// sibling evidence lives in the deepest ancestor that has non-empty non-path slots.
+	//
+	// The two branches differ in parent_end by design: for a non-empty terminal the
+	// anchor is excluded and must reappear as sib.proof_path[0] (re-routed via the
+	// sibling slot); for an all-zero terminal the anchor is an ancestor already
+	// committed in parent_nodes, so sib.proof_path begins at the sibling slot's child.
+	let (anchor, anchor_depth, anchor_queried_nibble, anchor_non_empty_count, parent_end) =
+		if non_empty_count > 0 {
+			(last as &[u8], depth, nibble, non_empty_count, proof_nodes.len() - 1)
+		} else {
+			let anchor_idx = (1..proof_nodes.len().saturating_sub(1)).rev().find(|&ni| {
+				let node = &proof_nodes[ni].proof_node;
+				if node.len() != INTERNAL_NODE_LEN {
+					return false;
+				}
+				let d = ni - 1;
+				let q = match nibble_at_depth(&key_hash, d) {
+					Some(n) => n as usize,
+					None => return false,
+				};
+				(0..INTERNAL_NODE_SLOTS).any(|i| {
+					if i == q {
+						return false;
+					}
+					let s = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
+					!is_zero_slot(&node[s..s + INTERNAL_NODE_SLOT_SIZE])
+				})
 			});
 
-			if !is_valid_leaf {
-				return Err(Error::SiblingProofInvalid(alloc::boxed::Box::new(Error::InvalidLeaf)));
-			}
+			let Some(ni) = anchor_idx else {
+				if !sibling_proofs.is_empty() {
+					return Err(Error::SiblingCountMismatch);
+				}
+				return Ok(());
+			};
 
-			verify_proof_walk(&combined, &sib.leftmost_leaf_key, root)
-				.map_err(|e| Error::SiblingProofInvalid(alloc::boxed::Box::new(e)))?;
+			let d = ni - 1;
+			let q = nibble_at_depth(&key_hash, d).ok_or(Error::ProofTooDeep)? as usize;
+			let cnt = (0..INTERNAL_NODE_SLOTS)
+				.filter(|&i| {
+					if i == q {
+						return false;
+					}
+					let s = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
+					!is_zero_slot(&proof_nodes[ni].proof_node[s..s + INTERNAL_NODE_SLOT_SIZE])
+				})
+				.count();
+			(&proof_nodes[ni].proof_node[..], d, q, cnt, ni + 1)
+		};
+
+	if sibling_proofs.len() != anchor_non_empty_count {
+		return Err(Error::SiblingCountMismatch);
+	}
+
+	let parent_nodes = &proof_nodes[..parent_end];
+	let mut seen: BTreeSet<usize> = BTreeSet::new();
+
+	for sib in sibling_proofs {
+		let idx = sib.slot_index as usize;
+		if idx >= INTERNAL_NODE_SLOTS || idx == anchor_queried_nibble {
+			return Err(Error::InvalidSiblingSlot);
 		}
+		let s = INTERNAL_NODE_HEADER + idx * INTERNAL_NODE_SLOT_SIZE;
+		if is_zero_slot(&anchor[s..s + INTERNAL_NODE_SLOT_SIZE]) {
+			return Err(Error::InvalidSiblingSlot);
+		}
+
+		if !seen.insert(idx) {
+			return Err(Error::DuplicateSiblingSlot);
+		}
+
+		if sib.proof_path.is_empty() {
+			return Err(Error::EmptySiblingPath);
+		}
+
+		let sib_key_hash = sha256(&sib.leftmost_leaf_key);
+		if nibble_at_depth(&sib_key_hash, anchor_depth).ok_or(Error::ProofTooDeep)? as usize != idx
+		{
+			return Err(Error::SiblingNibbleMismatch);
+		}
+
+		let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
+		combined.extend_from_slice(&sib.proof_path);
+
+		let is_valid_leaf = combined.last().map_or(false, |last| {
+			is_leaf(&last.proof_node) && last.proof_node[1..33] == sha256(&sib.leftmost_leaf_key)
+		});
+
+		if !is_valid_leaf {
+			return Err(Error::SiblingProofInvalid(alloc::boxed::Box::new(Error::InvalidLeaf)));
+		}
+
+		verify_proof_walk(&combined, &sib.leftmost_leaf_key, root)
+			.map_err(|e| Error::SiblingProofInvalid(alloc::boxed::Box::new(e)))?;
 	}
 
 	Ok(())
@@ -699,6 +748,103 @@ mod tests {
 		];
 
 		assert!(verify_non_existence_proof(&proof, query, &root, &[]).is_ok());
+	}
+
+	// Honest Pharos non-existence proof: all-zero terminal with a branching ancestor.
+	// The anchor (deepest ancestor with non-empty non-path siblings) must be covered by
+	// sibling proofs; the proof is rejected without them.
+	#[test]
+	fn test_non_existence_case2_all_zero_terminal_with_anchor_sibling() {
+		let query_key = b"missing_key";
+		let key_hash = sha256(query_key);
+		let msu_slot = *query_key.last().unwrap() as usize;
+		let queried_nibble = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let sibling_slot = (queried_nibble + 1) % INTERNAL_NODE_SLOTS;
+		let query_last_byte = *query_key.last().unwrap();
+
+		// Find a sibling key that routes through sibling_slot at depth 0 and shares the
+		// same last byte as the query key (same MSU subtree, so the walk root check passes).
+		let (sib_key, _) = (0u32..)
+			.map(|i| {
+				let mut k = b"sibling_".to_vec();
+				k.extend_from_slice(&i.to_le_bytes());
+				k.push(query_last_byte);
+				let h = sha256(&k);
+				(k, h)
+			})
+			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() as usize == sibling_slot)
+			.unwrap();
+
+		let sib_leaf = make_leaf(&sib_key, b"v");
+		let sib_leaf_hash = sha256(&sib_leaf);
+
+		let mut anchor_data = vec![0u8; INTERNAL_NODE_LEN];
+		let s = INTERNAL_NODE_HEADER + sibling_slot * INTERNAL_NODE_SLOT_SIZE;
+		anchor_data[s..s + 32].copy_from_slice(&sib_leaf_hash);
+		let anchor_hash = hash_internal_node(&anchor_data);
+
+		let msu_root = make_msu_root_with_child(msu_slot, &anchor_hash);
+		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let proof = vec![
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(anchor_data, 0, 0),
+			node(vec![0u8; INTERNAL_NODE_LEN], 0, 0),
+		];
+
+		let sibling = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: sib_key,
+			proof_path: vec![node(sib_leaf, 0, 0)],
+		};
+
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[sibling]).is_ok());
+		assert!(matches!(
+			verify_non_existence_proof(&proof, query_key, &root, &[]),
+			Err(Error::SiblingCountMismatch)
+		));
+	}
+
+	// Moving the leaf to a sibling slot makes the parent the deepest anchor; it requires
+	// a sibling proof that the attacker cannot supply for the moved slot.
+	#[test]
+	fn test_poc_empty_terminal_forgery_rejected() {
+		let key = b"delivered_receipt_key";
+		let value = b"receipt_exists";
+		let (membership_proof, root) = build_proof_for_key(key, value);
+
+		assert!(verify_membership_proof(&membership_proof, key, &root).is_ok());
+
+		let leaf_data = &membership_proof[2].proof_node;
+		let leaf_hash = sha256(leaf_data);
+		let key_hash = sha256(key);
+		let queried_slot = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let forged_slot = (queried_slot + 1) % INTERNAL_NODE_SLOTS;
+
+		let forged_parent = make_internal_with_child(forged_slot, &leaf_hash);
+		assert_eq!(
+			hash_internal_node(&membership_proof[1].proof_node),
+			hash_internal_node(&forged_parent)
+		);
+
+		let queried_slot_start = INTERNAL_NODE_HEADER + queried_slot * INTERNAL_NODE_SLOT_SIZE;
+		assert_eq!(
+			&forged_parent[queried_slot_start..queried_slot_start + INTERNAL_NODE_SLOT_SIZE],
+			&ZERO_HASH
+		);
+
+		let forged_proof = vec![
+			membership_proof[0].clone(),
+			node(forged_parent, 0, 0),
+			node(vec![0u8; INTERNAL_NODE_LEN], 0, 0),
+		];
+
+		assert!(verify_proof_walk(&forged_proof, key, &root).is_ok());
+		assert!(matches!(
+			verify_non_existence_proof(&forged_proof, key, &root, &[]),
+			Err(Error::SiblingCountMismatch)
+		));
 	}
 
 	#[test]

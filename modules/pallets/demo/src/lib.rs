@@ -415,10 +415,10 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		};
 		let source_chain = request.source_chain();
 
-		let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
-			&mut &*request.body().expect("Request has been checked; qed"),
-		)
-		.map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
+		let body = request.body().ok_or_else(|| anyhow::anyhow!("Request body is missing"))?;
+		let payload =
+			<Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(&mut &*body)
+				.map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
 		<T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
 			&payload.from,
 			payload.amount.into(),

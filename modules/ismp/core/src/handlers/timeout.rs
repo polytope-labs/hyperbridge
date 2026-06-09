@@ -126,7 +126,10 @@ where
 						// can be retried.
 						host.store_request_commitment(&request, meta)?;
 						if host.host_state_machine() != post.source && signer.is_some() {
-							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
+							host.store_request_receipt(
+								&request,
+								&signer.ok_or_else(|| anyhow::anyhow!("Infallible"))?,
+							)?;
 						}
 					}
 					Ok::<_, anyhow::Error>(res)

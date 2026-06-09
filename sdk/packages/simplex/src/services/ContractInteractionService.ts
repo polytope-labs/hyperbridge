@@ -576,11 +576,13 @@ export class ContractInteractionService {
 			outputs: cachedFillerOutputs,
 		}
 
+		// dispatchWithFeeToken pulls relayerFee in fee token; native dispatch pulls none.
+		const dispatchFeeTokenAmount = fillOptions.nativeDispatchFee > 0n ? 0n : fillOptions.relayerFee
 		const callData = await this.buildApprovalAndFillCalldata(
 			order,
 			cachedFillerOutputs,
 			fillOptions,
-			cachedEstimate.totalCostInSourceFeeToken,
+			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
 		)
 
 		const commitment = orderCommitment(order)

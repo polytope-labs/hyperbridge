@@ -200,14 +200,21 @@ where
 	/// Decode the EVM `address` value stored at
 	/// `EvmHost._epochs[set_id]`, as returned by
 	/// `EvmStateMachine::verify_state_proof`.
+	///
+	/// Standard EVM MPT trie returns RLP-encoded values; Pharos flat trie
+	/// returns the raw 32-byte zero-padded ABI value. We try RLP first and
+	/// fall back to extracting the last 20 bytes of a 32-byte padded value.
 	pub fn decode_epochs_slot_address(raw: &[u8]) -> Option<Address> {
 		use alloy_rlp::Decodable;
-		let addr = Address::decode(&mut &*raw).ok()?;
-		if addr == Address::ZERO {
-			None
-		} else {
-			Some(addr)
+		if let Ok(addr) = Address::decode(&mut &*raw) {
+			return if addr == Address::ZERO { None } else { Some(addr) };
 		}
+		// Pharos flat trie: raw 32-byte zero-padded ABI encoding
+		if raw.len() == 32 {
+			let addr = Address::from_slice(&raw[12..]);
+			return if addr == Address::ZERO { None } else { Some(addr) };
+		}
+		None
 	}
 }
 

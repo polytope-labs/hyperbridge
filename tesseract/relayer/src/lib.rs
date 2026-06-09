@@ -23,6 +23,7 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "tesseract";
 
+pub mod claim_rewards;
 pub mod cli;
 pub mod config;
 pub mod fees;

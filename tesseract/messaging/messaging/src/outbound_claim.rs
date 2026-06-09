@@ -36,10 +36,11 @@
 //!      Hyperbridge.
 //!    - Delete the persisted claim row.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context as _};
 use codec::Decode;
+use futures::{stream::FuturesUnordered, StreamExt};
 use ismp::{consensus::StateMachineHeight, host::StateMachine, messaging::Proof};
 use pallet_ismp_relayer::{
 	outbound_consensus_delivery_message, OutboundConsensusDeliveryClaim, EVM_HOST_EPOCHS_SLOT,
@@ -52,7 +53,7 @@ use tesseract_primitives::{
 	wait_for_state_machine_update, IsmpProvider, PendingConsensusDeliveryClaim, StateProofQueryType,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
-use tokio::sync::mpsc::Receiver;
+use tokio::{sync::mpsc::Receiver, time::MissedTickBehavior};
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
@@ -77,22 +78,31 @@ pub async fn run(
 	let hb_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
 	let payee_bytes: [u8; 32] = hyperbridge.signer.public().0;
 
-	while let Some(trigger) = receiver.recv().await {
+	// Periodic scan so stuck rows in the DB are retried even when deliveries
+	// stop (no new trigger would otherwise wake the loop).
+	let mut retry_interval = tokio::time::interval(Duration::from_secs(600));
+	retry_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+	loop {
+		let trigger = tokio::select! {
+			maybe = receiver.recv() => match maybe {
+				Some(t) => t,
+				None => return Err(anyhow!("outbound-claim channel closed")),
+			},
+			_ = retry_interval.tick() => vec![],
+		};
+
 		// Merge the live trigger with everything still pending in the DB,
-		// deduped on `(destination, set_id)`. The DB is the source of
-		// truth for surviving a crash; the trigger vec covers the
-		// just-delivered rotations that may not have round-tripped
-		// through the DB yet (e.g. if the persist write failed).
+		// deduped on `(destination, set_id)`. The DB is the source of truth
+		// for surviving a crash; the trigger vec covers freshly-delivered
+		// rotations that may not have round-tripped through the DB yet.
 		let merged = merge_pending(&tx_payment, trigger).await;
 		if merged.is_empty() {
 			continue;
 		}
 
-		// Split into "already claimed by some other relayer" (skip + queue
-		// for delete) and "still claimable" (process). The former group
-		// would just revert with `OutboundRotationAlreadyClaimed` if we
-		// submitted, so short-circuiting saves a Hyperbridge round-trip
-		// per stale row.
+		// Drop anything Hyperbridge already records as claimed — resubmitting
+		// would just burn a round-trip on a guaranteed revert.
 		let (claimed, unclaimed) = match partition_claimed(&hyperbridge, &merged).await {
 			Ok(parts) => parts,
 			Err(err) => {
@@ -106,9 +116,6 @@ pub async fn run(
 			},
 		};
 
-		// Queue already-claimed rows for deletion. Best-effort: a failure
-		// here just means the row will be revisited on the next trigger,
-		// where this same partition step will catch it again.
 		if !claimed.is_empty() {
 			tracing::info!(
 				target: LOG_TARGET,
@@ -133,6 +140,9 @@ pub async fn run(
 			}
 		}
 
+		// Process all unclaimed rows in parallel so a slow state-machine-update
+		// wait on one destination cannot block claims for others.
+		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
 				"outbound_claim",
@@ -144,38 +154,39 @@ pub async fn run(
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
 			let tx_payment = tx_payment.clone();
-			async move {
-				let Some(dest) = dest else {
-					tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
-					return;
-				};
-				match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
-					Ok(()) => {
-						tracing::info!(target: LOG_TARGET, "claim submitted");
-						if let Some(tx_payment) = &tx_payment {
-							let _ = tx_payment
-								.delete_rotation_claim(
-									&pending.destination.to_string(),
-									pending.set_id,
-								)
-								.await;
-						}
-					},
-					Err(err) => {
-						tracing::error!(
-							target: LOG_TARGET,
-							?err,
-							"claim submission failed; row left in DB for next trigger",
-						);
-					},
+			tasks.push(
+				async move {
+					let Some(dest) = dest else {
+						tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
+						return;
+					};
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
+						Ok(()) => {
+							tracing::info!(target: LOG_TARGET, "claim submitted");
+							if let Some(tp) = &tx_payment {
+								let _ = tp
+									.delete_rotation_claim(
+										&pending.destination.to_string(),
+										pending.set_id,
+									)
+									.await;
+							}
+						},
+						Err(err) => {
+							tracing::error!(
+								target: LOG_TARGET,
+								?err,
+								"claim submission failed; row left in DB for next trigger",
+							);
+						},
+					}
 				}
-			}
-			.instrument(span)
-			.await;
+				.instrument(span),
+			);
 		}
-	}
 
-	Err(anyhow!("outbound-claim channel closed"))
+		while tasks.next().await.is_some() {}
+	}
 }
 
 /// Read `list_pending_rotation_claims` and union-merge it with the
@@ -244,7 +255,7 @@ async fn merge_pending(
 /// Lookups are sequential — the surface is small (typically a handful
 /// of rows per trigger) and parallelism would just dogpile the HB RPC
 /// for no real win.
-async fn partition_claimed(
+pub async fn partition_claimed(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	pending: &[PendingConsensusDeliveryClaim],
 ) -> anyhow::Result<(Vec<PendingConsensusDeliveryClaim>, Vec<PendingConsensusDeliveryClaim>)> {
@@ -290,22 +301,33 @@ async fn partition_claimed(
 	Ok((claimed, unclaimed))
 }
 
-async fn process_claim(
+pub async fn process_claim(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	hb_provider: Arc<dyn IsmpProvider>,
 	dest: Arc<dyn IsmpProvider>,
 	pending: &PendingConsensusDeliveryClaim,
 	payee: [u8; 32],
 ) -> anyhow::Result<()> {
-	// Same shape fee_accumulation uses: wait for HB's view of the
-	// destination to cross the delivery block.
-	let dest_height = wait_for_state_machine_update(
-		dest.state_machine_id(),
-		hb_provider.clone(),
-		dest.clone(),
-		pending.delivery_height,
+	// Wait for HB's view of the destination to cross the delivery block,
+	// with a timeout so a permanently-stalled destination (e.g. Polkadot Hub
+	// without parachain inherents) does not block this task indefinitely.
+	let dest_height = tokio::time::timeout(
+		Duration::from_secs(300),
+		wait_for_state_machine_update(
+			dest.state_machine_id(),
+			hb_provider.clone(),
+			dest.clone(),
+			pending.delivery_height,
+		),
 	)
 	.await
+	.map_err(|_| {
+		anyhow!(
+			"timed out waiting for state machine update for {} at height {}",
+			pending.destination,
+			pending.delivery_height,
+		)
+	})?
 	.context("wait_for_state_machine_update")?;
 
 	// Build the 52-byte EIP-1186 key the EVM verifier expects:

@@ -128,6 +128,14 @@ where
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
 		self.provider.clone()
 	}
+
+	async fn advance_counterparty_to(
+		&self,
+		counterparty: Arc<dyn IsmpProvider>,
+		target_height: u64,
+	) -> anyhow::Result<()> {
+		self.submit_consensus_for_height(counterparty, target_height).await
+	}
 }
 
 /// Outcome of one consensus tick: updated cursors, plus an optional consensus
@@ -143,6 +151,84 @@ where
 	R: subxt::Config + Send + Sync + Clone,
 	HashFor<R>: From<H256>,
 {
+	/// Builds and submits a parachain consensus proof to `counterparty` covering
+	/// at least `target_height` on this chain. Used by the manual claim command
+	/// to unblock Hyperbridge's state machine height for Polkadot Hub when
+	/// parachain inherents are not advancing it automatically.
+	pub async fn submit_consensus_for_height(
+		&self,
+		counterparty: Arc<dyn IsmpProvider>,
+		target_height: u64,
+	) -> anyhow::Result<()> {
+		let counterparty_finalized = counterparty.query_finalized_height().await?;
+		let latest_relay_height =
+			query_latest_known_relay_height(&*counterparty, counterparty_finalized)
+				.await?
+				.ok_or_else(|| anyhow!("counterparty has no KnownRelayHeights entries"))?;
+
+		let relay_block_hash = self
+			.relay_rpc
+			.chain_get_block_hash(Some((latest_relay_height as u64).into()))
+			.await?
+			.ok_or_else(|| anyhow!("relay chain has no block for height {latest_relay_height}"))?;
+
+		let head_key = parachain_header_storage_key(self.para_id());
+		let raw_head = self
+			.relay_client
+			.storage()
+			.at(relay_block_hash)
+			.fetch_raw(head_key.0.clone())
+			.await?
+			.ok_or_else(|| {
+				anyhow!(
+					"Paras::Heads[{}] missing at relay height {latest_relay_height}",
+					self.para_id()
+				)
+			})?;
+
+		let intermediate = Vec::<u8>::decode(&mut &raw_head[..])?;
+		let header = SpHeader::<u32, BlakeTwo256>::decode(&mut &intermediate[..])?;
+		let self_height = *header.number() as u64;
+
+		if self_height < target_height {
+			return Err(anyhow!(
+				"latest known relay height {latest_relay_height} gives para head at {self_height}, \
+				 need {target_height}; ensure Hyperbridge's relay chain consensus is current",
+			));
+		}
+
+		let read_proof = self
+			.relay_rpc
+			.state_get_read_proof(vec![&head_key.0[..]], Some(relay_block_hash))
+			.await?;
+		let storage_proof: Vec<Vec<u8>> = read_proof.proof.into_iter().map(|b| b.0).collect();
+
+		let consensus_proof =
+			ParachainConsensusProof { relay_height: latest_relay_height, storage_proof };
+		let message = ConsensusMessage {
+			consensus_state_id: self.consensus_state_id,
+			consensus_proof: consensus_proof.encode(),
+			signer: H256::random().0.to_vec(),
+		};
+
+		tracing::info!(
+			target: crate::LOG_TARGET,
+			host = %self.state_machine,
+			counterparty = %counterparty.name(),
+			relay_height = latest_relay_height,
+			para_height = self_height,
+			target = target_height,
+			"submitting parachain consensus proof to advance counterparty state",
+		);
+
+		counterparty
+			.submit(vec![Message::Consensus(message)], self.state_machine)
+			.await
+			.map_err(|e| anyhow!("submit consensus message: {e:?}"))?;
+
+		Ok(())
+	}
+
 	/// Executes one iteration of the consensus loop: fetch the counterparty's
 	/// latest known relay height at its *finalized* head, resolve it to a
 	/// parachain head, and (if that head surfaces new ISMP requests on self)

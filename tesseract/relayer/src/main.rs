@@ -28,6 +28,7 @@ async fn main() -> Result<(), anyhow::Error> {
 			return cli.log_consensus_state(state_machine.clone()).await,
 		Some(Subcommand::Withdraw) => return cli.withdraw_once().await,
 		Some(Subcommand::AccumulateFees(cmd)) => return cmd.run(&cli.config, &cli.db).await,
+		Some(Subcommand::ClaimRewards(cmd)) => return cmd.run(&cli.config, &cli.db).await,
 		None => {},
 	}
 

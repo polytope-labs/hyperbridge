@@ -601,6 +601,20 @@ pub trait IsmpHost: Send + Sync {
 
 	/// Return the instance of the [`IsmpProvider`] associated with this host
 	fn provider(&self) -> Arc<dyn IsmpProvider>;
+
+	/// Advance the counterparty's state machine height for this host's chain
+	/// to at least `target_height` by submitting a consensus proof. Used by
+	/// the manual claim command when the counterparty has fallen behind a
+	/// delivery height and cannot update on its own (e.g. Polkadot Hub when
+	/// parachain inherents are absent). The default is a no-op; only parachain
+	/// hosts override this.
+	async fn advance_counterparty_to(
+		&self,
+		_counterparty: Arc<dyn IsmpProvider>,
+		_target_height: u64,
+	) -> anyhow::Result<()> {
+		Ok(())
+	}
 }
 
 #[async_trait::async_trait]

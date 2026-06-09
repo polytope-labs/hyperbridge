@@ -16,6 +16,7 @@ import {
 	type HexString,
 	type Order,
 	type TokenInfo,
+	type SelectBidResult,
 	bytes20ToBytes32,
 	EvmChain,
 	IntentGateway,
@@ -125,7 +126,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 
 		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000, pollIntervalMs: 5_000 })
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
 		if (result.value?.status === "AWAITING_PLACE_ORDER") {
 			const { to, data, value } = result.value
@@ -163,6 +164,163 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			}
 			result = await gen.next()
 		}
+		expect(userOpHash).toBeDefined()
+		expect(selectedSolver).toBeDefined()
+
+		const isFilled = await pollForOrderFilled(
+			order.id as HexString,
+			polygonAmoyPublicClient,
+			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
+		)
+		expect(isFilled).toBe(true)
+
+		await intentFiller.stop()
+		await intentsCoprocessor.disconnect()
+	}, 600_000)
+
+	it("Should yield Bid objects and let the consumer inspect, select, and execute a bid", async () => {
+		const {
+			bscIntentGatewayV2,
+			polygonAmoyPublicClient,
+			bscPublicClient,
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			bscChapelId,
+			polygonAmoyId,
+			bscWalletClient,
+			contractService,
+		} = await setUp()
+
+		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
+		await intentFiller.initialize()
+		intentFiller.start()
+
+		const sourceUsdc = chainConfigService.getUsdcAsset(bscChapelId)
+		const destExotic = chainConfigService.getUsdcAsset(polygonAmoyId)
+
+		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, bscChapelId)
+		const destExoticDecimals = await contractService.getTokenDecimals(destExotic, polygonAmoyId)
+		const amount = parseUnits("0.1", sourceUsdcDecimals)
+
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
+		const outputs: TokenInfo[] = [
+			{
+				token: bytes20ToBytes32(destExotic),
+				amount: parseUnits("0.006", destExoticDecimals),
+			},
+		]
+
+		const privateKey = process.env.PRIVATE_KEY as HexString
+		const beneficiaryAddress = privateKeyToAccount(privateKey).address
+		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+
+		let order: Order = {
+			user: bytes20ToBytes32(beneficiaryAddress),
+			source: toHex(bscChapelId),
+			destination: toHex(polygonAmoyId),
+			deadline: 12545151568145n,
+			nonce: 1n,
+			fees: parseUnits("0.02", sourceUsdcDecimals),
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs,
+			output: { beneficiary, assets: outputs, call: "0x" as HexString },
+		}
+
+		const intentsCoprocessor = await IntentsCoprocessor.connect(
+			process.env.HYPERBRIDGE_GARGANTUA!,
+			process.env.SECRET_PHRASE!,
+		)
+
+		const bscEvmChain = EvmChain.fromParams({
+			chainId: 97,
+			host: chainConfigService.getHostAddress(bscChapelId),
+			rpcUrl: chainConfigService.getRpcUrl(bscChapelId),
+		})
+
+		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
+		const polygonAmoyEvmChain = EvmChain.fromParams({
+			chainId: 80002,
+			host: chainConfigService.getHostAddress(polygonAmoyId),
+			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
+			bundlerUrl: destBundlerUrl,
+		})
+
+		const feeToken = await contractService.getFeeTokenWithDecimals(bscChapelId)
+		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
+		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
+
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
+
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000, pollIntervalMs: 5_000 })
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data } = result.value
+			const signedTx = (await bscWalletClient.signTransaction(
+				(await bscPublicClient.prepareTransactionRequest({
+					to,
+					data,
+					value: 0n,
+					account: bscWalletClient.account!,
+					chain: bscWalletClient.chain,
+				})) as any,
+			)) as HexString
+			result = await gen.next(signedTx)
+		}
+
+		let userOpHash: HexString | undefined
+		let selectedSolver: HexString | undefined
+		let inspectedBid = false
+
+		while (!result.done) {
+			let feedback: SelectBidResult | undefined
+			if (result.value && "status" in result.value) {
+				const status = result.value
+
+				if (status.status === "BIDS_RECEIVED") {
+					expect(status.bids.length).toBeGreaterThan(0)
+
+					const ranked = await userSdkHelper.sortBids(order, status.bids)
+					expect(ranked.length).toBeGreaterThan(0)
+					const chosen = ranked[0]
+
+					expect(chosen.solverAddress).toMatch(/^0x[0-9a-fA-F]{40}$/)
+					expect(chosen.outputs.length).toBeGreaterThan(0)
+					expect(typeof chosen.relayerFee).toBe("bigint")
+					expect(typeof chosen.nativeDispatchFee).toBe("bigint")
+					const outputUsd = await chosen.outputUsdValue()
+					console.log("Consumer-selected bid:", {
+						solver: chosen.solverAddress,
+						outputs: chosen.outputs.length,
+						relayerFee: chosen.relayerFee.toString(),
+						outputUsd: outputUsd?.toString() ?? "n/a",
+					})
+					inspectedBid = true
+
+					await chosen.simulate()
+					feedback = await chosen.execute()
+				}
+
+				if (status.status === "BID_SELECTED") {
+					selectedSolver = status.selectedSolver as HexString
+					userOpHash = status.userOpHash as HexString
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
+
+					void gen.return(undefined).catch(() => {})
+					break
+				}
+
+				if (status.status === "FAILED") {
+					throw new Error(`Order execution failed: ${status.error}`)
+				}
+			}
+			result = await gen.next(feedback)
+		}
+
+		expect(inspectedBid).toBe(true)
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
 

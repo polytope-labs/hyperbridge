@@ -102,7 +102,7 @@ export interface RebalancingConfig {
 }
 
 export interface OverfillProtectionConfig {
-	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 100 (1%). */
+	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 500 (5%). */
 	maxOverfillBps?: number
 	/** Consecutive clamped evaluations before the strategy halts itself. Default 3. */
 	maxConsecutiveClamps?: number
@@ -135,7 +135,7 @@ export interface FillerConfig {
 	targetGasUnits?: number
 	/**
 	 * Overfill protection knobs. If omitted, defaults are used
-	 * (maxOverfillBps=100, maxConsecutiveClamps=3).
+	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
 	 */
 	overfillProtection?: OverfillProtectionConfig
 	/**
@@ -487,9 +487,9 @@ export class FillerConfigService {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
 	}
 
-	/** Ceiling bps above user-requested output. Default 100 (1%). */
+	/** Ceiling bps above user-requested output. Default 500 (5%). */
 	getMaxOverfillBps(): bigint {
-		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 100)
+		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 500)
 	}
 
 	/** Consecutive clamped evaluations before the strategy halts. Default 3. */

@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_600,
+	spec_version: 7_700,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -610,16 +610,17 @@ parameter_types! {
 	pub const MaxTxPauseNameLen: u32 = 256;
 }
 
-/// Calls that [`pallet_tx_pause`] is never allowed to pause. Empty by default —
-/// the pallet already exempts its own `unpause` extrinsic so the admin origin
-/// can always recover, and inherents (timestamp, parachain system, etc.) are
-/// not subject to the `BaseCallFilter` so block production is unaffected.
+/// Calls that [`pallet_tx_pause`] is never allowed to pause.
+///
+/// Governance pallets are exempt so that on-chain democracy and voting remain
+/// available even during an emergency pause — users must always be able to
+/// participate in referenda and cast conviction votes.
 pub struct TxPauseWhitelistedCalls;
 impl frame_support::traits::Contains<pallet_tx_pause::RuntimeCallNameOf<Runtime>>
 	for TxPauseWhitelistedCalls
 {
-	fn contains(_full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
-		false
+	fn contains(full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
+		matches!(full_name.0.as_slice(), b"Referenda" | b"ConvictionVoting")
 	}
 }
 

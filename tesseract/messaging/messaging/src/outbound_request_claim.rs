@@ -15,14 +15,9 @@
 
 //! Periodic task that claims outbound request delivery rewards.
 //!
-//! Sibling to [`outbound_claim`](crate::outbound_claim). Where that task claims rewards for
-//! delivering BEEFY rotations, this one claims rewards for delivering hyperbridge-originated
-//! requests (system messages from host-executive, intents-coprocessor, token-governor, etc.).
-//! Supports both EVM and substrate destinations.
-//!
-//! Each delivery writes a row to the local DB. This task wakes on a fixed interval, reads those
-//! rows, skips anything already claimed on Hyperbridge, and submits the remaining claims in
-//! parallel.
+//! Each time the relayer delivers a hyperbridge-originated request, the delivery path writes a
+//! row to the local DB. This task wakes on a fixed interval, reads those rows, skips anything
+//! already claimed on Hyperbridge, and submits the remaining claims in parallel.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -302,7 +297,6 @@ async fn process_claim(
 	Ok(())
 }
 
-/// Destination-side storage key for `RequestReceipts[commitment]`.
 fn receipt_key_for(
 	destination: StateMachine,
 	commitment: H256,

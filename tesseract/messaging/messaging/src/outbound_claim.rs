@@ -229,6 +229,20 @@ pub async fn process_claim(
 	pending: &PendingConsensusDeliveryClaim,
 	payee: [u8; 32],
 ) -> anyhow::Result<()> {
+	let committed = hb_provider
+		.query_latest_height(dest.state_machine_id())
+		.await
+		.context("query_latest_height")?;
+
+	if (committed as u64) < pending.delivery_height {
+		return Err(anyhow!(
+			"Hyperbridge has only committed {} for {}, delivery block {} not yet reachable",
+			committed,
+			pending.destination,
+			pending.delivery_height,
+		));
+	}
+
 	let dest_height = tokio::time::timeout(
 		Duration::from_secs(300),
 		wait_for_state_machine_update(

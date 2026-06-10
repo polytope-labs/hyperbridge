@@ -72,12 +72,6 @@ interface StableStrategyConfig {
 	}>
 	/** Per-chain confirmation policies keyed by chain ID string. Defaults provided for ETH, BSC, Base, Arbitrum. */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
-	/** Optional Aave V3 sourcing for output-token shortfalls on same-token fills. */
-	vault?: {
-		aaveV3?: {
-			reserves?: AaveV3ReserveToml[]
-		}
-	}
 }
 
 /** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
@@ -86,10 +80,21 @@ interface UniswapV4PositionToml {
 	tokenId: string // bigint as string in TOML
 }
 
-/** TOML row for an Aave V3 reserve; chain + underlying asset address. */
+/**
+ * TOML row for an Aave V3 reserve. `threshold` (absolute human units) enables
+ * sweeping wallet excess into Aave; omit it for withdraw-only sourcing.
+ */
 interface AaveV3ReserveToml {
 	chain: string
 	asset: HexString
+	threshold?: string
+	minSweep?: string
+}
+
+/** Top-level Aave V3 config: shared by the withdraw venue and the sweep timer. */
+interface AaveV3TomlConfig {
+	reserves: AaveV3ReserveToml[]
+	sweepIntervalMs?: number
 }
 
 interface FxStrategyConfig {
@@ -133,9 +138,6 @@ interface FxStrategyConfig {
 	vault?: {
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
-		}
-		aaveV3?: {
-			reserves?: AaveV3ReserveToml[]
 		}
 	}
 }
@@ -209,6 +211,8 @@ interface FillerTomlConfig {
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
+	/** Filler-wide Aave V3 config: stablecoin sourcing for fills + threshold sweeping. */
+	aaveV3?: AaveV3TomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
 }
@@ -335,6 +339,26 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
+			// Build the shared Aave V3 venue (withdraw sourcing + threshold sweeping).
+			// A single instance is shared across strategies and the filler's sweeper.
+			let aaveVenue: AaveV3FundingPlanner | undefined
+			if (config.aaveV3?.reserves?.length) {
+				const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
+				for (const row of config.aaveV3.reserves) {
+					if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
+					reservesByChain[row.chain].push({
+						asset: row.asset,
+						threshold: row.threshold,
+						minSweep: row.minSweep,
+					})
+				}
+				aaveVenue = new AaveV3FundingPlanner(
+					chainClientManager,
+					{ reservesByChain, sweepIntervalMs: config.aaveV3.sweepIntervalMs },
+					configService,
+				)
+			}
+
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
@@ -346,17 +370,6 @@ program
 							...(strategyConfig.confirmationPolicies ?? {}),
 						}
 						const confirmationPolicy = new ConfirmationPolicy(mergedStablePolicies)
-						const stableFundingVenues: FundingVenue[] = []
-						if (strategyConfig.vault?.aaveV3?.reserves?.length) {
-							const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
-							for (const row of strategyConfig.vault.aaveV3.reserves) {
-								if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
-								reservesByChain[row.chain].push({ asset: row.asset })
-							}
-							stableFundingVenues.push(
-								new AaveV3FundingPlanner(chainClientManager, { reservesByChain }, configService),
-							)
-						}
 						return new StableFiller(
 							runtimeSigner,
 							configService,
@@ -364,7 +377,7 @@ program
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
-							stableFundingVenues,
+							aaveVenue ? [aaveVenue] : [],
 						)
 					}
 					case "hyperfx": {
@@ -393,13 +406,8 @@ program
 								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
 							)
 						}
-						if (strategyConfig.vault?.aaveV3?.reserves?.length) {
-							const reservesByChain: Record<string, AaveV3ReserveConfig[]> = {}
-							for (const row of strategyConfig.vault.aaveV3.reserves) {
-								if (!reservesByChain[row.chain]) reservesByChain[row.chain] = []
-								reservesByChain[row.chain].push({ asset: row.asset })
-							}
-							fundingVenues.push(new AaveV3FundingPlanner(chainClientManager, { reservesByChain }, configService))
+						if (aaveVenue) {
+							fundingVenues.push(aaveVenue)
 						}
 						return new FXFiller(
 							runtimeSigner,
@@ -428,6 +436,12 @@ program
 					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
+			}
+
+			// Ensure the shared Aave venue is hydrated even if no strategy initialised
+			// it, so the sweep timer has live state. Idempotent.
+			if (aaveVenue) {
+				await aaveVenue.initialise(runtimeSigner.account.address as HexString)
 			}
 
 			// Initialize rebalancing service only if fully configured
@@ -503,6 +517,9 @@ program
 			// Start the filler
 			intentFiller.start()
 
+			// Start the Aave threshold-sweep timer (lifecycle owned here, not by the filler)
+			aaveVenue?.startSweeping()
+
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
 						.filter(([, value]) => value === true)
@@ -525,6 +542,7 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
+				aaveVenue?.stopSweeping()
 				await intentFiller.stop()
 				process.exit(0)
 			}
@@ -595,6 +613,10 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 	}
 
+	if (config.aaveV3?.reserves?.length) {
+		AaveV3FundingPlanner.validateConfig(config.aaveV3.reserves)
+	}
+
 	// Validate strategies
 	for (const strategy of config.strategies) {
 		if (!strategy.type) {
@@ -617,10 +639,6 @@ function validateConfig(config: FillerTomlConfig): void {
 				}
 			}
 
-			if (strategy.vault?.aaveV3?.reserves?.length) {
-				AaveV3FundingPlanner.validateConfig(strategy.vault.aaveV3.reserves)
-			}
-
 			// Validate user-provided confirmation policies (defaults are always present)
 			for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies ?? {})) {
 				if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
@@ -641,10 +659,6 @@ function validateConfig(config: FillerTomlConfig): void {
 		if (strategy.type === "hyperfx") {
 			if (strategy.vault?.uniswapV4?.positions?.length) {
 				UniswapV4FundingPlanner.validateConfig(strategy.vault.uniswapV4.positions)
-			}
-
-			if (strategy.vault?.aaveV3?.reserves?.length) {
-				AaveV3FundingPlanner.validateConfig(strategy.vault.aaveV3.reserves)
 			}
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0

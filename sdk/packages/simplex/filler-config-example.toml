@@ -93,6 +93,20 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
+# Aave V3 configuration (optional) — filler-wide stablecoin treasury.
+# Used for two things, sharing one reserve list:
+#   1. Sourcing: when wallet balance is short on a fill, withdraw the deficit
+#      from the solver's supplied Aave position (atomic with the fill).
+#   2. Sweeping: a timer supplies wallet balance above `threshold` back into Aave.
+# Omit `threshold` on a reserve to source-only (no sweeping) for that token.
+#
+# [aaveV3]
+# sweepIntervalMs = 300000   # optional, default 5 min
+# reserves = [
+#     { chain = "EVM-8453", asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", threshold = "3000" },              # USDC on Base
+#     { chain = "EVM-8453", asset = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", threshold = "3000", minSweep = "10" }, # USDT on Base
+# ]
+
 # Allowlist configuration (optional)
 # Restricts which order `user` addresses the filler will process.
 # - Omit the entire [allowlist] section to accept orders from all users (default).
@@ -126,13 +140,6 @@ bpsCurve = [
     { amount = "10000", value = 25 },     # $10000 orders: 0.25% margin
     { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
 ]
-
-# Optional: source output stablecoins from the solver's supplied Aave V3 positions
-# when the wallet balance is short. Tokens not listed fall back to the wallet.
-# [strategies.vault.aaveV3]
-# reserves = [
-#     { chain = "EVM-8453", asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }, # USDC on Base
-# ]
 
 # Per-chain confirmation policies for this strategy (optional).
 # Uses polynomial interpolation to create a smooth curve through all points.
@@ -213,13 +220,6 @@ points = [
 # [strategies.vault.uniswapV4]
 # positions = [
 #     { chain = "EVM-8453", tokenId = "123456789" },
-# ]
-#
-# # Source stablecoins from the solver's supplied Aave V3 positions (Pool.withdraw).
-# # One-sided: tokens not listed fall back to the wallet balance / other venues.
-# [strategies.vault.aaveV3]
-# reserves = [
-#     { chain = "EVM-8453", asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }, # USDC on Base
 # ]
 #
 

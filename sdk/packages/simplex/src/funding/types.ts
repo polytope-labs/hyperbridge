@@ -129,6 +129,17 @@ export interface UniswapV4OutputFundingConfig {
 export interface AaveV3ReserveConfig {
 	/** Underlying ERC-20 asset address (e.g. USDC, USDT). */
 	asset: HexString
+	/**
+	 * Wallet balance to keep liquid for direct fills, in absolute human units
+	 * (e.g. "3000"). Excess above it is swept into Aave. Omit to disable
+	 * sweeping for this reserve (withdraw-only).
+	 */
+	threshold?: string
+	/**
+	 * Minimum excess (absolute human units) worth sweeping; smaller excesses are
+	 * skipped so gas never exceeds the value moved. Defaults to a small floor.
+	 */
+	minSweep?: string
 }
 
 /**
@@ -139,6 +150,10 @@ export interface HydratedAaveV3Reserve {
 	/** aToken minted for supplying `asset`; balance ≈ current underlying claim. */
 	aToken: HexString
 	decimals: number
+	/** Sweep threshold scaled to token units, or null when sweeping is disabled. */
+	thresholdScaled: bigint | null
+	/** Dust guard scaled to token units. */
+	minSweepScaled: bigint
 
 	// --- live state (updated on refresh) ---
 	/** Solver's aToken balance (current underlying claim incl. accrued interest). */
@@ -155,6 +170,8 @@ export interface HydratedAaveV3Reserve {
 export interface AaveV3OutputFundingConfig {
 	/** Chain identifier → reserves to source liquidity from. */
 	reservesByChain: Record<string, AaveV3ReserveConfig[]>
+	/** Sweep timer cadence in ms. Defaults to 5 minutes. */
+	sweepIntervalMs?: number
 }
 
 // =========================================================================

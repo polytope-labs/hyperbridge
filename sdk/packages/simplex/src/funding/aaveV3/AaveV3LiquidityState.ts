@@ -4,8 +4,12 @@ import type { AaveV3ReserveConfig, HydratedAaveV3Reserve } from "@/funding/types
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { getLogger } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
+import { parseUnits } from "viem"
 
 const logger = getLogger("aavev3-state")
+
+/** Default dust guard (absolute human units) when a reserve omits `minSweep`. */
+const DEFAULT_MIN_SWEEP = "10"
 
 /**
  * Long-lived Aave V3 liquidity state for one destination chain.
@@ -72,6 +76,8 @@ export class AaveV3LiquidityState {
 				asset,
 				aToken,
 				decimals,
+				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
+				minSweepScaled: parseUnits(cfg.minSweep ?? DEFAULT_MIN_SWEEP, decimals),
 				aTokenBalance: 0n,
 				availableReserve: 0n,
 				remaining: 0n,

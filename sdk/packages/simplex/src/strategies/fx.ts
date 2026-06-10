@@ -285,7 +285,6 @@ export class FXFiller implements FillerStrategy {
 			// original input/pair via this array rather than by position.
 			const fillerOutputLegs: number[] = []
 			let remainingUsd = cappedOrderUsd
-			let anyLegClamped = false
 
 			const fundingCalls: ERC7821Call[] = []
 
@@ -342,10 +341,14 @@ export class FXFiller implements FillerStrategy {
 				const { usdUsed, policyMaxOutput: rawPolicyMaxOutput } = legResult
 				remainingUsd = remainingUsd.minus(usdUsed)
 
-				// Clamp policy output to at most (1 + maxOverfillBps) × user-requested.
-				// Bounds per-leg loss if internal pricing is wrong (bug, stale cache, manipulated venue).
+				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
+				// fills the full computed amount even when it exceeds
+				// (1 + maxOverfillBps) × user-requested — including venue-priced legs
+				// (e.g. Uniswap V4). NOTE: this removes the per-leg loss bound that
+				// previously protected against a bug / stale cache / manipulated venue
+				// price. Output is no longer capped; we only emit a warning.
 				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-				let policyMaxOutput = rawPolicyMaxOutput
+				const policyMaxOutput = rawPolicyMaxOutput
 				if (rawPolicyMaxOutput > overfillCeiling) {
 					const priceSource = venuePrice ? "venue" : "policy"
 					this.logger.warn(
@@ -355,20 +358,12 @@ export class FXFiller implements FillerStrategy {
 							token: output.token,
 							userRequested: output.amount.toString(),
 							unclamped: rawPolicyMaxOutput.toString(),
-							clamped: overfillCeiling.toString(),
+							ceiling: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
 							priceSource,
 						},
-						"Overfill clamp activated",
+						"Overfill ceiling exceeded — clamp disabled, filling unclamped amount",
 					)
-					policyMaxOutput = overfillCeiling
-					// Only count venue-sourced clamps toward the halt counter. Offline
-					// price-curve clamps still warn but never halt — the curve is
-					// operator-authored, so a mismatch is a config issue, not a live
-					// market signal worth tripping the kill switch over.
-					if (venuePrice) {
-						anyLegClamped = true
-					}
 				}
 
 				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
@@ -503,7 +498,9 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			this.recordOrderOutcome(anyLegClamped, order.id)
+			// Clamp is disabled, so a leg can never be clamped — the halt subsystem is
+			// left in place but dormant (always recorded as a clean, unclamped outcome).
+			this.recordOrderOutcome(false, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
 			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.

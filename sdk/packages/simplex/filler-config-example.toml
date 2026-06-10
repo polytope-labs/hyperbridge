@@ -54,9 +54,9 @@ hyperbridgeWsUrl = ""
 # The filler clamps its computed output to at most (1 + maxOverfillBps) × user-requested amount.
 # After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy
 # halts itself — likely a systemic pricing error — and requires operator restart.
-# If not provided, defaults will be used (maxOverfillBps = 100, maxConsecutiveClamps = 3)
+# If not provided, defaults will be used (maxOverfillBps = 500, maxConsecutiveClamps = 3)
 # [simplex.overfillProtection]
-# maxOverfillBps = 100          # 1% ceiling above user-requested output (default: 100)
+# maxOverfillBps = 500          # 5% ceiling above user-requested output (default: 500)
 # maxConsecutiveClamps = 3      # Halt threshold (default: 3)
 
 

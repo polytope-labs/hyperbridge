@@ -5,12 +5,12 @@ export type {
 	UniswapV4PositionInit,
 	UniswapV4OutputFundingConfig,
 	HydratedV4Position,
-	AaveV3ReserveConfig,
-	HydratedAaveV3Reserve,
-	AaveV3OutputFundingConfig,
+	Erc4626VaultConfig,
+	HydratedErc4626Vault,
+	Erc4626OutputFundingConfig,
 	OutputFundingConfig,
 } from "@/funding/types"
 export { UniswapV4LiquidityState } from "@/funding/uniswapV4/UniswapV4LiquidityState"
 export { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
-export { AaveV3LiquidityState } from "@/funding/aaveV3/AaveV3LiquidityState"
-export { AaveV3FundingPlanner } from "@/funding/aaveV3/AaveV3FundingPlanner"
+export { Erc4626LiquidityState } from "@/funding/erc4626/Erc4626LiquidityState"
+export { Erc4626FundingPlanner } from "@/funding/erc4626/Erc4626FundingPlanner"

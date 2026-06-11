@@ -32,7 +32,7 @@ export class StableFiller implements FillerStrategy {
 	private logger = getLogger("stable-simplex")
 	/** Ceiling bps above user-requested output. Sourced from filler config. */
 	private readonly maxOverfillBps: bigint
-	/** On-chain liquidity sources for topping up output-token shortfalls (e.g. Aave V3). */
+	/** On-chain liquidity sources for topping up output-token shortfalls (e.g. ERC-4626 vaults). */
 	private fundingVenues: FundingVenue[]
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
@@ -170,7 +170,7 @@ export class StableFiller implements FillerStrategy {
 				return 0
 			}
 
-			// Source output-token shortfalls from funding venues (e.g. Aave V3).
+			// Source output-token shortfalls from funding venues (e.g. ERC-4626 vaults).
 			// Runs before gas estimation so the prepend gas bump is accounted for.
 			const fillerOutputs = this.contractService.cacheService.getFillerOutputs(order.id!)
 			if (fillerOutputs && this.fundingVenues.length > 0) {
@@ -323,7 +323,7 @@ export class StableFiller implements FillerStrategy {
 
 	/**
 	 * Sources each output token from the solver's wallet, topping up shortfalls
-	 * via funding venues (e.g. Aave V3 `withdraw`). When a venue can only
+	 * via funding venues (e.g. an ERC-4626 vault `withdraw`). When a venue can only
 	 * partially cover the deficit, the competitive output is reduced to the
 	 * coverable amount — never below the user's requested minimum. The venue
 	 * withdrawal calls are recorded as ERC-7821 prepends so they execute atomically

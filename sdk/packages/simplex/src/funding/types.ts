@@ -118,21 +118,21 @@ export interface UniswapV4OutputFundingConfig {
 }
 
 // =========================================================================
-// Aave V3 Types
+// ERC-4626 Types
 // =========================================================================
 
 /**
- * A single Aave V3 reserve the filler is willing to source from. Only the
- * underlying asset address is needed; the aToken address and decimals are
- * resolved on-chain during initialisation.
+ * A single ERC-4626 vault the filler is willing to source from (e.g. Aave's
+ * stataToken for USDC). Only the vault address is needed; the underlying asset
+ * and its decimals are resolved on-chain during initialisation.
  */
-export interface AaveV3ReserveConfig {
-	/** Underlying ERC-20 asset address (e.g. USDC, USDT). */
-	asset: HexString
+export interface Erc4626VaultConfig {
+	/** ERC-4626 vault address. */
+	vault: HexString
 	/**
-	 * Wallet balance to keep liquid for direct fills, in absolute human units
-	 * (e.g. "3000"). Excess above it is swept into Aave. Omit to disable
-	 * sweeping for this reserve (withdraw-only).
+	 * Wallet balance of the underlying asset to keep liquid for direct fills, in
+	 * absolute human units (e.g. "3000"). Excess above it is swept into the
+	 * vault. Omit to disable sweeping for this vault (withdraw-only).
 	 */
 	threshold?: string
 	/**
@@ -143,12 +143,13 @@ export interface AaveV3ReserveConfig {
 }
 
 /**
- * Runtime representation of an Aave V3 reserve after on-chain hydration.
+ * Runtime representation of an ERC-4626 vault after on-chain hydration.
  */
-export interface HydratedAaveV3Reserve {
+export interface HydratedErc4626Vault {
+	vault: HexString
+	/** Underlying asset from `vault.asset()`. */
 	asset: HexString
-	/** aToken minted for supplying `asset`; balance ≈ current underlying claim. */
-	aToken: HexString
+	/** Underlying asset decimals. */
 	decimals: number
 	/** Sweep threshold scaled to token units, or null when sweeping is disabled. */
 	thresholdScaled: bigint | null
@@ -156,20 +157,20 @@ export interface HydratedAaveV3Reserve {
 	minSweepScaled: bigint
 
 	// --- live state (updated on refresh) ---
-	/** Solver's aToken balance (current underlying claim incl. accrued interest). */
-	aTokenBalance: bigint
-	/** Underlying held by the aToken contract — the pool's withdrawable reserve. */
-	availableReserve: bigint
+	/** Solver's position in asset terms (`previewRedeem(balanceOf(solver))`). */
+	positionAssets: bigint
+	/** Vault's authoritative withdraw cap (`maxWithdraw(solver)`). */
+	maxWithdrawable: bigint
 	/** Sourceable amount after consume() accounting for pending fills this round. */
 	remaining: bigint
 }
 
 /**
- * Top-level Aave V3 funding config.
+ * Top-level ERC-4626 funding config.
  */
-export interface AaveV3OutputFundingConfig {
-	/** Chain identifier → reserves to source liquidity from. */
-	reservesByChain: Record<string, AaveV3ReserveConfig[]>
+export interface Erc4626OutputFundingConfig {
+	/** Chain identifier → vaults to source liquidity from. */
+	vaultsByChain: Record<string, Erc4626VaultConfig[]>
 	/** Sweep timer cadence in ms. Defaults to 5 minutes. */
 	sweepIntervalMs?: number
 }
@@ -180,5 +181,5 @@ export interface AaveV3OutputFundingConfig {
 
 export interface OutputFundingConfig {
 	uniswapV4?: UniswapV4OutputFundingConfig
-	aaveV3?: AaveV3OutputFundingConfig
+	erc4626?: Erc4626OutputFundingConfig
 }

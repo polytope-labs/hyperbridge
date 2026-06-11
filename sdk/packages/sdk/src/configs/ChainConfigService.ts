@@ -143,10 +143,6 @@ export class ChainConfigService {
 		return (this.getConfig(chain)?.addresses.Permit2 ?? "0x") as HexString
 	}
 
-	getAaveV3PoolAddress(chain: string): HexString {
-		return (this.getConfig(chain)?.addresses.AaveV3Pool ?? "0x") as HexString
-	}
-
 	getSolverAccountAddress(chain: string): HexString | undefined {
 		return this.getConfig(chain)?.addresses.SolverAccount as HexString | undefined
 	}

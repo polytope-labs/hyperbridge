@@ -93,18 +93,21 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
-# Aave V3 configuration (optional) — filler-wide stablecoin treasury.
-# Used for two things, sharing one reserve list:
+# ERC-4626 configuration (optional) — filler-wide stablecoin treasury.
+# Any ERC-4626 vault works (e.g. Aave's stataToken); the underlying asset is
+# resolved on-chain from the vault. Used for three things, sharing one vault list:
 #   1. Sourcing: when wallet balance is short on a fill, withdraw the deficit
-#      from the solver's supplied Aave position (atomic with the fill).
-#   2. Sweeping: a timer supplies wallet balance above `threshold` back into Aave.
-# Omit `threshold` on a reserve to source-only (no sweeping) for that token.
+#      from the solver's vault position (atomic with the fill).
+#   2. Sweeping: a timer deposits wallet balance above `threshold` into the vault.
+#      Size `threshold` to cover working fill float plus gas/paymaster spend.
+#   3. Shutdown: all vault positions are redeemed back to the underlying asset.
+# Omit `threshold` on a vault to source-only (no sweeping) for that token.
 #
-# [aaveV3]
+# [erc4626]
 # sweepIntervalMs = 300000   # optional, default 5 min
-# reserves = [
-#     { chain = "EVM-8453", asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", threshold = "3000" },              # USDC on Base
-#     { chain = "EVM-8453", asset = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", threshold = "3000", minSweep = "10" }, # USDT on Base
+# vaults = [
+#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                 # Aave stataUSDC on Base
+#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10" }, # Aave stataUSDT on Arbitrum
 # ]
 
 # Allowlist configuration (optional)

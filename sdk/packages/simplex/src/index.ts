@@ -18,4 +18,4 @@ export { ChainClientManager, ContractInteractionService } from "@/services"
 // Output funding
 export type { OutputFundingConfig } from "@/funding/types"
 export { UniswapV4LiquidityState, UniswapV4FundingPlanner } from "@/funding"
-export { AaveV3LiquidityState, AaveV3FundingPlanner } from "@/funding"
+export { Erc4626LiquidityState, Erc4626FundingPlanner } from "@/funding"

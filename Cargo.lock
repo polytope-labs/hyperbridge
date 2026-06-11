@@ -28033,6 +28033,7 @@ dependencies = [
  "futures",
  "hex",
  "ismp",
+ "ismp-parachain",
  "log",
  "messaging",
  "pallet-beefy-consensus-proofs",

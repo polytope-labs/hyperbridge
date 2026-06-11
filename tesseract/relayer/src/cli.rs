@@ -311,6 +311,7 @@ impl Cli {
 				relayer_config: messaging_config.clone(),
 				tx_payment: tx_payment.clone(),
 				fees_disabled,
+				consensus_hosts: consensus_hosts.clone(),
 			},
 			&task_manager,
 		)

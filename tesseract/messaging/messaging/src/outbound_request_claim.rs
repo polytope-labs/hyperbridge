@@ -36,7 +36,7 @@ use sp_core::Pair;
 use subxt_utils::outbound_requests_claimed_storage_key;
 use tesseract_evm::derive_map_key;
 use tesseract_primitives::{
-	wait_for_state_machine_update, IsmpProvider, PendingRequestDeliveryClaim, StateProofQueryType,
+	IsmpHost, IsmpProvider, PendingRequestDeliveryClaim, StateProofQueryType,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::time::MissedTickBehavior;
@@ -48,12 +48,13 @@ const LOG_TARGET: &str = "messaging-outbound-request-claim";
 pub async fn run(
 	hyperbridge: SubstrateClient<KeccakSubstrateChain>,
 	destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	consensus_hosts: HashMap<StateMachine, Arc<dyn IsmpHost>>,
 	tx_payment: Option<Arc<TransactionPayment>>,
 ) -> Result<(), anyhow::Error> {
 	let hb_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
 	let payee_bytes: [u8; 32] = hyperbridge.signer.public().0;
 
-	let mut interval = tokio::time::interval(Duration::from_secs(600));
+	let mut interval = tokio::time::interval(Duration::from_secs(crate::CLAIM_INTERVAL_SECS));
 	interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
 	loop {
@@ -96,6 +97,14 @@ pub async fn run(
 				}
 			}
 		}
+
+		crate::outbound_claim::advance_hub_heights(
+			&unclaimed,
+			&destinations,
+			&consensus_hosts,
+			&hb_provider,
+		)
+		.await;
 
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
@@ -184,7 +193,7 @@ async fn read_pending_claims(
 	}
 }
 
-async fn partition_claimed(
+pub async fn partition_claimed(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	pending: &[PendingRequestDeliveryClaim],
 ) -> anyhow::Result<(Vec<PendingRequestDeliveryClaim>, Vec<PendingRequestDeliveryClaim>)> {
@@ -218,7 +227,7 @@ async fn partition_claimed(
 	Ok((claimed, unclaimed))
 }
 
-async fn process_claim(
+pub async fn process_claim(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	hb_provider: Arc<dyn IsmpProvider>,
 	dest: Arc<dyn IsmpProvider>,
@@ -242,24 +251,7 @@ async fn process_claim(
 		));
 	}
 
-	let dest_height = tokio::time::timeout(
-		Duration::from_secs(300),
-		wait_for_state_machine_update(
-			dest.state_machine_id(),
-			hb_provider.clone(),
-			dest.clone(),
-			pending.delivery_height,
-		),
-	)
-	.await
-	.map_err(|_| {
-		anyhow!(
-			"timed out waiting for Hyperbridge to see {} at height {}",
-			destination,
-			pending.delivery_height,
-		)
-	})?
-	.context("wait_for_state_machine_update")?;
+	let dest_height = committed as u64;
 
 	let key = receipt_key_for(destination, commitment, dest.ismp_host_contract())?;
 
@@ -314,5 +306,15 @@ fn receipt_key_for(
 		Ok(request_receipt_storage_key(commitment))
 	} else {
 		Err(anyhow!("unsupported destination state machine: {destination}"))
+	}
+}
+
+impl crate::outbound_claim::HasDestination for PendingRequestDeliveryClaim {
+	fn destination(&self) -> StateMachine {
+		PendingRequestDeliveryClaim::destination(self)
+	}
+
+	fn delivery_height(&self) -> u64 {
+		self.delivery_height
 	}
 }

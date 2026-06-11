@@ -30,7 +30,7 @@ use ismp::{
 };
 use primitive_types::H256;
 use tesseract_primitives::{
-	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpProvider, NewEpochEvent,
+	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpHost, IsmpProvider, NewEpochEvent,
 	PendingRequestDeliveryClaim, ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt,
 	BEEFY_CONSENSUS_STATE_ID,
 };
@@ -785,6 +785,9 @@ pub struct OutboundInitParams {
 	/// When `true`, no fee-accumulation tasks are spawned and the
 	/// outbound loop runs without forwarding receipts.
 	pub fees_disabled: bool,
+	/// Consensus hosts for substrate-backed destinations like Polkadot Hub that need an
+	/// explicit consensus proof before their claim heights advance on Hyperbridge.
+	pub consensus_hosts: HashMap<StateMachine, Arc<dyn IsmpHost>>,
 }
 
 /// Spawn the full outbound pipeline:
@@ -809,6 +812,7 @@ pub async fn initialize(
 		relayer_config,
 		tx_payment,
 		fees_disabled,
+		consensus_hosts,
 	} = params;
 
 	if destinations.is_empty() {
@@ -861,6 +865,7 @@ pub async fn initialize(
 	let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
 	let claim_tx_payment = tx_payment.clone();
+	let claim_consensus_hosts = consensus_hosts.clone();
 	let claim_name = format!("outbound-claim-{}", hyperbridge_provider.name());
 	let claim_span = tracing::info_span!("outbound_claim", hb = %hyperbridge_provider.name());
 	task_manager.spawn_essential_handle().spawn_blocking(
@@ -868,9 +873,13 @@ pub async fn initialize(
 		"outbound",
 		async move {
 			tracing::trace!(target: LOG_TARGET, "task started");
-			let res =
-				crate::outbound_claim::run(claim_hb, claim_destinations, Some(claim_tx_payment))
-					.await;
+			let res = crate::outbound_claim::run(
+				claim_hb,
+				claim_destinations,
+				claim_consensus_hosts,
+				Some(claim_tx_payment),
+			)
+			.await;
 			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
 		}
 		.instrument(claim_span)
@@ -884,6 +893,7 @@ pub async fn initialize(
 	let request_claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
 	let request_claim_tx_payment = tx_payment.clone();
+	let request_claim_consensus_hosts = consensus_hosts.clone();
 	let request_claim_name = format!("outbound-request-claim-{}", hyperbridge_provider.name());
 	let request_claim_span =
 		tracing::info_span!("outbound_request_claim", hb = %hyperbridge_provider.name());
@@ -895,6 +905,7 @@ pub async fn initialize(
 			let res = crate::outbound_request_claim::run(
 				request_claim_hb,
 				request_claim_destinations,
+				request_claim_consensus_hosts,
 				Some(request_claim_tx_payment),
 			)
 			.await;

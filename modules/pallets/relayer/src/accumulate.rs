@@ -258,16 +258,17 @@ where
 				};
 
 			let fee = match proof.source_proof.height.id.state_id {
-				s if s.is_evm() => {
-					use alloy_rlp::Decodable;
-					if let Ok(fee) = alloy_primitives::U256::decode(&mut &*encoded_metadata) {
-						U256::from_big_endian(&fee.to_be_bytes::<32>())
-					} else if encoded_metadata.len() == 32 {
-						// Flat-trie chains (e.g. Pharos) store values as raw 32-byte ABI encoding
+				s if s.is_pharos() =>
+					if encoded_metadata.len() == 32 {
 						U256::from_big_endian(&encoded_metadata)
 					} else {
 						return Err(Error::<T>::ProofValidationError);
-					}
+					},
+				s if s.is_evm() => {
+					use alloy_rlp::Decodable;
+					let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
+						.map_err(|_| Error::<T>::ProofValidationError)?;
+					U256::from_big_endian(&fee.to_be_bytes::<32>())
 				},
 				s if s.is_substrate() => {
 					use codec::Decode;
@@ -320,16 +321,18 @@ impl<T: Config> Pallet<T> {
 	/// accumulation and the outbound request delivery claim.
 	pub fn decode_receipt_relayer(state_id: StateMachine, raw: &[u8]) -> Result<Vec<u8>, Error<T>> {
 		match state_id {
+			s if s.is_pharos() =>
+				if raw.len() == 32 {
+					Ok(Address::from_slice(&raw[12..]).0.to_vec())
+				} else {
+					Err(Error::<T>::ProofValidationError)
+				},
 			s if s.is_evm() => {
 				use alloy_rlp::Decodable;
-				if let Ok(addr) = Address::decode(&mut &*raw) {
-					return Ok(addr.0.to_vec());
-				}
-				// Flat-trie chains (e.g. Pharos) store address as raw 32-byte ABI encoding
-				if raw.len() == 32 {
-					return Ok(Address::from_slice(&raw[12..]).0.to_vec());
-				}
-				Err(Error::<T>::ProofValidationError)
+				Ok(Address::decode(&mut &*raw)
+					.map_err(|_| Error::<T>::ProofValidationError)?
+					.0
+					.to_vec())
 			},
 			s if s.is_substrate() => {
 				use codec::Decode;

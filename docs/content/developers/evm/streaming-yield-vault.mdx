@@ -1,0 +1,167 @@
+---
+title: StreamingYieldVault
+description: An ERC-4626 vault that distributes yield by streaming it linearly over time, neutralizing yield-sniping while keeping shares fully composable.
+---
+
+# StreamingYieldVault
+
+`StreamingYieldVault` is an [ERC-4626](https://eips.ethereum.org/EIPS/eip-4626) tokenized vault in [`@hyperbridge/core`](https://github.com/polytope-labs/hyperbridge/tree/main/sdk/packages/core). It lets an issuer turn a manual, per-user yield-distribution process into a single periodic transfer: the owner streams yield into the vault and every holder's share value rises automatically. Holders receive a standard, non-rebasing, composable share token.
+
+It is a self-contained primitive with **no Hyperbridge/ISMP dependency** — it can be used on any EVM chain on its own.
+
+<Callout type="info">
+The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without transfer callbacks (no ERC-777 hooks). Wrap exotic tokens before using them as the underlying.
+</Callout>
+
+## How it works
+
+Yield is not recognized instantly. Instead, each contribution is recognized **linearly over a fixed window** (`VEST`, 23 hours). The exchange rate is:
+
+```
+totalAssets = asset.balanceOf(vault) − lockedYield
+```
+
+where `lockedYield` is the not-yet-vested portion of the current tranche. This design gives three properties:
+
+- **No yield sniping.** Because recognition is keyed on `block.timestamp`, a deposit and withdrawal in the *same block* observe an identical share price and capture nothing. An attacker can only collect the dust that vests across blocks while bearing real exposure — so they can't sandwich a yield event.
+- **No instant jump.** Adding yield never moves `totalAssets` in the same block; it only raises the price as the tranche vests.
+- **No backlog.** `addYield` reverts until the previous tranche has fully vested, so tranches never overlap and no yield is left permanently locked.
+
+The first-depositor inflation/donation attack is mitigated with OpenZeppelin's virtual shares/assets (a non-zero decimals offset). A **seed-and-burn** at deployment is still recommended.
+
+## Deployment
+
+<Steps>
+<Step>
+### Install the package
+
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="pnpm">
+```bash
+pnpm add @hyperbridge/core
+```
+</Tab>
+<Tab value="yarn">
+```bash
+yarn add @hyperbridge/core
+```
+</Tab>
+<Tab value="npm">
+```bash
+npm install @hyperbridge/core
+```
+</Tab>
+</Tabs>
+</Step>
+<Step>
+### Deploy the vault
+
+The constructor takes the underlying asset, the share token name/symbol, and the owner.
+
+```solidity lineNumbers
+import {StreamingYieldVault} from "@hyperbridge/core/vaults/StreamingYieldVault.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+StreamingYieldVault vault = new StreamingYieldVault(
+    IERC20(USDC),        // underlying asset (standard ERC-20)
+    "Yield USDC",        // share token name
+    "yUSDC",             // share token symbol
+    MULTISIG             // owner (controls addYield, pause/unpause)
+);
+```
+
+<Callout type="warn">
+Set the owner to a **multisig or timelock**, never an EOA. The owner can pause the vault and supply yield.
+</Callout>
+</Step>
+<Step>
+### Seed and burn
+
+Make a small first deposit and burn the shares so the vault is never empty. Together with the built-in decimals offset, this fully closes the first-depositor inflation attack.
+
+```solidity lineNumbers
+IERC20(USDC).approve(address(vault), 1e6);
+uint256 shares = vault.deposit(1e6, address(this));
+vault.transfer(address(0xdead), shares); // burn
+```
+</Step>
+<Step>
+### Schedule yield top-ups
+
+Have your treasury/keeper call `addYield` on a regular cadence (e.g. daily). Because `VEST` is 23h, scheduling daily leaves margin so the call never reverts on the vesting guard.
+
+```solidity lineNumbers
+IERC20(USDC).approve(address(vault), amount);
+vault.addYield(amount); // owner only; reverts if the prior tranche is still vesting
+```
+
+Use the `vestedAt()` view to know the earliest time the next `addYield` is allowed.
+</Step>
+</Steps>
+
+## Depositing and withdrawing
+
+The vault is a standard ERC-4626, so integrators use the usual entrypoints. Depositors first approve the underlying asset, then deposit:
+
+```solidity lineNumbers
+asset.approve(address(vault), amount);
+uint256 shares = vault.deposit(amount, receiver); // fixed asset amount in
+```
+
+Exiting uses `redeem` (clean full exit) or `withdraw` (fixed asset amount out):
+
+```solidity lineNumbers
+// burn an exact share amount — idiomatic for fully exiting a position
+uint256 assets = vault.redeem(vault.balanceOf(owner), receiver, owner);
+
+// or withdraw an exact asset amount
+uint256 burned = vault.withdraw(assets, receiver, owner);
+```
+
+`convertToAssets(shares)` reports the current value of a share balance, which climbs as yield vests.
+
+## Adding yield
+
+`addYield(uint256 amount)` is **owner-only**. It pulls `amount` of the underlying from the caller and begins streaming it over `VEST`.
+
+```solidity lineNumbers
+function addYield(uint256 amount) external onlyOwner;
+```
+
+It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fully vested, and `ZeroAmount()` for a zero amount. Yield may be added while the vault is paused — it simply can't be withdrawn until unpaused.
+
+## Pausing
+
+The owner can freeze all share movement — transfers, deposits, and withdrawals — in an emergency. Pausing is enforced at a single `_update` chokepoint that every mint, burn, and transfer flows through.
+
+```solidity lineNumbers
+vault.pause();    // owner only — blocks transfers, deposits, withdrawals
+vault.unpause();  // owner only — restores share movement
+```
+
+<Callout type="warn">
+While paused, holders **cannot withdraw**. Treat the pause as an emergency stop and restrict it to a trusted owner.
+</Callout>
+
+## Reference
+
+| Member | Description |
+| --- | --- |
+| `VEST` | Vesting window per tranche (constant, `23 hours`). Keep `≤` your `addYield` cadence. |
+| `addYield(uint256)` | Owner-only; streams a yield tranche over `VEST`. |
+| `lockedYield()` | The not-yet-recognized portion of the active tranche. |
+| `vestedAt()` | Timestamp the active tranche finishes vesting / next `addYield` is allowed. |
+| `pause()` / `unpause()` | Owner-only emergency stop for all share movement. |
+| `totalAssets()` | `balanceOf(vault) − lockedYield`. |
+| `YieldAdded(amount, vestingStart)` | Emitted when a tranche begins vesting. |
+| `YieldStillVesting(vestedAt)` | Reverts `addYield` while the prior tranche is vesting. |
+| `ZeroAmount()` | Reverts `addYield` for a zero amount. |
+
+## Security considerations
+
+- **Standard ERC-20 only.** Fee-on-transfer and rebasing assets desync the vault's accounting; ERC-777 callbacks reintroduce reentrancy vectors the design otherwise avoids.
+- **Seed-and-burn at deploy.** Combined with the decimals offset, this removes the empty-vault inflation attack.
+- **Tune `VEST` to your cadence.** It must be `≤` the interval between `addYield` calls; otherwise the guard rejects timely top-ups. 23h suits a daily cadence.
+- **Owner is trusted.** The owner can pause withdrawals and supply yield — use a multisig/timelock.
+
+The contract is covered by an extensive Foundry suite exercising the inflation attack, yield sniping, vesting math, the `addYield` guard, the pause chokepoint, access control, and ERC-4626 rounding/preview parity.

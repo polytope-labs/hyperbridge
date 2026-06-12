@@ -171,6 +171,10 @@ pub enum Error {
 	#[error("Total stake mismatch: computed {computed}, on-chain {on_chain}")]
 	TotalStakeMismatch { computed: U256, on_chain: U256 },
 
+	/// Claimed validator count exceeds what the protocol allows
+	#[error("Too many validators: {count} exceeds maximum {max}")]
+	TooManyValidators { count: usize, max: usize },
+
 	/// Duplicate validator detected in the set
 	#[error("Duplicate validator in set")]
 	DuplicateValidator,

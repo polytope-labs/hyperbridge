@@ -119,7 +119,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 
 		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000, pollIntervalMs: 5_000 })
+		const gen = userSdkHelper.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
 		if (result.value?.status === "AWAITING_PLACE_ORDER") {
 			const { to, data, value } = result.value

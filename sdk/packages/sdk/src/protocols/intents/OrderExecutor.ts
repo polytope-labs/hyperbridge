@@ -4,8 +4,6 @@ import { sleep, DEFAULT_POLL_INTERVAL, normalizeStateMachineId } from "@/utils"
 import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
-// @ts-ignore
-import mergeRace from "@async-generator/merge-race"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
 
@@ -30,7 +28,6 @@ export class OrderExecutor {
 	constructor(
 		private readonly ctx: IntentGatewayContext,
 		private readonly bidManager: BidManager,
-		private readonly crypto: import("./CryptoUtils").CryptoUtils,
 	) {}
 
 	/**
@@ -128,28 +125,6 @@ export class OrderExecutor {
 	}
 
 	/**
-	 * Selects the best bid from the provided candidates, submits the
-	 * UserOperation, and persists the dedup entry to prevent resubmission.
-	 */
-	private async submitBid(params: {
-		order: Order
-		freshBids: FillerBid[]
-		sessionPrivateKey?: HexString
-		commitment: HexString
-		usedUserOps: Set<string>
-		userOpHashKey: (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string
-	}): Promise<SelectBidResult> {
-		const { order, freshBids, sessionPrivateKey, commitment, usedUserOps, userOpHashKey } = params
-
-		const result = await this.bidManager.selectBid(order, freshBids, sessionPrivateKey)
-
-		usedUserOps.add(userOpHashKey(result.userOp))
-		await this.persistUsedUserOps(commitment, usedUserOps)
-
-		return result
-	}
-
-	/**
 	 * Processes a fill result and returns updated fill accumulators,
 	 * the status update to yield (if any), and whether the order is
 	 * fully satisfied.
@@ -237,7 +212,15 @@ export class OrderExecutor {
 
 	/**
 	 * Executes an intent order by racing bid polling against the order's
-	 * block deadline. Yields status updates at each lifecycle stage.
+	 * block deadline. Yields status updates at each lifecycle stage and hands
+	 * bid selection to the consumer.
+	 *
+	 * This is a **bidirectional** generator: when it yields `BIDS_RECEIVED`, the
+	 * consumer picks a bid, calls `bid.execute()`, and feeds the resulting
+	 * {@link SelectBidResult} back via `gen.next(result)`. The generator then
+	 * records the dedup entry, emits `BID_SELECTED`, tracks the fill, and either
+	 * terminates or continues polling for the remaining amount. Feeding back
+	 * `undefined` (no bid executed this round) causes it to keep polling.
 	 *
 	 * **Same-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
 	 *   → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
@@ -245,11 +228,12 @@ export class OrderExecutor {
 	 * **Cross-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
 	 *   (terminates — settlement is confirmed async via Hyperbridge)
 	 */
-	async *executeOrder(options: ExecuteIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
+	async *executeOrder(
+		options: ExecuteIntentOrderOptions,
+	): AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined> {
 		const { order, sessionPrivateKey, auctionTimeMs, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
-		const isSameChain = order.source === order.destination
 
 		if (!this.ctx.intentsCoprocessor) {
 			yield { status: "FAILED", error: "IntentsCoprocessor required for order execution" }
@@ -283,18 +267,46 @@ export class OrderExecutor {
 		})
 
 		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
-		const combined = mergeRace(deadlineTimeout, executionStream)
+		// The deadline stream resolves once, when the order's block deadline is
+		// reached. We race every execution-stream step against it.
+		const deadlinePromise = deadlineTimeout.next()
 
 		try {
-			for await (const update of combined) {
-				yield update
+			// Drive the execution stream manually so we can forward the consumer's
+			// fed-back SelectBidResult into it (the bidirectional handshake), while
+			// racing each step against the deadline. We cannot use a merge helper
+			// here because those do not forward values passed to `.next()`.
+			let input: SelectBidResult | undefined
+			while (true) {
+				// When we are delivering a fed-back result (the consumer already
+				// executed a bid), process it without racing the deadline so an
+				// already-submitted UserOp is never dropped by a deadline that
+				// elapsed while the consumer was busy in `bid.execute()`. Only
+				// poll steps (no pending result) race against the deadline.
+				const winner =
+					input !== undefined
+						? { from: "exec" as const, r: await executionStream.next(input) }
+						: await Promise.race([
+								executionStream.next(undefined).then((r) => ({ from: "exec" as const, r })),
+								deadlinePromise.then((r) => ({ from: "deadline" as const, r })),
+							])
+				input = undefined
 
-				if (update.status === "EXPIRED" || update.status === "FILLED") return
+				if (winner.from === "deadline") {
+					if (!winner.r.done && winner.r.value) yield winner.r.value
+					return
+				}
+
+				const { value, done } = winner.r
+				if (done) return
+
+				const fed = yield value
+				if (value.status === "BIDS_RECEIVED") input = fed
+				if (value.status === "EXPIRED" || value.status === "FILLED") return
 			}
 		} finally {
-			// mergeRace does not call .return() on the underlying generators
-			// when the consumer exits, so tear them down explicitly to prevent
-			// them from running in the background.
+			// Tear the streams down explicitly so neither keeps polling in the
+			// background after the consumer stops iterating.
 			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
 			await executionStream.return(undefined as never)
 			await deadlineTimeout.return(undefined as never)
@@ -302,9 +314,16 @@ export class OrderExecutor {
 	}
 
 	/**
-	 * Core execution loop that polls for bids, submits UserOperations,
-	 * and tracks fill progress. Yields between each poll iteration so
-	 * that `mergeRace` can interleave the deadline stream.
+	 * Core execution loop that polls for bids and tracks fill progress. Builds
+	 * first-class {@link Bid} objects from the raw filler bids and yields them to
+	 * the consumer, which picks one, calls `bid.execute()`, and feeds the result
+	 * back via `gen.next(result)`. The loop then records the dedup entry, emits
+	 * `BID_SELECTED`, processes the fill, and continues polling for the remaining
+	 * amount on partial fills.
+	 *
+	 * Bidirectional: the value passed to `.next()` after a `BIDS_RECEIVED` yield is
+	 * the {@link SelectBidResult} from the executed bid (or `undefined` to skip the
+	 * round and keep polling).
 	 */
 	private async *executionStream(params: {
 		order: Order
@@ -318,7 +337,7 @@ export class OrderExecutor {
 		targetAssets: TokenInfo[]
 		totalFilledAssets: TokenInfo[]
 		remainingAssets: TokenInfo[]
-	}): AsyncGenerator<IntentOrderStatusUpdate, void> {
+	}): AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined> {
 		const {
 			order,
 			sessionPrivateKey,
@@ -332,14 +351,7 @@ export class OrderExecutor {
 		} = params
 		let { totalFilledAssets, remainingAssets } = params
 
-		// Track per-bid failure counts. A bid is excluded from future
-		// iterations only after it has failed twice.
-		const MAX_BID_ATTEMPTS = 2
-		const bidFailCounts = new Map<string, number>()
-		const isFreshBid = (bid: FillerBid) => {
-			const key = userOpHashKey(bid.userOp)
-			return !usedUserOps.has(key) && (bidFailCounts.get(key) ?? 0) < MAX_BID_ATTEMPTS
-		}
+		const isFreshBid = (bid: FillerBid) => !usedUserOps.has(userOpHashKey(bid.userOp))
 
 		const solverLockStartTime = Date.now()
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
@@ -351,13 +363,13 @@ export class OrderExecutor {
 			while (Date.now() < auctionEnd) {
 				try {
 					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
-					const freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
-					const newBids = freshBids.filter((bid) => !auctionSeenBids.has(userOpHashKey(bid.userOp)))
-					if (newBids.length > 0) {
-						for (const bid of newBids) {
-							auctionSeenBids.add(userOpHashKey(bid.userOp))
-						}
-						yield { status: "NEW_BID", commitment, bidCount: freshBids.length, bids: freshBids }
+					const newBids = bids.filter(
+						(bid) => isFreshBid(bid) && !auctionSeenBids.has(userOpHashKey(bid.userOp)),
+					)
+					for (const fillerBid of newBids) {
+						auctionSeenBids.add(userOpHashKey(fillerBid.userOp))
+						const [bid] = this.bidManager.buildBids(order, [fillerBid], sessionPrivateKey)
+						if (bid) yield { status: "NEW_BID", commitment, bid }
 					}
 				} catch {
 					// Ignore fetch errors during auction, will retry next interval
@@ -383,65 +395,41 @@ export class OrderExecutor {
 					continue
 				}
 
-				yield { status: "BIDS_RECEIVED", commitment, bidCount: freshBids.length, bids: freshBids }
-
-				let submitResult: SelectBidResult
-				try {
-					submitResult = await this.submitBid({
-						order,
-						freshBids,
-						sessionPrivateKey,
-						commitment,
-						usedUserOps,
-						userOpHashKey,
-					})
-				} catch (err) {
-					yield {
-						status: "FAILED",
-						commitment,
-						totalFilledAssets,
-						remainingAssets,
-						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
-					}
-					// Increment the failure count only for the top-ranked bid
-					// (first after validation & sorting). That is the bid
-					// selectBid would have tried first; the rest should not be
-					// penalised for its failure.
-					try {
-						const sorted = await this.bidManager.validateAndSortBids(freshBids, order)
-						if (sorted.length > 0) {
-							const key = userOpHashKey(sorted[0].bid.userOp)
-							bidFailCounts.set(key, (bidFailCounts.get(key) ?? 0) + 1)
-						}
-					} catch {
-						// If sorting itself fails, skip counting
-					}
+				const bids = this.bidManager.buildBids(order, freshBids, sessionPrivateKey)
+				if (bids.length === 0) {
 					await sleep(pollIntervalMs)
 					continue
 				}
 
+				// Hand the bids to the consumer and wait for them to execute one.
+				const result = yield { status: "BIDS_RECEIVED", commitment, bidCount: bids.length, bids }
+
+				if (!result) {
+					// Consumer did not execute a bid this round; poll again.
+					await sleep(pollIntervalMs)
+					continue
+				}
+
+				usedUserOps.add(userOpHashKey(result.userOp))
+				await this.persistUsedUserOps(commitment, usedUserOps)
+
 				yield {
 					status: "BID_SELECTED",
 					commitment,
-					selectedSolver: submitResult.solverAddress,
-					userOpHash: submitResult.userOpHash,
-					userOp: submitResult.userOp,
-					transactionHash: submitResult.txnHash,
+					selectedSolver: result.solverAddress,
+					userOpHash: result.userOpHash,
+					userOp: result.userOp,
+					transactionHash: result.txnHash,
 				}
 
-				const fill = this.processFillResult(
-					submitResult,
-					commitment,
-					targetAssets,
-					totalFilledAssets,
-					remainingAssets,
-				)
+				const fill = this.processFillResult(result, commitment, targetAssets, totalFilledAssets, remainingAssets)
 				totalFilledAssets = fill.totalFilledAssets
 				remainingAssets = fill.remainingAssets
 
 				if (fill.update) {
 					yield fill.update
 				}
+				if (fill.done) return
 			}
 		} catch (err) {
 			yield {

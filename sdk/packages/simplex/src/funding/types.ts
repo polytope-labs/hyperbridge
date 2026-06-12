@@ -118,7 +118,7 @@ export interface UniswapV4OutputFundingConfig {
 }
 
 // =========================================================================
-// ERC-4626 Types
+// Vault Types
 // =========================================================================
 
 /**
@@ -126,7 +126,7 @@ export interface UniswapV4OutputFundingConfig {
  * stataToken for USDC). Only the vault address is needed; the underlying asset
  * and its decimals are resolved on-chain during initialisation.
  */
-export interface Erc4626VaultConfig {
+export interface VaultConfig {
 	/** ERC-4626 vault address. */
 	vault: HexString
 	/**
@@ -145,7 +145,7 @@ export interface Erc4626VaultConfig {
 /**
  * Runtime representation of an ERC-4626 vault after on-chain hydration.
  */
-export interface HydratedErc4626Vault {
+export interface HydratedVault {
 	vault: HexString
 	/** Underlying asset from `vault.asset()`. */
 	asset: HexString
@@ -166,11 +166,11 @@ export interface HydratedErc4626Vault {
 }
 
 /**
- * Top-level ERC-4626 funding config.
+ * Top-level vault funding config.
  */
-export interface Erc4626OutputFundingConfig {
+export interface VaultOutputFundingConfig {
 	/** Chain identifier → vaults to source liquidity from. */
-	vaultsByChain: Record<string, Erc4626VaultConfig[]>
+	vaultsByChain: Record<string, VaultConfig[]>
 	/** Sweep timer cadence in ms. Defaults to 5 minutes. */
 	sweepIntervalMs?: number
 }
@@ -181,5 +181,5 @@ export interface Erc4626OutputFundingConfig {
 
 export interface OutputFundingConfig {
 	uniswapV4?: UniswapV4OutputFundingConfig
-	erc4626?: Erc4626OutputFundingConfig
+	vault?: VaultOutputFundingConfig
 }

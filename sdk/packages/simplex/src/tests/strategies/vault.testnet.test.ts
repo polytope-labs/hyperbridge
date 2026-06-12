@@ -9,7 +9,7 @@ import {
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { StableFiller } from "@/strategies/stable"
-import { Erc4626FundingPlanner } from "@/funding/erc4626/Erc4626FundingPlanner"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import {
 	type ChainConfig,
@@ -53,7 +53,7 @@ const AMOY_VAULT = "0x89Fd5d01dC44B6AB8E9f4F9549b39B91Bf1CED2E" as HexString
 const bscChapelId = "EVM-97"
 const polygonAmoyId = "EVM-80002"
 
-describe("ERC-4626 funding venue - testnet", () => {
+describe("Vault funding venue - testnet", () => {
 	it("fills an order by sourcing the output shortfall from the vault", async () => {
 		const {
 			bscIntentGatewayV2,
@@ -219,7 +219,7 @@ describe("ERC-4626 funding venue - testnet", () => {
 		expect(balance).toBeGreaterThan(sweepable)
 		const threshold = formatUnits(balance - sweepable, decimals)
 
-		const venue = new Erc4626FundingPlanner(chainClientManager, {
+		const venue = new VaultFundingPlanner(chainClientManager, {
 			vaultsByChain: { [bscChapelId]: [{ vault: CHAPEL_VAULT, threshold }] },
 		})
 		await venue.initialise(solver as HexString)
@@ -277,8 +277,8 @@ describe("ERC-4626 funding venue - testnet", () => {
 // Shared Helpers
 // ============================================================================
 
-function makeVenue(chainClientManager: ChainClientManager): Erc4626FundingPlanner {
-	return new Erc4626FundingPlanner(chainClientManager, {
+function makeVenue(chainClientManager: ChainClientManager): VaultFundingPlanner {
+	return new VaultFundingPlanner(chainClientManager, {
 		vaultsByChain: {
 			[bscChapelId]: [{ vault: CHAPEL_VAULT }],
 			[polygonAmoyId]: [{ vault: AMOY_VAULT }],
@@ -350,7 +350,7 @@ async function createIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
-	fundingVenues: Erc4626FundingPlanner[],
+	fundingVenues: VaultFundingPlanner[],
 ): Promise<{ intentFiller: IntentFiller; strategy: StableFiller }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })

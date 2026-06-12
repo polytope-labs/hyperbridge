@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
 import { decodeFunctionData, parseUnits } from "viem"
-import { Erc4626FundingPlanner } from "@/funding/erc4626/Erc4626FundingPlanner"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
-import type { Erc4626OutputFundingConfig } from "@/funding/types"
+import type { VaultOutputFundingConfig } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { HexString } from "@hyperbridge/sdk"
 
@@ -57,8 +57,8 @@ function makeWithdrawPlanner(balances: Balances) {
 	}
 
 	const clientManager = { getPublicClient: () => fakeClient } as unknown as ChainClientManager
-	const config: Erc4626OutputFundingConfig = { vaultsByChain: { [CHAIN]: [{ vault: VAULT_USDC }] } }
-	return new Erc4626FundingPlanner(clientManager, config)
+	const config: VaultOutputFundingConfig = { vaultsByChain: { [CHAIN]: [{ vault: VAULT_USDC }] } }
+	return new VaultFundingPlanner(clientManager, config)
 }
 
 /**
@@ -69,7 +69,7 @@ function makeWithdrawPlanner(balances: Balances) {
  */
 function makeSweepPlanner(
 	wallet: Record<string, bigint>,
-	vaults: Erc4626OutputFundingConfig["vaultsByChain"][string],
+	vaults: VaultOutputFundingConfig["vaultsByChain"][string],
 	shares: Record<string, bigint> = {},
 ) {
 	const sendTransaction = vi.fn(async (_tx: { to: HexString; data: HexString; value: bigint }) => "0xtx" as HexString)
@@ -111,13 +111,13 @@ function makeSweepPlanner(
 		getWalletClient: () => walletClient,
 	} as unknown as ChainClientManager
 
-	const planner = new Erc4626FundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } })
+	const planner = new VaultFundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } })
 	return { planner, sendTransaction }
 }
 
 const u = (n: string) => parseUnits(n, 6)
 
-describe("Erc4626FundingPlanner", () => {
+describe("VaultFundingPlanner", () => {
 	it("plans a withdraw call for the full deficit when liquidity is ample", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n })
 		await planner.initialise(SOLVER)
@@ -178,13 +178,13 @@ describe("Erc4626FundingPlanner", () => {
 	})
 
 	it("rejects invalid vault config", () => {
-		expect(() => Erc4626FundingPlanner.validateConfig([{ chain: "", vault: VAULT_USDC }])).toThrow()
-		expect(() => Erc4626FundingPlanner.validateConfig([{ chain: CHAIN, vault: "" }])).toThrow()
-		expect(() => Erc4626FundingPlanner.validateConfig([{ chain: CHAIN, vault: VAULT_USDC }])).not.toThrow()
+		expect(() => VaultFundingPlanner.validateConfig([{ chain: "", vault: VAULT_USDC }])).toThrow()
+		expect(() => VaultFundingPlanner.validateConfig([{ chain: CHAIN, vault: "" }])).toThrow()
+		expect(() => VaultFundingPlanner.validateConfig([{ chain: CHAIN, vault: VAULT_USDC }])).not.toThrow()
 	})
 })
 
-describe("Erc4626FundingPlanner.sweepExcessToVault", () => {
+describe("VaultFundingPlanner.sweepExcessToVault", () => {
 	it("deposits the excess above threshold", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("5000") }, [
 			{ vault: VAULT_USDC, threshold: "3000" },
@@ -242,7 +242,7 @@ describe("Erc4626FundingPlanner.sweepExcessToVault", () => {
 	})
 })
 
-describe("Erc4626FundingPlanner.redeemAll", () => {
+describe("VaultFundingPlanner.redeemAll", () => {
 	it("redeems the full share balance from every vault", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: 0n },

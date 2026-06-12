@@ -8,9 +8,9 @@ import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { StableFiller } from "@/strategies/stable"
 import { FXFiller } from "@/strategies/fx"
-import type { Erc4626VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
+import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
-import { Erc4626FundingPlanner } from "@/funding/erc4626/Erc4626FundingPlanner"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -81,19 +81,19 @@ interface UniswapV4PositionToml {
 }
 
 /**
- * TOML row for an ERC-4626 vault. `threshold` (absolute human units) enables
+ * TOML row for an ERC-4626 vault entry. `threshold` (absolute human units) enables
  * sweeping wallet excess into the vault; omit it for withdraw-only sourcing.
  */
-interface Erc4626VaultToml {
+interface VaultToml {
 	chain: string
 	vault: HexString
 	threshold?: string
 	minSweep?: string
 }
 
-/** Top-level ERC-4626 config: shared by the withdraw venue and the sweep timer. */
-interface Erc4626TomlConfig {
-	vaults: Erc4626VaultToml[]
+/** Top-level vault config: shared by the withdraw venue and the sweep timer. */
+interface VaultTomlConfig {
+	vaults: VaultToml[]
 	sweepIntervalMs?: number
 }
 
@@ -146,11 +146,36 @@ type StrategyConfig = StableStrategyConfig | FxStrategyConfig
 
 /** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
 const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
-	"1":     { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 15 }] },   // Ethereum (~12s blocks, ~24s–3min)
-	"56":    { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 3 }] },    // BNB Chain (~3s blocks, fast finality)
-	"137":   { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 32 }] },   // Polygon (~2s blocks, milestone finality)
-	"8453":  { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 90 }] },   // Base (~2s blocks, L2)
-	"42161": { points: [{ amount: "1000", value: 8 },  { amount: "100000", value: 720 }] },  // Arbitrum (~0.25s blocks, L2)
+	"1": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		],
+	}, // Ethereum (~12s blocks, ~24s–3min)
+	"56": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 3 },
+		],
+	}, // BNB Chain (~3s blocks, fast finality)
+	"137": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 32 },
+		],
+	}, // Polygon (~2s blocks, milestone finality)
+	"8453": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 90 },
+		],
+	}, // Base (~2s blocks, L2)
+	"42161": {
+		points: [
+			{ amount: "1000", value: 8 },
+			{ amount: "100000", value: 720 },
+		],
+	}, // Arbitrum (~0.25s blocks, L2)
 }
 
 interface QueueConfig {
@@ -211,8 +236,8 @@ interface FillerTomlConfig {
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
-	/** Filler-wide ERC-4626 config: stablecoin sourcing for fills + threshold sweeping. */
-	erc4626?: Erc4626TomlConfig
+	/** Filler-wide vault config: stablecoin sourcing for fills + threshold sweeping. */
+	erc4626?: VaultTomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
 }
@@ -258,10 +283,7 @@ program
 
 			logger.info("Resolving chain IDs from RPC endpoints...")
 			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
-			logger.info(
-				{ chains: resolvedChains.map((c) => c.chainId) },
-				"Chain IDs resolved",
-			)
+			logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 			const fillerConfigForService: FillerServiceConfig = {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
@@ -339,11 +361,11 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
-			// Build the shared ERC-4626 venue (withdraw sourcing + threshold sweeping).
+			// Build the shared vault venue (withdraw sourcing + threshold sweeping).
 			// A single instance is shared across strategies and the sweep timer.
-			let erc4626Venue: Erc4626FundingPlanner | undefined
+			let vaultVenue: VaultFundingPlanner | undefined
 			if (config.erc4626?.vaults?.length) {
-				const vaultsByChain: Record<string, Erc4626VaultConfig[]> = {}
+				const vaultsByChain: Record<string, VaultConfig[]> = {}
 				for (const row of config.erc4626.vaults) {
 					if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
 					vaultsByChain[row.chain].push({
@@ -352,7 +374,7 @@ program
 						minSweep: row.minSweep,
 					})
 				}
-				erc4626Venue = new Erc4626FundingPlanner(chainClientManager, {
+				vaultVenue = new VaultFundingPlanner(chainClientManager, {
 					vaultsByChain,
 					sweepIntervalMs: config.erc4626.sweepIntervalMs,
 				})
@@ -376,7 +398,7 @@ program
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
-							erc4626Venue ? [erc4626Venue] : [],
+							vaultVenue ? [vaultVenue] : [],
 						)
 					}
 					case "hyperfx": {
@@ -402,11 +424,16 @@ program
 								})
 							}
 							fundingVenues.push(
-								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
+								new UniswapV4FundingPlanner(
+									chainClientManager,
+									{ positionsByChain },
+									configService,
+									strategyConfig.spreadBps,
+								),
 							)
 						}
-						if (erc4626Venue) {
-							fundingVenues.push(erc4626Venue)
+						if (vaultVenue) {
+							fundingVenues.push(vaultVenue)
 						}
 						return new FXFiller(
 							runtimeSigner,
@@ -437,10 +464,10 @@ program
 				}
 			}
 
-			// Ensure the shared ERC-4626 venue is hydrated even if no strategy
+			// Ensure the shared vault venue is hydrated even if no strategy
 			// initialised it, so the sweep timer has live state. Idempotent.
-			if (erc4626Venue) {
-				await erc4626Venue.initialise(runtimeSigner.account.address as HexString)
+			if (vaultVenue) {
+				await vaultVenue.initialise(runtimeSigner.account.address as HexString)
 			}
 
 			// Initialize rebalancing service only if fully configured
@@ -516,8 +543,8 @@ program
 			// Start the filler
 			intentFiller.start()
 
-			// Start the ERC-4626 threshold-sweep timer (lifecycle owned here, not by the filler)
-			erc4626Venue?.startSweeping()
+			// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
+			vaultVenue?.startSweeping()
 
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
@@ -541,10 +568,10 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
-				erc4626Venue?.stopSweeping()
+				vaultVenue?.stopSweeping()
 				await intentFiller.stop()
 				// Exit all vault positions back to the underlying asset (best-effort).
-				await erc4626Venue?.redeemAll()
+				await vaultVenue?.redeemAll()
 				process.exit(0)
 			}
 
@@ -615,7 +642,7 @@ function validateConfig(config: FillerTomlConfig): void {
 	}
 
 	if (config.erc4626?.vaults?.length) {
-		Erc4626FundingPlanner.validateConfig(config.erc4626.vaults)
+		VaultFundingPlanner.validateConfig(config.erc4626.vaults)
 	}
 
 	// Validate strategies

@@ -1,18 +1,18 @@
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
-import type { Erc4626VaultConfig, HydratedErc4626Vault } from "@/funding/types"
+import type { VaultConfig, HydratedVault } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { getLogger } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
 
-const logger = getLogger("erc4626-state")
+const logger = getLogger("vault-state")
 
 /** Default dust guard (absolute human units) when a vault omits `minSweep`. */
 const DEFAULT_MIN_SWEEP = "10"
 
 /**
- * Long-lived ERC-4626 liquidity state for one destination chain.
+ * Long-lived vault (ERC-4626) liquidity state for one destination chain.
  *
  * Each configured vault maps its underlying asset (e.g. USDC) to the solver's
  * position. The sourceable amount is `vault.maxWithdraw(solver)` — the vault's
@@ -22,9 +22,9 @@ const DEFAULT_MIN_SWEEP = "10"
  *
  * Concurrent access is serialised by the planner's per-chain mutex.
  */
-export class Erc4626LiquidityState {
+export class VaultLiquidityState {
 	/** Keyed by underlying asset address, lowercased. */
-	private vaults = new Map<string, HydratedErc4626Vault>()
+	private vaults = new Map<string, HydratedVault>()
 	private hydrated = false
 	/** Per-asset amount reserved for in-flight fills this round, lowercased key. */
 	private consumed = new Map<string, bigint>()
@@ -33,7 +33,7 @@ export class Erc4626LiquidityState {
 
 	constructor(
 		private readonly chain: string,
-		private readonly configs: Erc4626VaultConfig[],
+		private readonly configs: VaultConfig[],
 		private readonly solver: HexString,
 		private readonly clientManager: ChainClientManager,
 	) {}
@@ -57,7 +57,7 @@ export class Erc4626LiquidityState {
 			})) as HexString
 
 			if (!asset || asset === "0x0000000000000000000000000000000000000000") {
-				throw new Error(`ERC-4626 vault ${cfg.vault} on ${this.chain} has no underlying asset`)
+				throw new Error(`Vault ${cfg.vault} on ${this.chain} has no underlying asset`)
 			}
 
 			const decimals = (await client.readContract({
@@ -91,10 +91,10 @@ export class Erc4626LiquidityState {
 					positionAssets: v.positionAssets.toString(),
 					maxWithdrawable: v.maxWithdrawable.toString(),
 				},
-				"ERC-4626 vault hydrated",
+				"Vault hydrated",
 			)
 		}
-		logger.info({ chain: this.chain, vaults: this.configs.length }, "ERC-4626 liquidity state hydrated")
+		logger.info({ chain: this.chain, vaults: this.configs.length }, "Vault liquidity state hydrated")
 	}
 
 	/**
@@ -153,7 +153,7 @@ export class Erc4626LiquidityState {
 					consumed: newConsumed.toString(),
 					remaining: v.remaining.toString(),
 				},
-				"ERC-4626 vault refreshed",
+				"Vault refreshed",
 			)
 		}
 	}
@@ -166,12 +166,12 @@ export class Erc4626LiquidityState {
 		return this.hydrated
 	}
 
-	allVaults(): HydratedErc4626Vault[] {
+	allVaults(): HydratedVault[] {
 		return Array.from(this.vaults.values())
 	}
 
 	/** Vault whose underlying asset matches `tokenLower`, if configured. */
-	vaultForToken(tokenLower: string): HydratedErc4626Vault | undefined {
+	vaultForToken(tokenLower: string): HydratedVault | undefined {
 		return this.vaults.get(tokenLower.toLowerCase())
 	}
 

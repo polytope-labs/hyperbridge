@@ -93,7 +93,7 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
-# ERC-4626 configuration (optional) — filler-wide stablecoin treasury.
+# Vault configuration (optional) — filler-wide stablecoin treasury.
 # Any ERC-4626 vault works (e.g. Aave's stataToken); the underlying asset is
 # resolved on-chain from the vault. Used for three things, sharing one vault list:
 #   1. Sourcing: when wallet balance is short on a fill, withdraw the deficit
@@ -103,7 +103,7 @@ triggerPercentage = 0.5
 #   3. Shutdown: all vault positions are redeemed back to the underlying asset.
 # Omit `threshold` on a vault to source-only (no sweeping) for that token.
 #
-# [erc4626]
+# [vault]
 # sweepIntervalMs = 300000   # optional, default 5 min
 # vaults = [
 #     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                 # Aave stataUSDC on Base

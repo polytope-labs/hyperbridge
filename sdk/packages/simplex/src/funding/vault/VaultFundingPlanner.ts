@@ -1,7 +1,7 @@
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
-import { Erc4626LiquidityState } from "@/funding/erc4626/Erc4626LiquidityState"
-import type { Erc4626OutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
+import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
+import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { getLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
@@ -9,7 +9,7 @@ import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
 import { encodeFunctionData } from "viem"
 
-const logger = getLogger("erc4626-funding")
+const logger = getLogger("vault-funding")
 
 /** Default sweep cadence when the config omits `sweepIntervalMs`. */
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
@@ -27,9 +27,9 @@ const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
  * Configured vaults hold stablecoins (USDC/USDT), so this venue does not price
  * exotic tokens: {@link getExoticTokenPrice} always returns null.
  */
-export class Erc4626FundingPlanner implements FundingVenue {
+export class VaultFundingPlanner implements FundingVenue {
 	name = "Erc4626"
-	private stateByChain = new Map<string, Erc4626LiquidityState>()
+	private stateByChain = new Map<string, VaultLiquidityState>()
 	private mutexByChain = new Map<string, Mutex>()
 	/** Per-chain mutex serialising sweeps so a slow supply tx can't overlap the next tick. */
 	private sweepMutexByChain = new Map<string, Mutex>()
@@ -38,7 +38,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
-		private readonly config: Erc4626OutputFundingConfig,
+		private readonly config: VaultOutputFundingConfig,
 	) {}
 
 	/**
@@ -49,16 +49,16 @@ export class Erc4626FundingPlanner implements FundingVenue {
 		const positiveNumber = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0
 		for (const v of vaults) {
 			if (!v.chain?.trim()) {
-				throw new Error("Each ERC-4626 vault must have a non-empty 'chain' (e.g. EVM-8453)")
+				throw new Error("Each vault must have a non-empty 'chain' (e.g. EVM-8453)")
 			}
 			if (!v.vault?.trim()) {
-				throw new Error("Each ERC-4626 entry must include a 'vault' address")
+				throw new Error("Each vault entry must include a 'vault' address")
 			}
 			if (v.threshold !== undefined && !positiveNumber(v.threshold)) {
-				throw new Error(`ERC-4626 vault ${v.vault} 'threshold' must be a positive number`)
+				throw new Error(`Vault ${v.vault} 'threshold' must be a positive number`)
 			}
 			if (v.minSweep !== undefined && !positiveNumber(v.minSweep)) {
-				throw new Error(`ERC-4626 vault ${v.vault} 'minSweep' must be a positive number`)
+				throw new Error(`Vault ${v.vault} 'minSweep' must be a positive number`)
 			}
 		}
 	}
@@ -73,9 +73,9 @@ export class Erc4626FundingPlanner implements FundingVenue {
 		if (this.solver) return
 		this.solver = solver
 		for (const [chain, vaults] of Object.entries(this.config.vaultsByChain)) {
-			logger.info({ chain, vaultCount: vaults.length, solver }, "ERC-4626 initialising chain")
+			logger.info({ chain, vaultCount: vaults.length, solver }, "Vault venue initialising chain")
 
-			const state = new Erc4626LiquidityState(chain, vaults, solver, this.clientManager)
+			const state = new VaultLiquidityState(chain, vaults, solver, this.clientManager)
 			await state.hydrate()
 			this.stateByChain.set(chain, state)
 			this.mutexByChain.set(chain, new Mutex())
@@ -158,7 +158,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 					available: available.toString(),
 					credited: amount.toString(),
 				},
-				"ERC-4626 funding planned",
+				"Vault funding planned",
 			)
 
 			return { calls: [call], credited: amount }
@@ -179,14 +179,14 @@ export class Erc4626FundingPlanner implements FundingVenue {
 
 		// Initial sweep shortly after start (lets the filler settle first).
 		setTimeout(() => {
-			this.sweepExcessToVault().catch((err) => logger.error({ err }, "ERC-4626 initial sweep failed"))
+			this.sweepExcessToVault().catch((err) => logger.error({ err }, "Vault initial sweep failed"))
 		}, 30_000)
 
 		this.sweepInterval = setInterval(() => {
-			this.sweepExcessToVault().catch((err) => logger.error({ err }, "ERC-4626 periodic sweep failed"))
+			this.sweepExcessToVault().catch((err) => logger.error({ err }, "Vault periodic sweep failed"))
 		}, intervalMs)
 
-		logger.info({ intervalMs }, "ERC-4626 periodic sweep started")
+		logger.info({ intervalMs }, "Vault periodic sweep started")
 	}
 
 	stopSweeping(): void {
@@ -252,7 +252,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 
 				logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString() },
-					"ERC-4626 sweeping excess into vault",
+					"Vault sweeping excess in",
 				)
 			}
 
@@ -266,7 +266,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 				chain: walletClient.chain,
 			})
 			const receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1 })
-			logger.info({ chain, tx, status: receipt.status, pairs: calls.length / 2 }, "ERC-4626 sweep submitted")
+			logger.info({ chain, tx, status: receipt.status, pairs: calls.length / 2 }, "Vault sweep submitted")
 		})
 	}
 
@@ -284,7 +284,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 		const chains = Array.from(this.stateByChain.keys())
 		await Promise.all(
 			chains.map((c) =>
-				this.redeemChain(c).catch((err) => logger.error({ err, chain: c }, "ERC-4626 shutdown redeem failed")),
+				this.redeemChain(c).catch((err) => logger.error({ err, chain: c }, "Vault shutdown redeem failed")),
 			),
 		)
 	}
@@ -320,7 +320,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 
 				logger.info(
 					{ chain, vault: vault.vault, asset: vault.asset, shares: shares.toString() },
-					"ERC-4626 redeeming full position",
+					"Vault redeeming full position",
 				)
 			}
 
@@ -338,10 +338,7 @@ export class Erc4626FundingPlanner implements FundingVenue {
 				confirmations: 1,
 				timeout: 60_000,
 			})
-			logger.info(
-				{ chain, tx, status: receipt.status, vaults: calls.length },
-				"ERC-4626 shutdown redeem submitted",
-			)
+			logger.info({ chain, tx, status: receipt.status, vaults: calls.length }, "Vault shutdown redeem submitted")
 		})
 	}
 }

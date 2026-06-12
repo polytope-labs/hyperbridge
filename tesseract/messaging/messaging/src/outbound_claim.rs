@@ -97,6 +97,18 @@ pub async fn run(
 			}
 		}
 
+		// Bring Hyperbridge's view of any lagging destination up to the highest
+		// pending delivery height before fanning out — once per destination,
+		// not per claim, so concurrent claims don't submit byte-identical
+		// consensus proofs that collide in Hyperbridge's transaction pool.
+		advance_lagging_destinations(
+			&hb_provider,
+			&destinations,
+			&consensus_hosts,
+			unclaimed.iter().map(|c| (c.destination, c.delivery_height)),
+		)
+		.await;
+
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
@@ -106,7 +118,6 @@ pub async fn run(
 				set_id = pending.set_id,
 			);
 			let dest = destinations.get(&pending.destination).cloned();
-			let consensus_host = consensus_hosts.get(&pending.destination).cloned();
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
 			let tp = tx_payment.clone();
@@ -116,9 +127,7 @@ pub async fn run(
 						tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
 						return;
 					};
-					match process_claim(&hb, hb_view, dest, &pending, payee_bytes, consensus_host)
-						.await
-					{
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
 						Ok(()) => {
 							tracing::info!(target: LOG_TARGET, "claim submitted");
 							if let Some(tp) = &tp {
@@ -226,20 +235,82 @@ pub async fn partition_claimed(
 	Ok((claimed, unclaimed))
 }
 
+/// Log target for [`advance_lagging_destinations`], shared by both claim
+/// tasks. `tracing` requires a const target, so the helper can't log under
+/// each caller's own target.
+const ADVANCE_LOG_TARGET: &str = "messaging-claim-advance";
+
+/// Submit a consensus proof for every destination whose committed height on
+/// Hyperbridge is behind a pending delivery height, targeting the highest
+/// height pending for that destination.
+///
+/// Called once per tick before the per-claim fan-out. Advancing inside each
+/// claim future would submit byte-identical consensus proofs concurrently,
+/// which collide in Hyperbridge's transaction pool (the unsigned extrinsic's
+/// `provides` tag hashes the proof content) and fail all but one of the
+/// claims for that tick; it would also submit a redundant proof even when
+/// Hyperbridge is already past the delivery height.
+///
+/// Destinations whose consensus host can't advance the counterparty are
+/// covered by the default no-op `advance_counterparty_to`. Failures here are
+/// logged and left for the per-claim height check to retry on the next tick.
+pub(crate) async fn advance_lagging_destinations(
+	hb_provider: &Arc<dyn IsmpProvider>,
+	destinations: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	consensus_hosts: &HashMap<StateMachine, Arc<dyn IsmpHost>>,
+	pending: impl Iterator<Item = (StateMachine, u64)>,
+) {
+	let mut max_heights: HashMap<StateMachine, u64> = HashMap::new();
+	for (destination, delivery_height) in pending {
+		let entry = max_heights.entry(destination).or_default();
+		*entry = (*entry).max(delivery_height);
+	}
+
+	for (destination, target_height) in max_heights {
+		let Some(host) = consensus_hosts.get(&destination) else { continue };
+		let Some(dest) = destinations.get(&destination) else { continue };
+
+		let committed = match hb_provider.query_latest_height(dest.state_machine_id()).await {
+			Ok(height) => height as u64,
+			Err(err) => {
+				tracing::warn!(
+					target: ADVANCE_LOG_TARGET,
+					%destination,
+					?err,
+					"could not query committed height; skipping advance this tick",
+				);
+				continue;
+			},
+		};
+		if committed >= target_height {
+			continue;
+		}
+
+		tracing::info!(
+			target: ADVANCE_LOG_TARGET,
+			%destination,
+			committed,
+			target_height,
+			"advancing Hyperbridge's view of destination for pending claims",
+		);
+		if let Err(err) = host.advance_counterparty_to(hb_provider.clone(), target_height).await {
+			tracing::warn!(
+				target: ADVANCE_LOG_TARGET,
+				%destination,
+				?err,
+				"failed to advance destination height; claims will retry on next tick",
+			);
+		}
+	}
+}
+
 pub async fn process_claim(
 	hyperbridge: &SubstrateClient<KeccakSubstrateChain>,
 	hb_provider: Arc<dyn IsmpProvider>,
 	dest: Arc<dyn IsmpProvider>,
 	pending: &PendingConsensusDeliveryClaim,
 	payee: [u8; 32],
-	consensus_host: Option<Arc<dyn IsmpHost>>,
 ) -> anyhow::Result<()> {
-	if let Some(host) = consensus_host {
-		host.advance_counterparty_to(hb_provider.clone(), pending.delivery_height)
-			.await
-			.context("advance_counterparty_to")?;
-	}
-
 	let committed = hb_provider
 		.query_latest_height(dest.state_machine_id())
 		.await

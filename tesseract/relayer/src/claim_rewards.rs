@@ -198,7 +198,7 @@ impl ClaimRewards {
 						);
 						return;
 					};
-					match process_claim(&hb, hb_view, dest, &pending, payee_bytes, None).await {
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
 						Ok(()) => {
 							tracing::info!(
 								target: LOG_TARGET,
@@ -360,7 +360,6 @@ impl ClaimRewards {
 						dest,
 						&pending,
 						payee_bytes,
-						None,
 					)
 					.await
 					{

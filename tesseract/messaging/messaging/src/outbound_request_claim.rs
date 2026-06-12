@@ -98,6 +98,18 @@ pub async fn run(
 			}
 		}
 
+		// Bring Hyperbridge's view of any lagging destination up to the highest
+		// pending delivery height before fanning out — once per destination,
+		// not per claim, so concurrent claims don't submit byte-identical
+		// consensus proofs that collide in Hyperbridge's transaction pool.
+		crate::outbound_claim::advance_lagging_destinations(
+			&hb_provider,
+			&destinations,
+			&consensus_hosts,
+			unclaimed.iter().map(|c| (c.destination(), c.delivery_height)),
+		)
+		.await;
+
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
@@ -107,7 +119,6 @@ pub async fn run(
 				commitment = %pending.commitment(),
 			);
 			let dest = destinations.get(&pending.destination()).cloned();
-			let consensus_host = consensus_hosts.get(&pending.destination()).cloned();
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
 			let tp = tx_payment.clone();
@@ -121,9 +132,7 @@ pub async fn run(
 						return;
 					};
 					let commitment = pending.commitment();
-					match process_claim(&hb, hb_view, dest, &pending, payee_bytes, consensus_host)
-						.await
-					{
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
 						Ok(()) => {
 							tracing::info!(target: LOG_TARGET, "claim submitted");
 							if let Some(tp) = &tp {
@@ -228,16 +237,9 @@ pub async fn process_claim(
 	dest: Arc<dyn IsmpProvider>,
 	pending: &PendingRequestDeliveryClaim,
 	payee: [u8; 32],
-	consensus_host: Option<Arc<dyn IsmpHost>>,
 ) -> anyhow::Result<()> {
 	let destination = pending.destination();
 	let commitment = pending.commitment();
-
-	if let Some(host) = consensus_host {
-		host.advance_counterparty_to(hb_provider.clone(), pending.delivery_height)
-			.await
-			.context("advance_counterparty_to")?;
-	}
 
 	let committed = hb_provider
 		.query_latest_height(dest.state_machine_id())

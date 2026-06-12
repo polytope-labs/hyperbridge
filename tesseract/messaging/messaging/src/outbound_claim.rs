@@ -19,12 +19,7 @@
 //! path writes a row to the local DB. This task wakes on a fixed interval, reads those rows,
 //! skips anything already claimed on Hyperbridge, and submits the remaining claims in parallel.
 
-use std::{
-	collections::{BTreeMap, HashMap},
-	str::FromStr,
-	sync::Arc,
-	time::Duration,
-};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context as _};
 use codec::Decode;
@@ -102,8 +97,6 @@ pub async fn run(
 			}
 		}
 
-		advance_hub_heights(&unclaimed, &destinations, &consensus_hosts, &hb_provider).await;
-
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
@@ -113,6 +106,7 @@ pub async fn run(
 				set_id = pending.set_id,
 			);
 			let dest = destinations.get(&pending.destination).cloned();
+			let consensus_host = consensus_hosts.get(&pending.destination).cloned();
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
 			let tp = tx_payment.clone();
@@ -122,7 +116,9 @@ pub async fn run(
 						tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
 						return;
 					};
-					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes, consensus_host)
+						.await
+					{
 						Ok(()) => {
 							tracing::info!(target: LOG_TARGET, "claim submitted");
 							if let Some(tp) = &tp {
@@ -236,7 +232,14 @@ pub async fn process_claim(
 	dest: Arc<dyn IsmpProvider>,
 	pending: &PendingConsensusDeliveryClaim,
 	payee: [u8; 32],
+	consensus_host: Option<Arc<dyn IsmpHost>>,
 ) -> anyhow::Result<()> {
+	if let Some(host) = consensus_host {
+		host.advance_counterparty_to(hb_provider.clone(), pending.delivery_height)
+			.await
+			.context("advance_counterparty_to")?;
+	}
+
 	let committed = hb_provider
 		.query_latest_height(dest.state_machine_id())
 		.await
@@ -288,63 +291,6 @@ pub async fn process_claim(
 		.submit_outbound_consensus_delivery_claim(claim)
 		.await
 		.context("submit_outbound_consensus_delivery_claim")
-}
-
-/// Advances Hyperbridge's committed height for any destination that has a consensus host
-/// and is lagging behind the max pending delivery height. Parachain-backed chains handle
-/// the advance; all other hosts are a no-op by default.
-pub(crate) async fn advance_hub_heights<T>(
-	pending: &[T],
-	destinations: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
-	consensus_hosts: &HashMap<StateMachine, Arc<dyn IsmpHost>>,
-	hb_provider: &Arc<dyn IsmpProvider>,
-) where
-	T: HasDestination,
-{
-	let mut max_heights: BTreeMap<StateMachine, u64> = BTreeMap::new();
-	for item in pending {
-		let entry = max_heights.entry(item.destination()).or_insert(0);
-		*entry = (*entry).max(item.delivery_height());
-	}
-
-	for (sm, max_height) in max_heights {
-		let Some(host) = consensus_hosts.get(&sm) else { continue };
-		let Some(dest) = destinations.get(&sm) else { continue };
-		let hb_height =
-			hb_provider.query_latest_height(dest.state_machine_id()).await.unwrap_or(0) as u64;
-		if hb_height < max_height {
-			tracing::info!(
-				target: LOG_TARGET,
-				%sm,
-				hb_height,
-				max_height,
-				"advancing Hyperbridge state machine height",
-			);
-			if let Err(err) = host.advance_counterparty_to(hb_provider.clone(), max_height).await {
-				tracing::warn!(
-					target: LOG_TARGET,
-					%sm,
-					?err,
-					"advance_counterparty_to failed; claims may fail this tick",
-				);
-			}
-		}
-	}
-}
-
-pub(crate) trait HasDestination {
-	fn destination(&self) -> StateMachine;
-	fn delivery_height(&self) -> u64;
-}
-
-impl HasDestination for PendingConsensusDeliveryClaim {
-	fn destination(&self) -> StateMachine {
-		self.destination
-	}
-
-	fn delivery_height(&self) -> u64 {
-		self.delivery_height
-	}
 }
 
 /// Builds the 52-byte EIP-1186 storage key for `EvmHost._epochs[set_id]`.

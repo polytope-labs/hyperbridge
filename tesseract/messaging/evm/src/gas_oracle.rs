@@ -158,8 +158,9 @@ pub async fn get_current_gas_cost_in_usd(
 	// price for native gas in that case, which is fine for delivery — the
 	// raw `gas_price` we just fetched from the node still flows through to
 	// the actual transaction submission.
-	let token_usd =
-		get_price_from_uniswap_router(ismp_host_address, client).await.unwrap_or_default();
+	let token_usd = get_price_from_uniswap_router(ismp_host_address, client)
+		.await
+		.unwrap_or_default();
 
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;

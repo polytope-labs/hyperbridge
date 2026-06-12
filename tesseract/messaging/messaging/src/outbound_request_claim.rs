@@ -98,14 +98,6 @@ pub async fn run(
 			}
 		}
 
-		crate::outbound_claim::advance_hub_heights(
-			&unclaimed,
-			&destinations,
-			&consensus_hosts,
-			&hb_provider,
-		)
-		.await;
-
 		let mut tasks = FuturesUnordered::new();
 		for pending in unclaimed {
 			let span = tracing::info_span!(
@@ -115,6 +107,7 @@ pub async fn run(
 				commitment = %pending.commitment(),
 			);
 			let dest = destinations.get(&pending.destination()).cloned();
+			let consensus_host = consensus_hosts.get(&pending.destination()).cloned();
 			let hb = hyperbridge.clone();
 			let hb_view = hb_provider.clone();
 			let tp = tx_payment.clone();
@@ -128,7 +121,9 @@ pub async fn run(
 						return;
 					};
 					let commitment = pending.commitment();
-					match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
+					match process_claim(&hb, hb_view, dest, &pending, payee_bytes, consensus_host)
+						.await
+					{
 						Ok(()) => {
 							tracing::info!(target: LOG_TARGET, "claim submitted");
 							if let Some(tp) = &tp {
@@ -233,9 +228,16 @@ pub async fn process_claim(
 	dest: Arc<dyn IsmpProvider>,
 	pending: &PendingRequestDeliveryClaim,
 	payee: [u8; 32],
+	consensus_host: Option<Arc<dyn IsmpHost>>,
 ) -> anyhow::Result<()> {
 	let destination = pending.destination();
 	let commitment = pending.commitment();
+
+	if let Some(host) = consensus_host {
+		host.advance_counterparty_to(hb_provider.clone(), pending.delivery_height)
+			.await
+			.context("advance_counterparty_to")?;
+	}
 
 	let committed = hb_provider
 		.query_latest_height(dest.state_machine_id())
@@ -306,15 +308,5 @@ fn receipt_key_for(
 		Ok(request_receipt_storage_key(commitment))
 	} else {
 		Err(anyhow!("unsupported destination state machine: {destination}"))
-	}
-}
-
-impl crate::outbound_claim::HasDestination for PendingRequestDeliveryClaim {
-	fn destination(&self) -> StateMachine {
-		PendingRequestDeliveryClaim::destination(self)
-	}
-
-	fn delivery_height(&self) -> u64 {
-		self.delivery_height
 	}
 }

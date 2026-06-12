@@ -1,10 +1,7 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "messaging-evm";
 
-use crate::{
-	abi::EvmHostInstance,
-	transport::RpcTransport,
-};
+use crate::{abi::EvmHostInstance, transport::RpcTransport};
 
 use alloy::{
 	eips::BlockId,
@@ -89,9 +86,7 @@ pub fn create_providers_per_url(urls: &[String]) -> Result<Vec<Arc<RootProvider>
 	if urls.is_empty() {
 		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
 	}
-	urls.iter()
-		.map(|u| Ok(Arc::new(RootProvider::new_http(u.parse()?))))
-		.collect()
+	urls.iter().map(|u| Ok(Arc::new(RootProvider::new_http(u.parse()?)))).collect()
 }
 
 #[cfg(test)]
@@ -219,10 +214,7 @@ impl EvmConfig {
 	/// `Some(...)`.
 	///
 	/// If all three are already explicitly set in the config, the RPC call
-	/// to `eth_chainId` is skipped entirely — useful for chains whose HTTP
-	/// endpoint has TLS or protocol quirks that the internal HTTP client
-	/// can't negotiate (e.g. Polkadot Hub's Cloudflare-fronted RPC under
-	/// HTTP/2).
+	/// to `eth_chainId` is skipped entirely.
 	pub async fn resolve(self) -> anyhow::Result<Self> {
 		if let (Some(_), Some(_), Some(_)) =
 			(&self.state_machine, &self.ismp_host, &self.consensus_state_id)
@@ -237,9 +229,7 @@ impl EvmConfig {
 			crate::registry::fetch_chain_id(url).await?
 		};
 
-		let state_machine = self
-			.state_machine
-			.unwrap_or(StateMachine::Evm(chain_id as u32));
+		let state_machine = self.state_machine.unwrap_or(StateMachine::Evm(chain_id as u32));
 
 		let ismp_host = self
 			.ismp_host
@@ -254,8 +244,7 @@ impl EvmConfig {
 		let consensus_state_id = self
 			.consensus_state_id
 			.or_else(|| {
-				crate::registry::consensus_state_id_for_chain_id(chain_id)
-					.map(|s| s.to_string())
+				crate::registry::consensus_state_id_for_chain_id(chain_id).map(|s| s.to_string())
 			})
 			.ok_or_else(|| {
 				anyhow::anyhow!(
@@ -369,10 +358,6 @@ impl EvmClient {
 
 		let http_client = alloy::transports::http::reqwest::Client::builder()
 			.timeout(Duration::from_secs(180))
-			// Some cloud-fronted endpoints (e.g. Polkadot Hub's Cloudflare RPC)
-			// reject the ALPN h2 handshake. HTTP/1.1 works everywhere and is
-			// fine for JSON-RPC (single request/response, no server push needed).
-			.http1_only()
 			.build()?;
 
 		let root_provider = if config.rpc_urls.len() == 1 {

@@ -7,6 +7,7 @@ import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
+import { quoteIntent } from "@/protocols/intents"
 
 // ---------------------------------------------------------------------------
 // Test Cases
@@ -51,6 +52,45 @@ describe("Uniswap quote helper", () => {
 		assert.equal(result.bestQuote?.protocol, "v4")
 		assert.equal(result.bestQuote?.amountOut, 103n)
 	})
+})
+
+describe("Intent quote helper", () => {
+	const BASE_CHAIN = "EVM-8453"
+
+	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {
+		const configService = new ChainConfigService()
+		console.log("Base USDC -> cNGN intent quote")
+		console.log("rpcUrl:", configService.getRpcUrl(BASE_CHAIN))
+
+		const quote = await quoteIntent({
+			source: { chainId: BASE_CHAIN },
+			destination: { chainId: BASE_CHAIN },
+			tokenIn: {
+				address: configService.getUsdcAsset(BASE_CHAIN),
+				decimals: 6,
+				symbol: "USDC",
+			},
+			tokenOut: {
+				address: configService.getCNgnAsset(BASE_CHAIN)!,
+				decimals: 6,
+				symbol: "cNGN",
+			},
+			amountIn: 1_000_000n,
+		})
+
+		console.log("amountIn:", quote.amountIn.toString())
+		console.log("amountOut:", quote.amountOut.toString())
+		console.log("protocolFeeBps:", quote.quoteMetadata.protocolFeeBps.toString())
+		console.log("poolKey:", quote.quoteMetadata.poolKey)
+		console.log("quoterAddress:", quote.quoteMetadata.quoterAddress)
+
+		assert.equal(quote.strategy, "uniswap_v4")
+		assert.equal(quote.tradeType, "EXACT_INPUT")
+		assert.equal(quote.amountIn, 1_000_000n)
+		assert(quote.amountOut > 0n)
+		assert.equal(quote.quoteMetadata.poolKey.fee, 1500)
+		assert.equal(quote.quoteMetadata.poolKey.tickSpacing, 30)
+	}, 120_000)
 })
 
 // ---------------------------------------------------------------------------

@@ -153,6 +153,76 @@ for await (const update of gen) {
 
 ---
 
+### quoteIntent(params)
+
+Quotes a Hyperbridge intent using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, but the method is strategy-shaped so future quote sources can be added without changing partner integrations.
+
+Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
+
+```typescript lineNumbers
+import { quoteIntent } from "@hyperbridge/sdk"
+
+const quote = await quoteIntent({
+  strategy: "uniswap_v4",
+  source: { chainId: "EVM-8453" },
+  destination: { chainId: "EVM-8453" },
+  tokenIn: {
+    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    decimals: 6,
+    symbol: "USDC",
+  },
+  tokenOut: {
+    address: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
+    decimals: 6,
+    symbol: "cNGN",
+  },
+  amountIn: 100_000_000n,
+})
+
+console.log(quote.amountIn, quote.amountOut)
+```
+
+For pools not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
+
+```typescript lineNumbers
+const quote = await quoteIntent({
+  source: { chainId: "EVM-8453" },
+  destination: { chainId: "EVM-8453" },
+  tokenIn,
+  tokenOut,
+  amountOut: 50_000_000n,
+  uniswapV4: {
+    poolKey: {
+      currency0: "0x...",
+      currency1: "0x...",
+      fee: 1500,
+      tickSpacing: 30,
+      hooks: "0x0000000000000000000000000000000000000000",
+      quoterAddress: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
+    },
+  },
+})
+```
+
+When source and destination chains differ, also pass `currencyIn` inside the `poolKey` override — the destination-side address of the input currency. It defaults to `tokenIn.address`, which is only valid for same-chain quotes, and must equal `currency0` or `currency1`.
+
+The result includes `amountIn`, `amountOut`, and quote metadata with the V4 PoolKey, quoter address, and the IntentGateway protocol fee on the source chain.
+
+`amountIn` and `amountOut` are the raw amounts returned by the Uniswap V4 quoter — no slippage tolerance or protocol fee adjustments are applied. Before constructing the order, apply your own slippage tolerance and account for `quoteMetadata.protocolFeeBps`, which the gateway deducts from order inputs:
+
+```typescript lineNumbers
+const SLIPPAGE_BPS = 30n
+
+// Exact input: reduce the quoted output by your slippage tolerance
+const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n
+
+// And remember the solver only receives the post-fee input
+const { protocolFeeBps } = quote.quoteMetadata
+const solverReceives = (quote.amountIn * (10_000n - protocolFeeBps)) / 10_000n
+```
+
+---
+
 ### quoteUniswap(params)
 
 Quotes a same-chain Uniswap swap that can be used when constructing the input or output side of an intent order. The helper checks Uniswap V2, V3, and V4 by default; pass `protocols: ["v4"]` to quote Uniswap V4 only.

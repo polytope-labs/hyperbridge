@@ -1,13 +1,7 @@
 export { IntentGateway } from "./IntentGateway"
 export { OrderStatusChecker } from "./OrderStatusChecker"
-export {
-	IntentQuoteService,
-	UnsupportedIntentQuotePairError,
-	UnsupportedIntentQuoteStrategyError,
-	quoteIntent,
-} from "./quote"
+export { UnsupportedIntentQuotePairError, UnsupportedIntentQuoteStrategyError } from "./quote"
 export type {
-	IntentQuoteChain,
 	IntentQuoteStrategy,
 	IntentQuoteToken,
 	IntentQuoteTradeType,

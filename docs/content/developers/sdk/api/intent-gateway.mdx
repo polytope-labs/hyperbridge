@@ -155,17 +155,14 @@ for await (const update of gen) {
 
 ### quoteIntent(params)
 
-Quotes a Hyperbridge intent using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, but the method is strategy-shaped so future quote sources can be added without changing partner integrations.
+Quotes an intent between the gateway's source and destination chains using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, but the method is strategy-shaped so future quote sources can be added without changing partner integrations.
 
 Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
 
 ```typescript lineNumbers
-import { quoteIntent } from "@hyperbridge/sdk"
+const gateway = await IntentGateway.create(source, dest)
 
-const quote = await quoteIntent({
-  strategy: "uniswap_v4",
-  source: { chainId: "EVM-8453" },
-  destination: { chainId: "EVM-8453" },
+const quote = await gateway.quoteIntent({
   tokenIn: {
     address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     decimals: 6,
@@ -185,9 +182,7 @@ console.log(quote.amountIn, quote.amountOut)
 For pools not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
 
 ```typescript lineNumbers
-const quote = await quoteIntent({
-  source: { chainId: "EVM-8453" },
-  destination: { chainId: "EVM-8453" },
+const quote = await gateway.quoteIntent({
   tokenIn,
   tokenOut,
   amountOut: 50_000_000n,

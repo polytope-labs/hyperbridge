@@ -42,33 +42,25 @@ export interface UniswapV4IntentQuoteOptions {
 }
 
 /**
- * Chain connection used by intent quote strategies.
- *
- * Pass either a viem `client` or an `rpcUrl`. If neither is supplied, the SDK
- * falls back to the configured RPC URL for `chainId`.
- */
-export interface IntentQuoteChain {
-	/** Numeric EVM chain ID or state machine ID, for example `8453` or `EVM-8453`. */
-	chainId: number | string
-	client?: PublicClient
-	rpcUrl?: string
-}
-
-/**
- * Parameters for quoting a Hyperbridge intent.
+ * Parameters for `IntentGateway.quoteIntent`. The source and destination
+ * chains come from the gateway instance itself.
  *
  * `strategy` defaults to `uniswap_v4`, which is currently the only supported
  * strategy. Provide exactly one of `amountIn` or `amountOut`.
  */
 export interface QuoteIntentParams {
 	strategy?: IntentQuoteStrategy
-	source: IntentQuoteChain
-	destination: IntentQuoteChain
 	tokenIn: IntentQuoteToken
 	tokenOut: IntentQuoteToken
 	amountIn?: bigint
 	amountOut?: bigint
 	uniswapV4?: UniswapV4IntentQuoteOptions
+}
+
+/** Chain connection handed to quote strategies by the IntentGateway. */
+export interface IntentQuoteChainContext {
+	stateMachineId: string
+	client: PublicClient
 }
 
 export interface UniswapV4IntentQuoteMetadata {
@@ -98,7 +90,11 @@ export interface QuoteIntentResult {
 }
 
 export interface IntentQuoteStrategyHandler {
-	quote(params: QuoteIntentParams): Promise<QuoteIntentResult>
+	quote(
+		params: QuoteIntentParams,
+		source: IntentQuoteChainContext,
+		destination: IntentQuoteChainContext,
+	): Promise<QuoteIntentResult>
 }
 
 export class UnsupportedIntentQuoteStrategyError extends Error {

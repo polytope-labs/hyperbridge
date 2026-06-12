@@ -1,27 +1,18 @@
-import {
-	createPublicClient,
-	decodeFunctionResult,
-	encodeFunctionData,
-	getAddress,
-	http,
-	type PublicClient,
-	zeroAddress,
-} from "viem"
+import { decodeFunctionResult, encodeFunctionData, getAddress, type PublicClient, zeroAddress } from "viem"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import type { ChainConfigService } from "@/configs/ChainConfigService"
 import type { ConfiguredAssetSymbol, UniswapV4PoolConfigData } from "@/configs/chain"
 import type { HexString } from "@/types"
 import {
+	type IntentQuoteChainContext,
 	type IntentQuoteStrategyHandler,
 	type IntentQuoteToken,
-	type IntentQuoteChain,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedIntentQuotePairError,
 	type UniswapV4PoolKey,
 } from "./types"
-import { normalizeEvmChainId } from "@/utils"
 
 type GatewayParamsObject = { protocolFeeBps?: bigint | number | string }
 type GatewayParams = GatewayParamsObject | readonly unknown[]
@@ -37,20 +28,16 @@ interface ResolvedConfiguredPoolToken {
 	address: HexString
 }
 
-interface ResolvedQuoteChain {
-	chainId: number
-	stateMachineId: string
-	client: PublicClient
-}
-
 export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler {
 	constructor(private readonly chainConfigService: ChainConfigService) {}
 
-	async quote(params: QuoteIntentParams): Promise<QuoteIntentResult> {
+	async quote(
+		params: QuoteIntentParams,
+		source: IntentQuoteChainContext,
+		destination: IntentQuoteChainContext,
+	): Promise<QuoteIntentResult> {
 		this.validateQuoteParams(params)
 
-		const source = this.resolveQuoteChain(params.source)
-		const destination = this.resolveQuoteChain(params.destination)
 		const protocolFeeBps = await this.readProtocolFeeBps(source.client, source.stateMachineId)
 		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, destination.stateMachineId)
 
@@ -68,20 +55,6 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		if (params.tokenIn.address.toLowerCase() === params.tokenOut.address.toLowerCase()) {
 			throw new Error("tokenIn and tokenOut cannot be the same")
 		}
-	}
-
-	private resolveQuoteChain(input: IntentQuoteChain): ResolvedQuoteChain {
-		const chain = normalizeEvmChainId(input.chainId)
-		return {
-			...chain,
-			client: input.client ?? this.resolveClient(chain.stateMachineId, input.rpcUrl),
-		}
-	}
-
-	private resolveClient(stateMachineId: string, rpcUrl?: string): PublicClient {
-		const resolvedRpcUrl = rpcUrl ?? this.chainConfigService.getRpcUrl(stateMachineId)
-		if (!resolvedRpcUrl) throw new Error(`No RPC URL configured for chain ${stateMachineId}`)
-		return createPublicClient({ transport: http(resolvedRpcUrl) })
 	}
 
 	private async readProtocolFeeBps(client: PublicClient, chain: string): Promise<bigint> {

@@ -7,7 +7,6 @@ import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
-import { quoteIntent } from "@/protocols/intents"
 
 // ---------------------------------------------------------------------------
 // Test Cases
@@ -60,11 +59,11 @@ describe("Intent quote helper", () => {
 	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {
 		const configService = new ChainConfigService()
 		console.log("Base USDC -> cNGN intent quote")
-		console.log("rpcUrl:", configService.getRpcUrl(BASE_CHAIN))
 
-		const quote = await quoteIntent({
-			source: { chainId: BASE_CHAIN },
-			destination: { chainId: BASE_CHAIN },
+		const baseChain = makeEvmChain(CHAINS.base, configService)
+		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+
+		const quote = await intentGateway.quoteIntent({
 			tokenIn: {
 				address: configService.getUsdcAsset(BASE_CHAIN),
 				decimals: 6,
@@ -197,7 +196,7 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 	return EvmChain.fromParams({
 		chainId: chain.numericId,
 		host: configService.getHostAddress(chain.id),
-		rpcUrl: process.env[chain.rpcEnvVar]!,
+		rpcUrl: process.env[chain.rpcEnvVar] ?? configService.getRpcUrl(chain.id),
 		bundlerUrl,
 	})
 }

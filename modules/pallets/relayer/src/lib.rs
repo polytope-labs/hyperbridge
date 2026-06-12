@@ -64,6 +64,17 @@ pub type ModuleIdBound = sp_core::ConstU32<64>;
 /// of truth.
 pub use evm_state_machine::presets::REQUEST_RECEIPTS_SLOT;
 
+/// Returns true if `state_id` is a Pharos state machine. Pharos stores trie
+/// values as raw ABI-encoded bytes rather than RLP, so the proof-decoding
+/// paths in this pallet branch on it.
+pub fn is_pharos(state_id: &StateMachine) -> bool {
+	use pharos_primitives::{PHAROS_ATLANTIC_CHAIN_ID, PHAROS_MAINNET_CHAIN_ID};
+	matches!(
+		state_id,
+		StateMachine::Evm(id) if *id == PHAROS_MAINNET_CHAIN_ID || *id == PHAROS_ATLANTIC_CHAIN_ID
+	)
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;

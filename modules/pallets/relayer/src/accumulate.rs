@@ -258,7 +258,7 @@ where
 				};
 
 			let fee = match proof.source_proof.height.id.state_id {
-				s if s.is_pharos() =>
+				s if crate::is_pharos(&s) =>
 					if encoded_metadata.len() == 32 {
 						U256::from_big_endian(&encoded_metadata)
 					} else {
@@ -321,7 +321,7 @@ impl<T: Config> Pallet<T> {
 	/// accumulation and the outbound request delivery claim.
 	pub fn decode_receipt_relayer(state_id: StateMachine, raw: &[u8]) -> Result<Vec<u8>, Error<T>> {
 		match state_id {
-			s if s.is_pharos() =>
+			s if crate::is_pharos(&s) =>
 				if raw.len() == 32 {
 					Ok(Address::from_slice(&raw[12..]).0.to_vec())
 				} else {

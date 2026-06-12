@@ -308,12 +308,6 @@ impl StateMachine {
 			_ => false,
 		}
 	}
-
-	/// Returns true if this is a Pharos state machine. Pharos stores trie values as raw
-	/// ABI-encoded bytes rather than RLP, so it needs its own decode path.
-	pub fn is_pharos(&self) -> bool {
-		matches!(self, StateMachine::Evm(688600 | 688689))
-	}
 }
 
 impl Display for StateMachine {

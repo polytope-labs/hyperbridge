@@ -208,7 +208,7 @@ where
 		if let Ok(addr) = Address::decode(&mut &*raw) {
 			return if addr == Address::ZERO { None } else { Some(addr) };
 		}
-		if state_id.is_pharos() && raw.len() == 32 {
+		if crate::is_pharos(&state_id) && raw.len() == 32 {
 			let addr = Address::from_slice(&raw[12..]);
 			return if addr == Address::ZERO { None } else { Some(addr) };
 		}

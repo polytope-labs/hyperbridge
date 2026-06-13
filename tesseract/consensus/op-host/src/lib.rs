@@ -179,6 +179,36 @@ pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
 	}
 }
 
+/// Fetch the storage root of `addr` at `block` by racing `eth_getProof` and `eth_getAccount`
+/// concurrently and returning whichever resolves `Ok` first. Only the account's storage root is
+/// needed (not a merkle proof). `eth_getAccount` is cheaper, but it isn't supported on every
+/// chain, while `eth_getProof` is more widely available — running both in parallel keeps us
+/// working regardless of which the endpoint implements. Errors only if both fail.
+pub(crate) async fn fetch_storage_root(
+	provider: &AlloyProvider,
+	addr: Address,
+	block: u64,
+) -> Result<B256, anyhow::Error> {
+	use futures::future::{select_ok, FutureExt};
+
+	let via_proof = async move {
+		let proof = provider.get_proof(addr, vec![]).block_id(block.into()).await?;
+		Ok::<B256, anyhow::Error>(proof.storage_hash)
+	}
+	.boxed();
+
+	let via_account = async move {
+		let account = provider.get_account(addr).block_id(block.into()).await?;
+		Ok::<B256, anyhow::Error>(account.storage_root)
+	}
+	.boxed();
+
+	let (root, _) = select_ok([via_proof, via_account]).await.map_err(|e| {
+		anyhow!("eth_getProof and eth_getAccount both failed for {addr:?} at block {block}: {e:?}")
+	})?;
+	Ok(root)
+}
+
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		// Always overwrite the EvmConfig's consensus state id with the
@@ -352,9 +382,6 @@ impl OpHost {
 		events: Vec<DisputeGameFactory::DisputeGameCreated>,
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
-		// Count games skipped due to *errors* (RPC/proof failures), as opposed to legitimate
-		// filtering (wrong game type, invalid output root, nonexistent block).
-		let mut errored = 0usize;
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
 			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
@@ -372,7 +399,6 @@ impl OpHost {
 				Ok(v) => v,
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): extraData() failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
@@ -380,7 +406,6 @@ impl OpHost {
 				Ok(v) => v,
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): createdAt() failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
@@ -403,7 +428,6 @@ impl OpHost {
 				Ok(v) => v,
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): fetching L2 head failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
@@ -447,14 +471,12 @@ impl OpHost {
 				Ok(v) => v,
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): factory get_proof failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
 
 			let Some(dispute_game_storage) = factory_proof.storage_proof.get(0).cloned() else {
 				log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for dispute game slot", event.gameType);
-				errored += 1;
 				continue;
 			};
 			let dispute_game_proof =
@@ -462,7 +484,6 @@ impl OpHost {
 
 			let Some(game_impl_storage) = factory_proof.storage_proof.get(1).cloned() else {
 				log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for gameImpls[gameType]", event.gameType);
-				errored += 1;
 				continue;
 			};
 			let game_impl_proof =
@@ -479,7 +500,6 @@ impl OpHost {
 				Ok(v) => v,
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): proxy get_proof failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
@@ -494,7 +514,6 @@ impl OpHost {
 			} else {
 				let Some(challenge_storage) = proxy_proof.storage_proof.get(0).cloned() else {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for challenge slot", event.gameType);
-					errored += 1;
 					continue;
 				};
 				challenge_storage.proof.into_iter().map(|node| node.to_vec()).collect()
@@ -508,12 +527,10 @@ impl OpHost {
 				Ok(Some(b)) => b,
 				Ok(None) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): header not found for L2 block {l2_block_num}", event.gameType);
-					errored += 1;
 					continue;
 				},
 				Err(e) => {
 					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): get_block for L2 block {l2_block_num} failed: {e:?}", event.gameType);
-					errored += 1;
 					continue;
 				},
 			};
@@ -521,24 +538,24 @@ impl OpHost {
 			let header = block.into();
 			let l2_block_hash = Header::from(&header).hash::<Hasher>();
 			let message_parser_addr = Address::from_slice(&self.message_parser.0);
-			// We only need the message-parser account's storage root, not a merkle proof, so use
-			// `eth_getAccount` instead of the heavier `eth_getProof`.
-			let message_parser_account = match self
-				.op_execution_client
-				.get_account(message_parser_addr)
-				.block_id(l2_block_num.into())
-				.await
+			// We only need the message-parser account's storage root, not a merkle proof. Race
+			// `eth_getProof` and `eth_getAccount` and take whichever returns first.
+			let withdrawal_storage_root = match fetch_storage_root(
+				&self.op_execution_client,
+				message_parser_addr,
+				l2_block_num,
+			)
+			.await
 			{
-				Ok(v) => v,
+				Ok(root) => root,
 				Err(e) => {
-					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): message-parser get_account at L2 block {l2_block_num} failed: {e:?}", event.gameType);
-					errored += 1;
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): message-parser storage root at L2 block {l2_block_num} failed: {e:?}", event.gameType);
 					continue;
 				},
 			};
 
 			let payload = OptimismDisputeGameProof {
-				withdrawal_storage_root: message_parser_account.storage_root.0.into(),
+				withdrawal_storage_root: withdrawal_storage_root.0.into(),
 				// Version bytes is still the default value
 				version: H256::zero(),
 				dispute_factory_proof: factory_proof
@@ -575,16 +592,6 @@ impl OpHost {
 		}
 
 		payloads.sort_unstable_by(|a, b| a.header.number.cmp(&b.header.number));
-
-		// If we produced nothing but some games failed with errors (rather than being legitimately
-		// filtered out), surface an error so the caller retries the range instead of silently
-		// advancing past games it never managed to evaluate.
-		if payloads.is_empty() && errored > 0 {
-			return Err(anyhow!(
-				"All {errored} dispute game(s) in batch at L1 height {at} failed to produce a payload \
-				 (see warnings for per-game causes, e.g. RPC proof-window limits)"
-			));
-		}
 
 		Ok(payloads.last().cloned())
 	}
@@ -645,17 +652,15 @@ impl OpHost {
 			.ok_or_else(|| anyhow!("Header not found for {:?}", l2_block_number))?;
 
 		let message_parser_addr = Address::from_slice(&self.message_parser.0);
-		// We only need the message-parser account's storage root, not a merkle proof, so use
-		// `eth_getAccount` instead of the heavier `eth_getProof`.
-		let message_parser_account = self
-			.op_execution_client
-			.get_account(message_parser_addr)
-			.block_id(l2_block_number.into())
-			.await?;
+		// We only need the message-parser account's storage root, not a merkle proof. Race
+		// `eth_getProof` and `eth_getAccount` and take whichever returns first.
+		let withdrawal_storage_root =
+			fetch_storage_root(&self.op_execution_client, message_parser_addr, l2_block_number)
+				.await?;
 
 		let payload = OptimismPayloadProof {
 			state_root: block.header.state_root.0.into(),
-			withdrawal_storage_root: message_parser_account.storage_root.0.into(),
+			withdrawal_storage_root: withdrawal_storage_root.0.into(),
 			l2_block_hash: block.header.hash.0.into(),
 			// Version bytes is still the default value
 			version: H256::zero(),

@@ -105,12 +105,9 @@ impl ConsensusProofSource for OffchainProofSource {
 		let map: BTreeMap<u64, u64> = Decode::decode(&mut &bytes[..])
 			.map_err(|err| anyhow!("decode RotationProofs BTreeMap: {err:?}"))?;
 
-		let next_set_id = from_set_id + 1;
-		if !map.contains_key(&next_set_id) {
-			return Err(anyhow!(
-				"RotationProofs missing entry for set_id {next_set_id} (catching up from {from_set_id})"
-			));
-		}
+		// Return whatever is stored above `from_set_id`; the caller greedily selects the subset
+		// the destination can actually verify and apply. A missing immediate-next entry is not
+		// fatal here — the caller decides whether the keys it needs are present.
 
 		// Walk ascending so the caller can submit rotations in order.
 		let mut out = Vec::new();

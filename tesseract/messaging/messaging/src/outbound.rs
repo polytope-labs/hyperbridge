@@ -640,13 +640,20 @@ fn collect_hyperbridge_request_claims(
 		.collect()
 }
 
+/// Read the BEEFY `(current_authorities.id, next_authorities.id)` out of a
+/// SCALE-encoded [`beefy_verifier_primitives::ConsensusState`]. Returns `None`
+/// when the bytes can't be decoded — treated by callers as "assume it's in sync".
+fn decode_set_ids_scale(encoded: &[u8]) -> Option<(u64, u64)> {
+	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
+		.ok()
+		.map(|s| (s.current_authorities.id, s.next_authorities.id))
+}
+
 /// Read the BEEFY `current_authorities.id` out of a SCALE-encoded
 /// [`beefy_verifier_primitives::ConsensusState`]. Returns `None` when the
 /// bytes can't be decoded — treated by callers as "assume it's in sync".
 fn decode_current_set_id_scale(encoded: &[u8]) -> Option<u64> {
-	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
-		.ok()
-		.map(|s| s.current_authorities.id)
+	decode_set_ids_scale(encoded).map(|(current, _)| current)
 }
 
 /// If the destination's BEEFY `current_authorities.id` is behind HB's, fetch
@@ -681,7 +688,7 @@ async fn catch_up_rotations(
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
 		.map_err(|err| anyhow::anyhow!("query dest consensus_state: {err:?}"))?;
-	let Some(dest_set_id) = decode_current_set_id_scale(&dest_consensus) else {
+	let Some((dest_set_id, dest_next_id)) = decode_set_ids_scale(&dest_consensus) else {
 		tracing::debug!(
 			target: LOG_TARGET,
 			"dest consensus state undecodable; skipping rotation catch-up",
@@ -705,10 +712,22 @@ async fn catch_up_rotations(
 		return Ok(Vec::new());
 	}
 
+	// Anchor the catch-up on the destination's on-chain `next` set id, not its `current`.
+	// A destination can only verify a consensus proof signed by an authority set it holds
+	// on-chain — its `current` or its `next` set. When it has skipped intermediate sets
+	// (its `next` is more than one ahead of `current`, e.g. current=5071/next=5073 with
+	// 5072 never installed because an applied proof's MMR leaf jumped the next-set id), a
+	// rotation proof for one of those skipped sets (5072) is signed by an authority set the
+	// destination has never seen and reverts on-chain with `UnknownAuthoritySet`. Fetching
+	// rotations strictly above `dest_next_id - 1` yields only set ids `>= dest_next_id`, so
+	// the first proof we submit is the one signed by the destination's `next` set — the
+	// smallest set id it can actually accept. In the common contiguous case
+	// (`next == current + 1`) this is identical to anchoring on `current`.
+	let anchor = dest_next_id.saturating_sub(1).max(dest_set_id);
 	let rotations: Vec<RotationProof> = proof_source
-		.rotation_proofs_from(dest_set_id)
+		.rotation_proofs_from(anchor)
 		.await
-		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({dest_set_id}): {err:?}"))?;
+		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({anchor}): {err:?}"))?;
 	if rotations.is_empty() {
 		return Err(anyhow!("dest is lagging but no rotation proofs are cached on HB"));
 	}
@@ -727,6 +746,7 @@ async fn catch_up_rotations(
 		target: LOG_TARGET,
 		dest = %dest_name,
 		dest_set_id,
+		dest_next_id,
 		hb_set_id,
 		current_set_id = ?current_set_id,
 		rotations = rotations.len(),

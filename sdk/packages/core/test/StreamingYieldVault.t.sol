@@ -16,6 +16,7 @@ pragma solidity ^0.8.17;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
+import {ERC1363} from "@openzeppelin/contracts/token/ERC20/extensions/ERC1363.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -25,6 +26,16 @@ import {StreamingYieldVault} from "../contracts/vaults/StreamingYieldVault.sol";
 ///      no transfer fee, no rebasing, no callbacks.
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock", "MOCK") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+/// @dev Mintable ERC-1363 ("payable token") used to exercise the single-tx `transferAndCall`
+///      deposit path against the vault's `onTransferReceived` hook.
+contract MockERC1363 is ERC1363 {
+    constructor() ERC20("Mock1363", "M1363") {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -484,5 +495,79 @@ contract StreamingYieldVaultTest is Test {
 
         assertGt(vault.convertToAssets(vault.balanceOf(bob)), bobIn, "window depositor earned nothing next cycle");
         assertGt(vault.convertToAssets(vault.balanceOf(alice)), aliceAfterT1, "prior holder lost ground next cycle");
+    }
+
+    // --------------------------------------------------------------------------------------
+    // 8. ERC-1363 single-transaction yield top-up (`transferAndCall` -> `onTransferReceived`)
+    // --------------------------------------------------------------------------------------
+
+    /// @dev Deploy a vault over an ERC-1363 asset, funded + approved for the usual actors.
+    function _deploy1363() internal returns (MockERC1363 a, StreamingYieldVault v) {
+        a = new MockERC1363();
+        v = new StreamingYieldVault(IERC20(address(a)), "Vault 1363", "v1363", owner);
+        address[3] memory who = [alice, bob, owner];
+        for (uint256 i = 0; i < who.length; i++) {
+            a.mint(who[i], 1_000_000 ether);
+            vm.prank(who[i]);
+            a.approve(address(v), type(uint256).max);
+        }
+    }
+
+    /// @notice The owner funds a tranche in one transaction via `transferAndCall`; it streams over
+    ///         `VEST` exactly like `addYield`, with no instant jump.
+    function test_ERC1363_transferAndCall_addsYield() public {
+        (MockERC1363 a, StreamingYieldVault v) = _deploy1363();
+        vm.prank(alice);
+        v.deposit(1_000 ether, alice); // a holder for the yield to accrue to
+        uint256 base = v.totalAssets();
+
+        vm.prank(owner);
+        a.transferAndCall(address(v), 100 ether);
+
+        assertEq(v.lockedYield(), 100 ether, "tranche not locked");
+        assertEq(v.totalAssets(), base, "yield recognized instantly");
+        vm.warp(block.timestamp + VEST);
+        assertEq(v.totalAssets(), base + 100 ether, "tranche not fully recognized after VEST");
+    }
+
+    /// @notice Only the owner may fund yield this way: a non-owner `transferAndCall` reverts and the
+    ///         asset transfer rolls back.
+    function test_ERC1363_onlyOwnerMayFund() public {
+        (MockERC1363 a, StreamingYieldVault v) = _deploy1363();
+
+        uint256 balBefore = a.balanceOf(alice);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        a.transferAndCall(address(v), 100 ether);
+
+        assertEq(a.balanceOf(alice), balBefore, "asset transfer was not rolled back");
+        assertEq(v.lockedYield(), 0, "yield was armed by a non-owner");
+    }
+
+    /// @notice The hook is only callable by the asset; a direct call cannot arm a tranche.
+    function test_ERC1363_onTransferReceived_onlyAsset() public {
+        (, StreamingYieldVault v) = _deploy1363();
+
+        vm.prank(owner); // even the owner can't call it directly — it must come from the asset
+        vm.expectRevert(abi.encodeWithSelector(StreamingYieldVault.CallerNotAsset.selector, owner));
+        v.onTransferReceived(owner, owner, 100 ether, "");
+    }
+
+    /// @notice The single-tx path honours the no-overlap guard: funding again while a tranche is
+    ///         vesting reverts (and the asset transfer rolls back).
+    function test_ERC1363_respectsVestingGuard() public {
+        (MockERC1363 a, StreamingYieldVault v) = _deploy1363();
+
+        vm.prank(owner);
+        a.transferAndCall(address(v), 100 ether); // tranche 1
+        vm.warp(block.timestamp + 1 hours); // mid-vest
+
+        uint256 vestEnd = v.vestedAt(); // read before prank so the view doesn't consume it
+        uint256 balBefore = a.balanceOf(owner);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StreamingYieldVault.YieldStillVesting.selector, vestEnd));
+        a.transferAndCall(address(v), 50 ether);
+
+        assertEq(a.balanceOf(owner), balBefore, "asset transfer was not rolled back");
     }
 }

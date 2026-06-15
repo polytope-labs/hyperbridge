@@ -18,6 +18,7 @@ import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC1363Receiver} from "@openzeppelin/contracts/interfaces/IERC1363Receiver.sol";
 
 /// @title StreamingYieldVault
 /// @author Polytope Labs (hello@polytope.technology)
@@ -35,7 +36,11 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 ///      join mid-tranche and capture yield meant for the holders present when it began. `addYield`
 ///      must wait `MIN_WINDOW` past the vest end, guaranteeing that window exists every cycle
 ///      regardless of keeper timing.
-contract StreamingYieldVault is ERC4626, Ownable {
+///
+///      When the underlying asset is an ERC-1363 token, the owner can fund a tranche in a single
+///      transaction with `asset.transferAndCall(vault, amount)` (no separate `approve` + `addYield`)
+///      via the `onTransferReceived` hook, subject to the same authorization and guards as `addYield`.
+contract StreamingYieldVault is ERC4626, Ownable, IERC1363Receiver {
     using SafeERC20 for IERC20;
 
     /// @notice Window over which each yield tranche is linearly recognized. Deposits and mints are
@@ -71,6 +76,9 @@ contract StreamingYieldVault is ERC4626, Ownable {
     /// @notice Thrown when `addYield` is called during the guaranteed deposit window, before
     ///         `MIN_WINDOW` has elapsed past the end of the previous tranche's vesting.
     error DepositWindowOpen(uint256 closesAt);
+
+    /// @notice Thrown when `onTransferReceived` is called by anything other than the vault's asset.
+    error CallerNotAsset(address caller);
 
     /// @notice Emitted when a new yield tranche begins vesting.
     event YieldAdded(uint256 amount, uint256 vestingStart);
@@ -130,6 +138,28 @@ contract StreamingYieldVault is ERC4626, Ownable {
         return _isVesting() ? 0 : type(uint256).max;
     }
 
+    /// @inheritdoc IERC1363Receiver
+    /// @notice ERC-1363 single-transaction yield top-up. With an ERC-1363 underlying asset, the
+    ///         owner can call `asset.transferAndCall(vault, amount)` to fund a yield tranche in one
+    ///         transaction (no separate `approve` + `addYield`). The asset moves `amount` to the
+    ///         vault and then invokes this, which begins streaming it over `VEST`.
+    /// @dev Only the underlying asset may call this, and the funds must come `from` the owner — the
+    ///      same authorization as `addYield`. The funds are already in the vault when this runs, so
+    ///      the tranche is armed without pulling again, subject to the same no-overlap / window
+    ///      guards as `addYield`; a revert rolls the transfer back.
+    function onTransferReceived(address, address from, uint256 value, bytes calldata)
+        external
+        override
+        returns (bytes4)
+    {
+        if (msg.sender != asset()) revert CallerNotAsset(msg.sender);
+        if (from != owner()) revert OwnableUnauthorizedAccount(from);
+
+        _startVesting(value);
+
+        return IERC1363Receiver.onTransferReceived.selector;
+    }
+
     /// @dev Linear unlock of the current tranche, keyed on `block.timestamp` so that a deposit
     ///      and withdrawal within the same block observe an identical, unchanged share price.
     function _lockedYield() internal view returns (uint256) {
@@ -144,6 +174,18 @@ contract StreamingYieldVault is ERC4626, Ownable {
     ///         is ever left permanently locked.
     /// @param amount The amount of `asset` to stream in over `VEST`.
     function addYield(uint256 amount) external onlyOwner {
+        // Pull the funds first so `balanceOf` already reflects `amount` before it is marked
+        // locked; otherwise `totalAssets` would transiently underflow when a tranche exceeds
+        // the current backing (e.g. the very first `addYield` on a near-empty vault).
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), amount);
+
+        _startVesting(amount);
+    }
+
+    /// @dev Arms a new tranche after validating the no-overlap / deposit-window guards. The caller
+    ///      must have already moved `amount` of `asset` into the vault (so `balanceOf` reflects it
+    ///      before `_vestingAmount` is set, avoiding a transient `totalAssets` underflow).
+    function _startVesting(uint256 amount) private {
         if (amount == 0) revert ZeroAmount();
 
         uint256 start = _vestingStart;
@@ -153,11 +195,6 @@ contract StreamingYieldVault is ERC4626, Ownable {
             // a chance to enter between tranches regardless of how promptly the keeper runs.
             if (block.timestamp < start + VEST + MIN_WINDOW) revert DepositWindowOpen(start + VEST + MIN_WINDOW);
         }
-
-        // Pull the funds first so `balanceOf` already reflects `amount` before it is marked
-        // locked; otherwise `totalAssets` would transiently underflow when a tranche exceeds
-        // the current backing (e.g. the very first `addYield` on a near-empty vault).
-        IERC20(asset()).safeTransferFrom(msg.sender, address(this), amount);
 
         _vestingAmount = amount;
         _vestingStart = block.timestamp;

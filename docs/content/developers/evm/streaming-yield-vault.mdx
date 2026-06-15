@@ -10,7 +10,7 @@ description: An ERC-4626 vault that distributes yield by streaming it linearly o
 It is a self-contained primitive with **no Hyperbridge/ISMP dependency** — it can be used on any EVM chain on its own.
 
 <Callout type="info">
-The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without transfer callbacks (no ERC-777 hooks). Wrap exotic tokens before using them as the underlying.
+The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without *automatic* transfer callbacks (no ERC-777 `tokensReceived` hooks). [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) assets are supported and let the owner fund yield in a single transaction (see [Adding yield](#adding-yield)). Wrap exotic tokens before using them as the underlying.
 </Callout>
 
 ## How it works
@@ -136,6 +136,16 @@ function addYield(uint256 amount) external onlyOwner;
 
 It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fully vested, `DepositWindowOpen(closesAt)` if it is called during the guaranteed deposit window (before `MIN_WINDOW` has elapsed past the vest end), and `ZeroAmount()` for a zero amount.
 
+### Single-transaction top-ups (ERC-1363)
+
+If the underlying asset is an [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) ("payable") token, the owner can fund a tranche in **one transaction** via `transferAndCall` — no separate `approve` + `addYield`. The asset transfers to the vault and then calls the vault's `onTransferReceived` hook, which arms the tranche.
+
+```solidity lineNumbers
+asset.transferAndCall(address(vault), amount); // equivalent to approve + addYield
+```
+
+Authorization and guards mirror `addYield`: the funds must come from the **owner** (otherwise it reverts), and a top-up while a tranche is still vesting or inside the deposit window reverts — rolling the transfer back. `onTransferReceived` is callable only by the asset.
+
 ## Reference
 
 | Member | Description |
@@ -147,10 +157,12 @@ It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fu
 | `vestedAt()` | Timestamp the active tranche finishes vesting and the deposit window opens. |
 | `nextYieldAt()` | Earliest time the next `addYield` is allowed; close of the guaranteed deposit window. |
 | `maxDeposit` / `maxMint` | `0` while a tranche is vesting (deposits closed), unbounded otherwise. |
+| `onTransferReceived(...)` | ERC-1363 hook; single-tx yield top-up via the asset's `transferAndCall`. Owner + asset only. |
 | `totalAssets()` | `balanceOf(vault) − lockedYield`. |
 | `YieldAdded(amount, vestingStart)` | Emitted when a tranche begins vesting. |
 | `YieldStillVesting(vestedAt)` | Reverts `addYield` while the prior tranche is vesting. |
 | `DepositWindowOpen(closesAt)` | Reverts `addYield` during the guaranteed deposit window. |
+| `CallerNotAsset(caller)` | Reverts `onTransferReceived` when the caller isn't the underlying asset. |
 | `ZeroAmount()` | Reverts `addYield` for a zero amount. |
 
 ## Security considerations

@@ -1721,9 +1721,14 @@ Represents dust collected by the protocol
 """
 type DustCollected @entity {
 	"""
-	Unique identifier: chainId-tokenAddress
+	Unique identifier: chain-tokenAddress
 	"""
 	id: ID!
+
+	"""
+	Host state machine that emitted the event
+	"""
+	chain: String! @index
 
 	"""
 	Token symbol
@@ -1746,9 +1751,14 @@ Represents dust swept by the protocol
 """
 type DustSwept @entity {
 	"""
-	Unique identifier: chainId-tokenAddress
+	Unique identifier: chain-tokenAddress
 	"""
 	id: ID!
+
+	"""
+	Host state machine that emitted the event
+	"""
+	chain: String! @index
 
 	"""
 	Token symbol

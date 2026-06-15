@@ -11,8 +11,13 @@ export class ProtocolRevenueService {
 	/**
 	 * Get or create a DustCollected record
 	 */
-	static async recordDustCollected(tokenAddress: string, amount: bigint, timestamp: bigint): Promise<DustCollected> {
-		const id = `${chainId}-${tokenAddress.toLowerCase()}`
+	static async recordDustCollected(
+		chain: string,
+		tokenAddress: string,
+		amount: bigint,
+		timestamp: bigint,
+	): Promise<DustCollected> {
+		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
 
 		// Get token symbol if not native token
@@ -35,6 +40,7 @@ export class ProtocolRevenueService {
 		if (!dustCollected) {
 			dustCollected = await DustCollected.create({
 				id,
+				chain,
 				tokenSymbol: symbol,
 				amount,
 				lastUpdated: timestampToDate(timestamp),
@@ -60,8 +66,13 @@ export class ProtocolRevenueService {
 	/**
 	 * Get or create a DustSwept record
 	 */
-	static async recordDustSwept(tokenAddress: string, amount: bigint, timestamp: bigint): Promise<DustSwept> {
-		const id = `${chainId}-${tokenAddress.toLowerCase()}`
+	static async recordDustSwept(
+		chain: string,
+		tokenAddress: string,
+		amount: bigint,
+		timestamp: bigint,
+	): Promise<DustSwept> {
+		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
 
 		// Get token symbol if not native token
@@ -84,6 +95,7 @@ export class ProtocolRevenueService {
 		if (!dustSwept) {
 			dustSwept = await DustSwept.create({
 				id,
+				chain,
 				tokenSymbol: symbol,
 				amount,
 				lastUpdated: timestampToDate(timestamp),

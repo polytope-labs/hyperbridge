@@ -72,6 +72,15 @@ where
 		// Use the raw bytes at each commit site so the conversion is agnostic to the exact
 		// `H256`/`FixedBytes` type each consumer expects.
 		let account: [u8; 32] = self.account.0;
+		let authority = match signed_commitment.commitment.validator_set_id {
+			id if id == consensus_state.current_authorities.id =>
+				consensus_state.current_authorities,
+			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
+			_ => Err(anyhow::anyhow!(
+				"Unknown validator set {}",
+				signed_commitment.commitment.validator_set_id
+			))?,
+		};
 
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
 
@@ -84,34 +93,10 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		// Build the authority-set merkle tree from the ACTUAL authorities at this block and use its
-		// computed root. Select the matching set id by *root*, not the commitment's
-		// `validator_set_id`: at a session boundary the first block of a new session is still signed
-		// by the outgoing set, so trusting `validator_set_id` selects the wrong set (and root), the
-		// proof's authority-membership check fails, and the guest commits a non-zero exit code that
-		// the on-chain verifier rejects as `InvalidExitCode`.
-		let authorities = self.inner.beefy_authorities(Some(block_hash)).await?;
-		let leaf_hashes =
-			hash_authority_addresses(authorities.into_iter().map(|x| x.encode()).collect())?;
-		let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
-		let computed_root: [u8; 32] =
-			tree.root().ok_or_else(|| anyhow!("empty authority set, cannot compute root"))?;
-
-		let authority = if computed_root == consensus_state.current_authorities.keyset_commitment.0 {
-			consensus_state.current_authorities
-		} else if computed_root == consensus_state.next_authorities.keyset_commitment.0 {
-			consensus_state.next_authorities
-		} else {
-			Err(anyhow!(
-				"computed authority root 0x{} matches neither current ({}) nor next ({}) set",
-				hex::encode(computed_root),
-				consensus_state.current_authorities.id,
-				consensus_state.next_authorities.id,
-			))?
-		};
-		let validator_set_id = authority.id;
-
 		let authorities_witness = {
+			let authorities = self.inner.beefy_authorities(Some(block_hash)).await?;
+			let leaf_hashes =
+				hash_authority_addresses(authorities.into_iter().map(|x| x.encode()).collect())?;
 			let indices = message
 				.mmr
 				.signed_commitment
@@ -119,6 +104,25 @@ where
 				.iter()
 				.map(|s| s.index as usize)
 				.collect::<Vec<_>>();
+
+			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
+
+			// Sanity check: the merkle root of the actual on-chain authorities must equal the
+			// `keyset_commitment` of the set selected by the commitment's `validator_set_id`. The
+			// guest verifies authority membership against `authority.keyset_commitment`, so if this
+			// invariant is broken the proof would fail on-chain. A mismatch here means either the
+			// validator-set selection is wrong or `hash_authority_addresses` has diverged from
+			// `pallet-beefy-mmr`'s eth-address commitment (see `FAILED_BEEFY_TO_ETH_ADDRESS`).
+			let computed_root = tree.root().ok_or_else(|| anyhow!("empty authority set"))?;
+			if computed_root != authority.keyset_commitment.0 {
+				Err(anyhow!(
+					"authority root mismatch for validator set {}: computed 0x{} != keyset_commitment 0x{}",
+					authority.id,
+					hex::encode(computed_root),
+					hex::encode(authority.keyset_commitment.0),
+				))?
+			}
+
 			let proof = tree.proof(&indices);
 			proof.proof_hashes().iter().map(|item| item.clone().into()).collect()
 		};
@@ -149,7 +153,7 @@ where
 			authorities: AuthoritiesProof {
 				len: authority.len,
 				proof: authorities_witness,
-				root: computed_root.into(),
+				root: authority.keyset_commitment.0.into(),
 				votes: message
 					.mmr
 					.signed_commitment
@@ -206,15 +210,8 @@ where
 		tracing::trace!(target: "zk_beefy", "Plonk Proof: {:#?}", hex::encode(proof.bytes()));
 		tracing::trace!(target: "zk_beefy", "Public Inputs: {:#?}", proof.public_values.raw());
 
-		// Carry the root-selected `validator_set_id` (not the commitment's, which is off-by-one at
-		// session boundaries) so the on-chain verifier picks the authority set the proof was built
-		// against. Only this verifier-side selector changes; the signed commitment bytes the guest
-		// hashes for signature verification are untouched.
-		let mut mini_commitment = signed_commitment.commitment.clone();
-		mini_commitment.validator_set_id = validator_set_id;
-
 		Ok(SP1BeefyProof {
-			commitment: mini_commitment.into(),
+			commitment: signed_commitment.commitment.into(),
 			mmrLeaf: message.mmr.latest_mmr_leaf.into(),
 			proof: proof.bytes().into(),
 			headers: message.parachain.parachains.into_iter().map(|i| i.into()).collect(),

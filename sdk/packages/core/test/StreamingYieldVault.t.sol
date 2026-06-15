@@ -15,9 +15,9 @@ pragma solidity ^0.8.17;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {StreamingYieldVault} from "../contracts/vaults/StreamingYieldVault.sol";
 
@@ -48,7 +48,8 @@ contract StreamingYieldVaultTest is Test {
     address internal attacker = makeAddr("attacker");
     address internal seeder = makeAddr("seeder");
 
-    uint256 internal constant VEST = 23 hours;
+    uint256 internal constant VEST = 22 hours;
+    uint256 internal constant MIN_WINDOW = 2 hours;
     uint256 internal constant OFFSET = 6;
 
     function setUp() public {
@@ -262,11 +263,30 @@ contract StreamingYieldVaultTest is Test {
         vault.addYield(100 ether);
     }
 
-    function test_AddYield_allowedExactlyAtVestedAt() public {
+    /// @notice After the vest ends, `addYield` is still blocked throughout the guaranteed deposit
+    ///         window, so new capital always has a chance to enter.
+    function test_AddYield_revertsDuringDepositWindow() public {
         _seedAndBurn(1_000 ether);
         _addYield(100 ether);
 
-        vm.warp(vault.vestedAt());
+        uint256 closesAt = vault.nextYieldAt();
+
+        vm.warp(vault.vestedAt()); // window just opened
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StreamingYieldVault.DepositWindowOpen.selector, closesAt));
+        vault.addYield(50 ether);
+
+        vm.warp(closesAt - 1); // one second before it closes
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StreamingYieldVault.DepositWindowOpen.selector, closesAt));
+        vault.addYield(50 ether);
+    }
+
+    function test_AddYield_allowedAtNextYieldAt() public {
+        _seedAndBurn(1_000 ether);
+        _addYield(100 ether);
+
+        vm.warp(vault.nextYieldAt());
         _addYield(50 ether); // must not revert
     }
 
@@ -280,6 +300,7 @@ contract StreamingYieldVaultTest is Test {
         vm.warp(block.timestamp + VEST);
         assertEq(vault.totalAssets(), base + 100 ether, "first tranche not fully recognized");
 
+        vm.warp(block.timestamp + MIN_WINDOW); // clear the guaranteed deposit window before re-arming
         _addYield(40 ether);
         assertEq(vault.lockedYield(), 40 ether, "second tranche did not start at full lock");
         vm.warp(block.timestamp + VEST);
@@ -333,7 +354,9 @@ contract StreamingYieldVaultTest is Test {
     function test_previewParity() public {
         _seedAndBurn(1_000 ether);
         _addYield(100 ether);
-        vm.warp(block.timestamp + VEST / 3);
+        // Deposits are locked while vesting, so exercise parity in the post-vest window where the
+        // price already reflects the fully recognized tranche.
+        vm.warp(vault.vestedAt());
 
         uint256 pd = vault.previewDeposit(123 ether);
         uint256 shares = _deposit(bob, 123 ether);
@@ -350,201 +373,116 @@ contract StreamingYieldVaultTest is Test {
     }
 
     // --------------------------------------------------------------------------------------
-    // 7. pausing
+    // 7. deposit lock while vesting + guaranteed deposit window
+    //
+    // Deposits/mints are disabled while a tranche vests, so no one joins mid-tranche and shares
+    // the in-flight yield. `addYield` must then wait `MIN_WINDOW` past the vest end, guaranteeing
+    // a deposit window every cycle regardless of how eagerly the keeper re-arms.
     // --------------------------------------------------------------------------------------
 
-    function test_Pause_blocksShareTransfer() public {
-        _seedAndBurn(1_000 ether);
-        _deposit(alice, 100 ether);
-
-        vm.prank(owner);
-        vault.pause();
-
-        vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.transfer(bob, 1);
+    /// @notice Test constants track the contract; the guards below assume this parity.
+    function test_constants_match() public view {
+        assertEq(vault.VEST(), VEST, "VEST drift");
+        assertEq(vault.MIN_WINDOW(), MIN_WINDOW, "MIN_WINDOW drift");
+        assertEq(vault.nextYieldAt(), vault.vestedAt() + MIN_WINDOW, "window math");
     }
 
-    function test_Pause_blocksDeposit() public {
-        vm.prank(owner);
-        vault.pause();
+    /// @notice Before any tranche exists (`_vestingStart == 0`) deposits are open, so the vault can
+    ///         be bootstrapped.
+    function test_Deposit_allowedBeforeFirstYield() public {
+        assertEq(vault.maxDeposit(alice), type(uint256).max);
+        assertGt(_deposit(alice, 100 ether), 0);
+    }
 
+    /// @notice A deposit while a tranche is vesting is blocked: `maxDeposit` is 0, so `deposit`
+    ///         reverts at its limit check with the standard ERC-4626 error.
+    function test_Deposit_revertsWhileVesting() public {
+        _seedAndBurn(1_000 ether);
+        _addYield(100 ether);
+
+        vm.warp(block.timestamp + VEST / 2);
         vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxDeposit.selector, alice, 100 ether, 0));
         vault.deposit(100 ether, alice);
     }
 
-    function test_Pause_blocksWithdraw() public {
+    /// @notice `mint` is gated by `maxMint` the same way.
+    function test_Mint_revertsWhileVesting() public {
         _seedAndBurn(1_000 ether);
-        uint256 shares = _deposit(alice, 100 ether);
-
-        vm.prank(owner);
-        vault.pause();
-
-        vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.redeem(shares, alice, alice);
-    }
-
-    function test_Unpause_restoresShareMovement() public {
-        _seedAndBurn(1_000 ether);
-        _deposit(alice, 100 ether);
-
-        vm.prank(owner);
-        vault.pause();
-        vm.prank(owner);
-        vault.unpause();
-
-        vm.prank(alice);
-        vault.transfer(bob, 1); // must not revert
-        assertEq(vault.balanceOf(bob), 1);
-    }
-
-    function test_Pause_onlyOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
-        vault.pause();
-    }
-
-    function test_Unpause_onlyOwner() public {
-        vm.prank(owner);
-        vault.pause();
-
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
-        vault.unpause();
-    }
-
-    /// @notice Adding yield touches no shares, so it remains possible while paused; the funds
-    ///         simply cannot be withdrawn until the vault is unpaused.
-    function test_AddYield_worksWhilePaused() public {
-        _seedAndBurn(1_000 ether);
-
-        vm.prank(owner);
-        vault.pause();
-
         _addYield(100 ether);
-        vm.warp(block.timestamp + VEST);
-        assertApproxEqAbs(vault.totalAssets(), 1_000 ether + 100 ether, 1e6);
-    }
 
-    // --------------------------------------------------------------------------------------
-    // 8. the `_update` chokepoint
-    //
-    // Every share movement — mint (deposit/mint), burn (withdraw/redeem) and transfer
-    // (transfer/transferFrom) — funnels through `_update`. These tests assert each distinct
-    // entry into `_update` is gated, that the gate sits at `_update` itself (so even a
-    // zero-value move reverts), and that it is a pure no-op when unpaused.
-    // --------------------------------------------------------------------------------------
-
-    /// @notice The share-denominated mint path (`mint`) hits `_update` via `_mint`.
-    function test_Pause_chokepoint_blocksMint() public {
-        _seedAndBurn(1_000 ether);
-
-        vm.prank(owner);
-        vault.pause();
-
+        vm.warp(block.timestamp + VEST / 2);
         vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxMint.selector, alice, 100 ether, 0));
         vault.mint(100 ether, alice);
     }
 
-    /// @notice The asset-denominated burn path (`withdraw`) hits `_update` via `_burn`.
-    function test_Pause_chokepoint_blocksWithdrawByAssets() public {
+    /// @notice The lock lifts at the vest end; deposits succeed throughout the window, right up to
+    ///         the moment the next tranche could be armed.
+    function test_Deposit_succeedsAcrossWholeWindow() public {
         _seedAndBurn(1_000 ether);
-        _deposit(alice, 100 ether);
+        _addYield(100 ether);
 
-        vm.prank(owner);
-        vault.pause();
+        vm.warp(vault.vestedAt()); // window opens
+        assertGt(_deposit(alice, 100 ether), 0, "deposit blocked at window open");
 
-        vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.withdraw(50 ether, alice, alice);
+        vm.warp(vault.nextYieldAt()); // last moment before addYield can fire
+        assertGt(_deposit(bob, 100 ether), 0, "deposit blocked later in window");
     }
 
-    /// @notice The delegated-transfer path (`transferFrom`) hits `_update` via `_transfer`.
-    function test_Pause_chokepoint_blocksTransferFrom() public {
+    /// @notice `maxDeposit`/`maxMint` report 0 while vesting and unbounded otherwise, so integrators
+    ///         can detect the closed window instead of hitting a surprise revert.
+    function test_MaxDepositMint_reflectLock() public {
         _seedAndBurn(1_000 ether);
-        uint256 shares = _deposit(alice, 100 ether);
+        _addYield(100 ether);
 
-        vm.prank(alice);
-        vault.approve(bob, shares);
+        vm.warp(block.timestamp + VEST / 2);
+        assertEq(vault.maxDeposit(alice), 0, "maxDeposit not zero while vesting");
+        assertEq(vault.maxMint(alice), 0, "maxMint not zero while vesting");
 
-        vm.prank(owner);
-        vault.pause();
-
-        vm.prank(bob);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.transferFrom(alice, bob, shares);
+        vm.warp(vault.vestedAt());
+        assertEq(vault.maxDeposit(alice), type(uint256).max, "maxDeposit still zero in window");
+        assertEq(vault.maxMint(alice), type(uint256).max, "maxMint still zero in window");
     }
 
-    /// @notice The gate lives in `_update`, not in any amount-specific branch: even a zero-value
-    ///         transfer (which still calls `_update`) reverts while paused.
-    function test_Pause_chokepoint_blocksZeroValueTransfer() public {
+    /// @notice The window is guaranteed: the instant vesting ends, an eager keeper's `addYield`
+    ///         still reverts while deposits are open — the window cannot be squeezed shut.
+    function test_GuaranteedWindow_keeperCannotSqueezeShut() public {
         _seedAndBurn(1_000 ether);
-        _deposit(alice, 100 ether);
+        _addYield(100 ether);
 
+        vm.warp(vault.vestedAt());
+        uint256 closesAt = vault.nextYieldAt(); // read before prank so the view call doesn't consume it
         vm.prank(owner);
-        vault.pause();
+        vm.expectRevert(abi.encodeWithSelector(StreamingYieldVault.DepositWindowOpen.selector, closesAt));
+        vault.addYield(100 ether);
 
-        vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.transfer(bob, 0);
+        assertEq(vault.maxDeposit(alice), type(uint256).max, "deposits not open during window");
+        assertGt(_deposit(alice, 100 ether), 0);
     }
 
-    /// @notice `paused()` tracks the toggle, and the chokepoint re-engages after a pause/unpause
-    ///         cycle (no sticky state).
-    function test_Pause_chokepoint_isRepausable() public {
+    /// @notice End-to-end: a depositor who enters in the window captures none of the tranche that
+    ///         was already streaming when they arrived, but earns the next one. Because no one can
+    ///         join mid-vest, the in-flight tranche stays with the prior holders.
+    function test_WindowDepositor_earnsNextTrancheNotCurrent() public {
         _seedAndBurn(1_000 ether);
-        _deposit(alice, 100 ether);
+        _deposit(alice, 1_000 ether); // present for tranche 1
 
-        assertFalse(vault.paused());
+        _addYield(100 ether); // tranche 1 — streams only to seed + alice
+        vm.warp(vault.vestedAt());
 
-        vm.prank(owner);
-        vault.pause();
-        assertTrue(vault.paused());
+        // Window: bob joins for the next cycle and records what he can immediately redeem.
+        uint256 aliceAfterT1 = vault.convertToAssets(vault.balanceOf(alice));
+        uint256 bobShares = _deposit(bob, 1_000 ether);
+        uint256 bobIn = vault.convertToAssets(bobShares);
+        assertApproxEqAbs(bobIn, 1_000 ether, 1e6, "window depositor did not enter at par");
 
-        vm.prank(owner);
-        vault.unpause();
-        assertFalse(vault.paused());
+        // Arm tranche 2 and let it fully vest.
+        vm.warp(vault.nextYieldAt());
+        _addYield(100 ether);
+        vm.warp(vault.vestedAt());
 
-        // pause again — movement must be blocked once more
-        vm.prank(owner);
-        vault.pause();
-        assertTrue(vault.paused());
-
-        vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.transfer(bob, 1);
-    }
-
-    /// @notice When unpaused the chokepoint is a no-op: every `_update` path (mint, transferFrom,
-    ///         burn) succeeds.
-    function test_Unpause_chokepoint_allPathsFlow() public {
-        _seedAndBurn(1_000 ether);
-
-        vm.prank(owner);
-        vault.pause();
-        vm.prank(owner);
-        vault.unpause();
-
-        // mint (mint -> _mint -> _update); mint() takes a share amount and returns assets paid
-        vm.prank(alice);
-        vault.mint(100 ether, alice);
-        uint256 shares = vault.balanceOf(alice);
-        assertEq(shares, 100 ether);
-
-        // transferFrom (-> _transfer -> _update)
-        vm.prank(alice);
-        vault.approve(bob, shares);
-        vm.prank(bob);
-        vault.transferFrom(alice, bob, shares);
-        assertEq(vault.balanceOf(bob), shares);
-
-        // burn (redeem -> _burn -> _update)
-        vm.prank(bob);
-        uint256 out = vault.redeem(shares, bob, bob);
-        assertGt(out, 0);
-        assertEq(vault.balanceOf(bob), 0);
+        assertGt(vault.convertToAssets(vault.balanceOf(bob)), bobIn, "window depositor earned nothing next cycle");
+        assertGt(vault.convertToAssets(vault.balanceOf(alice)), aliceAfterT1, "prior holder lost ground next cycle");
     }
 }

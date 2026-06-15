@@ -18,7 +18,6 @@ import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /// @title StreamingYieldVault
 /// @author Polytope Labs (hello@polytope.technology)
@@ -28,23 +27,29 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 ///         around a yield event ("yield sniping"): a same-block deposit/withdraw sees an
 ///         unchanged share price and captures nothing.
 ///
-/// @dev Design notes:
-///      - The exchange rate is `(balanceOf(this) - lockedYield) / totalSupply`. Yield that has
-///        not yet vested is masked out of `totalAssets`, so it cannot be claimed early.
-///      - The owner may `pause()` to freeze all share movement (transfers, deposits, withdrawals)
-///        in an emergency. Yield may still be added while paused; it simply cannot be withdrawn.
-///      - The first-depositor inflation/donation attack is mitigated by OpenZeppelin's virtual
-///        shares/assets via a non-zero `_decimalsOffset()`. Seed-and-burn at deployment as well.
-///      - No reentrancy guard is used: the only external calls are `transfer`/`transferFrom` on
-///        the asset, and OpenZeppelin's ERC4626 orders effects before interactions. This assumes
-///        a standard, non-rebasing, non-fee-on-transfer, non-hooked (no ERC-777 callbacks) asset.
-contract StreamingYieldVault is ERC4626, Pausable, Ownable {
+/// @dev The exchange rate is `(balanceOf(this) - lockedYield) / totalSupply`. Yield that has
+///      not yet vested is masked out of `totalAssets`, so it cannot be claimed early.
+///
+///      Deposits and mints are disabled while a tranche is vesting. New capital may only enter
+///      in the window after a tranche fully vests and before the next `addYield`, so no one can
+///      join mid-tranche and capture yield meant for the holders present when it began. `addYield`
+///      must wait `MIN_WINDOW` past the vest end, guaranteeing that window exists every cycle
+///      regardless of keeper timing.
+contract StreamingYieldVault is ERC4626, Ownable {
     using SafeERC20 for IERC20;
 
-    /// @notice Window over which each yield tranche is linearly recognized.
-    /// @dev Keep `VEST <= the cadence at which `addYield` is called`. For ~24h cadence, 23h
-    ///      maximizes anti-snipe protection while leaving margin for keeper jitter.
-    uint256 public constant VEST = 23 hours;
+    /// @notice Window over which each yield tranche is linearly recognized. Deposits and mints are
+    ///         disabled while a tranche vests (`maxDeposit`/`maxMint` report 0), so `VEST` must end
+    ///         before the next `addYield` to leave a window for new capital to enter. With
+    ///         `MIN_WINDOW = 2h`, a 22h vest yields a 24h minimum cadence and a guaranteed 2h
+    ///         deposit window each cycle.
+    uint256 public constant VEST = 22 hours;
+
+    /// @notice Minimum time `addYield` must wait after the current tranche finishes vesting before
+    ///         it may start the next one. Because `addYield` cannot fire during this stretch, every
+    ///         cycle has a guaranteed deposit window of at least `MIN_WINDOW`, independent of how
+    ///         eagerly the keeper runs. Minimum cadence is therefore `VEST + MIN_WINDOW`.
+    uint256 public constant MIN_WINDOW = 2 hours;
 
     /// @dev Virtual-share offset hardening the first-depositor inflation attack. Shares carry
     ///      `assetDecimals + DECIMALS_OFFSET` decimals.
@@ -63,6 +68,10 @@ contract StreamingYieldVault is ERC4626, Pausable, Ownable {
     /// @notice Thrown when `addYield` is called with a zero amount.
     error ZeroAmount();
 
+    /// @notice Thrown when `addYield` is called during the guaranteed deposit window, before
+    ///         `MIN_WINDOW` has elapsed past the end of the previous tranche's vesting.
+    error DepositWindowOpen(uint256 closesAt);
+
     /// @notice Emitted when a new yield tranche begins vesting.
     event YieldAdded(uint256 amount, uint256 vestingStart);
 
@@ -77,18 +86,59 @@ contract StreamingYieldVault is ERC4626, Pausable, Ownable {
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) - _lockedYield();
     }
+    
+    /// @inheritdoc ERC4626
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return DECIMALS_OFFSET;
+    }
 
     /// @notice The portion of the current tranche that has not yet been recognized.
     function lockedYield() external view returns (uint256) {
         return _lockedYield();
     }
 
-    /// @notice The timestamp at which the current tranche finishes vesting, which is also the
-    ///         earliest time `addYield` may be called again.
+    /// @notice The timestamp at which the current tranche finishes vesting. Deposits open at this
+    ///         time; `addYield` may only be called from `nextYieldAt()` onward.
     function vestedAt() external view returns (uint256) {
         return _vestingStart + VEST;
     }
 
+    /// @notice The earliest time the next `addYield` may be called. The interval
+    ///         `[vestedAt(), nextYieldAt()]` is the guaranteed deposit window for each cycle.
+    function nextYieldAt() external view returns (uint256) {
+        return _vestingStart + VEST + MIN_WINDOW;
+    }
+
+    /// @dev True while the current tranche is still vesting, i.e. deposits are locked. Returns
+    ///      false before the first tranche has ever been added (`_vestingStart == 0`).
+    function _isVesting() internal view returns (bool) {
+        uint256 start = _vestingStart;
+        return start != 0 && block.timestamp < start + VEST;
+    }
+
+    /// @inheritdoc ERC4626
+    /// @dev Zero while a tranche is vesting so deposits are closed (and integrators can detect it);
+    ///      unbounded otherwise. This is the single lock that keeps new capital from joining
+    ///      mid-tranche: `deposit` reverts at its `maxDeposit` check with `ERC4626ExceededMaxDeposit`.
+    function maxDeposit(address) public view override returns (uint256) {
+        return _isVesting() ? 0 : type(uint256).max;
+    }
+
+    /// @inheritdoc ERC4626
+    /// @dev Zero while a tranche is vesting so integrators see mints are closed; unbounded otherwise.
+    function maxMint(address) public view override returns (uint256) {
+        return _isVesting() ? 0 : type(uint256).max;
+    }
+
+    /// @dev Linear unlock of the current tranche, keyed on `block.timestamp` so that a deposit
+    ///      and withdrawal within the same block observe an identical, unchanged share price.
+    function _lockedYield() internal view returns (uint256) {
+        uint256 start = _vestingStart;
+        uint256 elapsed = block.timestamp - start;
+        if (elapsed >= VEST) return 0;
+        return (_vestingAmount * (VEST - elapsed)) / VEST;
+    }
+    
     /// @notice Add a new yield tranche, pulled from the caller. Reverts unless the previous
     ///         tranche has fully vested, which guarantees tranches never overlap and no yield
     ///         is ever left permanently locked.
@@ -97,8 +147,11 @@ contract StreamingYieldVault is ERC4626, Pausable, Ownable {
         if (amount == 0) revert ZeroAmount();
 
         uint256 start = _vestingStart;
-        if (start != 0 && block.timestamp < start + VEST) {
-            revert YieldStillVesting(start + VEST);
+        if (start != 0) {
+            if (block.timestamp < start + VEST) revert YieldStillVesting(start + VEST);
+            // Hold off until the guaranteed deposit window has elapsed, so new capital always has
+            // a chance to enter between tranches regardless of how promptly the keeper runs.
+            if (block.timestamp < start + VEST + MIN_WINDOW) revert DepositWindowOpen(start + VEST + MIN_WINDOW);
         }
 
         // Pull the funds first so `balanceOf` already reflects `amount` before it is marked
@@ -110,34 +163,5 @@ contract StreamingYieldVault is ERC4626, Pausable, Ownable {
         _vestingStart = block.timestamp;
 
         emit YieldAdded(amount, block.timestamp);
-    }
-
-    /// @notice Freeze all share movement (transfers, deposits, withdrawals) in an emergency.
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    /// @notice Resume share movement.
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    /// @dev Linear unlock of the current tranche, keyed on `block.timestamp` so that a deposit
-    ///      and withdrawal within the same block observe an identical, unchanged share price.
-    function _lockedYield() internal view returns (uint256) {
-        uint256 start = _vestingStart;
-        uint256 elapsed = block.timestamp - start;
-        if (elapsed >= VEST) return 0;
-        return (_vestingAmount * (VEST - elapsed)) / VEST;
-    }
-
-    /// @inheritdoc ERC4626
-    function _decimalsOffset() internal pure override returns (uint8) {
-        return DECIMALS_OFFSET;
-    }
-
-    /// @dev Single chokepoint for all share movement (mint, burn, transfer); gated by the pause.
-    function _update(address from, address to, uint256 value) internal override whenNotPaused {
-        super._update(from, to, value);
     }
 }

@@ -640,20 +640,13 @@ fn collect_hyperbridge_request_claims(
 		.collect()
 }
 
-/// Read the BEEFY `(current_authorities.id, next_authorities.id)` out of a
-/// SCALE-encoded [`beefy_verifier_primitives::ConsensusState`]. Returns `None`
-/// when the bytes can't be decoded — treated by callers as "assume it's in sync".
-fn decode_set_ids_scale(encoded: &[u8]) -> Option<(u64, u64)> {
-	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
-		.ok()
-		.map(|s| (s.current_authorities.id, s.next_authorities.id))
-}
-
 /// Read the BEEFY `current_authorities.id` out of a SCALE-encoded
 /// [`beefy_verifier_primitives::ConsensusState`]. Returns `None` when the
 /// bytes can't be decoded — treated by callers as "assume it's in sync".
 fn decode_current_set_id_scale(encoded: &[u8]) -> Option<u64> {
-	decode_set_ids_scale(encoded).map(|(current, _)| current)
+	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
+		.ok()
+		.map(|s| s.current_authorities.id)
 }
 
 /// If the destination's BEEFY `current_authorities.id` is behind HB's, fetch
@@ -688,7 +681,7 @@ async fn catch_up_rotations(
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
 		.map_err(|err| anyhow::anyhow!("query dest consensus_state: {err:?}"))?;
-	let Some((dest_set_id, dest_next_id)) = decode_set_ids_scale(&dest_consensus) else {
+	let Some(dest_set_id) = decode_current_set_id_scale(&dest_consensus) else {
 		tracing::debug!(
 			target: LOG_TARGET,
 			"dest consensus state undecodable; skipping rotation catch-up",
@@ -712,57 +705,21 @@ async fn catch_up_rotations(
 		return Ok(Vec::new());
 	}
 
-	// Greedily walk the destination forward, picking only rotation proofs it can actually verify
-	// and that advance its state. A stored rotation proof keyed `K` is a BEEFY commitment signed
-	// by `validatorSetId = K - 1` (the outgoing set) whose MMR leaf reveals the next set `K + 1`.
-	// The destination's verifier accepts a commitment only if its `validatorSetId` is the
-	// destination's on-chain `current` or `next` set, and it rotates (`current <- next`,
-	// `next <- leaf.next`) only when the leaf is beyond the current `next`.
-	//
-	// Applying keyed-`K` to `{cur, nxt}` (which needs `K-1 ∈ {cur, nxt}` and `K+1 > nxt`) yields
-	// `{nxt, K+1}`. So from a contiguous state we pick keyed-`cur+1` (signed by `cur`) and stay
-	// contiguous — no authority set is skipped. From a state that has already leap-frogged a set
-	// (`nxt > cur + 1`, e.g. BSC at current=5071/next=5073) the only acceptable advancing proof is
-	// keyed-`nxt+1` (signed by `nxt`); the skipped sets can never be re-installed, so progress
-	// there steps over them. Submitting keyed-`nxt` (signed by `nxt-1`) — the previous anchor —
-	// reverts with `UnknownAuthoritySet` for such a destination, which is the bug this replaces.
-	let by_set_id: BTreeMap<u64, RotationProof> = proof_source
+	let rotations: Vec<RotationProof> = proof_source
 		.rotation_proofs_from(dest_set_id)
 		.await
-		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({dest_set_id}): {err:?}"))?
-		.into_iter()
-		.map(|r| (r.set_id, r))
-		.collect();
-
-	let mut cur = dest_set_id;
-	let mut nxt = dest_next_id;
-	let mut rotations: Vec<RotationProof> = Vec::new();
-	while cur < hb_set_id {
-		// Contiguous → advance by one (no skip); gapped → advance to `nxt` (forced skip).
-		let key = if nxt == cur + 1 { cur + 1 } else { nxt + 1 };
-		let Some(proof) = by_set_id.get(&key) else {
-			// The next proof the destination needs hasn't been produced on HB yet (HB hasn't
-			// rotated that far). Stop; a later tick continues once it's available.
-			break;
-		};
-		// The main batch delivers `current_set_id` itself via its `consensus_msg`, so don't
-		// double-submit it — but the destination still advances past it either way.
-		if Some(key) != current_set_id {
-			rotations.push(proof.clone());
-		}
-		cur = nxt;
-		nxt = key + 1;
+		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({dest_set_id}): {err:?}"))?;
+	if rotations.is_empty() {
+		return Err(anyhow!("dest is lagging but no rotation proofs are cached on HB"));
 	}
 
+	// Drop the rotation that matches the current notification's set_id —
+	// the main batch will submit that one via its `consensus_msg`. Without
+	// this filter the same proof would land twice on the destination: once
+	// here, once via the main batch.
+	let rotations: Vec<RotationProof> =
+		rotations.into_iter().filter(|r| Some(r.set_id) != current_set_id).collect();
 	if rotations.is_empty() {
-		tracing::debug!(
-			target: LOG_TARGET,
-			dest = %dest_name,
-			dest_set_id,
-			dest_next_id,
-			hb_set_id,
-			"dest is behind but no applicable rotation proof is available yet; waiting",
-		);
 		return Ok(Vec::new());
 	}
 
@@ -770,7 +727,6 @@ async fn catch_up_rotations(
 		target: LOG_TARGET,
 		dest = %dest_name,
 		dest_set_id,
-		dest_next_id,
 		hb_set_id,
 		current_set_id = ?current_set_id,
 		rotations = rotations.len(),

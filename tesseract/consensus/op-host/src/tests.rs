@@ -193,7 +193,7 @@ async fn test_base_sepolia_latest_and_verify() {
 		},
 		GameTypeConfig {
 			game_type: 621,
-			expected_impl: H160::from(hex!("498313fB340CD5055c5568546364008299A47517")),
+			expected_impl: H160::from(hex!("c45dC8a279b2fDB7efEF72044e53514eD1bc2c08")),
 			kind: DisputeGameImpl::AggregateVerifier,
 		},
 	];
@@ -211,6 +211,8 @@ async fn test_base_sepolia_latest_and_verify() {
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
+		state_machine: Some(StateMachine::Evm(84532)),
+		ismp_host: Some(H160::zero()),
 		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
@@ -286,6 +288,27 @@ async fn test_base_sepolia_latest_and_verify() {
 		from_block,
 		to_block,
 	);
+
+	// Log the L2 block number backing the latest (newest) dispute game event, alongside the
+	// current L2 head, so the distance to the RPC proof window is visible.
+	if let Some(latest) = events.last() {
+		use crate::abi::FaultDisputeGame;
+		let contract =
+			FaultDisputeGame::new(latest.disputeProxy, &*op_client.beacon_execution_client);
+		let extra_data =
+			contract.extraData().block(BlockId::latest()).call().await.expect("extraData");
+		let l2_block_num: u64 = alloy::primitives::U256::from_be_slice(&extra_data[..32])
+			.try_into()
+			.unwrap_or(u64::MAX);
+		let l2_head = op_client.op_execution_client.get_block_number().await.expect("L2 head");
+		println!(
+			"latest dispute game event: proxy={:?} l2_block_num={} (L2 head={}, distance={})",
+			latest.disputeProxy,
+			l2_block_num,
+			l2_head,
+			l2_head.saturating_sub(l2_block_num),
+		);
+	}
 
 	// Step back a handful of blocks on the L1 head so the state root is past any reorg.
 	let head = op_client.beacon_execution_client.get_block_number().await.expect("L1 head");

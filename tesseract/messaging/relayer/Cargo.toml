@@ -1,6 +1,6 @@
 [package]
-name = "tesseract"
-version = "1.6.0"
+name = "tesseract-messaging"
+version = "1.7.0"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -12,8 +12,7 @@ dist = true
 [dependencies]
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
-tesseract-messaging = { workspace = true }
-tesseract-fisherman = { workspace = true }
+messaging = { workspace = true }
 tesseract-evm = { workspace = true }
 transaction-fees = { workspace = true }
 telemetry-server = { workspace = true }
@@ -58,7 +57,6 @@ subxt = { workspace = true }
 pallet-ismp-rpc = { workspace = true, default-features = true }
 itertools = "0.12.1"
 pallet-ismp-host-executive = { workspace = true, default-features = true }
-pallet-hyperbridge = { workspace = true, default-features = true }
 tesseract-substrate = { workspace = true, features = ["testing"] }
 
 [features]

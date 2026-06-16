@@ -1,0 +1,50 @@
+{
+	"hyperbridge-gargantua": {
+		"type": "substrate",
+		"chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
+		"startBlock": 2056979,
+		"stateMachineId": "KUSAMA-4009"
+	},
+	"bsc-chapel": {
+		"type": "evm",
+		"chainId": "97",
+		"startBlock": 108117238,
+		"stateMachineId": "EVM-97",
+		"unfinalizedBlocks": false,
+		"contracts": {
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
+			"intentGatewayV3": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD"
+		}
+	},
+	"cere-disabled": {
+		"type": "substrate",
+		"chainId": "0x42b9b44b4950b6c1edae543a7696caf8d0a160e9bc0424ab4ab217f7a8ba30dc",
+		"startBlock": 7599812,
+		"stateMachineId": "SUBSTRATE-cere"
+	},
+	"base-sepolia": {
+		"type": "evm",
+		"chainId": "84532",
+		"startBlock": 41663484,
+		"stateMachineId": "EVM-84532",
+		"contracts": {
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+		}
+	},
+	"polygon-amoy": {
+		"type": "evm",
+		"chainId": "80002",
+		"startBlock": 38576607,
+		"stateMachineId": "EVM-80002",
+		"unfinalizedBlocks": false,
+		"contracts": {
+			"ethereumHost": "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
+			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+		}
+	}
+}

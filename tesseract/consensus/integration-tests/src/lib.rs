@@ -1,14 +1,16 @@
 #![cfg(test)]
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-integration-tests";
 
 //mod beaconkit;
 // mod ethereum;
 // mod grandpa;
 // mod bsc;
-mod ping;
 // mod polygon;
 // mod substrate;
 //mod l2s;
 mod util;
+//mod pharos;
 
 // use std::{
 // 	sync::Arc,
@@ -122,7 +124,7 @@ mod util;
 // 	// 	let chain_a = chain_a.clone();
 // 	// 	let chain_b = chain_b.clone();
 // 	// 	async move {
-// 	// 		tesseract_messaging::relay(
+// 	// 		messaging::relay(
 // 	// 			chain_a.clone(),
 // 	// 			Arc::new(chain_b.clone()),
 // 	// 			Default::default(),

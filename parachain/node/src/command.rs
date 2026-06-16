@@ -358,6 +358,7 @@ pub fn run() -> Result<()> {
 			let mut runner = cli.create_runner(&cmd.rest.run.normalize())?;
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
+			let tesseract_config = cmd.tesseract_config.clone();
 
 			match config.chain_spec.id() {
 				chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -368,6 +369,44 @@ pub fn run() -> Result<()> {
 						let client = components.client.clone();
 						let pool = components.transaction_pool.clone();
 						let backend = components.backend.clone();
+						let bid_cache = std::sync::Arc::new(pallet_intents_rpc::BidCache::new(
+							std::time::Duration::from_secs(180),
+						));
+						let (bid_sender, _) =
+							tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+						let watcher_pool = pool.clone();
+						let watcher_cache = bid_cache.clone();
+						let watcher_sender = bid_sender.clone();
+						let is_authority = config.role.is_authority();
+
+						// Preflight the config now and defer the spawn until
+						// after start_simnode opens the RPC. Same rationale as
+						// the production path in service.rs.
+						let fisherman_path = if is_authority {
+							match tesseract_config.as_ref() {
+								Some(path) => {
+									hyperbridge_fisherman::load_and_validate(path)
+										.await
+										.map_err(|e| {
+											sc_service::Error::Other(format!(
+												"invalid tesseract config: {e:?}"
+											))
+										})?;
+									Some(path.clone())
+								},
+								None => None,
+							}
+						} else {
+							if tesseract_config.is_some() {
+								log::info!(
+									target: "fisherman",
+									"--tesseract-config provided to a non-authority simnode; ignoring (fisherman only runs on collators)",
+								);
+							}
+							None
+						};
+
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
 							_,
@@ -380,17 +419,53 @@ pub fn run() -> Result<()> {
 							config,
 							instant: cmd.instant,
 							rpc_builder: Box::new(move |_| {
-								let client = client.clone();
-								let pool = pool.clone();
-								let backend = backend.clone();
-								let full_deps = rpc::FullDeps { client, pool, backend };
-								let io =
-									rpc::create_full(full_deps).expect("Rpc to be initialized");
-
-								Ok(io)
+								let deps = rpc::FullDeps {
+									client: client.clone(),
+									pool: pool.clone(),
+									backend: backend.clone(),
+									bid_cache: bid_cache.clone(),
+									bid_sender: bid_sender.clone(),
+								};
+								rpc::create_full(deps).map_err(Into::into)
 							}),
 						})
 						.await?;
+
+						task_manager.spawn_handle().spawn(
+							"intents-bid-watcher",
+							"intents",
+							pallet_intents_rpc::run_bid_watcher::<
+								_,
+								_,
+								gargantua_runtime::Runtime,
+								gargantua_runtime::SignedExtra,
+							>(
+								watcher_pool,
+								watcher_cache,
+								watcher_sender,
+								std::time::Duration::from_secs(180),
+							),
+						);
+
+						// start_simnode has brought the local RPC up, so the
+						// fisherman dial against `[hyperbridge].rpc_ws` is
+						// safe even when it loops back to this node. Simnode
+						// is a single instant-seal node with nothing to sync,
+						// so the spawn runs directly rather than behind the
+						// production sync watcher.
+						if let Some(path) = fisherman_path {
+							hyperbridge_fisherman::spawn(
+								&path,
+								task_manager.spawn_essential_handle(),
+							)
+							.await
+							.map_err(|e| {
+								sc_service::Error::Other(format!(
+									"failed to spawn fisherman task: {e:?}"
+								))
+							})?;
+						}
+
 						Ok(task_manager)
 					})
 				},
@@ -444,6 +519,7 @@ pub fn run() -> Result<()> {
 					collator_options,
 					id,
 					hwbench,
+					cli.tesseract_config.clone(),
 				)
 				.await
 				.map_err(Into::into)

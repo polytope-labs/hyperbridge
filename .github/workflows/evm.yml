@@ -6,19 +6,25 @@ on:
             - main
         paths:
             - "evm/**/*.sol"
+            - "evm/**/*.rs"
+            - "evm/**/Cargo.toml"
             - "evm/**/foundry.toml"
             - "evm/**/package.json"
             - "evm/**/*.ts"
             - "evm/**/*.js"
             - ".github/workflows/evm.yml"
 
-    pull_request_target:
-        types: [opened, synchronize]
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "evm/**/*.sol"
+            - "evm/**/*.rs"
+            - "evm/**/Cargo.toml"
             - "evm/**/foundry.toml"
             - "evm/**/package.json"
             - ".github/workflows/evm.yml"
+
+    workflow_dispatch:
 
 concurrency:
     group: evm-ci-${{ github.head_ref || github.ref_name }}
@@ -26,6 +32,7 @@ concurrency:
 
 env:
     FOUNDRY_PROFILE: default
+    CARGO_TERM_COLOR: always
     MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
 
 jobs:
@@ -70,3 +77,69 @@ jobs:
                   pnpm install
                   forge test -vvv
               id: test
+
+    integration-tests-rust:
+        name: Rust Integration Tests (revm)
+        runs-on: ubuntu-latest
+        if: github.event.pull_request.draft != true
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+                  token: ${{ secrets.GH_TOKEN }}
+                  ref: ${{ github.event.pull_request.head.sha }}
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 9
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 20
+                  cache: "pnpm"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: "evm-integration-tests"
+                  workspaces: |
+                      . -> target
+
+            - name: Compile contracts (forge build)
+              run: |
+                  cd evm
+                  pnpm install
+                  forge build
+
+            - name: Rust integration tests
+              run: |
+                  cargo test -p evm-integration-tests --release -- --nocapture
+
+            - name: Beefy consensus integration test
+              timeout-minutes: 10
+              env:
+                  RELAY_WS_URL: ${{ secrets.PASEO_RELAY_WS_URL }}
+                  PARA_WS_URL: ${{ secrets.PASEO_PARA_WS_URL }}
+                  PARA_ID: ${{ secrets.PASEO_PARA_ID }}
+              run: |
+                  if [ -z "$RELAY_WS_URL" ] || [ -z "$PARA_WS_URL" ] || [ -z "$PARA_ID" ]; then
+                      echo "::warning::Skipping live beefy test — PASEO_RELAY_WS_URL / PASEO_PARA_WS_URL / PASEO_PARA_ID secrets not set"
+                      exit 0
+                  fi
+                  cargo test -p evm-integration-tests --release \
+                      tests::ecdsa_beefy::test_beefy_consensus_client \
+                      -- --ignored --nocapture

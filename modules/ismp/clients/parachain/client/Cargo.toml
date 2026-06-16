@@ -1,6 +1,6 @@
 [package]
 name = "ismp-parachain"
-version = "2512.0.0"
+version = "2512.3.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -32,12 +32,12 @@ features = [
     "frame-support",
     "frame-system",
     "sp-trie",
-    "sp-inherents",
     "sp-io",
     "sp-runtime",
     "sp-consensus-aura",
     "cumulus-pallet-parachain-system",
     "cumulus-primitives-core",
+    "pallet-migrations",
 ]
 
 [features]

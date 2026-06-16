@@ -17,7 +17,7 @@
 
 use crate::{
 	events::Event,
-	router::{PostRequest, Response, Timeout},
+	router::{GetResponse, PostRequest, Request},
 	Error,
 };
 use sp_weights::Weight;
@@ -35,13 +35,13 @@ pub trait IsmpModule {
 
 	/// Called by the message handler on a module, to notify module of a response to a previously
 	/// sent out request
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 
 	/// Called by the message handler on a module, to notify module of requests that were previously
 	/// sent but have now timed-out
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 }

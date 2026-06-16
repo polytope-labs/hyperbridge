@@ -33,7 +33,7 @@ impl TryFrom<RedisBytes> for ConsensusProof {
 	fn try_from(value: RedisBytes) -> Result<Self, Self::Error> {
 		let bytes = value.into_bytes();
 		Self::decode(&mut &bytes[..]).map_err(|err| {
-			tracing::error!("Failed to decode ConsensusProof: {err:?}");
+			tracing::error!(target: crate::LOG_TARGET, "Failed to decode ConsensusProof: {err:?}");
 			bytes
 		})
 	}
@@ -148,28 +148,28 @@ impl RedisProofBackend {
 		// Check if it's an RsmqError with connection drop
 		if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
 			if redis_error.is_connection_dropped() {
-				tracing::trace!("Redis connection dropped, recreating RSMQ client");
+				tracing::trace!(target: crate::LOG_TARGET, "Redis connection dropped, recreating RSMQ client");
 				if let Err(e) = self.recreate_rsmq().await {
-					tracing::error!("Failed to recreate RSMQ client: {e:?}");
+					tracing::error!(target: crate::LOG_TARGET, "Failed to recreate RSMQ client: {e:?}");
 				} else {
-					tracing::trace!("Successfully recreated RSMQ client");
+					tracing::trace!(target: crate::LOG_TARGET, "Successfully recreated RSMQ client");
 				}
 			} else {
-				tracing::error!("Unhandled RSMQ error: {redis_error:?}");
+				tracing::error!(target: crate::LOG_TARGET, "Unhandled RSMQ error: {redis_error:?}");
 			}
 		}
 
 		// Check if it's a direct RedisError with connection drop
 		if let Some(redis_error) = err.downcast_ref::<redis::RedisError>() {
 			if redis_error.is_connection_dropped() {
-				tracing::trace!("Redis connection dropped, recreating connection manager");
+				tracing::trace!(target: crate::LOG_TARGET, "Redis connection dropped, recreating connection manager");
 				if let Err(e) = self.recreate_connection().await {
-					tracing::error!("Failed to recreate connection manager: {e:?}");
+					tracing::error!(target: crate::LOG_TARGET, "Failed to recreate connection manager: {e:?}");
 				} else {
-					tracing::trace!("Successfully recreated connection manager");
+					tracing::trace!(target: crate::LOG_TARGET, "Successfully recreated connection manager");
 				}
 			} else {
-				tracing::error!("Unhandled Redis error: {redis_error:?}");
+				tracing::error!(target: crate::LOG_TARGET, "Unhandled Redis error: {redis_error:?}");
 			}
 		}
 	}
@@ -212,21 +212,23 @@ impl ProofBackend for RedisProofBackend {
 
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		let queue = self.config.mandatory_queue(state_machine);
-		let result = self
-			.rsmq
-			.lock()
-			.await
-			.send_message(queue.as_str(), proof, Some(Duration::ZERO))
-			.await;
+		for state_machine in state_machines {
+			let queue = self.config.mandatory_queue(state_machine);
+			let result = self
+				.rsmq
+				.lock()
+				.await
+				.send_message(queue.as_str(), proof.clone(), Some(Duration::ZERO))
+				.await;
 
-		if let Err(err) = result {
-			let anyhow_err = anyhow::Error::from(err);
-			self.handle_redis_error(&anyhow_err).await;
-			return Err(anyhow_err);
+			if let Err(err) = result {
+				let anyhow_err = anyhow::Error::from(err);
+				self.handle_redis_error(&anyhow_err).await;
+				return Err(anyhow_err);
+			}
 		}
 
 		Ok(())
@@ -234,21 +236,23 @@ impl ProofBackend for RedisProofBackend {
 
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		let queue = self.config.messages_queue(state_machine);
-		let result = self
-			.rsmq
-			.lock()
-			.await
-			.send_message(queue.as_str(), proof, Some(Duration::ZERO))
-			.await;
+		for state_machine in state_machines {
+			let queue = self.config.messages_queue(state_machine);
+			let result = self
+				.rsmq
+				.lock()
+				.await
+				.send_message(queue.as_str(), proof.clone(), Some(Duration::ZERO))
+				.await;
 
-		if let Err(err) = result {
-			let anyhow_err = anyhow::Error::from(err);
-			self.handle_redis_error(&anyhow_err).await;
-			return Err(anyhow_err);
+			if let Err(err) = result {
+				let anyhow_err = anyhow::Error::from(err);
+				self.handle_redis_error(&anyhow_err).await;
+				return Err(anyhow_err);
+			}
 		}
 
 		Ok(())

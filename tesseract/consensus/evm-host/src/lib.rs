@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-evm-host";
+
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -21,22 +24,17 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod host;
 
-/// Configuration for the EVM Host consensus client
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvmHostConfig {
-	/// General EVM config
-	#[serde(flatten)]
-	pub evm_config: EvmConfig,
-}
+/// Configuration for the EVM Host consensus client. Empty — this variant
+/// is a marker that the chain uses the generic EVM consensus-less path;
+/// the caller supplies the `EvmConfig` at construction time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EvmHostConfig {}
 
 impl EvmHostConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(EvmHost::new(&self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(EvmHost::new(&evm_config).await?))
 	}
 }
 
@@ -63,12 +61,8 @@ impl EvmHost {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id: ismp_provider.consensus_state_id,
+			state_machine: ismp_provider.state_machine,
 			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
 		})

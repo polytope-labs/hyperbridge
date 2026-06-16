@@ -14,19 +14,44 @@
 // limitations under the License.
 
 //! Tesseract Fisherman
+//!
+//! Two flavours of fisherman live here:
+//!
+//! 1. The classic per-pair byzantine watcher: [`fish`] subscribes to `StateMachineUpdated`
+//!    events on `chain_a` and calls `chain_b.check_for_byzantine_attack(...)` for each one.
+//!    If quorum disagrees with the recorded commitment, `chain_b` vetoes via
+//!    `pallet-fishermen::veto_state_commitment`.
+//!
+//! 2. L1 rollup-claim watchers: [`opstack::fish_opstack`] and [`arbitrum::fish_arbitrum`]
+//!    poll Ethereum L1 (up to the latest block — no finality lag) for new dispute games /
+//!    assertions, verify each against a 2/3·N+1 L2 RPC quorum, and submit
+//!    `pallet-fishermen::blacklist_dispute_game` / `blacklist_arbitrum_claim` extrinsics
+//!    for any fraudulent claim. Reacting against the latest block trades reorg-safety for
+//!    timeliness: a blacklist landed against a reorged event will stick, since the on-chain
+//!    blacklist has no undo path.
+
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-fisherman";
+
+pub mod arbitrum;
+pub mod opstack;
+pub mod quorum;
+
+pub use arbitrum::{fish_arbitrum, ArbitrumConfig, ArbitrumKind, ArbitrumTarget};
+pub use opstack::{fish_opstack, OpstackConfig, OpstackTarget};
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::host::StateMachine;
-use polkadot_sdk::sc_service::TaskManager;
+use polkadot_sdk::sc_service::SpawnEssentialTaskHandle;
 use tesseract_primitives::IsmpProvider;
 
 pub async fn fish(
 	chain_a: Arc<dyn IsmpProvider>,
 	chain_b: Arc<dyn IsmpProvider>,
-	task_manager: &TaskManager,
+	spawn_handle: &SpawnEssentialTaskHandle,
 	coprocessor: StateMachine,
 ) -> Result<(), anyhow::Error> {
 	{
@@ -34,12 +59,12 @@ pub async fn fish(
 		let chain_b = chain_b.clone();
 		let coprocessor = coprocessor.clone();
 		let name = format!("fisherman-{}-{}", chain_a.name(), chain_b.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
+		spawn_handle.spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"fisherman",
 			async move {
 				let res = handle_notification(chain_a, chain_b, coprocessor).await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+				tracing::error!(target: LOG_TARGET, "{name} has terminated with result {res:?}")
 			},
 		)
 	}
@@ -69,11 +94,11 @@ async fn handle_notification(
 						)
 						.await;
 					if let Err(err) = res {
-						log::error!("Failed to check for byzantine behavior: {err:?}")
+						log::error!(target: LOG_TARGET, "Failed to check for byzantine behavior: {err:?}")
 					}
 				},
 			Err(e) => {
-				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+				log::error!(target: LOG_TARGET,"Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},
 		}
 	}

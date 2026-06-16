@@ -18,7 +18,6 @@ use frame_support::sp_runtime::traits::Convert;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use polkadot_sdk::*;
-use rs_merkle::MerkleTree;
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
@@ -39,8 +38,8 @@ pub struct TimeStampExtWithProof {
 /// This holds the signatures of a BEEFY commitment, along side a merkle multi-proof of the
 /// existence of the ethereum addresses associated with the signatures.
 pub struct AuthorityProofWithSignatures {
-	/// Merkle multi-proof
-	pub authority_proof: Vec<Vec<(usize, Hash)>>,
+	/// Merkle multi-proof (flattened with positions)
+	pub authority_proof: Vec<(usize, Hash)>,
 	/// The actual signatures alongside the authority index, used in verifying the merkle proof.
 	pub signatures: Vec<SignatureWithAuthorityIndex>,
 }
@@ -109,6 +108,10 @@ pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
 	Ok(TimeStampExtWithProof { ext, proof })
 }
 
+/// Sentinel leaf for a BEEFY key that fails `to_eth_address`, matching the latest
+/// `pallet_beefy_mmr::BeefyEcdsaToEthereum` (`FAILED_BEEFY_TO_ETH_ADDRESS`).
+const FAILED_BEEFY_TO_ETH_ADDRESS: [u8; 20] = [0u8; 20];
+
 /// Hash encoded authority public keys
 pub fn hash_authority_addresses(
 	encoded_public_keys: Vec<Vec<u8>>,
@@ -116,8 +119,21 @@ pub fn hash_authority_addresses(
 	let authority_address_hashes = encoded_public_keys
 		.into_iter()
 		.map(|x| {
-			sp_consensus_beefy::ecdsa_crypto::AuthorityId::decode(&mut &*x)
-				.map(|id| keccak_256(&pallet_beefy_mmr::BeefyEcdsaToEthereum::convert(id)))
+			sp_consensus_beefy::ecdsa_crypto::AuthorityId::decode(&mut &*x).map(|id| {
+				// Mirror the latest `BeefyEcdsaToEthereum`: a key that fails `to_eth_address` is
+				// committed as `FAILED_BEEFY_TO_ETH_ADDRESS = [0u8; 20]`, not an empty Vec. The
+				// pinned pallet-beefy-mmr (46.0.0, from the polkadot-sdk umbrella) still returns
+				// `Vec::default()`, hashing `keccak([])` and so producing the wrong authority-set
+				// root for any set containing an unconvertible key (Polkadot mainnet from set 5066
+				// on). `convert` returns empty iff the conversion failed, so substituting the
+				// sentinel on empty reproduces the new crate's root exactly (verified against the
+				// on-chain keyset commitments d47f121c / 1c9dedf8).
+				let mut address = pallet_beefy_mmr::BeefyEcdsaToEthereum::convert(id);
+				if address.is_empty() {
+					address = FAILED_BEEFY_TO_ETH_ADDRESS.to_vec();
+				}
+				keccak_256(&address)
+			})
 		})
 		.collect::<Result<Vec<_>, codec::Error>>()?;
 	Ok(authority_address_hashes)
@@ -134,9 +150,12 @@ impl rs_merkle::Hasher for MerkleHasher {
 	}
 }
 
-/// Generates a 2D-merkle proof for the given leaves & indices
-pub fn merkle_proof(leaves: &[Hash], indices: &[usize]) -> Vec<Vec<(usize, Hash)>> {
-	let tree = MerkleTree::<MerkleHasher>::from_leaves(leaves);
-
-	tree.proof_2d(indices)
+/// ceil(log2(n)) — must match the Solidity `_ceilLog2` used by MerkleMultiProof.
+/// Do NOT use `rs_merkle::utils::indices::tree_depth` here — it uses floating-point
+/// math that returns incorrect results for exact powers of 2.
+pub fn ceil_log2(n: usize) -> usize {
+	if n <= 1 {
+		return 0;
+	}
+	(usize::BITS - (n - 1).leading_zeros()) as usize
 }

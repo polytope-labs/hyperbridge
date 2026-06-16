@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-telemetry";
+
 use ismp::host::StateMachine;
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};

@@ -8,7 +8,7 @@ description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 [dependencies]
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
-rs_merkle = "1.4.1"
+rs_merkle = { workspace = true, default-features = true }
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
 primitive-types = { workspace = true, features = ["serde", "codec"] }
@@ -19,33 +19,35 @@ beefy-prover = { workspace = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { workspace = true, default-features = true }
 sp-crypto-hashing = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
 
 [dependencies.sp1-beefy]
-git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
+git = "https://github.com/polytope-labs/sp1-beefy"
+tag = "v1.1.0"
 
 [dependencies.sp1-beefy-primitives]
-git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
+git = "https://github.com/polytope-labs/sp1-beefy"
+tag = "v1.1.0"
 
 [dev-dependencies]
 alloy-sol-types = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 futures = "0.3.27"
 envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
 beefy-prover = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 tesseract-tron = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
 ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
 sp-core = { workspace = true, features = ["full_crypto"] }
 tokio-stream = { workspace = true }
 beefy-verifier-primitives = { workspace = true, default-features = true  }

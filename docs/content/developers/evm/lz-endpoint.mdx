@@ -1,0 +1,189 @@
+---
+title: LayerZero Endpoint Adapter
+description: Drop-in LayerZero V2 endpoint backed by Hyperbridge's ISMP protocol for existing OFTs and OApps.
+---
+
+# HyperbridgeLzEndpoint
+
+`HyperbridgeLzEndpoint` is a drop-in replacement for the LayerZero V2 endpoint that routes all cross-chain messages through Hyperbridge's ISMP protocol. Existing OFTs and OApps can point to this contract as their endpoint to use Hyperbridge for cross-chain transport without any code changes.
+
+The contract implements `ILayerZeroEndpointV2` for full OApp/OFT compatibility and inherits [HyperApp](/developers/evm/api/hyperapp) for ISMP message handling.
+
+## How It Works
+
+When an OApp calls `send()` on the endpoint, the adapter encodes the LayerZero message into an ISMP POST request body and dispatches it through Hyperbridge. On the destination chain, the same adapter receives the ISMP message via `onAccept()`, decodes it back into LayerZero format, and delivers it to the destination OApp via `lzReceive()`.
+
+<svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style={{width: '100%', maxWidth: 800}}>
+  <defs>
+    <marker id="arrow-lz" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1"/>
+    </marker>
+  </defs>
+  <rect x="20" y="20" width="160" height="50" rx="8" fill="#1c1917" stroke="#78716c" strokeWidth="1"/>
+  <text x="100" y="50" textAnchor="middle" fill="#d6d3d1" fontSize="13" fontFamily="monospace">OFT / OApp</text>
+  <line x1="100" y1="70" x2="100" y2="100" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lz)"/>
+  <text x="115" y="90" fill="#818cf8" fontSize="10" fontFamily="sans-serif">send()</text>
+  <rect x="20" y="100" width="160" height="50" rx="8" fill="#1e1b4b" stroke="#4f46e5" strokeWidth="1"/>
+  <text x="100" y="122" textAnchor="middle" fill="#c7d2fe" fontSize="11" fontFamily="monospace">HyperbridgeLz</text>
+  <text x="100" y="138" textAnchor="middle" fill="#c7d2fe" fontSize="11" fontFamily="monospace">Endpoint</text>
+  <line x1="180" y1="125" x2="340" y2="125" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lz)"/>
+  <text x="260" y="118" textAnchor="middle" fill="#818cf8" fontSize="10" fontFamily="sans-serif">ISMP POST</text>
+  <rect x="340" y="90" width="120" height="70" rx="8" fill="#1a2e05" stroke="#65a30d" strokeWidth="1"/>
+  <text x="400" y="120" textAnchor="middle" fill="#bef264" fontSize="12" fontFamily="monospace">Hyperbridge</text>
+  <text x="400" y="138" textAnchor="middle" fill="#6b7280" fontSize="10" fontFamily="sans-serif">verify + relay</text>
+  <line x1="460" y1="125" x2="620" y2="125" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lz)"/>
+  <text x="540" y="118" textAnchor="middle" fill="#818cf8" fontSize="10" fontFamily="sans-serif">ISMP POST</text>
+  <rect x="620" y="100" width="160" height="50" rx="8" fill="#1e1b4b" stroke="#4f46e5" strokeWidth="1"/>
+  <text x="700" y="122" textAnchor="middle" fill="#c7d2fe" fontSize="11" fontFamily="monospace">HyperbridgeLz</text>
+  <text x="700" y="138" textAnchor="middle" fill="#c7d2fe" fontSize="11" fontFamily="monospace">Endpoint</text>
+  <line x1="700" y1="100" x2="700" y2="70" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lz)"/>
+  <text x="720" y="90" fill="#818cf8" fontSize="10" fontFamily="sans-serif">lzReceive()</text>
+  <rect x="620" y="20" width="160" height="50" rx="8" fill="#1c1917" stroke="#78716c" strokeWidth="1"/>
+  <text x="700" y="50" textAnchor="middle" fill="#d6d3d1" fontSize="13" fontFamily="monospace">OFT / OApp</text>
+</svg>
+
+The adapter assumes the same contract address on all chains via CREATE2 deployment. It verifies incoming messages by checking that `request.from` matches its own address — if it's the same contract on both chains, only legitimate messages from the adapter on the source chain are accepted.
+
+### Compose Support
+
+The adapter supports LayerZero's two-step compose pattern. When an OApp calls `sendCompose()` during `lzReceive()`, the message hash is queued. A relayer or executor then calls `lzCompose()` with the full message, which is verified against the queued hash before being delivered to the target `ILayerZeroComposer`.
+
+### Fee Model
+
+Fees are paid in the host's fee token or native token, consistent with Hyperbridge's standard fee model. The adapter charges a per-destination relayer fee (configurable by the owner) on top of the protocol fee. The default relayer fee is $0.30, derived from the fee token's decimals.
+
+## Deployment
+
+<Steps>
+<Step>
+### Deploy with CREATE2
+
+The adapter must have the same address on all chains so it can verify cross-chain message sources.
+
+```solidity lineNumbers
+import {HyperbridgeLzEndpoint} from "@hyperbridge/lz-endpoint/HyperbridgeLzEndpoint.sol";
+
+bytes32 salt = keccak256("hyperbridge-lz-v1");
+HyperbridgeLzEndpoint endpoint = new HyperbridgeLzEndpoint{salt: salt}(admin);
+```
+</Step>
+<Step>
+### Configure the host and local EID
+
+```solidity lineNumbers
+endpoint.setHost(ISMP_HOST_ADDRESS, LOCAL_LZ_EID);
+```
+
+This also sets the default relayer fee to $0.30 based on the host's fee token decimals.
+</Step>
+<Step>
+### Register EID mappings
+
+Map each LayerZero endpoint ID to its corresponding ISMP state machine identifier:
+
+```solidity lineNumbers
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+
+// Ethereum = LZ EID 30001, ISMP EVM-1
+endpoint.setEidMapping(30001, StateMachine.evm(1));
+
+// Arbitrum = LZ EID 30110, ISMP EVM-42161
+endpoint.setEidMapping(30110, StateMachine.evm(42161));
+
+// Base = LZ EID 30184, ISMP EVM-8453
+endpoint.setEidMapping(30184, StateMachine.evm(8453));
+```
+</Step>
+</Steps>
+
+## Using with an OFT
+
+### New Deployments
+
+Pass the `HyperbridgeLzEndpoint` address as the endpoint in the OFT constructor:
+
+```solidity lineNumbers
+import {OFT} from "@layerzerolabs/oft-evm/contracts/OFT.sol";
+
+OFT oft = new OFT(
+    "My Token",
+    "MTK",
+    address(hyperbridgeLzEndpoint), // use adapter instead of LZ endpoint
+    msg.sender
+);
+```
+
+Then configure peers as usual via `setPeer(dstEid, peerAddress)`. The adapter handles routing transparently — the OFT doesn't need to know about ISMP.
+
+### Migrating Existing Proxy Deployments
+
+For OFTs deployed behind an upgradeable proxy (e.g. UUPS or TransparentProxy), you can migrate to Hyperbridge by upgrading the implementation to one that points to the `HyperbridgeLzEndpoint`. The storage layout is unchanged — the only difference in the new implementation is the endpoint address passed to the constructor, which is stored as an immutable and lives in bytecode, not storage:
+
+<Steps>
+<Step>
+### Deploy a new implementation
+
+Deploy a new OFT implementation that uses the `HyperbridgeLzEndpoint` as its endpoint:
+
+```solidity lineNumbers
+OFTUpgradeable newImpl = new OFTUpgradeable(address(hyperbridgeLzEndpoint));
+```
+</Step>
+<Step>
+### Upgrade the proxy
+
+Upgrade the proxy to the new implementation. For UUPS proxies:
+
+```solidity lineNumbers
+proxy.upgradeToAndCall(address(newImpl), "");
+```
+
+For TransparentProxy:
+
+```solidity lineNumbers
+ProxyAdmin(proxyAdmin).upgradeAndCall(proxy, address(newImpl), "");
+```
+</Step>
+<Step>
+### Update peers
+
+Re-configure peers to point to the `HyperbridgeLzEndpoint` deployments on each chain:
+
+```solidity lineNumbers
+OFT(proxy).setPeer(dstEid, peerAddress);
+```
+</Step>
+</Steps>
+
+## Using with an OApp
+
+The same approach works for any OApp, not just OFTs.
+
+### New Deployments
+
+Pass the `HyperbridgeLzEndpoint` as the endpoint in the OApp constructor:
+
+```solidity lineNumbers
+import {OApp} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+
+contract MyOApp is OApp {
+    constructor(address endpoint, address owner) OApp(endpoint, owner) {}
+
+    // your cross-chain logic
+}
+
+MyOApp app = new MyOApp(address(hyperbridgeLzEndpoint), msg.sender);
+```
+
+All `_lzSend()` calls from your OApp will route through Hyperbridge automatically. Incoming messages arrive via `_lzReceive()` as usual.
+
+### Migrating Existing Proxy Deployments
+
+Same as OFTs — the endpoint is an immutable in bytecode, so deploy a new implementation with the adapter address and upgrade the proxy. Storage layout is unchanged.
+
+## Related
+
+- [API Reference](/developers/evm/api/lz-endpoint) — Full method signatures, view functions, and errors
+- [HyperApp](/developers/evm/api/hyperapp) — Base contract providing fee estimation and host authorization
+- [Hyper Fungible Token](/developers/evm/hyper-fungible-token) — Native cross-chain tokens (alternative to OFT)
+- [Contract Addresses](/developers/evm/contract-addresses/mainnet) — IsmpHost addresses for all chains

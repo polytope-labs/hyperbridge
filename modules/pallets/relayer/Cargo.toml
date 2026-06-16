@@ -11,9 +11,9 @@ publish = false
 pallet-ismp = { workspace = true }
 evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
-pallet-hyperbridge = { workspace = true }
 ismp = { workspace = true }
 crypto-utils = { workspace = true }
+pharos-primitives = { workspace = true }
 
 # crates.io
 log = { workspace = true, default-features = false }
@@ -53,13 +53,13 @@ std = [
     "scale-info/std",
     "ismp/std",
     "pallet-ismp/std",
-    "pallet-hyperbridge/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
     "ethabi/std",
     "evm-state-machine/std",
     "pallet-ismp-host-executive/std",
     "anyhow/std",
-    "crypto-utils/std"
+    "crypto-utils/std",
+    "pharos-primitives/std"
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

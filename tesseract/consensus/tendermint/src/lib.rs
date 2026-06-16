@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-tendermint";
+
 use anyhow::Result;
 use codec::Encode;
 use ismp::{
@@ -31,18 +34,13 @@ pub struct TendermintHostConfig {
 /// Top-level config for Tendermint relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TendermintConfig {
-	pub host: TendermintHostConfig,
 	#[serde(flatten)]
-	pub evm_config: EvmConfig,
+	pub host: TendermintHostConfig,
 }
 
 impl TendermintConfig {
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(TendermintHost::new(&self.host, &self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(TendermintHost::new(&self.host, &evm_config).await?))
 	}
 }
 
@@ -62,7 +60,7 @@ impl TendermintHost {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 		Ok(Self {
 			consensus_state_id: Default::default(),
-			state_machine: evm.state_machine,
+			state_machine: ismp_provider.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover: Arc::new(CometBFTClient::new(&host.rpc_url).await?),
@@ -147,7 +145,7 @@ impl IsmpHost for TendermintHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}

@@ -1,0 +1,149 @@
+{
+	"hyperbridge-nexus": {
+		"type": "substrate",
+		"chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
+		"startBlock": 10190400,
+		"stateMachineId": "POLKADOT-3367"
+	},
+	"bifrost-mainnet": {
+		"type": "substrate",
+		"chainId": "0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b",
+		"startBlock": 12398615,
+		"stateMachineId": "POLKADOT-2030"
+	},
+	"cere-mainnet": {
+		"type": "substrate",
+		"chainId": "0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c",
+		"startBlock": 25722657,
+		"stateMachineId": "SUBSTRATE-cere"
+	},
+	"argon-mainnet": {
+		"type": "substrate",
+		"chainId": "0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d",
+		"startBlock": 753851,
+		"stateMachineId": "SUBSTRATE-argn"
+	},
+	"hydration-mainnet": {
+		"type": "substrate",
+		"chainId": "0xafdc188f45c71dacbaa0b62e16a91f726c7b8699a9748cdf715459de6b7f366d",
+		"startBlock": 10305620,
+		"stateMachineId": "POLKADOT-2034"
+	},
+	"zkverify-mainnet": {
+		"type": "substrate",
+		"chainId": "0x060e3dd3fa2904d031206bb913c954687a2bcc350e5a83d33d9e273ad21460f1",
+		"startBlock": 124841,
+		"stateMachineId": "SUBSTRATE-zkv_"
+	},
+	"ethereum-mainnet": {
+		"type": "evm",
+		"chainId": "1",
+		"startBlock": 25173062,
+		"stateMachineId": "EVM-1",
+		"blockConfirmations": 5,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"arbitrum-mainnet": {
+		"type": "evm",
+		"chainId": "42161",
+		"startBlock": 466556461,
+		"stateMachineId": "EVM-42161",
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"optimism-mainnet": {
+		"type": "evm",
+		"chainId": "10",
+		"startBlock": 152061298,
+		"stateMachineId": "EVM-10",
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"base-mainnet": {
+		"type": "evm",
+		"chainId": "8453",
+		"startBlock": 46466082,
+		"stateMachineId": "EVM-8453",
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"bsc-mainnet": {
+		"type": "evm",
+		"chainId": "56",
+		"startBlock": 100369046,
+		"stateMachineId": "EVM-56",
+		"unfinalizedBlocks": false,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"gnosis-mainnet": {
+		"type": "evm",
+		"chainId": "100",
+		"startBlock": 46357752,
+		"stateMachineId": "EVM-100",
+		"blockConfirmations": 5,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"soneium-mainnet": {
+		"type": "evm",
+		"chainId": "1868",
+		"startBlock": 23293686,
+		"stateMachineId": "EVM-1868",
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
+		}
+	},
+	"polygon-mainnet": {
+		"type": "evm",
+		"chainId": "137",
+		"startBlock": 87418626,
+		"stateMachineId": "EVM-137",
+		"unfinalizedBlocks": false,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+		}
+	},
+	"polkadot-hub-mainnet": {
+		"type": "evm",
+		"chainId": "420420419",
+		"startBlock": 16215884,
+		"stateMachineId": "EVM-420420419",
+		"unfinalizedBlocks": false,
+		"contracts": {
+			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"erc6160ext20": "0x0000053900000000000000000000000001200000"
+		}
+	}
+}

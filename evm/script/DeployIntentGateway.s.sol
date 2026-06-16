@@ -4,11 +4,12 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
+import {IntentGatewayV2, Params, Deployment} from "../src/apps/IntentGatewayV2.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
-import {SolverAccount} from "../src/utils/SolverAccount.sol";
+import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -21,11 +22,85 @@ contract DeployScript is BaseScript {
 
         SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
         console.log("SolverAccount deployed at:", address(solverAccount));
-        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin);
+
+        address priceOracle = address(0);
+        // address priceOracle = deployPriceOracle(address(intentGateway));
+
+        Deployment[] memory deployments;
+        if (config.get("is_mainnet").toBool()) {
+            deployments = new Deployment[](9);
+            deployments[0] = Deployment({
+                chain: StateMachine.evm(1), // ethereum
+                gateway: address(intentGateway)
+            });
+            deployments[1] = Deployment({
+                chain: StateMachine.evm(10), // optimism
+                gateway: address(intentGateway)
+            });
+            deployments[2] = Deployment({
+                chain: StateMachine.evm(42161), // arbitrum
+                gateway: address(intentGateway)
+            });
+            deployments[3] = Deployment({
+                chain: StateMachine.evm(8453), // base
+                gateway: address(intentGateway)
+            });
+            deployments[4] = Deployment({
+                chain: StateMachine.evm(56), // bsc
+                gateway: address(intentGateway)
+            });
+            deployments[5] = Deployment({
+                chain: StateMachine.evm(100), // gnosis
+                gateway: address(intentGateway)
+            });
+            deployments[6] = Deployment({
+                chain: StateMachine.evm(137), // polygon
+                gateway: address(intentGateway)
+            });
+            deployments[7] = Deployment({
+                chain: StateMachine.evm(420420419), // polkadot
+                gateway: address(intentGateway)
+            });
+            deployments[8] = Deployment({
+                chain: StateMachine.evm(1868), // soneium
+                gateway: address(intentGateway)
+            });
+        } else {
+            deployments = new Deployment[](2);
+            deployments[0] = Deployment({
+                chain: StateMachine.evm(97), // bsc testnet (chapel)
+                gateway: address(intentGateway)
+            });
+            deployments[1] = Deployment({
+                chain: StateMachine.evm(80002), // polygon amoy
+                gateway: address(intentGateway)
+            });
+        }
+
+        intentGateway.init(
+            Params({
+                host: HOST_ADDRESS,
+                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
+                solverSelection: config.get("7702").toBool(),
+                surplusShareBps: 5_000, // 50%
+                protocolFeeBps: 30, // 0.3%
+                priceOracle: address(priceOracle)
+            }),
+            deployments
+        );
+
+        vm.stopBroadcast();
+        config.set("INTENT_GATEWAY_V2", address(intentGateway));
+        config.set("SOLVER_ACCOUNT", address(solverAccount));
+        config.set("PRICE_ORACLE", address(priceOracle));
+    }
+
+    function deployPriceOracle(address intentGateway) internal returns (address) {
+        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin, intentGateway);
         console.log("VWAPOracle deployed at:", address(priceOracle));
 
         // Initialize price oracle with token decimals
-        VWAPOracle.TokenDecimalsUpdate[] memory decimalsUpdates = new VWAPOracle.TokenDecimalsUpdate[](8);
+        VWAPOracle.TokenDecimalsUpdate[] memory decimalsUpdates = new VWAPOracle.TokenDecimalsUpdate[](9);
 
         // Ethereum
         decimalsUpdates[0].sourceChain = bytes("EVM-1");
@@ -123,22 +198,19 @@ contract DeployScript is BaseScript {
             decimals: 6
         });
 
+        // Tron
+        decimalsUpdates[8].sourceChain = bytes("EVM-728126428");
+        decimalsUpdates[8].tokens = new VWAPOracle.TokenDecimal[](2);
+        decimalsUpdates[8].tokens[0] = VWAPOracle.TokenDecimal({
+            token: 0x742b023b58488B4be587bBA63ed11134b02217B3, // USDC
+            decimals: 6
+        });
+        decimalsUpdates[8].tokens[1] = VWAPOracle.TokenDecimal({
+            token: 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C, // USDT
+            decimals: 6
+        });
         priceOracle.init(HOST_ADDRESS, decimalsUpdates);
-        console.log("VWAPOracle initialized with token decimals");
 
-        intentGateway.setParams(
-            Params({
-                host: HOST_ADDRESS,
-                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
-                solverSelection: config.get("7702").toBool(),
-                surplusShareBps: 0,
-                protocolFeeBps: 0,
-                priceOracle: address(priceOracle)
-            })
-        );
-
-        config.set("INTENT_GATEWAY", address(intentGateway));
-        config.set("SOLVER_ACCOUNT", address(solverAccount));
-        config.set("PRICE_ORACLE", address(priceOracle));
+        return address(priceOracle);
     }
 }

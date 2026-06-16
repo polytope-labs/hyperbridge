@@ -80,6 +80,7 @@ use sp_mmr_primitives::{
 
 pub use mmr::storage::{OffchainStorage, Storage};
 
+pub mod migrations;
 pub mod mmr;
 
 /// An MMR specific to the pallet.
@@ -93,6 +94,13 @@ pub(crate) type HashingOf<T, I> = <T as Config<I>>::Hashing;
 /// Hash type used for the pallet.
 pub(crate) type HashOf<T, I> = <<T as Config<I>>::Hashing as traits::Hash>::Output;
 
+/// Current storage version of `pallet-mmr-tree`. Bumped to `1` when the
+/// [`migrations::ResetMmrTree`] migration is introduced — version `0` is the
+/// pre-reset layout, version `1` is the post-reset layout whose offchain nodes
+/// live under the new [`Config::INDEXING_PREFIX`].
+pub const STORAGE_VERSION: frame_support::traits::StorageVersion =
+	frame_support::traits::StorageVersion::new(1);
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -100,6 +108,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T, I = ()>(PhantomData<(T, I)>);
 
 	/// This pallet's configuration trait
@@ -230,8 +239,7 @@ where
 		// append new leaves to MMR
 		let range = 0u64..buffer_len;
 		for index in range {
-			let leaf = IntermediateLeaves::<T, I>::get(index)
-				.expect("Infallible: Leaf was inserted in this block");
+			let leaf = IntermediateLeaves::<T, I>::get(index).ok_or(Error::Push)?;
 			// Mmr push should never fail
 			match mmr.push(leaf) {
 				None => {

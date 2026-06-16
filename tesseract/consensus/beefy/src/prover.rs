@@ -48,7 +48,7 @@ use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
-use ismp_solidity_abi::beefy::BeefyConsensusProof;
+use ismp_abi::ecdsa_beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
@@ -56,33 +56,55 @@ use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
 use crate::{
 	backend::{ConsensusProof, ProofBackend},
-	extract_para_id, VALIDATOR_SET_ID_KEY,
+	extract_para_id,
 };
+
+/// Deserializes a 4-byte `ConsensusStateId` from a string (e.g. `"DOT0"` or `"PAS0"`).
+fn deserialize_consensus_state_id<'de, D>(deserializer: D) -> Result<ConsensusStateId, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	let s = String::deserialize(deserializer)?;
+	let bytes = s.as_bytes();
+	if bytes.len() != 4 {
+		return Err(serde::de::Error::custom(format!(
+			"consensus_state_id must be exactly 4 bytes, got {} (\"{}\")",
+			bytes.len(),
+			s
+		)));
+	}
+	let mut id = [0u8; 4];
+	id.copy_from_slice(bytes);
+	Ok(id)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyProverConfig {
-	/// Consensus state id for the host on the counterparty
+	/// Consensus state id for the host on the counterparty (e.g. "BEEF" or "PAS0")
+	#[serde(deserialize_with = "deserialize_consensus_state_id")]
 	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
-	/// State machines we are proving for
+	/// State machines we are proving for. If empty or omitted, prove all.
+	#[serde(default)]
 	pub state_machines: Vec<StateMachine>,
-	/// Optional Redis configuration for proof backend (if None, uses InMemoryProofBackend)
-	pub redis: Option<crate::backend::RedisConfig>,
+	/// Which proof backend the prover (and the corresponding host) should use.
+	/// Defaults to `Onchain` if not specified.
+	#[serde(default)]
+	pub backend: crate::backend::ProofBackendConfig,
 }
 
 /// Selects which proof strategy the BEEFY prover uses.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofVariant {
-	/// Verify the full 2/3+1 supermajority of signatures on-chain (BeefyV1).
+	/// Verify the full 2/3+1 supermajority of ECDSA signatures on-chain (EcdsaBeefy).
 	#[default]
-	Naive,
-	/// Delegate signature verification to an SP1 ZK program (SP1Beefy).
-	Zk,
-	/// Deterministically sample a small subset of signatures via Fiat-Shamir
-	/// (BeefyV1FiatShamir).
-	FiatShamir,
+	#[serde(alias = "naive")]
+	Ecdsa,
+	/// Delegate signature verification to an SP1 zero-knowledge proof (SP1Beefy).
+	#[serde(alias = "zk")]
+	Sp1,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,15 +127,18 @@ pub struct ProverConfig {
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
 /// proofs are produced when new messages are observed on the hyperbridge chain or when the
 /// authority set changes.
-pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait, Q: ProofBackend>
-{
-	/// The prover's consensus state
-	consensus_state: ProverConsensusState,
+pub struct BeefyProver<
+	R: subxt::Config,
+	P: subxt::Config,
+	B: Sp1BeefyProverTrait,
+	Q: ProofBackend + ?Sized,
+> {
 	/// The hyperbridge substrate client
 	client: SubstrateClient<P>,
 	/// The beefy prover instance
 	prover: Prover<R, P, B>,
-	/// Unified backend for queue and state storage
+	/// Unified backend for queue and state storage. Consensus state is always loaded
+	/// fresh from this backend at each point of use rather than cached locally.
 	backend: Arc<Q>,
 	/// Prover configuration options
 	config: BeefyProverConfig,
@@ -124,20 +149,17 @@ pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrai
 pub const REDIS_CONSENSUS_STATE_KEY: &'static str = "consensus_state";
 
 /// Proof type identifier for naive proofs (BeefyV1)
-pub const PROOF_TYPE_NAIVE: u8 = 0x00;
+pub const PROOF_TYPE_ECDSA: u8 = 0x00;
 
 /// Proof type identifier for ZK proofs (SP1Beefy)
-pub const PROOF_TYPE_ZK: u8 = 0x01;
-
-/// Proof type identifier for Fiat-Shamir sampled proofs (BeefyV1FiatShamir)
-pub const PROOF_TYPE_FIAT_SHAMIR: u8 = 0x02;
+pub const PROOF_TYPE_SP1: u8 = 0x01;
 
 impl<R, P, B, Q> BeefyProver<R, P, B, Q>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
 	B: Sp1BeefyProverTrait,
-	Q: ProofBackend,
+	Q: ProofBackend + ?Sized,
 	P::Header: Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + Send + Sync,
@@ -152,34 +174,14 @@ where
 		prover: Prover<R, P, B>,
 		backend: Arc<Q>,
 	) -> Result<Self, anyhow::Error> {
+		// Sanity-check that the backend has a consensus state we can load.
 		let consensus_state = backend.load_state().await?;
-
-		log::info!("Loaded consensus state: {consensus_state:#?}");
+		log::info!(target: crate::LOG_TARGET, "Loaded consensus state: {consensus_state:#?}");
 
 		// Initialize queues for the configured state machines
 		backend.init_queues(&config.state_machines).await?;
 
-		Ok(BeefyProver { consensus_state, prover, client, config, backend })
-	}
-
-	/// Rotate the prover's known authority set, using the network view at the provided hash
-	async fn rotate_authorities(&mut self, hash: HashFor<R>) -> Result<(), anyhow::Error> {
-		self.consensus_state.inner.current_authorities =
-			self.consensus_state.inner.next_authorities.clone();
-		self.consensus_state.inner.next_authorities =
-			beefy_prover::relay::beefy_mmr_leaf_next_authorities(
-				&self.prover.inner().relay_rpc,
-				Some(hash),
-			)
-			.await?;
-
-		tracing::info!(
-			"Rotated authority set. Current {}, Next: {}",
-			self.consensus_state.inner.current_authorities.id,
-			self.consensus_state.inner.next_authorities.id,
-		);
-
-		Ok(())
+		Ok(BeefyProver { prover, client, config, backend })
 	}
 
 	/// Generate an encoded proof
@@ -189,33 +191,14 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		let encoded = match self.prover {
-			Prover::Naive(ref naive, _) => {
+			Prover::Ecdsa(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				[&[PROOF_TYPE_NAIVE], message.abi_encode().as_slice()].concat()
+				[&[PROOF_TYPE_ECDSA], message.abi_encode_params().as_slice()].concat()
 			},
-			Prover::ZK(ref zk) => {
+			Prover::Sp1(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				[&[PROOF_TYPE_ZK], message.abi_encode().as_slice()].concat()
-			},
-			Prover::FiatShamir(ref fs, _) => {
-				let (consensus_message, bitmap) =
-					fs.consensus_proof_fiat_shamir(signed_commitment, &consensus_state).await?;
-				let message: BeefyConsensusProof = consensus_message.into();
-				// The FiatShamir verifier expects abi.encode(RelayChainProof, ParachainProof,
-				// uint256[4])
-				let bitmap_words: [alloy_primitives::U256; 4] = bitmap
-					.words
-					.iter()
-					.map(|w| {
-						let buf = w.to_big_endian();
-						alloy_primitives::U256::from_be_bytes(buf)
-					})
-					.collect::<Vec<_>>()
-					.try_into()
-					.expect("bitmap should have exactly 4 words");
-				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode();
-				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
+				[&[PROOF_TYPE_SP1], message.abi_encode_params().as_slice()].concat()
 			},
 		};
 
@@ -226,9 +209,10 @@ where
 	/// parachain block that was queried.
 	pub async fn latest_ismp_message_events(
 		&self,
+		consensus_state: &ProverConsensusState,
 		finalized: HashFor<R>,
 	) -> Result<(u64, Vec<EventWithMetadata>), anyhow::Error> {
-		let latest_height = self.consensus_state.finalized_parachain_height;
+		let latest_height = consensus_state.finalized_parachain_height;
 		let para_id = extract_para_id(self.client.state_machine_id().state_id)?;
 		let header =
 			query_parachain_header(&self.prover.inner().relay_rpc, finalized, para_id).await?;
@@ -244,17 +228,18 @@ where
 			.filter_map(|event| {
 				let dest = match &event.event {
 					Event::PostRequest(post) => post.dest.clone(),
-					Event::PostResponse(resp) => resp.dest_chain(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
 					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge =>
 						req.source,
-					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge =>
-						res.source,
 					_ => None?,
 				};
 
 				// filter out destinations that the prover isn't configured for
-				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
+				if self.config.state_machines.is_empty() {
+					matches!(dest, StateMachine::Evm(_)).then_some(event)
+				} else {
+					self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -287,8 +272,9 @@ where
 	/// by beefy and the last known finalized block.
 	pub async fn query_next_finalized_epoch(
 		&self,
+		consensus_state: &ProverConsensusState,
 	) -> Result<(Option<(HashFor<R>, u64)>, generic::Header<u32, BlakeTwo256>), anyhow::Error> {
-		let initial_height = self.consensus_state.inner.latest_beefy_height;
+		let initial_height = consensus_state.inner.latest_beefy_height;
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
 		let from = relay_rpc
 			.chain_get_block_hash(Some(initial_height.into()))
@@ -311,21 +297,30 @@ where
 		};
 
 		let changes = relay_rpc
-			.state_query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash().into()))
+			.state_query_storage(
+				vec![&BEEFY_VALIDATOR_SET_ID[..]],
+				from,
+				Some(header.hash().into()),
+			)
 			.await?;
 
-		let mut block_hash_and_set_id = changes
-			.into_iter()
-			.filter_map(|change| {
-				change.changes[0]
-					.clone()
-					.1
-					.and_then(|data| u64::decode(&mut &*data.0).ok())
-					.map(|id| (change.block, id))
-			})
-			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id);
+		let changes_iter = changes.into_iter().filter_map(|change| {
+			change.changes[0]
+				.clone()
+				.1
+				.and_then(|data| u64::decode(&mut &*data.0).ok())
+				.map(|id| (change.block, id))
+		});
 
-		Ok((block_hash_and_set_id.next(), header))
+		tracing::trace!(target: crate::LOG_TARGET, "Latest set ID: {:#?}", changes_iter.clone().next_back());
+
+		let block_hash_and_set_id = changes_iter
+			.filter(|(_, set_id)| *set_id >= consensus_state.inner.next_authorities.id)
+			.next();
+
+		tracing::trace!(target: crate::LOG_TARGET, "Block hash and set id: {:#?}", block_hash_and_set_id);
+
+		Ok((block_hash_and_set_id, header))
 	}
 
 	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
@@ -335,7 +330,7 @@ where
 		start: u64,
 	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
-		tracing::info!("Scanning for BEEFY justifications at {start}");
+		tracing::info!(target: crate::LOG_TARGET, "Scanning for BEEFY justifications at {start}");
 
 		for i in start..=(start + 2400) {
 			let hash = if let Some(hash) = relay_rpc.chain_get_block_hash(Some(i.into())).await? {
@@ -351,7 +346,7 @@ where
 				.justifications
 			{
 				tracing::info!(
-					"Found some justification at block: {i}: {:?}",
+					target: crate::LOG_TARGET, "Found some justification at block: {i}: {:?}",
 					justifications
 						.iter()
 						.map(|(id, _)| String::from_utf8(id.as_slice().to_vec()))
@@ -368,7 +363,7 @@ where
 					return Ok(Some(commitment));
 				}
 			} else {
-				tracing::trace!("No BEEFY justifications found at {i}");
+				tracing::trace!(target: crate::LOG_TARGET, "No BEEFY justifications found at {i}");
 			}
 		}
 
@@ -377,240 +372,218 @@ where
 
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
 	/// justifications as well as new proofs for ISMP messages.
-	pub async fn run(&mut self) {
+	pub async fn run(&self) {
 		let hyperbridge = self.client.state_machine_id().state_id;
 		let para_id = extract_para_id(hyperbridge)
 			.expect("StateMachine should be either one of Polkadot or Kusama");
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
 
 		loop {
-			let future = async {
-				loop {
-					// tick the interval
-					tokio::time::sleep(Duration::from_secs(10)).await;
+			tokio::time::sleep(Duration::from_secs(10)).await;
 
-					let (update, mut latest_beefy_header) =
-						self.query_next_finalized_epoch().await?;
+			let result: Result<_, anyhow::Error> = async {
+				// Load fresh consensus state from the backend each iteration so we never act
+				// on stale state — for the on-chain backend this reflects the latest accepted
+				// proof on the pallet; for Redis / in-memory it's the last saved progress.
+				let mut consensus_state = self.backend.load_state().await?;
 
-					if let Some((epoch_change_block_hash, next_set_id)) = update {
+				let (update, latest_beefy_header) =
+					self.query_next_finalized_epoch(&consensus_state).await?;
+
+				match update {
+					Some((epoch_change_block_hash, next_set_id)) => {
 						// invariant, update should always be for the next set
-						assert_eq!(next_set_id, self.consensus_state.inner.next_authorities.id);
-						tracing::info!("Next authority set: {next_set_id}");
+						tracing::info!(target: crate::LOG_TARGET, "Next authority set: {next_set_id}");
+						assert_eq!(next_set_id, consensus_state.inner.next_authorities.id);
 
 						let epoch_change_header = relay_rpc
 							.chain_get_header(Some(epoch_change_block_hash))
 							.await?
 							.expect("Epoch change header exists");
-						if let Some(commitment) = self
+
+						let Some(commitment) = self
 							.epoch_justification_for(epoch_change_header.number().into())
 							.await?
-						{
-							tracing::info!(
-								"Fetched next authority set justification: {:?}",
-								commitment.commitment
-							);
-							let consensus_proof = self
-								.consensus_proof(
-									commitment.clone(),
-									self.consensus_state.inner.clone(),
-								)
-								.await?;
+						else {
+							// justification not yet available, retry next tick
+							return Ok(());
+						};
 
-							let message = ConsensusProof {
-								finalized_height: commitment.commitment.block_number,
-								set_id: next_set_id,
-								message: ConsensusMessage {
-									consensus_proof,
-									consensus_state_id: self.config.consensus_state_id,
-									signer: H256::random().encode(),
-								},
-							};
-
-							for state_machine in self.config.state_machines.iter() {
-								tracing::info!(
-									"Sending mandatory consensus proof to {state_machine}"
-								);
-
-								self.backend
-									.send_mandatory_proof(state_machine, message.clone())
-									.await?;
-							}
-
-							// update consesnsus state
-							self.consensus_state.finalized_parachain_height = {
-								let finalized_hash = relay_rpc
-									.chain_get_block_hash(Some(
-										commitment.commitment.block_number.into(),
-									))
-									.await?
-									.expect("Epoch change header exists");
-								let para_header = query_parachain_header(
-									&self.prover.inner().relay_rpc,
-									finalized_hash,
-									para_id,
-								)
-								.await?;
-								para_header.number.into()
-							};
-							self.consensus_state.inner.latest_beefy_height =
-								commitment.commitment.block_number;
-							self.rotate_authorities(epoch_change_block_hash).await?;
-							self.backend.save_state(&self.consensus_state).await?;
-						}
-					}
-
-					let (latest_parachain_height, messages) = self
-						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
-						.await?;
-
-					if messages.is_empty() {
-						self.consensus_state.finalized_parachain_height = latest_parachain_height;
-						self.backend.save_state(&self.consensus_state).await?;
-						continue;
-					}
-
-					let lowest_message_height = messages
-						.iter()
-						.min_by(|a, b| a.meta.block_number.cmp(&b.meta.block_number))
-						.expect("Messages is not empty; qed")
-						.meta
-						.block_number;
-
-					let minimum_height =
-						lowest_message_height + self.config.minimum_finalization_height;
-					if minimum_height > latest_parachain_height {
 						tracing::info!(
-							"Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
-							minimum_height - latest_parachain_height
+							target: crate::LOG_TARGET, "Fetched next authority set justification: {:?}",
+							commitment.commitment
 						);
 
-						loop {
-							tokio::time::sleep(Duration::from_secs(10)).await;
-							let header = {
-								let hash = self
-									.prover
-									.inner()
-									.relay_rpc_client
-									.request::<HashFor<R>>("beefy_getFinalizedHead", rpc_params![])
-									.await?;
-								let h = relay_rpc
-									.chain_get_header(Some(hash))
-									.await?
-									.ok_or_else(|| anyhow!("Block hash should exist"))?;
-
-								generic::Header::<u32, BlakeTwo256>::decode(&mut &h.encode()[..])?
-							};
-
-							let para_header = query_parachain_header(
-								&self.prover.inner().relay_rpc,
-								header.parent_hash.into(),
-								para_id,
-							)
+						let consensus_proof = self
+							.consensus_proof(commitment.clone(), consensus_state.inner.clone())
 							.await?;
 
-							if para_header.number as u64 >= minimum_height {
-								latest_beefy_header = header;
-								break;
-							}
-						}
-					}
-
-					let (latest_parachain_height, messages) = self
-						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
-						.await?;
-
-					let state_machines = messages
-						.iter()
-						.filter_map(|e| {
-							let event = match &e.event {
-								Event::PostRequest(req) => req.dest,
-								Event::PostResponse(res) => res.dest_chain(),
-								Event::GetResponse(res) => res.get.source,
-								Event::PostRequestTimeoutHandled(req)
-									if req.source != hyperbridge =>
-									req.source,
-								Event::PostResponseTimeoutHandled(res)
-									if res.source != hyperbridge =>
-									res.source,
-								_ => None?,
-							};
-							Some(event)
-						})
-						.collect::<HashSet<_>>();
-
-					tracing::trace!("State machines: {state_machines:?}");
-
-					if state_machines.len() == 0 {
-						tracing::trace!("No new messages in the range: {lowest_message_height}..{latest_parachain_height}");
-
-						continue;
-					}
-
-					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
-
-					let latest_beefy_header_hash = latest_beefy_header.hash().into();
-					let (commitment, _) = fetch_latest_beefy_justification(
-						&self.prover.inner().relay_rpc,
-						latest_beefy_header_hash,
-					)
-					.await?;
-					let consensus_proof = self
-						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
-						.await?;
-
-					let set_id = relay_rpc
-						.state_get_storage(
-							BEEFY_VALIDATOR_SET_ID.as_slice(),
-							Some(latest_beefy_header_hash),
+						let finalized_hash = relay_rpc
+							.chain_get_block_hash(Some(commitment.commitment.block_number.into()))
+							.await?
+							.expect("Epoch change header exists");
+						let para_header = query_parachain_header(
+							&self.prover.inner().relay_rpc,
+							finalized_hash,
+							para_id,
 						)
-						.await?
-						.map(|data| u64::decode(&mut data.as_ref()))
-						.transpose()?
-						.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
+						.await?;
+						let finalized_parachain_height: u64 = para_header.number.into();
 
-					let message = ConsensusProof {
-						finalized_height: commitment.commitment.block_number,
-						set_id,
-						message: ConsensusMessage {
-							consensus_proof,
-							consensus_state_id: self.config.consensus_state_id,
-							signer: H256::random().encode(),
-						},
-					};
+						let message = ConsensusProof {
+							finalized_height: commitment.commitment.block_number,
+							set_id: next_set_id,
+							message: ConsensusMessage {
+								consensus_proof,
+								consensus_state_id: self.config.consensus_state_id,
+								signer: H256::random().encode(),
+							},
+						};
 
-					// notify all relevant state machines
-					for state_machine in state_machines {
-						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}");
-						self.backend.send_messages_proof(&state_machine, message.clone()).await?; // fatal
-					}
+						let destinations: Vec<StateMachine> = self.config.state_machines.clone();
+						tracing::info!("Sending mandatory consensus proof");
+						self.backend.send_mandatory_proof(&destinations, message).await?;
 
-					self.consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
-					self.consensus_state.finalized_parachain_height = latest_parachain_height;
-					self.backend.save_state(&self.consensus_state).await?;
+						// Advance the locally-computed view and persist it to the backend.
+						// Rotate authorities inline: new current = old next, new next =
+						// queried from the relay at the epoch-change hash.
+						consensus_state.finalized_parachain_height = finalized_parachain_height;
+						consensus_state.inner.latest_beefy_height =
+							commitment.commitment.block_number;
+						consensus_state.inner.current_authorities =
+							consensus_state.inner.next_authorities.clone();
+						consensus_state.inner.next_authorities =
+							beefy_prover::relay::beefy_mmr_leaf_next_authorities(
+								&self.prover.inner().relay_rpc,
+								Some(epoch_change_block_hash),
+							)
+							.await?;
+						tracing::info!(
+							target: crate::LOG_TARGET, "Rotated authority set. Current {}, Next: {}",
+							consensus_state.inner.current_authorities.id,
+							consensus_state.inner.next_authorities.id,
+						);
+						self.backend.save_state(&consensus_state).await?;
+						return Ok(()); // check for next updates
+					},
+					None => {},
 				}
 
-				#[allow(unreachable_code)]
-				Ok::<_, anyhow::Error>(())
-			};
+				let (latest_parachain_height, messages) = self
+					.latest_ismp_message_events(
+						&consensus_state,
+						latest_beefy_header.parent_hash.into(),
+					)
+					.await?;
 
-			if let Err(err) = future.await {
-				tracing::error!("Prover error: {err:?}");
-				// The queue and state storage implementations should handle reconnection internally
-				// or the error will propagate and the loop will retry
+				if messages.is_empty() {
+					consensus_state.finalized_parachain_height = latest_parachain_height;
+					self.backend.save_state(&consensus_state).await?;
+					return Ok(());
+				}
+
+				let lowest_message_height = messages
+					.iter()
+					.min_by(|a, b| a.meta.block_number.cmp(&b.meta.block_number))
+					.expect("Messages is not empty; qed")
+					.meta
+					.block_number;
+
+				let minimum_height =
+					lowest_message_height + self.config.minimum_finalization_height;
+				if minimum_height > latest_parachain_height {
+					tracing::info!(
+						target: crate::LOG_TARGET, "Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
+						minimum_height - latest_parachain_height
+					);
+					return Ok(());
+				}
+
+				let state_machines = messages
+					.iter()
+					.filter_map(|e| {
+						let event = match &e.event {
+							Event::PostRequest(req) => req.dest,
+							Event::GetResponse(res) => res.get.source,
+							Event::PostRequestTimeoutHandled(req)
+								if req.source != hyperbridge =>
+								req.source,
+							_ => None?,
+						};
+						Some(event)
+					})
+					.collect::<HashSet<_>>();
+
+				tracing::trace!(target: crate::LOG_TARGET, "State machines: {state_machines:?}");
+
+				if state_machines.is_empty() {
+					tracing::trace!(
+						target: crate::LOG_TARGET, "No new messages in the range: {lowest_message_height}..{latest_parachain_height}"
+					);
+					return Ok(());
+				}
+
+				tracing::info!(
+					target: crate::LOG_TARGET, "Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}"
+				);
+
+				let latest_beefy_header_hash = latest_beefy_header.hash().into();
+				let (commitment, _) = fetch_latest_beefy_justification(
+					&self.prover.inner().relay_rpc,
+					latest_beefy_header_hash,
+				)
+				.await?;
+				let consensus_proof = self
+					.consensus_proof(commitment.clone(), consensus_state.inner.clone())
+					.await?;
+
+				let set_id = relay_rpc
+					.state_get_storage(
+						BEEFY_VALIDATOR_SET_ID.as_slice(),
+						Some(latest_beefy_header_hash),
+					)
+					.await?
+					.map(|data| u64::decode(&mut data.as_ref()))
+					.transpose()?
+					.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
+
+				let message = ConsensusProof {
+					finalized_height: commitment.commitment.block_number,
+					set_id,
+					message: ConsensusMessage {
+						consensus_proof,
+						consensus_state_id: self.config.consensus_state_id,
+						signer: H256::random().encode(),
+					},
+				};
+
+				let destinations: Vec<StateMachine> = state_machines.into_iter().collect();
+				tracing::info!(
+					"Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {destinations:?}"
+				);
+				self.backend.send_messages_proof(&destinations, message).await?;
+
+				consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
+				consensus_state.finalized_parachain_height = latest_parachain_height;
+				self.backend.save_state(&consensus_state).await?;
+
+				Ok(())
+			}
+			.await;
+
+			if let Err(err) = result {
+				tracing::error!(target: crate::LOG_TARGET, "Prover error: {err:?}");
 			}
 		}
 	}
 }
 
-/// Beefy prover, can either produce zk proofs or naive proofs
+/// Beefy prover, can produce ECDSA or SP1 proofs
 pub enum Prover<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
-	/// The naive prover — verifies all 2/3+1 signatures on-chain
-	Naive(beefy_prover::Prover<R, P>, PhantomData<B>),
-	/// ZK prover — delegates signature verification to an SP1 program
-	ZK(zk_beefy::Prover<R, P, B>),
-	/// Fiat-Shamir prover — deterministically samples SAMPLE_SIZE signatures for on-chain
-	/// verification
-	FiatShamir(beefy_prover::Prover<R, P>, PhantomData<B>),
+	/// ECDSA prover — verifies all 2/3+1 signatures on-chain
+	Ecdsa(beefy_prover::Prover<R, P>, PhantomData<B>),
+	/// SP1 prover — delegates signature verification to an SP1 ZK program
+	Sp1(zk_beefy::Prover<R, P, B>),
 }
 
 impl<R, P, B> Clone for Prover<R, P, B>
@@ -623,9 +596,8 @@ where
 {
 	fn clone(&self) -> Self {
 		match self {
-			Prover::Naive(p, _) => Prover::Naive(p.clone(), PhantomData),
-			Prover::ZK(p) => Prover::ZK(p.clone()),
-			Prover::FiatShamir(p, _) => Prover::FiatShamir(p.clone(), PhantomData),
+			Prover::Ecdsa(p, _) => Prover::Ecdsa(p.clone(), PhantomData),
+			Prover::Sp1(p) => Prover::Sp1(p.clone()),
 		}
 	}
 }
@@ -636,7 +608,7 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 {
-	pub async fn new(config: ProverConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(config: ProverConfig, account: H256) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
 		let (relay_chain, relay_rpc_client) =
 			subxt_utils::client::ws_client::<R>(&config.relay_rpc_ws, max_rpc_payload_size).await?;
@@ -679,12 +651,11 @@ where
 		};
 
 		let prover = match config.proof_variant {
-			ProofVariant::FiatShamir => Prover::FiatShamir(prover, PhantomData),
-			ProofVariant::Zk => {
+			ProofVariant::Sp1 => {
 				let sp1_prover = zk_beefy::LocalProver::new().await?;
-				Prover::ZK(zk_beefy::Prover::new(prover, sp1_prover))
+				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover, account))
 			},
-			ProofVariant::Naive => Prover::Naive(prover, PhantomData),
+			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
 		};
 
 		Ok(prover)
@@ -701,9 +672,8 @@ where
 	/// Return the inner prover
 	pub fn inner(&self) -> &beefy_prover::Prover<R, P> {
 		match self {
-			Prover::ZK(ref p) => &p.inner,
-			Prover::Naive(ref p, _) => p,
-			Prover::FiatShamir(ref p, _) => p,
+			Prover::Sp1(ref p) => &p.inner,
+			Prover::Ecdsa(ref p, _) => p,
 		}
 	}
 

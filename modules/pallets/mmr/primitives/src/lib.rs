@@ -24,6 +24,14 @@ use pallet_ismp::offchain::FullLeaf;
 use polkadot_sdk::*;
 use sp_runtime::{traits, RuntimeDebug};
 
+/// Offchain DB indexing prefix used by `pallet-mmr-tree` for storing MMR nodes.
+///
+/// Bumped from the upstream `sp_mmr_primitives::INDEXING_PREFIX` (`b"mmr"`) so that
+/// resetting the on-chain MMR tree starts from a fresh, non-overlapping offchain key
+/// namespace. The previous prefix's residual entries are drained gradually by the
+/// `pallet-mmr-tree` reset migration.
+pub const INDEXING_PREFIX: &[u8] = b"ISMP-mmr-v2";
+
 /// An element representing either full data or its hash.
 ///
 /// See `Compact` to see how it may be used in practice to reduce the size

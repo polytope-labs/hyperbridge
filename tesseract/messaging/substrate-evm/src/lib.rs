@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-substrate-evm";
+
 use anyhow::{Error, anyhow};
 use codec::{Decode, Encode};
 use evm_state_machine::{
@@ -231,26 +234,7 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
-			.await
-	}
-
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		let storage_keys: Vec<Vec<u8>> = keys
-			.into_iter()
-			.map(|q| {
-				let slot_hash = self.evm.response_commitment_key(q.commitment).1;
-				self.storage_key(slot_hash)
-			})
-			.collect();
-
-		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
-			.await
+		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)]).await
 	}
 
 	async fn query_state_proof(
@@ -271,8 +255,7 @@ where
 					})
 					.collect();
 
-				self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
-					.await
+				self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)]).await
 			},
 			StateProofQueryType::Arbitrary(keys) => {
 				let mut groups: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();
@@ -310,6 +293,10 @@ where
 		self.evm.state_machine_id()
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.evm.ismp_host_contract()
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}
@@ -322,6 +309,14 @@ where
 		self.evm.estimate_gas(msg).await
 	}
 
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.evm.estimate_gas_batched(prelude, msgs).await
+	}
+
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		self.evm.query_request_fee_metadata(hash).await
 	}
@@ -332,10 +327,6 @@ where
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, Error> {
 		self.evm.query_response_receipt(hash).await
-	}
-
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		self.evm.query_response_fee_metadata(hash).await
 	}
 
 	async fn state_machine_update_notification(
@@ -369,14 +360,6 @@ where
 		self.evm.request_receipt_full_key(commitment)
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_receipt_full_key(commitment)
-	}
-
 	fn address(&self) -> Vec<u8> {
 		self.evm.address()
 	}
@@ -403,10 +386,7 @@ where
 		self.evm.veto_state_commitment(height).await
 	}
 
-	async fn query_host_params(
-		&self,
-		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, Error> {
+	async fn query_host_params(&self, state_machine: StateMachine) -> Result<HostParam, Error> {
 		self.evm.query_host_params(state_machine).await
 	}
 
@@ -449,7 +429,7 @@ where
 			// If block header is not found veto the state commitment
 
 			log::info!(
-				"Vetoing state commitment for {} on {}: block header not found for {}",
+				target: LOG_TARGET, "Vetoing state commitment for {} on {}: block header not found for {}",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id,
 				event.latest_height
@@ -472,7 +452,7 @@ where
 
 		if finalized_state_commitment.state_root != state_root.into() {
 			log::info!(
-				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: LOG_TARGET, "Vetoing state commitment for {} on {}, state commitment mismatch",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id
 			);

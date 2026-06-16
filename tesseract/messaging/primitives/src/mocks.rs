@@ -1,6 +1,7 @@
 use crate::{
-	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
-	Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult, WithdrawFundsResult,
+	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost,
+	IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult,
+	WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -10,7 +11,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
+use pallet_ismp_relayer::withdrawal::WithdrawalProof;
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
 use std::{
@@ -22,6 +23,17 @@ pub struct MockHost<C> {
 	pub consensus_state: Arc<Mutex<C>>,
 	pub latest_height: Arc<Mutex<u64>>,
 	pub state_machine: StateMachine,
+	/// Records batches passed to [`IsmpProvider::submit`]. Callers can clone and
+	/// inspect to assert on what the code under test sent.
+	pub submitted: Arc<Mutex<Vec<Vec<Message>>>>,
+	/// When false, [`IsmpProvider::query_requests_proof`] returns an error.
+	pub request_proof_ok: Arc<Mutex<bool>>,
+	/// The address returned by [`IsmpProvider::address`].
+	pub address: Arc<Mutex<Vec<u8>>>,
+	/// The name returned by [`IsmpProvider::name`].
+	pub name: Arc<Mutex<String>>,
+	/// The consensus state id embedded in [`IsmpProvider::state_machine_id`].
+	pub consensus_state_id: Arc<Mutex<ConsensusStateId>>,
 }
 
 impl<C> MockHost<C> {
@@ -30,7 +42,37 @@ impl<C> MockHost<C> {
 			consensus_state: Arc::new(Mutex::new(consensus_state)),
 			latest_height: Arc::new(Mutex::new(latest_height)),
 			state_machine,
+			submitted: Arc::new(Mutex::new(Vec::new())),
+			request_proof_ok: Arc::new(Mutex::new(true)),
+			address: Arc::new(Mutex::new(Vec::new())),
+			name: Arc::new(Mutex::new("Mock".to_string())),
+			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
 		}
+	}
+
+	/// Clone of the submission log since the mock was created.
+	pub fn submissions(&self) -> Vec<Vec<Message>> {
+		self.submitted.lock().unwrap().clone()
+	}
+
+	pub fn with_request_proof_fail(self) -> Self {
+		*self.request_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_address(self, address: Vec<u8>) -> Self {
+		*self.address.lock().unwrap() = address;
+		self
+	}
+
+	pub fn with_name(self, name: impl Into<String>) -> Self {
+		*self.name.lock().unwrap() = name.into();
+		self
+	}
+
+	pub fn with_consensus_state_id(self, id: ConsensusStateId) -> Self {
+		*self.consensus_state_id.lock().unwrap() = id;
+		self
 	}
 }
 
@@ -48,8 +90,12 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 		Err(anyhow!("Unimplemented"))
 	}
 
-	async fn check_claimed(&self, _key: Key) -> anyhow::Result<bool> {
+	async fn check_claimed(&self, _commitment: H256) -> anyhow::Result<bool> {
 		Ok(false)
+	}
+
+	async fn relayer_nonce(&self, _address: Vec<u8>, _chain: StateMachine) -> anyhow::Result<u64> {
+		Ok(0)
 	}
 }
 
@@ -133,16 +179,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		_keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		Ok(Default::default())
-	}
-
-	async fn query_responses_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Query>,
-		_counterparty: StateMachine,
-	) -> Result<Vec<u8>, Error> {
-		Ok(Default::default())
+		if *self.request_proof_ok.lock().unwrap() {
+			Ok(Default::default())
+		} else {
+			Err(anyhow!("mock: request proof failure"))
+		}
 	}
 
 	async fn query_state_proof(
@@ -162,11 +203,18 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	fn name(&self) -> String {
-		"Mock".to_string()
+		self.name.lock().unwrap().clone()
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
-		StateMachineId { state_id: self.state_machine, consensus_state_id: *b"Mock" }
+		StateMachineId {
+			state_id: self.state_machine,
+			consensus_state_id: *self.consensus_state_id.lock().unwrap(),
+		}
+	}
+
+	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
+		None
 	}
 
 	fn block_max_gas(&self) -> u64 {
@@ -179,9 +227,18 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 
 	async fn estimate_gas(
 		&self,
-		_msg: Vec<Message>,
+		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
-		todo!()
+		// Default: every message executes successfully at zero cost. Tests that
+		// need to exercise the unprofitable path should override behaviour via
+		// a dedicated flag rather than relying on this stub.
+		Ok(msg
+			.into_iter()
+			.map(|_| EstimateGasReturnParams {
+				execution_cost: Cost::default(),
+				successful_execution: true,
+			})
+			.collect())
 	}
 
 	async fn query_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
@@ -205,10 +262,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 
 	async fn submit(
 		&self,
-		_messages: Vec<Message>,
+		messages: Vec<Message>,
 		_coprocessor: StateMachine,
 	) -> Result<TxResult, Error> {
-		todo!()
+		self.submitted.lock().unwrap().push(messages);
+		Ok(TxResult::default())
 	}
 
 	fn request_commitment_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
@@ -219,16 +277,8 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Default::default()
 	}
 
-	fn response_commitment_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
-		Default::default()
-	}
-
-	fn response_receipt_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
-		Default::default()
-	}
-
 	fn address(&self) -> Vec<u8> {
-		Default::default()
+		self.address.lock().unwrap().clone()
 	}
 
 	fn sign(&self, _msg: &[u8]) -> Signature {
@@ -249,10 +299,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
-		Ok(U256::from(1))
-	}
-
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
 		todo!()
 	}
@@ -260,7 +306,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn query_host_params(
 		&self,
 		_state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		todo!()
 	}
 
@@ -269,11 +315,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		todo!()
+		Ok(Default::default())
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
-		todo!()
+		Ok(18)
 	}
 }
 
@@ -283,6 +329,11 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			consensus_state: self.consensus_state.clone(),
 			latest_height: self.latest_height.clone(),
 			state_machine: self.state_machine.clone(),
+			submitted: self.submitted.clone(),
+			request_proof_ok: self.request_proof_ok.clone(),
+			address: self.address.clone(),
+			name: self.name.clone(),
+			consensus_state_id: self.consensus_state_id.clone(),
 		}
 	}
 }

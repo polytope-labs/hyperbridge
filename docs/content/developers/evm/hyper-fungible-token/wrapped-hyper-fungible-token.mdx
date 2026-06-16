@@ -1,0 +1,209 @@
+---
+title: WrappedHyperFungibleToken
+description: Deploying and configuring lock/unlock WrappedHyperFungibleToken contracts on the home chain.
+---
+
+# WrappedHyperFungibleToken
+
+Deploy this on the token's **home chain** where the canonical ERC20 supply lives. The wrapper custodies the underlying token without minting any new supply — it locks tokens when users bridge out and unlocks them when users bridge back. No pre-funding is required.
+
+For WETH wrappers (`isWeth = true`), users can send native ETH/BNB directly via `msg.value` and the contract wraps it automatically. On receive, the contract unwraps WETH and sends native tokens to the recipient. On timeout, the contract unwraps and refunds native tokens.
+
+## Deployment
+
+<Steps>
+<Step>
+### Deploy with CREATE2
+
+```solidity lineNumbers
+import {WrappedHyperFungibleToken} from "@hyperbridge/core/apps/WrappedHyperFungibleToken.sol";
+
+bytes32 salt = keccak256("my-token-v1");
+WrappedHyperFungibleToken wrapper = new WrappedHyperFungibleToken{salt: salt}(msg.sender);
+```
+</Step>
+<Step>
+### Configure
+
+Set the ISMP host, CallDispatcher, the underlying ERC20 token, and whether it's a WETH contract. The host address is immutable after the first `configure` call.
+
+```solidity lineNumbers
+import {IWrappedHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+IWrappedHyperFungibleToken(address(wrapper)).configure(
+    IWrappedHyperFungibleToken.WrappedConfigOptions({
+        host: ISMP_HOST_ADDRESS,
+        dispatcher: CALL_DISPATCHER_ADDRESS,
+        underlying: USDC_ADDRESS,
+        isWeth: false
+    })
+);
+```
+
+Find the `IsmpHost` address for your chain on the [contract addresses](/developers/evm/contract-addresses/mainnet) page. Existing `CallDispatcher` deployments are also listed there.
+
+**WETH example:**
+
+```solidity lineNumbers
+IWrappedHyperFungibleToken(address(wrapper)).configure(
+    IWrappedHyperFungibleToken.WrappedConfigOptions({
+        host: ISMP_HOST_ADDRESS,
+        dispatcher: CALL_DISPATCHER_ADDRESS,
+        underlying: WETH_ADDRESS,
+        isWeth: true
+    })
+);
+```
+</Step>
+<Step>
+### Register peer chains
+
+Each contract must know the address of its peer on every destination chain. **Both sides must register each other** — this is how the contracts verify the authenticity of incoming cross-chain messages.
+
+```solidity lineNumbers
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+// Register the HFT peer on Arbitrum
+IHyperFungibleToken(address(wrapper)).addChain(
+    StateMachine.evm(42161),
+    abi.encodePacked(arbitrumHftAddress)
+);
+```
+
+For substrate chain peers, the module ID is the pallet's 8-byte ID:
+
+```solidity lineNumbers
+IHyperFungibleToken(address(wrapper)).addChain(
+    StateMachine.polkadot(paraId),
+    abi.encodePacked(bytes8("pall_hft"))
+);
+```
+</Step>
+</Steps>
+
+## Sending Tokens
+
+### ERC20 Mode
+
+Users approve the wrapper then call `send()`:
+
+```solidity lineNumbers
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+// Approve the underlying token
+IERC20(underlying).approve(address(wrapper), amount);
+
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee required for dispatching the transfer
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quote(params);
+// Lock tokens and dispatch cross-chain transfer
+IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(params);
+```
+
+To pay fees in the host's fee token instead, send with `msg.value = 0`. The contract pulls fee tokens from the caller via `transferFrom`:
+
+```solidity lineNumbers
+import {IDispatcher} from "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
+
+// Approve the underlying token
+IERC20(underlying).approve(address(wrapper), amount);
+
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the fee token amount required for dispatching the transfer
+uint256 feeTokenAmount = IHyperFungibleToken(address(wrapper)).quote(params);
+address feeToken = IDispatcher(host()).feeToken();
+// Approve the fee token transfer from the caller
+IERC20(feeToken).approve(address(wrapper), feeTokenAmount);
+// Dispatch the transfer, fees will be withdrawn from the caller
+IHyperFungibleToken(address(wrapper)).send(params);
+```
+
+### WETH Mode
+
+When `isWeth = true`, users send native ETH/BNB via `msg.value`. The value must cover both the token amount and the native fee:
+
+```solidity lineNumbers
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quote(params);
+// msg.value = amount + nativeFee
+// The contract wraps `amount` via WETH.deposit() and forwards the remainder as fee payment
+IHyperFungibleToken(address(wrapper)).send{value: amount + nativeFee}(params);
+```
+
+To pay fees in fee token instead of native in WETH mode, set `msg.value = amount` (just the wrap amount, no fee surplus).
+
+For a higher-level experience, the [TypeScript SDK](/developers/sdk/hyper-fungible-token) handles fee estimation, token approvals, and decimal scaling automatically.
+
+### Calldata Execution
+
+Pass a non-empty `data` field to execute arbitrary calls on the destination chain after tokens are unlocked. The `data` must be an ABI-encoded `Call[]` array (see [overview](/developers/evm/hyper-fungible-token/overview#calldata-execution) for the full `Call` struct and security details).
+
+When `isWeth = true`, the WrappedHFT unwraps WETH to native ETH on receive. This example bridges WETH back to the home chain, where it's unwrapped to native ETH and swapped for an exact amount of USDC via UniswapV2. The `Call.value` field forwards the native ETH to the router — demonstrating that the `CallDispatcher` can hold and forward native tokens:
+
+```solidity lineNumbers
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+
+address[] memory path = new address[](2);
+path[0] = WETH;
+path[1] = USDC;
+
+Call[] memory calls = new Call[](1);
+
+// Swap native ETH → exact USDC via UniswapV2
+// The CallDispatcher holds the unwrapped ETH and forwards it via Call.value
+calls[0] = Call({
+    to: UNISWAP_V2_ROUTER,
+    // forward the native ETH to the router
+    value: amount,
+    data: abi.encodeWithSelector(
+        IUniswapV2Router02.swapETHForExactTokens.selector,
+        usdcAmountOut,
+        path,
+        recipientAddress,
+        block.timestamp
+    )
+});
+
+IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(
+    IHyperFungibleToken.SendParams({
+        dest: StateMachine.evm(1),
+        // unlock to the CallDispatcher so it receives the unwrapped ETH
+        to: abi.encodePacked(CALL_DISPATCHER),
+        amount: amount,
+        timeout: 3600,
+        relayerFee: relayerFee,
+        data: abi.encode(calls)
+    })
+);
+```
+
+Tokens are unlocked (or unwrapped for WETH) to `to` first, then the `CallDispatcher` executes each call in sequence. Setting `to` to the `CallDispatcher` address ensures the dispatcher holds the tokens (or native ETH) so subsequent calls can spend them via `Call.value` or ERC20 transfers.
+
+## Related
+
+- [API Reference](/developers/evm/api/wrapped-hyper-fungible-token) — Full method signatures
+- [HyperFungibleToken](/developers/evm/hyper-fungible-token/hyper-fungible-token) — Burn/mint token for remote chains
+- [Overview](/developers/evm/hyper-fungible-token/overview) — Architecture, message format, and security model

@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -57,6 +57,6 @@ sp_api::decl_runtime_apis! {
 		fn requests(request_commitments: Vec<H256>) -> Vec<Request>;
 
 		/// Fetch the responses for the given commitments.
-		fn responses(response_commitments: Vec<H256>) -> Vec<Response>;
+		fn responses(response_commitments: Vec<H256>) -> Vec<GetResponse>;
 	}
 }

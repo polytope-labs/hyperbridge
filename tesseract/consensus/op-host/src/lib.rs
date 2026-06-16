@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-op-host";
+
 use abi::{DisputeGameFactory, FaultDisputeGame, L2OutputOracle};
 use alloy::{
 	eips::BlockId,
@@ -12,8 +15,9 @@ use anyhow::anyhow;
 use geth_primitives::{alloy_u256_to_primitive, Header};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
-	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof,
-	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
+	calculate_output_root, get_game_uuid, DisputeGameImpl, GameTypeConfig,
+	OptimismDisputeGameProof, OptimismPayloadProof, AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
+	DISPUTE_GAMES_SLOT, FAULT_DISPUTE_CLAIM_DATA_SLOT, GAME_IMPLS_SLOT, L2_OUTPUTS_SLOT,
 };
 use primitive_types::{H160, H256, U256};
 use reqwest::Client;
@@ -26,7 +30,7 @@ use sync_committee_prover::middleware::SwitchProviderMiddleware;
 use tesseract_evm::{derive_map_key, AlloyProvider, AlloySignerProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
-mod abi;
+pub mod abi;
 mod host;
 
 #[cfg(test)]
@@ -35,10 +39,8 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
 	/// OpStack Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
-	/// General Evm client config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +60,11 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: String,
+	/// Consensus state id used by this op-host consensus client. Always
+	/// overrides the paired `EvmConfig.consensus_state_id` for both the
+	/// host's own queries **and** the underlying `EvmClient` provider, so the
+	/// messaging and consensus paths agree on the same id.
+	pub consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
@@ -77,15 +84,12 @@ pub struct ProposerConfig {
 }
 
 impl OpConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = OpHost::new(&self.host, &self.evm_config).await?;
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client = OpHost::new(&self.host, &evm_config).await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 
@@ -105,6 +109,10 @@ pub struct OpHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
+	/// Resolved IsmpHost contract address on this host's chain.
+	pub ismp_host: H160,
 	/// Consensus state id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -132,15 +140,98 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 	pos.into()
 }
 
+/// Whether the game's "not challenged" storage slot, read as a 32-byte big-endian word,
+/// indicates the game has been challenged. `OPSuccinct` games have no challenge mechanism and
+/// are never challenged. For the other two kinds the check follows the verifier's on-chain
+/// contract layouts exactly so filtered games are precisely those that `verify_not_challenged`
+/// would reject.
+pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives::U256) -> bool {
+	const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
+	match kind {
+		DisputeGameImpl::OPSuccinct => false,
+		DisputeGameImpl::FaultDisputeGame => {
+			// claimData[0] packs (uint32 parentIndex, address counteredBy, ...) with
+			// counteredBy at bytes [8..28] of the 32-byte word viewed big-endian.
+			let bytes = slot_value.to_be_bytes::<32>();
+			&bytes[8..28] != ZERO_ADDRESS.as_slice()
+		},
+		// `counteredByIntermediateRootIndexPlusOne == 0` iff unchallenged.
+		DisputeGameImpl::AggregateVerifier => !slot_value.is_zero(),
+	}
+}
+
+/// The storage slot(s) to prove on the game proxy to establish "not challenged". Returned as
+/// `B256` keys for `eth_getProof`. Empty for `OPSuccinct` games, which have no challenge state.
+pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
+	match kind {
+		DisputeGameImpl::OPSuccinct => Vec::new(),
+		DisputeGameImpl::FaultDisputeGame => {
+			// claimData[0] lives at keccak256(abi.encode(claimDataSlot)).
+			let slot = U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian();
+			let hash = keccak_256(&slot);
+			vec![B256::from_slice(&hash)]
+		},
+		DisputeGameImpl::AggregateVerifier => {
+			let mut key = [0u8; 32];
+			key[24..].copy_from_slice(&AGGREGATE_VERIFIER_COUNTERED_BY_SLOT.to_be_bytes());
+			vec![B256::from_slice(&key)]
+		},
+	}
+}
+
+/// Fetch the storage root of `addr` at `block` by racing `eth_getProof` and `eth_getAccount`
+/// concurrently and returning whichever resolves `Ok` first. Only the account's storage root is
+/// needed (not a merkle proof). `eth_getAccount` is cheaper, but it isn't supported on every
+/// chain, while `eth_getProof` is more widely available — running both in parallel keeps us
+/// working regardless of which the endpoint implements. Errors only if both fail.
+pub(crate) async fn fetch_storage_root(
+	provider: &AlloyProvider,
+	addr: Address,
+	block: u64,
+) -> Result<B256, anyhow::Error> {
+	use futures::future::{select_ok, FutureExt};
+
+	let via_proof = async move {
+		let proof = provider.get_proof(addr, vec![]).block_id(block.into()).await?;
+		Ok::<B256, anyhow::Error>(proof.storage_hash)
+	}
+	.boxed();
+
+	let via_account = async move {
+		let account = provider.get_account(addr).block_id(block.into()).await?;
+		Ok::<B256, anyhow::Error>(account.storage_root)
+	}
+	.boxed();
+
+	let (root, _) = select_ok([via_proof, via_account]).await.map_err(|e| {
+		anyhow!("eth_getProof and eth_getAccount both failed for {addr:?} at block {block}: {e:?}")
+	})?;
+	Ok(root)
+}
+
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		// Always overwrite the EvmConfig's consensus state id with the
+		// host-level value so the underlying `EvmClient` and the op-host
+		// agree on the same id.
+		let evm_owned = {
+			let mut evm_override = evm.clone();
+			evm_override.consensus_state_id = Some(host.consensus_state_id.clone());
+			evm_override
+		};
+		let evm: &EvmConfig = &evm_owned;
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
 		let l1_chain_id = beacon_client.get_chain_id().await?;
 		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let ismp_host = inner.ismp_host;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		let (proposer, beacon_consensus_client) =
 			if let Some(proposer_config) = host.proposer_config.clone() {
@@ -183,11 +274,9 @@ impl OpHost {
 			message_parser: host.message_parser,
 			evm: evm.clone(),
 			host: host.clone(),
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
+			state_machine,
+			ismp_host,
+			consensus_state_id,
 			provider,
 			proposer,
 			l1_state_machine,
@@ -208,9 +297,9 @@ impl OpHost {
 		if from > to {
 			return Ok(None);
 		}
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let filter = Filter::new().address(oracle_addr).from_block(from).to_block(to);
 
@@ -231,13 +320,13 @@ impl OpHost {
 		&self,
 		from: u64,
 		to: u64,
-		respected_game_types: Vec<u32>,
+		game_type_configs: Vec<GameTypeConfig>,
 	) -> Result<Vec<DisputeGameFactory::DisputeGameCreated>, anyhow::Error> {
 		if from > to {
 			return Ok(Default::default());
 		}
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		let factory_addr = Address::from_slice(&dispute_game_factory.0);
@@ -245,12 +334,43 @@ impl OpHost {
 
 		let logs = self.beacon_execution_client.get_logs(&filter).await?;
 
-		let events: Vec<DisputeGameFactory::DisputeGameCreated> = logs
+		let candidates: Vec<DisputeGameFactory::DisputeGameCreated> = logs
 			.into_iter()
 			.filter_map(|log| DisputeGameFactory::DisputeGameCreated::decode_log(&log.inner).ok())
 			.map(|log| log.data)
-			.filter(|a| respected_game_types.contains(&a.gameType))
+			.filter(|a| game_type_configs.iter().any(|c| c.game_type == a.gameType))
 			.collect();
+
+		// Drop events whose game has already been challenged — they will always fail
+		// verification downstream, so there's no point carrying them further. Reads the proxy's
+		// "not challenged" storage slot directly via `eth_getStorageAt` (cheaper than
+		// `eth_getProof`, which `fetch_dispute_game_payload` does anyway for payloads we keep).
+		let mut events = Vec::with_capacity(candidates.len());
+		for event in candidates {
+			let Some(config) = game_type_configs.iter().find(|c| c.game_type == event.gameType)
+			else {
+				continue;
+			};
+			let challenged = match challenge_slot_keys(&config.kind).first() {
+				None => false,
+				Some(slot) => {
+					let value = self
+						.beacon_execution_client
+						.get_storage_at(
+							event.disputeProxy,
+							alloy::primitives::U256::from_be_slice(slot.as_slice()),
+						)
+						.block_id(to.into())
+						.await?;
+					game_is_challenged(&config.kind, value)
+				},
+			};
+			if challenged {
+				log::trace!(target: LOG_TARGET, "Skipping challenged dispute game {:?} (game_type {})", event.disputeProxy, event.gameType);
+				continue;
+			}
+			events.push(event);
+		}
 
 		Ok(events)
 	}
@@ -258,35 +378,71 @@ impl OpHost {
 	pub async fn fetch_dispute_game_payload(
 		&self,
 		at: u64,
-		respected_game_types: Vec<u32>,
+		game_type_configs: Vec<GameTypeConfig>,
 		events: Vec<DisputeGameFactory::DisputeGameCreated>,
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		for event in events {
 			let proxy_addr = event.disputeProxy;
 			let contract = FaultDisputeGame::new(proxy_addr, &*self.beacon_execution_client);
 
-			let extra_data = contract.extraData().block(BlockId::latest()).call().await?;
-			let timestamp = contract.createdAt().block(BlockId::latest()).call().await?;
-			let l2_block_number =
-				contract.l2SequenceNumber().block(BlockId::latest()).call().await?;
+			// A single un-provable game (e.g. one whose backing L2 block is older than the RPC's
+			// proof window, or any transient per-game RPC error) must not abort the whole batch —
+			// otherwise once the relayer falls behind, the oldest game in the L1 range poisons
+			// every update and consensus can never make progress. Skip such games and let the
+			// newest provable one produce the update.
+			let extra_data = match contract.extraData().block(BlockId::latest()).call().await {
+				Ok(v) => v,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): extraData() failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
+			let timestamp = match contract.createdAt().block(BlockId::latest()).call().await {
+				Ok(v) => v,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): createdAt() failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
+
+			// All game types we support lay out their `extraData` with the L2 block number as
+			// the first 32 bytes: Cannon encodes it alone, AggregateVerifier prefixes it before
+			// the intermediate roots and final root claim. Decoding here avoids depending on
+			// a top-level `l2SequenceNumber()` getter that not every implementation exposes.
+			if extra_data.len() < 32 {
+				log::trace!(target: LOG_TARGET, "Skipping dispute game with extraData shorter than 32 bytes ({} bytes)", extra_data.len());
+				continue;
+			}
+			let l2_block_num = alloy::primitives::U256::from_be_slice(&extra_data[..32])
+				.try_into()
+				.unwrap_or(u64::MAX);
 
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
-			let current_block = self.op_execution_client.get_block_number().await?;
-			if alloy_u256_to_primitive(l2_block_number).as_u64() > current_block {
-				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
+			let current_block = match self.op_execution_client.get_block_number().await {
+				Ok(v) => v,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): fetching L2 head failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
+			if l2_block_num > current_block {
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with a block number that does not exist {l2_block_num}");
 				continue;
 			}
 
-			if !respected_game_types.contains(&event.gameType) {
-				log::trace!(target: "tesseract", "Found a dispute game event with wrong game type {}", event.gameType);
-				continue;
-			}
+			let config = match game_type_configs.iter().find(|c| c.game_type == event.gameType) {
+				Some(config) => config.clone(),
+				None => {
+					log::trace!(target: LOG_TARGET, "Found a dispute game event with wrong game type {}", event.gameType);
+					continue;
+				},
+			};
 
 			let game_uuid = get_game_uuid::<Hasher>(
 				event.gameType,
@@ -295,55 +451,123 @@ impl OpHost {
 			);
 			let dispute_game_key = derive_map_key(game_uuid.0.to_vec(), DISPUTE_GAMES_SLOT);
 
+			// Build the key for gameImpls[game_type]: keccak256(keccak256(padded_u32 . slot)).
+			let game_impl_key = {
+				let mut k = vec![0u8; 32];
+				k[28..].copy_from_slice(&event.gameType.to_be_bytes());
+				derive_map_key(k, GAME_IMPLS_SLOT)
+			};
+
 			let factory_addr = Address::from_slice(&dispute_game_factory.0);
-			let proof = self
+			let factory_proof = match self
 				.beacon_execution_client
-				.get_proof(factory_addr, vec![B256::from_slice(&dispute_game_key.0)])
+				.get_proof(
+					factory_addr,
+					vec![B256::from_slice(&dispute_game_key.0), B256::from_slice(&game_impl_key.0)],
+				)
 				.block_id(at.into())
-				.await?;
+				.await
+			{
+				Ok(v) => v,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): factory get_proof failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
 
-			let dispute_game_proof = proof
-				.storage_proof
-				.first()
+			let Some(dispute_game_storage) = factory_proof.storage_proof.get(0).cloned() else {
+				log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for dispute game slot", event.gameType);
+				continue;
+			};
+			let dispute_game_proof =
+				dispute_game_storage.proof.into_iter().map(|node| node.to_vec()).collect();
+
+			let Some(game_impl_storage) = factory_proof.storage_proof.get(1).cloned() else {
+				log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for gameImpls[gameType]", event.gameType);
+				continue;
+			};
+			let game_impl_proof =
+				game_impl_storage.proof.into_iter().map(|node| node.to_vec()).collect();
+
+			// Account + storage proof for the proxy's "not challenged" slot.
+			let challenge_slots = challenge_slot_keys(&config.kind);
+			let proxy_proof = match self
+				.beacon_execution_client
+				.get_proof(proxy_addr, challenge_slots.clone())
+				.block_id(at.into())
+				.await
+			{
+				Ok(v) => v,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): proxy get_proof failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
+			let proxy_account_proof = proxy_proof
+				.account_proof
+				.iter()
 				.cloned()
-				.ok_or_else(|| anyhow!("Storage proof not found for dispute game"))?
-				.proof
-				.into_iter()
-				.map(|node| node.to_vec())
-				.collect();
+				.map(|n| n.to_vec())
+				.collect::<Vec<_>>();
+			let challenge_proof = if challenge_slots.is_empty() {
+				Vec::new()
+			} else {
+				let Some(challenge_storage) = proxy_proof.storage_proof.get(0).cloned() else {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): storage proof missing for challenge slot", event.gameType);
+					continue;
+				};
+				challenge_storage.proof.into_iter().map(|node| node.to_vec()).collect()
+			};
 
-			let l2_block_num = alloy_u256_to_primitive(l2_block_number).as_u64();
-			let block = self
+			let block = match self
 				.op_execution_client
 				.get_block(BlockId::number(l2_block_num))
-				.await?
-				.ok_or_else(|| {
-					anyhow!(
-						"{:?} Header not found for {:?}",
-						self.evm.state_machine,
-						l2_block_number
-					)
-				})?;
+				.await
+			{
+				Ok(Some(b)) => b,
+				Ok(None) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): header not found for L2 block {l2_block_num}", event.gameType);
+					continue;
+				},
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): get_block for L2 block {l2_block_num} failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
 
 			let header = block.into();
 			let l2_block_hash = Header::from(&header).hash::<Hasher>();
 			let message_parser_addr = Address::from_slice(&self.message_parser.0);
-			let message_parser_proof = self
-				.op_execution_client
-				.get_proof(message_parser_addr, vec![])
-				.block_id(l2_block_num.into())
-				.await?;
+			// We only need the message-parser account's storage root, not a merkle proof. Race
+			// `eth_getProof` and `eth_getAccount` and take whichever returns first.
+			let withdrawal_storage_root = match fetch_storage_root(
+				&self.op_execution_client,
+				message_parser_addr,
+				l2_block_num,
+			)
+			.await
+			{
+				Ok(root) => root,
+				Err(e) => {
+					log::warn!(target: LOG_TARGET, "Skipping dispute game {proxy_addr:?} (game_type {}): message-parser storage root at L2 block {l2_block_num} failed: {e:?}", event.gameType);
+					continue;
+				},
+			};
 
 			let payload = OptimismDisputeGameProof {
-				withdrawal_storage_root: message_parser_proof.storage_hash.0.into(),
+				withdrawal_storage_root: withdrawal_storage_root.0.into(),
 				// Version bytes is still the default value
 				version: H256::zero(),
-				dispute_factory_proof: proof
+				dispute_factory_proof: factory_proof
 					.account_proof
-					.into_iter()
+					.iter()
+					.cloned()
 					.map(|node| node.to_vec())
 					.collect(),
 				dispute_game_proof,
+				game_impl_proof,
+				proxy_account_proof,
+				challenge_proof,
 				timestamp,
 				header,
 				proxy: proxy_addr.0 .0.into(),
@@ -360,7 +584,7 @@ impl OpHost {
 			);
 
 			if output_root.0 != event.rootClaim.0 {
-				log::trace!(target: "tesseract", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
 				continue;
 			}
 
@@ -382,9 +606,9 @@ impl OpHost {
 
 		let output_roots_key = derive_array_item_key(l2_output_index, 0);
 		let timestamp_and_block_proof = derive_array_item_key(l2_output_index, 1);
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let proof = self
@@ -428,15 +652,15 @@ impl OpHost {
 			.ok_or_else(|| anyhow!("Header not found for {:?}", l2_block_number))?;
 
 		let message_parser_addr = Address::from_slice(&self.message_parser.0);
-		let message_parser_proof = self
-			.op_execution_client
-			.get_proof(message_parser_addr, vec![])
-			.block_id(l2_block_number.into())
-			.await?;
+		// We only need the message-parser account's storage root, not a merkle proof. Race
+		// `eth_getProof` and `eth_getAccount` and take whichever returns first.
+		let withdrawal_storage_root =
+			fetch_storage_root(&self.op_execution_client, message_parser_addr, l2_block_number)
+				.await?;
 
 		let payload = OptimismPayloadProof {
 			state_root: block.header.state_root.0.into(),
-			withdrawal_storage_root: message_parser_proof.storage_hash.0.into(),
+			withdrawal_storage_root: withdrawal_storage_root.0.into(),
 			l2_block_hash: block.header.hash.0.into(),
 			// Version bytes is still the default value
 			version: H256::zero(),

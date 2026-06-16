@@ -127,7 +127,7 @@ where
 		mmr_gadget::MmrGadget::start(
 			client.clone(),
 			backend.clone(),
-			sp_mmr_primitives::INDEXING_PREFIX.to_vec(),
+			mmr_primitives::INDEXING_PREFIX.to_vec(),
 		),
 	);
 
@@ -169,18 +169,24 @@ where
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
 #[sc_tracing::logging::prefix_logs_with("Parachain")]
-async fn start_node_impl<Runtime>(
+async fn start_node_impl<Runtime, T, Extra>(
 	parachain_config: Configuration,
 	polkadot_config: Configuration,
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
 	Runtime::RuntimeApi: BaseHostRuntimeApis,
 	sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
 		sc_client_api::StateBackend<Keccak256>,
+	T: pallet_intents_rpc::pallet_intents_coprocessor::Config + Send + 'static,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_rpc::pallet_intents_coprocessor::Call<T>>
+		+ codec::Decode,
+	T::AccountId: codec::Encode + From<[u8; 32]>,
+	Extra: codec::Decode + Send + 'static,
 {
 	let parachain_config = prepare_node_config(parachain_config);
 	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
@@ -213,6 +219,32 @@ where
 	let prometheus_registry = parachain_config.prometheus_registry().cloned();
 	let transaction_pool = params.transaction_pool.clone();
 	let import_queue_service = params.import_queue.service();
+
+	// Collators run the fisherman, non authorities skip it. Preflight the
+	// config now so a misconfigured operator fails before any chain init.
+	// The actual provider construction is deferred until after
+	// `sc_service::spawn_tasks` opens the local RPC port, because the
+	// fisherman dials `[hyperbridge].rpc_ws` and on a normal collator that
+	// URL points back at this same node.
+	let fisherman_path = if validator {
+		let path = tesseract_config.clone().ok_or_else(|| {
+			sc_service::Error::Other(
+				"--tesseract-config is required when running as a collator/authority".to_string(),
+			)
+		})?;
+		hyperbridge_fisherman::load_and_validate(&path)
+			.await
+			.map_err(|e| sc_service::Error::Other(format!("invalid tesseract config: {e:?}")))?;
+		Some(path)
+	} else {
+		if tesseract_config.is_some() {
+			log::info!(
+				target: "fisherman",
+				"--tesseract-config provided to a non-authority node; ignoring (fisherman only runs on collators)",
+			);
+		}
+		None
+	};
 
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		build_network(BuildNetworkParams {
@@ -254,19 +286,38 @@ where
 		);
 	}
 
+	let bid_cache = Arc::new(pallet_intents_rpc::BidCache::new(Duration::from_secs(300)));
+	let (bid_sender, _) = tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+	task_manager.spawn_handle().spawn(
+		"intents-bid-watcher",
+		"intents",
+		pallet_intents_rpc::run_bid_watcher::<_, _, T, Extra>(
+			transaction_pool.clone(),
+			bid_cache.clone(),
+			bid_sender.clone(),
+			Duration::from_secs(60),
+		),
+	);
+
 	let rpc_builder = {
 		let client = client.clone();
 		let backend = backend.clone();
 		let transaction_pool = transaction_pool.clone();
+		let bid_cache = bid_cache.clone();
+		let bid_sender = bid_sender.clone();
 
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: transaction_pool.clone(),
 				backend: backend.clone(),
+				bid_cache: bid_cache.clone(),
+				bid_sender: bid_sender.clone(),
 			};
 
-			crate::rpc::create_full(deps).map_err(Into::into)
+			let module = crate::rpc::create_full(deps)?;
+			Ok(module)
 		})
 	};
 
@@ -285,6 +336,25 @@ where
 		telemetry: telemetry.as_mut(),
 		tracing_execute_block: None,
 	})?;
+
+	// The local RPC server is up now, but until this node has finished
+	// syncing that RPC serves stale chain state. Defer the fisherman spawn
+	// behind a sync-status watcher so it dials `[hyperbridge].rpc_ws` and
+	// builds its providers only once the node has caught up. The config was
+	// already validated above, so a bad config still fails fast.
+	if let Some(path) = fisherman_path {
+		let sync_service = sync_service.clone();
+		hyperbridge_fisherman::spawn_when_synced(&task_manager, path, move || {
+			let sync_service = sync_service.clone();
+			async move {
+				sync_service.num_connected_peers() > 0 &&
+					matches!(
+						sync_service.status().await,
+						Ok(status) if !status.state.is_major_syncing()
+					)
+			}
+		});
+	}
 
 	if let Some(hwbench) = hwbench {
 		sc_sysinfo::print_hwbench(&hwbench);
@@ -451,23 +521,8 @@ where
 		client.clone(),
 	);
 
-	let (client_clone, relay_chain_interface_clone) =
-		(client.clone(), relay_chain_interface.clone());
 	let params = lookahead::Params {
-		create_inherent_data_providers: move |parent, ()| {
-			let client = client_clone.clone();
-			let relay_chain_interface = relay_chain_interface_clone.clone();
-			async move {
-				let inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
-					parent,
-					client,
-					relay_chain_interface,
-				)
-				.await?;
-
-				Ok(inherent)
-			}
-		},
+		create_inherent_data_providers: move |_parent, ()| async move { Ok(()) },
 		block_import,
 		para_client: client.clone(),
 		para_backend: backend,
@@ -513,24 +568,35 @@ pub async fn start_parachain_node(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
-			start_node_impl::<gargantua_runtime::RuntimeApi>(
+			start_node_impl::<
+				gargantua_runtime::RuntimeApi,
+				gargantua_runtime::Runtime,
+				gargantua_runtime::SignedExtra,
+			>(
 				parachain_config,
 				polkadot_config,
 				collator_options,
 				para_id,
 				hwbench,
+				tesseract_config,
 			)
 			.await,
 		chain if chain.contains("nexus") =>
-			start_node_impl::<nexus_runtime::RuntimeApi>(
+			start_node_impl::<
+				nexus_runtime::RuntimeApi,
+				nexus_runtime::Runtime,
+				nexus_runtime::SignedExtra,
+			>(
 				parachain_config,
 				polkadot_config,
 				collator_options,
 				para_id,
 				hwbench,
+				tesseract_config,
 			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),

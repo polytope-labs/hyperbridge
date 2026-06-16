@@ -20,22 +20,27 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
+use alloc::{
+	collections::BTreeMap,
+	format,
+	string::{String, ToString},
+	vec::Vec,
+};
 use codec::{Decode, Encode};
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
-use frame_support::{ensure, traits::Get};
+use frame_support::traits::Get;
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, hash_response, Proof},
-	router::{Request, RequestResponse, Response},
+	messaging::Proof,
 };
 use pallet_ismp::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+	child_trie::{RequestCommitments, RequestReceipts},
 	ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID,
 };
 use polkadot_sdk::*;
+use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
@@ -43,7 +48,35 @@ use sp_runtime::{
 	Digest, DigestItem,
 };
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
+use thiserror::Error as ThisError;
 use trie_db::TrieError;
+
+/// Errors produced by the substrate state machine client.
+#[derive(Debug, ThisError)]
+pub enum SubstrateStateMachineError {
+	/// Failed to SCALE-decode the supplied proof.
+	#[error("Failed to decode proof: {0:?}")]
+	ProofDecodeError(codec::Error),
+	/// The state commitment doesn't include the child trie root, and the request
+	/// state machine is not the coprocessor.
+	#[error("Child trie root is not available for provided state commitment")]
+	MissingChildTrieRoot,
+	/// The trie backend returned an error while reading a key.
+	#[error("Trie error: {0}")]
+	TrieError(String),
+	/// A membership proof omitted the value for one of the requested keys.
+	#[error("Every key in a membership proof should have a value, found a key {0:?} with None")]
+	MissingMembershipValue(Vec<u8>),
+	/// A non-membership proof contained at least one delivered request.
+	#[error("Some Requests in the batch have been delivered")]
+	DeliveredRequestsInBatch,
+}
+
+impl From<SubstrateStateMachineError> for Error {
+	fn from(e: SubstrateStateMachineError) -> Error {
+		Error::AnyHow(anyhow::Error::new(e).into())
+	}
+}
 
 /// Hashing algorithm for the state proof
 #[derive(
@@ -57,40 +90,17 @@ pub enum HashAlgorithm {
 }
 
 /// The substrate state machine proof. This will be a base-16 merkle patricia proof.
-/// It's [`TrieLayout`](sp_trie::TrieLayout) will be the [`LayoutV0`]
+/// It's [`TrieLayout`](sp_trie::TrieLayout) will be the [`LayoutV0`].
+///
+/// This is the proof format for all substrate state proofs, regardless of which trie they
+/// verify against. The trie root the proof is checked against is chosen by the verifying
+/// context (see [`StateMachineClient::verify_state_proof`]), not encoded in the proof itself.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct StateMachineProof {
 	/// Algorithm to use for state proof verification
 	pub hasher: HashAlgorithm,
 	/// Intermediate trie nodes in the key path from the root to their relevant values.
 	pub storage_proof: Vec<Vec<u8>>,
-}
-
-/// Holds the relevant data needed for state proof verification
-#[derive(Debug, Encode, Decode, Clone)]
-pub enum SubstrateStateProof {
-	/// Uses overlay root for verification
-	OverlayProof(StateMachineProof),
-	/// Uses state root for verification
-	StateProof(StateMachineProof),
-}
-
-impl SubstrateStateProof {
-	/// Returns hash algo
-	pub fn hasher(&self) -> HashAlgorithm {
-		match self {
-			Self::OverlayProof(proof) => proof.hasher,
-			Self::StateProof(proof) => proof.hasher,
-		}
-	}
-
-	/// Returns storage proof
-	pub fn storage_proof(self) -> Vec<Vec<u8>> {
-		match self {
-			Self::OverlayProof(proof) => proof.storage_proof,
-			Self::StateProof(proof) => proof.storage_proof,
-		}
-	}
 }
 
 /// The [`StateMachineClient`] implementation for substrate state machines. Assumes requests are
@@ -116,161 +126,151 @@ where
 	fn verify_membership(
 		&self,
 		_host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		state: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error> {
-		let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
-			.map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
-		ensure!(
-			matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
-			Error::Custom("Expected Overlay Proof".to_string())
-		);
+		let StateMachineProof { hasher, storage_proof } =
+			codec::Decode::decode(&mut &*proof.proof)
+				.map_err(SubstrateStateMachineError::ProofDecodeError)?;
 
+		// ISMP request/receipt commitments live in the ISMP child trie, so membership is
+		// verified against the overlay root — unless the request originates from the
+		// coprocessor itself, whose ISMP storage is part of its global state.
 		let root = match T::Coprocessor::get() {
 			Some(id) if id == proof.height.id.state_id => state.state_root,
-			_ => state.overlay_root.ok_or_else(|| {
-				Error::Custom(
-					"Child trie root is not available for provided state commitment".into(),
-				)
-			})?,
+			_ => state.overlay_root.ok_or(SubstrateStateMachineError::MissingChildTrieRoot)?,
 		};
 
-		let keys = match item {
-			RequestResponse::Request(requests) => requests
-				.into_iter()
-				.map(|request| {
-					let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
-					RequestCommitments::<T>::storage_key(commitment)
-				})
-				.collect::<Vec<Vec<u8>>>(),
-			RequestResponse::Response(responses) => responses
-				.into_iter()
-				.map(|response| {
-					let commitment = hash_response::<pallet_ismp::Pallet<T>>(&response);
-					ResponseCommitments::<T>::storage_key(commitment)
-				})
-				.collect::<Vec<Vec<u8>>>(),
+		let keys = self.commitment_state_trie_key(commitments);
+		let read_value = |key: Vec<u8>, value: Option<Vec<u8>>| {
+			value
+				.ok_or_else(|| SubstrateStateMachineError::MissingMembershipValue(key.clone()))
+				.map(|v| (key, v))
 		};
-		let _ = match state_proof.hasher() {
+		match hasher {
 			HashAlgorithm::Keccak => {
-				let db =
-					StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
+				let db = StorageProof::new(storage_proof).into_memory_db::<Keccak256>();
 				let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
-				keys.into_iter()
-                    .map(|key| {
-                        let value = trie.get(&key).map_err(|e| {
-                            Error::Custom(format!(
-                                "SubstrateStateMachine: Error reading Keccak state proof: {e:?}"
-                            ))
-                        })?.ok_or_else(|| Error::Custom(format!(
-                            "Every key in a membership proof should have a value, found a key {:?} with None", key
-                        )))?;
-                        Ok((key, value))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+					read_value(key, value)?;
+				}
 			},
 			HashAlgorithm::Blake2 => {
-				let db =
-					StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
-
+				let db = StorageProof::new(storage_proof).into_memory_db::<BlakeTwo256>();
 				let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
-				keys.into_iter()
-                    .map(|key| {
-                        let value = trie.get(&key).map_err(|e| {
-                            Error::Custom(format!(
-                                "SubstrateStateMachine: Error reading Blake2 state proof: {e:?}"
-                            ))
-                        })?.ok_or_else(|| Error::Custom(format!(
-                            "Every key in a membership proof should have a value, found a key {:?} with None", key
-                        )))?;
-                        Ok((key, value))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+					read_value(key, value)?;
+				}
 			},
-		};
+		}
 
 		Ok(())
 	}
 
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		let mut keys = vec![];
-		match items {
-			RequestResponse::Request(requests) =>
-				for req in requests {
-					match req {
-						Request::Post(post) => {
-							let request = Request::Post(post);
-							let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
-							keys.push(RequestReceipts::<T>::storage_key(commitment));
-						},
-						Request::Get(_) => continue,
-					}
-				},
-			RequestResponse::Response(responses) =>
-				for res in responses {
-					match res {
-						Response::Post(post_response) => {
-							let commitment =
-								hash_post_response::<pallet_ismp::Pallet<T>>(&post_response);
-							keys.push(ResponseReceipts::<T>::storage_key(commitment));
-						},
-						Response::Get(_) => continue,
-					}
-				},
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		commitments.into_iter().map(RequestCommitments::<T>::storage_key).collect()
+	}
+
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
+		commitments.into_iter().map(RequestReceipts::<T>::storage_key).collect()
+	}
+
+	fn verify_non_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let StateMachineProof { hasher, storage_proof } =
+			codec::Decode::decode(&mut &*proof.proof)
+				.map_err(SubstrateStateMachineError::ProofDecodeError)?;
+
+		// Request receipts live in the ISMP child trie, so non-membership is verified against
+		// the overlay root — unless the request originates from the coprocessor itself, whose
+		// ISMP storage is part of its global state.
+		let root = match T::Coprocessor::get() {
+			Some(id) if id == proof.height.id.state_id => root.state_root,
+			_ => root.overlay_root.ok_or(SubstrateStateMachineError::MissingChildTrieRoot)?,
 		};
 
-		keys
+		let keys = self.receipts_state_trie_key(commitments);
+
+		let check_absent = |value: Option<Vec<u8>>| -> Result<(), SubstrateStateMachineError> {
+			if value.is_some() {
+				Err(SubstrateStateMachineError::DeliveredRequestsInBatch)
+			} else {
+				Ok(())
+			}
+		};
+
+		match hasher {
+			HashAlgorithm::Keccak => {
+				let db = StorageProof::new(storage_proof).into_memory_db::<Keccak256>();
+				let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+					check_absent(value)?;
+				}
+			},
+			HashAlgorithm::Blake2 => {
+				let db = StorageProof::new(storage_proof).into_memory_db::<BlakeTwo256>();
+				let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+				for key in keys {
+					let value = trie
+						.get(&key)
+						.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+					check_absent(value)?;
+				}
+			},
+		}
+
+		Ok(())
 	}
 
 	fn verify_state_proof(
 		&self,
 		_host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-		let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
-			.map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
-		let root = match &state_proof {
-			SubstrateStateProof::OverlayProof { .. } => {
-				match T::Coprocessor::get() {
-					Some(id) if id == proof.height.id.state_id => root.state_root,
-					// child root on hyperbridge
-					_ => root.overlay_root.ok_or_else(|| {
-						Error::Custom(
-							"Child trie root is not available for provided state commitment".into(),
-						)
-					})?,
-				}
-			},
-			SubstrateStateProof::StateProof { .. } => root.state_root,
-		};
-		let data = match state_proof.hasher() {
+		// The trie root is supplied by the caller, bound to the calling context, so a relayer
+		// cannot steer verification at the wrong trie.
+		let StateMachineProof { hasher, storage_proof } =
+			codec::Decode::decode(&mut &*proof.proof)
+				.map_err(SubstrateStateMachineError::ProofDecodeError)?;
+		let data = match hasher {
 			HashAlgorithm::Keccak => {
-				let db =
-					StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
+				let db = StorageProof::new(storage_proof).into_memory_db::<Keccak256>();
 				let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
 				keys.into_iter()
 					.map(|key| {
-						let value = trie.get(&key).map_err(|e| {
-							Error::Custom(format!("Error reading state proof: {e:?}"))
-						})?;
-						Ok((key, value))
+						let value = trie
+							.get(&key)
+							.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+						Ok::<_, SubstrateStateMachineError>((key, value))
 					})
 					.collect::<Result<BTreeMap<_, _>, _>>()?
 			},
 			HashAlgorithm::Blake2 => {
-				let db =
-					StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
-
+				let db = StorageProof::new(storage_proof).into_memory_db::<BlakeTwo256>();
 				let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 				keys.into_iter()
 					.map(|key| {
-						let value = trie.get(&key).map_err(|e| {
-							Error::Custom(format!("Error reading state proof: {e:?}"))
-						})?;
-						Ok((key, value))
+						let value = trie
+							.get(&key)
+							.map_err(|e| SubstrateStateMachineError::TrieError(format!("{e:?}")))?;
+						Ok::<_, SubstrateStateMachineError>((key, value))
 					})
 					.collect::<Result<BTreeMap<_, _>, _>>()?
 			},

@@ -18,6 +18,7 @@ arbitrum-verifier = { workspace = true }
 primitive-types = { workspace = true }
 op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+pallet-fishermen = { workspace = true, default-features = false }
 
 # crates.io
 hex = { workspace = true, default-features = false }
@@ -27,6 +28,7 @@ codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = [
     "derive",
 ] }
+log = { workspace = true }
 sp-io = { workspace = true }
 
 [dependencies.polkadot-sdk]
@@ -41,6 +43,7 @@ std = [
     "ethereum-triedb/std",
     "ethabi/std",
     "hex/std",
+    "log/std",
     "sync-committee-primitives/std",
     "sync-committee-verifier/std",
     "polkadot-sdk/std",
@@ -51,6 +54,7 @@ std = [
     "arbitrum-verifier/std",
     "op-verifier/std",
     "primitive-types/std",
+    "pallet-fishermen/std",
 ]
 
 disable-panic-handler = [

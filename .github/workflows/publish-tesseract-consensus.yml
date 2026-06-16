@@ -1,0 +1,144 @@
+name: Tesseract Docker Publish
+
+on:
+    push:
+        tags:
+            - "tesseract-consensus-v[0-9]+.[0-9]+.[0-9]+"
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build_and_publish:
+        runs-on: release-runner
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v3
+              with:
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - uses: webfactory/ssh-agent@v0.5.4
+              with:
+                  ssh-private-key: "${{ secrets.SSH_KEY }}"
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Build
+              run: |
+                  sudo apt-get update -y
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  cargo build --release -p tesseract-consensus
+            - name: Install cargo-get
+              run: cargo install cargo-get
+
+            - name: Resolve version
+              id: version
+              run: |
+                  VERSION=$(cargo get package.version --entry ./tesseract/consensus/relayer)
+                  echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  file: ./scripts/docker/consensus.Dockerfile
+                  push: true
+                  tags: |
+                      polytopelabs/tesseract-consensus:v${{ steps.version.outputs.version }}
+                      polytopelabs/tesseract-consensus:latest
+                      ghcr.io/${{ github.repository_owner }}/tesseract-consensus:v${{ steps.version.outputs.version }}
+                      ghcr.io/${{ github.repository_owner }}/tesseract-consensus:latest
+
+    generate-changelog:
+        runs-on: ubuntu-latest
+        needs: build_and_publish
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Get previous tag
+              id: previous-tag
+              run: |
+                  CURRENT_TAG=${GITHUB_REF#refs/tags/}
+                  PREVIOUS_TAG=$(git tag -l "tesseract-consensus-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+                  echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
+                  echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
+                  echo "clean_tag=${CURRENT_TAG#tesseract-consensus-}" >> $GITHUB_OUTPUT
+
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  CURRENT_TAG=${{ steps.previous-tag.outputs.current_tag }}
+                  PREVIOUS_TAG=${{ steps.previous-tag.outputs.previous_tag }}
+
+                  echo "Generating changelog for ${CURRENT_TAG}"
+                  echo "Previous tag: ${PREVIOUS_TAG}"
+
+                  if [ -z "$PREVIOUS_TAG" ]; then
+                    COMMIT_RANGE="HEAD"
+                  else
+                    COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
+                  fi
+
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "tesseract" || true)
+
+                  echo "changelog<<EOF" >> $GITHUB_OUTPUT
+                  echo "## What's Changed" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "$CHANGELOG" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+            - name: Create GitHub Release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ steps.previous-tag.outputs.current_tag }}
+                  release_name: "Tesseract Consensus ${{ steps.previous-tag.outputs.clean_tag }}"
+                  body: ${{ steps.changelog.outputs.changelog }}
+                  draft: false
+                  prerelease: false

@@ -61,7 +61,7 @@ pub async fn consensus_notification<C: Config>(
 	let cs_state = dry_run_result.then(|| consensus_state);
 	// If the dry run failed, we skip the update
 	if !dry_run_result {
-		log::info!(target: "tesseract", "Skipping invalid update in bsc client");
+		log::info!(target: crate::LOG_TARGET, "Skipping invalid update in bsc client");
 		bsc_client_update = None
 	}
 	return Ok((bsc_client_update, cs_state));

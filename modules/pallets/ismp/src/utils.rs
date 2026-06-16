@@ -125,7 +125,7 @@ impl ModuleId {
 			inner.copy_from_slice(bytes);
 			Ok(Self::Pallet(PalletId(inner)))
 		} else if bytes.len() == 32 {
-			Ok(Self::Contract(AccountId32::from_slice(bytes).expect("Infallible")))
+			Ok(Self::Contract(AccountId32::from_slice(bytes).map_err(|_| "slice is 32 bytes")?))
 		} else if bytes.len() == 20 {
 			Ok(Self::Evm(H160::from_slice(bytes)))
 		} else {

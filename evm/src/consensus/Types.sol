@@ -14,7 +14,15 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {Node} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+/**
+ * @notice Shared type definitions for the BEEFY consensus client suite. Contains all structs
+ * used across EcdsaBeefy, SP1Beefy, and the ConsensusRouter, as well as
+ * the HeaderImpl library for extracting state commitments from Substrate block headers.
+ */
+
+import {StateCommitment} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
+import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot/ScaleCodec.sol";
 
 struct SP1BeefyProof {
     // BEEFY Commitment message
@@ -25,6 +33,10 @@ struct SP1BeefyProof {
     ParachainHeader[] headers;
     // SP1 plonk proof for BEEFY consensus
     bytes proof;
+    // Prover-chosen nonce committed into the proof's public values. Carried verbatim so the
+    // verifier can reconstruct the committed public inputs; rewarding verifiers bind it to the
+    // submission account to make a proof non-transferable.
+    bytes32 nonce;
 }
 
 struct MiniCommitment {
@@ -39,6 +51,13 @@ struct ParachainHeader {
     bytes header;
 }
 
+struct ParachainHeaderHash {
+    // Parachain Id
+    uint256 id;
+    // header hash
+    bytes32 hash;
+}
+
 /// The public values encoded as a struct that can be easily deserialized inside Solidity.
 struct PublicInputs {
     // merkle commitment to all authorities
@@ -47,8 +66,12 @@ struct PublicInputs {
     uint256 authorities_len;
     // BEEFY mmr leaf hash
     bytes32 leaf_hash;
+    // commitment block number
+    uint256 block_number;
     // Parachain header hashes
-    bytes32[] headers;
+    ParachainHeaderHash[] headers;
+    // Prover-chosen nonce, committed verbatim by the SP1 program
+    bytes32 nonce;
 }
 
 struct Payload {
@@ -58,26 +81,25 @@ struct Payload {
 
 struct Commitment {
     Payload[] payload;
-    uint256 blockNumber;
-    uint256 validatorSetId;
+    uint32 blockNumber;
+    uint64 validatorSetId;
 }
 
 struct AuthoritySetCommitment {
     /// Id of the set.
-    uint256 id;
+    uint64 id;
     /// Number of validators in the set.
-    uint256 len;
+    uint32 len;
     /// Merkle Root Hash built from BEEFY AuthorityIds.
     bytes32 root;
 }
 
 struct BeefyMmrLeaf {
-    uint256 version;
-    uint256 parentNumber;
+    uint8 version;
+    uint32 parentNumber;
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;
-    uint256 kIndex;
     uint256 leafIndex;
 }
 
@@ -94,15 +116,15 @@ struct BeefyConsensusState {
 }
 
 struct PartialBeefyMmrLeaf {
-    uint256 version;
-    uint256 parentNumber;
+    uint8 version;
+    uint32 parentNumber;
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;
 }
 
 struct Parachain {
-    /// k-index for latestHeadsRoot
+    /// 0-based leaf index in the parachain heads merkle tree
     uint256 index;
     /// Parachain Id
     uint256 id;
@@ -112,13 +134,14 @@ struct Parachain {
 
 struct ParachainProof {
     Parachain[] parachains;
-    Node[][] proof;
+    bytes32[] proof;
+    uint256 leafCount;
 }
 
 struct Vote {
     // secp256k1 signature from a member of the authority set
     bytes signature;
-    // This member's index in the set
+    // 0-based index of the authority in the authority set
     uint256 authorityIndex;
 }
 
@@ -140,7 +163,7 @@ struct RelayChainProof {
     // Proof for the latest mmr leaf
     bytes32[] mmrProof;
     // Proof for authorities in current/next session
-    Node[][] proof;
+    bytes32[] proof;
 }
 
 struct BeefyConsensusProof {
@@ -148,4 +171,62 @@ struct BeefyConsensusProof {
     RelayChainProof relay;
     // Proof items for parachain headers
     ParachainProof parachain;
+}
+
+struct DigestItem {
+    bytes4 consensusId;
+    bytes data;
+}
+
+struct Digest {
+    bool isPreRuntime;
+    DigestItem preruntime;
+    bool isConsensus;
+    DigestItem consensus;
+    bool isSeal;
+    DigestItem seal;
+    bool isOther;
+    bytes other;
+    bool isRuntimeEnvironmentUpdated;
+}
+
+struct Header {
+    bytes32 parentHash;
+    uint256 number;
+    bytes32 stateRoot;
+    bytes32 extrinsicRoot;
+    Digest[] digests;
+}
+
+library HeaderImpl {
+    /// Digest Item ID
+    bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
+    /// ConsensusID for the ISMP timestamp digest deposited by pallet-ismp
+    bytes4 public constant ISMP_TIMESTAMP_ID = bytes4("ISTM");
+
+    error TimestampNotFound();
+
+    /// @dev Extracts the ISMP MMR root, child trie root, and timestamp from the header
+    /// digests and returns them as a StateCommitment. Reverts if no timestamp digest is found.
+    function stateCommitment(Header memory self) internal pure returns (StateCommitment memory) {
+        bytes32 mmrRoot;
+        bytes32 childTrieRoot;
+        uint256 timestamp;
+
+        for (uint256 j = 0; j < self.digests.length; j++) {
+            if (self.digests[j].isConsensus && self.digests[j].consensus.consensusId == ISMP_CONSENSUS_ID) {
+                mmrRoot = Bytes.toBytes32(Bytes.substr(self.digests[j].consensus.data, 0, 32));
+                childTrieRoot = Bytes.toBytes32(Bytes.substr(self.digests[j].consensus.data, 32));
+            }
+
+            if (self.digests[j].isConsensus && self.digests[j].consensus.consensusId == ISMP_TIMESTAMP_ID) {
+                timestamp = ScaleCodec.decodeUint256(self.digests[j].consensus.data);
+            }
+        }
+
+        // sanity check
+        if (timestamp == 0) revert TimestampNotFound();
+
+        return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
+    }
 }

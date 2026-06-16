@@ -14,7 +14,7 @@ use socketioxide::{
 };
 use sp_core::{bytes::from_hex, ecdsa, ByteArray, Encode, Pair};
 use std::{collections::BTreeMap, env, str::FromStr, sync::Arc};
-use telemetry_server::Message;
+use telemetry_server::{Message, LOG_TARGET};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
@@ -57,7 +57,7 @@ impl AppState {
 
 /// Called whenever a new client, who is ideally a realyer is connected.
 async fn on_connect(socket: SocketRef, Data(data): Data<Message>, state: State<SharedAppState>) {
-	tracing::info!("socket connected {}", socket.id);
+	tracing::info!(target: LOG_TARGET, "socket connected {}", socket.id);
 
 	let bytes = from_hex(
 		option_env!("TELEMETRY_SECRET_KEY")
@@ -70,11 +70,11 @@ async fn on_connect(socket: SocketRef, Data(data): Data<Message>, state: State<S
 		.map(|signature| ecdsa::Pair::verify(&signature, data.metadata.encode(), &pair.public()));
 
 	if matches!(signature, Ok(true)) {
-		tracing::info!("Authenticated {} successfully", socket.id);
+		tracing::info!(target: LOG_TARGET, "Authenticated {} successfully", socket.id);
 		// add to global state
 		state.write().await.insert(socket.id, data);
 	} else {
-		tracing::info!("Disconnecting unauthorized {}", socket.id);
+		tracing::info!(target: LOG_TARGET, "Disconnecting unauthorized {}", socket.id);
 		// invalid signatures get dropped
 		socket.disconnect().ok();
 		return;
@@ -83,7 +83,7 @@ async fn on_connect(socket: SocketRef, Data(data): Data<Message>, state: State<S
 	socket.on_disconnect(
 		|socket: SocketRef, reason: DisconnectReason, state: State<SharedAppState>| async move {
 			tracing::info!(
-				"Socket {} on ns {} disconnected, reason: {:?}",
+				target: LOG_TARGET, "Socket {} on ns {} disconnected, reason: {:?}",
 				socket.id,
 				socket.ns(),
 				reason
@@ -126,7 +126,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		.with_state(relayers);
 
 	let port = env::var("PORT").ok().unwrap_or("3000".into());
-	tracing::info!("Starting server on port: {port}");
+	tracing::info!(target: LOG_TARGET, "Starting server on port: {port}");
 	// run our app with hyper, listening globally on port 3000
 	let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 	axum::serve(listener, app).await?;

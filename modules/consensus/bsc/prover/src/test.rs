@@ -13,18 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use bsc_verifier::{
 	primitives::{compute_epoch, parse_extra, Testnet, VALIDATOR_BIT_SET_SIZE},
-	verify_bsc_header, NextValidators,
+	verify_bsc_header,
 };
-use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use polkadot_sdk::*;
 use ssz_rs::{Bitvector, Deserialize};
 use std::time::Duration;
 
-use crate::BscPosProver;
+use crate::{get_rotation_block, BscPosProver, UpdateParams};
 
 pub struct Host;
 
@@ -46,136 +44,237 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 	BscPosProver::new(vec![url]).expect("Failed to create prover")
 }
 
+/// End-to-end test that mirrors the two-phase consensus-update loop used by
+/// `tesseract::consensus::bsc::host::start_consensus`:
+///
+/// 1. **Sync phase** — starting at the first candidate attested block after an epoch boundary
+///    (`epoch_block + 2`), walk block-by-block up to the latest position from which the previous
+///    validator set can still sign (`rotation_block - 1 + epoch_length / 2`). For each header, ask
+///    the prover for a `BscClientUpdate` that carries the new validator set (`fetch_val_set_change:
+///    true`), drop updates with insufficient BLS participation, verify under the **current**
+///    validator set, and accept the first one that either contains the epoch header ancestry or
+///    whose source header *is* the epoch block. That update's `next_validators` becomes the pending
+///    set.
+///
+/// 2. **Enactment phase** — starting at `get_rotation_block(...)`, walk up to `epoch_block +
+///    epoch_length - 1` and pull an update with `fetch_val_set_change: false`. Drop
+///    low-participation ones against the **next** validator set, then verify under the next set.
+///    The first update that verifies proves rotation has taken effect.
+///
+/// Relative to the previous implementation which polled `latest_header` at
+/// 750 ms and guessed at rotation, this version:
+///   - walks specific deterministic block numbers rather than racing the chain tip, so it can't
+///     accidentally skip or double-count blocks;
+///   - waits for each header to materialize (sleeps 3 s and retries if the tip hasn't caught up),
+///     which is the expected failure mode on a live chain rather than a reason to bail;
+///   - uses the same `get_rotation_block` helper the production host uses, instead of re-deriving
+///     the rotation boundary inline;
+///   - distinguishes "update source header too old" from "update fails verification" so the sync
+///     phase can fail fast on a truly bad update.
 #[tokio::test]
 #[ignore]
 async fn verify_bsc_pos_headers() {
 	let prover = setup_prover().await;
-	let latest_block = prover.latest_header().await.unwrap();
-	let (epoch_header, validators) =
-		prover.fetch_finalized_state::<Host>(EPOCH_LENGTH).await.unwrap();
-	if latest_block.number.low_u64() - epoch_header.number.low_u64() < 48 {
-		// We want to ensure the current validators have been enacted before continuing
-		tokio::time::sleep(Duration::from_secs(
-			(latest_block.number.low_u64() - epoch_header.number.low_u64()) * 48,
-		))
-		.await;
-	}
-	let mut next_validators: Option<NextValidators> = None;
-	let mut current_epoch = compute_epoch(latest_block.number.low_u64(), EPOCH_LENGTH);
-	let mut last_block_number = latest_block.number.low_u64();
-	// Verify at least an epoch change until validator set is rotated
-	loop {
-		// Poll for new blocks
-		tokio::time::sleep(Duration::from_millis(750)).await;
-		let block = match prover.client.get_block(BlockNumberOrTag::Latest.into()).await {
-			Ok(Some(b)) => b,
-			_ => continue,
-		};
-		let block_number = block.header.number;
-		if block_number <= last_block_number {
-			continue;
-		}
-		last_block_number = block_number;
-		let header: CodecHeader = block.into();
-		let block_epoch = compute_epoch(header.number.low_u64(), EPOCH_LENGTH);
 
-		if let Some(mut update) = prover
-			.fetch_bsc_update::<Host>(crate::UpdateParams {
-				attested_header: header.clone(),
-				validator_size: validators.len() as u64,
+	// Start from the current epoch header + its validator set, exactly how
+	// `host.rs` initializes `ConsensusState::current_validators`.
+	let (epoch_header, current_validators) =
+		prover.fetch_finalized_state::<Host>(EPOCH_LENGTH).await.unwrap();
+	let current_epoch = compute_epoch(epoch_header.number.low_u64(), EPOCH_LENGTH);
+	let mut finalized_height = epoch_header.number.low_u64();
+
+	// ── Sync phase ──────────────────────────────────────────────────────────
+	let next_epoch = current_epoch + 1;
+	let epoch_block_number = next_epoch * EPOCH_LENGTH;
+	let sync_end =
+		get_rotation_block(epoch_block_number, current_validators.len() as u64, EPOCH_LENGTH) - 1 +
+			EPOCH_LENGTH / 2;
+
+	println!(
+		"Sync phase: walking [{}, {}] against {}-validator set from epoch {}",
+		epoch_block_number + 2,
+		sync_end,
+		current_validators.len(),
+		current_epoch,
+	);
+
+	let mut block = epoch_block_number + 2;
+	let next_validators = loop {
+		assert!(
+			block <= sync_end,
+			"sync phase exhausted without finding a valid epoch-change update"
+		);
+
+		let Some(header) = prover.fetch_header(block).await.unwrap() else {
+			// Chain tip hasn't reached `block` yet — wait and retry, same as host.rs.
+			tokio::time::sleep(Duration::from_secs(3)).await;
+			continue;
+		};
+
+		let maybe_update = prover
+			.fetch_bsc_update::<Host>(UpdateParams {
+				attested_header: header,
+				validator_size: current_validators.len() as u64,
+				epoch: next_epoch,
 				epoch_length: EPOCH_LENGTH,
-				epoch: current_epoch + 1,
-				fetch_val_set_change: block_epoch > current_epoch,
+				fetch_val_set_change: true,
 			})
 			.await
-			.unwrap()
+			.unwrap();
+
+		let Some(update) = maybe_update else {
+			block += 1;
+			continue;
+		};
+
+		// Reject updates with insufficient BLS participation from the current set.
+		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
+			.expect("infallible: prover already parsed extra data");
+		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+		)
+		.expect("infallible: prover already parsed extra data");
+		if validators_bit_set.iter().as_bitslice().count_ones() < (2 * current_validators.len() / 3)
 		{
-			dbg!(block_epoch);
-			dbg!(current_epoch);
-			dbg!(header.number);
+			println!("sync: not enough participants at block {block}, skipping");
+			block += 1;
+			continue;
+		}
 
-			if next_validators.is_some() {
-				update.epoch_header_ancestry = Default::default();
-			}
+		// Skip updates whose source header was already finalized by an earlier update.
+		if update.source_header.number.low_u64() <= finalized_height {
+			block += 1;
+			continue;
+		}
 
-			let extra_data = match parse_extra::<Host, Testnet>(&update.attested_header) {
-				Ok(extra) => extra,
-				Err(e) => {
-					println!("Failed to parse extra data for block {}: {}", header.number, e);
-					continue;
-				},
-			};
+		// In the sync phase a verification failure is terminal — if the current
+		// validator set cannot sign an update at `block`, we cannot safely rotate.
+		let result =
+			verify_bsc_header::<Host, Testnet>(&current_validators, update.clone(), EPOCH_LENGTH)
+				.expect("sync update failed to verify against current validator set");
 
-			let validators_bit_set = match Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
-				extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
-			) {
-				Ok(bits) => bits,
-				Err(e) => {
-					println!(
-						"Failed to deserialize vote address set for block {}: {:?}",
-						header.number, e
-					);
-					continue;
-				},
-			};
+		println!(
+			"sync: verified update at block {block} against current set \
+			(source_header={}, target_header={}, ancestry={}B)",
+			update.source_header.number,
+			update.target_header.number,
+			update.epoch_header_ancestry.len(),
+		);
 
-			// Determine which validator set to use for participant check
-			let use_next_validators = next_validators.is_some() &&
-				update.attested_header.number.low_u64() % EPOCH_LENGTH >=
-					(validators.len() as u64 / 2);
+		// Mirror `host.rs`: only accept a sync update that crosses the epoch
+		// boundary (either by carrying ancestry back to the epoch block, or by
+		// directly finalizing the epoch block itself).
+		if update.epoch_header_ancestry.is_empty() &&
+			update.source_header.number.low_u64() != epoch_block_number
+		{
+			println!(
+				"sync: verified update at block {block} does not cross epoch boundary, skipping"
+			);
+			block += 1;
+			continue;
+		}
 
-			let validator_set_for_check = if use_next_validators {
-				&next_validators.as_ref().unwrap().validators
-			} else {
-				&validators
-			};
+		let next = result.next_validators.expect("sync update must carry next validator set");
+		finalized_height = update.source_header.number.low_u64();
+		println!(
+			"Sync accepted at block {block}: new {}-validator set staged, rotation at {}",
+			next.validators.len(),
+			next.rotation_block,
+		);
+		break next;
+	};
 
-			// Skip blocks without enough participants (2/3 + 1 threshold)
-			let participant_count = validators_bit_set.iter().as_bitslice().count_ones();
-			let required_participants = (2 * validator_set_for_check.len() / 3) + 1;
-			if participant_count < required_participants {
+	// ── Enactment phase ─────────────────────────────────────────────────────
+	// Walk from the actual rotation block up to the end of the new epoch.
+	// Verification must succeed under the *next* validator set before we
+	// declare the rotation enacted.
+	let rotation_start =
+		get_rotation_block(epoch_block_number, current_validators.len() as u64, EPOCH_LENGTH);
+	let enact_end = epoch_block_number + EPOCH_LENGTH - 1;
+
+	println!(
+		"Enactment phase: walking [{}, {}] against {}-validator next set",
+		rotation_start,
+		enact_end,
+		next_validators.validators.len(),
+	);
+
+	let mut block = rotation_start;
+	loop {
+		assert!(
+			block <= enact_end,
+			"enactment phase exhausted without verifying a post-rotation update"
+		);
+
+		let Some(header) = prover.fetch_header(block).await.unwrap() else {
+			tokio::time::sleep(Duration::from_secs(3)).await;
+			continue;
+		};
+
+		let maybe_update = prover
+			.fetch_bsc_update::<Host>(UpdateParams {
+				attested_header: header,
+				validator_size: current_validators.len() as u64,
+				epoch: next_epoch,
+				epoch_length: EPOCH_LENGTH,
+				fetch_val_set_change: false,
+			})
+			.await
+			.unwrap();
+
+		let Some(mut update) = maybe_update else {
+			block += 1;
+			continue;
+		};
+
+		// Ancestry is only needed during the sync phase; once we've staged the
+		// next set, drop it so verification runs purely against the new set.
+		update.epoch_header_ancestry = Default::default();
+
+		let extra_data = parse_extra::<Host, Testnet>(&update.attested_header)
+			.expect("infallible: prover already parsed extra data");
+		let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+		)
+		.expect("infallible: prover already parsed extra data");
+		if validators_bit_set.iter().as_bitslice().count_ones() <
+			(2 * next_validators.validators.len() / 3)
+		{
+			println!("enact: not enough participants at block {block}, skipping");
+			block += 1;
+			continue;
+		}
+
+		if update.source_header.number.low_u64() <= finalized_height {
+			block += 1;
+			continue;
+		}
+
+		// In the enactment phase verification failure is *expected* at first:
+		// rotation might not have occurred yet at this block, so the next set
+		// can't sign it. Log and keep walking.
+		match verify_bsc_header::<Host, Testnet>(
+			&next_validators.validators,
+			update.clone(),
+			EPOCH_LENGTH,
+		) {
+			Ok(_) => {
 				println!(
-					"Not enough participants in bsc update for block {} ({}/{}), skipping",
-					header.number, participant_count, required_participants
+					"enact: verified update at block {block} against next set \
+					(source_header={}, target_header={})",
+					update.source_header.number, update.target_header.number,
 				);
-				continue;
-			}
-
-			if use_next_validators {
-				let result = verify_bsc_header::<Host, Testnet>(
-					&next_validators.clone().unwrap().validators,
-					update.clone(),
-					EPOCH_LENGTH,
+				println!(
+					"VALIDATOR SET ROTATED SUCCESSFULLY at block {block} \
+					(source_header={})",
+					update.source_header.number,
 				);
-				if result.is_ok() {
-					println!("VALIDATOR SET ROTATED SUCCESSFULLY");
-					return;
-				} else {
-					println!("VALIDATOR SET NOT YET ROTATED");
-					continue;
-				}
-			}
-
-			// Skip blocks that fail verification
-			let result =
-				match verify_bsc_header::<Host, Testnet>(&validators, update.clone(), EPOCH_LENGTH)
-				{
-					Ok(r) => r,
-					Err(e) => {
-						println!(
-							"Verification failed for block {}: {}, skipping",
-							header.number, e
-						);
-						continue;
-					},
-				};
-
-			dbg!(&result.hash);
-			dbg!(result.next_validators.is_some());
-			if let Some(new_vals) = result.next_validators {
-				next_validators = Some(new_vals);
-				current_epoch = block_epoch
-			}
+				return;
+			},
+			Err(_) => {
+				println!("enact: rotation not yet in effect at block {block}");
+				block += 1;
+			},
 		}
 	}
 }

@@ -4,3 +4,4 @@
 @uniswap/=node_modules/@uniswap/
 stringutils/=lib/solidity-stringutils/src/
 @sp1-contracts/=lib/sp1-contracts/contracts/src/
+forge-std/=node_modules/forge-std/src/

@@ -4,7 +4,7 @@
     "private": true,
     "scripts": {
         "build": "next build && next-sitemap",
-        "dev": "next dev --port=4010",
+        "dev": "next dev --port=4020",
         "start": "next start",
         "types:check": "fumadocs-mdx && tsc --noEmit",
         "postinstall": "fumadocs-mdx",

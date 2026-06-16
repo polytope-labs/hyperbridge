@@ -1,0 +1,77 @@
+name: "@hyperbridge/core"
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "sdk/packages/core/**"
+            - ".github/workflows/test-core.yml"
+    pull_request:
+        branches:
+            - main
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - "sdk/packages/core/**"
+            - ".github/workflows/test-core.yml"
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.ref }}-core
+    cancel-in-progress: true
+
+env:
+    FOUNDRY_PROFILE: default
+
+jobs:
+    compile:
+        name: Compile
+        # Skip on draft pull requests; run on push, ready PRs, and manual dispatch.
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: "22"
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+                  run_install: false
+
+            - name: Get pnpm store directory
+              id: pnpm-cache
+              shell: bash
+              run: |
+                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - name: Setup pnpm cache
+              uses: actions/cache@v3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Compile SDK
+              working-directory: sdk/packages/core
+              run: |
+                  echo "Compiling Solidity SDK with Forge..."
+                  forge build --contracts contracts/ --skip test --skip script --sizes
+                  echo "✅ All contracts compiled successfully"

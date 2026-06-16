@@ -56,7 +56,7 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, Response},
+	router::{GetResponse, Request},
 };
 
 use alloc::borrow::Cow;
@@ -64,7 +64,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything},
+	traits::{ConstU32, ConstU64, ConstU8, Everything, InsideBoth},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -76,9 +76,10 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 
+use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
+use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
@@ -160,6 +161,7 @@ pub type SignedExtra = (
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+	pallet_fishermen::PrioritizeVeto<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -176,7 +178,18 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
+	Migrations,
 >;
+
+/// All runtime migrations executed on each runtime upgrade in order.
+pub type Migrations = (
+	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
+	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
+	pallet_ismp_host_executive::migrations::ClearLegacyHostParams<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
+	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
+	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
+);
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.
@@ -238,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 5_000,
+	spec_version: 7_500,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -366,7 +379,10 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = Everything;
+	type BaseCallFilter = InsideBoth<
+		InsideBoth<InsideBoth<ReputationCallFilter, IsmpCallFilter>, CollatorSelectionCallFilter>,
+		InsideBoth<Everything, TxPause>,
+	>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -378,6 +394,7 @@ impl frame_system::Config for Runtime {
 	/// The action to take on a Runtime Upgrade
 	type OnSetCode = cumulus_pallet_parachain_system::ParachainSetCode<Self>;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MultiBlockMigrator = ();
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -390,7 +407,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -517,7 +534,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -559,7 +576,23 @@ impl pallet_collator_selection::Config for Runtime {
 	type KickThreshold = Period;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	/// Collators wait seven days between `unbond` and withdrawing their candidacy bond.
+	pub const CollatorUnbondingPeriod: BlockNumber = 7 * DAYS;
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IncentivesManager = MessagingIncentives;
+	type UnbondingPeriod = CollatorUnbondingPeriod;
 	type WeightInfo = ();
 }
 
@@ -581,6 +614,37 @@ impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
+}
+
+parameter_types! {
+	/// Maximum length of a SCALE-encoded pallet or call name that
+	/// `pallet-tx-pause` will accept when pausing / unpausing. Anything longer
+	/// is treated as **paused** by the pallet, so keep this comfortably above
+	/// the longest on-chain name.
+	pub const MaxTxPauseNameLen: u32 = 256;
+}
+
+/// Calls that [`pallet_tx_pause`] is never allowed to pause. Empty by default —
+/// the pallet already exempts its own `unpause` extrinsic so the admin origin
+/// can always recover, and inherents (timestamp, parachain system, etc.) are
+/// not subject to the `BaseCallFilter` so block production is unaffected.
+pub struct TxPauseWhitelistedCalls;
+impl frame_support::traits::Contains<pallet_tx_pause::RuntimeCallNameOf<Runtime>>
+	for TxPauseWhitelistedCalls
+{
+	fn contains(_full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
+		false
+	}
+}
+
+impl pallet_tx_pause::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type PauseOrigin = EnsureRoot<AccountId>;
+	type UnpauseOrigin = EnsureRoot<AccountId>;
+	type WhitelistedCalls = TxPauseWhitelistedCalls;
+	type MaxNameLen = MaxTxPauseNameLen;
+	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -691,11 +755,6 @@ impl pallet_collective::Config for Runtime {
 	type Consideration = ();
 }
 
-impl pallet_bridge_airdrop::Config for Runtime {
-	type Currency = Balances;
-	type BridgeDropOrigin = EnsureRoot<AccountId>;
-}
-
 parameter_types! {
 	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
 	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
@@ -711,6 +770,115 @@ impl pallet_vesting::Config for Runtime {
 	type WeightInfo = ();
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
 	type BlockNumberProvider = System;
+}
+
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
+/// Reputation tokens are soulbound — credited via the incentive pallets
+/// and consumed only by `pallet-collator-manager`'s per-session reset.
+/// The holder must not be able to send them anywhere, so this filter
+/// rejects every dispatched `Assets` call that could move balance out
+/// of a holder's account when the target asset is the reputation asset.
+/// Programmatic `fungible::Mutate` (mint / burn from runtime pallets)
+/// bypasses dispatch and is therefore unaffected.
+pub struct ReputationCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for ReputationCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		let rep = ReputationAssetId::get();
+		match call {
+			RuntimeCall::Assets(
+				pallet_assets::Call::transfer { id, .. } |
+				pallet_assets::Call::transfer_keep_alive { id, .. } |
+				pallet_assets::Call::transfer_all { id, .. } |
+				pallet_assets::Call::approve_transfer { id, .. } |
+				pallet_assets::Call::transfer_approved { id, .. },
+			) => *id != rep,
+			_ => true,
+		}
+	}
+}
+
+/// Gargantua routes all BEEFY consensus updates through `pallet-beefy-consensus-proofs`, which
+/// requires each proof to pass SP1 zkVM verification before it can advance the BEEFY state.
+/// Allowing raw updates through `handle_unsigned` would bypass that requirement entirely, so
+/// any batch that carries a BEEFY consensus message is rejected here. `fund_message` is also
+/// disabled because gargantua uses the bandwidth model for request fees; per-message top-ups
+/// have no role in that accounting.
+///
+/// A consensus message only names the state it updates, so we ask the host which client owns
+/// that state and compare against BEEFY. Reading from the host remains correct even as more
+/// states (Polkadot, Paseo) are bound to the same client over time.
+pub struct IsmpCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for IsmpCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		use ::ismp::{host::IsmpHost, messaging::Message};
+		match call {
+			RuntimeCall::Ismp(pallet_ismp::Call::fund_message { .. }) => false,
+			RuntimeCall::Ismp(pallet_ismp::Call::handle_unsigned { messages }) => {
+				let host = Ismp::default();
+				!messages.iter().any(|message| match message {
+					Message::Consensus(consensus) =>
+						host.consensus_client_id(consensus.consensus_state_id) ==
+							Some(ismp_beefy::BEEFY_CONSENSUS_ID),
+					_ => false,
+				})
+			},
+			_ => true,
+		}
+	}
+}
+
+/// Collator exits on gargantua go through `pallet-collator-manager`'s `unbond` flow, which
+/// holds the bond for seven days before it can be reclaimed. That window exists so the protocol
+/// can act on any detected misbehaviour — a fisherman veto or a future slashing condition —
+/// before the operator walks away with their stake. `leave_intent` would bypass that delay
+/// entirely, so it is closed off here.
+pub struct CollatorSelectionCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for CollatorSelectionCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		!matches!(
+			call,
+			RuntimeCall::CollatorSelection(pallet_collator_selection::Call::leave_intent { .. })
+		)
+	}
+}
+
+parameter_types! {
+	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
+	/// `BEEFY_CONSENSUS_ID`.
+	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"PAS0";
+	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
+	/// seconds), aligning with other BEEFY clients in the runtime.
+	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
+	/// Maximum size in bytes of a single proof passed to `submit_proof`.
+	pub const MaxBeefyProofSize: u32 = 1_048_576;
+	/// Per-bucket ring-buffer size for `MessagingProofs` and `RotationProofs`.
+	pub const MaxStoredBeefyProofs: u32 = 512;
+	/// Maximum number of unique provers rewarded per BEEFY block (first + uncles).
+	pub const MaxBeefyUncleProvers: u32 = 5;
+}
+
+impl pallet_beefy_consensus_proofs::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type Currency = Balances;
+	type TreasuryPalletId = TreasuryPalletId;
+	type MaxProofSize = MaxBeefyProofSize;
+	type MaxStoredProofs = MaxStoredBeefyProofs;
+	type ConsensusStateId = BeefyConsensusStateId;
+	type UnbondingPeriod = BeefyUnbondingPeriod;
+	type MaxUncleProvers = MaxBeefyUncleProvers;
+	type ReputationAsset = ReputationAsset;
+	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
+}
+
+impl pallet_messaging_incentives::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -766,6 +934,8 @@ mod runtime {
 	pub type AuraExt = cumulus_pallet_aura_ext;
 	#[runtime::pallet_index(25)]
 	pub type Sudo = pallet_sudo;
+	#[runtime::pallet_index(26)]
+	pub type CollatorManager = pallet_collator_manager;
 
 	// XCM helpers.
 	#[runtime::pallet_index(30)]
@@ -798,20 +968,14 @@ mod runtime {
 	pub type HostExecutive = pallet_ismp_host_executive;
 	#[runtime::pallet_index(56)]
 	pub type CallDecompressor = pallet_call_decompressor;
-	#[runtime::pallet_index(57)]
-	pub type XcmGateway = pallet_xcm_gateway;
 	#[runtime::pallet_index(58)]
 	pub type Assets = pallet_assets;
-	#[runtime::pallet_index(59)]
-	pub type TokenGovernor = pallet_token_governor;
 	#[runtime::pallet_index(60)]
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(61)]
 	pub type Fishermen = pallet_fishermen;
 	#[runtime::pallet_index(65)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
-	#[runtime::pallet_index(62)]
-	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(63)]
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(64)]
@@ -820,8 +984,6 @@ mod runtime {
 	// Governance
 	#[runtime::pallet_index(80)]
 	pub type TechnicalCollective = pallet_collective;
-	#[runtime::pallet_index(81)]
-	pub type BridgeDrop = pallet_bridge_airdrop;
 	#[runtime::pallet_index(82)]
 	pub type Vesting = pallet_vesting;
 
@@ -832,6 +994,17 @@ mod runtime {
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
+	#[runtime::pallet_index(86)]
+	pub type TxPause = pallet_tx_pause;
+	#[cfg(not(feature = "no-bandwidth"))]
+	#[runtime::pallet_index(87)]
+	pub type Bandwidth = pallet_bandwidth;
+	#[runtime::pallet_index(90)]
+	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
+	#[runtime::pallet_index(91)]
+	pub type HyperFungibleToken = pallet_hyper_fungible_token;
+	#[runtime::pallet_index(92)]
+	pub type MessagingIncentives = pallet_messaging_incentives;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -865,6 +1038,8 @@ mod benches {
 		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
+		[pallet_tx_pause, TxPause]
+		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
 	);
 }
 
@@ -1085,7 +1260,7 @@ impl_runtime_apis! {
 		}
 
 		/// Get actual requests
-		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+		fn responses(commitments: Vec<H256>) -> Vec<GetResponse> {
 			Ismp::responses(commitments)
 		}
 	}
@@ -1114,7 +1289,7 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(
-			block: Block,
+			block: <Block as sp_runtime::traits::Block>::LazyBlock,
 			state_root_check: bool,
 			signature_check: bool,
 			select: frame_try_runtime::TryStateSelect,
@@ -1215,7 +1390,8 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-				frame_metadata_hash_extension::CheckMetadataHash::new(false)
+				frame_metadata_hash_extension::CheckMetadataHash::new(false),
+				pallet_fishermen::PrioritizeVeto::<Runtime>::new(),
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());

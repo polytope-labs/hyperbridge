@@ -41,6 +41,8 @@
 //! │  └──────────────┘        └────────────────────┘  │
 //! └──────────────────────────────────────────────────┘
 //! ```
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-tron";
 
 pub mod address;
 pub mod api;
@@ -68,6 +70,23 @@ use crate::{
 
 /// TRON mainnet chain ID, matching `TronHost.CHAIN_ID`.
 pub const TRON_MAINNET_CHAIN_ID: u32 = 728126428;
+
+/// TRON Nile testnet chain ID.
+pub const TRON_NILE_CHAIN_ID: u32 = 3448148188;
+
+/// Returns true when `state_machine` corresponds to a TRON network
+/// (mainnet or Nile testnet). TRON appears as `StateMachine::Evm(_)` at
+/// the protocol layer with no dedicated variant, so callers that need to
+/// branch on "this is TRON" — e.g. the messaging pipeline that spawns the
+/// HB → chain outbound task for substrate-style chains and TRON — call
+/// this helper instead of pattern-matching on the enum.
+pub fn is_tron(state_machine: ismp::host::StateMachine) -> bool {
+	matches!(
+		state_machine,
+		ismp::host::StateMachine::Evm(TRON_MAINNET_CHAIN_ID) |
+			ismp::host::StateMachine::Evm(TRON_NILE_CHAIN_ID)
+	)
+}
 
 /// Configuration for a [`TronClient`].
 ///
@@ -137,8 +156,11 @@ impl TronConfig {
 		TronClient::new(self).await
 	}
 
+	/// Returns the resolved `state_machine` from the underlying EVM
+	/// config. Panics if the config has not been resolved via
+	/// [`tesseract_evm::EvmConfig::resolve`] / [`AnyConfig::resolve`].
 	pub fn state_machine(&self) -> StateMachine {
-		self.evm.state_machine
+		self.evm.state_machine()
 	}
 }
 
@@ -183,20 +205,29 @@ impl TronClient {
 	/// This initialises an [`EvmClient`] for JSON-RPC reads and a [`TronApi`]
 	/// for TRON-native transaction submission.
 	pub async fn new(mut config: TronConfig) -> anyhow::Result<Self> {
-		let key_bytes = match sp_core::bytes::from_hex(&config.evm.signer) {
-			Ok(bytes) => bytes,
-			Err(_) => {
-				let contents = tokio::fs::read_to_string(&config.evm.signer).await?;
-				sp_core::bytes::from_hex(contents.trim())?
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so a TRON chain can still be declared in the config
+		// for inbound-only relaying. The relayer's `outbound_enabled()`
+		// filter keeps signer-less chains out of any task that would
+		// actually broadcast a TRON transaction.
+		let secret_key = match config.evm.signer.as_deref() {
+			Some(raw_signer) => {
+				let key_bytes = match sp_core::bytes::from_hex(raw_signer) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						let contents = tokio::fs::read_to_string(raw_signer).await?;
+						sp_core::bytes::from_hex(contents.trim())?
+					},
+				};
+				if key_bytes.len() != 32 {
+					return Err(anyhow!("Signer key must be 32 bytes, got {}", key_bytes.len()));
+				}
+				let mut secret_key = [0u8; 32];
+				secret_key.copy_from_slice(&key_bytes);
+				secret_key
 			},
+			None => sp_core::ecdsa::Pair::generate().1,
 		};
-
-		if key_bytes.len() != 32 {
-			return Err(anyhow!("Signer key must be 32 bytes, got {}", key_bytes.len()));
-		}
-
-		let mut secret_key = [0u8; 32];
-		secret_key.copy_from_slice(&key_bytes);
 
 		// Derive the TRON hex address from the secret key.
 		let pair = sp_core::ecdsa::Pair::from_seed_slice(&secret_key)?;
@@ -223,10 +254,10 @@ impl TronClient {
 				timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 				..Default::default()
 			};
-			log::info!("CatFee integration enabled: {:#?}", catfee_config);
+			log::info!(target: LOG_TARGET, "CatFee integration enabled: {:#?}", catfee_config);
 			Some(CatFeeClient::new(catfee_config)?)
 		} else {
-			log::info!("CatFee integration disabled (API credentials not provided)");
+			log::info!(target: LOG_TARGET, "CatFee integration disabled (API credentials not provided)");
 			None
 		};
 
@@ -255,7 +286,7 @@ impl TronClient {
 		client.queue = Some(Arc::new(queue));
 
 		log::info!(
-			"Initialized TronClient for {:?} (host={}, relayer={})",
+			target: LOG_TARGET, "Initialized TronClient for {:?} (host={}, relayer={})",
 			client.evm.state_machine,
 			client.ismp_host_address,
 			client.owner_address,
@@ -307,7 +338,12 @@ mod tests {
 	use tesseract_evm::{transport::RpcTransport, EvmConfig};
 	use tesseract_primitives::IsmpProvider;
 
+	// Ignored by default: exercises a deployed Tron Nile contract over a live
+	// public RPC. Run manually with `cargo test -p tesseract-tron -- --ignored
+	// test_tron_queries` after the on-chain `EvmHost` has been upgraded to the
+	// slimmed `hostParams()` ABI; otherwise it fails with an ABI decode error.
 	#[tokio::test]
+	#[ignore]
 	async fn test_tron_queries() {
 		// TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc
 		let decoded = bs58::decode("TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc").into_vec().unwrap();
@@ -318,11 +354,12 @@ mod tests {
 		let config = TronConfig {
 			evm: EvmConfig {
 				rpc_urls: vec!["https://nile.trongrid.io/jsonrpc".to_string()],
-				state_machine: StateMachine::Evm(3448148188),
-				ismp_host,
-				signer: "65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018"
-					.to_string(),
-				consensus_state_id: "TRX0".to_string(),
+				state_machine: Some(StateMachine::Evm(3448148188)),
+				ismp_host: Some(ismp_host),
+				signer: Some(
+					"65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018".to_string(),
+				),
+				consensus_state_id: Some("TRX0".to_string()),
 				transport: RpcTransport::Tron,
 				..Default::default()
 			},

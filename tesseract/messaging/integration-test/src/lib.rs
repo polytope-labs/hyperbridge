@@ -1,4 +1,6 @@
 #![cfg(test)]
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-integration-test";
 
 use anyhow::anyhow;
 use futures::{FutureExt, StreamExt};
@@ -6,18 +8,17 @@ use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{Message, Proof, ResponseMessage},
-	router::{Request, RequestResponse},
 };
-use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
+use messaging::inbound;
 use pallet_ismp_demo as IsmpPalletDemo;
-use pallet_ismp_host_executive::HostParam;
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use polkadot_sdk::*;
 use sc_service::TaskManager;
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
 };
-use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof};
 use subxt::{
 	ext::codec::{Decode, Encode},
 	utils::AccountId32,
@@ -36,7 +37,6 @@ use subxt_utils::{
 	Extrinsic, Hyperbridge,
 };
 use tesseract::logging::setup as log_setup;
-use tesseract_messaging::relay;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{
 	config::KeccakSubstrateChain, extrinsic::send_unsigned_extrinsic, SubstrateClient,
@@ -63,10 +63,8 @@ async fn relay_get_response_message(
 			chain_b_client.client.rpc().read_proof(keys, dest_chain_block_hash).await?;
 		let proof = value_proof.proof.into_iter().map(|bytes| bytes.0).collect::<Vec<Vec<u8>>>();
 
-		let proof_of_value = SubstrateStateProof::StateProof(StateMachineProof {
-			hasher: HashAlgorithm::Keccak,
-			storage_proof: proof,
-		});
+		let proof_of_value =
+			StateMachineProof { hasher: HashAlgorithm::Keccak, storage_proof: proof };
 		let proof = Proof {
 			height: StateMachineHeight {
 				id: chain_b_client.state_machine_id(),
@@ -75,7 +73,7 @@ async fn relay_get_response_message(
 			proof: proof_of_value.encode(),
 		};
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(vec![Request::Get(get_request.clone())]),
+			requests: vec![get_request.clone()],
 			proof,
 			signer: chain_a_client.address(), // both A&B have same relayer address
 		};
@@ -165,28 +163,24 @@ async fn create_clients(
 async fn set_host_params(
 	chain_sub_client: SubstrateClient<Hyperbridge>,
 ) -> Result<(), anyhow::Error> {
-	// set host params for the original chain 2000 of dest chain 2001
+	// Substrate host params have been removed; only EVM host params remain. The
+	// destinations below are substrate parachains, so we register a default
+	// `EvmHostParam` entry purely to satisfy the storage shape — substrate-to-
+	// substrate messaging does not consult the params during dispatch.
 	if chain_sub_client.state_machine_id().state_id == StateMachine::Kusama(2000) {
 		chain_sub_client
 			.clone()
 			.set_host_params(BTreeMap::from([(
 				StateMachine::Kusama(2001),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-					default_per_byte_fee: 0,
-					..Default::default()
-				})),
+				HostParam::EvmHostParam(EvmHostParam::default()),
 			)]))
 			.await?;
 	} else {
-		// set host params for the original chain 2001 of dest chain 2000
 		chain_sub_client
 			.clone()
 			.set_host_params(BTreeMap::from([(
 				StateMachine::Kusama(2000),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-					default_per_byte_fee: 0,
-					..Default::default()
-				})),
+				HostParam::EvmHostParam(EvmHostParam::default()),
 			)]))
 			.await?;
 	}
@@ -211,7 +205,7 @@ async fn wait_for_event_chain_b(client_b: OnlineClient<Hyperbridge>) -> Result<(
 			},
 			Err(err) => {
 				// Log the error and return it as a `Result` error
-				log::error!("Error in finalized block stream: {:?}", err);
+				log::error!(target: LOG_TARGET, "Error in finalized block stream: {:?}", err);
 			},
 		}
 	}
@@ -224,7 +218,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 	log::info!(
-		"🧊integration test for para:{} to para {}: fund transfer",
+		target: LOG_TARGET, "🧊integration test for para:{} to para {}: fund transfer",
 		chain_a_sub_client.clone().state_machine_id().state_id,
 		chain_b_sub_client.clone().state_machine_id().state_id
 	);
@@ -262,6 +256,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		tx_payment,
 		client_map.clone(),
 		&task_manager,
+		None,
 	)
 	.await?;
 	// =========================== Accounts & keys =====================================
@@ -318,7 +313,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		.await?
 		.find_first::<RequestEventStatic>()?
 		.unwrap();
-	log::info!("Tranfer request: {:?}", event);
+	log::info!(target: LOG_TARGET, "Tranfer request: {:?}", event);
 
 	// Asset burnt & transferred tokens in chain A
 	let alice_chain_a_new_balance = client_a
@@ -367,7 +362,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!("🧊integration test for para: 2000 to para 2001: get request \n");
+	log::info!(target: LOG_TARGET, "🧊integration test for para: 2000 to para 2001: get request \n");
 
 	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =

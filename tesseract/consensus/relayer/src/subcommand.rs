@@ -11,7 +11,9 @@ use subxt_utils::values::{
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
-use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
+use tesseract_consensus_config::create_client_map;
+
+use crate::{config::HyperbridgeConfig, logging};
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
@@ -49,15 +51,16 @@ impl LogMetatdata {
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
+			.ok_or_else(|| anyhow!("[hyperbridge] section required for this subcommand"))?
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
-		let clients = create_client_map(config.clone()).await?;
+		let clients = create_client_map(config.chains.clone()).await?;
 		let client = clients
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Client for provided state machine was not found"))?;
 
-		log::info!("Fetching host params for {state_machine}");
+		log::info!(target: crate::LOG_TARGET, "Fetching host params for {state_machine}");
 		let host_param = client.provider().query_host_params(state_machine).await?;
 		let host_params: BTreeMap<_, _> = vec![(state_machine, host_param)].into_iter().collect();
 
@@ -65,8 +68,10 @@ impl LogMetatdata {
 			.chains
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Config for {state_machine:?} not found"))?
-			.host_address()
-			.ok_or_else(|| anyhow!("Missing host address for {state_machine:?}"))?;
+			.1 // HostKind
+			.as_evm()
+			.and_then(|e| e.ismp_host.clone())
+			.ok_or_else(|| anyhow!("Missing EVM host address for {state_machine:?}"))?;
 		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
 
 		// Call to set the HostParams
@@ -100,7 +105,7 @@ impl LogMetatdata {
 			batch
 		};
 
-		log::info!("HostExecutive call for {state_machine:?}:\n0x{}", hex::encode(&proposal));
+		log::info!(target: crate::LOG_TARGET, "HostExecutive call for {state_machine:?}:\n0x{}", hex::encode(&proposal));
 
 		Ok(())
 	}
@@ -111,16 +116,17 @@ impl LogMetatdata {
 		let state_machine = StateMachine::from_str(&self.state_machine)
 			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;
 
-		log::info!("🧊 Fetching consensus state for {state_machine}");
+		log::info!(target: crate::LOG_TARGET, "🧊 Fetching consensus state for {state_machine}");
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
 
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
+			.ok_or_else(|| anyhow!("[hyperbridge] section required for this subcommand"))?
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
-		let mut clients = create_client_map(config.clone()).await?;
+		let mut clients = create_client_map(config.chains.clone()).await?;
 
 		clients.insert(hyperbridge.provider().state_machine_id().state_id, Arc::new(hyperbridge));
 
@@ -134,7 +140,7 @@ impl LogMetatdata {
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
 		log::info!(
-			"ConsensusState for {state_machine}:\n0x{}",
+			target: crate::LOG_TARGET, "ConsensusState for {state_machine}:\n0x{}",
 			hex::encode(&consensus_state.consensus_state)
 		);
 

@@ -46,6 +46,7 @@ impl sc_simnode::ChainInfo for GargantuaRuntimeInfo {
 			frame_system::CheckWeight::<Self::Runtime>::new(),
 			pallet_transaction_payment::ChargeTransactionPayment::<Self::Runtime>::from(0),
 			frame_metadata_hash_extension::CheckMetadataHash::new(false),
+			pallet_fishermen::PrioritizeVeto::<Self::Runtime>::new(),
 		)
 	}
 }

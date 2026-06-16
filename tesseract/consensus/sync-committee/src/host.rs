@@ -66,7 +66,7 @@ impl<
 					if !(state_period..=(state_period + 1)).contains(&signature_period) {
 						let next_period = state_period + 1;
 						log::trace!(
-							"Fetching sync update for sync committee period: {next_period}"
+							target: crate::LOG_TARGET, "Fetching sync update for sync committee period: {next_period}"
 						);
 						let update = client.prover.latest_update_for_period(next_period).await?;
 						let message = BeaconClientUpdate { consensus_update: update };
@@ -80,7 +80,7 @@ impl<
 					.retry(|| {
 						sync().map_err(|err| {
 							log::error!(
-								"Error trying to fetch sync message for {:?}: {err:?}",
+								target: crate::LOG_TARGET, "Error trying to fetch sync message for {:?}: {err:?}",
 								client.state_machine
 							);
 							err
@@ -115,7 +115,7 @@ impl<
 					.retry(|| {
 						client.prover.fetch_finalized_checkpoint(Some("head")).map_err(|err| {
 							log::error!(
-								"Failed to fetch latest finalized header for {:?}: {err:?}",
+								target: crate::LOG_TARGET, "Failed to fetch latest finalized header for {:?}: {err:?}",
 								client.state_machine
 							);
 							err
@@ -126,7 +126,7 @@ impl<
 					Ok(head) => head.finalized,
 					Err(err) => {
 						log::error!(
-							"Failed to fetch latest finalized header for {:?}: {err:?}",
+							target: crate::LOG_TARGET, "Failed to fetch latest finalized header for {:?}: {err:?}",
 							client.state_machine
 						);
 						return Some((Ok::<_, Error>(None), interval));
@@ -139,7 +139,7 @@ impl<
 						consensus_notification(&client, counterparty.clone(), checkpoint.clone())
 							.map_err(|err| {
 								log::error!(
-									"Failed to fetch consensus proof for {:?}: {err:?}",
+									target: crate::LOG_TARGET, "Failed to fetch consensus proof for {:?}: {err:?}",
 									client.state_machine
 								);
 								err
@@ -194,7 +194,7 @@ impl<
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
@@ -221,7 +221,7 @@ impl<
 		for (state_machine, l2_host) in self.l2_clients.clone() {
 			match l2_host {
 				L2Host::ArbitrumOrbit(host) => {
-					rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
+					rollup_core_address.insert(host.state_machine, host.host.rollup_core);
 					let number = host.arb_execution_client.get_block_number().await?;
 					let block = host
 						.arb_execution_client
@@ -230,7 +230,7 @@ impl<
 						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
+								host.state_machine
 							)
 						})?;
 					state_machine_commitments.push((
@@ -254,14 +254,12 @@ impl<
 						.dispute_game_factory
 						.map(|addr| (addr, vec![CANNON, _PERMISSIONED]))
 					{
-						dispute_factory_address.insert(
-							host.evm.state_machine,
-							(dispute_factory, respected_game_types),
-						);
+						dispute_factory_address
+							.insert(host.state_machine, (dispute_factory, respected_game_types));
 					}
 
 					if let Some(l2_oracle_address) = host.host.l2_oracle {
-						l2_oracle.insert(host.evm.state_machine, l2_oracle_address);
+						l2_oracle.insert(host.state_machine, l2_oracle_address);
 					}
 
 					let number = host.op_execution_client.get_block_number().await?;
@@ -272,7 +270,7 @@ impl<
 						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
+								host.state_machine
 							)
 						})?;
 					state_machine_commitments.push((
@@ -303,7 +301,7 @@ impl<
 
 		let number = self.el.get_block_number().await?;
 		let block = self.el.get_block(BlockId::number(number)).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			anyhow!("Didn't find block with number {number} on {:?}", self.state_machine)
 		})?;
 		state_machine_commitments.push((
 			StateMachineId {

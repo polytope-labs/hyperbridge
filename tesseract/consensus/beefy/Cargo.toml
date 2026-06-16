@@ -32,9 +32,10 @@ primitive-types = { workspace = true }
 # polytope-labs
 pallet-ismp = { workspace = true }
 pallet-ismp-rpc = { workspace = true }
+pallet-beefy-consensus-proofs = { workspace = true }
 ismp = { workspace = true }
-
-ismp-solidity-abi = { workspace = true }
+ismp-beefy = { workspace = true }
+ismp-abi = { workspace = true }
 substrate-state-machine = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }
@@ -60,3 +61,8 @@ new-consensus-state = []
 [dev-dependencies]
 # crates.io
 serde = { workspace = true, default-features = false, features = ["derive", "alloc"] }
+dotenv = { workspace = true }
+anyhow = "1.0.75"
+hex = { workspace = true }
+tokio = { workspace = true, features = ["full", "sync"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "reqwest-default-tls"] }

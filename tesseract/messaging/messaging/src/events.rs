@@ -7,8 +7,8 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{PostRequest, Request, RequestResponse, Response},
+	messaging::{hash_request, Message, Proof, RequestMessage},
+	router::{PostRequest, Request},
 };
 use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc};
@@ -22,20 +22,14 @@ pub enum Event {
 	StateMachineUpdated(StateMachineUpdated),
 	/// An event that is emitted when a post request is dispatched
 	PostRequest(Meta),
-	/// An event that is emitted when a post response is dispatched
-	PostResponse(Meta),
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(Meta),
 	/// An event that is emitted when a get response is dispatched
 	GetResponse(Meta),
 	/// Post request handled
 	PostRequestHandled(RequestResponseHandled),
-	/// Emitted when a post response is handled
-	PostResponseHandled(RequestResponseHandled),
 	/// Emitted when a post request timeout is handled
 	PostRequestTimeoutHandled(TimeoutHandled),
-	/// Emitted when a post response timeout is handled
-	PostResponseTimeoutHandled(TimeoutHandled),
 	/// Emitted when a get request is handled
 	GetRequestHandled(RequestResponseHandled),
 	/// Emitted when a get request timeout is handled
@@ -50,11 +44,6 @@ impl From<IsmpEvent> for Event {
 			IsmpEvent::StateMachineUpdated(e) => Event::StateMachineUpdated(e),
 			IsmpEvent::PostRequest(e) =>
 				Event::PostRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
-			IsmpEvent::PostResponse(e) => Event::PostResponse(Meta {
-				nonce: e.post.nonce,
-				dest: e.post.dest,
-				source: e.post.source,
-			}),
 			IsmpEvent::GetRequest(e) =>
 				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::GetResponse(e) => Event::GetResponse(Meta {
@@ -63,11 +52,8 @@ impl From<IsmpEvent> for Event {
 				source: e.get.source,
 			}),
 			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
-			IsmpEvent::PostResponseHandled(handled) => Event::PostResponseHandled(handled),
 			IsmpEvent::PostRequestTimeoutHandled(handled) =>
 				Event::PostRequestTimeoutHandled(handled),
-			IsmpEvent::PostResponseTimeoutHandled(handled) =>
-				Event::PostResponseTimeoutHandled(handled),
 			IsmpEvent::GetRequestHandled(handled) => Event::GetRequestHandled(handled),
 			IsmpEvent::GetRequestTimeoutHandled(handled) =>
 				Event::GetRequestTimeoutHandled(handled),
@@ -78,9 +64,19 @@ impl From<IsmpEvent> for Event {
 
 /// Translates events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
-/// the counterparty chain
+/// the counterparty chain.
+///
+/// `consensus_prelude` is the source-side consensus update that will land in
+/// the same batch as these messages (the outbound fan-out passes the
+/// `Message::Consensus` it built from the current `ProofAccepted` event).
+/// When present, it's passed through to gas estimation so each per-message
+/// estimate reflects the post-update state — without it, EVM sinks would
+/// simulate messages against the pre-update state commitment and either
+/// misestimate or fail the success check. Callers that don't submit a
+/// consensus message alongside (inbound pipeline) pass `None`.
+///
 /// Returns a tuple where the first item are messages to be submitted to the sink
-/// and the second tuple are currently unprofitable messages
+/// and the second tuple are currently unprofitable messages.
 pub async fn translate_events_to_messages(
 	source: Arc<dyn IsmpProvider>,
 	sink: Arc<dyn IsmpProvider>,
@@ -89,15 +85,13 @@ pub async fn translate_events_to_messages(
 	config: RelayerConfig,
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	consensus_prelude: Option<Message>,
 ) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
 	let mut post_request_queries = vec![];
-	let mut response_queries = vec![];
 
 	let mut post_requests = vec![];
-	let mut post_responses = vec![];
 
 	let mut request_messages = vec![];
-	let mut response_messages = vec![];
 
 	let counterparty_timestamp = sink.query_timestamp().await?;
 
@@ -119,7 +113,7 @@ pub async fn translate_events_to_messages(
 								post.timeout_timestamp <= counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
-									"Found timed out request, request: {}, counterparty: {}",
+									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
 									post.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
@@ -128,7 +122,7 @@ pub async fn translate_events_to_messages(
 
 							if !is_allowed_module(&config, &post.from) {
 								tracing::trace!(
-									"Request from module {}, filtered by module filter",
+									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
 								);
 								return Ok(None);
@@ -159,53 +153,6 @@ pub async fn translate_events_to_messages(
 							};
 							Ok(Some((Message::Request(_msg), query)))
 						},
-						IsmpEvent::PostResponse(post_response) => {
-							// Skip timed out responses
-							if post_response.timeout_timestamp != 0 &&
-								post_response.timeout_timestamp <=
-									counterparty_timestamp.as_secs()
-							{
-								tracing::trace!(
-									"Found timed out request, request: {}, counterparty: {}",
-									post_response.timeout_timestamp,
-									counterparty_timestamp.as_secs()
-								);
-								return Ok(None);
-							}
-
-							if !is_allowed_module(&config, &post_response.source_module()) {
-								tracing::trace!(
-									"Request from module {}, filtered by module filter",
-									hex::encode(&post_response.source_module()),
-								);
-								return Ok(None);
-							}
-
-							let resp = Response::Post(post_response.clone());
-							let hash = hash_response::<Hasher>(&resp);
-
-							let query = Query {
-								source_chain: resp.source_chain(),
-								dest_chain: resp.dest_chain(),
-								nonce: resp.nonce(),
-								commitment: hash,
-							};
-
-							let proof = source
-								.query_responses_proof(
-									state_machine_height.height,
-									vec![query],
-									sink.state_machine_id().state_id,
-								)
-								.await?;
-
-							let _msg = ResponseMessage {
-								datagram: RequestResponse::Response(vec![resp.clone()]),
-								proof: Proof { height: state_machine_height, proof },
-								signer: sink.address(),
-							};
-							Ok(Some((Message::Response(_msg), query)))
-						},
 						_ => Ok(None),
 					}
 				}
@@ -227,18 +174,6 @@ pub async fn translate_events_to_messages(
 					);
 					request_messages.push(Message::Request(req_msg))
 				},
-				Message::Response(resp_msg) => {
-					response_queries.push(query);
-					let response = match resp_msg.datagram {
-						RequestResponse::Response(ref resps) => resps
-							.get(0)
-							.cloned()
-							.ok_or_else(|| anyhow!("Expected a response to be present"))?,
-						_ => Err(anyhow!("Expected Response found posts"))?,
-					};
-					post_responses.push(response);
-					response_messages.push(Message::Response(resp_msg))
-				},
 				_ => Err(anyhow!("Unexpected message: {msg:?}"))?,
 			}
 		}
@@ -246,10 +181,10 @@ pub async fn translate_events_to_messages(
 
 	let mut unprofitable = vec![];
 
-	let (post_requests, post_request_queries, post_responses, response_queries) = {
-		if !request_messages.is_empty() || !response_messages.is_empty() {
+	let (post_requests, post_request_queries) = {
+		if !request_messages.is_empty() {
 			tracing::trace!(
-				"Tracing transactions to {:?}, from: {:?}",
+				target: crate::LOG_TARGET, "Tracing transactions to {:?}, from: {:?}",
 				sink.state_machine_id().state_id,
 				source.state_machine_id().state_id
 			);
@@ -263,6 +198,7 @@ pub async fn translate_events_to_messages(
 			coprocessor,
 			&client_map,
 			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude.clone(),
 		)
 		.await?;
 
@@ -288,50 +224,13 @@ pub async fn translate_events_to_messages(
 			.filter_map(|query| query)
 			.collect();
 
-		let post_response_successful_query = return_successful_queries(
-			sink.clone(),
-			response_messages,
-			response_queries,
-			config.minimum_profit_percentage,
-			coprocessor,
-			&client_map,
-			config.deliver_failed.unwrap_or_default(),
-		)
-		.await?;
-
-		unprofitable.extend(post_response_successful_query.retriable_messages);
-
-		let post_response_to_push: Vec<Response> = post_responses
-			.into_iter()
-			.zip(post_response_successful_query.queries.iter())
-			.filter_map(
-				|(current_post, current_query)| {
-					if current_query.is_some() {
-						Some(current_post)
-					} else {
-						None
-					}
-				},
-			)
-			.collect();
-
-		let post_response_queries_to_push: Vec<Query> = post_response_successful_query
-			.queries
-			.into_iter()
-			.filter_map(|query| query)
-			.collect();
-		(
-			post_request_to_push,
-			post_request_queries_to_push,
-			post_response_to_push,
-			post_response_queries_to_push,
-		)
+		(post_request_to_push, post_request_queries_to_push)
 	};
 
 	let mut messages = vec![];
 
 	if !post_request_queries.is_empty() {
-		tracing::trace!("Querying request proof for batch length {}", post_request_queries.len());
+		tracing::trace!(target: crate::LOG_TARGET, "Querying request proof for batch length {}", post_request_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = post_request_queries.chunks(chunks);
 		let post_request_chunks = post_requests.chunks(chunks);
@@ -352,59 +251,33 @@ pub async fn translate_events_to_messages(
 		}
 	}
 
-	if !response_queries.is_empty() {
-		tracing::trace!("Querying response proof for batch length {}", response_queries.len());
-		let chunks = chunk_size(sink.state_machine_id().state_id);
-		let query_chunks = response_queries.chunks(chunks);
-		let post_request_chunks = post_responses.chunks(chunks);
-		for (queries, post_responses) in query_chunks.into_iter().zip(post_request_chunks) {
-			let responses_proof = source
-				.query_responses_proof(
-					state_machine_height.height,
-					queries.to_vec(),
-					sink.state_machine_id().state_id,
-				)
-				.await?;
-			let msg = ResponseMessage {
-				datagram: RequestResponse::Response(post_responses.to_vec()),
-				proof: Proof { height: state_machine_height, proof: responses_proof },
-				signer: sink.address(),
-			};
-			messages.push(Message::Response(msg));
-		}
-	}
-
 	Ok((messages, unprofitable))
 }
 
-/// Return true for Request and Response events designated for the counterparty
+/// Return true for Request events designated for the counterparty.
+///
+/// Events are gated by `module_filter` via `is_allowed_module`, so operators
+/// can scope which modules they deliver. With no `module_filter` configured,
+/// `is_allowed_module` permits every module. The on-chain reward allowlist
+/// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
+/// separately by the outbound task.
+///
+/// When the counterparty is the coprocessor, every post request flows through
+/// regardless of its final destination or the module filter — the coprocessor
+/// needs to ingest all requests so it can process and forward them.
 pub fn filter_events(
 	config: &RelayerConfig,
-	router_id: StateMachine,
 	counterparty: StateMachine,
+	coprocessor: StateMachine,
 	ev: &IsmpEvent,
 ) -> bool {
-	// Is the counterparty the routing chain?
-	let is_router = router_id == counterparty;
-
-	let allow_module = |module: &[u8]| {
-		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
-			is_allowed_module(config, module)
-	};
 	match ev {
-		// We filter out events whose origin is the coprocessor unless the source module is
-		// explicitly allowed in the module filter
-		IsmpEvent::PostRequest(post) =>
-			(post.dest == counterparty &&
-				(post.source != router_id ||
-					(post.source == router_id && allow_module(&post.from)))) ||
-				is_router,
-		IsmpEvent::PostResponse(resp) =>
-			(resp.dest_chain() == counterparty &&
-				(resp.source_chain() != router_id ||
-					(resp.source_chain() == router_id &&
-						allow_module(&resp.source_module())))) ||
-				is_router,
+		IsmpEvent::PostRequest(post) => {
+			if counterparty == coprocessor {
+				return true;
+			}
+			post.dest == counterparty && is_allowed_module(config, &post.from)
+		},
 		_ => false,
 	}
 }
@@ -430,6 +303,7 @@ pub async fn return_successful_queries(
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	deliver_failed: bool,
+	consensus_prelude: Option<Message>,
 ) -> Result<ProfitabilityResult, anyhow::Error> {
 	if messages.is_empty() {
 		return Ok(Default::default());
@@ -437,7 +311,10 @@ pub async fn return_successful_queries(
 
 	let mut queries_to_be_relayed = Vec::new();
 	let mut retriable_messages = Vec::new();
-	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
+	// Estimate each message together with the consensus update it rides in
+	// with; EVM sinks use `batchCall([prelude, msg])` so the simulation sees
+	// the post-update state commitment.
+	let gas_estimates = sink.estimate_gas_batched(consensus_prelude, messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's use the lowest tracing batch size
 	// from all clients(except the coprocessor) and use that as the max concurrency
@@ -462,7 +339,7 @@ pub async fn return_successful_queries(
 				let client_map = client_map.clone();
 				async move {
 					if !est.successful_execution && !deliver_failed {
-						tracing::info!("Skipping Failed tx");
+						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
 						// if msg has not been delivered return the message as retriable
 						let relayer = match &msg {
 							Message::Request(_) => {
@@ -485,13 +362,15 @@ pub async fn return_successful_queries(
 						let total_gas_to_be_expended_in_usd = est.execution_cost;
 						// what kind of message is this?
 						let Some(og_source)  = client_map.get(&query.source_chain) else {
-							tracing::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
+							tracing::info!(target: crate::LOG_TARGET, "Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
 							return Ok((None, None))
 						};
 
 						let fee_metadata = match msg {
 							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?,
-							Message::Response(_) => og_source.query_response_fee_metadata(query.commitment).await?,
+							// `Message::Response` carries GetResponses, which never accrue
+							// relayer fees (state-coprocessor writes `fee: Default::default()`).
+							Message::Response(_) => U256::zero(),
 							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
 						};
 
@@ -509,11 +388,11 @@ pub async fn return_successful_queries(
 						};
 
 						if fee_metadata < fee_with_profit {
-							tracing::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+							tracing::info!(target: crate::LOG_TARGET, "Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
 							(None, Some(msg))
 						} else {
 							tracing::trace!(
-								"Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
+								target: crate::LOG_TARGET, "Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
 									sink.state_machine_id().state_id, Cost(profit)
 							);
 							(Some(query), None)
@@ -521,7 +400,7 @@ pub async fn return_successful_queries(
 
 					} else {
 						// We only deliver sucessful messages to hyperbridge
-						tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+						tracing::trace!(target: crate::LOG_TARGET, "Pushing tx to {:?}", sink.state_machine_id().state_id);
 						(Some(query), None)
 					};
 

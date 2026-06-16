@@ -1,0 +1,269 @@
+---
+title: IHyperFungibleToken
+description: API reference for HyperFungibleToken and WrappedHyperFungibleToken contracts.
+---
+
+# IHyperFungibleToken 
+
+A cross-chain fungible token that burns on the source chain and mints on the destination chain.
+
+```solidity lineNumbers
+contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable
+```
+
+### Constructor
+
+```solidity lineNumbers
+constructor(string memory name, string memory symbol, address initialOwner)
+```
+
+Creates a new token with the given name, symbol, and owner.
+
+---
+
+### configure(options)
+
+Sets the ISMP host and CallDispatcher addresses. The host address can only be set once.
+
+```solidity lineNumbers
+function configure(ConfigOptions calldata options) external onlyOwner
+```
+
+```solidity lineNumbers
+struct ConfigOptions {
+    address host;       // ISMP host contract address
+    address dispatcher; // CallDispatcher for executing calldata on receive
+}
+```
+
+---
+
+### addChain(chainId, moduleId)
+
+Registers a peer contract on a destination chain.
+
+```solidity lineNumbers
+function addChain(bytes calldata chainId, bytes calldata moduleId) external onlyOwner
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `bytes` | Destination chain ID (e.g., `StateMachine.evm(97)`) |
+| `moduleId` | `bytes` | The peer contract address on that chain. 20 bytes for EVM, 8 bytes for substrate pallet. |
+
+---
+
+### removeChain(chainId)
+
+Removes a chain from the supported set. Transfers to/from this chain will revert after removal.
+
+```solidity lineNumbers
+function removeChain(bytes calldata chainId) external onlyOwner
+```
+
+---
+
+### send(params)
+
+Burns tokens from the caller and dispatches a cross-chain transfer.
+
+```solidity lineNumbers
+function send(SendParams calldata params) external payable whenNotPaused
+```
+
+```solidity lineNumbers
+struct SendParams {
+    bytes dest;         // Destination chain identifier
+    bytes to;           // Recipient address on destination
+    uint256 amount;     // Amount of tokens to send
+    uint64 timeout;     // Timeout in seconds
+    uint256 relayerFee; // Relayer fee for message delivery
+    bytes data;         // Optional calldata for CallDispatcher
+}
+```
+
+**Fee payment:** If `msg.value > 0`, fees are paid in the native token. Otherwise, fees are paid in the host's fee token (pulled from `msg.sender` via `transferFrom`).
+
+---
+
+### onAccept(incoming)
+
+Called by the ISMP host when a cross-chain transfer arrives. Verifies the source, mints tokens to the recipient, and optionally executes calldata via CallDispatcher.
+
+```solidity lineNumbers
+function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenNotPaused
+```
+
+---
+
+### onPostRequestTimeout(incoming)
+
+Called when a sent message times out. Re-mints tokens to the original sender.
+
+```solidity lineNumbers
+function onPostRequestTimeout(PostRequestTimeout memory incoming) external onlyHost whenNotPaused
+```
+
+---
+
+### host()
+
+Returns the ISMP host contract address for this chain.
+
+```solidity lineNumbers
+function host() public view returns (address)
+```
+
+---
+
+### dispatcher()
+
+Returns the CallDispatcher contract address used for executing calldata on receive.
+
+```solidity lineNumbers
+function dispatcher() public view returns (address)
+```
+
+---
+
+### supportedChain(chainId)
+
+Returns the peer module ID registered for a given chain. An empty result means the chain is not supported.
+
+```solidity lineNumbers
+function supportedChain(bytes calldata chainId) public view returns (bytes memory)
+```
+
+---
+
+### supportsInterface(interfaceId)
+
+ERC165 interface detection. Returns `true` for `IHyperFungibleToken` (`0x7200c457`) and `IERC165`.
+
+```solidity lineNumbers
+function supportsInterface(bytes4 interfaceId) public view returns (bool)
+```
+
+---
+
+### quote(params)
+
+Returns the fee in the host's fee token for dispatching a cross-chain send. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(SendParams calldata params) public view returns (uint256)
+```
+
+---
+
+### quote(params)
+
+Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Accepts the same `SendParams` used by `send()`.
+
+```solidity lineNumbers
+function quote(SendParams calldata params) public view returns (uint256)
+```
+
+---
+
+### quote(request)
+
+Returns the fee in the host's fee token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quote(DispatchPost memory request) public view returns (uint256)
+```
+
+---
+
+### quote(request)
+
+Returns the fee in the native token for a raw `DispatchPost`. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quote(DispatchPost memory request) public view returns (uint256)
+```
+
+---
+
+### pause()
+
+Pauses all cross-chain operations and ERC20 transfers. Only callable by the contract owner.
+
+```solidity lineNumbers
+function pause() external onlyOwner
+```
+
+---
+
+### unpause()
+
+Resumes all operations after a pause. Only callable by the contract owner.
+
+```solidity lineNumbers
+function unpause() external onlyOwner
+```
+
+---
+
+### Events
+
+Events emitted by the `HyperFungibleToken` contract.
+
+#### Sent
+
+Emitted when tokens are burned and a cross-chain transfer is dispatched.
+
+```solidity lineNumbers
+event Sent(address from, bytes to, string dest, uint256 amount, bytes32 commitment);
+```
+---
+#### Received
+
+Emitted when tokens are minted from an incoming cross-chain transfer.
+
+```solidity lineNumbers
+event Received(bytes from, address to, string source, uint256 amount);
+```
+---
+#### Refunded
+
+Emitted when tokens are re-minted after a cross-chain transfer times out.
+
+```solidity lineNumbers
+event Refunded(address to, uint256 amount);
+```
+
+---
+
+## ERC165 Interface ID
+
+`0x7200c457`
+
+---
+
+## Cross-Chain Message Format
+
+Both `HyperFungibleToken` and [WrappedHyperFungibleToken](/developers/evm/api/wrapped-hyper-fungible-token) encode the same message body:
+
+```solidity lineNumbers
+struct Message {
+    bytes from;     // original sender (for timeout refunds)
+    bytes to;       // recipient on destination chain
+    uint256 amount; // token amount
+    bytes data;     // optional calldata for CallDispatcher
+}
+```
+
+This is ABI-encoded, ensuring full compatibility between `HyperFungibleToken`, `WrappedHyperFungibleToken`, and [`pallet-hyper-fungible-token`](/developers/polkadot/hyper-fungible-token) on any chain.
+
+---
+
+## Errors
+
+| Error | Description |
+|-------|-------------|
+| `InvalidAddress(uint256 length)` | Provided bytes too short to extract a 20-byte address |
+| `UnsupportedChain()` | Destination or source chain not registered via `addChain` |
+| `UnauthorizedSource()` | Incoming message's source address doesn't match the registered peer |
+

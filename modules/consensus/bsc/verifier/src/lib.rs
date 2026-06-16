@@ -19,17 +19,18 @@
 use polkadot_sdk::*;
 
 use alloc::vec::Vec;
-use anyhow::anyhow;
-use bls::{point_to_pubkey, types::G1ProjectivePoint};
+use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
-use sync_committee_verifier::crypto::pubkey_to_projective;
 
+pub mod error;
 pub mod primitives;
+
+pub use error::Error;
 
 extern crate alloc;
 
@@ -50,24 +51,42 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	current_validators: &Vec<BlsPublicKey>,
 	update: BscClientUpdate,
 	epoch_length: u64,
-) -> Result<VerificationResult, anyhow::Error> {
-	let extra_data = parse_extra::<H, C>(&update.attested_header)
-		.map_err(|_| anyhow!("could not parse extra data from header"))?;
+) -> Result<VerificationResult, Error> {
+	let extra_data =
+		parse_extra::<H, C>(&update.attested_header).map_err(|_| Error::ParseExtraData)?;
 	let source_hash = H256::from_slice(&extra_data.vote_data.source_hash.0);
 	let target_hash = H256::from_slice(&extra_data.vote_data.target_hash.0);
 	if source_hash == Default::default() || target_hash == Default::default() {
-		Err(anyhow!("Vote data is empty"))?
+		Err(Error::EmptyVoteData)?
 	}
 
 	let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
 		extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 	)
-	.map_err(|_| anyhow!("Could not deseerialize vote address set"))?;
+	.map_err(|_| Error::DeserializeVoteAddressSet)?;
 
-	if validators_bit_set.iter().as_bitslice().count_ones() <
-		((2 * current_validators.len() / 3) + 1)
+	// `VALIDATOR_BIT_SET_SIZE` is a fixed 64-bit width; the active
+	// validator set is smaller, so bits at positions `>= validators.len()`
+	// have no corresponding validator. Setting them would inflate
+	// `count_ones()` past the supermajority threshold without any extra
+	// validator actually signing.
+	if validators_bit_set
+		.iter()
+		.enumerate()
+		.any(|(i, bit)| i >= current_validators.len() && *bit)
 	{
-		Err(anyhow!("Not enough participants"))?
+		Err(Error::VoteAddressSetBeyondValidatorCount)?
+	}
+
+	// We have to use the same threshold specified in the bsc parlia consensus which is 2/3
+	// https://github.com/bnb-chain/bsc/blob/da35ee13e2fe38efaeab2d6fb27f112332459b50/consensus/parlia/parlia.go#L557
+	let participant_count = validators_bit_set
+		.iter()
+		.take(current_validators.len())
+		.filter(|bit| **bit)
+		.count();
+	if participant_count < ((2 * current_validators.len()) / 3) {
+		Err(Error::NotEnoughParticipants)?
 	}
 
 	let source_header_hash = Header::from(&update.source_header).hash::<H>();
@@ -76,7 +95,19 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
 		target_header_hash.0 != extra_data.vote_data.target_hash.0
 	{
-		Err(anyhow!("Target and Source headers do not match vote data"))?
+		Err(Error::HeaderVoteDataMismatch)?
+	}
+
+	// BEP-126 fast finality only *finalizes* `source_header` once the justified
+	// `target_header` is its direct child (two consecutive justified blocks). A
+	// supermajority-signed but non-adjacent vote justifies `target_header` yet
+	// leaves `source_header` merely justified and still reorg-able, so committing
+	// its state root as a finalized BSC state commitment would be unsound.
+	if update.target_header.number.low_u64() !=
+		update.source_header.number.low_u64().saturating_add(1) ||
+		update.target_header.parent_hash.0 != source_header_hash.0
+	{
+		Err(Error::NonConsecutiveFinalization)?
 	}
 
 	let participants: Vec<BlsPublicKey> = current_validators
@@ -85,7 +116,8 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		.filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
 		.collect();
 
-	let aggregate_public_key = aggregate_public_keys(&participants);
+	let aggregate_public_key = aggregate_public_keys(&participants)
+		.map_err(|err| Error::AggregatePublicKeys(alloc::format!("{err:?}")))?;
 	let msg = H::keccak256(alloy_rlp::encode(extra_data.vote_data.clone()).as_slice());
 	let signature = extra_data.agg_signature;
 
@@ -97,25 +129,43 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	);
 
 	if !verify {
-		Err(anyhow!("Could not verify aggregate signature"))?
+		Err(Error::InvalidSignature)?
 	}
 
 	let next_validator_addresses: Option<NextValidators> =
         // If an epoch ancestry was provided, we try to extract the next validator set from it
         if !update.epoch_header_ancestry.is_empty() {
+            // Bind `epoch_header_ancestry[0]` to the epoch boundary immediately preceding
+            // `source_header`. Without this check the verifier accepts ancestry that walks
+            // back to a *stale* epoch boundary (the previous epoch's first block, reachable
+            // when `source_header` is itself the new epoch boundary and ancestry spans the
+            // full 1000-block prior epoch), letting a relayer stage the wrong validator set
+            // as `next_validators`.
+            let source_number = update.source_header.number.low_u64();
+            // When `source_header` is itself an epoch boundary the validator set lives in
+            // its own `extra_data` and no ancestry is required — the `else if` branch below
+            // handles that case. Reject any ancestry supplied here so a relayer cannot
+            // bypass that branch with a stale epoch header.
+            if source_number % epoch_length == 0 {
+                Err(Error::InvalidEpochAncestry)?
+            }
+            let expected_epoch_header_number = source_number - (source_number % epoch_length);
+            if update.epoch_header_ancestry[0].number.low_u64() != expected_epoch_header_number {
+                Err(Error::InvalidEpochAncestry)?
+            }
             let mut parent_hash = Header::from(&update.epoch_header_ancestry[0]).hash::<H>();
             for header in update.epoch_header_ancestry[1..].into_iter() {
                 if parent_hash != header.parent_hash {
-                    Err(anyhow!("Epoch ancestry submitted is invalid"))?
+                    Err(Error::InvalidEpochAncestry)?
                 }
                 parent_hash = Header::from(header).hash::<H>()
             }
             if parent_hash != update.source_header.parent_hash {
-                Err(anyhow!("Epoch ancestry submitted is invalid"))?
+                Err(Error::InvalidEpochAncestry)?
             }
             let epoch_header = update.epoch_header_ancestry[0].clone();
             let epoch_header_extra_data = parse_extra::<H, C>(&epoch_header)
-                .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
+                .map_err(|_| Error::ParseEpochExtraData)?;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -129,14 +179,12 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
                         (current_validators.len() as u64 / 2),
                 })
             } else {
-                Err(anyhow!(
-                    "Epoch header provided does not have a validator set present in its extra data"
-                ))?
+                Err(Error::MissingValidatorSet)?
             }
             // If the source header that was finalized is the epoch header we extract the next validator set
         } else if update.source_header.number.low_u64() % epoch_length == 0 {
             let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
-                .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
+                .map_err(|_| Error::ParseEpochExtraData)?;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -150,9 +198,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
                         (current_validators.len() as u64 / 2),
                 })
             } else {
-                Err(anyhow!(
-                    "Epoch header provided does not have a validator set present in its extra data"
-                ))?
+                Err(Error::MissingValidatorSet)?
             }
         } else {
             None
@@ -165,11 +211,180 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	})
 }
 
-pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
-	let aggregate = keys
-		.into_iter()
-		.filter_map(|key| pubkey_to_projective(key).ok())
-		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use alloy_primitives::{Bytes, FixedBytes, B256};
+	use alloy_rlp::Encodable;
+	use geth_primitives::CodecHeader;
+	use primitive_types::{H160, H256, U256};
+	use primitives::{Testnet, VoteAttestationData, VoteData};
 
-	point_to_pubkey(aggregate.into())
+	/// `sp_core::keccak_256` host wired into the `Keccak256` trait.
+	struct TestHost;
+	impl Keccak256 for TestHost {
+		fn keccak256(bytes: &[u8]) -> H256 {
+			sp_core::keccak_256(bytes).into()
+		}
+	}
+
+	/// Build a `CodecHeader` whose `extra_data` parses into the requested
+	/// `VoteAttestationData`. The RLP-encoded attestation always starts with
+	/// `0xf8`, so the validator-section branch in `parse_extra` is skipped.
+	fn header_with_vote_set(
+		vote_address_set: u64,
+		source_hash: B256,
+		target_hash: B256,
+	) -> CodecHeader {
+		let attestation = VoteAttestationData {
+			vote_address_set,
+			agg_signature: FixedBytes::<96>::from([0u8; 96]),
+			data: VoteData { source_number: 1, source_hash, target_number: 2, target_hash },
+			extra: Bytes::new(),
+		};
+
+		let mut attestation_rlp = Vec::new();
+		attestation.encode(&mut attestation_rlp);
+		// Sanity: long-list prefix so the parser skips validator parsing.
+		assert_eq!(attestation_rlp[0], 0xf8);
+
+		let mut extra_data = Vec::with_capacity(32 + attestation_rlp.len() + 65);
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.extend_from_slice(&attestation_rlp);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		CodecHeader {
+			parent_hash: H256::zero(),
+			uncle_hash: H256::zero(),
+			coinbase: H160::zero(),
+			state_root: H256::zero(),
+			transactions_root: H256::zero(),
+			receipts_root: H256::zero(),
+			logs_bloom: Default::default(),
+			difficulty: U256::zero(),
+			number: U256::zero(),
+			gas_limit: 0,
+			gas_used: 0,
+			timestamp: 0,
+			extra_data,
+			mix_hash: H256::zero(),
+			nonce: Default::default(),
+			base_fee_per_gas: None,
+			withdrawals_hash: None,
+			blob_gas_used: None,
+			excess_blob_gas_used: None,
+			parent_beacon_root: None,
+			requests_hash: None,
+		}
+	}
+
+	fn dummy_validators(n: usize) -> Vec<BlsPublicKey> {
+		(0..n).map(|i| vec![i as u8; 48].try_into().expect("48 byte pubkey")).collect()
+	}
+
+	fn update_with(attested_header: CodecHeader) -> BscClientUpdate {
+		BscClientUpdate {
+			source_header: attested_header.clone(),
+			target_header: attested_header.clone(),
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		}
+	}
+
+	/// 21 validators (the BSC testnet shape). All 21 in-range bits set —
+	/// well above the 2/3 threshold, so the bit-set check passes. The
+	/// signature check will then fail (we use a dummy aggregate), but
+	/// that's downstream of what we're asserting.
+	#[test]
+	fn accepts_fully_populated_in_range_bits() {
+		let validators = dummy_validators(21);
+		// Bits 0..21 set, bits 21..64 clear.
+		let mask: u64 = (1u64 << 21) - 1;
+		let header = header_with_vote_set(mask, B256::repeat_byte(1), B256::repeat_byte(2));
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("downstream signature check must fail");
+		// We made it past the supermajority/junk-bits checks; failure is
+		// the header-hash mismatch (we left source_hash/target_hash as
+		// constants, but the recomputed hash of the empty CodecHeader
+		// won't match those). Either way, neither of the two errors we
+		// guard against here.
+		let msg = format!("{err}");
+		assert!(!msg.contains("Vote address set has bits set beyond validator count"));
+		assert!(!msg.contains("Not enough participants"));
+	}
+
+	/// Setting a bit past `current_validators.len()` must be rejected,
+	/// even when it would otherwise inflate `count_ones()` over the
+	/// 2/3 threshold.
+	#[test]
+	fn rejects_bits_set_beyond_validator_count() {
+		let validators = dummy_validators(21);
+		// 10 in-range bits (below the 14-vote threshold) plus 30 bits
+		// in the junk range [21, 64) — pre-fix this would clear the
+		// supermajority check at 40 ones; post-fix it is rejected.
+		let in_range: u64 = (1u64 << 10) - 1;
+		let junk: u64 = ((1u64 << 51) - 1) << 21; // bits 21..=63 (wraps to 30 bits set)
+		let header =
+			header_with_vote_set(in_range | junk, B256::repeat_byte(1), B256::repeat_byte(2));
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("junk bits must be rejected");
+		assert!(
+			format!("{err}").contains("Vote address set has bits set beyond validator count"),
+			"unexpected error: {err:?}"
+		);
+	}
+
+	/// All bits are within the validator range, but fewer than 2/3 are
+	/// set — the supermajority check rejects.
+	#[test]
+	fn rejects_too_few_in_range_participants() {
+		let validators = dummy_validators(21);
+		// 10 of 21 bits set (threshold is 14).
+		let mask: u64 = (1u64 << 10) - 1;
+		let header = header_with_vote_set(mask, B256::repeat_byte(1), B256::repeat_byte(2));
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("under-threshold update must be rejected");
+		assert!(format!("{err}").contains("Not enough participants"), "unexpected error: {err:?}");
+	}
+
+	/// Minimal header at a given block number (no vote attestation).
+	fn plain_header(number: u64, parent_hash: H256) -> CodecHeader {
+		let mut header = header_with_vote_set(0, B256::ZERO, B256::ZERO);
+		header.extra_data = Vec::new();
+		header.number = U256::from(number);
+		header.parent_hash = parent_hash;
+		header
+	}
+
+	/// A supermajority-signed vote whose `target` is NOT the direct child of
+	/// `source` must be rejected: committing a merely-justified (reorg-able)
+	/// `source` as finalized violates BEP-126's two-consecutive-justified rule.
+	#[test]
+	fn rejects_non_adjacent_source_target() {
+		let validators = dummy_validators(21);
+		let mask: u64 = (1u64 << 21) - 1;
+
+		// source #10 and target #15 — not consecutive, and target.parent != source.
+		let source_header = plain_header(10, H256::repeat_byte(0x11));
+		let source_hash = Header::from(&source_header).hash::<TestHost>();
+		let target_header = plain_header(15, H256::repeat_byte(0x22));
+		let target_hash = Header::from(&target_header).hash::<TestHost>();
+
+		// The attestation carries the genuine source/target header hashes, so the
+		// header<->vote binding check passes and we reach the adjacency check.
+		let attested_header =
+			header_with_vote_set(mask, B256::from(source_hash.0), B256::from(target_hash.0));
+		let update = BscClientUpdate {
+			source_header,
+			target_header,
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		};
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
+			.expect_err("non-adjacent vote must be rejected");
+		assert!(format!("{err}").contains("not the direct child"), "unexpected error: {err:?}");
+	}
 }

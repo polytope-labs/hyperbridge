@@ -1,0 +1,28 @@
+packages:
+  - 'packages/*'
+allowBuilds:
+  '@biomejs/biome': true
+  '@cosmology/protobufjs': true
+  '@nestjs/core': true
+  better-sqlite3: true
+  bufferutil: true
+  es5-ext: false
+  esbuild: true
+  keccak: true
+  protobufjs: true
+  secp256k1: true
+  sodium-native: true
+  utf-8-validate: true
+blockExoticSubdeps: true
+minimumReleaseAge: 43200
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - 'detect-port@1.6.1'
+  - 'graphql@15.10.2'
+  - 'undici-types@6.21.0 || 6.19.8'
+  - 'chokidar@4.0.3'
+  - '@noble/curves@1.8.0'
+  - '@noble/hashes@1.7.0'
+  - 'semver@6.3.1 || 5.7.2'
+  - 'slow-redact@0.3.2'
+  - 'undici@5.29.0'

@@ -15,8 +15,8 @@
 
 //! Message router definitions
 
-use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
-use alloc::{boxed::Box, string::ToString, vec};
+use crate::{abi, error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
+use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Formatter, time::Duration};
 
@@ -92,6 +92,8 @@ impl core::fmt::Display for PostRequest {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
+	PartialOrd,
+	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,
@@ -138,6 +140,11 @@ impl GetRequest {
 	/// Get the timeout for this request
 	pub fn timeout(&self) -> Duration {
 		get_timeout(self.timeout_timestamp)
+	}
+
+	/// Returns true if the host timestamp has exceeded the request timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.timeout()
 	}
 }
 
@@ -253,119 +260,14 @@ impl Request {
 		}
 	}
 
-	/// Returns the encoded request
+	/// Returns the ABI-encoded request, matching Solidity's `abi.encode(...)` semantics.
+	/// This prevents hash malleability vulnerabilities that exist with packed encoding.
 	pub fn encode(&self) -> Vec<u8> {
-		match self {
-			Request::Post(post) => {
-				let mut buf = Vec::new();
-				buf.extend_from_slice(post.source.to_string().as_bytes());
-				buf.extend_from_slice(post.dest.to_string().as_bytes());
-				buf.extend_from_slice(&post.nonce.to_be_bytes());
-				buf.extend_from_slice(&post.timeout_timestamp.to_be_bytes());
-				buf.extend_from_slice(&post.from);
-				buf.extend_from_slice(&post.to);
-				buf.extend_from_slice(&post.body);
-				buf
-			},
-			Request::Get(get) => {
-				let mut buf = Vec::new();
-				buf.extend_from_slice(get.source.to_string().as_bytes());
-				buf.extend_from_slice(get.dest.to_string().as_bytes());
-				buf.extend_from_slice(&get.nonce.to_be_bytes());
-				buf.extend_from_slice(&get.height.to_be_bytes());
-				buf.extend_from_slice(&get.timeout_timestamp.to_be_bytes());
-				buf.extend_from_slice(&get.from);
-				get.keys.iter().for_each(|key| buf.extend_from_slice(key));
-				buf.extend_from_slice(&get.context);
-				buf
-			},
-		}
+		abi::encode_request(self)
 	}
 }
 
-/// The response to a POST request
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	PartialEq,
-	Eq,
-	scale_info::TypeInfo,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-pub struct PostResponse {
-	/// The request that triggered this response.
-	pub post: PostRequest,
-	/// The response message.
-	#[serde(with = "serde_hex_utils::as_hex")]
-	pub response: Vec<u8>,
-	/// Timestamp at which this response expires in seconds.
-	#[serde(rename = "timeoutTimestamp")]
-	pub timeout_timestamp: u64,
-}
-
-impl PostResponse {
-	/// Return the underlying request in the response
-	pub fn request(&self) -> Request {
-		self.post.clone().into()
-	}
-
-	/// Module where this response originated on source chain
-	pub fn source_module(&self) -> Vec<u8> {
-		self.post.to.clone()
-	}
-
-	/// Module that this response will be routed to on destination chain
-	pub fn destination_module(&self) -> Vec<u8> {
-		self.post.from.clone()
-	}
-
-	/// Get the source chain for this response
-	pub fn source_chain(&self) -> StateMachine {
-		self.post.dest.clone()
-	}
-
-	/// Get the destination chain for this response
-	pub fn dest_chain(&self) -> StateMachine {
-		self.post.source.clone()
-	}
-
-	/// Get the request nonce
-	pub fn nonce(&self) -> u64 {
-		self.post.nonce
-	}
-
-	/// Get the request nonce
-	pub fn timeout(&self) -> Duration {
-		get_timeout(self.timeout_timestamp)
-	}
-
-	/// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
-	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
-		proof_timestamp >= self.timeout()
-	}
-
-	/// Returns the encoded response
-	pub fn encode(&self) -> Vec<u8> {
-		let mut buf = Vec::new();
-		let req = &self.post;
-		buf.extend_from_slice(req.source.to_string().as_bytes());
-		buf.extend_from_slice(req.dest.to_string().as_bytes());
-		buf.extend_from_slice(&req.nonce.to_be_bytes());
-		buf.extend_from_slice(&req.timeout_timestamp.to_be_bytes());
-		buf.extend_from_slice(&req.from);
-		buf.extend_from_slice(&req.to);
-		buf.extend_from_slice(&req.body);
-		buf.extend_from_slice(&self.response);
-		buf.extend_from_slice(&self.timeout_timestamp.to_be_bytes());
-		buf
-	}
-}
-
-/// The response to a POST request
+/// The response to a GET request
 #[derive(
 	Debug,
 	Clone,
@@ -386,19 +288,39 @@ pub struct GetResponse {
 }
 
 impl GetResponse {
-	/// Returns the encoding for a get response
+	/// Returns the ABI-encoded get response as `abi.encode(res)`.
 	pub fn encode(&self) -> Vec<u8> {
-		let request = Request::Get(self.get.clone()).encode();
-		let values = self.values.iter().fold(vec![], |mut acc, storage_value| {
-			let item = vec![
-				storage_value.key.clone(),
-				storage_value.value.as_ref().cloned().unwrap_or_default(),
-			]
-			.concat();
-			acc.extend_from_slice(&item);
-			acc
-		});
-		vec![request, values].concat()
+		abi::encode_get_response(self)
+	}
+
+	/// Return the underlying request in the response
+	pub fn request(&self) -> Request {
+		Request::Get(self.get.clone())
+	}
+
+	/// Module that this response will be routed to on destination chain
+	pub fn destination_module(&self) -> Vec<u8> {
+		self.get.from.clone()
+	}
+
+	/// Get the source chain for this response
+	pub fn source_chain(&self) -> StateMachine {
+		self.get.dest
+	}
+
+	/// Get the destination chain for this response
+	pub fn dest_chain(&self) -> StateMachine {
+		self.get.source
+	}
+
+	/// Get the request nonce
+	pub fn nonce(&self) -> u64 {
+		self.get.nonce
+	}
+
+	/// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.get.timeout()
 	}
 }
 
@@ -423,121 +345,6 @@ pub struct StorageValue {
 	#[serde(serialize_with = "serde_hex_utils::as_hex::serialize_option")]
 	#[serde(deserialize_with = "serde_hex_utils::as_hex::deserialize_option")]
 	pub value: Option<Vec<u8>>,
-}
-
-/// The ISMP response
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	PartialEq,
-	Eq,
-	scale_info::TypeInfo,
-	derive_more::From,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-pub enum Response {
-	/// The response to a POST request
-	Post(PostResponse),
-	/// The response to a GET request
-	Get(GetResponse),
-}
-
-impl Response {
-	/// Return the underlying request in the response
-	pub fn request(&self) -> Request {
-		match self {
-			Response::Post(res) => Request::Post(res.post.clone()),
-			Response::Get(res) => Request::Get(res.get.clone()),
-		}
-	}
-
-	/// Module that this response will be routed to on destination chain
-	pub fn destination_module(&self) -> Vec<u8> {
-		match self {
-			Response::Get(get) => get.get.from.clone(),
-			Response::Post(post) => post.post.from.clone(),
-		}
-	}
-
-	/// Get the source chain for this response
-	pub fn source_chain(&self) -> StateMachine {
-		match self {
-			Response::Get(res) => res.get.dest,
-			Response::Post(res) => res.post.dest,
-		}
-	}
-
-	/// Get the destination chain for this response
-	pub fn dest_chain(&self) -> StateMachine {
-		match self {
-			Response::Get(res) => res.get.source,
-			Response::Post(res) => res.post.source,
-		}
-	}
-
-	/// Get the request nonce
-	pub fn nonce(&self) -> u64 {
-		match self {
-			Response::Get(res) => res.get.nonce,
-			Response::Post(res) => res.post.nonce,
-		}
-	}
-
-	/// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
-	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
-		match self {
-			Response::Get(res) => proof_timestamp >= res.get.timeout(),
-			Response::Post(res) => proof_timestamp >= res.timeout(),
-		}
-	}
-
-	/// Returns the encoded post response if it exists
-	pub fn response(&self) -> Option<Vec<u8>> {
-		match self {
-			Response::Get(_) => None,
-			Response::Post(res) => Some(res.response.clone()),
-		}
-	}
-
-	/// Returns the encoded response
-	pub fn encode(&self) -> Vec<u8> {
-		match self {
-			Response::Post(res) => res.encode(),
-			Response::Get(res) => res.encode(),
-		}
-	}
-}
-
-/// Convenience enum for membership verification.
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	scale_info::TypeInfo,
-	PartialEq,
-	Eq,
-	derive_more::From,
-)]
-pub enum RequestResponse {
-	/// A batch of requests
-	Request(Vec<Request>),
-	/// A batch of responses
-	Response(Vec<Response>),
-}
-
-/// Timeout message
-#[derive(derive_more::From, Clone)]
-pub enum Timeout {
-	/// A request timed out
-	Request(Request),
-	/// A post response timed out
-	Response(PostResponse),
 }
 
 /// The Ismp router dictates how messsages are routed to [`IsmpModule`]

@@ -19,14 +19,15 @@
 #![allow(clippy::all)]
 #![deny(missing_docs)]
 
+pub mod error;
 mod tests;
 
 extern crate alloc;
 use polkadot_sdk::*;
 
-use alloc::collections::BTreeMap;
-use anyhow::anyhow;
+use alloc::{collections::BTreeMap, string::ToString};
 use codec::DecodeAll;
+pub use error::Error;
 use finality_grandpa::Chain;
 use grandpa_verifier_primitives::{
 	justification::{find_scheduled_change, AncestryChain, GrandpaJustification},
@@ -43,7 +44,7 @@ use substrate_state_machine::read_proof_check;
 pub fn verify_grandpa_finality_proof<H>(
 	mut consensus_state: ConsensusState,
 	finality_proof: FinalityProof<H>,
-) -> Result<(ConsensusState, H, Vec<H256>, AncestryChain<H>), anyhow::Error>
+) -> Result<(ConsensusState, H, Vec<H256>, AncestryChain<H>), Error>
 where
 	H: Header<Hash = H256, Number = u32>,
 	H::Number: finality_grandpa::BlockNumberOps + Into<u32>,
@@ -55,19 +56,19 @@ where
 		.unknown_headers
 		.iter()
 		.max_by_key(|h| *h.number())
-		.ok_or_else(|| anyhow!("Unknown headers can't be empty!"))?;
+		.ok_or(Error::UnknownHeadersEmpty)?;
 
 	// this is illegal
 	if target.hash() != finality_proof.block {
-		Err(anyhow!("Latest finalized block should be highest block in unknown_headers"))?;
+		Err(Error::LatestBlockMismatch)?;
 	}
 
 	let justification =
 		GrandpaJustification::<H>::decode_all(&mut &finality_proof.justification[..])
-			.map_err(|e| anyhow!("Failed to decode justification {:?}", e))?;
+			.map_err(|e| Error::DecodeJustification(alloc::format!("{e:?}")))?;
 
 	if justification.commit.target_hash != finality_proof.block {
-		Err(anyhow!("Justification target hash and finality proof block hash mismatch"))?;
+		Err(Error::JustificationTargetMismatch)?;
 	}
 
 	let from = consensus_state.latest_hash;
@@ -76,22 +77,20 @@ where
 		.unknown_headers
 		.iter()
 		.min_by_key(|h| *h.number())
-		.ok_or_else(|| anyhow!("Unknown headers can't be empty!"))?;
+		.ok_or(Error::UnknownHeadersEmpty)?;
 
 	if base.number() < &consensus_state.latest_height {
-		headers.ancestry(base.hash(), consensus_state.latest_hash).map_err(|_| {
-			anyhow!(
-				"[verify_grandpa_finality_proof] Invalid ancestry (base -> latest relay block)!"
-			)
-		})?;
+		headers
+			.ancestry(base.hash(), consensus_state.latest_hash)
+			.map_err(|_| Error::InvalidAncestry)?;
 	}
 
-	let finalized = headers
-		.ancestry(from, target.hash())
-		.map_err(|_| anyhow!("[verify_grandpa_finality_proof] Invalid ancestry!"))?;
+	let finalized = headers.ancestry(from, target.hash()).map_err(|_| Error::InvalidAncestry)?;
 
 	// 2. verify justification.
-	justification.verify(consensus_state.current_set_id, &consensus_state.current_authorities)?;
+	justification
+		.verify(consensus_state.current_set_id, &consensus_state.current_authorities)
+		.map_err(|e| Error::JustificationVerify(e.to_string()))?;
 
 	// Sets new consensus state, optionally rotating authorities
 	consensus_state.latest_hash = target.hash();
@@ -112,7 +111,7 @@ where
 pub fn verify_parachain_headers_with_grandpa_finality_proof<H>(
 	consensus_state: ConsensusState,
 	proof: ParachainHeadersWithFinalityProof<H>,
-) -> Result<(ConsensusState, BTreeMap<u32, Vec<H>>), anyhow::Error>
+) -> Result<(ConsensusState, BTreeMap<u32, Vec<H>>), Error>
 where
 	H: Header<Hash = H256, Number = u32>,
 	H::Number: finality_grandpa::BlockNumberOps + Into<u32>,
@@ -129,8 +128,14 @@ where
 			// seems relay hash isn't in the finalized chain.
 			continue;
 		}
-		let relay_chain_header =
-			headers.header(&hash).expect("Headers have been checked by AncestryChain; qed");
+		// `AncestryChain::ancestry` includes the base hash in its returned route even
+		// when the base header is absent from `unknown_headers` — most notably the
+		// trusted latest relay hash. A previous `.expect` here panicked the runtime
+		// on attacker-controlled `parachain_headers` whose key matched the trusted
+		// latest hash. Surface a typed error instead so the proof is rejected.
+		let relay_chain_header = headers
+			.header(&hash)
+			.ok_or(Error::RelayHeaderNotInUnknownHeaders)?;
 		let state_proof = proof.state_proof;
 		let mut keys = BTreeMap::new();
 		for para_id in proof.para_ids {
@@ -147,14 +152,11 @@ where
 			proof,
 			keys.keys().map(|key| key.as_slice()),
 		)
-		.map_err(|err| anyhow!("error verifying parachain header state proof: {err:?}"))?;
+		.map_err(|err| Error::StateProofVerification(alloc::format!("{err:?}")))?;
 		for (key, para_id) in keys {
-			let header = result
-				.remove(&key)
-				.flatten()
-				.ok_or_else(|| anyhow!("Invalid proof, parachain header not found"))?;
-			let parachain_header =
-				H::decode(&mut &header[..]).map_err(|e| anyhow!("error decoding header: {e:?}"))?;
+			let header = result.remove(&key).flatten().ok_or(Error::ParachainHeaderNotFound)?;
+			let parachain_header = H::decode(&mut &header[..])
+				.map_err(|e| Error::DecodeHeader(alloc::format!("{e:?}")))?;
 			verified_parachain_headers.entry(para_id).or_default().push(parachain_header);
 		}
 	}

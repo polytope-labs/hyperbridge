@@ -21,7 +21,11 @@ alloy-primitives = { workspace = true }
 hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
+thiserror = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
 
 [features]
 default = ["std"]
@@ -32,8 +36,10 @@ std = [
     "alloy-rlp/std",
     "alloy-primitives/std",
     "ethabi/std",
+    "thiserror/std",
     "hex/std",
     "geth-primitives/std",
     "evm-state-machine/std",
-    "primitive-types/std"
+    "primitive-types/std",
+    "scale-info/std"
 ]

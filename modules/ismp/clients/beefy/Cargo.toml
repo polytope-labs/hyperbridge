@@ -1,0 +1,37 @@
+[package]
+name = "ismp-beefy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true, default-features = false }
+codec = { workspace = true, features = ["derive"], default-features = false }
+primitive-types = { workspace = true, default-features = false }
+
+ismp = { workspace = true, default-features = false }
+beefy-verifier = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+substrate-state-machine = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-io",
+    "sp-runtime",
+    "sp-core",
+]
+
+[features]
+default = ["std"]
+std = [
+    "anyhow/std",
+    "codec/std",
+    "ismp/std",
+    "polkadot-sdk/std",
+    "primitive-types/std",
+    "pallet-ismp/std",
+    "beefy-verifier-primitives/std",
+    "beefy-verifier/std",
+    "substrate-state-machine/std",
+]

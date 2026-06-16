@@ -12,10 +12,12 @@ dist/
 /pallet-ismp/evm/solidity/cache
 .env*
 .vscode
+.cursor
 
 evm/out/
 evm/cache/
 evm/broadcast/
+evm/lib/forge-std/
 evm/integration-tests/target/
 evm/foundry.lock
 
@@ -53,6 +55,7 @@ evm/subgraph/generated
 .vscode/*
 .env
 .uuid
+.claude
 
 **/proofs/*
 /fees/prisma/dev.db
@@ -62,3 +65,7 @@ evm/subgraph/generated
 package-lock.json
 parachain/simtests/gargantua-runtime-new.wasm
 parachain/simtests/hyperbridge-main-binary
+**/config.example.toml
+**/config.mainnet.toml
+evm/script/UpdateConsensusClient.s.sol
+evm/script/update-consensus-client.sh

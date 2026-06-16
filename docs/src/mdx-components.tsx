@@ -1,6 +1,7 @@
 import * as AccordionComponents from "fumadocs-ui/components/accordion";
 import * as CalloutComponents from "fumadocs-ui/components/callout";
 import { CodeBlock, Pre } from "fumadocs-ui/components/codeblock";
+import { ImageZoom } from "fumadocs-ui/components/image-zoom";
 import * as StepComponents from "fumadocs-ui/components/steps";
 import * as TabsComponents from "fumadocs-ui/components/tabs";
 import defaultMdxComponents from "fumadocs-ui/mdx";
@@ -17,6 +18,7 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
         ...CalloutComponents,
         ...components,
         Algorithm,
+        img: (props) => <ImageZoom {...(props as any)} />,
         pre: ({ children, ...props }: ComponentProps<typeof CodeBlock>) => (
             <CodeBlock {...props} viewportProps={{ className: "max-h-none" }}>
                 <Pre>{children}</Pre>

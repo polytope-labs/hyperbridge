@@ -18,20 +18,43 @@
 //! allowing the prover and host to communicate without being tightly coupled to Redis.
 
 mod memory;
+mod onchain;
 mod redis;
 
 pub use memory::InMemoryProofBackend;
+pub use onchain::OnchainBackend;
 pub use redis::{RedisConfig, RedisProofBackend};
 
 use codec::{Decode, Encode};
 use futures::Stream;
 use ismp::{host::StateMachine, messaging::ConsensusMessage};
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
+
+/// Which proof backend the BEEFY prover/host should use.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProofBackendConfig {
+	/// Persistent Redis-backed queue. The prover writes proofs into RSMQ queues
+	/// and a separate host process consumes them.
+	Redis {
+		#[serde(flatten)]
+		config: RedisConfig,
+	},
+	/// On-chain backend. The prover submits proofs directly to
+	/// `pallet-beefy-consensus-proofs` via unsigned extrinsics — no separate
+	/// host process is needed.
+	#[default]
+	Onchain,
+	/// In-process queue shared between prover and host. Single-process only,
+	/// not persisted across restarts.
+	InMemory,
+}
 
 /// Consensus proof message exchanged between prover and host
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct ConsensusProof {
-	/// The height that is now finalized by this consensus message
+	/// The relay chain height finalized by this consensus message
 	pub finalized_height: u32,
 	/// The validator set id responsible for signing this message
 	pub set_id: u64,
@@ -46,17 +69,23 @@ pub trait ProofBackend: Send + Sync {
 	/// Initialize the queues for the given state machines
 	async fn init_queues(&self, state_machines: &[StateMachine]) -> Result<(), anyhow::Error>;
 
-	/// Send a mandatory consensus proof (authority set changes)
+	/// Send a mandatory consensus proof (authority set changes) targeted at the given
+	/// state machines. Backends are responsible for fanning the proof out to each
+	/// destination (queue-backed implementations) or submitting it once on behalf of
+	/// all destinations (on-chain implementations).
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error>;
 
-	/// Send a messages consensus proof (new messages finalized)
+	/// Send a messages consensus proof (new messages finalized) targeted at the given
+	/// state machines. Backends are responsible for fanning the proof out to each
+	/// destination (queue-backed implementations) or submitting it once on behalf of
+	/// all destinations (on-chain implementations).
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error>;
 

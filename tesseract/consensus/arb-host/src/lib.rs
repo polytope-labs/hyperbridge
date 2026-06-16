@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-arb-host";
+
 use abi::{IRollup, IRollupBold};
 use alloy::{
 	eips::BlockId,
@@ -18,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, AlloyProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-mod abi;
+pub mod abi;
 mod host;
 #[cfg(test)]
 mod tests;
@@ -26,11 +29,8 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
 	/// Arbitrum Orbit Chain Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
-
-	/// General evm config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,20 +44,22 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: String,
+	/// Consensus state id used by this arb-host consensus client. Always
+	/// overrides the paired `EvmConfig.consensus_state_id` for both the
+	/// host's own queries **and** the underlying `EvmClient` provider, so the
+	/// messaging and consensus paths agree on the same id.
+	pub consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
 
 impl ArbConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = ArbHost::new(&self.host, &self.evm_config).await?;
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client = ArbHost::new(&self.host, &evm_config).await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 
@@ -73,6 +75,8 @@ pub struct ArbHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
 	/// Consensus State Id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -85,10 +89,23 @@ pub struct ArbHost {
 
 impl ArbHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		// Always overwrite the EvmConfig's consensus state id with the
+		// host-level value so the underlying `EvmClient` and the arb-host
+		// agree on the same id.
+		let evm_owned = {
+			let mut evm_override = evm.clone();
+			evm_override.consensus_state_id = Some(host.consensus_state_id.clone());
+			evm_override
+		};
+		let evm: &EvmConfig = &evm_owned;
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		Ok(Self {
 			arb_execution_client: Arc::new(el),
@@ -96,11 +113,8 @@ impl ArbHost {
 			rollup_core: host.rollup_core,
 			host: host.clone(),
 			evm: evm.clone(),
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
+			state_machine,
+			consensus_state_id,
 			provider,
 			l1_state_machine: host.l1_state_machine,
 			l1_consensus_state_id: {
@@ -120,7 +134,7 @@ impl ArbHost {
 			.get_block(BlockId::hash(block_hash))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block_hash)
+				anyhow!("{} Header not found for {:?}", self.state_machine, block_hash)
 			})?;
 		let arb_header = block.into();
 
@@ -164,11 +178,36 @@ impl ArbHost {
 
 		let logs = self.beacon_execution_client.get_logs(&filter).await?;
 
-		let events: Vec<IRollupBold::AssertionCreated> = logs
+		let candidates: Vec<IRollupBold::AssertionCreated> = logs
 			.into_iter()
 			.filter_map(|log| IRollupBold::AssertionCreated::decode_log(&log.inner).ok())
 			.map(|log| log.data)
 			.collect();
+
+		// Drop events whose parent assertion already has two children — in BoLD that's the
+		// on-chain signal that this branch is being contested, and the verifier would reject
+		// the proof anyway. Reads the parent assertion's first storage word directly via
+		// `eth_getStorageAt`.
+		let mut events = Vec::with_capacity(candidates.len());
+		for event in candidates {
+			let parent_key =
+				derive_map_key(event.parentAssertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
+			let word = self
+				.beacon_execution_client
+				.get_storage_at(rollup_addr, alloy::primitives::U256::from_be_slice(&parent_key.0))
+				.block_id(to.into())
+				.await?;
+			// AssertionNode slot 0 packs `[padding(16) || secondChildBlock(8) ||
+			// firstChildBlock(8)]` (big-endian); secondChildBlock occupies bytes [16..24].
+			// Non-zero = challenged.
+			const ZERO_U64: [u8; 8] = [0u8; 8];
+			let bytes = word.to_be_bytes::<32>();
+			if &bytes[16..24] != ZERO_U64.as_slice() {
+				log::trace!(target: "arb-host", "Skipping challenged assertion {:?} (parent {:?} has second child)", event.assertionHash, event.parentAssertionHash);
+				continue;
+			}
+			events.push(event);
+		}
 
 		Ok(events.last().cloned())
 	}
@@ -224,10 +263,20 @@ impl ArbHost {
 	) -> Result<ArbitrumBoldProof, anyhow::Error> {
 		let assertion_hash_key =
 			derive_map_key(event.assertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
+		// `_assertions[parent]` storage key — first struct slot holds `firstChildBlock` and
+		// `secondChildBlock` and is what the verifier inspects to prove "not challenged".
+		let parent_assertion_key =
+			derive_map_key(event.parentAssertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
 		let rollup_addr = Address::from_slice(&self.rollup_core.0);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(rollup_addr, vec![B256::from_slice(&assertion_hash_key.0)])
+			.get_proof(
+				rollup_addr,
+				vec![
+					B256::from_slice(&assertion_hash_key.0),
+					B256::from_slice(&parent_assertion_key.0),
+				],
+			)
 			.block_id(at.into())
 			.await?;
 		let arb_block_hash: H256 = event.assertion.afterState.globalState.bytes32Vals[0].0.into();
@@ -252,21 +301,26 @@ impl ArbHost {
 			end_history_root: event.assertion.afterState.endHistoryRoot.0.into(),
 		};
 
+		let storage_proof_entry = |idx: usize, what: &str| -> Result<Vec<Vec<u8>>, anyhow::Error> {
+			Ok(proof
+				.storage_proof
+				.get(idx)
+				.cloned()
+				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum {what}"))?
+				.proof
+				.into_iter()
+				.map(|node| node.to_vec())
+				.collect())
+		};
+
 		let payload = ArbitrumBoldProof {
 			arbitrum_header,
 			after_state,
 			previous_assertion_hash: event.parentAssertionHash.0.into(),
 			sequencer_batch_acc: event.afterInboxBatchAcc.0.into(),
-			storage_proof: proof
-				.storage_proof
-				.first()
-				.cloned()
-				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum assertion hash"))?
-				.proof
-				.into_iter()
-				.map(|node| node.to_vec())
-				.collect(),
-			contract_proof: proof.account_proof.into_iter().map(|node| node.to_vec()).collect(),
+			storage_proof: storage_proof_entry(0, "assertion hash")?,
+			contract_proof: proof.account_proof.iter().cloned().map(|node| node.to_vec()).collect(),
+			challenge_proof: storage_proof_entry(1, "parent assertion")?,
 		};
 
 		Ok(payload)

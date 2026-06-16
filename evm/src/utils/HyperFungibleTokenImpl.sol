@@ -21,7 +21,7 @@ import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions
  * @title HyperFungibleTokenImpl
  * @notice Cross-chain fungible token with role-based access control
  * @dev This contract supports multiple minters and burners through role-based permissions.
- *      Useful for scenarios where both a TokenGateway and a TokenFaucet need minting capabilities.
+ *      Useful for scenarios where multiple contracts need minting capabilities.
  */
 contract HyperFungibleTokenImpl is ERC20, AccessControlEnumerable {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");

@@ -13,7 +13,10 @@ use subxt::{
 	utils::{AccountId32, MultiAddress, H256},
 };
 
-use ismp::{consensus::StateMachineHeight, host::StateMachine};
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	host::StateMachine,
+};
 #[cfg(feature = "std")]
 pub use signer::*;
 
@@ -66,8 +69,8 @@ pub mod signer {
 	use anyhow::Context;
 	use polkadot_sdk::sp_core::{sr25519, Pair};
 	use subxt::{
-		config::{ExtrinsicParams, HashFor},
-		tx::{DefaultParams, Signer},
+		config::{DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor},
+		tx::{DefaultParams, Signer, TxInBlock, TxProgress, TxStatus},
 		utils::{AccountId32, MultiSignature},
 		OnlineClient,
 	};
@@ -111,27 +114,91 @@ pub mod signer {
 		}
 	}
 
+	/// Re-fetch the chain's current [`RuntimeVersion`] and refresh the client's cached copy.
+	///
+	/// `OnlineClient` caches the runtime version (spec & transaction version) at construction.
+	/// After a runtime upgrade that cache goes stale, so the `CheckSpecVersion` signed extension
+	/// signs over the wrong `spec_version` and the node rejects the extrinsic with a bad-proof
+	/// error. Calling this before every signed submission keeps signing in step with the node's
+	/// current runtime.
+	async fn refresh_runtime_version<T: subxt::Config>(
+		client: &OnlineClient<T>,
+	) -> Result<(), anyhow::Error> {
+		let runtime_version = client
+			.backend()
+			.current_runtime_version()
+			.await
+			.context("Failed to fetch current runtime version")?;
+		client.set_runtime_version(runtime_version);
+		Ok(())
+	}
+
 	pub async fn send_extrinsic<T: subxt::Config, Tx: Payload>(
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
 		payload: &Tx,
 		_tip: Option<u128>,
+		wait_for_finalization: bool,
 	) -> Result<HashFor<T>, anyhow::Error>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature> + Send + Sync,
 		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: Send + Sync + DefaultParams,
 	{
+		refresh_runtime_version(client).await?;
 		let params = DefaultParams::default_params();
 		let ext = client.tx().create_signed(payload, signer, params).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Like [`send_extrinsic`], but submits with an explicit `nonce` rather than letting subxt
+	/// fetch one from the chain.
+	///
+	/// subxt sources the auto nonce from the latest *finalized* block (via its internal
+	/// `inject_account_nonce_and_block`). On a parachain, finality trails the best chain by
+	/// several blocks, so a submitter that only waits for in-block (not finalization) before its
+	/// next submission reuses an already-spent nonce and the node rejects it as
+	/// `InvalidTransaction::Stale`. Passing a pool-aware nonce (e.g. from `system_accountNextIndex`)
+	/// avoids that. This uses `create_partial_offline`, which — unlike `create_signed` — does not
+	/// overwrite the nonce we set.
+	pub async fn send_extrinsic_with_nonce<T, Tx: Payload>(
+		client: &OnlineClient<T>,
+		signer: &InMemorySigner<T>,
+		payload: &Tx,
+		nonce: u64,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error>
+	where
+		T: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<T>>,
+		T::AccountId: Into<T::Address> + Clone + 'static,
+		T::Signature: From<MultiSignature> + Send + Sync,
+	{
+		refresh_runtime_version(client).await?;
+		let params = DefaultExtrinsicParamsBuilder::<T>::new().nonce(nonce).build();
+		let mut partial = client.tx().create_partial_offline(payload, params)?;
+		let ext = partial.sign(signer);
+		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+		await_extrinsic::<T>(progress, wait_for_finalization).await
+	}
+
+	/// Drive a submitted extrinsic to inclusion (or finalization), assert it executed
+	/// successfully, and return the hash of the block it landed in.
+	async fn await_extrinsic<T: subxt::Config>(
+		progress: TxProgress<T, OnlineClient<T>>,
+		wait_for_finalization: bool,
+	) -> Result<HashFor<T>, anyhow::Error> {
 		let ext_hash = progress.extrinsic_hash();
 
-		let extrinsic = match progress.wait_for_finalized().await {
-			Ok(p) => p,
-			Err(err) => Err(refine_subxt_error(err)).context(format!(
-				"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
-			))?,
+		let extrinsic = if wait_for_finalization {
+			match progress.wait_for_finalized().await {
+				Ok(p) => p,
+				Err(err) => Err(refine_subxt_error(err)).context(format!(
+					"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
+				))?,
+			}
+		} else {
+			wait_for_inblock::<T>(progress).await?
 		};
 
 		match extrinsic.wait_for_success().await {
@@ -140,6 +207,24 @@ pub mod signer {
 				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 		};
 		Ok(extrinsic.block_hash())
+	}
+
+	/// Resolve once the extrinsic appears in a (best) block, without waiting for finality.
+	async fn wait_for_inblock<T: subxt::Config>(
+		mut progress: TxProgress<T, OnlineClient<T>>,
+	) -> Result<TxInBlock<T, OnlineClient<T>>, anyhow::Error> {
+		let ext_hash = progress.extrinsic_hash();
+		while let Some(status) = progress.next().await {
+			match status? {
+				TxStatus::InFinalizedBlock(s) | TxStatus::InBestBlock(s) => return Ok(s),
+				TxStatus::Error { .. } | TxStatus::Invalid { .. } | TxStatus::Dropped { .. } =>
+					return Err(anyhow!(
+						"signed extrinsic {ext_hash:?} failed before reaching a block"
+					)),
+				_ => {},
+			}
+		}
+		Err(anyhow!("signed extrinsic {ext_hash:?} stream ended without in-block status"))
 	}
 }
 
@@ -175,22 +260,81 @@ pub fn relayer_nonce_storage_key(address: Vec<u8>, state_machine: StateMachine) 
 	[pallet_prefix, storage_prefix, key_1, address.encode(), key_2, state_machine.encode()].concat()
 }
 
+/// Storage key for `pallet_ismp_relayer::OutboundConsensusRotationsClaimed[(destination, set_id)]`.
+/// Both keys hash with `Blake2_128Concat` so the layout is
+/// `twox_128("Relayer") || twox_128("OutboundConsensusRotationsClaimed")
+/// || blake2_128(destination) || destination || blake2_128(set_id) || set_id`.
+///
+/// Used by the outbound-claim task to short-circuit claims that some
+/// other relayer already redeemed: the storage value is `()`, so a
+/// non-empty raw fetch at this key means the `(destination, set_id)`
+/// is closed and the local row should be dropped instead of submitted.
+pub fn outbound_consensus_rotations_claimed_storage_key(
+	destination: StateMachine,
+	set_id: u64,
+) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+	let storage_prefix = twox_128(b"OutboundConsensusRotationsClaimed").to_vec();
+	let key_1 = blake2_128(&destination.encode()).to_vec();
+	let key_2 = blake2_128(&set_id.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, destination.encode(), key_2, set_id.encode()].concat()
+}
+
+/// Storage key for `pallet_ismp_relayer::OutboundRequestsClaimed[commitment]`.
+/// The map hashes with `Blake2_128Concat` so the layout is
+/// `twox_128("Relayer") || twox_128("OutboundRequestsClaimed")
+/// || blake2_128(commitment) || commitment`.
+///
+/// Used by the outbound-request-claim task to short-circuit claims some
+/// other relayer already redeemed.
+pub fn outbound_requests_claimed_storage_key(commitment: H256) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+	let storage_prefix = twox_128(b"OutboundRequestsClaimed").to_vec();
+	let encoded = commitment.encode();
+	let hashed = blake2_128(&encoded).to_vec();
+
+	[pallet_prefix, storage_prefix, hashed, encoded].concat()
+}
+
+/// Prefix for the `pallet_ismp_relayer::OutboundRequestDeliveryReward`
+/// map (`twox_128("Relayer") || twox_128("OutboundRequestDeliveryReward")`).
+/// Pass to `state_getKeysPaged` to enumerate every `module_id` with a
+/// reward configured. The key hashes with `Blake2_128Concat`, so each
+/// entry key continues as `blake2_128(module_id_encoded) || module_id_encoded`.
+pub fn outbound_request_delivery_reward_prefix() -> Vec<u8> {
+	[twox_128(b"Relayer").to_vec(), twox_128(b"OutboundRequestDeliveryReward").to_vec()].concat()
+}
+
 pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
+	let storage_prefix = twox_128(b"BoundedStateMachineUpdateTime").to_vec();
+	let key_1 = blake2_128(&height.id.encode()).to_vec();
+	let key_2 = blake2_128(&height.height.encode()).to_vec();
 
-	let storage_prefix = twox_128(b"StateMachineUpdateTime").to_vec();
-	let key_1 = twox_64(&height.encode()).to_vec();
+	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
+		.concat()
+}
 
-	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+/// Storage key for `pallet_ismp_optimism::StateMachinesDisputeGameFactoriesTypes` at
+/// `state_machine_id`. The map uses `Blake2_128Concat` hashing.
+pub fn optimism_game_type_configs_storage_key(state_machine_id: StateMachineId) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"IsmpOptimism").to_vec();
+	let storage_prefix = twox_128(b"StateMachinesDisputeGameFactoriesTypes").to_vec();
+	let encoded = state_machine_id.encode();
+	let hashed = blake2_128(&encoded).to_vec();
+
+	[pallet_prefix, storage_prefix, hashed, encoded].concat()
 }
 
 pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
+	let storage_prefix = twox_128(b"BoundedStateCommitments").to_vec();
+	let key_1 = blake2_128(&height.id.encode()).to_vec();
+	let key_2 = blake2_128(&height.height.encode()).to_vec();
 
-	let storage_prefix = twox_128(b"StateCommitments").to_vec();
-	let key_1 = blake2_128(&height.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
+		.concat()
 }
 
 pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
@@ -200,18 +344,4 @@ pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 	let key_1 = twox_64(&state_machine.encode()).to_vec();
 
 	[pallet_prefix, storage_prefix, key_1, state_machine.encode()].concat()
-}
-
-pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
-	let address = {
-		let mut dest = [0u8; 32];
-		dest.copy_from_slice(&address);
-		dest
-	};
-	let pallet_prefix = twox_128(b"Fishermen").to_vec();
-
-	let storage_prefix = twox_128(b"Fishermen").to_vec();
-	let key_1 = twox_64(&address.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
 }

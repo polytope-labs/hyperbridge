@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-bsc";
+
 use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
@@ -36,26 +39,32 @@ pub use bsc_verifier::primitives::{Mainnet, Testnet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BscPosConfig {
 	/// Host configuration options
+	#[serde(flatten)]
 	pub host: HostConfig,
-	/// General ethereum config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
+	/// BSC validator-set rotation cadence in blocks. Defaults to the
+	/// BEP-341 mainnet/testnet value of 1000 when omitted from the TOML
+	/// config so operators don't have to hand-set it.
+	#[serde(default = "default_epoch_length")]
 	pub epoch_length: u64,
 }
 
-impl BscPosConfig {
-	/// Convert the config into a client.
-	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &self.evm_config).await?))
-	}
+fn default_epoch_length() -> u64 {
+	1000
+}
 
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+impl BscPosConfig {
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client<C: Config + 'static>(
+		self,
+		evm_config: EvmConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &evm_config).await?))
 	}
 }
 
@@ -82,12 +91,8 @@ impl<C: Config> BscPosHost<C> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id: ismp_provider.consensus_state_id,
+			state_machine: ismp_provider.state_machine,
 			prover,
 			host: host.clone(),
 			evm: evm.clone(),

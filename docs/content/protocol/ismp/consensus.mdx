@@ -56,12 +56,15 @@ pub struct StateCommitment {
 }
 
 /// Identifies a state commitment at a given height
-pub struct IntermediateState {
-    /// The state machine identifier
+pub struct StateCommitmentHeight {
+    /// The state commitment
     pub commitment: StateCommitment,
     /// the corresponding block height
     pub height: u64,
 }
+
+/// A map of state machine identifier to verified state commitments
+pub type VerifiedCommitments = BTreeMap<StateMachineId, Vec<StateCommitmentHeight>>;
 
 /// We define the consensus client as a module that handles logic for consensus proof verification.
 pub trait ConsensusClient {
@@ -72,7 +75,7 @@ pub trait ConsensusClient {
         consensus_state_id: ConsensusStateId,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, Vec<IntermediateState>>), Error>;
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error>;
 
     /// Given two distinct consensus proofs, verify that they're both valid and represent
     /// conflicting views of the network. returns Ok if they're both valid.
@@ -83,6 +86,9 @@ pub trait ConsensusClient {
         proof_1: Vec<u8>,
         proof_2: Vec<u8>,
     ) -> Result<(), Error>;
+
+    /// The consensus client Id provided by this client.
+    fn consensus_client_id(&self) -> ConsensusClientId;
 
     /// Return an implementation of a [`StateMachineClient`] for the given state machine.
     /// Return an error if the identifier is unknown.
@@ -117,10 +123,10 @@ pub struct CreateConsensusState {
     pub consensus_state_id: ConsensusStateId,
     /// Unbonding period for this consensus state.
     pub unbonding_period: u64,
-    /// Challenge period for this consensus state
-    pub challenge_period: u64,
+    /// Challenge period for the supported state machines
+    pub challenge_periods: BTreeMap<StateMachine, u64>,
     /// State machine commitments
-    pub state_machine_commitments: Vec<(StateMachineId, IntermediateState)>,
+    pub state_machine_commitments: Vec<(StateMachineId, StateCommitmentHeight)>,
 }
 
 /// Should handle the creation of consensus clients
@@ -145,6 +151,8 @@ pub struct ConsensusMessage {
     pub consensus_proof: Vec<u8>,
     /// The consensus state Id
     pub consensus_state_id: ConsensusStateId,
+    /// Public key of the sender
+    pub signer: Vec<u8>,
 }
 
 /// This function handles verification of consensus messages for consensus clients
@@ -173,6 +181,8 @@ pub struct FraudProofMessage {
     pub proof_2: Vec<u8>,
     /// The offending consensus state Id
     pub consensus_state_id: ConsensusStateId,
+    /// Public key of the sender
+    pub signer: Vec<u8>,
 }
 
 /// Freeze a consensus client by providing a valid consensus fault proof.
@@ -204,14 +214,20 @@ struct StateMachineUpdated {
 
 A `StateMachineUpdated` event is emitted to notify network participants (both relayers and fishermen) of some newly available `StateCommitment`s for a given state machine. Relayers will wait for the configured `challenge_period` before attempting to transmit new requests & responses. While fishermen will check if these pending `StateCommitment`s describe valid states on the counterparty network. If the `challenge_period` elapses without any fraud proofs being presented, we can safely conclude that the provided `StateCommitment`s are indeed canonical.
 
-### `ConsensusClientFrozen`
+### `StateCommitmentVetoed`
 
 ```rust showLineNumbers
-/// Indicates that a consensus client has been frozen
-struct ConsensusClientFrozen {
-    /// The offending client id
-    consensus_client_id: ConsensusClientId,
+/// Emitted when a `StateCommitment` has been successfully vetoed by a fisherman
+pub struct StateCommitmentVetoed {
+    /// The state commitment identifier
+    pub height: StateMachineHeight,
+    /// The account responsible
+    pub fisherman: Vec<u8>,
 }
 ```
 
-A `ConsensusClientFrozen` event is emitted after a consensus fault is successfully verified and the offending client frozen. This should instruct relayers to shut down any tasks for relaying requests from the byzantine network to the host network.
+A `StateCommitmentVetoed` event is emitted after a fisherman successfully vetoes a `StateCommitment` that is still within its challenge period. This instructs relayers to discard any pending requests/responses whose proofs rely on the vetoed commitment.
+
+### Frozen consensus clients
+
+A consensus client may also be frozen entirely after a successful `freeze_client` call with a valid fraud proof. The result is surfaced through the handler's `MessageResult::FrozenClient(consensus_state_id)` rather than a dedicated event, signalling that all relaying tasks for that client should be shut down.

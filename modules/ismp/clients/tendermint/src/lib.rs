@@ -146,20 +146,6 @@ impl<
 		let consensus_state: ConsensusState = Decode::decode(&mut &trusted_consensus_state[..])
 			.map_err(|e| Error::Custom(e.to_string()))?;
 
-		let height_1 = update_1.tendermint_proof.signed_header.header.height;
-		let height_2 = update_2.tendermint_proof.signed_header.header.height;
-		if height_1 != height_2 {
-			return Err(Error::Custom("Fraud proofs must be for the same block height".to_string()));
-		}
-
-		if proof_1 == proof_2 {
-			return Err(Error::Custom("Fraud proofs are identical".to_string()));
-		}
-
-		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
-
-		let time = host.timestamp().as_secs();
-
 		let consensus_proof_1 = update_1
 			.tendermint_proof
 			.to_consensus_proof()
@@ -169,6 +155,32 @@ impl<
 			.tendermint_proof
 			.to_consensus_proof()
 			.map_err(|e| Error::Custom(e.to_string()))?;
+
+		let height_1 = consensus_proof_1.signed_header.header.height;
+		let height_2 = consensus_proof_2.signed_header.header.height;
+		if height_1 != height_2 {
+			return Err(Error::Custom("Fraud proofs must be for the same block height".to_string()));
+		}
+
+		// A genuine fraud proof must demonstrate equivocation: two *distinct* blocks
+		// signed by the validator set at the same height. Comparing the raw proof
+		// bytes is insufficient — SCALE's `Decode` silently ignores trailing bytes
+		// and other non-canonical encodings, so an attacker could submit the *same*
+		// header twice with one copy malleated (e.g. an appended trailing byte or
+		// reordered commit signatures), pass this byte-inequality check, and freeze
+		// a live consensus client permissionlessly. Compare the canonical Tendermint
+		// header hashes instead — they uniquely identify the block being committed.
+		if consensus_proof_1.signed_header.header.hash() ==
+			consensus_proof_2.signed_header.header.hash()
+		{
+			return Err(Error::Custom(
+				"Fraud proofs commit to the same block header".to_string(),
+			));
+		}
+
+		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
+
+		let time = host.timestamp().as_secs();
 
 		verify_header_update(trusted_state.clone(), consensus_proof_1, time)
 			.map_err(|e| Error::Custom(e.to_string()))?;

@@ -19,7 +19,7 @@ use polkadot_sdk::*;
 use crate::utils::ModuleId;
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
-use ismp::router::{PostRequest, Response, Timeout};
+use ismp::router::{GetResponse, PostRequest, Request};
 
 /// Interface for providing the weight information about [`IsmpModule`](ismp::module::IsmpModule)
 /// callbacks
@@ -27,19 +27,19 @@ pub trait IsmpModuleWeight {
 	/// Should return the weight used in processing this request
 	fn on_accept(&self, request: &PostRequest) -> Weight;
 	/// Should return the weight used in processing this timeout
-	fn on_timeout(&self, request: &Timeout) -> Weight;
+	fn on_timeout(&self, request: &Request) -> Weight;
 	/// Should return the weight used in processing this response
-	fn on_response(&self, response: &Response) -> Weight;
+	fn on_response(&self, response: &GetResponse) -> Weight;
 }
 
 impl IsmpModuleWeight for () {
 	fn on_accept(&self, _request: &PostRequest) -> Weight {
 		Weight::zero()
 	}
-	fn on_timeout(&self, _request: &Timeout) -> Weight {
+	fn on_timeout(&self, _request: &Request) -> Weight {
 		Weight::zero()
 	}
-	fn on_response(&self, _response: &Response) -> Weight {
+	fn on_response(&self, _response: &GetResponse) -> Weight {
 		Weight::zero()
 	}
 }
@@ -54,5 +54,27 @@ pub trait WeightProvider {
 impl WeightProvider for () {
 	fn module_callback(_dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
 		None
+	}
+}
+
+/// Weight functions for legacy storage drain migrations.
+pub trait MigrationWeightInfo {
+	/// Weight to clear n entries from `StateCommitments`.
+	fn drain_state_commitments_step(n: u32) -> Weight;
+	/// Weight to clear n entries from `StateMachineUpdateTime`.
+	fn drain_state_machine_update_time_step(n: u32) -> Weight;
+	/// Weight to drain n entries from the child trie.
+	fn drain_child_trie_state_commitments_step(n: u32) -> Weight;
+}
+
+impl MigrationWeightInfo for () {
+	fn drain_state_commitments_step(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn drain_state_machine_update_time_step(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn drain_child_trie_state_commitments_step(_n: u32) -> Weight {
+		Weight::zero()
 	}
 }

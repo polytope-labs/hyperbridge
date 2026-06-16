@@ -15,10 +15,10 @@
 
 use crate::{
 	AccountId, BalancesConfig, CollatorSelectionConfig, ParachainInfoConfig, PolkadotXcmConfig,
-	RuntimeGenesisConfig, SessionConfig, SessionKeys, SudoConfig, EXISTENTIAL_DEPOSIT,
+	RuntimeGenesisConfig, SessionConfig, SessionKeys, EXISTENTIAL_DEPOSIT,
 };
 
-use alloc::{vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 
 use polkadot_sdk::{sp_core::Pair, staging_xcm as xcm, *};
 
@@ -46,9 +46,8 @@ pub fn template_session_keys(keys: AuraId) -> SessionKeys {
 fn testnet_genesis(
 	invulnerables: Vec<(AccountId, AuraId)>,
 	endowed_accounts: Vec<AccountId>,
-	root: AccountId,
 	id: ParaId,
-) -> Value {
+) -> Result<Value, String> {
 	let genesis = RuntimeGenesisConfig {
 		balances: BalancesConfig {
 			balances: endowed_accounts
@@ -81,14 +80,13 @@ fn testnet_genesis(
 			safe_xcm_version: Some(SAFE_XCM_VERSION),
 			..Default::default()
 		},
-		sudo: SudoConfig { key: Some(root) },
 		..Default::default()
 	};
 
-	json::to_value(genesis).expect("Could not build genesis config.")
+	json::to_value(genesis).map_err(|e| format!("{e}"))
 }
 
-fn local_testnet_genesis() -> Value {
+fn local_testnet_genesis() -> Result<Value, String> {
 	testnet_genesis(
 		// initial collators.
 		vec![
@@ -109,12 +107,11 @@ fn local_testnet_genesis() -> Value {
 			sr25519::Pair::from_string("//Eve//stash", None).unwrap().public().into(),
 			sr25519::Pair::from_string("//Ferdie//stash", None).unwrap().public().into(),
 		],
-		Sr25519Keyring::Alice.to_account_id(),
 		PARACHAIN_ID.into(),
 	)
 }
 
-fn development_config_genesis() -> Value {
+fn development_config_genesis() -> Result<Value, String> {
 	testnet_genesis(
 		// initial collators.
 		vec![
@@ -137,7 +134,6 @@ fn development_config_genesis() -> Value {
 			hex!["887962b318721c54b333a5477c014798e26e4e3751096734796191b333c1034e"].into(), /* Eve//stash */
 			hex!["38b33535d61e050f2b3eac6466333c87f4c549646487e07663473f324c45477c"].into(), /* Ferdie//stash */
 		],
-		Sr25519Keyring::Alice.to_account_id(),
 		PARACHAIN_ID.into(),
 	)
 }
@@ -145,15 +141,11 @@ fn development_config_genesis() -> Value {
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<vec::Vec<u8>> {
 	let patch = match id.as_str().try_into() {
-		Ok(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET) => local_testnet_genesis(),
-		Ok(sp_genesis_builder::DEV_RUNTIME_PRESET) => development_config_genesis(),
+		Ok(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET) => local_testnet_genesis().ok()?,
+		Ok(sp_genesis_builder::DEV_RUNTIME_PRESET) => development_config_genesis().ok()?,
 		_ => return None,
 	};
-	Some(
-		json::to_string(&patch)
-			.expect("serialization to json is expected to work. qed.")
-			.into_bytes(),
-	)
+	Some(json::to_string(&patch).ok()?.into_bytes())
 }
 
 /// List of supported presets.

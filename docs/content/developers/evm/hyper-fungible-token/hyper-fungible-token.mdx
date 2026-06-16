@@ -1,0 +1,168 @@
+---
+title: HyperFungibleToken
+description: Deploying and configuring burn/mint HyperFungibleToken contracts on remote chains.
+---
+
+# HyperFungibleToken
+
+Deploy this on every **remote chain** where the token doesn't have native supply. The contract inherits from ERC20 and [HyperApp](/developers/evm/api/hyperapp), so it is both the token and the bridge in one contract.
+
+When tokens arrive from the home chain, the contract mints new supply to the recipient. When a user bridges back, it burns their tokens and dispatches an ISMP POST request to the home chain. On timeout, tokens are re-minted to the original sender. The HFT has no initial supply — tokens are only minted when cross-chain transfers arrive.
+
+## Deployment
+
+<Steps>
+<Step>
+### Deploy with CREATE2
+
+Use CREATE2 for deterministic addresses across all chains.
+
+```solidity lineNumbers
+import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol";
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+bytes32 salt = keccak256("my-token-v1");
+HyperFungibleToken token = new HyperFungibleToken{salt: salt}("Wrapped USDC", "wUSDC", msg.sender);
+```
+</Step>
+<Step>
+### Configure
+
+```solidity lineNumbers
+IHyperFungibleToken(address(token)).configure(
+    IHyperFungibleToken.ConfigOptions({
+        host: ISMP_HOST_ADDRESS,
+        dispatcher: CALL_DISPATCHER_ADDRESS
+    })
+);
+```
+
+Find the `IsmpHost` address for your chain on the [contract addresses](/developers/evm/contract-addresses/mainnet) page.
+</Step>
+<Step>
+### Register peer chains
+
+Register the WrappedHFT on the home chain and any other HFT peers:
+
+```solidity lineNumbers
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+
+// Register the WrappedHFT on Ethereum (home chain)
+IHyperFungibleToken(address(token)).addChain(
+    StateMachine.evm(1),
+    abi.encodePacked(ethereumWrapperAddress)
+);
+
+// Register the HFT peer on Base
+IHyperFungibleToken(address(token)).addChain(
+    StateMachine.evm(8453),
+    abi.encodePacked(baseHftAddress)
+);
+```
+
+On each peer chain, do the reverse — register this chain's HFT address.
+</Step>
+</Steps>
+
+## Sending Tokens
+
+Users call `send()` to burn tokens and dispatch a cross-chain transfer:
+
+```solidity lineNumbers
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee required for dispatching the transfer
+uint256 nativeFee = IHyperFungibleToken(token).quote(params);
+// Pay fees in native token
+IHyperFungibleToken(token).send{value: nativeFee}(params);
+```
+
+To pay fees in the host's fee token instead, send with `msg.value = 0`. The contract pulls fee tokens from the caller via `transferFrom`:
+
+```solidity lineNumbers
+import {IDispatcher} from "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
+
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the fee token amount required for dispatching the transfer
+uint256 feeTokenAmount = IHyperFungibleToken(token).quote(params);
+// Approve the fee token transfer from the caller
+address feeToken = IDispatcher(host()).feeToken();
+IERC20(feeToken).approve(token, feeTokenAmount);
+// Dispatch the transfer, fees will be withdrawn from the caller
+IHyperFungibleToken(token).send(params);
+```
+
+For a higher-level experience, the [TypeScript SDK](/developers/sdk/hyper-fungible-token) handles fee estimation, token approvals, and decimal scaling automatically.
+
+### Calldata Execution
+
+Pass a non-empty `data` field to execute arbitrary calls on the destination chain after tokens are minted. The `data` must be an ABI-encoded `Call[]` array (see [overview](/developers/evm/hyper-fungible-token/overview#calldata-execution) for the full `Call` struct and security details).
+
+Bridge tokens and swap to WETH via UniswapV2 on the destination chain:
+
+```solidity lineNumbers
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+
+address[] memory path = new address[](2);
+path[0] = DEST_TOKEN;
+path[1] = WETH;
+
+Call[] memory calls = new Call[](2);
+
+// Approve UniswapV2 router
+calls[0] = Call({
+    to: DEST_TOKEN,
+    value: 0,
+    data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V2_ROUTER, amount)
+});
+
+// Swap via UniswapV2
+calls[1] = Call({
+    to: UNISWAP_V2_ROUTER,
+    value: 0,
+    data: abi.encodeWithSelector(
+        IUniswapV2Router02.swapExactTokensForTokens.selector,
+        amount,
+        minAmountOut,
+        path,
+        recipientAddress,
+        block.timestamp
+    )
+});
+
+IHyperFungibleToken(tokenAddress).send{value: nativeFee}(
+    IHyperFungibleToken.SendParams({
+        dest: StateMachine.evm(42161),
+        // mint to the CallDispatcher so the swap can spend the tokens
+        to: abi.encodePacked(CALL_DISPATCHER),
+        amount: amount,
+        timeout: 3600,
+        relayerFee: relayerFee,
+        data: abi.encode(calls)
+    })
+);
+```
+
+Tokens are minted to `to` first, then the `CallDispatcher` executes each call in sequence. If the calls need to spend the minted tokens, set `to` to the `CallDispatcher` address so tokens are minted directly to the dispatcher.
+
+## Related
+
+- [API Reference](/developers/evm/api/hyper-fungible-token) — Full method signatures
+- [WrappedHyperFungibleToken](/developers/evm/hyper-fungible-token/wrapped-hyper-fungible-token) — Lock/unlock wrapper for the home chain
+- [Overview](/developers/evm/hyper-fungible-token/overview) — Architecture, message format, and security model

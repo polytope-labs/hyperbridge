@@ -30,7 +30,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use tesseract_evm::tx::generate_contract_calls;
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -109,15 +109,6 @@ impl IsmpProvider for TronClient {
 		self.evm.query_requests_proof(at, keys, counterparty).await
 	}
 
-	async fn query_responses_proof(
-		&self,
-		at: u64,
-		keys: Vec<Query>,
-		counterparty: StateMachine,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		self.evm.query_responses_proof(at, keys, counterparty).await
-	}
-
 	async fn query_state_proof(
 		&self,
 		at: u64,
@@ -142,6 +133,10 @@ impl IsmpProvider for TronClient {
 		self.evm.state_machine_id()
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.evm.ismp_host_contract()
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}
@@ -155,7 +150,7 @@ impl IsmpProvider for TronClient {
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
 		// We can't use debug trace call, only estimate gas
-		let (calls, _gas) = generate_contract_calls(&self.evm, msg, true).await?;
+		let (calls, _gas) = generate_contract_calls(&self.evm, &msg, true).await?;
 		let result = calls
 			.into_iter()
 			.map(|_| EstimateGasReturnParams {
@@ -176,10 +171,6 @@ impl IsmpProvider for TronClient {
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		self.evm.query_response_receipt(hash).await
-	}
-
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error> {
-		self.evm.query_response_fee_metadata(hash).await
 	}
 
 	async fn state_machine_update_notification(
@@ -231,14 +222,6 @@ impl IsmpProvider for TronClient {
 		self.evm.request_receipt_full_key(commitment)
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_commitment_full_key(commitment)
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.response_receipt_full_key(commitment)
-	}
-
 	fn address(&self) -> Vec<u8> {
 		self.evm.address()
 	}
@@ -275,7 +258,7 @@ impl IsmpProvider for TronClient {
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		self.evm.query_host_params(state_machine).await
 	}
 

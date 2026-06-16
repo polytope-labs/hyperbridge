@@ -17,20 +17,18 @@
 #![allow(unused_variables)]
 extern crate alloc;
 
-#[cfg(test)]
-mod tests;
+pub mod error;
 
 use alloc::format;
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;
-use anyhow::anyhow;
+pub use error::Error;
 use evm_state_machine::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
-	error::Error,
 	host::StateMachine,
 	messaging::Keccak256,
 };
@@ -42,7 +40,7 @@ pub const NODES_SLOT: u64 = 118;
 /// Storage layout slot for the _assertions map in the Rollup Contract
 pub const ASSERTIONS_SLOT: u64 = 117;
 
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, Copy)]
 pub struct GlobalState {
 	pub block_hash: H256,
 	pub send_root: H256,
@@ -64,7 +62,7 @@ impl GlobalState {
 	}
 }
 
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, Copy)]
 pub enum MachineStatus {
 	Running = 0,
 	Finished = 1,
@@ -108,7 +106,7 @@ pub struct ArbitrumPayloadProof {
 }
 
 /// https://github.com/OffchainLabs/nitro/blob/5e9f4228e6418b114a5aea0aa7f2f0cc161b67c0/contracts/src/rollup/RollupLib.sol#L59
-fn get_state_hash<H: Keccak256>(
+pub fn get_state_hash<H: Keccak256>(
 	global_state: GlobalState,
 	machine_status: MachineStatus,
 	inbox_max_count: U256,
@@ -136,9 +134,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-		Err(Error::Custom(
-			"Arbitrum header extra data does not match send root in global state".to_string(),
-		))?
+		Err(Error::HeaderExtraDataMismatch)?
 	}
 
 	let block_number = payload.arbitrum_header.number.low_u64();
@@ -147,9 +143,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 
 	let header_hash = header.hash::<H>();
 	if payload.global_state.block_hash != header_hash {
-		Err(Error::Custom(
-			"Arbitrum header hash does not match block hash in global state".to_string(),
-		))?
+		Err(Error::HeaderHashMismatch)?
 	}
 
 	let state_hash =
@@ -163,17 +157,15 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 		payload.storage_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
+		_ => Err(Error::StateHashSlotMissing)?,
 	};
 
 	let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
-		.map_err(|_| Error::Custom(format!("Error decoding state hash {:?}", &proof_value)))?
+		.map_err(|_| Error::DecodeStateHash(format!("{:?}", &proof_value)))?
 		.to_be_bytes::<32>();
 
 	if proof_value != state_hash.0 {
-		Err(Error::MembershipProofVerificationFailed(
-			"State hash from proof does not match calculated state hash".to_string(),
-		))?
+		Err(Error::StateHashMismatch)?
 	}
 
 	Ok(IntermediateState {
@@ -205,6 +197,11 @@ pub struct ArbitrumBoldProof {
 	pub storage_proof: Vec<Vec<u8>>,
 	/// RollupCore contract proof in the ethereum world trie
 	pub contract_proof: Vec<Vec<u8>>,
+	/// Storage proof for the parent assertion's first `AssertionNode` slot —
+	/// `_assertions[previous_assertion_hash]` offset 0, which packs
+	/// `firstChildBlock | secondChildBlock`. A non-zero `secondChildBlock` means the parent
+	/// has two children (i.e. this branch is in challenge).
+	pub challenge_proof: Vec<Vec<u8>>,
 }
 
 // https://github.com/OffchainLabs/nitro-contracts/blob/780366a0c40caf694ed544a6a1d52c0de56573ba/src/rollup/AssertionState.sol#L11
@@ -267,7 +264,7 @@ impl From<AssertionState> for AssertionStateSol {
 }
 
 impl AssertionState {
-	fn hash(&self) -> H256 {
+	pub fn hash(&self) -> H256 {
 		sp_io::hashing::keccak_256(&self.abi_encode()).into()
 	}
 
@@ -278,7 +275,7 @@ impl AssertionState {
 }
 
 // https://github.com/OffchainLabs/nitro-contracts/blob/109a8a36cd4c6a2a0d2b5003b01adee60d83e2a1/src/rollup/RollupLib.sol#L33
-fn compute_assertion_hash(
+pub fn compute_assertion_hash(
 	previous_assertion_hash: H256,
 	after_state_hash: H256,
 	sequencer_batch_acc: H256,
@@ -290,12 +287,23 @@ fn compute_assertion_hash(
 	sp_io::hashing::keccak_256(&buf).into()
 }
 
+/// Hyperbridge-internal claim hash for Orbit/AnyTrust updates. The on-chain `_nodes` map keys
+/// nodes by `nodeNum` (a `u64`); to use a single `H256` blacklist key space across both Orbit
+/// and BoLD, we hash the (state_hash, node_num) tuple. Both the on-chain verifier wrapper and
+/// the off-chain fisherman MUST derive the key with this exact helper to stay byte-identical.
+pub fn orbit_claim_hash<H: Keccak256>(state_hash: H256, node_num: u64) -> H256 {
+	let mut buf = [0u8; 40];
+	buf[..32].copy_from_slice(&state_hash.0);
+	buf[32..].copy_from_slice(&node_num.to_be_bytes());
+	H::keccak256(&buf)
+}
+
 pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	payload: ArbitrumBoldProof,
 	root: H256,
 	rollup_core_address: H160,
 	consensus_state_id: ConsensusStateId,
-) -> Result<IntermediateState, anyhow::Error> {
+) -> Result<IntermediateState, Error> {
 	let storage_root =
 		get_contract_account::<H>(payload.contract_proof, &rollup_core_address.0, root)?
 			.storage_root
@@ -304,7 +312,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.after_state.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-		Err(anyhow!("Arbitrum header extra data does not match send root in global state",))?
+		Err(Error::HeaderExtraDataMismatch)?
 	}
 
 	let block_number = payload.arbitrum_header.number.low_u64();
@@ -313,7 +321,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header_hash = header.hash::<H>();
 	if payload.after_state.global_state.block_hash != header_hash {
-		Err(anyhow!("Arbitrum header hash does not match block hash in global state",))?
+		Err(Error::HeaderHashMismatch)?
 	}
 
 	let assertion_hash = compute_assertion_hash(
@@ -329,7 +337,32 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// https://github.com/OffchainLabs/nitro-contracts/blob/94999b3e2d3b4b7f8e771cc458b9eb229620dd8f/src/rollup/RollupCore.sol#L542
 
 	get_value_from_proof::<H>(assertion_hash_key.0.to_vec(), storage_root, payload.storage_proof)?
-		.ok_or_else(|| anyhow!("Assertion provided is invalid"))?;
+		.ok_or(Error::InvalidAssertion)?;
+
+	// BoLD encodes challenges implicitly: a parent with two children is being contested. The
+	// parent's `AssertionNode.secondChildBlock` (uint64 at struct offset 8) is non-zero iff a
+	// rival sibling exists. Read the parent's first storage word from the proof and check the
+	// secondChildBlock bytes.
+	let parent_key =
+		derive_map_key::<H>(payload.previous_assertion_hash.0.to_vec(), ASSERTIONS_SLOT);
+	let parent_word_raw =
+		get_value_from_proof::<H>(parent_key.0.to_vec(), storage_root, payload.challenge_proof)?
+			.ok_or(Error::ParentAssertionNotFound)?;
+	let parent_word_bytes = <alloy_primitives::Bytes as Decodable>::decode(&mut &*parent_word_raw)
+		.map_err(|_| Error::DecodeParentAssertionWord(format!("{:?}", parent_word_raw)))?
+		.0
+		.to_vec();
+	if parent_word_bytes.len() > 32 {
+		Err(Error::ParentAssertionTooLong)?
+	}
+	let mut word = vec![0u8; 32 - parent_word_bytes.len()];
+	word.extend_from_slice(&parent_word_bytes);
+	// Layout: [padding(16) || secondChildBlock(8) || firstChildBlock(8)] in big-endian. So
+	// secondChildBlock occupies bytes word[16..24].
+	const ZERO_U64: [u8; 8] = [0u8; 8];
+	if &word[16..24] != ZERO_U64.as_slice() {
+		Err(Error::AssertionChallenged)?
+	}
 
 	Ok(IntermediateState {
 		height: StateMachineHeight {

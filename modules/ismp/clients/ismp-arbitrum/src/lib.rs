@@ -21,11 +21,13 @@ extern crate alloc;
 
 pub mod pallet;
 use arbitrum_verifier::{
-	ArbitrumBoldProof, ArbitrumPayloadProof, verify_arbitrum_bold, verify_arbitrum_payload,
+	ArbitrumBoldProof, ArbitrumPayloadProof, Error as ArbitrumError, compute_assertion_hash,
+	get_state_hash, orbit_claim_hash, verify_arbitrum_bold, verify_arbitrum_payload,
 };
 use pallet::{Pallet, SupportedStateMachines};
+use pallet_fishermen::FishermanBlacklist;
 
-use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
 use evm_state_machine::EvmStateMachine;
 use ismp::{
@@ -50,7 +52,6 @@ pub struct ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct ArbitrumUpdate {
-	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: ArbitrumConsensusProof,
 }
@@ -105,12 +106,17 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let ArbitrumUpdate { state_machine_id, l1_height, proof } =
+		let ArbitrumUpdate { l1_height, proof } =
 			ArbitrumUpdate::decode(&mut &consensus_proof[..])
-				.map_err(|_| Error::Custom("Cannot decode arbitrum update".to_string()))?;
+				.map_err(|_| ArbitrumError::DecodeArbitrumUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+			.map_err(|_| ArbitrumError::DecodeConsensusState)?;
+
+		// The state machine being updated is fixed by the trusted consensus state, never
+		// supplied by the (untrusted) update. This binds verifier-config selection to the
+		// correct Arbitrum chain identity.
+		let state_machine_id = consensus_state.state_machine_id;
 
 		let l1_state_machine_height =
 			StateMachineHeight { id: consensus_state.l1_state_machine_id, height: l1_height };
@@ -126,6 +132,21 @@ impl<
 		{
 			match proof {
 				ArbitrumConsensusProof::ArbitrumOrbit(proof) => {
+					// Derive the unified claim hash and refuse blacklisted entries before the
+					// heavy proof verification.
+					let state_hash = get_state_hash::<H>(
+						proof.global_state,
+						proof.machine_status,
+						proof.inbox_max_count,
+					);
+					let claim = orbit_claim_hash::<H>(state_hash, proof.node_number);
+					if <T as pallet::Config>::FishermanBlacklist::is_arbitrum_claim_blacklisted(
+						state_machine_id,
+						claim,
+					) {
+						return Err(ArbitrumError::ClaimBlacklisted(claim).into());
+					}
+
 					let state = verify_arbitrum_payload::<H>(
 						proof,
 						state_root,
@@ -153,15 +174,25 @@ impl<
 					consensus_state.finalized_height = state.height.height;
 				},
 				ArbitrumConsensusProof::ArbitrumBold(proof) => {
+					// BoLD assertions use the on-chain `assertionHash` directly as the claim key.
+					let assertion_hash = compute_assertion_hash(
+						proof.previous_assertion_hash,
+						proof.after_state.hash(),
+						proof.sequencer_batch_acc,
+					);
+					if <T as pallet::Config>::FishermanBlacklist::is_arbitrum_claim_blacklisted(
+						state_machine_id,
+						assertion_hash,
+					) {
+						return Err(ArbitrumError::ClaimBlacklisted(assertion_hash).into());
+					}
+
 					let state = verify_arbitrum_bold::<H>(
 						proof,
 						state_root,
 						rollup_core_address,
 						consensus_state_id.clone(),
-					)
-					.map_err(|error| {
-						Error::Custom(format!("Error verifying arbitrum payload {:?}", &error))
-					})?;
+					)?;
 
 					let state_commitment_height = StateCommitmentHeight {
 						commitment: state.commitment,
@@ -195,7 +226,7 @@ impl<
 		_proof_1: Vec<u8>,
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		Err(Error::Custom("fraud proof verification unimplemented".to_string()))
+		Err(ArbitrumError::FraudProofUnimplemented.into())
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
@@ -206,7 +237,7 @@ impl<
 		if SupportedStateMachines::<T>::contains_key(id) {
 			Ok(Box::new(<EvmStateMachine<H, T>>::default()))
 		} else {
-			Err(Error::Custom("State machine not supported".to_string()))
+			Err(ArbitrumError::UnsupportedStateMachine(id).into())
 		}
 	}
 }

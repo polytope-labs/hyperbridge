@@ -1,0 +1,82 @@
+---
+title: Provers
+description: Hyperbridge BEEFY consensus provers generate cryptographic proofs that attest to the finality of cross-chain messages, enabling secure delivery to destination chains.
+---
+
+# Consensus Provers
+
+Hyperbridge consensus provers are a critical class of network operator responsible for generating cryptographic proofs that attest to the finality of cross-chain messages on the Hyperbridge parachain. Like consensus relayers and messaging relayers, provers are fully permissionless — anyone can run one and begin earning rewards.
+
+Without provers, cross-chain messages dispatched through Hyperbridge cannot be delivered to their destination chains. Provers bridge the gap between BEEFY consensus finality on the relay chain and the state commitments that EVM destination chains need to verify incoming messages.
+
+## How It Works
+
+![Prover flow](/images/prover-flow.svg)
+
+
+The prover watches the relay chain for BEEFY authority set rotations and monitors Hyperbridge for newly dispatched cross-chain messages that need to be proven. When new messages are found, it generates a consensus proof covering the parachain block range that includes them and submits it as an unsigned extrinsic to the Hyperbridge runtime via `pallet-beefy-consensus-proofs`.
+
+Once the runtime verifies and accepts the proof, it is persisted in offchain storage where relayers and applications can fetch it to deliver messages to their destination chains.
+
+## Proof Types
+
+The prover supports two proof strategies:
+
+- **ECDSA** — Includes the full 2/3+1 BEEFY ECDSA validator signatures which are verified on-chain. No special hardware required. Suitable for testnets.
+- **SP1** — Delegates signature verification to an SP1 zero-knowledge program, producing a compact Groth16 proof. Requires a CUDA-capable GPU (e.g. RTX 4090 or newer). Used on mainnet for gas efficiency.
+
+## Incentives
+
+Provers are rewarded with `$BRIDGE` tokens from the Hyperbridge treasury for each accepted proof that does useful work:
+
+- **Rotation proofs** — Proofs that carry a new BEEFY authority set transition.
+- **Messaging proofs** — Proofs that advance the proven parachain height past blocks containing new cross-chain message dispatches.
+
+The base reward amount is configurable via governance through `pallet-beefy-consensus-proofs::set_proof_reward` (currently **100 `$BRIDGE`** per proof).
+
+### The Reward Mechanism
+
+The process for earning rewards is deterministic and transparent:
+
+1. **The Triggering Action**: A prover monitors the relay chain for BEEFY finality and Hyperbridge for new cross-chain message dispatches.
+2. **Proof Generation**: When new work is detected, the prover generates a consensus proof (either ECDSA or SP1) and submits it as a **signed** extrinsic — the signer is the reward payee.
+3. **Verification and State Update**: The runtime verifies the proof. If it is valid and advances the proven state (either by rotating the authority set or proving new message dispatches), it is accepted.
+4. **Automated Reward Issuance**: Upon acceptance, the protocol transfers a `$BRIDGE` reward from the treasury to the prover's account (the amount depends on the prover's position — see below — and an equal amount of non-transferable Reputation Asset is minted).
+
+### Uncle Proofs
+
+To reward redundancy and keep proving live, Hyperbridge rewards more than just the single fastest prover. The **first** prover to land a valid proof for a given finality target advances the chain's state and earns the **full** reward. Additional **independent** provers that generate their own valid proof for the **same** target are accepted as **uncles** and paid on a *decreasing reward curve*, up to a governance-configured limit (`MaxUncleProvers`).
+
+The curve (set via `set_reward_curve`) pays each position a fraction of the base reward. The current curve is **100% / 50% / 30% / 20% / 10% / 5%** — the first prover receives the full reward (100%), and the next five uncles receive 50%, 30%, 20%, 10%, and 5% respectively. Uncle rewards apply to SP1 proofs only.
+
+### Prover-Bound Proofs
+
+Each SP1 proof commits a nonce into its public values, and the runtime requires that nonce to equal the extrinsic signer. This binds a proof to the prover that produced it:
+
+- A proof **cannot be stolen** — copying the proof bytes from the mempool and submitting them under a different account is rejected, because the committed account no longer matches the signer.
+- Reward **deduplication is per-account** — an account is rewarded at most once per finality target, so a single prover cannot mint many byte-distinct variants of one proof (e.g. via Groth16 re-randomization) to sweep multiple uncle slots.
+
+## Reputation and the Path to Becoming a Collator
+
+In addition to `$BRIDGE` token rewards, provers automatically earn **Reputation Asset** tokens at a 1:1 ratio with their `$BRIDGE` earnings. This non-transferable reputation score is the primary factor in [Collator selection](/developers/network/collator) — the higher your reputation, the better your chances of being selected as a block-producing Collator for the Hyperbridge network.
+
+This means that running a prover is a direct path to becoming a Collator and earning additional block production rewards. The same Controller account used as the prover's signer accrues reputation, which is evaluated at each session boundary when `pallet-collator-manager` selects the next collator set.
+
+## A Competitive, Permissionless Environment
+
+The incentive structure fosters a healthy, competitive market. The **first prover** to submit a proof for a given state advance earns the full reward and advances the chain, which rewards low-latency, efficient operations. Independent provers for the same target still earn a smaller, decreasing reward as uncles, so redundant provers are compensated for the liveness they provide rather than racing winner-take-all.
+
+This model is inherently permissionless — no staking or whitelisting is required to participate. Any operator can run a prover and begin competing to submit proofs and earn rewards.
+
+## Distinction from Consensus Relaying
+
+It is important to distinguish provers from [consensus relayers](/developers/explore/relayers#consensus-relaying):
+
+* **Consensus Relayers** submit consensus proofs for *external* chains (Ethereum, BSC, Arbitrum, etc.) *to* Hyperbridge, keeping Hyperbridge's view of those chains up-to-date.
+* **Provers** generate consensus proofs for *Hyperbridge itself* (via BEEFY), making Hyperbridge's finalized state available for relayers to deliver messages *from* Hyperbridge to destination chains.
+
+Both roles earn `$BRIDGE` rewards and Reputation Asset tokens, and a single operator can run both.
+
+## Running a Prover
+
+For step-by-step instructions on running a prover node, including Docker setup, configuration, and system requirements, see the [Prover operator guide](/developers/network/prover).

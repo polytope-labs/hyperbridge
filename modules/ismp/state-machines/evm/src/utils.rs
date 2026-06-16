@@ -15,13 +15,11 @@
 
 use crate::{
 	prelude::*,
-	presets::{
-		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-		RESPONSE_RECEIPTS_SLOT,
-	},
+	presets::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT},
 	types::{Account, EvmStateProof, KeccakHasher},
+	EvmStateMachineError,
 };
-use alloc::{format, string::ToString};
+use alloc::format;
 use alloy_rlp::Decodable;
 use codec::Decode;
 use ethereum_triedb::{EIP1186Layout, StorageProof};
@@ -31,8 +29,7 @@ use ismp::{
 	},
 	error::Error,
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Keccak256, Proof},
-	router::RequestResponse,
+	messaging::{Keccak256, Proof},
 };
 use primitive_types::{H256, U256};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
@@ -62,7 +59,7 @@ pub fn construct_intermediate_state(
 
 pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	let evm_state_proof = EvmStateProof::decode(&mut &proof.proof[..])
-		.map_err(|_| Error::Custom(format!("Cannot decode evm state proof")))?;
+		.map_err(|_| EvmStateMachineError::StateProofDecodeError)?;
 
 	Ok(evm_state_proof)
 }
@@ -77,69 +74,42 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 /// # Different Hash Functions for Different Chains
 ///
 /// - **EVM Chains**: Use Keccak256 for the final hash since EVM storage uses Keccak256 trie
-///   ```rust,ignore req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec()) ```
+///   ```rust,ignore req_res_commitment_key::<H, _>(requests, |k| H::keccak256(k).0.to_vec()) ```
 ///
 /// - **Substrate EVM Chains**: Use Blake2b-256 for the final hash since Substrate uses Blake2b for
-///   its child trie storage ```rust,ignore req_res_commitment_key::<H, _>(item, |k|
+///   its child trie storage ```rust,ignore req_res_commitment_key::<H, _>(requests, |k|
 ///   hashing::blake2_256(k).to_vec()) ```
 ///
 /// # Parameters
 ///
-/// * `item` - The request or response items to derive storage keys for
+/// * `commitments` - Request commitment hashes to derive storage keys for
 /// * `hash_fn` - A closure that applies the final hashing to the unhashed storage key
 ///
 /// # Returns
 ///
-/// A vector of storage keys (one per request or response), hashed according to the provided
-/// hash function
-pub fn req_res_commitment_key<H: Keccak256, F>(item: RequestResponse, hash_fn: F) -> Vec<Vec<u8>>
+/// A vector of storage keys (one per commitment), hashed according to the provided hash function
+pub fn req_commitment_key<H: Keccak256, F>(commitments: Vec<H256>, hash_fn: F) -> Vec<Vec<u8>>
 where
 	F: Fn(&[u8]) -> Vec<u8>,
 {
 	let mut keys = vec![];
-	match item {
-		RequestResponse::Request(requests) =>
-			for req in requests {
-				let commitment = hash_request::<H>(&req);
-				let unhashed_key = derive_unhashed_map_key_with_offset::<H>(
-					commitment.0.to_vec(),
-					REQUEST_COMMITMENTS_SLOT,
-					1,
-				);
-				keys.push(hash_fn(&unhashed_key.0))
-			},
-		RequestResponse::Response(responses) =>
-			for res in responses {
-				let commitment = hash_response::<H>(&res);
-				let unhashed_key = derive_unhashed_map_key_with_offset::<H>(
-					commitment.0.to_vec(),
-					RESPONSE_COMMITMENTS_SLOT,
-					1,
-				);
-				keys.push(hash_fn(&unhashed_key.0))
-			},
+	for commitment in commitments {
+		let unhashed_key = derive_unhashed_map_key_with_offset::<H>(
+			commitment.0.to_vec(),
+			REQUEST_COMMITMENTS_SLOT,
+			1,
+		);
+		keys.push(hash_fn(&unhashed_key.0))
 	}
 
 	keys
 }
 
-pub fn req_res_receipt_keys<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
+pub fn req_receipt_keys<H: Keccak256>(commitments: Vec<H256>) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
-	match item {
-		RequestResponse::Request(requests) =>
-			for req in requests {
-				let commitment = hash_request::<H>(&req);
-				let key =
-					derive_unhashed_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
-				keys.push(key.0.to_vec())
-			},
-		RequestResponse::Response(responses) =>
-			for res in responses {
-				let commitment = hash_request::<H>(&res.request());
-				let key =
-					derive_unhashed_map_key::<H>(commitment.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
-				keys.push(key.0.to_vec())
-			},
+	for commitment in commitments {
+		let key = derive_unhashed_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
+		keys.push(key.0.to_vec())
 	}
 
 	keys
@@ -147,10 +117,7 @@ pub fn req_res_receipt_keys<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>>
 
 pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
 	if bytes.len() != 32 {
-		return Err(Error::Custom(format!(
-			"Input vector must have exactly 32 elements {:?}",
-			bytes
-		)));
+		return Err(EvmStateMachineError::BadByteLength(bytes.len()).into());
 	}
 
 	let mut array = [0u8; 32];
@@ -170,12 +137,11 @@ pub fn get_contract_account<H: Keccak256 + Send + Sync>(
 	let key = H::keccak256(contract_address).0;
 	let result = trie
 		.get(&key)
-		.map_err(|_| Error::Custom("Invalid contract account proof".to_string()))?
-		.ok_or_else(|| Error::Custom("Contract account is not present in proof".to_string()))?;
+		.map_err(|_| EvmStateMachineError::InvalidContractAccountProof)?
+		.ok_or(EvmStateMachineError::ContractAccountNotPresent)?;
 
-	let contract_account = <Account as Decodable>::decode(&mut &*result).map_err(|_| {
-		Error::Custom(format!("Error decoding contract account from value {:?}", &result))
-	})?;
+	let contract_account = <Account as Decodable>::decode(&mut &*result)
+		.map_err(|_| EvmStateMachineError::ContractAccountDecodeError)?;
 
 	Ok(contract_account)
 }
@@ -222,7 +188,9 @@ pub fn get_values_from_proof<H: Keccak256 + Send + Sync>(
 	let proof_db = StorageProof::new(proof).into_memory_db::<KeccakHasher<H>>();
 	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
 	for key in keys {
-		let val = trie.get(&key).map_err(|_| Error::Custom(format!("Error reading proof db")))?;
+		let val = trie
+			.get(&key)
+			.map_err(|e| EvmStateMachineError::TrieReadError(format!("{e:?}")))?;
 		values.push(val);
 	}
 
@@ -238,7 +206,7 @@ pub fn get_value_from_proof<H: Keccak256 + Send + Sync>(
 	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
 	let val = trie
 		.get(&key)
-		.map_err(|e| Error::Custom(format!("Error reading proof db {:?}", e)))?;
+		.map_err(|e| EvmStateMachineError::TrieReadError(format!("{e:?}")))?;
 
 	Ok(val)
 }

@@ -32,7 +32,8 @@ use ismp::{
 };
 
 use grandpa_verifier::{
-	verify_grandpa_finality_proof, verify_parachain_headers_with_grandpa_finality_proof,
+	error::Error as GrandpaError, verify_grandpa_finality_proof,
+	verify_parachain_headers_with_grandpa_finality_proof,
 };
 use grandpa_verifier_primitives::{
 	justification::{AncestryChain, GrandpaJustification},
@@ -73,18 +74,13 @@ where
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
 		// decode the proof into consensus message
-		let consensus_message: ConsensusMessage =
-			codec::Decode::decode(&mut &proof[..]).map_err(|e| {
-				Error::Custom(format!("Cannot decode consensus message from proof: {e:?}",))
-			})?;
+		let consensus_message: ConsensusMessage = codec::Decode::decode(&mut &proof[..])
+			.map_err(|e| GrandpaError::DecodeConsensusMessage(format!("{e:?}")))?;
 
 		// decode the consensus state
 		let consensus_state: ConsensusState =
-			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode consensus state from trusted consensus state bytes: {e:?}",
-				))
-			})?;
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| GrandpaError::DecodeConsensusState(format!("{e:?}")))?;
 
 		let mut intermediates = BTreeMap::new();
 
@@ -100,10 +96,7 @@ where
 					verify_parachain_headers_with_grandpa_finality_proof(
 						consensus_state,
 						headers_with_finality_proof,
-					)
-					.map_err(|err| {
-						Error::Custom(format!("Error verifying parachain headers: {err:#?}"))
-					})?;
+					)?;
 
 				let parachain_headers = parachain_headers
 					.into_iter()
@@ -126,10 +119,7 @@ where
 					let state_id: StateMachine = match T::Coprocessor::get() {
 						Some(StateMachine::Polkadot(_)) => StateMachine::Polkadot(para_id),
 						Some(StateMachine::Kusama(_)) => StateMachine::Kusama(para_id),
-						_ => Err(Error::Custom(
-							"Coprocessor was not set, cannot determine para id state machine id"
-								.into(),
-						))?,
+						_ => Err(GrandpaError::CoprocessorNotSet)?,
 					};
 
 					for header in header_vec {
@@ -137,7 +127,7 @@ where
 							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 						if digest_result.timestamp == 0 {
-							Err(Error::Custom("Timestamp or ismp root not found".into()))?
+							Err(GrandpaError::MissingTimestampOrIsmpRoot)?
 						}
 
 						let height: u32 = (*header.number()).into();
@@ -177,23 +167,15 @@ where
 				let (consensus_state, header, _, _) = verify_grandpa_finality_proof(
 					consensus_state,
 					standalone_chain_message.finality_proof,
-				)
-				.map_err(|err| {
-					Error::Custom(format!("Error verifying grandpa header: {err:#?}"))
-				})?;
+				)?;
 
 				let slot_duration = SupportedStateMachines::<T>::get(consensus_state.state_machine)
-					.ok_or_else(|| {
-						Error::Custom(format!(
-							"Error getting slot duration for state machine {}",
-							consensus_state.state_machine
-						))
-					})?;
+					.ok_or(GrandpaError::SlotDurationNotSet(consensus_state.state_machine))?;
 				let digest_result =
 					fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 				if digest_result.timestamp == 0 {
-					Err(Error::Custom("Timestamp or ismp root not found".into()))?
+					Err(GrandpaError::MissingTimestampOrIsmpRoot)?
 				}
 
 				let height: u32 = (*header.number()).into();
@@ -228,10 +210,7 @@ where
 					verify_parachain_headers_with_grandpa_finality_proof(
 						consensus_state,
 						headers_with_finality_proof,
-					)
-					.map_err(|err| {
-						Error::Custom(format!("Error verifying parachain headers: {err:#?}"))
-					})?;
+					)?;
 
 				let parachain_headers = parachain_headers
 					.into_iter()
@@ -257,7 +236,7 @@ where
 							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 						if digest_result.timestamp == 0 {
-							Err(Error::Custom("Timestamp or ismp root not found".into()))?
+							Err(GrandpaError::MissingTimestampOrIsmpRoot)?
 						}
 
 						let height: u32 = (*header.number()).into();
@@ -296,28 +275,17 @@ where
 	) -> Result<(), Error> {
 		// decode the consensus state
 		let consensus_state: ConsensusState =
-			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode consensus state from trusted consensus state bytes: {e:?}",
-				))
-			})?;
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| GrandpaError::DecodeConsensusState(format!("{e:?}")))?;
 
 		let first_proof: FinalityProof<SubstrateHeader> = codec::Decode::decode(&mut &proof_1[..])
-			.map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode first finality proof from proof_1 bytes: {e:?}",
-				))
-			})?;
+			.map_err(|e| GrandpaError::DecodeFinalityProof(format!("{e:?}")))?;
 
 		let second_proof: FinalityProof<SubstrateHeader> = codec::Decode::decode(&mut &proof_2[..])
-			.map_err(|e| {
-				Error::Custom(format!(
-					"Cannot decode second finality proof from proof_2 bytes: {e:?}",
-				))
-			})?;
+			.map_err(|e| GrandpaError::DecodeFinalityProof(format!("{e:?}")))?;
 
 		if first_proof.block == second_proof.block {
-			return Err(Error::Custom(format!("Fraud proofs are for the same block",)));
+			return Err(GrandpaError::FraudProofsSameBlock.into());
 		}
 
 		let first_headers = AncestryChain::<SubstrateHeader>::new(&first_proof.unknown_headers);
@@ -325,66 +293,71 @@ where
 			.unknown_headers
 			.iter()
 			.max_by_key(|h| *h.number())
-			.ok_or_else(|| Error::Custom(format!("Unknown headers can't be empty!")))?;
+			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
 
 		let second_headers = AncestryChain::<SubstrateHeader>::new(&second_proof.unknown_headers);
 		let second_target = second_proof
 			.unknown_headers
 			.iter()
 			.max_by_key(|h| *h.number())
-			.ok_or_else(|| Error::Custom(format!("Unknown headers can't be empty!")))?;
+			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
 
 		if first_target.hash() != first_proof.block || second_target.hash() != second_proof.block {
-			return Err(Error::Custom(format!("Fraud proofs are not for the same chain")));
+			return Err(GrandpaError::FraudProofsDifferentChain.into());
 		}
 
 		let first_base = first_proof
 			.unknown_headers
 			.iter()
 			.min_by_key(|h| *h.number())
-			.ok_or_else(|| Error::Custom(format!("Unknown headers can't be empty!")))?;
-		first_headers
+			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
+		let first_chain = first_headers
 			.ancestry(first_base.hash(), first_target.hash())
-			.map_err(|_| Error::Custom(format!("Invalid ancestry!")))?;
+			.map_err(|_| GrandpaError::InvalidAncestry)?;
 
 		let second_base = second_proof
 			.unknown_headers
 			.iter()
 			.min_by_key(|h| *h.number())
-			.ok_or_else(|| Error::Custom(format!("Unknown headers can't be empty!")))?;
-		second_headers
+			.ok_or(GrandpaError::UnknownHeadersEmpty)?;
+		let second_chain = second_headers
 			.ancestry(second_base.hash(), second_target.hash())
-			.map_err(|_| Error::Custom(format!("Invalid ancestry!")))?;
+			.map_err(|_| GrandpaError::InvalidAncestry)?;
 
 		let first_parent = first_base.parent_hash();
 		let second_parent = second_base.parent_hash();
 
 		if first_parent != second_parent {
-			return Err(Error::Custom(format!("Fraud proofs are not for the same ancestor")));
+			return Err(GrandpaError::FraudProofsDifferentAncestor.into());
+		}
+
+		// Equivocation means two finalized blocks on competing branches. If one
+		// target appears in the other's ancestry then they share a canonical
+		// chain and this is just ordinary finality moving forward.
+		if first_chain.contains(&second_proof.block) ||
+			second_chain.contains(&first_proof.block)
+		{
+			return Err(GrandpaError::FraudProofsSameBranch.into());
 		}
 
 		let first_justification =
 			GrandpaJustification::<SubstrateHeader>::decode(&mut &first_proof.justification[..])
-				.map_err(|_| Error::Custom(format!("Could not decode first justification")))?;
+				.map_err(|e| GrandpaError::DecodeJustification(format!("{e:?}")))?;
 
 		let second_justification =
 			GrandpaJustification::<SubstrateHeader>::decode(&mut &second_proof.justification[..])
-				.map_err(|_| Error::Custom(format!("Could not decode second justification")))?;
+				.map_err(|e| GrandpaError::DecodeJustification(format!("{e:?}")))?;
 
 		if first_proof.block != first_justification.commit.target_hash ||
 			second_proof.block != second_justification.commit.target_hash
 		{
-			Err(Error::Custom(
-                format!("First or second finality proof block hash does not match justification target hash")
-            ))?
+			Err(GrandpaError::JustificationTargetMismatch)?
 		}
 
 		if first_justification.commit.target_hash != consensus_state.latest_hash &&
 			second_justification.commit.target_hash != consensus_state.latest_hash
 		{
-			Err(Error::Custom(format!(
-				"First or second justification does not match consensus latest hash"
-			)))?
+			Err(GrandpaError::JustificationConsensusMismatch)?
 		}
 
 		let first_valid = first_justification
@@ -395,7 +368,7 @@ where
 			.is_ok();
 
 		if !first_valid || !second_valid {
-			Err(Error::Custom(format!("Invalid justification")))?
+			Err(GrandpaError::InvalidJustification)?
 		}
 
 		Ok(())
@@ -405,7 +378,7 @@ where
 		if SupportedStateMachines::<T>::contains_key(id) {
 			Ok(Box::new(S::from(id)))
 		} else {
-			Err(Error::Custom(format!("Unsupported State Machine {id:?}")))
+			Err(GrandpaError::UnsupportedStateMachine(id).into())
 		}
 	}
 

@@ -45,7 +45,7 @@ impl IsmpHost for ArbHost {
 			let client = self.clone();
 			let counterparty = counterparty_clone.clone();
 			let consensus_state = consensus_state.clone();
-			let state_machine = client.evm.state_machine();
+			let state_machine = client.state_machine;
 
 			async move {
 				interval.tick().await;
@@ -72,10 +72,6 @@ impl IsmpHost for ArbHost {
 								match self.fetch_arbitrum_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
-											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine,
-												consensus_state_id: self.consensus_state_id,
-											},
 											l1_height: current_height,
 											proof: ArbitrumConsensusProof::ArbitrumOrbit(payload),
 										};
@@ -115,10 +111,6 @@ impl IsmpHost for ArbHost {
 								match self.fetch_arbitrum_bold_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
-											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine,
-												consensus_state_id: self.consensus_state_id,
-											},
 											l1_height: current_height,
 											proof: ArbitrumConsensusProof::ArbitrumBold(payload),
 										};
@@ -179,13 +171,13 @@ impl IsmpHost for ArbHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}
@@ -204,11 +196,11 @@ impl IsmpHost for ArbHost {
 
 		let number = self.arb_execution_client.get_block_number().await?;
 		let block = self.arb_execution_client.get_block(number.into()).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			anyhow!("Didn't find block with number {number} on {:?}", self.state_machine)
 		})?;
 
 		let state_machine_id = StateMachineId {
-			state_id: self.evm.state_machine,
+			state_id: self.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 

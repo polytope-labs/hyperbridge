@@ -10,7 +10,7 @@ publish = false
 subxt = { workspace = true, default-features = true }
 anyhow.workspace = true
 futures = "0.3.28"
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 indicatif = "0.17.8"
 
 codec = { workspace = true, features = ["derive"], default-features = true }
@@ -27,12 +27,17 @@ ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-demo = { workspace = true, default-features = true }
-pallet-hyperbridge = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
+pallet-intents-rpc = { workspace = true }
+pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
+beefy-prover = { workspace = true }
+beefy-verifier-primitives = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
+alloy-sol-types = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }
 trie-db = { workspace = true }
@@ -44,9 +49,15 @@ serde_json = "1.0.140"
 subxt-signer = "0.41.0"
 nexus-runtime = { workspace = true, default-features = true}
 gargantua-runtime = { workspace = true, default-features = true}
-pallet-bridge-airdrop = { workspace = true, default-features = true}
 crypto-utils = { workspace = true, default-features = true }
-pallet-messaging-fees = { workspace = true, default-features = true}
+pallet-messaging-incentives = { workspace = true, default-features = true}
+hyperbridge-fisherman = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-fisherman = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+mockito = "1.5"
+zstd-safe = "7.1.0"
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -56,7 +67,10 @@ features = [
     "sp-runtime",
     "sp-keyring",
     "sc-consensus-manual-seal",
+    "sc-service",
     "sp-mmr-primitives",
+    "sp-consensus-beefy",
+    "sp-io",
     "pallet-sudo",
     "pallet-utility",
     "pallet-vesting",

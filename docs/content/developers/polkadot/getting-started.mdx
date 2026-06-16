@@ -27,7 +27,7 @@ cargo add pallet-ismp-runtime-api
 
 ### Pallet ISMP RPC
 
-The Pallet ISMP RPC module exposes the necessary RPC APIs that are required by the [tesseract messaging relayer](/developers/network/messaging-relayer) and [tesseract consensus relayer](/developers/network/consensus-relayer), and other alternative relayer implementations. This is required for any kind of offchain relayer process. You can add the [`pallet-ismp-rpc`](https://docs.rs/pallet-ismp-rpc) to your runtime like so
+The Pallet ISMP RPC module exposes the necessary RPC APIs that are required by the [tesseract relayer](/developers/network/relayer) and other alternative relayer implementations. This is required for any kind of offchain relayer process. You can add the [`pallet-ismp-rpc`](https://docs.rs/pallet-ismp-rpc) to your runtime like so
 
 ```bash lineNumbers
 cargo add pallet-ismp-rpc
@@ -41,37 +41,12 @@ For parachain runtimes that want to connect to Hyperbridge, They will do so by m
 cargo add ismp-parachain
 ```
 
-
-### Parachain Inherent
-
-The parachain inherent greatly simplifies the infrastructure required for parachains to exchange messages with Hyperbridge by turning collators into consensus relayers. Specifically this inherent will automatically include sibling parachain headers and their proofs into every block keeping the parachain up to date with the latest finalized state of Hyperbridge and any other sibling parachain that is configured. Without this, a seperate consensus relayer will need to be run offchain. You can add the [`ismp-parachain-inherent`](https://docs.rs/ismp-parachain-inherent) to your runtime like so
-
-```bash lineNumbers
-cargo add ismp-parachain-inherent
-```
-
-### Parachain Runtime API
-
-The Parachain inherent provider requires some runtime APIs to access which parachains are configured by the runtime to be included in the inherent. You can add the [`ismp-parachain-runtime-api`](https://docs.rs/ismp-parachain-runtime-api) to your runtime like so
-
-```bash lineNumbers
-cargo add ismp-parachain-runtime-api
-```
-
 ## GRANDPA Consensus Client
 
 Solochains that want to connect to Hyperbridge will do so by means of the GRANDPA consensus client. This consensus client is capable of verifying GRANDPA consensus proofs of standalone chains as well as relay chains. You can add the [`ismp-grandpa`](https://docs.rs/ismp-grandpa) to your runtime like so
 
 ```bash lineNumbers
 cargo add ismp-grandpa
-```
-
-## Pallet Hyperbridge
-
-The Pallet Hyperbridge provides an implementation of the `IsmpDispatcher` which collects the Hyperbridge protocol fees, as well as an `IsmpModule` for processing cross-chain messages from Hyperbridge. These cross-chain messages may either be withdrawal requests may be for either relayer fees, or protocol fees. The IsmpModule may also receive cross-chain messages from Hyperbridge to adjust it's protocol fees as decided by governance. This module is optional and is only needed if Polkadot-SDK chains opt to pay Hyperbridge protocol fees onchain, they may also do so offchain by running their own relayers and paying Hyperbridge it's native token when they relay messages to Hyperbridge. You can add the [`pallet-hyperbridge`](https://docs.rs/pallet-hyperbridge) to your runtime like so
-
-```bash lineNumbers
-cargo add pallet-hyperbridge
 ```
 
 ## Pallet Token Gateway

@@ -1,0 +1,252 @@
+import { solidityKeccak256 } from "ethers/lib/utils"
+import { Status } from "@/configs/src/types/enums"
+import { RequestV2, RequestStatusMetadata, PendingStatusMetadata } from "@/configs/src/types/models"
+import { ethers } from "ethers"
+import { timestampToDate } from "@/utils/date.helpers"
+
+const ENTITY_TYPE = "RequestV2"
+
+export interface ICreateRequestArgs {
+	chain: string
+	commitment: string
+	body?: string | undefined
+	dest?: string | undefined
+	fee?: bigint | undefined
+	from?: string | undefined
+	nonce?: bigint | undefined
+	source?: string | undefined
+	timeoutTimestamp?: bigint | undefined
+	to?: string | undefined
+	blockNumber: string
+	blockHash: string
+	transactionHash: string
+	blockTimestamp: bigint
+	createdAt: Date
+}
+
+export interface IUpdateRequestStatusArgs {
+	commitment: string
+	status: Status
+	blockNumber: string
+	blockHash: string
+	transactionHash: string
+	timeoutHash?: string
+	blockTimestamp: bigint
+	chain: string
+}
+
+const REQUEST_STATUS_WEIGHTS = {
+	[Status.SOURCE]: 1,
+	[Status.HYPERBRIDGE_DELIVERED]: 2,
+	[Status.DESTINATION]: 3,
+	[Status.HYPERBRIDGE_TIMED_OUT]: 4,
+	[Status.TIMED_OUT]: 5,
+}
+
+export class RequestService {
+	/**
+	 * Finds a request entity and creates a new one if it doesn't exist
+	 * If the request exists, it updates the request details
+	 */
+	static async createOrUpdate(args: ICreateRequestArgs): Promise<RequestV2> {
+		const {
+			chain,
+			commitment,
+			body,
+			dest,
+			fee,
+			from,
+			nonce,
+			source,
+			timeoutTimestamp,
+			to,
+			blockNumber,
+			blockHash,
+			transactionHash,
+			blockTimestamp,
+		} = args
+		let request = await RequestV2.get(commitment)
+
+		logger.info(
+			`Processing RequestV2: ${JSON.stringify({
+				commitment,
+				transactionHash,
+			})}`,
+		)
+
+		if (typeof request === "undefined") {
+			// Create new request if it doesn't exist
+			request = RequestV2.create({
+				id: commitment,
+				chain,
+				body: body || "",
+				dest: dest || "",
+				fee: fee || BigInt(0),
+				from: from || "",
+				nonce: nonce || BigInt(0),
+				source: source || "",
+				timeoutTimestamp: timeoutTimestamp || BigInt(0),
+				to: to || "",
+				commitment,
+				createdAt: timestampToDate(blockTimestamp),
+			})
+
+			await request.save()
+
+			logger.info(
+				`Created new request with details ${JSON.stringify({
+					commitment,
+					transactionHash,
+				})}`,
+			)
+
+			await this.flushPendingStatuses(commitment)
+		} else {
+			// Update existing request with new details if provided
+			if (body !== undefined) request.body = body
+			if (dest !== undefined) request.dest = dest
+			if (fee !== undefined) request.fee = fee
+			if (from !== undefined) request.from = from
+			if (nonce !== undefined) request.nonce = nonce
+			if (source !== undefined) request.source = source
+			if (timeoutTimestamp !== undefined) request.timeoutTimestamp = timeoutTimestamp
+			if (to !== undefined) request.to = to
+
+			await request.save()
+
+			logger.info(
+				`Updated existing request with details ${JSON.stringify({
+					commitment,
+					transactionHash,
+				})}`,
+			)
+		}
+
+		return request
+	}
+
+	/**
+	 * Update the status of a request
+	 * Also adds a new entry to the request status metadata
+	 * If the request doesn't exist, stores in PendingStatusMetadata until the entity is created
+	 */
+	static async updateStatus(args: IUpdateRequestStatusArgs): Promise<void> {
+		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
+
+		logger.info(
+			`Updating RequestV2 Status: ${JSON.stringify({
+				commitment,
+				transactionHash,
+				status,
+			})}`,
+		)
+
+		let request = await RequestV2.get(commitment)
+
+		if (!request) {
+			logger.warn(
+				`RequestV2 not found for commitment ${commitment}, storing in PendingStatusMetadata for status ${status}`,
+			)
+
+			let pending = PendingStatusMetadata.create({
+				id: `${commitment}.${ENTITY_TYPE}.${status}`,
+				commitment,
+				entityType: ENTITY_TYPE,
+				status,
+				chain,
+				timestamp: blockTimestamp,
+				blockNumber,
+				blockHash,
+				transactionHash,
+				createdAt: timestampToDate(blockTimestamp),
+			})
+
+			await pending.save()
+			return
+		}
+
+		let requestStatusMetadata = RequestStatusMetadata.create({
+			id: `${commitment}.${status}`,
+			requestId: commitment,
+			status,
+			chain,
+			timestamp: blockTimestamp,
+			blockNumber,
+			blockHash,
+			transactionHash,
+			createdAt: timestampToDate(blockTimestamp),
+		})
+
+		await requestStatusMetadata.save()
+	}
+
+	/**
+	 * Flush any pending status metadata entries for a request that was just created
+	 */
+	static async flushPendingStatuses(commitment: string): Promise<void> {
+		const pendingStatuses = await PendingStatusMetadata.getByCommitment(commitment, {
+			limit: 10,
+		})
+
+		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
+
+		for (const pending of matching) {
+			let statusMetadata = RequestStatusMetadata.create({
+				id: `${commitment}.${pending.status}`,
+				requestId: commitment,
+				status: pending.status as Status,
+				chain: pending.chain,
+				timestamp: pending.timestamp,
+				blockNumber: pending.blockNumber,
+				blockHash: pending.blockHash,
+				transactionHash: pending.transactionHash,
+				createdAt: pending.createdAt,
+			})
+
+			await statusMetadata.save()
+			await PendingStatusMetadata.remove(pending.id)
+
+			logger.info(
+				`Flushed pending status ${pending.status} for RequestV2 ${commitment}`,
+			)
+		}
+	}
+
+	/**
+	 * Compute the request commitment
+	 */
+	static computeRequestCommitment(
+		source: string,
+		dest: string,
+		nonce: bigint,
+		timeoutTimestamp: bigint,
+		from: string,
+		to: string,
+		body: string,
+	): string {
+		logger.info(
+			`Computing request commitment with details ${JSON.stringify({
+				source,
+				dest,
+				nonce: nonce.toString(),
+				timeoutTimestamp: timeoutTimestamp.toString(),
+				from,
+				to,
+				body,
+			})}`,
+		)
+
+		// Convert source/dest from state-machine strings ("EVM-97" etc.) to bytes.
+		const sourceByte = ethers.utils.toUtf8Bytes(source)
+		const destByte = ethers.utils.toUtf8Bytes(dest)
+
+		// Mirror the EVM host's commitment: keccak256(abi.encode(PostRequest)),
+		// with the outer tuple wrapper. Field order matches the PostRequest struct
+		// in core/libraries/Message.sol: source, dest, nonce, from, to, timeoutTimestamp, body.
+		const encoded = ethers.utils.defaultAbiCoder.encode(
+			["tuple(bytes,bytes,uint64,bytes,bytes,uint64,bytes)"],
+			[[sourceByte, destByte, nonce, from, to, timeoutTimestamp, body]],
+		)
+		return ethers.utils.keccak256(encoded)
+	}
+}

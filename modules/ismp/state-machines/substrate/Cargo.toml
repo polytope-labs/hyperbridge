@@ -1,6 +1,6 @@
 [package]
 name = "substrate-state-machine"
-version = "2512.0.0"
+version = "2512.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -22,6 +22,8 @@ serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hash-db = { workspace = true }
 trie-db = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -44,4 +46,5 @@ std = [
     "serde/std",
     "pallet-ismp/std",
     "hash-db/std",
+    "anyhow/std",
 ]

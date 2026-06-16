@@ -2,11 +2,13 @@
     "title": "EVM",
     "pages": [
         "overview",
-        "dispatching",
-        "receiving",
-        "testnet-fee-token",
-        "contract-addresses",
+        "messaging",
+        "hyper-fungible-token",
         "intent-gateway",
+        "streaming-yield-vault",
+        "bandwidth",
+        "lz-endpoint",
+        "contract-addresses",
         "api"
     ],
     "defaultOpen": false

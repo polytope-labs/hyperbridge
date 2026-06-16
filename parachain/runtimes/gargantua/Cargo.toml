@@ -27,32 +27,36 @@ ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
+pallet-beefy-consensus-proofs = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
+ismp-beefy = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
+pallet-messaging-incentives = { workspace = true }
+pallet-collator-manager = { workspace = true }
 pallet-intents-coprocessor = { workspace = true }
-pallet-xcm-gateway = { workspace = true }
-pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
+mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
-hyperbridge-client-machine = { workspace = true }
-pallet-token-gateway-inspector = { workspace = true }
-pallet-token-gateway = { workspace = true }
-pallet-bridge-airdrop = { workspace = true }
+
+pallet-bandwidth = { workspace = true }
+
+pallet-hyper-fungible-token = { workspace = true }
+
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 ismp-beacon-kit = { workspace = true }
+ismp-pharos = { workspace =  true }
 ismp-tendermint = { workspace = true }
-pallet-messaging-fees = { workspace = true }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
 
@@ -70,6 +74,7 @@ features = [
     "pallet-session",
     "pallet-sudo",
     "pallet-utility",
+    "pallet-tx-pause",
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",
@@ -106,6 +111,7 @@ features = [
     "cumulus-pallet-session-benchmarking",
     "cumulus-pallet-xcm",
     "cumulus-pallet-xcmp-queue",
+    "pallet-migrations",
     "cumulus-primitives-core",
     "cumulus-primitives-timestamp",
     "cumulus-primitives-aura",
@@ -119,6 +125,14 @@ features = [
 
 [features]
 default = ["std"]
+# Negatively-biased flag for `pallet-bandwidth`. Off by default, so the
+# `Bandwidth` pallet is part of `construct_runtime!` and the bandwidth
+# gate is wired into the ISMP router (`on_accept` / `on_response`).
+# Turning this flag ON strips the pallet from the runtime: the `Bandwidth`
+# entry is dropped, the gate becomes a no-op `BandwidthGate`, and none of
+# the pallet's extrinsics are exposed. Release builds for testnet
+# deployments enable this — see `scripts/build_release_runtime.sh`.
+no-bandwidth = []
 std = [
     "codec/std",
     "log/std",
@@ -130,27 +144,28 @@ std = [
     "pallet-ismp/std",
     "pallet-ismp-runtime-api/std",
     "pallet-ismp-demo/std",
+    "pallet-beefy-consensus-proofs/std",
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",
+    "ismp-beefy/std",
     "ismp-parachain/std",
     "ismp-parachain-runtime-api/std",
     "pallet-ismp-relayer/std",
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
+    "pallet-messaging-incentives/std",
+    "pallet-collator-manager/std",
     "pallet-intents-coprocessor/std",
-    "pallet-xcm-gateway/std",
-    "pallet-token-gateway-inspector/std",
-    "pallet-token-governor/std",
+    "pallet-bandwidth/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
+    "mmr-primitives/std",
     "simnode-runtime-api/std",
-    "hyperbridge-client-machine/std",
     "anyhow/std",
     "cumulus-pallet-parachain-system/std",
     "frame-benchmarking/std",
-    "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-polygon/std",
@@ -158,7 +173,9 @@ std = [
     "ismp-beacon-kit/std",
     "pallet-messaging-fees/std",
     "evm-state-machine/std",
-    "substrate-state-machine/std"
+    "substrate-state-machine/std",
+    "ismp-pharos/std",
+    "pallet-hyper-fungible-token/std"
 ]
 runtime-benchmarks = [
     "hex-literal",
@@ -167,8 +184,8 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
-    "pallet-messaging-fees/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
+    "pallet-beefy-consensus-proofs/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",
@@ -176,6 +193,7 @@ try-runtime = [
     "pallet-ismp/try-runtime",
     "ismp-sync-committee/try-runtime",
     "pallet-ismp-demo/try-runtime",
+    "pallet-beefy-consensus-proofs/try-runtime",
     "pallet-ismp-relayer/try-runtime",
     "pallet-ismp-host-executive/try-runtime",
     "pallet-mmr-tree/try-runtime",

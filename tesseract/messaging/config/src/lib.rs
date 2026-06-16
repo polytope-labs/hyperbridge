@@ -13,11 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-config";
+
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_evm_tendermint::{TendermintEvmClient, TendermintEvmClientConfig};
+use tesseract_pharos_evm::PharosEvmClient;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
@@ -38,18 +42,67 @@ pub enum AnyConfig {
 	Tendermint(TendermintEvmClientConfig),
 	/// Configuration for substrate-evm(revive) based chains
 	SubstrateEvm(SubstrateEvmClientConfig),
+	/// Configuration for Pharos EVM chains
+	PharosEvm(EvmConfig),
 	/// Configuration for Tron chains
 	Tron(TronConfig),
 }
 
 impl AnyConfig {
+	/// Returns the resolved `state_machine`. Panics if the config has not
+	/// been resolved via [`AnyConfig::resolve`] — the routing layer is
+	/// expected to call `resolve()` immediately after parsing the TOML so
+	/// every consumer downstream sees a fully-populated value.
 	pub fn state_machine(&self) -> ismp::host::StateMachine {
 		match self {
-			Self::Substrate(config) => config.state_machine,
-			Self::Evm(config) => config.state_machine,
-			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine,
-			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.state_machine,
-			Self::Tron(config) => config.state_machine(),
+			Self::Substrate(config) => config.state_machine(),
+			Self::Evm(config) => config.state_machine(),
+			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine(),
+			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.state_machine(),
+			Self::PharosEvm(config) => config.state_machine(),
+			Self::Tron(config) => config.evm.state_machine(),
+		}
+	}
+
+	/// Pre-fill every optional config field that the libraries normally
+	/// resolve at client-construction time (`state_machine`, `ismp_host`,
+	/// `consensus_state_id`). Returns a fully-resolved [`AnyConfig`] so
+	/// downstream consumers (routing maps, error messages) can rely on
+	/// `state_machine()` returning a concrete value without touching the
+	/// chain. Explicit values from the operator are preserved.
+	pub async fn resolve(self) -> anyhow::Result<Self> {
+		Ok(match self {
+			Self::Substrate(config) => Self::Substrate(config.resolve().await?),
+			Self::Evm(config) => Self::Evm(config.resolve().await?),
+			Self::Tendermint(mut tendermint_config) => {
+				tendermint_config.evm_config = tendermint_config.evm_config.resolve().await?;
+				Self::Tendermint(tendermint_config)
+			},
+			Self::SubstrateEvm(mut substrate_evm_config) => {
+				substrate_evm_config.evm = substrate_evm_config.evm.resolve().await?;
+				Self::SubstrateEvm(substrate_evm_config)
+			},
+			Self::PharosEvm(config) => Self::PharosEvm(config.resolve().await?),
+			Self::Tron(mut config) => {
+				config.evm = config.evm.resolve().await?;
+				Self::Tron(config)
+			},
+		})
+	}
+
+	/// The chain's signing key as configured. Returns the raw string from the
+	/// per-chain TOML block, which is the secp256k1 private key (EVM family) or
+	/// SR25519 seed (Substrate). `None` signals that this chain does not
+	/// participate in roles that require signing (outbound delivery, fee
+	/// withdrawal POSTs), and the relayer skips it for those tasks.
+	pub fn signer(&self) -> Option<&str> {
+		match self {
+			Self::Substrate(config) => config.signer.as_deref(),
+			Self::Evm(config) => config.signer.as_deref(),
+			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.signer.as_deref(),
+			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.signer.as_deref(),
+			Self::PharosEvm(config) => config.signer.as_deref(),
+			Self::Tron(config) => config.evm.signer.as_deref(),
 		}
 	}
 }
@@ -82,31 +135,38 @@ impl AnyConfig {
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},
-			AnyConfig::Tendermint(tendermint_config) => match tendermint_config
-				.evm_config
-				.state_machine
-			{
-				ismp::host::StateMachine::Evm(chain_id) if chain_id == 1328 || chain_id == 1329 => {
-					let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
-						EvmClient::new(tendermint_config.evm_config).await?,
-						tendermint_config.rpc_url,
-					)
-					.await?;
-					client.set_latest_finalized_height(hyperbridge).await?;
-					Arc::new(client) as Arc<dyn IsmpProvider>
-				},
-				_ => {
-					let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
-						EvmClient::new(tendermint_config.evm_config).await?,
-						tendermint_config.rpc_url,
-					)
-					.await?;
-					client.set_latest_finalized_height(hyperbridge).await?;
-					Arc::new(client) as Arc<dyn IsmpProvider>
-				},
+			AnyConfig::Tendermint(tendermint_config) => {
+				let evm_inner = EvmClient::new(tendermint_config.evm_config).await?;
+				match evm_inner.state_machine {
+					ismp::host::StateMachine::Evm(chain_id)
+						if chain_id == 1328 || chain_id == 1329 =>
+					{
+						let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
+							evm_inner,
+							tendermint_config.rpc_url,
+						)
+						.await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+					_ => {
+						let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
+							evm_inner,
+							tendermint_config.rpc_url,
+						)
+						.await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+				}
 			},
 			AnyConfig::SubstrateEvm(config) => {
 				let mut client = SubstrateEvmClient::<Blake2SubstrateChain>::new(config).await?;
+				client.set_latest_finalized_height(hyperbridge).await?;
+				Arc::new(client) as Arc<dyn IsmpProvider>
+			},
+			AnyConfig::PharosEvm(config) => {
+				let mut client = PharosEvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},

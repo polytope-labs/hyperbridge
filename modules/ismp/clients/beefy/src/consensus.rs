@@ -1,0 +1,247 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
+use beefy_verifier::{error::Error as BeefyError, verify_consensus};
+use beefy_verifier_primitives::{
+	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
+	Sp1BeefyProof,
+};
+use codec::{Decode, Encode};
+use core::marker::PhantomData;
+use ismp::{
+	Error,
+	consensus::{
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+		StateMachineId, VerifiedCommitments,
+	},
+	host::{IsmpHost, StateMachine},
+	messaging::StateCommitmentHeight,
+};
+use pallet_ismp::{ConsensusDigest, ISMP_ID, ISMP_TIMESTAMP_ID, TimestampDigest};
+use polkadot_sdk::*;
+use primitive_types::H256;
+use sp_runtime::{
+	DigestItem,
+	generic::Header,
+	traits::{BlakeTwo256, Header as _},
+};
+use substrate_state_machine::SubstrateStateMachine;
+
+use crate::{BeefyClientConfig, SubstrateCrypto};
+
+pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
+
+/// [`ConsensusStateId`] for [`ParachainConsensusClient`] on Polkadot
+pub const POLKADOT_CONSENSUS_STATE_ID: ConsensusStateId = *b"DOT0";
+
+/// [`ConsensusStateId`] for [`ParachainConsensusClient`] on Paseo
+pub const PASEO_CONSENSUS_STATE_ID: ConsensusStateId = *b"PAS0";
+
+/// Beefy consensus client implementation
+pub struct BeefyConsensusClient<H, C, S = SubstrateStateMachine<C>>(PhantomData<(H, C, S)>);
+impl<
+	H: IsmpHost + Send + Sync + Default + 'static,
+	C: BeefyClientConfig + 'static,
+	S: StateMachineClient + From<StateMachine> + 'static,
+> Default for BeefyConsensusClient<H, C, S>
+{
+	fn default() -> Self {
+		Self(PhantomData)
+	}
+}
+
+impl<H, C, S> ConsensusClient for BeefyConsensusClient<H, C, S>
+where
+	H: IsmpHost + Send + Sync + Default + 'static,
+	C: BeefyClientConfig + 'static,
+	S: StateMachineClient + From<StateMachine> + 'static,
+{
+	fn verify_consensus(
+		&self,
+		host: &dyn IsmpHost,
+		_consensus_state_id: ConsensusStateId,
+		trusted_consensus_state: Vec<u8>,
+		proof: Vec<u8>,
+	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
+		let consensus_state: ConsensusState =
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
+
+		let proof_type = proof.first().ok_or(BeefyError::EmptyProof)?;
+		if !C::allowed_proof_types().contains(proof_type) {
+			return Err(BeefyError::UnknownProofType(*proof_type).into());
+		}
+		let payload = &proof[1..];
+
+		let (new_state, verified_parachains) = match *proof_type {
+			PROOF_TYPE_NAIVE => {
+				let consensus_proof: ConsensusMessage = codec::Decode::decode(&mut &payload[..])
+					.map_err(|e| BeefyError::DecodeNaiveProof(format!("{e:?}")))?;
+				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)?
+			},
+			PROOF_TYPE_SP1 => {
+				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
+					.map_err(|e| BeefyError::DecodeSp1Proof(format!("{e:?}")))?;
+				let vkey_hash = C::sp1_vkey_hash();
+				let vkey = alloc::format!("0x{:x}", vkey_hash);
+				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
+					consensus_state,
+					sp1_proof,
+					&vkey,
+				)?
+			},
+			_ => return Err(BeefyError::UnknownProofType(*proof_type).into()),
+		};
+
+		if verified_parachains.is_empty() {
+			return Ok((new_state, BTreeMap::new()));
+		}
+
+		let mut intermediates = BTreeMap::new();
+		for para_header in verified_parachains {
+			// Skip parachains not tracked by this consensus client
+			if !C::is_parachain_tracked(para_header.para_id) {
+				continue;
+			}
+
+			let header = Header::<u32, BlakeTwo256>::decode(&mut &*para_header.header)
+				.map_err(|e| BeefyError::DecodeParachainHeader(format!("{e}")))?;
+
+			let mut state_commitments_vec = Vec::new();
+			let (mut timestamp, mut overlay_root) = (0, H256::default());
+
+			for digest in header.digest().logs.iter() {
+				match digest {
+					DigestItem::Consensus(consensus_engine_id, value)
+						if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
+					{
+						let timestamp_digest = TimestampDigest::decode(&mut &value[..])
+							.map_err(|e| BeefyError::DecodeTimestampDigest(format!("{e:?}")))?;
+						timestamp = timestamp_digest.timestamp;
+					},
+					DigestItem::Consensus(consensus_engine_id, value)
+						if *consensus_engine_id == ISMP_ID =>
+					{
+						let log = ConsensusDigest::decode(&mut &value[..]);
+						if let Ok(log) = log {
+							overlay_root = log.child_trie_root;
+						} else {
+							Err(BeefyError::InvalidIsmpConsensusLog)?
+						}
+					},
+					_ => {},
+				};
+			}
+			if timestamp == 0 {
+				Err(BeefyError::TimestampNotFound)?
+			}
+
+			let (state_id, consensus_state_id) = match host.host_state_machine() {
+				StateMachine::Kusama(_) =>
+					(StateMachine::Kusama(para_header.para_id), PASEO_CONSENSUS_STATE_ID),
+				StateMachine::Polkadot(_) =>
+					(StateMachine::Polkadot(para_header.para_id), POLKADOT_CONSENSUS_STATE_ID),
+				_ => Err(BeefyError::HostStateMachineNotParachain)?,
+			};
+
+			let height: u32 = (*header.number()).into();
+			let intermediate = StateCommitmentHeight {
+				commitment: StateCommitment {
+					timestamp,
+					overlay_root: Some(overlay_root),
+					state_root: header.state_root,
+				},
+				height: height.into(),
+			};
+
+			state_commitments_vec.push(intermediate);
+			intermediates
+				.insert(StateMachineId { state_id, consensus_state_id }, state_commitments_vec);
+		}
+
+		Ok((new_state, intermediates))
+	}
+
+	fn verify_fraud_proof(
+		&self,
+		_host: &dyn IsmpHost,
+		trusted_consensus_state: Vec<u8>,
+		proof_1: Vec<u8>,
+		proof_2: Vec<u8>,
+	) -> Result<(), Error> {
+		let consensus_state: ConsensusState =
+			codec::Decode::decode(&mut &trusted_consensus_state[..])
+				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
+
+		let first_proof: MmrProof = codec::Decode::decode(&mut &proof_1[..])
+			.map_err(|e| BeefyError::DecodeMmrProof(format!("{e:?}")))?;
+
+		let second_proof: MmrProof = codec::Decode::decode(&mut &proof_2[..])
+			.map_err(|e| BeefyError::DecodeMmrProof(format!("{e:?}")))?;
+
+		let first_commitment = &first_proof.signed_commitment.commitment;
+		let second_commitment = &second_proof.signed_commitment.commitment;
+
+		if first_commitment.block_number != second_commitment.block_number {
+			return Err(BeefyError::FraudProofsDifferentBlock.into());
+		}
+
+		if first_commitment.encode() == second_commitment.encode() {
+			return Err(BeefyError::FraudProofsIdenticalCommitments.into());
+		}
+
+		let empty_parachain_proof =
+			ParachainProof { parachains: vec![], proof: vec![], total_leaves: 0 };
+
+		verify_consensus::<SubstrateCrypto>(
+			consensus_state.clone(),
+			ConsensusMessage { mmr: first_proof, parachain: empty_parachain_proof.clone() },
+		)
+		.map_err(|e| BeefyError::FraudProofVerificationFailed(format!("first: {e:?}")))?;
+
+		verify_consensus::<SubstrateCrypto>(
+			consensus_state,
+			ConsensusMessage { mmr: second_proof, parachain: empty_parachain_proof },
+		)
+		.map_err(|e| BeefyError::FraudProofVerificationFailed(format!("second: {e:?}")))?;
+
+		Ok(())
+	}
+
+	fn consensus_client_id(&self) -> ConsensusClientId {
+		BEEFY_CONSENSUS_ID
+	}
+
+	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		// On the coprocessor the BEEFY client only seeds the coprocessor's own state machine
+		// commitment; it must never be used to verify state proofs for incoming messages.
+		let host = H::default();
+		if Some(host.host_state_machine()) == host.allowed_proxy() {
+			Err(BeefyError::HostStateMachineIsCoprocessor)?
+		}
+
+		let para_id = match id {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
+			_ => Err(BeefyError::UnsupportedStateMachine(id))?,
+		};
+
+		if !C::is_parachain_tracked(para_id) {
+			Err(BeefyError::UnregisteredParachain(para_id))?
+		}
+
+		Ok(Box::new(S::from(id)))
+	}
+}

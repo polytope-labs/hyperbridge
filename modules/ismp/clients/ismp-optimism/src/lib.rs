@@ -19,10 +19,18 @@
 
 extern crate alloc;
 
+pub mod migrations;
 pub mod pallet;
 use pallet::{Pallet, SupportedStateMachines};
 
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
+/// Current storage version of `pallet-ismp-optimism`. Bumped to `1` alongside the
+/// [`migrations::SeedDisputeGameConfigs`] migration that translates
+/// `StateMachinesDisputeGameFactoriesTypes` from `(H160, Vec<u32>)` to the richer
+/// `(H160, Vec<GameTypeConfig>)` layout and seeds the per-game-type verification configs.
+pub const STORAGE_VERSION: polkadot_sdk::frame_support::traits::StorageVersion =
+	polkadot_sdk::frame_support::traits::StorageVersion::new(1);
+
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
 use evm_state_machine::EvmStateMachine;
 use ismp::{
@@ -35,9 +43,10 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{
-	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
-	verify_optimism_payload,
+	Error as OptimismError, GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
+	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
+use pallet_fishermen::FishermanBlacklist;
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
 
@@ -47,12 +56,53 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
-	pub respected_game_types: Option<Vec<u32>>,
+	/// Per-game-type verification configuration for `OpFaultProofGames`. See
+	/// [`op_verifier::GameTypeConfig`]. The op-host reads the authoritative configuration from
+	/// the `IsmpOptimism` pallet on Hyperbridge; this field is retained as informational
+	/// metadata on the consensus state.
+	pub game_type_configs: Option<Vec<GameTypeConfig>>,
+}
+
+impl ConsensusState {
+	/// SCALE-decode the consensus state while tolerating schema drift in the
+	/// trailing `game_type_configs` field.
+	///
+	/// `GameTypeConfig` gained the `expected_impl: H160` field after consensus
+	/// states had already been seeded. Stored entries encoded before that
+	/// change have 20 fewer bytes per config than the current struct expects,
+	/// so a strict decode fails with "Not enough data to fill buffer" partway
+	/// through the last field. Since the authoritative game-type configuration
+	/// for verification is read from pallet storage (see
+	/// `Pallet::state_machines_dispute_game_factories_types` in
+	/// [`verify_consensus`]) rather than from this blob, we can safely treat
+	/// the last field as `None` on old entries and let the consensus loop
+	/// reseed the state over time.
+	pub fn decode_tolerant(bytes: &[u8]) -> Result<Self, codec::Error> {
+		if let Ok(state) = Self::decode(&mut &*bytes) {
+			return Ok(state);
+		}
+
+		#[derive(codec::Decode)]
+		struct PrefixOnly {
+			finalized_height: u64,
+			state_machine_id: StateMachineId,
+			l1_state_machine_id: StateMachineId,
+			optimism_consensus_type: Option<OptimismConsensusType>,
+		}
+
+		let prefix = PrefixOnly::decode(&mut &*bytes)?;
+		Ok(Self {
+			finalized_height: prefix.finalized_height,
+			state_machine_id: prefix.state_machine_id,
+			l1_state_machine_id: prefix.l1_state_machine_id,
+			optimism_consensus_type: prefix.optimism_consensus_type,
+			game_type_configs: None,
+		})
+	}
 }
 
 #[derive(Encode, Decode)]
 pub struct OptimismUpdate {
-	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: OptimismConsensusProof,
 }
@@ -107,12 +157,17 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let OptimismUpdate { state_machine_id, l1_height, proof } =
+		let OptimismUpdate { l1_height, proof } =
 			OptimismUpdate::decode(&mut &consensus_proof[..])
-				.map_err(|_| Error::Custom("Cannot decode optimism update".to_string()))?;
+				.map_err(|_| OptimismError::DecodeOptimismUpdate)?;
 
-		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
+			.map_err(|_| OptimismError::DecodeConsensusState)?;
+
+		// The state machine being updated is fixed by the trusted consensus state, never
+		// supplied by the (untrusted) update. This binds verifier-config selection to the
+		// correct OP Stack chain identity.
+		let state_machine_id = consensus_state.state_machine_id;
 
 		let l1_state_machine_height =
 			StateMachineHeight { id: consensus_state.l1_state_machine_id, height: l1_height };
@@ -156,14 +211,26 @@ impl<
 				}
 			},
 			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
-				if let Some((dispute_game_factory, respected_game_types)) =
+				if let Some((dispute_game_factory, game_type_configs)) =
 					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
 				{
+					// Refuse proofs that reference a blacklisted dispute-game proxy. The check
+					// happens before the heavy proof verification so a blacklisted entry costs
+					// only one storage read.
+					if <T as pallet::Config>::FishermanBlacklist::is_dispute_game_blacklisted(
+						state_machine_id,
+						dispute_proof.proxy,
+					) {
+						return Err(
+							OptimismError::DisputeGameBlacklisted(dispute_proof.proxy).into()
+						);
+					}
+
 					let state = verify_optimism_dispute_game_proof::<H>(
 						dispute_proof,
 						state_root,
 						dispute_game_factory,
-						respected_game_types,
+						game_type_configs,
 						consensus_state_id.clone(),
 					)?;
 
@@ -199,7 +266,7 @@ impl<
 		_proof_1: Vec<u8>,
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		Err(Error::Custom("fraud proof verification unimplemented".to_string()))
+		Err(OptimismError::FraudProofUnimplemented.into())
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
@@ -210,7 +277,7 @@ impl<
 		if SupportedStateMachines::<T>::contains_key(id) {
 			Ok(Box::new(<EvmStateMachine<H, T>>::default()))
 		} else {
-			Err(Error::Custom("State machine not supported".to_string()))
+			Err(OptimismError::UnsupportedStateMachine(id).into())
 		}
 	}
 }

@@ -65,7 +65,7 @@ impl AccumulateFees {
 		}
 
 		let tx_payment = TransactionPayment::initialize(&db).await?;
-		log::info!("Initialized database");
+		log::trace!(target: crate::LOG_TARGET, "Initialized database");
 		let stream = futures::stream::iter(tx_payment.distinct_deliveries().await?.into_iter());
 		stream.for_each_concurrent(None, |delivery| {
 			let source_chain = StateMachine::from_str(&delivery.source_chain)
@@ -102,7 +102,7 @@ impl AccumulateFees {
 					if highest_delivery_height_to_dest.is_none() &&
 						highest_delivery_height_to_source.is_none()
 					{
-						log::info!("No deliveries found in db for {source_chain}->{dest_chain}");
+						log::trace!(target: crate::LOG_TARGET, "No deliveries found in db for {source_chain}->{dest_chain}");
 						return Ok::<_, anyhow::Error>(())
 					}
 
@@ -125,35 +125,35 @@ impl AccumulateFees {
 						match height {
 							Some(height) => {
 								// Create claim proof for deliveries from source to dest
-								log::info!("Creating withdrawal proof from db for deliveries from {source_chain}->{dest_chain}");
+								log::info!(target: crate::LOG_TARGET, "Creating withdrawal proof from db for deliveries from {source_chain}->{dest_chain}");
 								let proofs = tx_payment
 									.create_claim_proof(source_height.into(), height, source.clone(), dest.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!("All fees in the database for  {source_chain}->{dest_chain} have been successfully accumulated in a previous attempt")
+									log::trace!(target: crate::LOG_TARGET, "All fees in the database for  {source_chain}->{dest_chain} have been successfully accumulated in a previous attempt")
 								} else {
 									observe_challenge_period(dest.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 
 								log::info!(
-									"Submitting proofs for {source_chain}->{dest_chain} to hyperbridge"
+									target: crate::LOG_TARGET, "Submitting proofs for {source_chain}->{dest_chain} to hyperbridge"
 								);
 								for proof in proofs {
 									hyperbridge.accumulate_fees(proof.clone()).await?;
 									// Don't panic if delete operation failed
 									match tx_payment.delete_claimed_entries(proof.commitments).await {
 										Err(_) => {
-										log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+										log::error!(target: crate::LOG_TARGET, "An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 										}
 										_ => {}
 									};
 								}
 
-								log::info!("Proofs sucessfully submitted");
+								log::info!(target: crate::LOG_TARGET, "Proofs sucessfully submitted");
 							},
 							None => {
-								log::info!("Skipping fee accumulation for {source_chain}->{dest_chain}: state machine update not yet available on hyperbridge");
+								log::info!(target: crate::LOG_TARGET, "Skipping fee accumulation for {source_chain}->{dest_chain}: state machine update not yet available on hyperbridge");
 							},
 						}
 					}
@@ -177,34 +177,34 @@ impl AccumulateFees {
 						match height {
 							Some(height) => {
 								// Create claim proof for deliveries from dest to source
-								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain}->{source_chain}");
+								log::info!(target: crate::LOG_TARGET, "Creating withdrawal proof from db for deliveries from {dest_chain}->{source_chain}");
 								let proofs = tx_payment
 									.create_claim_proof(dest_height.into(), height, dest.clone(), source.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!("All fees in the database for  {dest_chain}->{source_chain} have been successfully accumulated in a previous attempt")
+									log::trace!(target: crate::LOG_TARGET, "All fees in the database for  {dest_chain}->{source_chain} have been successfully accumulated in a previous attempt")
 								}
 								else {
 									observe_challenge_period(source.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 								log::info!(
-									"Submitting proofs for {dest_chain}->{source_chain} to hyperbridge"
+									target: crate::LOG_TARGET, "Submitting proofs for {dest_chain}->{source_chain} to hyperbridge"
 								);
 								for proof in proofs {
 									hyperbridge.accumulate_fees(proof.clone()).await?;
 									// Don't panic if delete operation failed, it will be retried in another fee accumulation attempt
 									match tx_payment.delete_claimed_entries(proof.commitments).await {
 										Err(_) => {
-											log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+											log::error!(target: crate::LOG_TARGET, "An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 										}
 										_ => {}
 									}
 								}
-								log::info!("Proof sucessfully submitted");
+								log::info!(target: crate::LOG_TARGET, "Proof sucessfully submitted");
 							},
 							None => {
-								log::info!("Skipping fee accumulation for {dest_chain}->{source_chain}: state machine update not yet available on hyperbridge");
+								log::info!(target: crate::LOG_TARGET, "Skipping fee accumulation for {dest_chain}->{source_chain}: state machine update not yet available on hyperbridge");
 							},
 						}
 					}
@@ -213,7 +213,7 @@ impl AccumulateFees {
 				};
 				match lambda().await {
 					Ok(_) => {},
-					Err(e) => log::error!("Fee accumulation for {dest_chain}->{source_chain} failed: {e:?}"),
+					Err(e) => log::error!(target: crate::LOG_TARGET, "Fee accumulation for {dest_chain}->{source_chain} failed: {e:?}"),
 				}
 			}
 
@@ -245,26 +245,26 @@ impl AccumulateFees {
 						}
 						// can this fail?
 						if let Err(e) = tx.delete_pending_withdrawals(ids).await {
-							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+							tracing::error!(target: crate::LOG_TARGET, "Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 						}
 
 						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
 
 						let fee_token_decimals = client.fee_token_decimals().await?;
 						if amount < U256::from(10u128 * 10u128.pow(fee_token_decimals.into())) {
-							log::info!("Unclaimed balance on {chain} is less than $10, exiting");
+							log::info!(target: crate::LOG_TARGET, "Unclaimed balance on {chain} is less than $10, exiting");
 							return Ok::<_, anyhow::Error>(());
 						}
 
 						log::info!(
-							"Submitting withdrawal request to {chain}  for amount ${}",
+							target: crate::LOG_TARGET, "Submitting withdrawal request to {chain}  for amount ${}",
 							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
 						let results = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
-						log::info!("Request submitted to hyperbridge successfully");
-						log::info!("Starting delivery of withdrawal message to {}", chain);
+						log::info!(target: crate::LOG_TARGET, "Request submitted to hyperbridge successfully");
+						log::info!(target: crate::LOG_TARGET, "Starting delivery of withdrawal message to {}", chain);
 						// Wait for state machine update
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = tx.store_pending_withdrawals(results.clone()).await?;
@@ -272,11 +272,11 @@ impl AccumulateFees {
 						match deliver_post_request(client.clone(), &hyperbridge, results.clone()).await {
 							Ok(_) => {
 								if let Err(e) = tx.delete_pending_withdrawals(ids).await {
-									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+									tracing::error!(target: crate::LOG_TARGET, "Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 								}
 							},
 							Err(err) => {
-								tracing::info!("Failed to deliver withdrawal request: {err:?}, they will be retried.");
+								tracing::info!(target: crate::LOG_TARGET, "Failed to deliver withdrawal request: {err:?}, they will be retried.");
 							}
 						};
 						Ok(())
@@ -284,7 +284,7 @@ impl AccumulateFees {
 
 					match lambda().await {
 						Ok(_) => {},
-						Err(e) => log::error!("Failed to complete a withdrawal request: {e:?}"),
+						Err(e) => log::error!(target: crate::LOG_TARGET, "Failed to complete a withdrawal request: {e:?}"),
 					}
 				}
 			})
@@ -307,14 +307,14 @@ where
 {
 	// default to 1 day
 	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
-	tracing::info!("Auto-withdraw frequency set to {:?}", frequency);
+	tracing::info!(target: crate::LOG_TARGET, "Auto-withdraw frequency set to {:?}", frequency);
 	let min_amount: U256 = (config
 		.minimum_withdrawal_amount
 		.map(|val| std::cmp::max(val, 10))
 		.unwrap_or(100) as u128 *
 		10u128.pow(18))
 	.into();
-	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
+	tracing::info!(target: crate::LOG_TARGET, "Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
 	let mut interval = IntervalStream::new(tokio::time::interval(frequency));
 
 	while let Some(_) = interval.next().await {
@@ -334,7 +334,7 @@ where
 						}
 						// can this fail?
 						if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
-							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+							tracing::error!(target: crate::LOG_TARGET, "Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 						}
 
 						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
@@ -347,19 +347,19 @@ where
 							* 10u128.pow(fee_token_decimals.into()))
 						.into();
 						if amount < min_amount {
-							tracing::info!("Unclaimed balance {amount} on {chain} is < minimum_withdrawal_amount: {min_amount}, exiting");
+							tracing::info!(target: crate::LOG_TARGET, "Unclaimed balance {amount} on {chain} is < minimum_withdrawal_amount: {min_amount}, exiting");
 							return Ok::<_, anyhow::Error>(());
 						}
 
 						tracing::info!(
-							"Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
+							target: crate::LOG_TARGET, "Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
 							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
 						let results = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
-						tracing::info!("Request submitted to hyperbridge successfully");
-						tracing::info!("Starting delivery of withdrawal message to {}", chain);
+						tracing::info!(target: crate::LOG_TARGET, "Request submitted to hyperbridge successfully");
+						tracing::info!(target: crate::LOG_TARGET, "Starting delivery of withdrawal message to {}", chain);
 
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = moved_db.store_pending_withdrawals(results.clone()).await?;
@@ -367,11 +367,11 @@ where
 						match deliver_post_request(client.clone(), &hyperbridge, results.clone()).await {
 							Ok(_) => {
 								if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
-									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+									tracing::error!(target: crate::LOG_TARGET, "Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 								}
 							},
 							Err(err) => {
-								tracing::info!("Failed to deliver withdrawal request: {err:?}, they will be retried.");
+								tracing::info!(target: crate::LOG_TARGET, "Failed to deliver withdrawal request: {err:?}, they will be retried.");
 							}
 						};
 						Ok(())
@@ -379,7 +379,7 @@ where
 
 					match lambda().await {
 						Ok(_) => {},
-						Err(e) => log::error!("Failed to complete an auto-withdrawal: {e:?}"),
+						Err(e) => log::error!(target: crate::LOG_TARGET, "Failed to complete an auto-withdrawal: {e:?}"),
 					}
 				}
 			})
@@ -410,7 +410,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 	if max_block > latest_height {
 		// then we have to wait
 		log::info!(
-			"Waiting for state machine update that finalizes withdraw height: {}",
+			target: crate::LOG_TARGET, "Waiting for state machine update that finalizes withdraw height: {}",
 			max_block
 		);
 		let mut stream = dest_chain
@@ -423,12 +423,12 @@ async fn deliver_post_request<D: IsmpProvider>(
 					if event.latest_height < max_block {
 						continue;
 					} else {
-						log::info!("Found a state machine update: {}", event.latest_height);
+						log::trace!(target: crate::LOG_TARGET, "Found a state machine update: {}", event.latest_height);
 						break event.latest_height;
 					},
 				Some(Err(_)) => {
 					log::error!(
-						"An error occured waiting for state machine update from {}, Retrying",
+						target: crate::LOG_TARGET, "An error occured waiting for state machine update from {}, Retrying",
 						dest_chain.name()
 					);
 				},
@@ -448,11 +448,11 @@ async fn deliver_post_request<D: IsmpProvider>(
 		.collect::<Vec<_>>();
 
 	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
-	log::info!("Querying request proof from hyperbridge at {}", latest_height);
+	log::info!(target: crate::LOG_TARGET, "Querying request proof from hyperbridge at {}", latest_height);
 	let proof = hyperbridge
 		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
 		.await?;
-	log::info!("Successfully queried request proof from hyperbridge");
+	log::info!(target: crate::LOG_TARGET, "Successfully queried request proof from hyperbridge");
 	let msg = RequestMessage {
 		requests,
 		proof: Proof {
@@ -465,7 +465,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		signer: dest_chain.address(),
 	};
 
-	log::info!("Submitting post request to {}", dest_chain.state_machine_id().state_id);
+	log::info!(target: crate::LOG_TARGET, "Submitting post request to {}", dest_chain.state_machine_id().state_id);
 
 	let mut count = 5;
 	while count != 0 {
@@ -474,13 +474,13 @@ async fn deliver_post_request<D: IsmpProvider>(
 			.await
 		{
 			log::info!(
-					"Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
-					dest_chain.state_machine_id().state_id
-				);
+				target: crate::LOG_TARGET, "Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
+				dest_chain.state_machine_id().state_id
+			);
 			count -= 1;
 		} else {
 			log::info!(
-				"Withdrawal message submitted successfully to {}",
+				target: crate::LOG_TARGET, "Withdrawal message submitted successfully to {}",
 				dest_chain.state_machine_id().state_id
 			);
 			return Ok(());

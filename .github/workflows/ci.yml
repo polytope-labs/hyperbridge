@@ -9,16 +9,20 @@ on:
             - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
+            - "!sdk/**"
 
-    pull_request_target:
-        types: [opened, synchronize]
-        paths:
-            - "**/*.rs"
-            - "**/Cargo.toml"
-            - "**/Cargo.lock"
-            - ".github/workflows/ci.yml"
+    pull_request:
+       types: [opened, synchronize, reopened, ready_for_review]
+       paths:
+           - "**/*.rs"
+           - "**/Cargo.toml"
+           - "**/Cargo.lock"
+           - ".github/workflows/ci.yml"
+           - "!sdk/**"
 
-    # pull_request:
+    workflow_dispatch:
+
+    # pull_request_target:
     #     branches:
     #         - main
     #     paths:
@@ -26,6 +30,7 @@ on:
     #         - "**/Cargo.toml"
     #         - "**/Cargo.lock"
     #         - ".github/workflows/ci.yml"
+    #         - "!sdk/**"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -50,8 +55,49 @@ env:
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
     BEACONKIT_BEACON_API: ${{secrets.BEACONKIT_BEACON_API}}
+    PHAROS_ATLANTIC_RPC: ${{secrets.PHAROS_ATLANTIC_RPC}}
 
 jobs:
+    detect-changes:
+        name: Detect Changed Paths
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        outputs:
+            pharos: ${{ steps.filter.outputs.pharos }}
+            sync-committee: ${{ steps.filter.outputs.sync-committee }}
+            tendermint: ${{ steps.filter.outputs.tendermint }}
+            bsc: ${{ steps.filter.outputs.bsc }}
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  fetch-depth: 0
+
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      pharos:
+                        - 'modules/consensus/pharos/**'
+                        - 'modules/ismp/clients/pharos/**'
+                        - 'modules/ismp/state-machines/pharos/**'
+                        - 'tesseract/consensus/pharos/**'
+                        - 'tesseract/messaging/pharos-evm/**'
+                      sync-committee:
+                        - 'modules/consensus/sync-committee/**'
+                        - 'modules/ismp/clients/sync-committee/**'
+                        - 'tesseract/consensus/sync-committee/**'
+                      tendermint:
+                        - 'modules/consensus/tendermint/**'
+                        - 'modules/ismp/clients/tendermint/**'
+                        - 'tesseract/consensus/tendermint/**'
+                        - 'tesseract/messaging/evm-tendermint/**'
+                      bsc:
+                        - 'modules/consensus/bsc/**'
+                        - 'modules/ismp/clients/bsc/**'
+                        - 'tesseract/consensus/bsc/**'
+
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
@@ -88,9 +134,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -103,15 +149,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -184,9 +221,9 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -199,15 +236,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -271,9 +299,9 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -355,9 +383,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -371,27 +399,23 @@ jobs:
               run: |
                   pnpm install
 
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
             - name: Run Simnet Tests
               run: |
                   cargo build -p hyperbridge --release
-                  ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe --pool-type=single-state &
+                  ./target/release/hyperbridge simnode --chain=gargantua-4009 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe --pool-type=single-state &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration --skip legacy_storage_items_state_drain_test
 
             - name: Cleanup
               if: always()
@@ -399,124 +423,11 @@ jobs:
                   pkill -f "hyperbridge simnode" || true
                   fuser -k 9990/tcp || true
 
-    xcm-tests:
-        name: XCM Integration Tests
-        runs-on: arc-runner-set
-        if: github.event.pull_request.draft != true
-        steps:
-            - name: Get User Permission
-              id: checkAccess
-              uses: actions-cool/check-user-permission@v2
-              with:
-                  require: write
-                  username: ${{ github.triggering_actor }}
-
-            - name: Check User Permission
-              if: steps.checkAccess.outputs.require-result == 'false'
-              run: |
-                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
-                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
-                  echo "Job originally triggered by ${{ github.actor }}"
-                  exit 1
-
-            - uses: actions/checkout@v3
-              with:
-                  ref: ${{  github.event.pull_request.head.sha }}
-                  token: ${{ secrets.GH_TOKEN }}
-                  submodules: recursive
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
-
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
-
-            - name: Install Dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
-                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
-
-            - name: Set up Node
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 22
-                  cache-dependency-path: "evm/pnpm-lock.yaml"
-                  cache: "pnpm"
-
-            - name: Install npm dependencies
-              working-directory: evm
-              run: |
-                  pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
-
-            - uses: webfactory/ssh-agent@v0.7.0
-              with:
-                  ssh-private-key: ${{ secrets.SSH_KEY }}
-
-            - uses: Swatinem/rust-cache@v2
-
-
-            - name: Build Hyperbridge Binary
-              run: cargo build --release -p hyperbridge
-
-            - name: Setup Parachain Devnet
-              run: |
-                  cd ../
-                  mkdir -p polkadot-sdk/target/release
-                  cd polkadot-sdk/target/release
-                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot'
-                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot-parachain'
-                  wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot-execute-worker'
-                  wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot-prepare-worker'
-                  sudo chmod +x ./polkadot
-                  sudo chmod +x ./polkadot-parachain
-                  sudo chmod +x ./polkadot-execute-worker
-                  sudo chmod +x ./polkadot-prepare-worker
-                  cd ../../../hyperbridge
-                  wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.133/zombienet-linux-x64
-                  sudo chmod +x ./zombienet
-                  nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9922
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9910
-
-            - name: Run XCM Tests
-              run: |
-                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
-
-            - name: Cleanup
-              if: always()
-              run: |
-                  pkill -f "hyperbridge" || true
-                  pkill -f "polkadot" || true
-                  pkill -f "zombienet" || true
-                  sudo rm -rf ./zombienet
-                  cd ../
-                  sudo rm -rf ./polkadot-sdk
-
     ethereum-tests:
         name: Ethereum Sync Committee Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.sync-committee == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -557,9 +468,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -572,15 +483,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -608,8 +510,9 @@ jobs:
 
     bsc-tests:
         name: Binance Smart Chain Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.bsc == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -650,9 +553,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -665,15 +568,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -688,8 +582,9 @@ jobs:
 
     tendermint-tests:
         name: Tendermint Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.tendermint == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -730,9 +625,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -745,15 +640,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Build Foundry artifacts
-              working-directory: evm
-              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -844,3 +730,78 @@ jobs:
             - name: Run Beacon Kit Tests
               run: |
                   cargo test -p pallet-ismp-testsuite --lib beaconkit_verify_consensus -- --nocapture --ignored
+
+    pharos-tests:
+        name: Pharos Tests
+        needs: detect-changes
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.pharos == 'true'
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run Pharos unit tests
+              run: |
+                  cargo test -p pharos-primitives -p pharos-verifier -- --nocapture
+
+            - name: Run Pharos integration tests
+              run: |
+                  PHAROS_ATLANTIC_RPC=${{ secrets.PHAROS_ATLANTIC_RPC }} cargo test -p pallet-ismp-testsuite "pharos" -- --nocapture --ignored

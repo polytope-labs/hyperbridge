@@ -14,10 +14,23 @@
 // limitations under the License.
 
 //! ISMP Message relay
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = concat!("messaging", "-inbound");
 
-mod events;
+/// How often both outbound claim tasks wake to process pending rows.
+pub(crate) const CLAIM_INTERVAL_SECS: u64 = 600;
+
+pub mod events;
+pub mod fees;
 mod get_requests;
-mod retries;
+pub mod outbound;
+pub mod outbound_claim;
+pub mod outbound_request_claim;
+/// Unprofitable-message retry loop. Kept public for callers that want to wire
+/// it up; **not** spawned by [`inbound`] in the consolidated relayer — the
+/// design is that retrying unprofitable messages is the outbound task's
+/// concern.
+pub mod retries;
 
 use anyhow::anyhow;
 use get_requests::process_get_request_events;
@@ -25,11 +38,9 @@ use itertools::Itertools;
 use polkadot_sdk::sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::Instrument;
 
-use crate::{
-	events::{filter_events, translate_events_to_messages},
-	retries::retry_unprofitable_messages,
-};
+use crate::events::{filter_events, translate_events_to_messages};
 use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, events::Event, host::StateMachine, router::GetRequest};
 use primitive_types::U256;
@@ -43,7 +54,28 @@ use transaction_fees::TransactionPayment;
 type FeeAccSender = Sender<Vec<TxReceipt>>;
 type GetReqSender = Sender<(Vec<GetRequest>, StateMachineUpdated)>;
 
-pub async fn relay<A>(
+/// Spawn the chain_b → Hyperbridge inbound messaging pipeline and the
+/// GET-request processor.
+///
+/// **Explicitly NOT spawned here** (caller's responsibility or explicitly
+/// descoped from this relayer):
+/// - Outbound (Hyperbridge → chain_b) POST delivery — handled by [`tesseract_relayer::outbound`] as
+///   a single event-driven fan-out task.
+/// - Fee accumulation — spawned once per chain in `tesseract-relayer/src/cli.rs`.
+/// - Fee withdrawal — spawned globally in `tesseract-relayer/src/cli.rs`.
+/// - Unprofitable-message retries — the retry loop at
+///   [`crate::retries::retry_unprofitable_messages`] is kept in-tree but deliberately **not**
+///   spawned. Retrying unprofitable inbound messages is the outbound relayer's concern, not this
+///   one.
+///
+/// The inbound messaging task already queries chain_b's events on every HB-side
+/// state-machine-update, so it also feeds the GET-request channel that
+/// [`process_get_request_events`] drains — no separate forwarder needed.
+///
+/// `fee_acc_sender` is forwarded to the inbound loop so `TxReceipt`s reach the
+/// caller's fee-accumulation task. Pass `None` to opt this chain out of fee
+/// accumulation entirely.
+pub async fn inbound<A>(
 	hyperbridge: A,
 	chain_b: Arc<dyn IsmpProvider>,
 	config: RelayerConfig,
@@ -51,150 +83,107 @@ pub async fn relay<A>(
 	tx_payment: Arc<TransactionPayment>,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	task_manager: &TaskManager,
+	fee_acc_sender: Option<FeeAccSender>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpProvider + Clone + HyperbridgeClaim + HandleGetResponse + 'static,
 {
-	let (sender, receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
+	// Shared GET-request channel. The inbound messaging task populates it as a
+	// side effect of its normal event querying; the processor task drains it.
 	let (get_request_sender, get_request_receiver) =
-		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
+		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(512);
+
+	// chain_b → Hyperbridge inbound messaging. Also forwards any GET requests
+	// seen on chain_b into `get_request_sender` (via handle_update's built-in
+	// filter) so we don't need a separate forwarder task.
 	{
 		let hyperbridge = Arc::new(hyperbridge.clone());
-		let chain_b = chain_b.clone();
+		let chain_b_inner = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
-		let get_request_sender = get_request_sender.clone();
-		let name = format!("messaging-{}-{}", hyperbridge.name(), chain_b.name());
+		let sender = fee_acc_sender.clone();
+		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
+		let span = tracing::info_span!("inbound_messaging", chain = %chain_b.name(), hb = %hyperbridge.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res = handle_notification(
 					hyperbridge,
-					chain_b,
+					chain_b_inner,
 					tx_payment,
 					config,
 					coprocessor,
 					client_map,
-					None,
+					sender,
 					Some(get_request_sender),
 				)
 				.await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
 			}
-			.boxed(),
-		)
-	}
-
-	{
-		let hyperbridge = Arc::new(hyperbridge.clone());
-		let chain_b = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let config = config.clone();
-		let sender = sender.clone();
-		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
-			"messaging",
-			async move {
-				let res = handle_notification(
-					chain_b,
-					hyperbridge,
-					tx_payment,
-					config.clone(),
-					coprocessor,
-					client_map,
-					if !config.disable_fee_accumulation.unwrap_or_default() {
-						Some(sender)
-					} else {
-						None
-					},
-					None,
-				)
-				.await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
-			}
+			.instrument(span)
 			.boxed(),
 		);
 	}
 
-	// Fee accumulation background task
-	{
-		if !config.disable_fee_accumulation.unwrap_or_default() {
-			let hyperbridge = hyperbridge.clone();
-			let dest = chain_b.clone();
-			let client_map = client_map.clone();
-			let tx_payment = tx_payment.clone();
-			let name = format!("fee-acc-{}-{}", dest.name(), hyperbridge.name());
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
-				"fees",
-				async move {
-					let res =
-						fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await;
-					tracing::error!("{name} terminated with result {res:?}");
-				}
-				.boxed(),
-			);
-		}
+	// Hyperbridge → chain_b outbound messaging for substrate chains
+	let chain_b_state = chain_b.state_machine_id().state_id;
+	if chain_b_state.is_substrate() {
+		let hyperbridge = Arc::new(hyperbridge.clone());
+		let chain_b_inner = chain_b.clone();
+		let client_map = client_map.clone();
+		let tx_payment = tx_payment.clone();
+		let config = config.clone();
+		let sender = fee_acc_sender.clone();
+		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
+		let span = tracing::info_span!("inbound_messaging", chain = %chain_b.name(), hb = %hyperbridge.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name)),
+			"messaging",
+			async move {
+				let res = handle_notification(
+					chain_b_inner,
+					hyperbridge,
+					tx_payment,
+					config,
+					coprocessor,
+					client_map,
+					sender,
+					None,
+				)
+				.await;
+				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+			}
+			.instrument(span)
+			.boxed(),
+		);
 	}
 
+	// GET-request processor: drains the channel fed by the inbound messaging
+	// task, builds source + storage proofs, and submits each as a
+	// `GetRequestsWithProof` to Hyperbridge.
 	{
-		// Spawn retries for unprofitable messages
-		if config.unprofitable_retry_frequency.is_some() {
-			let hyperbridge = Arc::new(hyperbridge.clone());
-			let dest = chain_b.clone();
-			let client_map = client_map.clone();
-			let tx_payment = tx_payment.clone();
-			let config = config.clone();
-			let sender = sender.clone();
-			let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
-				"messaging",
-				async move {
-					let res = retry_unprofitable_messages(
-						dest,
-						hyperbridge,
-						client_map,
-						tx_payment,
-						config.clone(),
-						coprocessor,
-						if !config.disable_fee_accumulation.unwrap_or_default() {
-							Some(sender)
-						} else {
-							None
-						},
-					)
-					.await;
-					tracing::error!("{name} terminated with result {res:?}");
-				}
-				.boxed(),
-			);
-		}
-	}
-
-	// Get Request processing task
-	{
-		let hyperbridge = hyperbridge.clone();
+		let hb_processor = hyperbridge.clone();
 		let source = chain_b.clone();
 		let client_map = client_map.clone();
-		let name = format!("get-request-{}-{}", source.name(), hyperbridge.name());
+		let name = format!("get-processor-{}-{}", chain_b.name(), source.name());
+		let span =
+			tracing::info_span!("get_processor", chain = %source.name(), hb = %hb_processor.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res = process_get_request_events(
 					get_request_receiver,
 					source,
-					hyperbridge,
+					hb_processor,
 					client_map,
 				)
 				.await;
-				tracing::error!("{name} terminated with result {res:?}");
+				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
 			}
+			.instrument(span)
 			.boxed(),
 		);
 	}
@@ -215,7 +204,13 @@ async fn handle_notification(
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id())
 		.await
-		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+		.map_err(|err| {
+			anyhow!(
+				"StateMachineUpdated stream subscription failed (source={}, dest={}): {err:?}",
+				chain_b.name(),
+				chain_a.name(),
+			)
+		})?;
 
 	let mut previous_height = chain_b.initial_height();
 
@@ -237,23 +232,32 @@ async fn handle_notification(
 				.await
 				{
 					tracing::error!(
-						"Error while handling {} on {}: {err:?}",
-						state_machine_update.state_machine_id.state_id,
-						chain_a.name()
+						target: LOG_TARGET,
+						source = %chain_b.name(),
+						dest = %chain_a.name(),
+						state_machine = %state_machine_update.state_machine_id.state_id,
+						?err,
+						"Error while handling state machine update",
 					);
 				}
 			},
 			Err(e) => {
-				tracing::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
+				tracing::error!(
+					target: LOG_TARGET,
+					source = %chain_b.name(),
+					dest = %chain_a.name(),
+					err = ?e,
+					"Messaging task state-machine-update stream error",
+				);
 				continue;
 			},
 		}
 	}
 
 	Err(anyhow!(
-		"{}-{} messaging task has failed, Please restart relayer",
-		chain_a.name(),
-		chain_b.name()
+		"{}->{} messaging task has failed, Please restart relayer",
+		chain_b.name(),
+		chain_a.name()
 	))?
 }
 
@@ -286,21 +290,35 @@ async fn handle_update(
 					})
 					.collect::<Vec<_>>();
 				if !get_requests.is_empty() {
-					let _ = sender.send((get_requests, state_machine_update.clone())).await;
+					// `try_send` so this inbound forwarder never blocks on a
+					// backed-up get-request consumer. On `Full`, the events
+					// are still emitted upstream and a future range query
+					// will pick them back up; warn so it surfaces.
+					if let Err(err) = sender.try_send((get_requests, state_machine_update.clone()))
+					{
+						tracing::warn!(
+							target: "messaging-inbound",
+							?err,
+							"get-request channel send failed",
+						);
+					}
 				}
 			}
 
 			events
 				.into_iter()
 				.filter(|ev| {
-					filter_events(&config, coprocessor, chain_a.state_machine_id().state_id, ev)
+					filter_events(&config, chain_a.state_machine_id().state_id, coprocessor, ev)
 				})
 				.collect::<Vec<_>>()
 		},
 		Err(err) => {
 			tracing::error!(
-				"Encountered an error querying events from {}: {err:?}",
-				chain_b.name()
+				target: LOG_TARGET,
+				source = %chain_b.name(),
+				dest = %chain_a.name(),
+				?err,
+				"Error querying events from source chain",
 			);
 			Default::default()
 		},
@@ -309,7 +327,7 @@ async fn handle_update(
 	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
 		tracing::info!(
-			"Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
+			target: LOG_TARGET, "Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
 			state_machine_update.latest_height,
 			chain_a.name(),
 			*previous_height..=state_machine_update.latest_height
@@ -323,7 +341,6 @@ async fn handle_update(
 		.iter()
 		.chunk_by(|event| match event {
 			ismp::events::Event::PostRequest(req) => req.dest,
-			ismp::events::Event::PostResponse(res) => res.dest_chain(),
 			event => {
 				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
 			},
@@ -332,7 +349,7 @@ async fn handle_update(
 		.fold(String::default(), |acc, (state_machine, items)| {
 			format!("{acc}{}->{}: {} messages, ", chain_b.name(), state_machine, items.count())
 		});
-	tracing::info!(target: "tesseract", "{log_events}");
+	tracing::info!(target: LOG_TARGET, "{log_events}");
 	let state_machine_height = StateMachineHeight {
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
@@ -346,19 +363,22 @@ async fn handle_update(
 		config.clone(),
 		coprocessor,
 		&client_map,
+		// Inbound pipeline doesn't batch a consensus message alongside — the
+		// dest's light client is advanced by a separate consensus task.
+		None,
 	)
 	.await?;
 
 	if !messages.is_empty() {
 		tracing::info!(
-			target: "tesseract",
+			target: LOG_TARGET,
 			"🛰️ Transmitting ismp messages from {} to {}",
 			chain_b.name(), chain_a.name()
 		);
 
 		let res = chain_a.submit(messages.clone(), coprocessor).await;
 		match res {
-			Ok(TxResult { receipts, unsuccessful }) => {
+			Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) => {
 				if let Some(sender) = fee_acc_sender {
 					// We should not store messages when they are delivered to hyperbridge
 					if chain_a.state_machine_id().state_id != coprocessor {
@@ -369,21 +389,37 @@ async fn handle_update(
 							.collect::<Vec<_>>();
 						if !receipts.is_empty() {
 							// Store receipts in database before auto accumulation
-							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
+							tracing::trace!(
+								target: LOG_TARGET,
+								source = %chain_b.name(),
+								dest = %chain_a.name(),
+								count = receipts.len(),
+								"Persisting deliveries to the db",
+							);
 							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
 								tracing::error!(
-									"Failed to persist {} deliveries to database: {err:?}",
-									receipts.len()
+									target: LOG_TARGET,
+									source = %chain_b.name(),
+									dest = %chain_a.name(),
+									count = receipts.len(),
+									?err,
+									"Failed to persist deliveries to database",
 								)
 							}
-							// Send receipts to the fee accumulation task
-							match sender.send(receipts).await {
-								Err(_sent) => {
-									tracing::error!(
-										"Fee auto accumulation failed You can try again manually"
-									)
-								},
-								_ => {},
+							// Send receipts to the fee accumulation task.
+							// `try_send` so the inbound task never blocks on
+							// a backed-up fee-accumulator. Receipts are
+							// already persisted via `tx_payment.store_messages`
+							// above, so a dropped channel push is recoverable
+							// by the manual `accumulate-fees` subcommand.
+							if let Err(err) = sender.try_send(receipts) {
+								tracing::error!(
+									target: LOG_TARGET,
+									source = %chain_b.name(),
+									dest = %chain_a.name(),
+									?err,
+									"Fee auto accumulation channel send failed; you can try again manually",
+								);
 							}
 						}
 					}
@@ -393,8 +429,20 @@ async fn handle_update(
 					config.unprofitable_retry_frequency.is_some() &&
 					chain_a.state_machine_id().state_id != coprocessor
 				{
-					tracing::error!(target: "tesseract", "Some transactions were cancelled and will be retried");
-					tracing::trace!(target: "tesseract", "Persisting {} cancelled transactions going to {} to the db", unsuccessful.len(), chain_a.name());
+					tracing::error!(
+						target: LOG_TARGET,
+						source = %chain_b.name(),
+						dest = %chain_a.name(),
+						count = unsuccessful.len(),
+						"Some transactions were cancelled and will be retried",
+					);
+					tracing::trace!(
+						target: LOG_TARGET,
+						source = %chain_b.name(),
+						dest = %chain_a.name(),
+						count = unsuccessful.len(),
+						"Persisting cancelled transactions to the db",
+					);
 					if let Err(err) = tx_payment
 						.store_unprofitable_messages(
 							unsuccessful,
@@ -403,13 +451,23 @@ async fn handle_update(
 						.await
 					{
 						tracing::error!(
-						"Encountered an error while cancelled messages inside the database {err:?}"
-					)
+							target: LOG_TARGET,
+							source = %chain_b.name(),
+							dest = %chain_a.name(),
+							?err,
+							"Failed to persist cancelled messages to the database",
+						)
 					}
 				}
 			},
 			Err(err) => {
-				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+				tracing::error!(
+					target: LOG_TARGET,
+					source = %chain_b.name(),
+					dest = %chain_a.name(),
+					?err,
+					"Failed to submit transaction",
+				)
 			},
 		}
 	}
@@ -419,13 +477,23 @@ async fn handle_update(
 		config.unprofitable_retry_frequency.is_some() &&
 		chain_a.state_machine_id().state_id != coprocessor
 	{
-		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
+		tracing::trace!(
+			target: LOG_TARGET,
+			source = %chain_b.name(),
+			dest = %chain_a.name(),
+			count = unprofitable.len(),
+			"Persisting unprofitable messages to the db",
+		);
 		if let Err(err) = tx_payment
 			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)
 			.await
 		{
 			tracing::error!(
-				"Encountered an error while storing unprofitable messages inside the database {err:?}"
+				target: LOG_TARGET,
+				source = %chain_b.name(),
+				dest = %chain_a.name(),
+				?err,
+				"Error while storing unprofitable messages in the database",
 			)
 		}
 	}
@@ -433,7 +501,7 @@ async fn handle_update(
 	Ok(())
 }
 
-async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(
+pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(
 	mut receiver: Receiver<Vec<TxReceipt>>,
 	dest: Arc<dyn IsmpProvider>,
 	hyperbridge: A,
@@ -453,24 +521,25 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 					},
 				};
 
-				let fee = match receipt {
-					TxReceipt::Request { query, .. } =>
-						source_chain.query_request_fee_metadata(query.commitment).await,
-					TxReceipt::Response { query, .. } =>
-						source_chain.query_response_fee_metadata(query.commitment).await,
-				};
+				let fee = source_chain.query_request_fee_metadata(receipt.query.commitment).await;
 
 				match fee {
 					Ok(fee_amount) if fee_amount > U256::zero() => Some(receipt),
 					Ok(_) => None,
 					Err(err) => {
 						tracing::warn!(
-							"Failed to query fee for receipt {:?}: {err:?}. Storing...",
-							receipt
+							target: LOG_TARGET,
+							source = %source_chain.name(),
+							?receipt,
+							?err,
+							"Failed to query fee for receipt; storing for retry",
 						);
 						if let Err(db_err) = tx_payment.store_messages(vec![receipt]).await {
 							tracing::error!(
-								"Failed to store receipt in DB after fee query error: {db_err:?}"
+								target: LOG_TARGET,
+								source = %source_chain.name(),
+								err = ?db_err,
+								"Failed to store receipt in DB after fee query error",
 							);
 						}
 						None
@@ -499,22 +568,18 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 			.max_by(|a, b| a.height().cmp(&b.height()))
 			.map(|tx| tx.height())
 			.expect("Infallible");
-		receipts.iter().for_each(|receipt| match receipt {
-			TxReceipt::Request { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
-			TxReceipt::Response { query, .. } => {
-				let entry = groups.entry(query.source_chain).or_insert(vec![]);
-				entry.push(*receipt);
-			},
+		receipts.iter().for_each(|receipt| {
+			let entry = groups.entry(receipt.query.source_chain).or_insert(vec![]);
+			entry.push(*receipt);
 		});
 
 		// Wait for destination chain's state machine update on hyperbridge
 		tracing::info!(
-			"Fee accumulation for {} messages submitted to {} has started",
-			receipts.len(),
-			dest.name()
+			target: LOG_TARGET,
+			dest = %dest.name(),
+			hb = %hyperbridge.name(),
+			count = receipts.len(),
+			"Fee accumulation started",
 		);
 		let dest_height = match wait_for_state_machine_update(
 			dest.state_machine_id(),
@@ -526,9 +591,20 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 		{
 			Ok(height) => height,
 			Err(err) => {
-				tracing::error!("An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
+				tracing::error!(
+					target: LOG_TARGET,
+					dest = %dest.name(),
+					hb = %hyperbridge.name(),
+					?err,
+					"Waiting for state machine update failed; auto fee accumulation aborted, receipts stored in the db — you can retry manually",
+				);
 				if let Err(err) = tx_payment.store_messages(receipts).await {
-					tracing::error!("Failed to store some delivered messages to database: {err:?}")
+					tracing::error!(
+						target: LOG_TARGET,
+						dest = %dest.name(),
+						?err,
+						"Failed to store delivered messages to database",
+					)
 				}
 				continue;
 			},
@@ -542,12 +618,17 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 					let tx_payment = tx_payment.clone();
 					async move {
 						let lambda = || async {
-							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for {source} not found in config, fees cannot be accumulated"))?;
+							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for source={source} (dest={}) not found in config, fees cannot be accumulated", dest.name()))?;
 							let source_height = hyperbridge.query_latest_height(source_chain.state_machine_id()).await?;
 							// Create claim proof for deliveries from source to dest
-							tracing::info!("Creating withdrawal proofs from db for deliveries from {source}->{:?}", dest.name());
+							tracing::info!(
+								target: LOG_TARGET,
+								source = %source_chain.name(),
+								dest = %dest.name(),
+								"Creating withdrawal proofs from db for deliveries",
+							);
 							let proofs = tx_payment
-							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
+							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone(), &*hyperbridge)
 							.await?;
 							observe_challenge_period(source_chain.clone(), hyperbridge.clone(), source_height.into()).await?;
 							observe_challenge_period(dest.clone(), hyperbridge.clone(), dest_height).await?;
@@ -556,7 +637,12 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 								commitments.extend_from_slice(&proof.commitments);
 								hyperbridge.accumulate_fees(proof).await?;
 							}
-							tracing::info!("Fee accumulation was sucessful");
+							tracing::info!(
+								target: LOG_TARGET,
+								source = %source_chain.name(),
+								dest = %dest.name(),
+								"Fee accumulation was successful",
+							);
 							// If delete fails, not an issue, they'll be deleted whenever manual accumulation is triggered
 							let _ = tx_payment.delete_claimed_entries(commitments).await;
 							Ok::<_, anyhow::Error>(())
@@ -565,7 +651,13 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 						match lambda().await {
 							Ok(()) => {},
 							Err(err) => {
-								tracing::error!("Error accummulating some fees, receipts have been stored in the db, you can try again manually \n{err:?}");
+								tracing::error!(
+									target: LOG_TARGET,
+									%source,
+									dest = %dest.name(),
+									?err,
+									"Error accumulating some fees; receipts stored in the db — you can retry manually",
+								);
 							}
 						}
 					}

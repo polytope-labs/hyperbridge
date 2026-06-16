@@ -120,6 +120,25 @@ impl<C: Config> BscPosProver<C> {
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
+		// BEP-126 fast finality only finalizes `source_header` once the justified
+		// `target_header` is its direct child (two consecutive justified blocks).
+		// A non-adjacent vote leaves `source_header` merely justified and still
+		// reorg-able, so never emit such an update: the on-chain verifier rejects
+		// it (`NonConsecutiveFinalization`) and committing a reorg-able source as
+		// finalized would be unsound.
+		if target_header.number.low_u64() != source_header.number.low_u64().saturating_add(1) ||
+			target_header.parent_hash.0 != source_hash.0
+		{
+			trace!(
+				target: "bsc-prover",
+				"skipping non-adjacent vote: source #{} target #{} (target parent {:?} != source {source_hash:?})",
+				source_header.number.low_u64(),
+				target_header.number.low_u64(),
+				target_header.parent_hash,
+			);
+			return Ok(None);
+		}
+
 		let mut epoch_header_ancestry = vec![];
 		let epoch_header_number = params.epoch * params.epoch_length;
 		// If we are still in authority rotation period get the epoch header ancestry alongside
@@ -187,16 +206,76 @@ impl<C: Config> BscPosProver<C> {
 	}
 }
 
-// Get the maximum block that can be signed by previous validator set before authority set rotation
-// occurs Validator set change happens at
-// block%EPOCH_LENGTH == validator_size / 2
-pub fn get_rotation_block(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
-	loop {
-		if block % epoch_length == (validator_size / 2) {
-			break;
+// Get the maximum block that can be signed by the previous validator set before
+// authority set rotation occurs. Validator set change happens at
+// `block % epoch_length == validator_size / 2`, so this returns the smallest
+// `n >= block` satisfying that congruence.
+//
+// Closed-form (constant-time) — previously this walked one block at a time in a
+// loop which was O(epoch_length) in the worst case.
+pub fn get_rotation_block(block: u64, validator_size: u64, epoch_length: u64) -> u64 {
+	let target = validator_size / 2;
+	let current = block % epoch_length;
+	// Distance forward to the next slot `epoch * epoch_length + target`, wrapping
+	// to the next epoch if we're already past `target` inside the current one.
+	let offset = (target + epoch_length - current) % epoch_length;
+	block + offset
+}
+
+#[cfg(test)]
+mod get_rotation_block_tests {
+	use super::get_rotation_block;
+
+	// Reference implementation used by the original loop-based version.
+	fn reference(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
+		loop {
+			if block % epoch_length == (validator_size / 2) {
+				return block;
+			}
+			block += 1;
 		}
-		block += 1
 	}
 
-	block
+	#[test]
+	fn matches_reference_across_epoch() {
+		let epoch_length = 1000u64;
+		let validator_size = 21u64;
+		for block in 0..(epoch_length * 3) {
+			assert_eq!(
+				get_rotation_block(block, validator_size, epoch_length),
+				reference(block, validator_size, epoch_length),
+				"block={block}",
+			);
+		}
+	}
+
+	#[test]
+	fn varies_with_validator_size() {
+		let epoch_length = 200u64;
+		// Only sizes where `validator_size / 2 < epoch_length` are meaningful:
+		// larger sizes make the rotation slot `block % epoch_length == target`
+		// unreachable, which causes the loop-based reference impl to spin
+		// forever. Real BSC has `validator_size << epoch_length` anyway.
+		for validator_size in [1u64, 2, 3, 21, 64, 199] {
+			for block in [0u64, 1, 99, 100, 101, 199, 200, 201, 399, 400] {
+				assert_eq!(
+					get_rotation_block(block, validator_size, epoch_length),
+					reference(block, validator_size, epoch_length),
+					"validator_size={validator_size} block={block}",
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn already_on_rotation_boundary_is_identity() {
+		// block=1010, epoch=1000, validator_size=21 → target=10, already at slot.
+		assert_eq!(get_rotation_block(1010, 21, 1000), 1010);
+	}
+
+	#[test]
+	fn jumps_to_next_epoch_when_past_target() {
+		// block=1015, epoch=1000, validator_size=21 → target=10, must skip to 2010.
+		assert_eq!(get_rotation_block(1015, 21, 1000), 2010);
+	}
 }

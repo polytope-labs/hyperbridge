@@ -107,14 +107,6 @@ impl IsmpProvider for MockHost {
 		Ok(Default::default())
 	}
 
-	async fn query_responses_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Query>,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		Ok(Default::default())
-	}
-
 	async fn query_state_proof(
 		&self,
 		_at: u64,
@@ -137,6 +129,10 @@ impl IsmpProvider for MockHost {
 
 	fn state_machine_id(&self) -> StateMachineId {
 		StateMachineId { state_id: self.state_machine, consensus_state_id: *b"POLY" }
+	}
+
+	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
+		None
 	}
 
 	fn block_max_gas(&self) -> u64 {
@@ -177,14 +173,6 @@ impl IsmpProvider for MockHost {
 		Default::default()
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-		Default::default()
-	}
-
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-		Default::default()
-	}
-
 	fn address(&self) -> Vec<u8> {
 		Default::default()
 	}
@@ -200,9 +188,6 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		todo!()
-	}
 }
 
 #[async_trait::async_trait]

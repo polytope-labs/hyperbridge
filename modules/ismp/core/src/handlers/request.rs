@@ -20,8 +20,8 @@ use crate::{
 	events::{Event, RequestResponseHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, RequestMessage},
-	router::{Request, RequestResponse},
+	messaging::{dedup_requests, hash_request, RequestMessage},
+	router::Request,
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -31,6 +31,10 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
+	if msg.requests.is_empty() {
+		Err(Error::EmptyBatch)?
+	}
+
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
 	let check_state_machine_client = |state_machine: StateMachine| {
@@ -41,6 +45,13 @@ where
 	};
 
 	let router = host.ismp_router();
+
+	// Reject duplicate requests within the batch. Wire format is `Vec`,
+	// so this is the line of defence against an attacker padding a
+	// batch with identical requests.
+	let wrapped: Vec<Request> = msg.requests.iter().cloned().map(Request::Post).collect();
+	dedup_requests::<H>(&wrapped)?;
+
 	for req in msg.requests.iter() {
 		let req = Request::Post(req.clone());
 		// If a receipt exists for any request then it's a duplicate and it is not dispatched
@@ -74,12 +85,12 @@ where
 
 	// Verify membership proof
 	let state = host.state_machine_commitment(msg.proof.height)?;
-	state_machine.verify_membership(
-		host,
-		RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
-		state,
-		&msg.proof,
-	)?;
+	let commitments = msg
+		.requests
+		.iter()
+		.map(|post| hash_request::<H>(&Request::Post(post.clone())))
+		.collect();
+	state_machine.verify_membership(host, commitments, state, &msg.proof)?;
 
 	let mut total_weights = Weight::zero();
 	let result = msg
@@ -89,6 +100,14 @@ where
 			let wrapped_req = Request::Post(request.clone());
 			let mut lambda = || {
 				let cb = router.module_for_id(request.to.clone())?;
+				// Re-check the receipt right before dispatch. The up-front pass above
+				// runs before any callback executes; a prior request's on_accept in
+				// this same batch could have stored a receipt for this request
+				// (directly or by re-entering the handler), and we must not invoke
+				// on_accept a second time.
+				if host.request_receipt(&wrapped_req).is_some() {
+					Err(Error::DuplicateRequest { meta: wrapped_req.clone().into() })?
+				}
 				// Store request receipt to prevent reentrancy attack
 				let signer = host.store_request_receipt(&wrapped_req, &msg.signer)?;
 				let res = cb.on_accept(request.clone()).map(|weight| {

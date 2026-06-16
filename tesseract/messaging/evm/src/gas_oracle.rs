@@ -11,7 +11,7 @@ use alloy_sol_macro::sol;
 use anyhow::{anyhow, Error};
 use hex_literal::hex;
 use ismp::host::StateMachine;
-use ismp_solidity_abi::evm_host::EvmHostInstance;
+use ismp_abi::evm_host::EvmHostInstance;
 use primitive_types::U256;
 use serde::Deserialize;
 use sp_core::H160;
@@ -151,13 +151,22 @@ pub async fn get_current_gas_cost_in_usd(
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
-	let token_usd = get_price_from_uniswap_router(ismp_host_address, client).await?;
+	// A reverting Uniswap pool (e.g. ds-math-sub-underflow on chains whose
+	// wrapper has thin liquidity, or a `WETH()` call that returns no data on
+	// chains without a canonical WETH on this router) should not poison gas
+	// estimation. Fee profitability calculations downstream see a zero USD
+	// price for native gas in that case, which is fine for delivery — the
+	// raw `gas_price` we just fetched from the node still flows through to
+	// the actual transaction submission.
+	let token_usd = get_price_from_uniswap_router(ismp_host_address, client)
+		.await
+		.unwrap_or_default();
 
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 
 	log::debug!(
-		"Returned gas price for {chain:?}: {} Gwei",
+		target: crate::LOG_TARGET, "Returned gas price for {chain:?}: {} Gwei",
 		alloy::primitives::utils::format_units(AlloyU256::from(gas_price.as_u128()), "gwei")
 			.unwrap_or_default()
 	);

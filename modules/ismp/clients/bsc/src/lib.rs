@@ -3,29 +3,29 @@
 #[warn(unused_variables)]
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
-	primitives::{compute_epoch, BscClientUpdate},
-	verify_bsc_header, NextValidators, VerificationResult,
+	primitives::{compute_epoch, parse_extra, BscClientUpdate},
+	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use evm_state_machine::EvmStateMachine;
-use geth_primitives::Header;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
 		StateMachineId,
 	},
-	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
 use polkadot_sdk::*;
 use sp_core::H256;
 use sync_committee_primitives::constants::BlsPublicKey;
+
 pub mod pallet;
+
 use pallet::Pallet;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
@@ -79,34 +79,47 @@ impl<
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
 		let bsc_client_update = BscClientUpdate::decode(&mut &proof[..])
-			.map_err(|_| Error::Custom("Cannot decode bsc client update".to_string()))?;
+			.map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+			.map_err(|_| Error::DecodeConsensusState)?;
 
 		if consensus_state.finalized_height >= bsc_client_update.source_header.number.low_u64() {
-			Err(Error::Custom("Expired Update".to_string()))?
+			Err(Error::ExpiredUpdate {
+				current: consensus_state.finalized_height,
+				update: bsc_client_update.source_header.number.low_u64(),
+			})?
 		}
 
-		let epoch_length = Pallet::<T>::epoch_length()
-			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
+		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
-			if bsc_client_update.attested_header.number.low_u64() % epoch_length >=
-				(consensus_state.current_validators.len() as u64 / 2)
-			{
-				// Sanity check
+			let attested_number = bsc_client_update.attested_header.number.low_u64();
+			let attested_epoch = compute_epoch(attested_number, epoch_length);
+			let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
+			// Promote the pending validator set only when the submitted update is in the
+			// specific epoch where that set is scheduled to activate, and the attested
+			// header has reached the recorded `rotation_block`. The previous rule —
+			// "any update whose `attested.number % epoch_length` is past the rotation
+			// midpoint" — promoted the pending set in any later epoch, so an attacker
+			// holding the keys of a stale `next_validators` (e.g. retired or compromised
+			// validators) could submit an update many epochs later, get their set
+			// promoted to `current_validators`, and then have their forged
+			// `source_header`'s `state_root` accepted as a BSC state commitment. Binding
+			// rotation to the recorded `rotation_block`'s epoch prevents that reuse.
+			if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
 				// During authority set rotation, the source header must be from the same epoch as
-				// the attested header
-				let epoch =
-					compute_epoch(bsc_client_update.attested_header.number.low_u64(), epoch_length);
+				// the attested header.
 				let source_header_epoch =
 					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
-				if source_header_epoch != epoch {
-					Err(Error::Custom("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
+				if source_header_epoch != attested_epoch {
+					Err(Error::SourceHeaderEpochMismatch {
+						attested_epoch,
+						source_epoch: source_header_epoch,
+					})?
 				}
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
-				consensus_state.current_epoch = epoch;
+				consensus_state.current_epoch = attested_epoch;
 			}
 		}
 
@@ -115,8 +128,7 @@ impl<
 				&consensus_state.current_validators,
 				bsc_client_update,
 				epoch_length,
-			)
-			.map_err(|e| Error::Custom(e.to_string()))?;
+			)?;
 
 		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
@@ -153,45 +165,54 @@ impl<
 		proof_1: Vec<u8>,
 		proof_2: Vec<u8>,
 	) -> Result<(), ismp::error::Error> {
-		let bsc_client_update_1 = BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| {
-			Error::Custom("Cannot decode bsc client update for proof 1".to_string())
-		})?;
+		let bsc_client_update_1 =
+			BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
-		let bsc_client_update_2 = BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| {
-			Error::Custom("Cannot decode bsc client update for proof 2".to_string())
-		})?;
+		let bsc_client_update_2 =
+			BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let header_1 = bsc_client_update_1.attested_header.clone();
 		let header_2 = bsc_client_update_2.attested_header.clone();
 
-		if header_1.number != header_2.number {
-			Err(Error::Custom("Invalid Fraud proof".to_string()))?
-		}
-
-		let header_1_hash = Header::from(&header_1).hash::<H>();
-		let header_2_hash = Header::from(&header_2).hash::<H>();
-
-		if header_1_hash == header_2_hash {
-			return Err(Error::Custom("Invalid Fraud proof".to_string()));
-		}
-
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
-		let epoch_length = Pallet::<T>::epoch_length()
-			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
+			.map_err(|_| Error::DecodeConsensusState)?;
+		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
+
+		// Authenticate both updates against the trusted validator set: this verifies
+		// the BLS aggregate signature over each update's `vote_data`.
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_1,
 			epoch_length,
-		)
-		.map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
+		)?;
 
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_2,
 			epoch_length,
-		)
-		.map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
+		)?;
+
+		// The fraud proof must be bound to the BLS-signed `vote_data`, never to the
+		// `attested_header` itself. The header's non-vote fields (e.g. `state_root`,
+		// `parent_hash`, `receipts_root`) are not covered by the signature, so a
+		// single genuine attestation can be cloned into two distinct-hashing headers
+		// that carry the same vote. A genuine BSC equivocation is a slashable double
+		// vote: two quorum-signed votes for the same target block number but
+		// different target hashes.
+		let vote_1 = parse_extra::<H, C>(&header_1)
+			.map_err(|_| Error::InvalidFraudProof)?
+			.vote_data;
+		let vote_2 = parse_extra::<H, C>(&header_2)
+			.map_err(|_| Error::InvalidFraudProof)?
+			.vote_data;
+
+		if vote_1.target_number != vote_2.target_number {
+			Err(Error::InvalidFraudProof)?
+		}
+
+		if vote_1.target_hash == vote_2.target_hash {
+			return Err(Error::InvalidFraudProof.into());
+		}
 
 		Ok(())
 	}
@@ -208,8 +229,7 @@ impl<
 			StateMachine::Evm(chain_id)
 				if chain_id == BSC_CHAIN_ID || chain_id == BSC_TESTNET_CHAIN_ID =>
 				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
-			state_machine =>
-				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
+			state_machine => Err(Error::UnsupportedStateMachine(state_machine).into()),
 		}
 	}
 }

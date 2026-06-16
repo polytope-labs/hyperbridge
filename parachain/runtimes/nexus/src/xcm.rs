@@ -14,8 +14,8 @@
 // limitations under the License.
 
 use super::{
-	AccountId, Balance, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime,
-	RuntimeCall, RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
+	AccountId, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime, RuntimeCall,
+	RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
 };
 use crate::AllPalletsWithSystem;
 use frame_support::{
@@ -28,21 +28,16 @@ use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
 use polkadot_sdk::*;
-use sp_core::H256;
-use sp_runtime::traits::Identity;
 use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
-	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
-	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
-	RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
-	SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit,
-	UsingComponents,
+	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom, EnsureXcmOrigin,
+	FixedWeightBounds, ParentIsPreset, RelayChainAsNative, SiblingParachainAsNative,
+	SiblingParachainConvertsVia, SignedAccountId32AsNative, SignedToAccountId32,
+	SovereignSignedViaLocation, TakeWeightCredit, UsingComponents,
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_xcm_gateway::xcm_utilities::{
-	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter, ASSET_HUB_PARA_ID,
-};
+const ASSET_HUB_PARA_ID: u32 = 1000;
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
@@ -50,7 +45,6 @@ parameter_types! {
 	pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
 	pub Ancestry: Location = Parachain(ParachainInfo::parachain_id().into()).into();
 	pub UniversalLocation: InteriorLocation = Parachain(ParachainInfo::parachain_id().into()).into();
-	pub CheckingAccount: AccountId = PolkadotXcm::check_account();
 }
 
 /// Type for specifying how a `MultiLocation` can be converted into an `AccountId`. This is used
@@ -65,14 +59,9 @@ pub type LocationToAccountId = (
 	AccountId32Aliases<RelayNetwork, AccountId>,
 );
 
-/// Means for transacting assets on this chain.
-pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
-	Runtime,
-	ConvertedConcreteId<H256, Balance, ConvertAssetId<Runtime>, Identity>,
-	LocationToAccountId,
-	NoChecking,
-	CheckingAccount,
->;
+/// XCM asset transacting is not supported; the no-op `()` impl satisfies the
+/// executor's type bound but fails any instruction that moves fungibles.
+pub type LocalAssetTransactor = ();
 
 /// This is the type we use to convert an (incoming) XCM origin into a local `Origin` instance,
 /// ready for dispatching a transaction with Xcm's `Transact`. There is an `OriginKind` which can
@@ -210,7 +199,7 @@ impl pallet_xcm::Config for Runtime {
 	// Needs to be `Everything` for local testing.
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Everything;
-	type XcmReserveTransferFilter = ReserveTransferFilter;
+	type XcmReserveTransferFilter = Nothing;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;

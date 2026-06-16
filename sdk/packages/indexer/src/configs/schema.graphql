@@ -1,0 +1,2134 @@
+# To improve query performance, we strongly suggest adding indexes to any field that you plan to filter or sort by
+# Add the `@index` or `@index(unique: true)` annotation after any non-key field
+# https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
+
+"""
+The status of a request
+"""
+enum Status {
+	"""
+	The request has been dispatched
+	"""
+	SOURCE
+	"""
+	The request has been verified and aggregated by Hyperbridge
+	"""
+	HYPERBRIDGE_DELIVERED
+	"""
+	The request has reached the destination chain
+	"""
+	DESTINATION
+	"""
+	The request has been timed out on Hyperbridge
+	"""
+	HYPERBRIDGE_TIMED_OUT
+	"""
+	The request has been timed out on the source chain
+	"""
+	TIMED_OUT
+}
+
+"""
+The status of an order
+"""
+enum OrderStatus {
+	"""
+	The order has been placed
+	"""
+	PLACED
+	"""
+	The order has been filled
+	"""
+	FILLED
+	"""
+	The order has been redeemed on the source chain
+	"""
+	REDEEMED
+	"""
+	The order has been cancelled and refunded on the source chain
+	"""
+	REFUNDED
+}
+
+"""
+Types of participants in the Hyperbridge Protocol
+"""
+enum ProtocolParticipantType {
+	RELAYER
+	FILLER
+	USER
+	REFERRER
+}
+
+"""
+System activity types related to reward points
+"""
+enum PointsActivityType {
+	REWARD_POINTS_EARNED
+	ORDER_PLACED_POINTS
+	ORDER_FILLED_POINTS
+	TOKEN_TELEPORTED_POINTS
+	ORDER_REFERRED_POINTS
+}
+
+"""
+Important Hyperbridge Stats for a specific chain
+"""
+type HyperBridgeStats @entity {
+	"""
+	The chain the metrics are for
+	"""
+	id: ID!
+
+	"""
+	Total number of messages sent on Hyperbridge on this chain
+	"""
+	numberOfMessagesSent: BigInt! @index
+
+	"""
+	Total number of messages delivered by Hyperbridge on this chain
+	"""
+	numberOfDeliveredMessages: BigInt! @index
+
+	"""
+	Total number of failed messages sent by Hyperbridge on this chain
+	"""
+	numberOfFailedDeliveries: BigInt! @index
+
+	"""
+	Total number of timed out messages on this chain
+	"""
+	numberOfTimedOutMessages: BigInt! @index
+
+	"""
+	The total amount of transfers sent into the Hyperbridge Host Contracts (relayer fees)
+	"""
+	totalTransfersIn: BigInt! @index
+
+	"""
+	Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
+	"""
+	feesPayedOutToRelayers: BigInt! @index
+}
+
+"""
+Hyperbridge Stats for a specific Relayer on a specific chain
+"""
+type RelayerStatsPerChainV2 @entity @compositeIndexes(fields: [["relayer", "chain"], ["feesEarned", "chain"]]) {
+	"""
+	Unique identifier of the RelayerStatsPerChainV2 entry.
+	"""
+	id: ID!
+
+	"""
+	The relayer the metrics are for
+	"""
+	relayer: RelayerV2!
+
+	"""
+	The chain the metrics are for
+	"""
+	chain: String! @index
+
+	"""
+	Total number of successful post requests or post responses handled by the Relayer
+	"""
+	numberOfSuccessfulMessagesDelivered: BigInt!
+
+	"""
+	Amount of gas spent on successful messages (Gas Cost)
+	"""
+	gasUsedForSuccessfulMessages: BigInt!
+
+	"""
+	Gas fee spent on successful post requests (Gas Cost * Gas Price)
+	"""
+	gasFeeForSuccessfulMessages: BigInt!
+
+	"""
+	The USD value of the gas fee spent on successful post requests
+	"""
+	usdGasFeeForSuccessfulMessages: BigInt!
+
+	"""
+	Total fees earned by the relayer
+	"""
+	feesEarned: BigInt! @index
+
+	"""
+	Cumulative amount withdrawn by the relayer on this chain
+	"""
+	cumulativeWithdrawnAmount: BigInt
+}
+
+"""
+A Hyperbridge Relayer
+"""
+type RelayerV2 @entity {
+	"""
+	Unique identifier of the Relayer (also the relayer's address)
+	"""
+	id: ID!
+
+	"""
+	A list of important stats for the Relayer on every network that they support
+	"""
+	perChainStats: [RelayerStatsPerChainV2]! @derivedFrom(field: "relayer")
+
+	"""
+	Latest activity for this relayer
+	"""
+	latestActivity: RelayerActivity @derivedFrom(field: "relayer")
+}
+
+"""
+Hyperbridge Relayer Activity
+"""
+type RelayerActivity @entity {
+	"""
+	Unique Identifier for the activity
+	"""
+	id: ID!
+
+	"""
+	Relayer the activities are for
+	"""
+	relayer: RelayerV2!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+}
+
+"""
+Transfers made from/to the Hyperbridge Host
+- The host transfers fees to Relayers
+- The host receives fees from protocol users
+"""
+type Transfer @entity @compositeIndexes(fields: [["from", "to"], ["from", "chain"], ["to", "chain"]]) {
+	"""
+	Unique identifier of the Transfer
+	"""
+	id: ID!
+
+	"""
+	The chain on which the transfer was made
+	"""
+	chain: String! @index
+
+	"""
+	The amount transferred
+	"""
+	amount: BigInt! @index
+
+	"""
+	The address that made the transfer (the hyperbridge host address)
+	"""
+	from: String! @index
+
+	"""
+	The address that received the transfer (the relayer address)
+	"""
+	to: String! @index
+}
+
+"""
+A StateMachine Update Event
+"""
+type StateMachineUpdateEvent
+	@entity
+	@compositeIndexes(fields: [["stateMachineId", "chain"], ["blockNumber", "chain"], ["height", "chain"]]) {
+	"""
+	The ID of the StateMachineUpdate (hash of concatenation of stateMachineId and height)
+	"""
+	id: ID!
+
+	"""
+	The ID of the StateMachine
+	"""
+	stateMachineId: String! @index
+
+	"""
+	The height of the block in which the event occured
+	"""
+	height: Int! @index
+
+	"""
+	The chain on which the event occured
+	"""
+	chain: String! @index
+
+	"""
+	The hash of the block in which the event occured
+	"""
+	blockHash: String!
+
+	"""
+	The number of the block in which the event occured
+	"""
+	blockNumber: Int! @index
+
+	"""
+	The hash of the transaction in which the event occured
+	"""
+	transactionHash: String!
+
+	"""
+	The index of the transaction in the block
+	"""
+	transactionIndex: Int!
+
+	"""
+	The state machine commitment timestamp
+	"""
+	commitmentTimestamp: BigInt!
+
+	"""
+	The timestamp of the event
+	"""
+	createdAt: Date! @index
+}
+
+"""
+A Hyperbridge Request
+"""
+type RequestV2 @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+	"""
+	Unique identifier of the Request (This is the request commitment)
+	"""
+	id: ID!
+
+	"""
+	The commitment of the request
+	"""
+	commitment: String! @index
+
+	"""
+	The chain on which the request was made
+	"""
+	chain: String! @index
+
+	"""
+	This is the statemachine id where this request originated from
+	"""
+	source: String
+
+	"""
+	This is the statemachine where this request is been dispatched to
+	"""
+	dest: String
+
+	"""
+	This is the timestamp when the request would timeout
+	"""
+	timeoutTimestamp: BigInt
+
+	"""
+	The address that dispatched this request
+	"""
+	from: String!
+
+	"""
+	The address receiving this request
+	"""
+	to: String!
+
+	"""
+	Nonce of the request
+	"""
+	nonce: BigInt!
+
+	"""
+	Body of the request
+	"""
+	body: String!
+
+	"""
+	This is the fee set for this request
+	"""
+	fee: BigInt!
+
+	"""
+	Metatdata about the request's progression through different statuses
+	"""
+	statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Metadata about the status of a Request
+"""
+type RequestStatusMetadata @entity {
+	"""
+	The ID of the RequestStatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the request
+	"""
+	status: Status!
+
+	"""
+	The chain on which the request occured
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occured
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occured
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occured
+	"""
+	transactionHash: String!
+
+	"""
+	The request that owns this status change
+	"""
+	request: RequestV2!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+A Hyperbridge Response
+"""
+type ResponseV2 @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+	"""
+	Unique identifier of the Response (This is the response commitment)
+	"""
+	id: ID!
+
+	"""
+	The chain on which the response was made
+	"""
+	chain: String! @index
+
+	"""
+	The commitment of the response
+	"""
+	commitment: String! @index
+
+	"""
+	The response message
+	"""
+	response_message: String
+
+	"""
+	The Timestamp at which this response expires in seconds
+	"""
+	responseTimeoutTimestamp: BigInt
+
+	"""
+	The request that triggered this response
+	"""
+	request: RequestV2
+
+	"""
+	Metatdata about the response's progression through different statuses
+	"""
+	statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Metadata about the status of a Response
+"""
+type ResponseStatusMetadata @entity {
+	"""
+	The ID of the ResponseStatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the response
+	"""
+	status: Status!
+
+	"""
+	The chain on which the response occured
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occured
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occured
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occured
+	"""
+	transactionHash: String!
+
+	"""
+	The response that owns this status change
+	"""
+	response: ResponseV2!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Temporary storage for status metadata when the parent entity (Request, Response, GetRequest)
+has not yet been created due to multichain indexing race conditions.
+Once the parent entity is created, pending entries are flushed to the real status metadata tables.
+"""
+type PendingStatusMetadata @entity {
+	id: ID!
+
+	"""
+	The commitment of the parent entity
+	"""
+	commitment: String! @index
+
+	"""
+	The type of parent entity: RequestV2, ResponseV2, or GetRequestV2
+	"""
+	entityType: String! @index
+
+	"""
+	The status of the request/response/order
+	"""
+	status: String!
+
+	"""
+	The chain on which the event occurred
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occurred
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occurred
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occurred
+	"""
+	transactionHash: String!
+
+	"""
+	The filler of the order (only for order status metadata)
+	"""
+	filler: String
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date!
+}
+
+"""
+Reward points earned by participants in the hyperbridge protocol
+"""
+type Rewards @entity @compositeIndexes(fields: [["address", "chain"], ["earnerType", "chain"]]) {
+	id: ID!
+	address: String! @index
+	chain: String! @index
+	points: BigInt! @index
+	earnerType: ProtocolParticipantType
+}
+
+type RewardsActivityLog
+	@entity
+	@compositeIndexes(fields: [["earnerAddress", "chain"], ["earnerType", "chain"], ["activityType", "chain"]]) {
+	id: ID!
+	chain: String! @index
+	points: BigInt! @index
+	transactionHash: String! @index
+	earnerAddress: String! @index
+	earnerType: ProtocolParticipantType
+	activityType: PointsActivityType
+	description: String!
+	createdAt: Date! @index
+}
+
+"""
+Represents a cross-chain get request event
+This entity stores information about requests to fetch data from a source chain to a destination chain
+"""
+type GetRequestV2 @entity {
+	"""
+	Unique identifier for the get request, computed as keccak256 hash of the encoded request parameters
+	"""
+	id: ID!
+	"""
+	Source chain identifier where the data is being requested from
+	"""
+	source: String!
+	"""
+	Destination chain identifier where the data will be sent to
+	"""
+	dest: String!
+	"""
+	Address of the account that initiated the get request
+	"""
+	from: String!
+	"""
+	Array of keys that need to be fetched from the source chain
+	"""
+	keys: [String!]!
+	"""
+	Sequential number to ensure uniqueness of the request
+	"""
+	nonce: BigInt!
+	"""
+	Block height at which the request was made
+	"""
+	height: BigInt!
+	"""
+	Additional context or metadata for the request
+	"""
+	context: String!
+	"""
+	Timestamp after which the request expires
+	"""
+	timeoutTimestamp: BigInt!
+	"""
+	Fee paid for processing the request
+	"""
+	fee: BigInt!
+	"""
+	Block number where the request was made
+	"""
+	blockNumber: String!
+	"""
+	Hash of the block containing the request
+	"""
+	blockHash: String!
+	"""
+	Hash of the transaction that created the request
+	"""
+	transactionHash: String!
+	"""
+	Timestamp of the block containing the request
+	"""
+	blockTimestamp: BigInt!
+	"""
+	Metatdata about the request's progression through different statuses
+	"""
+	statusMetadata: [GetRequestStatusMetadata]! @derivedFrom(field: "request")
+	"""
+	Chain on which the request was made
+	"""
+	chain: String!
+	"""
+	commitment of the request
+	"""
+	commitment: String!
+
+	"""
+	Creation timestamp of this request
+	"""
+	createdAt: Date @index
+}
+
+"""
+Metadata about the status of a Request
+"""
+type GetRequestStatusMetadata @entity {
+	"""
+	The ID of the GetRequestStatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the request
+	"""
+	status: Status!
+
+	"""
+	The chain on which the request occured
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occured
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occured
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occured
+	"""
+	transactionHash: String!
+
+	"""
+	The request that owns this status change
+	"""
+	request: GetRequestV2!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+A Hyperbridge Response for a Get Request
+"""
+type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+	"""
+	Unique identifier of the GetResponse (This is the response commitment)
+	"""
+	id: ID!
+
+	"""
+	The commitment of the response
+	"""
+	commitment: String! @index
+
+	"""
+	The chain on which the response was made
+	"""
+	chain: String! @index
+
+	"""
+	The key-values fetch from hyperbridge host
+	"""
+	response_message: [String!]!
+
+	"""
+	The Timestamp at which this response expires in seconds
+	"""
+	responseTimeoutTimestamp: BigInt
+
+	"""
+	The request that triggered this response
+	"""
+	request: GetRequestV2
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+	"""
+	Block number where the response was made
+	"""
+	blockNumber: String!
+	"""
+	Hash of the block containing the response
+	"""
+	blockHash: String!
+	"""
+	Hash of the transaction that created the response
+	"""
+	transactionHash: String!
+}
+
+"""
+Represents an order placed through the IntentGatewayV3 contract.
+This entity tracks cross-chain orders for V3 of the IntentGateway.
+"""
+type IOrderV3 @entity {
+	"""
+	Unique identifier for the order (commitment)
+	"""
+	id: ID!
+
+	"""
+	Address of the user who placed the order
+	"""
+	user: String!
+
+	"""
+	Source chain identifier where the order originates from
+	"""
+	sourceChain: String!
+
+	"""
+	Destination chain identifier where the order will be executed
+	"""
+	destChain: String!
+
+	"""
+	Unique commitment hash of the order used for verification
+	"""
+	commitment: String!
+
+	"""
+	Timestamp after which the order expires
+	"""
+	deadline: BigInt!
+
+	"""
+	Sequential number to ensure uniqueness of the order
+	"""
+	nonce: BigInt!
+
+	"""
+	Total fees supplied by the user for executing the order
+	"""
+	fees: BigInt!
+
+	"""
+	Optional session key used to select winning solver
+	"""
+	session: String
+
+	"""
+	Total input value in USD
+	"""
+	inputUSD: BigInt!
+
+	"""
+	Status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	Metatdata about the order's progression through different statuses
+	"""
+	statusMetadata: [IOrderV3StatusMetadata]! @derivedFrom(field: "order")
+
+	"""
+	Partial fill events for this order
+	"""
+	partialFills: [IOrderV3PartialFill!]! @derivedFrom(field: "order")
+
+	"""
+	Full fill events for this order (one per order — fires on the destination chain for cross-chain, or on the final partial fill for same-chain)
+	"""
+	fills: [IOrderV3Fill!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow release events for this order (fires on the source chain after a successful fill)
+	"""
+	escrowReleases: [IOrderV3EscrowRelease!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow refund events for this order (fires on the source chain after cancellation)
+	"""
+	escrowRefunds: [IOrderV3EscrowRefund!]! @derivedFrom(field: "order")
+
+	"""
+	Predispatch assets for this order
+	"""
+	predispatchAssets: [IOrderV3PredispatchAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Pre dispatch calldata
+	"""
+	predispatchCalldata: String!
+
+	"""
+	Input assets for this order
+	"""
+	inputAssets: [IOrderV3InputAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Output assets for this order
+	"""
+	outputAssets: [IOrderV3OutputAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Post dispatch calldata
+	"""
+	postDispatchCalldata: String!
+
+	"""
+	Referrer address that referred the user
+	"""
+	referrer: String
+
+	"""
+	Timestamp when the order was created
+	"""
+	createdAt: Date! @index
+
+	"""
+	Block number where the order was placed
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block where the order was placed
+	"""
+	blockTimestamp: BigInt! @index
+
+	"""
+	Hash of the transaction that placed the order
+	"""
+	transactionHash: String! @index
+}
+
+"""
+Represents a predispatch asset in an IOrderV3
+"""
+type IOrderV3PredispatchAsset @entity {
+	"""
+	Unique identifier: {orderId}-predispatch-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the predispatch assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an input asset in an IOrderV3
+"""
+type IOrderV3InputAsset @entity {
+	"""
+	Unique identifier: {orderId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset in an IOrderV3
+"""
+type IOrderV3OutputAsset @entity {
+	"""
+	Unique identifier: {orderId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the output assets array
+	"""
+	index: Int!
+
+	"""
+	Beneficiary address for this output
+	"""
+	beneficiary: String! @index
+}
+
+"""
+Metadata about the status of an IOrderV3
+"""
+type IOrderV3StatusMetadata @entity {
+	"""
+	The ID of the status metadata
+	"""
+	id: ID!
+
+	"""
+	The status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	The chain on which the status change occurred
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occurred
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the transaction in which the event occurred
+	"""
+	transactionHash: String!
+
+	"""
+	The order that owns this status change
+	"""
+	order: IOrderV3
+
+	"""
+	The filler of the order if the order has been filled
+	"""
+	filler: String
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a partial fill event for an IOrderV3. Each record corresponds to a single on-chain PartialFill emission.
+"""
+type IOrderV3PartialFill @entity {
+	"""
+	Unique identifier for the partial fill event. Recommended format: {commitment}.{sequence} or {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order this partial fill belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the partial fill occurred
+	"""
+	chain: String! @index
+
+	"""
+	The address of the filler that executed this partial fill
+	"""
+	filler: String! @index
+
+	"""
+	The timestamp of the partial fill event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the partial fill occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the partial fill occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Input assets released from escrow for this partial fill
+	"""
+	inputAssets: [IOrderV3PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
+
+	"""
+	Output assets delivered in this partial fill
+	"""
+	outputAssets: [IOrderV3PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents an input asset released from escrow in an IOrderV3 partial fill
+"""
+type IOrderV3PartialFillInputAsset @entity {
+	"""
+	Unique identifier: {partialFillId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The partial fill this input asset belongs to
+	"""
+	partialFill: IOrderV3PartialFill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount released from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the partial fill input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset delivered in an IOrderV3 partial fill
+"""
+type IOrderV3PartialFillOutputAsset @entity {
+	"""
+	Unique identifier: {partialFillId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The partial fill this output asset belongs to
+	"""
+	partialFill: IOrderV3PartialFill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount delivered in this partial fill
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the partial fill output assets array
+	"""
+	index: Int!
+
+	"""
+	Beneficiary address for this output
+	"""
+	beneficiary: String! @index
+}
+
+"""
+Represents a full fill event for an IOrderV3. Each record corresponds to a single on-chain OrderFilled emission.
+For same-chain orders this marks the final fill that completes the order (preceded by zero or more PartialFill events).
+For cross-chain orders this fires on the destination chain when the solver delivers the outputs.
+"""
+type IOrderV3Fill @entity {
+	"""
+	Unique identifier for the fill event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order this fill belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the fill occurred (destination chain for cross-chain orders)
+	"""
+	chain: String! @index
+
+	"""
+	The address of the filler that executed this fill
+	"""
+	filler: String! @index
+
+	"""
+	The timestamp of the fill event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the fill occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the fill occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Input assets credited to the filler (post-fee, post-FoT escrowed amounts that will be released on the source chain)
+	"""
+	inputAssets: [IOrderV3FillInputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	Output assets delivered by the filler to the beneficiary
+	"""
+	outputAssets: [IOrderV3FillOutputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents an input asset associated with an IOrderV3 full fill (amount released or owed to the solver)
+"""
+type IOrderV3FillInputAsset @entity {
+	"""
+	Unique identifier: {fillId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this input asset belongs to
+	"""
+	fill: IOrderV3Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset delivered by the solver in an IOrderV3 full fill
+"""
+type IOrderV3FillOutputAsset @entity {
+	"""
+	Unique identifier: {fillId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this output asset belongs to
+	"""
+	fill: IOrderV3Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount delivered to the beneficiary
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill output assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowReleased event for an IOrderV3 — escrowed tokens released to the solver after a successful fill.
+Fires on the source chain (where the order was placed) once Hyperbridge confirms the destination-chain fill.
+"""
+type IOrderV3EscrowRelease @entity {
+	"""
+	Unique identifier for the release event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was released
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the release occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the release event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the release occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the release occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts released from escrow
+	"""
+	tokens: [IOrderV3EscrowReleaseToken!]! @derivedFrom(field: "release")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token released from escrow as part of an IOrderV3 EscrowReleased event
+"""
+type IOrderV3EscrowReleaseToken @entity {
+	"""
+	Unique identifier: {releaseId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The release event this token belongs to
+	"""
+	release: IOrderV3EscrowRelease!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount released from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the release tokens array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowRefunded event for an IOrderV3 — escrowed tokens refunded to the user after cancellation.
+Fires on the source chain.
+"""
+type IOrderV3EscrowRefund @entity {
+	"""
+	Unique identifier for the refund event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was refunded
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the refund occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the refund event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the refund occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the refund occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts refunded from escrow
+	"""
+	tokens: [IOrderV3EscrowRefundToken!]! @derivedFrom(field: "refund")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token refunded from escrow as part of an IOrderV3 EscrowRefunded event
+"""
+type IOrderV3EscrowRefundToken @entity {
+	"""
+	Unique identifier: {refundId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The refund event this token belongs to
+	"""
+	refund: IOrderV3EscrowRefund!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount refunded from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the refund tokens array
+	"""
+	index: Int!
+}
+
+type CumulativeVolumeUSD @entity {
+	"""
+	Unique identifier for the cumulative stats
+	"""
+	id: ID!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+
+	"""
+	Volume in USD, scaled by 1e18 (18-decimal fixed-point integer)
+	"""
+	volumeUSD: BigInt!
+}
+
+type DailyVolumeUSD @entity {
+	"""
+	Unique identifier for the daily volume stats
+	"""
+	id: ID!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date!
+
+	"""
+	Last 24hrs Volume in USD, scaled by 1e18 (18-decimal fixed-point integer)
+	"""
+	last24HoursVolumeUSD: BigInt!
+}
+
+"""
+Current price data for tokens across supported chains
+"""
+type TokenPrice @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"]]) {
+	"""
+	Unique identifier: symbol + currency (e.g., ETH-USD)
+	"""
+	id: ID!
+
+	"""
+	Token symbol (e.g., ETH, USDC, USDT, DOT)
+	"""
+	symbol: String! @index
+
+	"""
+	Token contract address (zero address for native tokens)
+	"""
+	address: String
+
+	"""
+	Token price currency (e.g USD)
+	"""
+	currency: String!
+
+	"""
+	Current price at the specified currency value
+	"""
+	price: String!
+
+	"""
+	Timestamp when price was last updated
+	"""
+	lastUpdatedAt: BigInt! @index
+}
+
+"""
+Historical price feed logs for tokens
+"""
+type TokenPriceLog @entity @compositeIndexes(fields: [["symbol", "timestamp"], ["provider", "timestamp"]]) {
+	"""
+	Unique identifier: symbol + currency + provider + timestamp
+	"""
+	id: ID!
+
+	"""
+	Token symbol (e.g., ETH, USDC, DOT)
+	"""
+	symbol: String! @index
+
+	"""
+	Token price currency (e.g USD)
+	"""
+	currency: String!
+
+	"""
+	Current price at the specified currency value
+	"""
+	price: String!
+
+	"""
+	Price data provider (e.g., COINGECKO, CHAINLINK)
+	"""
+	provider: String! @index
+
+	"""
+	Timestamp when price was recorded
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	Record creation timestamp
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Bridge token supply tracking for Hyperbridge
+"""
+type BridgeTokenSupply @entity {
+	"""
+	Unique identifier for the token supply entry
+	"""
+	id: ID!
+
+	"""
+	Total supply of the token
+	"""
+	totalSupply: BigInt! @index
+
+	"""
+	Circulating supply of the token (total supply minus locked/staked amounts)
+	"""
+	circulatingSupply: BigInt! @index
+
+	"""
+	Timestamp when this supply data was last updated
+	"""
+	lastUpdatedAt: BigInt! @index
+
+	"""
+	Record creation timestamp
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Record of rewards for Relayers
+"""
+type HyperbridgeRelayerReward @entity {
+	"""
+	Unique identifier for the incentive entry, this is the relayer address
+	"""
+	id: ID!
+
+	"""
+	The total amount of rewards this relayer has ever received.
+	"""
+	totalRewardAmount: BigInt
+
+	"""
+	The total amount of messaging rewards this relayer has ever received.
+	"""
+	totalMessagingRewardAmount: BigInt
+
+	"""
+	The total amount of consensus rewards this relayer has ever received.
+	"""
+	totalConsensusRewardAmount: BigInt
+
+	"""
+	The balance of reputation assets accrued.
+	"""
+	reputationAssetBalance: BigInt
+}
+
+"""
+Record of daily relayer rewards paid out by the treasury
+"""
+type DailyTreasuryRelayerReward @entity {
+	id: ID! # ID is: {YYYY-MM-DD}
+	date: Date!
+	dailyRewardAmount: BigInt!
+}
+
+"""
+A single entity that tracks the aggregate balance and transfers for the treasury.
+The ID is the treasury's account address.
+"""
+type Treasury @entity {
+	id: ID!
+
+	"""
+	The total amount of tokens ever transferred INTO the treasury.
+	"""
+	totalAmountTransferredIn: BigInt!
+
+	"""
+	The total amount of tokens ever transferred OUT of the treasury.
+	"""
+	totalAmountTransferredOut: BigInt!
+
+	"""
+	The current calculated balance of the treasury (In - Out).
+	"""
+	totalBalance: BigInt!
+
+	"""
+	The timestamp of the last update.
+	"""
+	lastUpdatedAt: Date!
+}
+
+"""
+Stores the total accumulated fees for a specific relayer on a specific chain.
+"""
+type AccumulatedFee @entity {
+	"""
+	The unique ID, format: {relayerAddress}-{chainId}
+	"""
+	id: ID!
+
+	"""
+	The relayer's address.
+	"""
+	relayer: String! @index
+
+	"""
+	A string identifier for the source chain of the fee.
+	"""
+	chainId: String! @index
+
+	"""
+	The aggregated raw amount of fees, in the token's smallest unit.
+	"""
+	lifetimeFees: BigInt!
+
+	"""
+	The timestamp of the last update.
+	"""
+	lastUpdatedAt: Date!
+}
+
+"""
+Stores user data related to the Hyperbridge protocol
+"""
+type UserActivityV2 @entity {
+	"""
+	Unique identifier for the user
+	"""
+	id: ID!
+	"""
+	Referrer address
+	"""
+	referrer: String
+	"""
+	Total orders placed by the user
+	"""
+	totalOrdersPlaced: BigInt!
+	"""
+	Filled orders that were placed by the user
+	"""
+	totalFilledOrders: BigInt!
+	"""
+	Total volume in USD for orders placed by the user
+	"""
+	totalOrderPlacedVolumeUSD: String!
+	"""
+	Total volume in USD for filled orders that were placed by the user
+	"""
+	totalOrderFilledVolumeUSD: String!
+	"""
+	Timestamp when the user was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents dust collected by the protocol
+"""
+type DustCollected @entity {
+	"""
+	Unique identifier: chainId-tokenAddress
+	"""
+	id: ID!
+
+	"""
+	Token symbol
+	"""
+	tokenSymbol: String! @index
+
+	"""
+	Total amount of dust collected
+	"""
+	amount: BigInt! @index
+
+	"""
+	Timestamp when this record was last updated
+	"""
+	lastUpdated: Date! @index
+}
+
+"""
+Represents dust swept by the protocol
+"""
+type DustSwept @entity {
+	"""
+	Unique identifier: chainId-tokenAddress
+	"""
+	id: ID!
+
+	"""
+	Token symbol
+	"""
+	tokenSymbol: String! @index
+
+	"""
+	Total amount of dust swept
+	"""
+	amount: BigInt! @index
+
+	"""
+	Timestamp when this record was last updated
+	"""
+	lastUpdated: Date! @index
+}
+
+"""
+Collator rewards indexed from treasury transfers to block authors
+"""
+type HyperbridgeCollatorReward @entity {
+	"""
+	Unique identifier for the collator reward entry (collator address)
+	"""
+	id: ID!
+
+	"""
+	The total amount of rewards this collator has ever received
+	"""
+	totalRewardAmount: BigInt
+
+	"""
+	Total number of blocks authored by this collator
+	"""
+	totalBlocksAuthored: BigInt
+
+	"""
+	Timestamp of the last reward received
+	"""
+	lastRewardedAt: Date
+}
+
+"""
+Record of daily collator rewards paid out by the treasury
+"""
+type DailyTreasuryCollatorReward @entity {
+	id: ID! # ID is: {YYYY-MM-DD}
+	date: Date!
+	dailyRewardAmount: BigInt!
+}
+
+"""
+Types of relayer rewards
+"""
+enum RelayerRewardType {
+	CONSENSUS_REWARD
+	MESSAGING_REWARD
+}
+
+"""
+Per-transaction record of relayer rewards
+Enables querying individual reward transactions for specific relayers
+"""
+type RelayerRewardTransaction @entity @compositeIndexes(fields: [["relayer", "chain"], ["rewardType", "chain"]]) {
+	"""
+	Unique identifier: {relayerAddress}-{blockNumber}-{extrinsicIndex}
+	"""
+	id: ID!
+
+	"""
+	The relayer address that received the reward
+	"""
+	relayer: String! @index
+
+	"""
+	The chain on which the reward was issued
+	"""
+	chain: String! @index
+
+	"""
+	The amount of the reward
+	"""
+	amount: BigInt! @index
+
+	"""
+	The type of reward (consensus, messaging, or fee)
+	"""
+	rewardType: RelayerRewardType! @index
+
+	"""
+	Block number where the reward was issued
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block
+	"""
+	blockTimestamp: BigInt!
+
+	"""
+	Hash of the extrinsic that triggered the reward
+	"""
+	extrinsicHash: String
+
+	"""
+	Timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Per-transaction record of collator rewards on Hyperbridge
+Enables querying individual reward transactions for specific collators
+"""
+type HyperbridgeCollatorRewardTransaction @entity {
+	"""
+	Unique identifier: {collatorAddress}-{blockNumber}
+	"""
+	id: ID!
+
+	"""
+	The collator address that received the reward
+	"""
+	collator: String! @index
+
+	"""
+	The amount of the reward
+	"""
+	amount: BigInt! @index
+
+	"""
+	Block number where the reward was issued (also the block authored by this collator)
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block
+	"""
+	blockTimestamp: BigInt!
+
+	"""
+	Timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+An application that has interacted with `pallet-bandwidth` on its
+credit chain. ID is `${chain}-${appHex}` where `chain` is the
+StateMachine string the credit landed on (= `BandwidthCredited.app_chain`)
+and `appHex` is the lowercase hex of the `AppKey` bytes (no prefix).
+"""
+type BandwidthApp @entity {
+	id: ID!
+
+	"""
+	StateMachine string of the credit chain. Differs from the payer
+	chain on cross-chain sponsorship purchases.
+	"""
+	chain: String! @index
+
+	"""
+	Lowercase hex of the `AppKey` bytes (no 0x prefix).
+	"""
+	app: String! @index
+
+	"""
+	Block timestamp (ms) of the first purchase or force-credit that
+	created a row for this app.
+	"""
+	firstSeenAt: BigInt!
+
+	"""
+	Block timestamp (ms) of the most recent event that touched this app.
+	"""
+	lastActivityAt: BigInt!
+
+	"""
+	Total number of subscriptions ever created (purchases + force credits).
+	"""
+	lifetimeSubscriptions: BigInt!
+
+	"""
+	Total bytes ever credited across all subscriptions.
+	"""
+	lifetimeBytesCredited: BigInt!
+
+	"""
+	Total bytes ever drained by the gate via `BandwidthConsumed` events.
+	"""
+	lifetimeBytesConsumed: BigInt!
+
+	"""
+	Sum of `lost_bytes` across `SubscriptionEvicted` events — bandwidth
+	paid for but lost to the 1024-cap eviction.
+	"""
+	lifetimeBytesEvicted: BigInt!
+
+	"""
+	Running estimate of live subscriptions, derived from credit minus
+	eviction minus full-drain events. Best-effort; resync from chain
+	storage if exact count is needed.
+	"""
+	activeSubscriptions: Int!
+}
+
+"""
+Per-`(app, tier)` lifetime aggregate. Lets a frontend show "App X
+has bought N Tier1 subs over its lifetime" without scanning history.
+ID is `${chain}-${appHex}-${tier}`.
+"""
+type BandwidthAppTierStats @entity @compositeIndexes(fields: [["app", "tier"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int! @index
+
+	"""
+	Total subscriptions of this tier ever bought (purchases + force credits).
+	"""
+	lifetimeSubscriptions: BigInt!
+
+	"""
+	Total bytes credited via subscriptions of this tier.
+	"""
+	lifetimeBytesCredited: BigInt!
+
+	"""
+	Bytes lost to eviction via subscriptions of this tier.
+	"""
+	lifetimeBytesEvicted: BigInt!
+
+	"""
+	Running count of live subscriptions of this tier.
+	"""
+	activeSubscriptions: Int!
+
+	"""
+	Block timestamp (ms) of the most recent purchase of this tier.
+	"""
+	lastPurchasedAt: BigInt!
+}
+
+"""
+One row per subscription created on `pallet-bandwidth` — i.e. per
+`BandwidthCredited` or `ForceCredited` event. Acts as the per-app
+purchase history. ID is `${chain}-${appHex}-${block}-${eventIdx}`.
+"""
+type BandwidthSubscription
+	@entity
+	@compositeIndexes(fields: [["app", "purchasedAt"], ["app", "tier"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int! @index
+
+	"""
+	Bytes credited at purchase time. Scaled by months on bulk buys.
+	"""
+	bytes: BigInt!
+
+	"""
+	Unix seconds (from the event payload) at which this sub expires.
+	Fixed at purchase time, never extends.
+	"""
+	expiresAt: BigInt!
+
+	"""
+	Block timestamp (ms) at which the subscription was created.
+	"""
+	purchasedAt: BigInt!
+
+	"""
+	StateMachine string of the chain that paid for this subscription.
+	Differs from `app.chain` on cross-chain sponsorship.
+	"""
+	paidFrom: String!
+
+	"""
+	True if the row was created by an admin `ForceCredited` event
+	rather than an end-user `BandwidthCredited` purchase.
+	"""
+	forced: Boolean!
+
+	"""
+	Block timestamp (ms) at which the 1024-cap evicted this sub. Null
+	if still live (or naturally expired).
+	"""
+	evictedAt: BigInt
+
+	"""
+	`lost_bytes` from the matching `SubscriptionEvicted` event. Null if
+	never evicted.
+	"""
+	evictedLostBytes: BigInt
+
+	"""
+	Hyperbridge block this sub was created in.
+	"""
+	blockNumber: BigInt!
+
+	"""
+	Extrinsic hash of the originating ISMP message handler (or
+	`force_credit` call).
+	"""
+	extrinsicHash: String
+}
+
+"""
+Daily bandwidth consumed per `(chain, app)`. Aggregated from
+`BandwidthConsumed` events bucketed by UTC date. Monthly and yearly
+views are `SUM(bytesConsumed)` over the relevant date range on this
+entity — same pattern used by `DailyVolumeUSD`.
+ID is `${chain}-${appHex}-YYYY-MM-DD`.
+"""
+type BandwidthAppDailyConsumption
+	@entity
+	@compositeIndexes(fields: [["app", "date"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	UTC date bucket for this aggregate.
+	"""
+	date: Date! @index
+
+	"""
+	Sum of `BandwidthConsumed.bytes` events for this app on this date.
+	"""
+	bytesConsumed: BigInt!
+}
+
+"""
+Tracks current and historical `pallet-bandwidth` tier configuration
+(governance audit trail). ID is the tier discriminant as a string.
+"""
+type BandwidthTier @entity {
+	id: ID!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int!
+
+	"""
+	Bytes per single-month purchase. Null when the tier is revoked.
+	"""
+	bytes: BigInt
+
+	"""
+	Window length in seconds per single-month purchase. Null when revoked.
+	"""
+	durationSecs: BigInt
+
+	"""
+	`true` if the tier is currently configured (last `TierSet` was non-None).
+	"""
+	isActive: Boolean!
+
+	"""
+	Block timestamp (ms) of the most recent `TierSet` event.
+	"""
+	lastUpdatedAt: BigInt!
+}
+

@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.6.0"
+version = "1.8.5"
 edition = "2021"
 
 [lib]
@@ -10,14 +10,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "tesseract-consensus"
 path = "bins/relayer.rs"
-
-[[bin]]
-name = "beefy-prover"
-path = "bins/prover.rs"
-
-[[bin]]
-name = "polyhedron"
-path = "bins/polyhedron.rs"
 
 [dependencies]
 log = "0.4.19"
@@ -42,8 +34,10 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
+tesseract-consensus-config = { workspace = true }
 zk-beefy = { path = "../beefy/zk" }
 tesseract-bsc = { workspace = true }
+tesseract-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 arb-host = { workspace = true }
@@ -56,11 +50,9 @@ tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
 tesseract-tendermint = { workspace = true }
 tesseract-tron = { workspace = true }
+tesseract-pharos = { workspace = true }
+pharos-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime", "sc-service"]
-
-
-[features]
-nofulu = ["tesseract-sync-committee/nofulu"]

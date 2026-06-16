@@ -15,13 +15,14 @@
 
 use crate::{
 	keccak::{keccak_256, KeccakHasher},
+	node_codec::RlpNodeCodec,
 	EIP1186Layout, StorageProof,
 };
 use hex_literal::hex;
 use primitive_types::{H256, U256};
 use rlp::{Decodable, Rlp};
 use rlp_derive::RlpDecodable;
-use trie_db::{Trie, TrieDBBuilder};
+use trie_db::{NodeCodec, Trie, TrieDBBuilder};
 
 /// The ethereum account stored in the global state trie.
 #[derive(RlpDecodable, Debug)]
@@ -67,4 +68,18 @@ fn test_can_verify_eip_1186_proofs() {
 		H256::from(hex!("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
 	);
 	assert_eq!(account.nonce, 0x10);
+}
+
+#[test]
+fn empty_hp_prefix_returns_error_not_panic() {
+	// Regression: a leaf/extension node is RLP-encoded as a 2-item list whose
+	// first item is the hex-prefix-encoded partial key. Before the fix at
+	// `node_codec.rs` the decoder indexed `data[0]` without checking that the
+	// HP payload was non-empty, so an adversarial proof node of the form
+	// `rlp([b"", b""])` panicked with index-out-of-bounds inside on-chain
+	// execution (e.g. parachain block verification). It must now return an
+	// `Err` cleanly.
+	let adversarial_node: [u8; 3] = [0xc2, 0x80, 0x80];
+	let result = <RlpNodeCodec<KeccakHasher> as NodeCodec>::decode_plan(&adversarial_node);
+	assert!(result.is_err(), "decoder must reject empty HP prefix, got {:?}", result);
 }

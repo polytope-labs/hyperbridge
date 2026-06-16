@@ -28,10 +28,13 @@ pub mod pallet {
 		consensus::StateMachineId,
 		host::{IsmpHost, StateMachine},
 	};
+	use op_verifier::GameTypeConfig;
+	use pallet_fishermen::FishermanBlacklist;
 	use primitive_types::H160;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
+	#[pallet::storage_version(crate::STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The config trait
@@ -41,6 +44,11 @@ pub mod pallet {
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
+		/// Read-only view of the fisherman blacklist; consulted in `verify_consensus` to refuse
+		/// consensus proofs that reference a blacklisted dispute-game proxy. Wire to
+		/// `pallet_fishermen::Pallet<Runtime>` in runtimes that include the fishermen pallet,
+		/// or to `()` for a no-op blacklist.
+		type FishermanBlacklist: FishermanBlacklist;
 	}
 
 	#[pallet::error]
@@ -52,11 +60,14 @@ pub mod pallet {
 	pub type StateMachinesOracleAddresses<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, H160, OptionQuery>;
 
-	// Mapping from state machineId to respective dispute game addresses and respected game types
+	// Mapping from state machineId to its DisputeGameFactory address and per-game-type
+	// verification configuration. The config binds each respected `gameType` to its expected
+	// implementation address and storage layout, which are both required for the "not
+	// challenged" check during verification.
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines_dispute_game_factories_types)]
 	pub type StateMachinesDisputeGameFactoriesTypes<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<u32>), OptionQuery>;
+		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<GameTypeConfig>), OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn supported_state_machines)]
@@ -74,8 +85,8 @@ pub mod pallet {
 			state_machine_id: StateMachineId,
 			/// The dispute game factory contract address
 			dispute_game_factory: H160,
-			/// The respected dispute game types
-			respected_game_types: Vec<u32>,
+			/// Per-game-type verification configuration
+			game_type_configs: Vec<GameTypeConfig>,
 		},
 	}
 
@@ -105,23 +116,24 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Sets the new dispute game factory with respected game types for a state machine
+		/// Sets the new dispute game factory with per-game-type verification configuration for a
+		/// state machine.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
 		pub fn set_dispute_game_factories(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
 			dispute_game_factory: H160,
-			respected_game_types: Vec<u32>,
+			game_type_configs: Vec<GameTypeConfig>,
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
 			StateMachinesDisputeGameFactoriesTypes::<T>::mutate(state_machine_id, |maybe_entry| {
-				if let Some((factory, game_types)) = maybe_entry {
+				if let Some((factory, configs)) = maybe_entry {
 					*factory = dispute_game_factory;
-					*game_types = respected_game_types.clone();
+					*configs = game_type_configs.clone();
 				} else {
-					*maybe_entry = Some((dispute_game_factory, respected_game_types.clone()));
+					*maybe_entry = Some((dispute_game_factory, game_type_configs.clone()));
 				}
 			});
 
@@ -130,7 +142,7 @@ pub mod pallet {
 			Self::deposit_event(Event::<T>::StateMachinesDisputeGameFactoryTypes {
 				state_machine_id,
 				dispute_game_factory,
-				respected_game_types,
+				game_type_configs,
 			});
 
 			Ok(())

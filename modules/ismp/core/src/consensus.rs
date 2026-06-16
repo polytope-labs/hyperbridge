@@ -20,7 +20,6 @@ use crate::{
 	host::{IsmpHost, StateMachine},
 	messaging::{Proof, StateCommitmentHeight},
 	prelude::Vec,
-	router::RequestResponse,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -47,6 +46,7 @@ pub type ConsensusClientId = [u8; 4];
 	PartialEq,
 	Hash,
 	Eq,
+	Default,
 	serde::Deserialize,
 	serde::Serialize,
 )]
@@ -161,26 +161,51 @@ pub trait ConsensusClient {
 }
 
 /// A state machine client. An abstraction for the mechanism of state proof verification for state
-/// machines
+/// machines.
+///
+/// All trie-key derivation methods take `Vec<H256>` request commitment hashes rather than the
+/// full request/response objects. Callers compute the commitment via `hash_request` at the
+/// boundary so the trait stays agnostic to ISMP message types and just maps commitment hashes
+/// onto the per-chain storage layout.
 pub trait StateMachineClient {
-	/// Verify the overlay membership proof of a batch of requests/responses.
+	/// Verify the overlay membership proof of a batch of request commitments against `root`.
 	fn verify_membership(
 		&self,
 		host: &dyn IsmpHost,
-		item: RequestResponse,
+		commitments: Vec<H256>,
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<(), Error>;
 
-	/// Transform the requests/responses into the underlying storage key in the state trie.
-	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+	/// Storage trie key for a request commitment (source-chain `RequestCommitments` slot).
+	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
 
-	/// Verify the state of proof of some arbitrary data. Should return the verified data
+	/// Storage trie key for a request delivery receipt (destination-chain `RequestReceipts` slot).
+	/// Used by the timeout handler to prove non-delivery.
+	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>>;
+
+	/// Verify that none of the given request commitments appear as receipts in the chain's
+	/// ISMP-scoped storage at the given state commitment. Implementations must bind the proof
+	/// to the ISMP-scoped storage root for that chain.
+	fn verify_non_membership(
+		&self,
+		host: &dyn IsmpHost,
+		commitments: Vec<H256>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error>;
+
+	/// Verify the state of proof of some arbitrary data. Should return the verified data.
+	///
+	/// The caller passes the concrete trie `root` the proof must be verified against, rather
+	/// than the full [`StateCommitment`]. This ensures the root is bound to the calling
+	/// context (e.g. the global state trie for GET responses, the ISMP child trie for relayer
+	/// fee accumulation) and cannot be selected by a relayer-supplied proof.
 	fn verify_state_proof(
 		&self,
 		host: &dyn IsmpHost,
 		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
+		root: H256,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>;
 }

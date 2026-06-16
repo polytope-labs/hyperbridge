@@ -1,0 +1,55 @@
+[package]
+name = "ismp-abi"
+version = "0.1.1"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Generated rust types for the ISMP solidity ABI"
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+
+[dependencies]
+primitive-types = { workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false }
+
+alloy-sol-types = { workspace = true, default-features = false }
+alloy-sol-macro = { workspace = true }
+alloy-primitives = { workspace = true, default-features = false }
+
+# RPC / contract bindings — std-only.
+alloy-contract = { workspace = true, optional = true }
+alloy-provider = { workspace = true, optional = true }
+alloy-network = { workspace = true, optional = true }
+alloy-transport = { workspace = true, optional = true }
+
+beefy-verifier-primitives = { workspace = true, default-features = false }
+
+# SCALE codec for the host-params SCALE representation that lives alongside the
+# ABI types so the cross-language conversion impls have a single home.
+codec = { workspace = true }
+scale-info = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = false
+features = ["sp-consensus-beefy", "sp-mmr-primitives", "frame-support", "sp-runtime"]
+
+[features]
+default = ["std"]
+std = [
+    "dep:alloy-contract",
+    "dep:alloy-provider",
+    "dep:alloy-network",
+    "dep:alloy-transport",
+    "anyhow/std",
+    "primitive-types/std",
+    "alloy-sol-types/std",
+    "alloy-primitives/std",
+    "beefy-verifier-primitives/std",
+    "polkadot-sdk/std",
+    "codec/std",
+    "scale-info/std",
+]
+# Generated bindings for Solidity test-only helper contracts (e.g. BeefyConsensusClientTest).
+# Off by default so production builds don't pull in test-harness ABIs.
+test-helpers = []

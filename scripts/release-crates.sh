@@ -4,7 +4,6 @@ cargo release \
 -p serde-hex-utils \
 -p crypto-utils \
 -p ismp \
--p pallet-hyperbridge \
 -p pallet-ismp \
 -p pallet-ismp-runtime-api \
 -p pallet-ismp-rpc \
@@ -14,7 +13,5 @@ cargo release \
 -p grandpa-verifier \
 -p ismp-grandpa \
 -p ismp-parachain-runtime-api \
--p ismp-parachain-inherent \
--p token-gateway-primitives \
--p pallet-token-gateway \
+-p pallet-hyper-fungible-token \
 --execute

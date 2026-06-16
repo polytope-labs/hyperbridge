@@ -16,6 +16,8 @@ import {
 
 type GatewayParamsObject = { protocolFeeBps?: bigint | number | string }
 type GatewayParams = GatewayParamsObject | readonly unknown[]
+export const UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS = 30n
+const BPS_DENOMINATOR = 10_000n
 
 interface ResolvedPoolConfig {
 	poolKey: UniswapV4PoolKey
@@ -172,7 +174,10 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
 		const amountIn = args.params.amountIn!
-		const amountOut = await this.readV4QuoteExactInput(args.client, args.poolConfig, amountIn)
+		const amountOut = applyUniswapIntentQuoteSlippage(
+			await this.readV4QuoteExactInput(args.client, args.poolConfig, amountIn),
+			"EXACT_INPUT",
+		)
 
 		return {
 			strategy: "uniswap_v4",
@@ -182,6 +187,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			quoteMetadata: {
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
+				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 				protocolFeeBps: args.protocolFeeBps,
 			},
 		}
@@ -194,7 +200,10 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
 		const amountOut = args.params.amountOut!
-		const amountIn = await this.readV4QuoteExactOutput(args.client, args.poolConfig, amountOut)
+		const amountIn = applyUniswapIntentQuoteSlippage(
+			await this.readV4QuoteExactOutput(args.client, args.poolConfig, amountOut),
+			"EXACT_OUTPUT",
+		)
 
 		return {
 			strategy: "uniswap_v4",
@@ -204,6 +213,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			quoteMetadata: {
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
+				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 				protocolFeeBps: args.protocolFeeBps,
 			},
 		}
@@ -313,4 +323,19 @@ function getZeroForOne(tokenIn: HexString, poolKey: UniswapV4PoolKey): boolean {
 
 function isGatewayParamsTuple(value: GatewayParams): value is readonly unknown[] {
 	return Array.isArray(value)
+}
+
+export function applyUniswapIntentQuoteSlippage(
+	amount: bigint,
+	tradeType: "EXACT_INPUT" | "EXACT_OUTPUT",
+): bigint {
+	if (tradeType === "EXACT_INPUT") {
+		return (amount * (BPS_DENOMINATOR - UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS)) / BPS_DENOMINATOR
+	}
+
+	return divCeil(amount * (BPS_DENOMINATOR + UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS), BPS_DENOMINATOR)
+}
+
+function divCeil(numerator: bigint, denominator: bigint): bigint {
+	return (numerator + denominator - 1n) / denominator
 }

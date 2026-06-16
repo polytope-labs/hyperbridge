@@ -201,17 +201,11 @@ const quote = await gateway.quoteIntent({
 
 When source and destination chains differ, also pass `currencyIn` inside the `poolKey` override — the destination-side address of the input currency. It defaults to `tokenIn.address`, which is only valid for same-chain quotes, and must equal `currency0` or `currency1`.
 
-The result includes `amountIn`, `amountOut`, and quote metadata with the V4 PoolKey, quoter address, and the IntentGateway protocol fee on the source chain.
+The result includes `amountIn`, `amountOut`, and quote metadata with the V4 PoolKey, quoter address, the Uniswap slippage bps applied by the SDK, and the IntentGateway protocol fee on the source chain.
 
-`amountIn` and `amountOut` are the raw amounts returned by the Uniswap V4 quoter — no slippage tolerance or protocol fee adjustments are applied. Before constructing the order, apply your own slippage tolerance and account for `quoteMetadata.protocolFeeBps`, which the gateway deducts from order inputs:
+`amountIn` and `amountOut` include the SDK's 30 bps Uniswap slippage adjustment: exact-input quotes return a reduced `amountOut`, while exact-output quotes return an increased `amountIn`. Before constructing the order, account for `quoteMetadata.protocolFeeBps`, which the gateway deducts from order inputs:
 
 ```typescript lineNumbers
-const SLIPPAGE_BPS = 30n
-
-// Exact input: reduce the quoted output by your slippage tolerance
-const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n
-
-// And remember the solver only receives the post-fee input
 const { protocolFeeBps } = quote.quoteMetadata
 const solverReceives = (quote.amountIn * (10_000n - protocolFeeBps)) / 10_000n
 ```

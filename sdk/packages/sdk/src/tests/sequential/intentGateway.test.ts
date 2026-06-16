@@ -5,6 +5,10 @@ import type { PublicClient } from "viem"
 import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import {
+	applyUniswapIntentQuoteSlippage,
+	UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
+} from "@/protocols/intents/quote/uniswapV4"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
 
@@ -55,6 +59,13 @@ describe("Uniswap quote helper", () => {
 
 describe("Intent quote helper", () => {
 	const BASE_CHAIN = "EVM-8453"
+
+	it("applies the built-in Uniswap slippage buffer conservatively", () => {
+		assert.equal(UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS, 30n)
+		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_INPUT"), 997_000n)
+		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_OUTPUT"), 1_003_000n)
+		assert.equal(applyUniswapIntentQuoteSlippage(1n, "EXACT_OUTPUT"), 2n)
+	})
 
 	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {
 		const configService = new ChainConfigService()

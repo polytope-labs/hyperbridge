@@ -102,13 +102,13 @@ triggerPercentage = 0.5
 #      Size `threshold` to cover working fill float plus gas/paymaster spend.
 #   3. Shutdown: vault positions are redeemed back to the underlying asset.
 # Omit `threshold` on a vault to source-only (no sweeping) for that token.
-# Set `redeemOnShutdown = false` to keep a position across restarts (default true).
+# Positions are kept across restarts by default; set `redeemOnShutdown = true` to unwind on stop.
 #
 # [vault]
 # sweepIntervalMs = 300000   # optional, default 5 min
 # vaults = [
-#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                                          # Aave stataUSDC on Base
-#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10", redeemOnShutdown = false }, # Aave stataUSDT on Arbitrum, kept across restarts
+#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                                         # Aave stataUSDC on Base
+#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10", redeemOnShutdown = true }, # Aave stataUSDT on Arbitrum, unwound on shutdown
 # ]
 
 # Allowlist configuration (optional)

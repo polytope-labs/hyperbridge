@@ -142,8 +142,8 @@ export interface VaultConfig {
 	minSweep?: string
 	/**
 	 * Whether to redeem this vault's position back to the underlying asset on
-	 * shutdown. Defaults to true (positions are unwound). Set false to keep the
-	 * position across restarts.
+	 * shutdown. Defaults to false (the position is kept across restarts). Set
+	 * true to unwind it back to the underlying on stop.
 	 */
 	redeemOnShutdown?: boolean
 }

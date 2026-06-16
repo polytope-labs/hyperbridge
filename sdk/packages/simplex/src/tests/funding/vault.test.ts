@@ -320,7 +320,7 @@ describe("VaultFundingPlanner.redeemAll", () => {
 	it("redeems the full share balance from every vault", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: 0n },
-			[{ vault: VAULT_USDC, threshold: "3000" }],
+			[{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true }],
 			{ [VAULT_USDC.toLowerCase()]: u("5000") },
 		)
 		await planner.initialise(SOLVER)
@@ -333,7 +333,7 @@ describe("VaultFundingPlanner.redeemAll", () => {
 	it("does nothing when no vault holds shares", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: 0n },
-			[{ vault: VAULT_USDC, threshold: "3000" }],
+			[{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true }],
 			{ [VAULT_USDC.toLowerCase()]: 0n },
 		)
 		await planner.initialise(SOLVER)

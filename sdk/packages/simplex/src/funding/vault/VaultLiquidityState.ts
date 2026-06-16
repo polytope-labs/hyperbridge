@@ -86,7 +86,7 @@ export class VaultLiquidityState {
 				decimals,
 				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
 				minSweepScaled: parseUnits(cfg.minSweep ?? DEFAULT_MIN_SWEEP, decimals),
-				redeemOnShutdown: cfg.redeemOnShutdown ?? true,
+				redeemOnShutdown: cfg.redeemOnShutdown ?? false,
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
 				remaining: 0n,

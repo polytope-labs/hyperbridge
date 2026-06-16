@@ -1,7 +1,7 @@
 import Decimal from "decimal.js"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
-import { DustCollected } from "@/configs/src/types/models/DustCollected"
-import { DustSwept } from "@/configs/src/types/models/DustSwept"
+import { ProtocolDustCollected } from "@/configs/src/types/models/ProtocolDustCollected"
+import { ProtocolDustSwept } from "@/configs/src/types/models/ProtocolDustSwept"
 import { timestampToDate } from "@/utils/date.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
@@ -16,7 +16,7 @@ export class ProtocolRevenueService {
 		tokenAddress: string,
 		amount: bigint,
 		timestamp: bigint,
-	): Promise<DustCollected> {
+	): Promise<ProtocolDustCollected> {
 		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
 
@@ -35,10 +35,10 @@ export class ProtocolRevenueService {
 			}
 		}
 
-		let dustCollected = await DustCollected.get(id)
+		let dustCollected = await ProtocolDustCollected.get(id)
 
 		if (!dustCollected) {
-			dustCollected = await DustCollected.create({
+			dustCollected = await ProtocolDustCollected.create({
 				id,
 				chain,
 				tokenSymbol: symbol,
@@ -71,7 +71,7 @@ export class ProtocolRevenueService {
 		tokenAddress: string,
 		amount: bigint,
 		timestamp: bigint,
-	): Promise<DustSwept> {
+	): Promise<ProtocolDustSwept> {
 		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
 
@@ -90,10 +90,10 @@ export class ProtocolRevenueService {
 			}
 		}
 
-		let dustSwept = await DustSwept.get(id)
+		let dustSwept = await ProtocolDustSwept.get(id)
 
 		if (!dustSwept) {
-			dustSwept = await DustSwept.create({
+			dustSwept = await ProtocolDustSwept.create({
 				id,
 				chain,
 				tokenSymbol: symbol,

@@ -1719,7 +1719,7 @@ type UserActivityV2 @entity {
 """
 Represents dust collected by the protocol
 """
-type DustCollected @entity {
+type ProtocolDustCollected @entity {
 	"""
 	Unique identifier: chain-tokenAddress
 	"""
@@ -1749,7 +1749,7 @@ type DustCollected @entity {
 """
 Represents dust swept by the protocol
 """
-type DustSwept @entity {
+type ProtocolDustSwept @entity {
 	"""
 	Unique identifier: chain-tokenAddress
 	"""

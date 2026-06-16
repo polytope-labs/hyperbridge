@@ -100,14 +100,15 @@ triggerPercentage = 0.5
 #      from the solver's vault position (atomic with the fill).
 #   2. Sweeping: a timer deposits wallet balance above `threshold` into the vault.
 #      Size `threshold` to cover working fill float plus gas/paymaster spend.
-#   3. Shutdown: all vault positions are redeemed back to the underlying asset.
+#   3. Shutdown: vault positions are redeemed back to the underlying asset.
 # Omit `threshold` on a vault to source-only (no sweeping) for that token.
+# Set `redeemOnShutdown = false` to keep a position across restarts (default true).
 #
 # [vault]
 # sweepIntervalMs = 300000   # optional, default 5 min
 # vaults = [
-#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                 # Aave stataUSDC on Base
-#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10" }, # Aave stataUSDT on Arbitrum
+#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                                          # Aave stataUSDC on Base
+#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10", redeemOnShutdown = false }, # Aave stataUSDT on Arbitrum, kept across restarts
 # ]
 
 # Allowlist configuration (optional)

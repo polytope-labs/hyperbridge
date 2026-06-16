@@ -140,6 +140,12 @@ export interface VaultConfig {
 	 * skipped so gas never exceeds the value moved. Defaults to a small floor.
 	 */
 	minSweep?: string
+	/**
+	 * Whether to redeem this vault's position back to the underlying asset on
+	 * shutdown. Defaults to true (positions are unwound). Set false to keep the
+	 * position across restarts.
+	 */
+	redeemOnShutdown?: boolean
 }
 
 /**
@@ -155,6 +161,8 @@ export interface HydratedVault {
 	thresholdScaled: bigint | null
 	/** Dust guard scaled to token units. */
 	minSweepScaled: bigint
+	/** Whether shutdown redeems this position back to the underlying asset. */
+	redeemOnShutdown: boolean
 
 	// --- live state (updated on refresh) ---
 	/** Solver's position in asset terms (`previewRedeem(balanceOf(solver))`). */

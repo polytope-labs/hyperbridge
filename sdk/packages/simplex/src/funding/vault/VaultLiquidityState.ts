@@ -12,6 +12,15 @@ const logger = getLogger("vault-state")
 const DEFAULT_MIN_SWEEP = "10"
 
 /**
+ * Backstop expiry for a reservation whose bid never executes (lost auction,
+ * abandoned) — without it, `remaining` would drift to 0 and disable sourcing.
+ * Won bids release immediately via position-decrease reconciliation in
+ * {@link refresh}, so this only needs to exceed plan→execute latency (~15s
+ * auction + settlement); expiring too early risks an oversubscribed withdraw.
+ */
+const RESERVATION_TTL_MS = 30_000
+
+/**
  * Long-lived vault (ERC-4626) liquidity state for one destination chain.
  *
  * Each configured vault maps its underlying asset (e.g. USDC) to the solver's
@@ -26,9 +35,14 @@ export class VaultLiquidityState {
 	/** Keyed by underlying asset address, lowercased. */
 	private vaults = new Map<string, HydratedVault>()
 	private hydrated = false
-	/** Per-asset amount reserved for in-flight fills this round, lowercased key. */
-	private consumed = new Map<string, bigint>()
-	/** Last observed position in asset terms, used to reconcile `consumed`. */
+	/**
+	 * Per-asset reservations for planned-but-unexecuted withdrawals, lowercased
+	 * key. Each reservation auto-expires after {@link RESERVATION_TTL_MS} so a
+	 * lost bid's reservation cannot accumulate and starve `remaining`.
+	 */
+	private reservations = new Map<string, { amount: bigint; expiresAt: number }[]>()
+	/** Last observed position in asset terms, used to release reservations once
+	 * their withdrawal actually executes on-chain (the position drops). */
 	private lastPositionAssets = new Map<string, bigint>()
 
 	constructor(
@@ -72,6 +86,7 @@ export class VaultLiquidityState {
 				decimals,
 				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
 				minSweepScaled: parseUnits(cfg.minSweep ?? DEFAULT_MIN_SWEEP, decimals),
+				redeemOnShutdown: cfg.redeemOnShutdown ?? true,
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
 				remaining: 0n,
@@ -131,17 +146,22 @@ export class VaultLiquidityState {
 				}) as Promise<bigint>,
 			])
 
-			// Reconcile consumed against realised position decrease.
+			// A drop in the on-chain position means a planned withdrawal has
+			// executed — release that much reservation immediately (oldest first)
+			// so the freed liquidity is available to the next fill without waiting
+			// for the TTL. The TTL only backstops bids that never execute.
 			const prevPosition = this.lastPositionAssets.get(key) ?? positionAssets
 			const decrease = prevPosition > positionAssets ? prevPosition - positionAssets : 0n
-			const prevConsumed = this.consumed.get(key) ?? 0n
-			const newConsumed = prevConsumed > decrease ? prevConsumed - decrease : 0n
-			this.consumed.set(key, newConsumed)
+			this.releaseReserved(key, decrease)
 			this.lastPositionAssets.set(key, positionAssets)
+
+			// Subtract only live reservations; expired ones (e.g. from lost bids)
+			// are pruned so they can never permanently shrink `remaining`.
+			const reserved = this.reservedFor(key)
 
 			v.positionAssets = positionAssets
 			v.maxWithdrawable = maxWithdrawable
-			v.remaining = maxWithdrawable > newConsumed ? maxWithdrawable - newConsumed : 0n
+			v.remaining = maxWithdrawable > reserved ? maxWithdrawable - reserved : 0n
 
 			logger.debug(
 				{
@@ -150,7 +170,7 @@ export class VaultLiquidityState {
 					asset: v.asset,
 					positionAssets: positionAssets.toString(),
 					maxWithdrawable: maxWithdrawable.toString(),
-					consumed: newConsumed.toString(),
+					reserved: reserved.toString(),
 					remaining: v.remaining.toString(),
 				},
 				"Vault refreshed",
@@ -182,10 +202,48 @@ export class VaultLiquidityState {
 
 	consume(asset: string, amount: bigint): void {
 		const key = asset.toLowerCase()
+		const list = this.reservations.get(key) ?? []
+		list.push({ amount, expiresAt: Date.now() + RESERVATION_TTL_MS })
+		this.reservations.set(key, list)
+
 		const v = this.vaults.get(key)
 		if (v) {
 			v.remaining = v.remaining > amount ? v.remaining - amount : 0n
 		}
-		this.consumed.set(key, (this.consumed.get(key) ?? 0n) + amount)
+	}
+
+	/**
+	 * Removes up to `amount` of reservations (oldest first) to reflect a realised
+	 * on-chain position decrease — i.e. a planned withdrawal that has executed.
+	 */
+	private releaseReserved(key: string, amount: bigint): void {
+		if (amount <= 0n) return
+		const list = this.reservations.get(key)
+		if (!list || list.length === 0) return
+
+		let toRelease = amount
+		while (toRelease > 0n && list.length > 0) {
+			const head = list[0]
+			if (head.amount <= toRelease) {
+				toRelease -= head.amount
+				list.shift()
+			} else {
+				head.amount -= toRelease
+				toRelease = 0n
+			}
+		}
+		this.reservations.set(key, list)
+	}
+
+	/** Sum of unexpired reservations for `key`, pruning expired ones in place. */
+	private reservedFor(key: string): bigint {
+		const list = this.reservations.get(key)
+		if (!list || list.length === 0) return 0n
+
+		const now = Date.now()
+		const live = list.filter((r) => r.expiresAt > now)
+		if (live.length !== list.length) this.reservations.set(key, live)
+
+		return live.reduce((sum, r) => sum + r.amount, 0n)
 	}
 }

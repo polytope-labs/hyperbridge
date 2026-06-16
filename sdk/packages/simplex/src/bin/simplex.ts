@@ -89,6 +89,7 @@ interface VaultToml {
 	vault: HexString
 	threshold?: string
 	minSweep?: string
+	redeemOnShutdown?: boolean
 }
 
 /** Top-level vault config: shared by the withdraw venue and the sweep timer. */
@@ -237,7 +238,7 @@ interface FillerTomlConfig {
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
 	/** Filler-wide vault config: stablecoin sourcing for fills + threshold sweeping. */
-	erc4626?: VaultTomlConfig
+	vault?: VaultTomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
 }
@@ -364,19 +365,20 @@ program
 			// Build the shared vault venue (withdraw sourcing + threshold sweeping).
 			// A single instance is shared across strategies and the sweep timer.
 			let vaultVenue: VaultFundingPlanner | undefined
-			if (config.erc4626?.vaults?.length) {
+			if (config.vault?.vaults?.length) {
 				const vaultsByChain: Record<string, VaultConfig[]> = {}
-				for (const row of config.erc4626.vaults) {
+				for (const row of config.vault.vaults) {
 					if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
 					vaultsByChain[row.chain].push({
 						vault: row.vault,
 						threshold: row.threshold,
 						minSweep: row.minSweep,
+						redeemOnShutdown: row.redeemOnShutdown,
 					})
 				}
 				vaultVenue = new VaultFundingPlanner(chainClientManager, {
 					vaultsByChain,
-					sweepIntervalMs: config.erc4626.sweepIntervalMs,
+					sweepIntervalMs: config.vault.sweepIntervalMs,
 				})
 			}
 
@@ -414,6 +416,13 @@ program
 						}
 						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
+						// Vault first: source stablecoins from the idle-yield treasury before
+						// draining a V4 LP position (which also pulls the paired exotic and
+						// perturbs the pool used for exotic pricing). V4 then covers the
+						// exotic legs and any stablecoin the vault can't fully fund.
+						if (vaultVenue) {
+							fundingVenues.push(vaultVenue)
+						}
 						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
 							for (const row of strategyConfig.vault.uniswapV4.positions) {
@@ -431,9 +440,6 @@ program
 									strategyConfig.spreadBps,
 								),
 							)
-						}
-						if (vaultVenue) {
-							fundingVenues.push(vaultVenue)
 						}
 						return new FXFiller(
 							runtimeSigner,
@@ -641,8 +647,8 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 	}
 
-	if (config.erc4626?.vaults?.length) {
-		VaultFundingPlanner.validateConfig(config.erc4626.vaults)
+	if (config.vault?.vaults?.length) {
+		VaultFundingPlanner.validateConfig(config.vault.vaults)
 	}
 
 	// Validate strategies

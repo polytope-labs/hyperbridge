@@ -71,6 +71,7 @@ function makeSweepPlanner(
 	wallet: Record<string, bigint>,
 	vaults: VaultOutputFundingConfig["vaultsByChain"][string],
 	shares: Record<string, bigint> = {},
+	maxDeposit = 10_000_000_000n,
 ) {
 	const sendTransaction = vi.fn(async (_tx: { to: HexString; data: HexString; value: bigint }) => "0xtx" as HexString)
 
@@ -87,6 +88,7 @@ function makeSweepPlanner(
 			if (functionName === "asset") return assetOf[address.toLowerCase()]
 			if (functionName === "decimals") return 6
 			if (functionName === "maxWithdraw") return 10_000_000_000n
+			if (functionName === "maxDeposit") return maxDeposit
 			// Shares are 1:1 with assets in this mock.
 			if (functionName === "previewRedeem") return args?.[0] as bigint
 			if (functionName === "balanceOf") {
@@ -171,6 +173,47 @@ describe("VaultFundingPlanner", () => {
 		expect(second.credited).toBe(100_000n)
 	})
 
+	it("releases a reservation as soon as the on-chain position drops (back-to-back fills)", async () => {
+		const balances = { positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n }
+		const planner = makeWithdrawPlanner(balances)
+		await planner.initialise(SOLVER)
+
+		const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
+		expect(first.credited).toBe(300_000n)
+
+		// The planned withdrawal executes on-chain: position drops by 300k.
+		balances.positionAssets = 700_000n
+		balances.maxWithdrawable = 700_000n
+
+		// Next fill sees the full 700k — the reservation was reconciled away by the
+		// position drop, not left to linger until the TTL (which would show 400k).
+		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 700_000n)
+		expect(second.credited).toBe(700_000n)
+	})
+
+	it("frees reservations after the TTL so lost bids don't starve sourcing", async () => {
+		vi.useFakeTimers()
+		try {
+			const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
+			await planner.initialise(SOLVER)
+
+			const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
+			expect(first.credited).toBe(300_000n)
+
+			// Same round: the 300k reservation still holds liquidity back.
+			const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
+			expect(second.credited).toBe(100_000n)
+
+			// Neither bid is won (no on-chain withdrawal). After the TTL the
+			// reservations expire and the full position is sourceable again.
+			await vi.advanceTimersByTimeAsync(61_000)
+			const third = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
+			expect(third.credited).toBe(300_000n)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it("returns null for exotic-token pricing (stable-only venue)", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 1n, maxWithdrawable: 1n })
 		await planner.initialise(SOLVER)
@@ -227,6 +270,37 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 
+	it("clamps the deposit to the vault's maxDeposit cap", async () => {
+		// Wallet excess is 5000 USDC but the vault only accepts 1000 more.
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{ [USDC.toLowerCase()]: u("8000") },
+			[{ vault: VAULT_USDC, threshold: "3000" }],
+			{},
+			u("1000"),
+		)
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+		const data = sendTransaction.mock.calls[0][0].data
+		// The deposit leg should encode 1000, not the full 5000 excess.
+		expect(data.toLowerCase()).toContain(u("1000").toString(16))
+	})
+
+	it("skips the sweep when maxDeposit headroom is below minSweep", async () => {
+		// Excess clears minSweep but the cap leaves only 5 USDC of headroom.
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{ [USDC.toLowerCase()]: u("8000") },
+			[{ vault: VAULT_USDC, threshold: "3000" }],
+			{},
+			u("5"),
+		)
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
 	it("batches both vaults' excess into a single transaction", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: u("5000"), [USDT.toLowerCase()]: u("4000") },
@@ -261,6 +335,18 @@ describe("VaultFundingPlanner.redeemAll", () => {
 			{ [USDC.toLowerCase()]: 0n },
 			[{ vault: VAULT_USDC, threshold: "3000" }],
 			{ [VAULT_USDC.toLowerCase()]: 0n },
+		)
+		await planner.initialise(SOLVER)
+		await planner.redeemAll()
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("does not redeem a vault flagged redeemOnShutdown = false", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{ [USDC.toLowerCase()]: 0n },
+			[{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: false }],
+			{ [VAULT_USDC.toLowerCase()]: u("5000") },
 		)
 		await planner.initialise(SOLVER)
 		await planner.redeemAll()

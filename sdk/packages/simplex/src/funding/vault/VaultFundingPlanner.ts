@@ -28,7 +28,7 @@ const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000
  * exotic tokens: {@link getExoticTokenPrice} always returns null.
  */
 export class VaultFundingPlanner implements FundingVenue {
-	name = "Erc4626"
+	name = "Vault"
 	private stateByChain = new Map<string, VaultLiquidityState>()
 	private mutexByChain = new Map<string, Mutex>()
 	/** Per-chain mutex serialising sweeps so a slow supply tx can't overlap the next tick. */
@@ -45,7 +45,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * Validates raw TOML vault entries before constructing the planner.
 	 * Throws on missing/invalid required fields.
 	 */
-	static validateConfig(vaults: { chain?: string; vault?: string; threshold?: string; minSweep?: string }[]): void {
+	static validateConfig(
+		vaults: { chain?: string; vault?: string; threshold?: string; minSweep?: string; redeemOnShutdown?: boolean }[],
+	): void {
 		const positiveNumber = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0
 		for (const v of vaults) {
 			if (!v.chain?.trim()) {
@@ -231,13 +233,28 @@ export class VaultFundingPlanner implements FundingVenue {
 				const excess = walletBalance > vault.thresholdScaled ? walletBalance - vault.thresholdScaled : 0n
 				if (excess < vault.minSweepScaled) continue
 
+				// Clamp to the vault's deposit cap — ERC-4626 requires deposit to
+				// revert when assets > maxDeposit(receiver) (e.g. an Aave stataToken
+				// at its supply cap, or a paused market). Without this the sweep tx
+				// reverts every tick once the cap is hit. `excess` is read here and
+				// deposited in a later tx; if a fill consumes wallet balance in the
+				// interim the batch reverts atomically, leaving no stale allowance.
+				const maxDeposit = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: vault.vault,
+					functionName: "maxDeposit",
+					args: [solver],
+				})) as bigint
+				const depositAmount = excess < maxDeposit ? excess : maxDeposit
+				if (depositAmount < vault.minSweepScaled) continue
+
 				calls.push({
 					target: vault.asset,
 					value: 0n,
 					data: encodeFunctionData({
 						abi: ERC20_ABI,
 						functionName: "approve",
-						args: [vault.vault, excess],
+						args: [vault.vault, depositAmount],
 					}) as HexString,
 				})
 				calls.push({
@@ -246,12 +263,12 @@ export class VaultFundingPlanner implements FundingVenue {
 					data: encodeFunctionData({
 						abi: ERC4626_ABI,
 						functionName: "deposit",
-						args: [excess, solver],
+						args: [depositAmount, solver],
 					}) as HexString,
 				})
 
 				logger.info(
-					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString() },
+					{ chain, vault: vault.vault, asset: vault.asset, excess: excess.toString(), depositAmount: depositAmount.toString() },
 					"Vault sweeping excess in",
 				)
 			}
@@ -300,6 +317,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			const calls: ERC7821Call[] = []
 
 			for (const vault of state.allVaults()) {
+				if (!vault.redeemOnShutdown) continue // operator opted to keep this position
+
 				const shares = (await publicClient.readContract({
 					abi: ERC20_ABI,
 					address: vault.vault,

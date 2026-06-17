@@ -1777,6 +1777,56 @@ type ProtocolDustSwept @entity {
 }
 
 """
+Cumulative dust collected per chain, denominated in USD
+"""
+type CumulativeDustCollectedPerChain @entity {
+	"""
+	Unique identifier: chain
+	"""
+	id: ID!
+
+	"""
+	Host state machine
+	"""
+	chain: String! @index
+
+	"""
+	Cumulative dust collected in USD, scaled by 1e18 (18-decimal fixed-point integer)
+	"""
+	amountUSD: BigInt!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+}
+
+"""
+Cumulative dust swept per chain, denominated in USD
+"""
+type CumulativeDustSweptPerChain @entity {
+	"""
+	Unique identifier: chain
+	"""
+	id: ID!
+
+	"""
+	Host state machine
+	"""
+	chain: String! @index
+
+	"""
+	Cumulative dust swept in USD, scaled by 1e18 (18-decimal fixed-point integer)
+	"""
+	amountUSD: BigInt!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+}
+
+"""
 Collator rewards indexed from treasury transfers to block authors
 """
 type HyperbridgeCollatorReward @entity {

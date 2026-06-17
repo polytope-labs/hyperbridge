@@ -2,10 +2,16 @@ import Decimal from "decimal.js"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
 import { ProtocolDustCollected } from "@/configs/src/types/models/ProtocolDustCollected"
 import { ProtocolDustSwept } from "@/configs/src/types/models/ProtocolDustSwept"
+import { CumulativeDustCollectedPerChain } from "@/configs/src/types/models/CumulativeDustCollectedPerChain"
+import { CumulativeDustSweptPerChain } from "@/configs/src/types/models/CumulativeDustSweptPerChain"
 import { timestampToDate } from "@/utils/date.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
+
+/** Decimal places used for the BigInt fixed-point representation of USD amounts. */
+const USD_SCALE = 18
+const USD_SCALE_FACTOR = new Decimal(10).pow(USD_SCALE)
 
 export class ProtocolRevenueService {
 	/**
@@ -19,12 +25,14 @@ export class ProtocolRevenueService {
 	): Promise<ProtocolDustCollected> {
 		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
+		let decimals = 18
 
-		// Get token symbol if not native token
+		// Get token symbol and decimals if not native token
 		if (tokenAddress.toLowerCase() !== "0x0000000000000000000000000000000000000000") {
 			try {
 				const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
 				symbol = await tokenContract.symbol()
+				decimals = await tokenContract.decimals()
 			} catch (error) {
 				logger.warn(
 					`Failed to get symbol for token ${tokenAddress}: ${stringify({
@@ -52,6 +60,23 @@ export class ProtocolRevenueService {
 
 		await dustCollected.save()
 
+		const usdDelta = await this.computeDustUsdDelta(chain, symbol, amount, decimals)
+		if (usdDelta && usdDelta > 0n) {
+			let cumulative = await CumulativeDustCollectedPerChain.get(chain)
+			if (!cumulative) {
+				cumulative = CumulativeDustCollectedPerChain.create({
+					id: chain,
+					chain,
+					amountUSD: usdDelta,
+					lastUpdatedAt: timestamp,
+				})
+			} else {
+				cumulative.amountUSD = cumulative.amountUSD + usdDelta
+				cumulative.lastUpdatedAt = timestamp
+			}
+			await cumulative.save()
+		}
+
 		logger.info(
 			`DustCollected recorded: ${stringify({
 				id,
@@ -74,12 +99,14 @@ export class ProtocolRevenueService {
 	): Promise<ProtocolDustSwept> {
 		const id = `${chain}-${tokenAddress.toLowerCase()}`
 		let symbol = "eth"
+		let decimals = 18
 
-		// Get token symbol if not native token
+		// Get token symbol and decimals if not native token
 		if (tokenAddress.toLowerCase() !== "0x0000000000000000000000000000000000000000") {
 			try {
 				const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
 				symbol = await tokenContract.symbol()
+				decimals = await tokenContract.decimals()
 			} catch (error) {
 				logger.warn(
 					`Failed to get symbol for token ${tokenAddress}: ${stringify({
@@ -107,6 +134,23 @@ export class ProtocolRevenueService {
 
 		await dustSwept.save()
 
+		const usdDelta = await this.computeDustUsdDelta(chain, symbol, amount, decimals)
+		if (usdDelta && usdDelta > 0n) {
+			let cumulative = await CumulativeDustSweptPerChain.get(chain)
+			if (!cumulative) {
+				cumulative = CumulativeDustSweptPerChain.create({
+					id: chain,
+					chain,
+					amountUSD: usdDelta,
+					lastUpdatedAt: timestamp,
+				})
+			} else {
+				cumulative.amountUSD = cumulative.amountUSD + usdDelta
+				cumulative.lastUpdatedAt = timestamp
+			}
+			await cumulative.save()
+		}
+
 		logger.info(
 			`DustSwept recorded: ${stringify({
 				id,
@@ -116,5 +160,28 @@ export class ProtocolRevenueService {
 		)
 
 		return dustSwept
+	}
+
+	/**
+	 * Convert a newly-collected/swept token amount to a scaled-1e18 USD bigint.
+	 * Returns null when no price data is available (testnet, non-whitelisted, or
+	 * unavailable), so the caller can skip the USD rollup for that token.
+	 */
+	private static async computeDustUsdDelta(
+		chain: string,
+		symbol: string,
+		amount: bigint,
+		decimals: number,
+	): Promise<bigint | null> {
+		const price = await TokenPriceService.getPrice(symbol)
+		if (!price || new Decimal(price).isZero()) {
+			logger.warn(
+				`[ProtocolRevenueService] Skipping USD rollup for ${symbol} on ${chain}: no price data`,
+			)
+			return null
+		}
+
+		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price)
+		return BigInt(new Decimal(amountValueInUSD).mul(USD_SCALE_FACTOR).toFixed(0))
 	}
 }

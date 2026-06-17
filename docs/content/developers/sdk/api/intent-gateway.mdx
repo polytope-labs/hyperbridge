@@ -155,7 +155,7 @@ for await (const update of gen) {
 
 ### quoteIntent(params)
 
-Quotes an intent between the gateway's source and destination chains using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, but the method is strategy-shaped so future quote sources can be added without changing partner integrations.
+Quotes an intent using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, which always prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain. The method is strategy-shaped so future quote sources can be added without changing partner integrations.
 
 Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
 
@@ -199,9 +199,9 @@ const quote = await gateway.quoteIntent({
 })
 ```
 
-When source and destination chains differ, also pass `currencyIn` inside the `poolKey` override — the destination-side address of the input currency. It defaults to `tokenIn.address`, which is only valid for same-chain quotes, and must equal `currency0` or `currency1`.
+When passing an explicit PoolKey for cross-chain quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn.address`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
 
-The result includes `amountIn`, `amountOut`, and quote metadata with the V4 PoolKey, quoter address, the Uniswap slippage bps applied by the SDK, and the IntentGateway protocol fee on the source chain.
+The result includes `amountIn`, `amountOut`, and quote metadata with the quote chain, V4 PoolKey, quoter address, the Uniswap slippage bps applied by the SDK, and the IntentGateway protocol fee on the source chain.
 
 `amountIn` and `amountOut` include the SDK's 30 bps Uniswap slippage adjustment: exact-input quotes return a reduced `amountOut`, while exact-output quotes return an increased `amountIn`. Before constructing the order, account for `quoteMetadata.protocolFeeBps`, which the gateway deducts from order inputs:
 

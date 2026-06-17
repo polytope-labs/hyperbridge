@@ -7,11 +7,8 @@ import { CumulativeDustSweptPerChain } from "@/configs/src/types/models/Cumulati
 import { timestampToDate } from "@/utils/date.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
+import { toScaledUsd } from "./volume.service"
 import stringify from "safe-stable-stringify"
-
-/** Decimal places used for the BigInt fixed-point representation of USD amounts. */
-const USD_SCALE = 18
-const USD_SCALE_FACTOR = new Decimal(10).pow(USD_SCALE)
 
 export class ProtocolRevenueService {
 	/**
@@ -182,6 +179,6 @@ export class ProtocolRevenueService {
 		}
 
 		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price)
-		return BigInt(new Decimal(amountValueInUSD).mul(USD_SCALE_FACTOR).toFixed(0))
+		return toScaledUsd(amountValueInUSD)
 	}
 }

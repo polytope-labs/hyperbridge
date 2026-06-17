@@ -141,16 +141,21 @@ impl ClaimRewards {
 				continue;
 			};
 
+			let Some(messaging) = clients.get(sm) else {
+				tracing::warn!(
+					target: LOG_TARGET,
+					%sm,
+					"no messaging client configured for Polkadot Hub; cannot query \
+					 Hyperbridge's state machine height",
+				);
+				continue;
+			};
+
 			let max_delivery_height =
 				claims.iter().map(|c| c.delivery_height).max().unwrap_or_default();
 
 			let hb_height = hyperbridge_provider
-				.query_latest_height(
-					clients
-						.get(sm)
-						.map(|p| p.state_machine_id())
-						.unwrap_or_else(|| host.provider().state_machine_id()),
-				)
+				.query_latest_height(messaging.state_machine_id())
 				.await
 				.unwrap_or(0) as u64;
 
@@ -272,16 +277,21 @@ impl ClaimRewards {
 				continue;
 			};
 
+			let Some(messaging) = clients.get(sm) else {
+				tracing::warn!(
+					target: LOG_TARGET,
+					%sm,
+					"no messaging client configured for Polkadot Hub; cannot query \
+					 Hyperbridge's state machine height for request claims",
+				);
+				continue;
+			};
+
 			let max_delivery_height =
 				claims.iter().map(|c| c.delivery_height).max().unwrap_or_default();
 
 			let hb_height = hyperbridge_provider
-				.query_latest_height(
-					clients
-						.get(sm)
-						.map(|p| p.state_machine_id())
-						.unwrap_or_else(|| host.provider().state_machine_id()),
-				)
+				.query_latest_height(messaging.state_machine_id())
 				.await
 				.unwrap_or(0) as u64;
 

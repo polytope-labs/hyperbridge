@@ -247,19 +247,19 @@ This is distinct from the HyperFX-specific [`[strategies.vault.uniswapV4]`](#uni
 One vault list drives three behaviours:
 
 1. **Sourcing** — when wallet balance is short on a fill, Simplex withdraws the deficit from the solver's vault position. The withdrawal is prepended to the UserOperation as ERC-7821 batch calls, so it is atomic with the fill.
-2. **Sweeping** — a timer (`sweepIntervalMs`, default 5 min) deposits wallet balance above `threshold` back into the vault. Size `threshold` to cover working fill float plus gas/paymaster spend. Excesses smaller than `minSweep` are skipped so gas never exceeds the value moved.
-3. **Shutdown** — on stop, all vault positions are redeemed back to the underlying asset.
+2. **Sweeping** — a timer (`sweepIntervalMs`, default 5 min) waits for wallet balance to reach the `threshold` high-water mark, then deposits everything down to `minBalance`. Size `minBalance` to cover working fill float plus gas/paymaster spend; the `threshold`–`minBalance` gap is the guaranteed minimum sweep size, so balance oscillates between the two without thrashing on dust.
+3. **Shutdown** — on stop, positions are kept across restarts by default. Set `redeemOnShutdown = true` on a vault to instead redeem its position back to the underlying asset when the filler stops.
 
-Omit `threshold` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
+Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
 
 ```toml lineNumbers
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
 vaults = [
-    # Aave stataUSDC on Base — sweep wallet balance above $3,000 into the vault
-    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },
-    # Aave stataUSDT on Arbitrum — sweep above $3,000, skip excesses under $10
-    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10" },
+    # Aave stataUSDC on Base — once balance hits $5,000, sweep down to $3,000
+    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" },
+    # Aave stataUSDT on Arbitrum
+    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" },
 ]
 ```
 
@@ -267,8 +267,9 @@ vaults = [
 |---|---|---|
 | `chain` | yes | State-machine ID the vault lives on (e.g. `"EVM-8453"`) |
 | `vault` | yes | ERC-4626 vault address |
-| `threshold` | no | Wallet balance (human units) to keep liquid; excess is swept in. Omit to disable sweeping (withdraw-only). |
-| `minSweep` | no | Minimum excess (human units) worth sweeping; smaller excesses are skipped. Defaults to a small floor. |
+| `threshold` | no | High-water balance (human units) that triggers a sweep down to `minBalance`. Omit to disable sweeping (withdraw-only). |
+| `minBalance` | conditional | Wallet floor (human units) the sweep deposits down to. Required when `threshold` is set, and must be less than it. |
+| `redeemOnShutdown` | no | Redeem this position back to the underlying asset on shutdown. Defaults to `false` (the position is kept across restarts). |
 
 ### Rebalancing
 
@@ -488,8 +489,8 @@ recheckDelayMs = 30000
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
 vaults = [
-    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "3000" },                 # Aave stataUSDC on Base
-    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "3000", minSweep = "10" }, # Aave stataUSDT on Arbitrum
+    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" }, # Aave stataUSDC on Base
+    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" }, # Aave stataUSDT on Arbitrum
 ]
 
 # Same-token stablecoin fills (USDC→USDC, USDT→USDT)

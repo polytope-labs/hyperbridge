@@ -46,7 +46,7 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * Throws on missing/invalid required fields.
 	 */
 	static validateConfig(
-		vaults: { chain?: string; vault?: string; threshold?: string; minSweep?: string; redeemOnShutdown?: boolean }[],
+		vaults: { chain?: string; vault?: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[],
 	): void {
 		const positiveNumber = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0
 		for (const v of vaults) {
@@ -59,8 +59,18 @@ export class VaultFundingPlanner implements FundingVenue {
 			if (v.threshold !== undefined && !positiveNumber(v.threshold)) {
 				throw new Error(`Vault ${v.vault} 'threshold' must be a positive number`)
 			}
-			if (v.minSweep !== undefined && !positiveNumber(v.minSweep)) {
-				throw new Error(`Vault ${v.vault} 'minSweep' must be a positive number`)
+			if (v.minBalance !== undefined && !positiveNumber(v.minBalance)) {
+				throw new Error(`Vault ${v.vault} 'minBalance' must be a positive number`)
+			}
+			// Sweeping needs a floor to keep gas/paymaster funds, and a trigger
+			// strictly above it so a sweep never tries to deposit ≤ 0.
+			if (v.threshold !== undefined) {
+				if (v.minBalance === undefined) {
+					throw new Error(`Vault ${v.vault} sets 'threshold' so it must also set 'minBalance'`)
+				}
+				if (Number(v.threshold) <= Number(v.minBalance)) {
+					throw new Error(`Vault ${v.vault} 'threshold' must be greater than 'minBalance'`)
+				}
 			}
 		}
 	}
@@ -199,11 +209,11 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/**
-	 * Deposits idle wallet balance above each vault's threshold into the vault
-	 * for one chain (or all configured chains). For each vault, builds an exact
-	 * `approve(excess) + deposit(excess)` pair and sends them as a single
-	 * ERC-7821 batch to the solver account — atomic, leaving no residual
-	 * allowance.
+	 * Deposits idle wallet balance into the vault for one chain (or all configured
+	 * chains). For each vault whose wallet balance has reached its `threshold`
+	 * high-water mark, deposits everything down to `minBalance`, building an exact
+	 * `approve + deposit` pair and sending them as a single ERC-7821 batch to the
+	 * solver account — atomic, leaving no residual allowance.
 	 */
 	async sweepExcessToVault(chain?: string): Promise<void> {
 		const chains = chain ? [chain] : Array.from(this.stateByChain.keys())
@@ -230,8 +240,11 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 
-				const excess = walletBalance > vault.thresholdScaled ? walletBalance - vault.thresholdScaled : 0n
-				if (excess < vault.minSweepScaled) continue
+				// Hysteresis: only act once the balance reaches the high-water
+				// trigger, then deposit everything down to minBalance. The
+				// threshold→minBalance gap is the implicit minimum sweep size.
+				if (walletBalance < vault.thresholdScaled) continue
+				const excess = walletBalance - vault.minBalanceScaled
 
 				// Clamp to the vault's deposit cap — ERC-4626 requires deposit to
 				// revert when assets > maxDeposit(receiver) (e.g. an Aave stataToken
@@ -246,7 +259,7 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				const depositAmount = excess < maxDeposit ? excess : maxDeposit
-				if (depositAmount < vault.minSweepScaled) continue
+				if (depositAmount <= 0n) continue
 
 				calls.push({
 					target: vault.asset,

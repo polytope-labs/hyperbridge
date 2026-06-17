@@ -81,14 +81,15 @@ interface UniswapV4PositionToml {
 }
 
 /**
- * TOML row for an ERC-4626 vault entry. `threshold` (absolute human units) enables
- * sweeping wallet excess into the vault; omit it for withdraw-only sourcing.
+ * TOML row for an ERC-4626 vault entry. `threshold` (absolute human units) is the
+ * high-water mark that triggers a sweep down to `minBalance`; omit both for
+ * withdraw-only sourcing.
  */
 interface VaultToml {
 	chain: string
 	vault: HexString
 	threshold?: string
-	minSweep?: string
+	minBalance?: string
 	redeemOnShutdown?: boolean
 }
 
@@ -372,7 +373,7 @@ program
 					vaultsByChain[row.chain].push({
 						vault: row.vault,
 						threshold: row.threshold,
-						minSweep: row.minSweep,
+						minBalance: row.minBalance,
 						redeemOnShutdown: row.redeemOnShutdown,
 					})
 				}

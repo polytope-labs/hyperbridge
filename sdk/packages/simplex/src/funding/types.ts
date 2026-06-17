@@ -130,16 +130,18 @@ export interface VaultConfig {
 	/** ERC-4626 vault address. */
 	vault: HexString
 	/**
-	 * Wallet balance of the underlying asset to keep liquid for direct fills, in
-	 * absolute human units (e.g. "3000"). Excess above it is swept into the
-	 * vault. Omit to disable sweeping for this vault (withdraw-only).
+	 * High-water trigger, in absolute human units (e.g. "5000"). A sweep fires
+	 * only once the wallet balance reaches this, then deposits everything down to
+	 * `minBalance`. Omit to disable sweeping for this vault (withdraw-only).
 	 */
 	threshold?: string
 	/**
-	 * Minimum excess (absolute human units) worth sweeping; smaller excesses are
-	 * skipped so gas never exceeds the value moved. Defaults to a small floor.
+	 * Floor of the underlying to always keep liquid in the wallet, in absolute
+	 * human units (e.g. "3000") — covers direct fills and gas/paymaster paid in
+	 * this token. The sweep never drops below it. Required when `threshold` is
+	 * set, and must be strictly less than it.
 	 */
-	minSweep?: string
+	minBalance?: string
 	/**
 	 * Whether to redeem this vault's position back to the underlying asset on
 	 * shutdown. Defaults to false (the position is kept across restarts). Set
@@ -157,10 +159,10 @@ export interface HydratedVault {
 	asset: HexString
 	/** Underlying asset decimals. */
 	decimals: number
-	/** Sweep threshold scaled to token units, or null when sweeping is disabled. */
+	/** High-water sweep trigger scaled to token units, or null when sweeping is disabled. */
 	thresholdScaled: bigint | null
-	/** Dust guard scaled to token units. */
-	minSweepScaled: bigint
+	/** Wallet floor the sweep deposits down to, scaled to token units. */
+	minBalanceScaled: bigint
 	/** Whether shutdown redeems this position back to the underlying asset. */
 	redeemOnShutdown: boolean
 

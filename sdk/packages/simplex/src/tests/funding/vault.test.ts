@@ -224,35 +224,42 @@ describe("VaultFundingPlanner", () => {
 		expect(() => VaultFundingPlanner.validateConfig([{ chain: "", vault: VAULT_USDC }])).toThrow()
 		expect(() => VaultFundingPlanner.validateConfig([{ chain: CHAIN, vault: "" }])).toThrow()
 		expect(() => VaultFundingPlanner.validateConfig([{ chain: CHAIN, vault: VAULT_USDC }])).not.toThrow()
+		// threshold requires a minBalance to keep gas/paymaster funds.
+		expect(() =>
+			VaultFundingPlanner.validateConfig([{ chain: CHAIN, vault: VAULT_USDC, threshold: "5000" }]),
+		).toThrow()
+		// threshold must sit strictly above minBalance, else a sweep deposits ≤ 0.
+		expect(() =>
+			VaultFundingPlanner.validateConfig([
+				{ chain: CHAIN, vault: VAULT_USDC, threshold: "3000", minBalance: "3000" },
+			]),
+		).toThrow()
+		expect(() =>
+			VaultFundingPlanner.validateConfig([
+				{ chain: CHAIN, vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
+			]),
+		).not.toThrow()
 	})
 })
 
 describe("VaultFundingPlanner.sweepExcessToVault", () => {
-	it("deposits the excess above threshold", async () => {
-		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("5000") }, [
-			{ vault: VAULT_USDC, threshold: "3000" },
+	it("sweeps down to minBalance once balance reaches the threshold", async () => {
+		// Balance 6000 ≥ threshold 5000 → deposit everything above minBalance 3000.
+		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("6000") }, [
+			{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
 		])
 		await planner.initialise(SOLVER)
 		await planner.sweepExcessToVault(CHAIN)
 
 		expect(sendTransaction).toHaveBeenCalledOnce()
 		expect(sendTransaction.mock.calls[0][0].to.toLowerCase()).toBe(SOLVER.toLowerCase())
+		// The deposit leg should encode 3000 (6000 − minBalance), not the full balance.
+		expect(sendTransaction.mock.calls[0][0].data.toLowerCase()).toContain(u("3000").toString(16))
 	})
 
-	it("does nothing when balance is at or below threshold", async () => {
-		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("3000") }, [
-			{ vault: VAULT_USDC, threshold: "3000" },
-		])
-		await planner.initialise(SOLVER)
-		await planner.sweepExcessToVault(CHAIN)
-
-		expect(sendTransaction).not.toHaveBeenCalled()
-	})
-
-	it("skips dust below minSweep", async () => {
-		// excess = 5 USDC, below the default 10 minSweep.
-		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("3005") }, [
-			{ vault: VAULT_USDC, threshold: "3000" },
+	it("does nothing when balance is below the threshold trigger", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner({ [USDC.toLowerCase()]: u("4000") }, [
+			{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
 		])
 		await planner.initialise(SOLVER)
 		await planner.sweepExcessToVault(CHAIN)
@@ -271,10 +278,10 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 	})
 
 	it("clamps the deposit to the vault's maxDeposit cap", async () => {
-		// Wallet excess is 5000 USDC but the vault only accepts 1000 more.
+		// Sweep amount is 5000 (8000 − minBalance 3000) but the vault accepts 1000 more.
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: u("8000") },
-			[{ vault: VAULT_USDC, threshold: "3000" }],
+			[{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" }],
 			{},
 			u("1000"),
 		)
@@ -283,17 +290,16 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 
 		expect(sendTransaction).toHaveBeenCalledOnce()
 		const data = sendTransaction.mock.calls[0][0].data
-		// The deposit leg should encode 1000, not the full 5000 excess.
+		// The deposit leg should encode 1000, not the full 5000 sweep amount.
 		expect(data.toLowerCase()).toContain(u("1000").toString(16))
 	})
 
-	it("skips the sweep when maxDeposit headroom is below minSweep", async () => {
-		// Excess clears minSweep but the cap leaves only 5 USDC of headroom.
+	it("skips the sweep when the vault's maxDeposit headroom is zero", async () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: u("8000") },
-			[{ vault: VAULT_USDC, threshold: "3000" }],
+			[{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" }],
 			{},
-			u("5"),
+			0n,
 		)
 		await planner.initialise(SOLVER)
 		await planner.sweepExcessToVault(CHAIN)
@@ -305,8 +311,8 @@ describe("VaultFundingPlanner.sweepExcessToVault", () => {
 		const { planner, sendTransaction } = makeSweepPlanner(
 			{ [USDC.toLowerCase()]: u("5000"), [USDT.toLowerCase()]: u("4000") },
 			[
-				{ vault: VAULT_USDC, threshold: "3000" },
-				{ vault: VAULT_USDT, threshold: "3000" },
+				{ vault: VAULT_USDC, threshold: "4000", minBalance: "3000" },
+				{ vault: VAULT_USDT, threshold: "4000", minBalance: "3000" },
 			],
 		)
 		await planner.initialise(SOLVER)

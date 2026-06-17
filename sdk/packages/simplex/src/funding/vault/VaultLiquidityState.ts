@@ -8,17 +8,14 @@ import { parseUnits } from "viem"
 
 const logger = getLogger("vault-state")
 
-/** Default dust guard (absolute human units) when a vault omits `minSweep`. */
-const DEFAULT_MIN_SWEEP = "10"
-
 /**
  * Backstop expiry for a reservation whose bid never executes (lost auction,
  * abandoned) — without it, `remaining` would drift to 0 and disable sourcing.
  * Won bids release immediately via position-decrease reconciliation in
- * {@link refresh}, so this only needs to exceed plan→execute latency (~15s
- * auction + settlement); expiring too early risks an oversubscribed withdraw.
+ * {@link refresh}, so this only needs to exceed plan→execute latency (auction
+ * window + settlement); expiring too early risks an oversubscribed withdraw.
  */
-const RESERVATION_TTL_MS = 30_000
+const RESERVATION_TTL_MS = 60_000
 
 /**
  * Long-lived vault (ERC-4626) liquidity state for one destination chain.
@@ -85,7 +82,7 @@ export class VaultLiquidityState {
 				asset,
 				decimals,
 				thresholdScaled: cfg.threshold ? parseUnits(cfg.threshold, decimals) : null,
-				minSweepScaled: parseUnits(cfg.minSweep ?? DEFAULT_MIN_SWEEP, decimals),
+				minBalanceScaled: cfg.minBalance ? parseUnits(cfg.minBalance, decimals) : 0n,
 				redeemOnShutdown: cfg.redeemOnShutdown ?? false,
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
@@ -221,18 +218,26 @@ export class VaultLiquidityState {
 		const list = this.reservations.get(key)
 		if (!list || list.length === 0) return
 
+		// Drop expired entries first so the FIFO shift only ever consumes a live
+		// reservation — otherwise a realised position drop could cancel an
+		// already-expired head and leave the live one counted for up to a TTL.
+		const now = Date.now()
+		const live = list.filter((r) => r.expiresAt > now)
+		if (live.length !== list.length) this.reservations.set(key, live)
+		if (live.length === 0) return
+
 		let toRelease = amount
-		while (toRelease > 0n && list.length > 0) {
-			const head = list[0]
+		while (toRelease > 0n && live.length > 0) {
+			const head = live[0]
 			if (head.amount <= toRelease) {
 				toRelease -= head.amount
-				list.shift()
+				live.shift()
 			} else {
 				head.amount -= toRelease
 				toRelease = 0n
 			}
 		}
-		this.reservations.set(key, list)
+		this.reservations.set(key, live)
 	}
 
 	/** Sum of unexpired reservations for `key`, pruning expired ones in place. */

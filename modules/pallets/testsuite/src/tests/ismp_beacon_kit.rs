@@ -76,7 +76,6 @@ fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
 	Ok(decoded)
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
@@ -127,7 +126,6 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 	println!("Target block has {} transactions", txs.len());
 	println!("Target header commit has {} signatures", target_header.commit.signatures.len());
 
-
 	if txs.is_empty() {
 		println!("Block has no transactions - skipping verify_consensus test");
 		return Ok(());
@@ -163,23 +161,19 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 		match result {
 			Ok((new_consensus_state, verified_commitments)) => {
 				println!("verify_consensus: PASSED");
+				println!("New consensus state size: {} bytes", new_consensus_state.len());
 				println!(
-					"New consensus state size: {} bytes",
-					new_consensus_state.len()
+					"Verified commitments: {:?}",
+					verified_commitments.keys().collect::<Vec<_>>()
 				);
-				println!("Verified commitments: {:?}", verified_commitments.keys().collect::<Vec<_>>());
 
 				// check that we have state commitments
 				assert!(!verified_commitments.is_empty(), "Should have verified commitments");
 
-
 				let new_state: ConsensusState =
 					codec::Decode::decode(&mut &new_consensus_state[..])
 						.expect("Should decode new consensus state");
-				println!(
-					"New trusted state height: {}",
-					new_state.tendermint_state.height
-				);
+				println!("New trusted state height: {}", new_state.tendermint_state.height);
 
 				// new height should be the target height
 				assert_eq!(

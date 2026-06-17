@@ -14,9 +14,6 @@
 // limitations under the License.
 
 //! BeaconKit consensus relayer for tesseract.
-//!
-//! This module provides a consensus relayer for BeaconKit chains (e.g., Berachain)
-//! that combines Tendermint consensus with Ethereum execution layer via signed beacon blocks.
 
 use anyhow::Result;
 use codec::Encode;
@@ -37,20 +34,14 @@ mod notification;
 
 use beacon_api_client::BeaconKitApiClient;
 
-/// Host configuration for BeaconKit relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeaconKitHostConfig {
-	/// Frequency (in seconds) to check for new updates
 	pub consensus_update_frequency: Option<u64>,
-	/// Trusting period in seconds for light client verification
 	pub trusting_period_secs: Option<u64>,
-	/// Unbonding period in seconds for CreateConsensusState
 	pub unbonding_period_secs: Option<u64>,
-	/// Clock drift tolerance in seconds for header time verification.
 	pub clock_drift_secs: Option<u64>,
 }
 
-/// Top-level config for BeaconKit relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeaconKitConfig {
 	pub host: BeaconKitHostConfig,
@@ -64,11 +55,10 @@ impl BeaconKitConfig {
 	}
 
 	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+		self.evm_config.state_machine()
 	}
 }
 
-/// The relayer host for BeaconKit
 #[derive(Clone)]
 pub struct BeaconKitHost {
 	pub consensus_state_id: ConsensusStateId,
@@ -79,12 +69,13 @@ pub struct BeaconKitHost {
 }
 
 impl BeaconKitHost {
-	/// Create a new BeaconKitHost
 	pub async fn new(host: &BeaconKitHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		let consensus_state_id: [u8; 4] = evm
 			.consensus_state_id
+			.as_deref()
+			.ok_or_else(|| anyhow::anyhow!("consensus_state_id must be set in EvmConfig"))?
 			.as_bytes()
 			.get(0..4)
 			.ok_or_else(|| anyhow::anyhow!("consensus_state_id must be at least 4 bytes"))?
@@ -92,21 +83,19 @@ impl BeaconKitHost {
 			.map_err(|_| anyhow::anyhow!("Failed to convert consensus_state_id to [u8; 4]"))?;
 
 		let prover = BeaconKitApiClient::new(&evm.rpc_urls[0])
-			.map_err(|e| anyhow::anyhow!("Failed to create BeaconKit API client: {}", e))?;
+			.map_err(|e| anyhow::anyhow!("Failed to create BeaconKit API client: {e}"))?;
 
 		Ok(Self {
 			consensus_state_id,
-			state_machine: evm.state_machine,
+			state_machine: evm.state_machine(),
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover: Arc::new(prover),
 		})
 	}
 
-	/// Fetch the current consensus state (for initial state creation)
 	pub async fn get_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
 		let latest_height = self.prover.latest_height().await?;
-
 		let trusted_header = self.prover.signed_header(latest_height).await?;
 
 		let trusted_validators =
@@ -118,33 +107,38 @@ impl BeaconKitHost {
 		let verification_options =
 			tendermint_primitives::VerificationOptions::new(2, 3, clock_drift);
 
+		let block_hash: [u8; 32] = trusted_header
+			.header
+			.hash()
+			.as_bytes()
+			.try_into()
+			.map_err(|_| anyhow::anyhow!("block hash must be 32 bytes"))?;
+
+		let next_validators_hash: [u8; 32] = trusted_header
+			.header
+			.next_validators_hash
+			.as_bytes()
+			.try_into()
+			.map_err(|_| anyhow::anyhow!("next_validators_hash must be 32 bytes"))?;
+
 		let trusted_state = tendermint_primitives::TrustedState::new(
 			trusted_header.header.chain_id.clone().into(),
 			trusted_header.header.height.into(),
 			trusted_header.header.time.unix_timestamp() as u64,
-			trusted_header.header.hash().as_bytes().try_into().unwrap(),
+			block_hash,
 			trusted_validators,
 			trusted_next_validators,
-			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
+			next_validators_hash,
 			self.host.trusting_period_secs.unwrap_or(300),
 			verification_options,
 		);
-
-		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
 
 		let chain_id = match self.state_machine {
 			StateMachine::Evm(chain_id) => chain_id,
 			_ => return Err(anyhow::anyhow!("Unsupported state machine")),
 		};
 
-		let consensus_state = ConsensusState { tendermint_state: codec_trusted_state, chain_id };
-
-		Ok(consensus_state)
-	}
-
-	/// Get the ISMP provider
-	pub fn provider(&self) -> Arc<dyn IsmpProvider> {
-		self.provider.clone()
+		Ok(ConsensusState { tendermint_state: CodecTrustedState::from(&trusted_state), chain_id })
 	}
 }
 
@@ -158,18 +152,16 @@ impl IsmpHost for BeaconKitHost {
 		let interval = tokio::time::interval(Duration::from_secs(
 			self.host.consensus_update_frequency.unwrap_or(300),
 		));
-		let client = self.clone();
-		let counterparty_clone = counterparty.clone();
 		let mut interval = Box::pin(interval);
 		let provider = self.provider();
 		loop {
 			interval.as_mut().tick().await;
-			match consensus_notification(&client, counterparty_clone.clone()).await {
+			match consensus_notification(self, counterparty.clone()).await {
 				Ok(Some(update)) => {
 					use ismp::messaging::ConsensusMessage;
 					let consensus_message = ConsensusMessage {
 						consensus_proof: update.encode(),
-						consensus_state_id: client.consensus_state_id,
+						consensus_state_id: self.consensus_state_id,
 						signer: counterparty.address(),
 					};
 					log::info!(
@@ -190,9 +182,7 @@ impl IsmpHost for BeaconKitHost {
 						)
 					}
 				},
-				Ok(None) => {
-					// No update to send, just continue
-				},
+				Ok(None) => {},
 				Err(e) => {
 					log::error!(target: "tesseract-beaconkit","BeaconKit consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
@@ -212,7 +202,12 @@ impl IsmpHost for BeaconKitHost {
 			.prover
 			.signed_header(initial_consensus_state.tendermint_state.height.into())
 			.await?;
-		let app_hash: [u8; 32] = header.header.app_hash.as_bytes().try_into().unwrap();
+		let app_hash: [u8; 32] = header
+			.header
+			.app_hash
+			.as_bytes()
+			.try_into()
+			.map_err(|_| anyhow::anyhow!("app_hash must be 32 bytes"))?;
 
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),

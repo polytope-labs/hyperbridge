@@ -171,7 +171,6 @@ std = [
     "ismp-polygon/std",
     "ismp-tendermint/std",
     "ismp-beacon-kit/std",
-    "pallet-messaging-fees/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "ismp-pharos/std",

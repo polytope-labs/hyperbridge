@@ -58,7 +58,6 @@ cometbft = { workspace = true, default-features = false, features = ["rust-crypt
 sha2 = "0.10"
 base64 = "0.21"
 blst = "0.3.11"
-ismp-solidity-abi = { workspace = true }
 ismp-pharos = { workspace = true, default-features = true }
 pharos-primitives = { workspace = true, default-features = true }
 pharos-prover = { workspace = true, default-features = true }

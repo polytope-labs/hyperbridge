@@ -27,5 +27,6 @@ polkadot-sdk = { workspace = true, features = ["sp-runtime"] }
 base64 = { version = "0.21" }
 sha2 = "0.10"
 hex = "0.4"
+blst = "0.3"
 sync-committee-primitives = { workspace = true }
 sync-committee-prover = { workspace = true }

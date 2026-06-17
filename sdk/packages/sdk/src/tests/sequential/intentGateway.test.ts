@@ -7,6 +7,7 @@ import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import {
 	applyUniswapIntentQuoteSlippage,
+	UNISWAP_INTENT_QUOTE_CHAIN,
 	UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 } from "@/protocols/intents/quote/uniswapV4"
 import { ChainConfigService } from "@/configs/ChainConfigService"
@@ -61,6 +62,7 @@ describe("Intent quote helper", () => {
 	const BASE_CHAIN = "EVM-8453"
 
 	it("applies the built-in Uniswap slippage buffer conservatively", () => {
+		assert.equal(UNISWAP_INTENT_QUOTE_CHAIN, BASE_CHAIN)
 		assert.equal(UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS, 30n)
 		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_INPUT"), 997_000n)
 		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_OUTPUT"), 1_003_000n)
@@ -98,6 +100,7 @@ describe("Intent quote helper", () => {
 		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, 1_000_000n)
 		assert(quote.amountOut > 0n)
+		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
 		assert.equal(quote.quoteMetadata.poolKey.fee, 1500)
 		assert.equal(quote.quoteMetadata.poolKey.tickSpacing, 30)
 	}, 120_000)

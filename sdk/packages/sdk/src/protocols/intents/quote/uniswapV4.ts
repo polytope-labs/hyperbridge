@@ -1,8 +1,9 @@
-import { decodeFunctionResult, encodeFunctionData, getAddress, type PublicClient, zeroAddress } from "viem"
+import { createPublicClient, decodeFunctionResult, encodeFunctionData, getAddress, http, type PublicClient, zeroAddress } from "viem"
+import { base } from "viem/chains"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import type { ChainConfigService } from "@/configs/ChainConfigService"
-import type { ConfiguredAssetSymbol, UniswapV4PoolConfigData } from "@/configs/chain"
+import { Chains, type ConfiguredAssetSymbol, type UniswapV4PoolConfigData } from "@/configs/chain"
 import type { HexString } from "@/types"
 import {
 	type IntentQuoteChainContext,
@@ -16,6 +17,7 @@ import {
 
 type GatewayParamsObject = { protocolFeeBps?: bigint | number | string }
 type GatewayParams = GatewayParamsObject | readonly unknown[]
+export const UNISWAP_INTENT_QUOTE_CHAIN = Chains.BASE_MAINNET
 export const UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS = 30n
 const BPS_DENOMINATOR = 10_000n
 
@@ -31,6 +33,8 @@ interface ResolvedConfiguredPoolToken {
 }
 
 export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler {
+	private baseQuoteClient?: PublicClient
+
 	constructor(private readonly chainConfigService: ChainConfigService) {}
 
 	async quote(
@@ -41,11 +45,31 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		this.validateQuoteParams(params)
 
 		const protocolFeeBps = await this.readProtocolFeeBps(source.client, source.stateMachineId)
-		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, destination.stateMachineId)
+		const quoteClient = this.resolveQuoteClient(source, destination)
+		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, UNISWAP_INTENT_QUOTE_CHAIN)
 
 		return params.amountIn !== undefined
-			? this.quoteExactInput({ params, client: destination.client, protocolFeeBps, poolConfig })
-			: this.quoteExactOutput({ params, client: destination.client, protocolFeeBps, poolConfig })
+			? this.quoteExactInput({ params, client: quoteClient, protocolFeeBps, poolConfig })
+			: this.quoteExactOutput({ params, client: quoteClient, protocolFeeBps, poolConfig })
+	}
+
+	private resolveQuoteClient(
+		source: IntentQuoteChainContext,
+		destination: IntentQuoteChainContext,
+	): PublicClient {
+		if (source.stateMachineId === UNISWAP_INTENT_QUOTE_CHAIN) return source.client
+		if (destination.stateMachineId === UNISWAP_INTENT_QUOTE_CHAIN) return destination.client
+		if (this.baseQuoteClient) return this.baseQuoteClient
+
+		const rpcUrl = this.chainConfigService.getRpcUrl(UNISWAP_INTENT_QUOTE_CHAIN)
+		if (!rpcUrl) throw new Error(`RPC URL is not configured for ${UNISWAP_INTENT_QUOTE_CHAIN}`)
+
+		const baseQuoteClient = createPublicClient({
+			chain: base,
+			transport: http(rpcUrl),
+		}) as PublicClient
+		this.baseQuoteClient = baseQuoteClient
+		return baseQuoteClient
 	}
 
 	private validateQuoteParams(params: QuoteIntentParams): void {
@@ -81,11 +105,11 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			const poolKey = normalizePoolKey(override)
 			const tokenInForQuote = getAddress(override.currencyIn ?? params.tokenIn.address) as HexString
 			if (tokenInForQuote !== poolKey.currency0 && tokenInForQuote !== poolKey.currency1) {
-				throw new Error(
-					`Input currency ${tokenInForQuote} is not part of the override pool ` +
-						`(${poolKey.currency0}, ${poolKey.currency1}). For cross-chain quotes pass ` +
-						`uniswapV4.poolKey.currencyIn with the destination-side input currency address.`,
-				)
+					throw new Error(
+						`Input currency ${tokenInForQuote} is not part of the override pool ` +
+							`(${poolKey.currency0}, ${poolKey.currency1}). For cross-chain quotes pass ` +
+							`uniswapV4.poolKey.currencyIn with the Base-side input currency address.`,
+					)
 			}
 
 			return {
@@ -95,7 +119,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			}
 		}
 
-		const poolConfig = this.resolveConfiguredPool(params, destination, source === destination)
+		const poolConfig = this.resolveConfiguredPool(params, destination)
 		if (poolConfig) return poolConfig
 
 		throw new UnsupportedIntentQuotePairError({
@@ -109,19 +133,13 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 	private resolveConfiguredPool(
 		params: QuoteIntentParams,
 		chain: string,
-		sameChain: boolean,
 	): ResolvedPoolConfig | null {
 		for (const pool of this.chainConfigService.getUniswapV4PoolConfigs(chain)) {
 			const resolvedPool = this.resolveConfiguredPoolTokens(chain, pool)
 			if (!resolvedPool) continue
 
-			// tokenIn lives on the source chain, so its address is only meaningful
-			// against destination-chain config when source === destination.
-			// tokenOut is always a destination-side address.
-			const tokenInForQuote = sameChain
-				? matchPoolTokenByAddress(params.tokenIn, resolvedPool)
-				: matchPoolTokenBySymbol(params.tokenIn, resolvedPool)
-			const tokenOutForQuote = matchPoolTokenByAddress(params.tokenOut, resolvedPool)
+			const tokenInForQuote = matchPoolToken(params.tokenIn, resolvedPool)
+			const tokenOutForQuote = matchPoolToken(params.tokenOut, resolvedPool)
 			if (!tokenInForQuote || !tokenOutForQuote || tokenInForQuote.symbol === tokenOutForQuote.symbol) continue
 
 			const { currency0, currency1 } = sortCurrencies(resolvedPool[0].address, resolvedPool[1].address)
@@ -185,6 +203,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			amountIn,
 			amountOut,
 			quoteMetadata: {
+				quoteChain: UNISWAP_INTENT_QUOTE_CHAIN,
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
 				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
@@ -211,6 +230,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			amountIn,
 			amountOut,
 			quoteMetadata: {
+				quoteChain: UNISWAP_INTENT_QUOTE_CHAIN,
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
 				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
@@ -300,18 +320,14 @@ function sortCurrencies(tokenIn: HexString, tokenOut: HexString): Pick<UniswapV4
 		: { currency0: output as HexString, currency1: input as HexString }
 }
 
-function matchPoolTokenByAddress(
+function matchPoolToken(
 	token: IntentQuoteToken,
 	poolTokens: readonly [ResolvedConfiguredPoolToken, ResolvedConfiguredPoolToken],
 ): ResolvedConfiguredPoolToken | null {
 	const tokenAddress = token.address.toLowerCase()
-	return poolTokens.find((poolToken) => poolToken.address.toLowerCase() === tokenAddress) ?? null
-}
+	const addressMatch = poolTokens.find((poolToken) => poolToken.address.toLowerCase() === tokenAddress)
+	if (addressMatch) return addressMatch
 
-function matchPoolTokenBySymbol(
-	token: IntentQuoteToken,
-	poolTokens: readonly [ResolvedConfiguredPoolToken, ResolvedConfiguredPoolToken],
-): ResolvedConfiguredPoolToken | null {
 	const tokenSymbol = token.symbol?.toUpperCase()
 	if (!tokenSymbol) return null
 	return poolTokens.find((poolToken) => poolToken.symbol.toUpperCase() === tokenSymbol) ?? null

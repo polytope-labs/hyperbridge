@@ -64,6 +64,8 @@ export interface IntentQuoteChainContext {
 }
 
 export interface UniswapV4IntentQuoteMetadata {
+	/** Chain whose Uniswap pool and quoter were used for the quote. */
+	quoteChain: string
 	poolKey: UniswapV4PoolKey
 	quoterAddress: HexString
 	/** Slippage tolerance applied to the returned Uniswap quote amounts. */

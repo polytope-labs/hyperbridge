@@ -206,9 +206,11 @@ export class IntentGateway {
 	 * `strategy` defaults to `uniswap_v4`, currently the only supported
 	 * strategy. Provide exactly one of `amountIn` or `amountOut`.
 	 *
-	 * The returned `amountIn`/`amountOut` include the Uniswap quote strategy's
-	 * built-in slippage adjustment. Account for `quoteMetadata.protocolFeeBps`
-	 * (deducted from order inputs by the gateway) before constructing the order.
+	 * The Uniswap quote strategy always prices against the configured Base
+	 * pool, regardless of this gateway's destination chain. Returned
+	 * `amountIn`/`amountOut` include the strategy's built-in slippage
+	 * adjustment. Account for `quoteMetadata.protocolFeeBps` (deducted from
+	 * order inputs by the gateway) before constructing the order.
 	 *
 	 * @param params - Token pair, amount, and optional strategy/pool overrides.
 	 * @returns The quoted amounts plus strategy-specific metadata.

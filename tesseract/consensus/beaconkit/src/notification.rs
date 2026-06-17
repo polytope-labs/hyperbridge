@@ -120,9 +120,8 @@ pub async fn consensus_notification(
 				height -= 1;
 			}
 
-			if matched_header.is_some() {
+			if let Some(matched_header) = matched_header {
 				let matched_height = height;
-				let matched_header = matched_header.expect("Header must be present if found");
 				let next_validators = client.prover.next_validators(matched_height).await?;
 
 				let tendermint_proof = CodecConsensusProof::from(&ConsensusProof::new(
@@ -163,15 +162,15 @@ pub async fn consensus_notification(
 /// Returns all transactions in the block as a vector.
 /// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
 async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<Vec<Vec<u8>>> {
-	let base_url = client.prover.base_url.trim_end_matches('/');
-	let url = format!("{}/cometbft/v1/block/{}", base_url, height);
+	let url = format!("{}/cometbft/v1/block/{}", client.prover.base_url, height);
 
-	let http_client = reqwest::Client::new();
-	let block_response = http_client
+	let block_response = client
+		.prover
+		.http
 		.get(&url)
 		.send()
 		.await
-		.map_err(|e| anyhow::anyhow!("Block fetch request failed: {}", e))?;
+		.map_err(|e| anyhow::anyhow!("Block fetch request failed: {e}"))?;
 
 	if !block_response.status().is_success() {
 		return Err(anyhow::anyhow!("HTTP error fetching block: {}", block_response.status()));
@@ -180,7 +179,7 @@ async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<
 	let block_json: serde_json::Value = block_response
 		.json()
 		.await
-		.map_err(|e| anyhow::anyhow!("Failed to parse block response: {}", e))?;
+		.map_err(|e| anyhow::anyhow!("Failed to parse block response: {e}"))?;
 
 	let txs = block_json
 		.get("data")
@@ -193,17 +192,14 @@ async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<
 		return Ok(Vec::new());
 	}
 
-	let mut all_tx_bytes: Vec<Vec<u8>> = Vec::new();
-	for tx in txs {
-		let tx_str = tx.as_str().ok_or_else(|| anyhow::anyhow!("Transaction is not a string"))?;
-		let tx_bytes = base64_decode(tx_str)?;
-		all_tx_bytes.push(tx_bytes);
-	}
-
-	Ok(all_tx_bytes)
+	txs.iter()
+		.map(|tx| {
+			let s = tx.as_str().ok_or_else(|| anyhow::anyhow!("Transaction is not a string"))?;
+			base64_decode(s)
+		})
+		.collect()
 }
 
-/// Decode a base64 string to bytes
 fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
 	use std::io::Read;
 	let mut decoder =

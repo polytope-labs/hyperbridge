@@ -4,7 +4,7 @@ import Decimal from "decimal.js"
 import type { Order } from "@/types"
 import type { ERC7821Call } from "@/types"
 import type { HexString } from "@/types"
-import { retryPromise, fetchPrice, normalizeAddressForEvmBytes32, encodeStateMachineId } from "@/utils"
+import { retryPromise, fetchPrice, normalizeAddressForEvmBytes32, encodeStateMachineId, TESTNET_CHAINS } from "@/utils"
 import ERC7821ABI from "@/abis/erc7281"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { IntentGatewayContext } from "./types"
@@ -188,6 +188,11 @@ export async function convertGasToFeeToken(
 	evmChainID: string,
 	gasPriceOverride?: bigint,
 ): Promise<bigint> {
+	// Treat gas as effectively free on testnets so fills are always profitable,
+	// and skip the CoinGecko fallback that has no testnet listings and rate-limits
+	// CI. Returns 1 (not 0) as downstream caching rejects a non-positive cost.
+	if (TESTNET_CHAINS.has(evmChainID)) return 1n
+
 	const chain = ctx[gasEstimateIn]
 	const client = chain.client
 	const gasPrice =
@@ -243,6 +248,10 @@ export async function convertFeeTokenToWei(
 	feeTokenIn: "source" | "dest",
 	evmChainID: string,
 ): Promise<bigint> {
+	// Testnet gas is treated as effectively free upstream, so the wei-equivalent
+	// is negligible too; this also avoids the CoinGecko fallback that rate-limits CI.
+	if (TESTNET_CHAINS.has(evmChainID)) return 1n
+
 	const chain = ctx[feeTokenIn]
 	const client = chain.client
 	const wethAddr = chain.configService.getWrappedNativeAssetWithDecimals(evmChainID).asset

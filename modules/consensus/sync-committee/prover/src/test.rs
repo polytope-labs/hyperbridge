@@ -236,6 +236,11 @@ async fn test_prover() {
 				let message: EventResponse = json::from_str(&msg.data).unwrap();
 				let checkpoint =
 					Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
+				// The SSE fires at the last slot of the finalizing epoch. The prover needs
+				// the *next* block (first slot of the following epoch) so that its parent
+				// state already reflects the new finalized checkpoint. Sleep one slot before
+				// fetching the update.
+				tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 				let light_client_update = if let Some(update) = sync_committee_prover
 					.fetch_light_client_update(client_state.clone(), checkpoint, None)
 					.await

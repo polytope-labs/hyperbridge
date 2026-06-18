@@ -9,7 +9,7 @@ sync-committee-primitives = { workspace = true, default-features = true }
 sync-committee-verifier = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 anyhow = { workspace = true, default-features = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 tokio-stream = { workspace = true }
 log = { workspace = true, default-features = true }
 hex = { workspace = true, default-features = true }

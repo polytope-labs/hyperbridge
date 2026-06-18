@@ -6,10 +6,11 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { BasicFiller } from "@/strategies/basic"
+import { StableFiller } from "@/strategies/stable"
 import { FXFiller } from "@/strategies/fx"
-import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
+import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -59,8 +60,8 @@ interface ChainConfirmationPolicy {
 	}>
 }
 
-interface BasicStrategyConfig {
-	type: "basic"
+interface StableStrategyConfig {
+	type: "stable"
 	/**
 	 * Array of (amount, value) coordinates defining the BPS curve.
 	 * value = basis points at that order amount
@@ -77,6 +78,25 @@ interface BasicStrategyConfig {
 interface UniswapV4PositionToml {
 	chain: string
 	tokenId: string // bigint as string in TOML
+}
+
+/**
+ * TOML row for an ERC-4626 vault entry. `threshold` (absolute human units) is the
+ * high-water mark that triggers a sweep down to `minBalance`; omit both for
+ * withdraw-only sourcing.
+ */
+interface VaultToml {
+	chain: string
+	vault: HexString
+	threshold?: string
+	minBalance?: string
+	redeemOnShutdown?: boolean
+}
+
+/** Top-level vault config: shared by the withdraw venue and the sweep timer. */
+interface VaultTomlConfig {
+	vaults: VaultToml[]
+	sweepIntervalMs?: number
 }
 
 interface FxStrategyConfig {
@@ -124,15 +144,40 @@ interface FxStrategyConfig {
 	}
 }
 
-type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
+type StrategyConfig = StableStrategyConfig | FxStrategyConfig
 
 /** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
 const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
-	"1":     { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 15 }] },   // Ethereum (~12s blocks, ~24s–3min)
-	"56":    { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 3 }] },    // BNB Chain (~3s blocks, fast finality)
-	"137":   { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 32 }] },   // Polygon (~2s blocks, milestone finality)
-	"8453":  { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 90 }] },   // Base (~2s blocks, L2)
-	"42161": { points: [{ amount: "1000", value: 8 },  { amount: "100000", value: 720 }] },  // Arbitrum (~0.25s blocks, L2)
+	"1": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		],
+	}, // Ethereum (~12s blocks, ~24s–3min)
+	"56": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 3 },
+		],
+	}, // BNB Chain (~3s blocks, fast finality)
+	"137": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 32 },
+		],
+	}, // Polygon (~2s blocks, milestone finality)
+	"8453": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 90 },
+		],
+	}, // Base (~2s blocks, L2)
+	"42161": {
+		points: [
+			{ amount: "1000", value: 8 },
+			{ amount: "100000", value: 720 },
+		],
+	}, // Arbitrum (~0.25s blocks, L2)
 }
 
 interface QueueConfig {
@@ -193,6 +238,8 @@ interface FillerTomlConfig {
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
+	/** Filler-wide vault config: stablecoin sourcing for fills + threshold sweeping. */
+	vault?: VaultTomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
 }
@@ -238,10 +285,7 @@ program
 
 			logger.info("Resolving chain IDs from RPC endpoints...")
 			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
-			logger.info(
-				{ chains: resolvedChains.map((c) => c.chainId) },
-				"Chain IDs resolved",
-			)
+			logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 			const fillerConfigForService: FillerServiceConfig = {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
@@ -319,24 +363,45 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
+			// Build the shared vault venue (withdraw sourcing + threshold sweeping).
+			// A single instance is shared across strategies and the sweep timer.
+			let vaultVenue: VaultFundingPlanner | undefined
+			if (config.vault?.vaults?.length) {
+				const vaultsByChain: Record<string, VaultConfig[]> = {}
+				for (const row of config.vault.vaults) {
+					if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
+					vaultsByChain[row.chain].push({
+						vault: row.vault,
+						threshold: row.threshold,
+						minBalance: row.minBalance,
+						redeemOnShutdown: row.redeemOnShutdown,
+					})
+				}
+				vaultVenue = new VaultFundingPlanner(chainClientManager, {
+					vaultsByChain,
+					sweepIntervalMs: config.vault.sweepIntervalMs,
+				})
+			}
+
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
 				switch (strategyConfig.type) {
-					case "basic": {
+					case "stable": {
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
-						const mergedBasicPolicies = {
+						const mergedStablePolicies = {
 							...DEFAULT_CONFIRMATION_POLICIES,
 							...(strategyConfig.confirmationPolicies ?? {}),
 						}
-						const confirmationPolicy = new ConfirmationPolicy(mergedBasicPolicies)
-						return new BasicFiller(
+						const confirmationPolicy = new ConfirmationPolicy(mergedStablePolicies)
+						return new StableFiller(
 							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
+							vaultVenue ? [vaultVenue] : [],
 						)
 					}
 					case "hyperfx": {
@@ -352,6 +417,13 @@ program
 						}
 						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
+						// Vault first: source stablecoins from the idle-yield treasury before
+						// draining a V4 LP position (which also pulls the paired exotic and
+						// perturbs the pool used for exotic pricing). V4 then covers the
+						// exotic legs and any stablecoin the vault can't fully fund.
+						if (vaultVenue) {
+							fundingVenues.push(vaultVenue)
+						}
 						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
 							for (const row of strategyConfig.vault.uniswapV4.positions) {
@@ -362,7 +434,12 @@ program
 								})
 							}
 							fundingVenues.push(
-								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
+								new UniswapV4FundingPlanner(
+									chainClientManager,
+									{ positionsByChain },
+									configService,
+									strategyConfig.spreadBps,
+								),
 							)
 						}
 						return new FXFiller(
@@ -386,12 +463,18 @@ program
 				}
 			})
 
-			// Initialise FXFiller strategies (hydrate funding venue state)
+			// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller) {
+				if (strategy instanceof FXFiller || strategy instanceof StableFiller) {
 					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
+			}
+
+			// Ensure the shared vault venue is hydrated even if no strategy
+			// initialised it, so the sweep timer has live state. Idempotent.
+			if (vaultVenue) {
+				await vaultVenue.initialise(runtimeSigner.account.address as HexString)
 			}
 
 			// Initialize rebalancing service only if fully configured
@@ -467,6 +550,9 @@ program
 			// Start the filler
 			intentFiller.start()
 
+			// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
+			vaultVenue?.startSweeping()
+
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
 						.filter(([, value]) => value === true)
@@ -489,7 +575,10 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
+				vaultVenue?.stopSweeping()
 				await intentFiller.stop()
+				// Exit all vault positions back to the underlying asset (best-effort).
+				await vaultVenue?.redeemAll()
 				process.exit(0)
 			}
 
@@ -559,20 +648,24 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 	}
 
+	if (config.vault?.vaults?.length) {
+		VaultFundingPlanner.validateConfig(config.vault.vaults)
+	}
+
 	// Validate strategies
 	for (const strategy of config.strategies) {
 		if (!strategy.type) {
 			throw new Error("Strategy type is required")
 		}
 
-		if (!["basic", "hyperfx"].includes(strategy.type)) {
+		if (!["stable", "hyperfx"].includes(strategy.type)) {
 			throw new Error(`Invalid strategy type: ${strategy.type}`)
 		}
 
-		if (strategy.type === "basic") {
+		if (strategy.type === "stable") {
 			// Validate BPS curve
 			if (!strategy.bpsCurve || !Array.isArray(strategy.bpsCurve) || strategy.bpsCurve.length < 2) {
-				throw new Error("Basic strategy must have a 'bpsCurve' array with at least 2 points")
+				throw new Error("Stable strategy must have a 'bpsCurve' array with at least 2 points")
 			}
 
 			for (const point of strategy.bpsCurve) {

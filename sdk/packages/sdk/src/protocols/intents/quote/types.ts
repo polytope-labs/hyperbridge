@@ -68,12 +68,10 @@ export interface UniswapV4IntentQuoteMetadata {
 	quoteChain: string
 	poolKey: UniswapV4PoolKey
 	quoterAddress: HexString
-	/** Slippage tolerance applied to the returned Uniswap quote amounts. */
-	slippageBps: bigint
 	/**
-	 * IntentGateway protocol fee on the source chain. The gateway deducts this
-	 * from order inputs; callers should account for it when constructing the
-	 * order.
+	 * IntentGateway protocol fee on the source chain, already applied to the
+	 * returned amounts. Exposed so callers can reconstruct the swap-side
+	 * (post-fee) amount if needed.
 	 */
 	protocolFeeBps: bigint
 }
@@ -81,8 +79,10 @@ export interface UniswapV4IntentQuoteMetadata {
 /**
  * Quote data partners need before constructing an IntentGateway V2 order.
  *
- * `amountIn` and `amountOut` include the strategy's Uniswap slippage
- * adjustment, but do not include IntentGateway protocol fee deductions.
+ * `amountIn` and `amountOut` already account for the IntentGateway protocol
+ * fee that the gateway deducts from order inputs (see `quoteMetadata`). No
+ * further fee adjustment is required before placing the order; apply only your
+ * own slippage tolerance.
  */
 export interface QuoteIntentResult {
 	strategy: "uniswap_v4"

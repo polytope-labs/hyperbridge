@@ -18,7 +18,6 @@ import {
 type GatewayParamsObject = { protocolFeeBps?: bigint | number | string }
 type GatewayParams = GatewayParamsObject | readonly unknown[]
 export const UNISWAP_INTENT_QUOTE_CHAIN = Chains.BASE_MAINNET
-export const UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS = 30n
 const BPS_DENOMINATOR = 10_000n
 
 interface ResolvedPoolConfig {
@@ -192,10 +191,10 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
 		const amountIn = args.params.amountIn!
-		const amountOut = applyUniswapIntentQuoteSlippage(
-			await this.readV4QuoteExactInput(args.client, args.poolConfig, amountIn),
-			"EXACT_INPUT",
-		)
+		// The gateway deducts its protocol fee from order inputs, so only the
+		// reduced amount reaches the swap. Quote against that net amount.
+		const swapAmountIn = deductProtocolFee(amountIn, args.protocolFeeBps)
+		const amountOut = await this.readV4QuoteExactInput(args.client, args.poolConfig, swapAmountIn)
 
 		return {
 			strategy: "uniswap_v4",
@@ -206,7 +205,6 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 				quoteChain: UNISWAP_INTENT_QUOTE_CHAIN,
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
-				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 				protocolFeeBps: args.protocolFeeBps,
 			},
 		}
@@ -219,10 +217,11 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
 		const amountOut = args.params.amountOut!
-		const amountIn = applyUniswapIntentQuoteSlippage(
-			await this.readV4QuoteExactOutput(args.client, args.poolConfig, amountOut),
-			"EXACT_OUTPUT",
-		)
+		// The quoter returns the swap input needed for `amountOut`; that is the
+		// net amount after the gateway's protocol fee, so gross it back up to the
+		// order input the caller must supply.
+		const swapAmountIn = await this.readV4QuoteExactOutput(args.client, args.poolConfig, amountOut)
+		const amountIn = grossUpForProtocolFee(swapAmountIn, args.protocolFeeBps)
 
 		return {
 			strategy: "uniswap_v4",
@@ -233,7 +232,6 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 				quoteChain: UNISWAP_INTENT_QUOTE_CHAIN,
 				poolKey: args.poolConfig.poolKey,
 				quoterAddress: args.poolConfig.quoterAddress,
-				slippageBps: UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 				protocolFeeBps: args.protocolFeeBps,
 			},
 		}
@@ -341,15 +339,24 @@ function isGatewayParamsTuple(value: GatewayParams): value is readonly unknown[]
 	return Array.isArray(value)
 }
 
-export function applyUniswapIntentQuoteSlippage(
-	amount: bigint,
-	tradeType: "EXACT_INPUT" | "EXACT_OUTPUT",
-): bigint {
-	if (tradeType === "EXACT_INPUT") {
-		return (amount * (BPS_DENOMINATOR - UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS)) / BPS_DENOMINATOR
-	}
+/**
+ * Net order input after the gateway deducts its protocol fee. Mirrors the
+ * on-chain math in `IntentGatewayV2` (fee floored, then subtracted).
+ */
+export function deductProtocolFee(amount: bigint, protocolFeeBps: bigint): bigint {
+	if (protocolFeeBps <= 0n) return amount
+	const fee = (amount * protocolFeeBps) / BPS_DENOMINATOR
+	return amount - fee
+}
 
-	return divCeil(amount * (BPS_DENOMINATOR + UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS), BPS_DENOMINATOR)
+/**
+ * Gross order input required so that, after the gateway's protocol fee is
+ * deducted, at least `netAmount` remains for the swap. Rounded up so the net
+ * never falls short.
+ */
+export function grossUpForProtocolFee(netAmount: bigint, protocolFeeBps: bigint): bigint {
+	if (protocolFeeBps <= 0n) return netAmount
+	return divCeil(netAmount * BPS_DENOMINATOR, BPS_DENOMINATOR - protocolFeeBps)
 }
 
 function divCeil(numerator: bigint, denominator: bigint): bigint {

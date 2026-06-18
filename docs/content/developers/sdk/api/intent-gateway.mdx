@@ -201,13 +201,13 @@ const quote = await gateway.quoteIntent({
 
 When passing an explicit PoolKey for cross-chain quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn.address`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
 
-The result includes `amountIn`, `amountOut`, and quote metadata with the quote chain, V4 PoolKey, quoter address, the Uniswap slippage bps applied by the SDK, and the IntentGateway protocol fee on the source chain.
+The result includes `amountIn`, `amountOut`, and quote metadata with the quote chain, V4 PoolKey, quoter address, and the IntentGateway protocol fee on the source chain (`protocolFeeBps`).
 
-`amountIn` and `amountOut` include the SDK's 30 bps Uniswap slippage adjustment: exact-input quotes return a reduced `amountOut`, while exact-output quotes return an increased `amountIn`. Before constructing the order, account for `quoteMetadata.protocolFeeBps`, which the gateway deducts from order inputs:
+`amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is what you can expect after the fee; exact-output quotes return the gross `amountIn` you must supply so that, after the fee, enough remains to produce the requested `amountOut`. Use these amounts directly as the order's `inputs` and `output.assets` — no further fee adjustment is required. Apply only your own slippage tolerance:
 
 ```typescript lineNumbers
-const { protocolFeeBps } = quote.quoteMetadata
-const solverReceives = (quote.amountIn * (10_000n - protocolFeeBps)) / 10_000n
+// `amountOut` already nets the gateway fee; add your slippage tolerance.
+const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n
 ```
 
 ---

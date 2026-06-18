@@ -6,9 +6,9 @@ import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import {
-	applyUniswapIntentQuoteSlippage,
+	deductProtocolFee,
+	grossUpForProtocolFee,
 	UNISWAP_INTENT_QUOTE_CHAIN,
-	UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS,
 } from "@/protocols/intents/quote/uniswapV4"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
@@ -61,12 +61,16 @@ describe("Uniswap quote helper", () => {
 describe("Intent quote helper", () => {
 	const BASE_CHAIN = "EVM-8453"
 
-	it("applies the built-in Uniswap slippage buffer conservatively", () => {
+	it("applies the gateway protocol fee to quoted amounts", () => {
 		assert.equal(UNISWAP_INTENT_QUOTE_CHAIN, BASE_CHAIN)
-		assert.equal(UNISWAP_INTENT_QUOTE_SLIPPAGE_BPS, 30n)
-		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_INPUT"), 997_000n)
-		assert.equal(applyUniswapIntentQuoteSlippage(1_000_000n, "EXACT_OUTPUT"), 1_003_000n)
-		assert.equal(applyUniswapIntentQuoteSlippage(1n, "EXACT_OUTPUT"), 2n)
+		// 30 bps fee: exact-input nets less to the swap, exact-output grosses up.
+		assert.equal(deductProtocolFee(1_000_000n, 30n), 997_000n)
+		assert.equal(grossUpForProtocolFee(997_000n, 30n), 1_000_000n)
+		// Gross-up rounds up so the post-fee net never falls short.
+		assert.equal(grossUpForProtocolFee(1n, 30n), 2n)
+		// Zero fee is a no-op in both directions.
+		assert.equal(deductProtocolFee(1_000_000n, 0n), 1_000_000n)
+		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
 	})
 
 	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {

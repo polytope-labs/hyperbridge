@@ -286,7 +286,7 @@ async fn test_switch_provider_middleware() {
 	let providers = vec![
 		"http://localhost:3505".to_string(),
 		"http://localhost:3510".to_string(),
-		"http://localhost:3500".to_string(),
+		"http://localhost:53001".to_string(),
 	];
 
 	let prover = SyncCommitteeProver::<
@@ -311,7 +311,7 @@ fn setup_prover(
 {
 	dotenv::dotenv().ok();
 	let consensus_url =
-		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
+		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
 	SyncCommitteeProver::<
 		ElectraDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,

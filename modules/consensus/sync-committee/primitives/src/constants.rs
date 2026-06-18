@@ -271,16 +271,20 @@ pub mod devnet {
 	impl Config for ElectraDevnet {
 		const SLOTS_PER_EPOCH: Slot = 32;
 		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-			hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
-		const BELLATRIX_FORK_VERSION: Version = hex!("52525502");
-		const ALTAIR_FORK_VERSION: Version = hex!("52525501");
-		const GENESIS_FORK_VERSION: Version = hex!("52525500");
+			hex_literal::hex!("d1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3");
+		const GENESIS_FORK_VERSION: Version = hex!("10000038");
+		const ALTAIR_FORK_VERSION: Version = hex!("20000038");
+		const BELLATRIX_FORK_VERSION: Version = hex!("30000038");
+		const CAPELLA_FORK_VERSION: Version = hex!("40000038");
+		const DENEB_FORK_VERSION: Version = hex!("50000038");
+		const ELECTRA_FORK_VERSION: Version = hex!("60000038");
+		const FULU_FORK_VERSION: Version = hex!("70000038");
 		const ALTAIR_FORK_EPOCH: Epoch = 0;
 		const BELLATRIX_FORK_EPOCH: Epoch = 0;
 		const CAPELLA_FORK_EPOCH: Epoch = 0;
-		const CAPELLA_FORK_VERSION: Version = hex!("52525503");
 		const DENEB_FORK_EPOCH: Epoch = 0;
-		const DENEB_FORK_VERSION: Version = hex!("52525504");
+		const ELECTRA_FORK_EPOCH: Epoch = 0;
+		const FULU_FORK_EPOCH: Epoch = 0;
 		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
@@ -291,10 +295,6 @@ pub mod devnet {
 		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
 		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
-		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("52525505");
-		const ELECTRA_FORK_EPOCH: Epoch = 0;
-		const FULU_FORK_EPOCH: Epoch = u64::MAX;
-		const FULU_FORK_VERSION: Version = hex_literal::hex!("52525506");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

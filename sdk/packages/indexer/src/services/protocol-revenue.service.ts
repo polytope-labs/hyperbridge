@@ -6,7 +6,6 @@ import { CumulativeDustCollectedPerChain } from "@/configs/src/types/models/Cumu
 import { CumulativeDustSweptPerChain } from "@/configs/src/types/models/CumulativeDustSweptPerChain"
 import { timestampToDate } from "@/utils/date.helpers"
 import PriceHelper from "@/utils/price.helpers"
-import { TokenPriceService } from "./token-price.service"
 import { toScaledUsd } from "./volume.service"
 import stringify from "safe-stable-stringify"
 
@@ -57,7 +56,7 @@ export class ProtocolRevenueService {
 
 		await dustCollected.save()
 
-		const usdDelta = await this.computeDustUsdDelta(chain, symbol, amount, decimals)
+		const usdDelta = await this.computeDustUsdDelta(chain, tokenAddress, amount, decimals)
 		if (usdDelta && usdDelta > 0n) {
 			let cumulative = await CumulativeDustCollectedPerChain.get(chain)
 			if (!cumulative) {
@@ -131,7 +130,7 @@ export class ProtocolRevenueService {
 
 		await dustSwept.save()
 
-		const usdDelta = await this.computeDustUsdDelta(chain, symbol, amount, decimals)
+		const usdDelta = await this.computeDustUsdDelta(chain, tokenAddress, amount, decimals)
 		if (usdDelta && usdDelta > 0n) {
 			let cumulative = await CumulativeDustSweptPerChain.get(chain)
 			if (!cumulative) {
@@ -160,25 +159,24 @@ export class ProtocolRevenueService {
 	}
 
 	/**
-	 * Convert a newly-collected/swept token amount to a scaled-1e18 USD bigint.
-	 * Returns null when no price data is available (testnet, non-whitelisted, or
-	 * unavailable), so the caller can skip the USD rollup for that token.
+	 * Convert a newly-collected/swept token amount to a scaled-1e18 USD bigint using the
+	 * on-chain DEX price. Returns null when no price is available, in which case the caller
+	 * skips the USD rollup; the raw amount is still retained on the per-token entity.
 	 */
 	private static async computeDustUsdDelta(
 		chain: string,
-		symbol: string,
+		tokenAddress: string,
 		amount: bigint,
 		decimals: number,
 	): Promise<bigint | null> {
-		const price = await TokenPriceService.getPrice(symbol)
-		if (!price || new Decimal(price).isZero()) {
+		const { amountValueInUSD } = await PriceHelper.getTokenPriceInUSDUniswap(tokenAddress, amount, decimals)
+		if (!amountValueInUSD || new Decimal(amountValueInUSD).isZero()) {
 			logger.warn(
-				`[ProtocolRevenueService] Skipping USD rollup for ${symbol} on ${chain}: no price data`,
+				`[ProtocolRevenueService] No DEX price for ${tokenAddress} on ${chain}; skipping USD rollup, raw amount retained`,
 			)
 			return null
 		}
 
-		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price)
 		return toScaledUsd(amountValueInUSD)
 	}
 }

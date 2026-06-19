@@ -225,6 +225,10 @@ points = [
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
 # #
+# # Optional per-position price guard: set referencePrice (exotic per USD, same units as the
+# # bid/ask curves) and maxDeviationBps together to reject orders whenever the live pool quote
+# # on that chain drifts beyond the band. Guards against a manipulated, stale, or thin pool.
+# #
 # # One-sided LP under pool pricing (no bid/ask curves): set `side` to fill a single direction.
 # # "ask" sells exotic (accumulate stablecoins); "bid" buys exotic (accumulate the exotic token).
 # # Omit `side` to fill both directions.
@@ -232,7 +236,7 @@ points = [
 # [strategies.vault.uniswapV4]
 # side = "ask"
 # positions = [
-#     { chain = "EVM-8453", tokenId = "123456789" },
+#     { chain = "EVM-8453", tokenId = "123456789", referencePrice = "1575", maxDeviationBps = 200 },
 # ]
 #
 

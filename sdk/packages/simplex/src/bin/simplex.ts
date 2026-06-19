@@ -74,10 +74,19 @@ interface StableStrategyConfig {
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
 
-/** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
+/** TOML row for a Uniswap V4 position; only chain + tokenId required. */
 interface UniswapV4PositionToml {
 	chain: string
 	tokenId: string // bigint as string in TOML
+	/**
+	 * Optional price guard. When set (alongside `maxDeviationBps`), the filler rejects
+	 * orders whenever the pool quote on this chain drifts more than `maxDeviationBps`
+	 * from this static reference price (exotic per USD, same units as the bid/ask curves).
+	 * Guards against a manipulated, stale, or thin pool.
+	 */
+	referencePrice?: string
+	/** Tolerance in basis points for the price guard. Required when `referencePrice` is set. */
+	maxDeviationBps?: number
 }
 
 /**
@@ -434,6 +443,7 @@ program
 						if (vaultVenue) {
 							fundingVenues.push(vaultVenue)
 						}
+						const priceGuard: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
 						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
 							for (const row of strategyConfig.vault.uniswapV4.positions) {
@@ -442,6 +452,12 @@ program
 								positionsByChain[chain].push({
 									tokenId: BigInt(row.tokenId),
 								})
+								if (row.referencePrice !== undefined) {
+									priceGuard[chain] = {
+										referencePrice: row.referencePrice,
+										maxDeviationBps: row.maxDeviationBps!,
+									}
+								}
 							}
 							fundingVenues.push(
 								new UniswapV4FundingPlanner(
@@ -465,6 +481,7 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
+								priceGuard,
 								side: strategyConfig.vault?.uniswapV4?.side,
 							},
 						)
@@ -724,6 +741,45 @@ function validateConfig(config: FillerTomlConfig): void {
 			if (strategy.spreadBps !== undefined) {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
+				}
+			}
+
+			// Per-position price guard: referencePrice and maxDeviationBps are optional but
+			// must be set together. A given chain may not carry conflicting guard values.
+			const guardByChain: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
+			for (const position of strategy.vault?.uniswapV4?.positions ?? []) {
+				const hasRef = position.referencePrice !== undefined
+				const hasBps = position.maxDeviationBps !== undefined
+				if (hasRef !== hasBps) {
+					throw new Error(
+						"hyperfx: a Uniswap V4 position price guard needs both 'referencePrice' and 'maxDeviationBps', or neither",
+					)
+				}
+				if (!hasRef) continue
+
+				const parsedRef = Number(position.referencePrice)
+				if (!Number.isFinite(parsedRef) || parsedRef <= 0) {
+					throw new Error(`hyperfx: position 'referencePrice' for chain '${position.chain}' must be a positive number`)
+				}
+				if (
+					!Number.isFinite(position.maxDeviationBps!) ||
+					position.maxDeviationBps! <= 0 ||
+					position.maxDeviationBps! > 10_000
+				) {
+					throw new Error(
+						`hyperfx: position 'maxDeviationBps' for chain '${position.chain}' must be a number between 0 (exclusive) and 10000`,
+					)
+				}
+				const existing = guardByChain[position.chain]
+				if (
+					existing &&
+					(existing.referencePrice !== position.referencePrice || existing.maxDeviationBps !== position.maxDeviationBps)
+				) {
+					throw new Error(`hyperfx: conflicting price guard values for chain '${position.chain}'`)
+				}
+				guardByChain[position.chain] = {
+					referencePrice: position.referencePrice!,
+					maxDeviationBps: position.maxDeviationBps!,
 				}
 			}
 

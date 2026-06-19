@@ -6,4 +6,5 @@ mod pallet_beefy_consensus_proofs;
 mod pallet_fishermen;
 mod pallet_ismp;
 mod pallet_mmr;
+mod phantom_orders;
 mod pool_aware_nonce;

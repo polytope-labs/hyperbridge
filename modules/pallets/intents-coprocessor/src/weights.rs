@@ -41,6 +41,8 @@ pub trait WeightInfo {
 	fn update_params() -> Weight;
 	fn sweep_dust() -> Weight;
 	fn update_token_decimals() -> Weight;
+	fn register_phantom_order() -> Weight;
+	fn set_phantom_bid_window() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -105,6 +107,23 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
+
+	/// Storage: CurrentPhantomOrder (r:0 w:1)
+	/// Proof Skipped: CurrentPhantomOrder (max_values: Some(1), max_size: None, mode: Measured)
+	fn register_phantom_order() -> Weight {
+		// Measured on reference hardware; re-run benchmarks after schema changes.
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 1_024))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: PhantomBidWindow (r:0 w:1)
+	/// Proof Skipped: PhantomBidWindow (max_values: Some(1), max_size: Some(4), mode: Measured)
+	fn set_phantom_bid_window() -> Weight {
+		// Measured on reference hardware; re-run benchmarks after schema changes.
+		Weight::from_parts(10_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 }
 
 // For backwards compatibility and tests
@@ -126,5 +145,11 @@ impl WeightInfo for () {
 	}
 	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
+	}
+	fn register_phantom_order() -> Weight {
+		Weight::from_parts(20_000_000, 0)
+	}
+	fn set_phantom_bid_window() -> Weight {
+		Weight::from_parts(10_000_000, 0)
 	}
 }

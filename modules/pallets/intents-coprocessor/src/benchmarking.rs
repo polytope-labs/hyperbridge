@@ -186,5 +186,34 @@ mod benchmarks {
 		Ok(())
 	}
 
+	#[benchmark]
+	fn register_phantom_order() {
+		let caller: T::AccountId = whitelisted_caller();
+		let commitment = H256::repeat_byte(0xab);
+		// Realistic chain identifier bytes (e.g. b"EVM-8453")
+		let chain = b"EVM-8453".to_vec();
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(caller), commitment, chain);
+
+		// Verify the phantom order was stored
+		assert!(CurrentPhantomOrder::<T>::get().is_some());
+	}
+
+	#[benchmark]
+	fn set_phantom_bid_window() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let window: u32 = 100;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, window);
+
+		// Verify the window was stored
+		assert_eq!(PhantomBidWindow::<T>::get(), window);
+
+		Ok(())
+	}
+
 	impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);
 }

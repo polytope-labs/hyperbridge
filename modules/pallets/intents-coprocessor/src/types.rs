@@ -135,6 +135,14 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
+/// Tracks the single active phantom order registered by the intent coprocessor.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderInfo<BlockNumber> {
+	pub created_at_block: BlockNumber,
+	/// Raw state machine identifier bytes (e.g. `b"EVM-8453"`).
+	pub chain: Vec<u8>,
+}
+
 /// A bid placed by a filler for an order
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct Bid<AccountId> {

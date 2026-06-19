@@ -634,6 +634,58 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Builds a PackedUserOperation for a phantom (expired same-chain) order bid.
+	 * Uses zero relayer fees and default gas values — no estimation needed since
+	 * the order will never execute; the indexer only reads the proposed fill amounts.
+	 */
+	async preparePhantomBidUserOp(
+		order: Order,
+		entryPointAddress: HexString,
+		solverAccountAddress: HexString,
+		fillerOutputs: TokenInfo[],
+	): Promise<{ commitment: HexString; userOp: HexString }> {
+		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
+		const client = this.clientManager.getPublicClient(order.destination)
+
+		const fillOptions: FillOptions = { relayerFee: 0n, nativeDispatchFee: 0n, outputs: fillerOutputs }
+		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
+
+		const commitment = orderCommitment(order)
+
+		let nonce = 0n
+		try {
+			nonce = await client.readContract({
+				address: entryPointAddress,
+				abi: ENTRYPOINT_ABI,
+				functionName: "getNonce",
+				args: [solverAccountAddress, BigInt(commitment) & ((1n << 192n) - 1n)],
+			}) as bigint
+		} catch {
+			// Nonce defaults to 0 for phantom bids — the bid is never executed on-chain
+		}
+
+		const gasPrice = await client.getGasPrice().catch(() => 1_000_000_000n)
+
+		const userOp = await sdkHelper.prepareSubmitBid({
+			order,
+			fillOptions,
+			solverAccount: solverAccountAddress,
+			solverSigner: this.signer,
+			nonce,
+			entryPointAddress,
+			callGasLimit: 500_000n,
+			verificationGasLimit: 150_000n,
+			preVerificationGas: 50_000n,
+			maxFeePerGas: gasPrice,
+			maxPriorityFeePerGas: gasPrice / 10n,
+			callData,
+			paymasterAndData: "0x" as HexString,
+		})
+
+		return { commitment, userOp: encodeUserOpScale(userOp) }
+	}
+
+	/**
 	 * Builds ERC-7821 batch calldata that prepends any required ERC20 approvals
 	 * before the fillOrder call, all within a single UserOp payload.
 	 */

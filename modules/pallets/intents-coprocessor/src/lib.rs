@@ -42,7 +42,10 @@ use sp_io::offchain_index;
 use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
 
-use types::{Bid, GatewayInfo, IntentGatewayParams, RequestKind, TokenDecimalsUpdate, TokenInfo};
+use types::{
+	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderInfo, RequestKind, TokenDecimalsUpdate,
+	TokenInfo,
+};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -83,6 +86,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type StorageDepositFee: Get<BalanceOf<Self>>;
 
+		/// How many blocks after phantom order creation bids are accepted. Fallback when
+		/// the PhantomBidWindow storage value is zero.
+		#[pallet::constant]
+		type PhantomOrderBidWindowBlocks: Get<u32>;
+
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
@@ -119,6 +127,17 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
+	/// The single active phantom order. Only one is recognised at a time; registering
+	/// a new one replaces the previous.
+	#[pallet::storage]
+	pub type CurrentPhantomOrder<T: Config> =
+		StorageValue<_, (H256, PhantomOrderInfo<BlockNumberFor<T>>), OptionQuery>;
+
+	/// Governance-updatable bid acceptance window for phantom orders (in blocks).
+	/// Falls back to PhantomOrderBidWindowBlocks when zero.
+	#[pallet::storage]
+	pub type PhantomBidWindow<T: Config> = StorageValue<_, u32, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -147,6 +166,10 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
+		/// A phantom order was registered as the current active one
+		PhantomOrderRegistered { commitment: H256, chain: Vec<u8>, created_at: BlockNumberFor<T> },
+		/// The phantom order bid window was updated
+		PhantomBidWindowUpdated { window: u32 },
 	}
 
 	#[pallet::error]
@@ -163,6 +186,10 @@ pub mod pallet {
 		InvalidUserOp,
 		/// Failed to dispatch cross-chain request
 		DispatchFailed,
+		/// A bid was submitted for a phantom order after the acceptance window closed
+		PhantomOrderBidWindowClosed,
+		/// A filler already has a bid for this phantom order
+		DuplicatePhantomBid,
 	}
 
 	#[pallet::call]
@@ -190,6 +217,22 @@ pub mod pallet {
 
 			// Validate user_op is not empty
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
+
+			// Phantom orders have stricter rules: one bid per filler, no updates, and only
+			// within the configured acceptance window after the order was registered.
+			if let Some((phantom_commitment, info)) = CurrentPhantomOrder::<T>::get() {
+				if commitment == phantom_commitment {
+					let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
+					ensure!(
+						frame_system::Pallet::<T>::block_number() <= info.created_at_block + window,
+						Error::<T>::PhantomOrderBidWindowClosed
+					);
+					ensure!(
+						!Bids::<T>::contains_key(&commitment, &filler),
+						Error::<T>::DuplicatePhantomBid
+					);
+				}
+			}
 
 			// If a bid already exists, unreserve the old deposit first
 			if let Some(old_deposit) = Bids::<T>::get(&commitment, &filler) {
@@ -280,10 +323,8 @@ pub mod pallet {
 				}
 
 				// Prepare cross-chain request to notify existing gateway
-				let new_deployment = types::NewDeployment {
-					chain: state_machine.to_string().into_bytes(),
-					gateway,
-				};
+				let new_deployment =
+					types::NewDeployment { chain: state_machine.to_string().into_bytes(), gateway };
 				let request = RequestKind::AddDeployment(new_deployment);
 				let body = request.encode_body();
 
@@ -443,6 +484,39 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Register a phantom order as the single active one. Replaces any previously
+		/// registered phantom order. Called by the intent coprocessor service.
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::register_phantom_order())]
+		pub fn register_phantom_order(
+			origin: OriginFor<T>,
+			commitment: H256,
+			chain: Vec<u8>,
+		) -> DispatchResult {
+			ensure_signed(origin)?;
+
+			let created_at = frame_system::Pallet::<T>::block_number();
+			let info = PhantomOrderInfo { created_at_block: created_at, chain: chain.clone() };
+			CurrentPhantomOrder::<T>::put((commitment, info));
+
+			Self::deposit_event(Event::PhantomOrderRegistered { commitment, chain, created_at });
+
+			Ok(())
+		}
+
+		/// Update the phantom order bid acceptance window.
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::set_phantom_bid_window())]
+		pub fn set_phantom_bid_window(origin: OriginFor<T>, window: u32) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			PhantomBidWindow::<T>::put(window);
+
+			Self::deposit_event(Event::PhantomBidWindowUpdated { window });
+
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T>
@@ -458,6 +532,15 @@ pub mod pallet {
 				T::StorageDepositFee::get()
 			} else {
 				fee
+			}
+		}
+
+		pub fn phantom_bid_window() -> u32 {
+			let window = PhantomBidWindow::<T>::get();
+			if window == 0 {
+				T::PhantomOrderBidWindowBlocks::get()
+			} else {
+				window
 			}
 		}
 

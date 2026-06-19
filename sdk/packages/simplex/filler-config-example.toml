@@ -210,6 +210,22 @@ points = [
 #
 
 
+# Phantom order generator (optional)
+# Places expired same-chain swaps to collect price and liquidity bids from fillers.
+# Requires hyperbridgeWsUrl and substratePrivateKey to be set in [simplex].
+#
+# [phantom_generator]
+# enabled = true
+# chain = "EVM-8453"        # Chain where phantom orders are placed
+# interval_hours = 1        # How often to run a round (default: 1 hour)
+#
+# [[phantom_generator.token_pairs]]
+# token_a = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"  # USDC
+# token_b = "0xdac17f958d2ee523a2206206994597c13d831ec7"  # USDT
+# standard_amount = "1000000000"   # 1000 USDC (6 decimals)
+# min_output = "990000000"         # 990 USDT minimum
+
+
 # Chain configuration - RPC and bundler URLs are required
 # Chain IDs are resolved automatically from the RPC endpoints.
 # All other chain data (addresses, assets, etc.) comes from the SDK automatically.

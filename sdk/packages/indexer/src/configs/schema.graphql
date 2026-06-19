@@ -2132,3 +2132,120 @@ type BandwidthTier @entity {
 	lastUpdatedAt: BigInt!
 }
 
+# ─── Phantom Order Price / Liquidity Indexing ────────────────────────────────
+
+"""
+A phantom order placed by the coprocessor as a price/liquidity probe.
+Phantom orders are expired same-chain swaps (deadline = 0) that never
+execute; fillers bid on them to reveal their available fill prices.
+"""
+type PhantomOrder @entity {
+	"""
+	Order commitment (keccak256 of the encoded order struct).
+	"""
+	id: ID!
+
+	"""
+	Target EVM chain identifier (e.g. "EVM-8453").
+	"""
+	chain: String! @index
+
+	"""
+	Block number on Hyperbridge where the registration was recorded.
+	"""
+	blockNumber: BigInt!
+
+	"""
+	Block timestamp of the registration block.
+	"""
+	blockTimestamp: Date! @index
+
+	"""
+	Wall-clock time the entity was created.
+	"""
+	createdAt: Date!
+
+	"""
+	Bids submitted by fillers for this phantom order.
+	"""
+	bids: [PhantomOrderBid] @derivedFrom(field: "order")
+}
+
+"""
+A bid submitted by a filler for a phantom order.
+Contains the filler's proposed output amounts (the price signal) and the
+result of an on-chain liquidity simulation.
+"""
+type PhantomOrderBid @entity {
+	"""
+	`commitment-fillerHex` — unique per (order, filler) pair.
+	"""
+	id: ID!
+
+	"""
+	The phantom order this bid belongs to.
+	"""
+	order: PhantomOrder!
+
+	"""
+	Filler account identifier (hex).
+	"""
+	filler: String! @index
+
+	"""
+	Security deposit locked by the filler (in the native token, raw bigint).
+	"""
+	deposit: BigInt!
+
+	"""
+	Block number on Hyperbridge where the BidPlaced event was emitted.
+	"""
+	blockNumber: BigInt!
+
+	"""
+	Block timestamp of the block that contained the BidPlaced event.
+	"""
+	blockTimestamp: Date! @index
+
+	"""
+	Wall-clock time the entity was created.
+	"""
+	createdAt: Date!
+
+	"""
+	`true` if the eth_call liquidity simulation succeeded, `false` if it
+	reverted, `null` if the simulation could not be run (e.g. RPC unavailable).
+	"""
+	simulationSuccess: Boolean
+
+	"""
+	Proposed output tokens and amounts offered by the filler.
+	"""
+	outputs: [PhantomOrderBidOutput] @derivedFrom(field: "bid")
+}
+
+"""
+A single output-token entry within a phantom order bid.
+"""
+type PhantomOrderBidOutput @entity {
+	"""
+	`bidId-index` — stable across re-indexing.
+	"""
+	id: ID!
+
+	"""
+	The bid this output belongs to.
+	"""
+	bid: PhantomOrderBid!
+
+	"""
+	ERC-20 token address as bytes32 (left-zero-padded).
+	"""
+	token: String!
+
+	"""
+	Proposed amount of `token` the filler offers to deliver.
+	"""
+	amount: BigInt!
+}
+

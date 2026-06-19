@@ -297,6 +297,38 @@ export class BasicFiller implements FillerStrategy {
 	}
 
 	/**
+	 * Quotes fill outputs for a phantom order using the bps policy, without gas estimation.
+	 * Returns null when this strategy does not support the order's token pair.
+	 */
+	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
+		if (!(await this.canFill(order))) return null
+
+		const basisPoints = 10000n
+		const inputUsdValue = await this.contractService.getInputUsdValue(order)
+		const fillerBps = this.bpsPolicy.getBps(inputUsdValue)
+		const outputs: TokenInfo[] = []
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const input = order.inputs[i]
+			const output = order.output.assets[i]
+
+			const [inputDecimals, outputDecimals] = await Promise.all([
+				this.contractService.getTokenDecimals(input.token, order.source),
+				this.contractService.getTokenDecimals(output.token, order.destination),
+			])
+
+			const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
+			const bpsOutput = (convertedInput * (basisPoints - fillerBps)) / basisPoints
+			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+
+			outputs.push({ token: output.token, amount: bpsOutput > overfillCeiling ? overfillCeiling : bpsOutput })
+		}
+
+		this.contractService.cacheService.setFillerOutputs(order.id!, outputs)
+		return outputs
+	}
+
+	/**
 	 * Executes the order fill.
 	 * If hyperbridge is provided, submits a bid (solver selection mode).
 	 * Otherwise, fills the order directly via contract call.

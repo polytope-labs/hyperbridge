@@ -115,6 +115,29 @@ export interface AllowlistConfig {
 	bySource?: Record<string, string[]>
 }
 
+/** A single token pair the phantom generator probes for pricing data. */
+export interface PhantomTokenPairConfig {
+	/** Token A contract address (0x-prefixed). */
+	token_a: string
+	/** Token B contract address (0x-prefixed). */
+	token_b: string
+	/** Input amount in raw token units (string to avoid JS precision loss). */
+	standard_amount: string
+	/** Minimum acceptable output in raw token units. */
+	min_output: string
+}
+
+/** Configuration block for the phantom order generator service. */
+export interface PhantomGeneratorConfig {
+	/** Whether the generator is active. Defaults to true when the section is present. */
+	enabled?: boolean
+	/** Chain to place phantom orders on, e.g. "EVM-8453". */
+	chain: string
+	/** How often to place a new round of phantom orders, in hours. Defaults to 1. */
+	interval_hours?: number
+	token_pairs: PhantomTokenPairConfig[]
+}
+
 export interface FillerConfig {
 	maxConcurrentOrders: number
 	logging?: LogLevel
@@ -144,6 +167,8 @@ export interface FillerConfig {
 	 * accepted; a chain whose merged set is empty rejects every order.
 	 */
 	allowlist?: AllowlistConfig
+	/** Optional phantom order generator configuration. */
+	phantomGenerator?: PhantomGeneratorConfig
 }
 
 /**
@@ -495,5 +520,9 @@ export class FillerConfigService {
 	/** Consecutive clamped evaluations before the strategy halts. Default 3. */
 	getMaxConsecutiveClamps(): number {
 		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
+	}
+
+	getPhantomGeneratorConfig(): PhantomGeneratorConfig | undefined {
+		return this.fillerConfig?.phantomGenerator
 	}
 }

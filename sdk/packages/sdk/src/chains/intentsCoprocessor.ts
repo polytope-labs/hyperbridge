@@ -154,8 +154,8 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Creates a Substrate keypair from the configured private key
-	 * Supports both hex seed (without 0x prefix) and mnemonic phrases
+	 * Creates a Substrate keypair from the configured private key.
+	 * Supports hex seed (with or without 0x), mnemonic phrases, and URI derivation paths (//Alice).
 	 */
 	public getKeyPair(): KeyringPair {
 		if (!this.substratePrivateKey) {
@@ -164,6 +164,9 @@ export class IntentsCoprocessor {
 
 		const keyring = new Keyring({ type: "sr25519" })
 
+		if (this.substratePrivateKey.startsWith("//")) {
+			return keyring.addFromUri(this.substratePrivateKey)
+		}
 		if (this.substratePrivateKey.includes(" ")) {
 			return keyring.addFromMnemonic(this.substratePrivateKey)
 		}
@@ -243,20 +246,43 @@ export class IntentsCoprocessor {
 				.signAndSend(keyPair, { tip }, (result) => {
 					if (resolved) return
 
-					if (result.status.isInBlock || result.status.isFinalized) {
+					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {
 						resolved = true
 						clearTimeout(timeoutId)
+						let errorMsg: string
+						if (result.dispatchError.isModule) {
+							const decoded = this.api.registry.findMetaError(result.dispatchError.asModule)
+							errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
+						} else {
+							errorMsg = `Dispatch error: ${result.dispatchError.toString()}`
+						}
 						resolve({
-							success: true,
-							blockHash: result.status.asInBlock.toHex() as HexString,
-							extrinsicHash: extrinsic.hash.toHex() as HexString,
+							success: false,
+							error: errorMsg,
 						})
-					} else if (result.dispatchError) {
+					} else if (
+						result.status.isDropped ||
+						result.status.isInvalid ||
+						result.status.isUsurped ||
+						result.status.isFinalityTimeout
+					) {
+						// Pool-level terminal statuses — don't retry, let caller decide
 						resolved = true
 						clearTimeout(timeoutId)
 						resolve({
 							success: false,
-							error: `Dispatch error: ${result.dispatchError.toString()}`,
+							error: `Transaction ${result.status.type.toLowerCase()}`,
+						})
+					} else if (result.status.isInBlock || result.status.isFinalized) {
+						resolved = true
+						clearTimeout(timeoutId)
+						resolve({
+							success: true,
+							blockHash: (result.status.isInBlock
+								? result.status.asInBlock
+								: result.status.asFinalized
+							).toHex() as HexString,
+							extrinsicHash: extrinsic.hash.toHex() as HexString,
 						})
 					}
 				})
@@ -287,6 +313,27 @@ export class IntentsCoprocessor {
 	async submitBid(commitment: HexString, userOp: HexString): Promise<BidSubmissionResult> {
 		try {
 			const extrinsic = this.api.tx.intentsCoprocessor.placeBid(commitment, userOp)
+			return await this.signAndSendExtrinsic(extrinsic)
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			}
+		}
+	}
+
+	/**
+	 * Registers a phantom order as the single active one on Hyperbridge.
+	 * Any previously registered phantom order is replaced. Called by the intent coprocessor.
+	 *
+	 * @param commitment - The order commitment hash (bytes32)
+	 * @param chain - State machine identifier string (e.g. "EVM-8453")
+	 * @returns BidSubmissionResult with success status and block/extrinsic hash
+	 */
+	async registerPhantomOrder(commitment: HexString, chain: string): Promise<BidSubmissionResult> {
+		try {
+			const chainBytes = Array.from(new TextEncoder().encode(chain))
+			const extrinsic = this.api.tx.intentsCoprocessor.registerPhantomOrder(commitment, chainBytes)
 			return await this.signAndSendExtrinsic(extrinsic)
 		} catch (error) {
 			return {

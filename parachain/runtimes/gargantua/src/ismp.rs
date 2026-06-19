@@ -105,12 +105,14 @@ impl pallet_state_coprocessor::Config for Runtime {
 
 parameter_types! {
 	pub const IntentStorageDepositFee: Balance = 100 * EXISTENTIAL_DEPOSIT;
+	pub const IntentPhantomOrderBidWindow: u32 = 15;
 }
 
 impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = IntentStorageDepositFee;
+	type PhantomOrderBidWindowBlocks = IntentPhantomOrderBidWindow;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }

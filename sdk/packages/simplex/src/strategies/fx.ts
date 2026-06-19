@@ -795,6 +795,82 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
+	 * Returns the filler's proposed output amounts for a phantom order without
+	 * checking on-chain balance or estimating gas. Phantom orders are probes that
+	 * never execute; we only need the price signal.
+	 *
+	 * Returns `null` when the pair is not supported or the USD value cannot be
+	 * computed (e.g. venue price unavailable and no fallback).
+	 */
+	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
+		if (!(await this.canFill(order))) return null
+
+		const pairs = this.classifyAllPairs(order)
+		if (!pairs) return null
+
+		const usdResult = await this.getOrderUsdValue(order)
+		if (!usdResult || usdResult.inputUsd.lte(0)) return null
+
+		const cappedOrderUsd = Decimal.min(usdResult.inputUsd, this.maxOrderUsd)
+		if (cappedOrderUsd.lte(0)) return null
+
+		const chain = order.source
+		const venuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(chain) : null
+		const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
+		const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
+
+		const outputs: TokenInfo[] = []
+		let remainingUsd = cappedOrderUsd
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const input = order.inputs[i]
+			const output = order.output.assets[i]
+			const pair = pairs[i]
+
+			const inputDecimals = await this.contractService.getTokenDecimals(
+				bytes32ToBytes20(input.token) as HexString,
+				chain,
+			)
+			const outputDecimals = await this.contractService.getTokenDecimals(
+				bytes32ToBytes20(output.token) as HexString,
+				chain,
+			)
+
+			const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
+			const exoticDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
+			const bidPrice = venuePrice?.bid ?? policyBidPrice
+			const askPrice = venuePrice?.ask ?? policyAskPrice
+
+			const legResult = this.computeLegPolicyOutput(
+				input.amount,
+				pair.inputIsStable,
+				stableDecimals,
+				exoticDecimals,
+				remainingUsd,
+				pair.inputIsStable ? askPrice : bidPrice,
+			)
+
+			if (!legResult) continue
+
+			remainingUsd = remainingUsd.minus(legResult.usdUsed)
+
+			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+			const amount = legResult.policyMaxOutput > overfillCeiling ? overfillCeiling : legResult.policyMaxOutput
+			outputs.push({ token: output.token, amount })
+
+			if (remainingUsd.lte(0)) break
+		}
+
+		if (outputs.length === 0) return null
+
+		if (order.id) {
+			this.contractService.cacheService.setFillerOutputs(order.id, outputs)
+		}
+
+		return outputs
+	}
+
+	/**
 	 * Returns the USD value of the order's full input basket.
 	 * Stablecoin inputs are priced at face value; exotic inputs are converted
 	 * via the bid price policy at the minimum price point.

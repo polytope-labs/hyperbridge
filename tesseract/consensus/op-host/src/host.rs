@@ -287,16 +287,19 @@ async fn construct_state_proposal(
 				let commitment_block_number = *latest_height;
 
 				let message_parser_addr = Address::from_slice(&client.message_parser.0);
-				let message_parser_proof = client
-					.op_execution_client
-					.get_proof(message_parser_addr, vec![])
-					.block_id(commitment_block_number.into())
-					.await?;
+				// We only need the message-parser account's storage root, not a merkle proof. Race
+				// `eth_getProof` and `eth_getAccount` and take whichever returns first.
+				let message_parser_storage_root = crate::fetch_storage_root(
+					&client.op_execution_client,
+					message_parser_addr,
+					commitment_block_number,
+				)
+				.await?;
 
 				let root_claim = calculate_output_root::<Hasher>(
 					H256::zero(),
 					l2_header.state_root,
-					message_parser_proof.storage_hash.0.into(),
+					message_parser_storage_root.0.into(),
 					l2_block_hash,
 				);
 
@@ -354,18 +357,21 @@ async fn construct_state_proposal(
 						.ok_or_else(|| anyhow!(" Block should exist"))?;
 					let latest_claim_header = latest_claim_header.into();
 					let message_parser_addr = Address::from_slice(&client.message_parser.0);
-					let latest_claim_message_parser_proof = client
-						.op_execution_client
-						.get_proof(message_parser_addr, vec![])
-						.block_id(latest_claim_l2_block_number.into())
-						.await?;
+					// We only need the message-parser account's storage root, not a merkle proof.
+					// Race `eth_getProof` and `eth_getAccount` and take whichever returns first.
+					let latest_claim_message_parser_storage_root = crate::fetch_storage_root(
+						&client.op_execution_client,
+						message_parser_addr,
+						latest_claim_l2_block_number,
+					)
+					.await?;
 					let latest_claim_header_block_hash =
 						Header::from(&latest_claim_header).hash::<Hasher>();
 
 					let calculated_latest_root_claim = calculate_output_root::<Hasher>(
 						H256::zero(),
 						latest_claim_header.state_root,
-						latest_claim_message_parser_proof.storage_hash.0.into(),
+						latest_claim_message_parser_storage_root.0.into(),
 						latest_claim_header_block_hash,
 					);
 
@@ -609,7 +615,7 @@ async fn submit_consensus_update(
 	));
 
 	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
-	trace!(target: "op-host", "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.state_machine);
+	trace!(target: crate::LOG_TARGET, "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.state_machine);
 	let latest_height = initial_height;
 
 	let counterparty_clone = counterparty.clone();
@@ -628,20 +634,20 @@ async fn submit_consensus_update(
 					Err(_) =>
 						return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height")), (interval, latest_height),)),
 				} as u64;
-			trace!(target: "op-host", "{state_machine:?}: current height found for l1 state machine is {current_height:?}");
+			trace!(target: crate::LOG_TARGET, "{state_machine:?}: current height found for l1 state machine is {current_height:?}");
 
 			let previous_height = latest_height;
 			if current_height <= previous_height {
-				trace!(target: "op-host", "{state_machine:?}: -> current height {current_height:?} <= {previous_height:?}");
+				trace!(target: crate::LOG_TARGET, "{state_machine:?}: -> current height {current_height:?} <= {previous_height:?}");
 				return Some((Ok(None), (interval, previous_height)));
 			}
 
-			trace!(target: "op-host", "{state_machine:?}:  -> fetching event between {previous_height:?} and {current_height:?}");
+			trace!(target: crate::LOG_TARGET, "{state_machine:?}:  -> fetching event between {previous_height:?} and {current_height:?}");
 			return match consensus_state.optimism_consensus_type {
 				Some(OptimismConsensusType::OpL2Oracle)  => {
 					match client.latest_event(previous_height + 1, current_height).await {
 						Ok(Some(event)) => {
-							trace!(target: "op-host", "{state_machine:?}: fetching l2 oracle payload");
+							trace!(target: crate::LOG_TARGET, "{state_machine:?}: fetching l2 oracle payload");
 							match client.fetch_op_payload(current_height, event).await {
 								Ok(payload) => {
 									let update = OptimismUpdate {
@@ -655,15 +661,18 @@ async fn submit_consensus_update(
 										signer: counterparty.address(),
 									};
 
-									trace!(target: "op-host", "gotten update for {state_machine:?}");
+									trace!(target: crate::LOG_TARGET, "gotten update for {state_machine:?}");
 
 									Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
 								}
-								Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op stack l2 oracle payload with height {current_height:?}")), (interval, latest_height),)),
+								// Advance the pointer past this range on a payload-fetch error: the
+								// event exists but its payload can't be built (e.g. pruned state),
+								// so retrying the same range would stall. Skip ahead instead.
+								Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op stack l2 oracle payload with height {current_height:?}")), (interval, current_height),)),
 							}
 						}
 						Ok(None) => {
-							trace!(target: "op-host", "{state_machine:?}: no events fetched for op l2 oracle");
+							trace!(target: crate::LOG_TARGET, "{state_machine:?}: no events fetched for op l2 oracle");
 							Some((Ok::<_, Error>(None), (interval, current_height)))
 						}
 						Err(_) => {
@@ -685,7 +694,7 @@ async fn submit_consensus_update(
 					let game_type_configs = match fetch_game_type_configs(&counterparty, l2_state_machine_id).await {
 						Ok(Some(configs)) => configs,
 						Ok(None) => {
-							trace!(target: "op-host", "{state_machine:?}: -> no dispute-game factory config installed for this state machine");
+							trace!(target: crate::LOG_TARGET, "{state_machine:?}: -> no dispute-game factory config installed for this state machine");
 							return Some((Ok(None), (interval, previous_height)));
 						},
 						Err(e) => return Some((
@@ -695,7 +704,7 @@ async fn submit_consensus_update(
 					};
 					match client.latest_dispute_games(previous_height + 1, current_height, game_type_configs.clone()).await {
 						Ok(event) => {
-							trace!(target: "op-host", "{state_machine:?}: -> fetching op fault proof games payload");
+							trace!(target: crate::LOG_TARGET, "{state_machine:?}: -> fetching op fault proof games payload");
 							match client.fetch_dispute_game_payload(current_height, game_type_configs, event).await {
 								Ok(maybe_payload) => {
 									if let Some(payload) = maybe_payload {
@@ -710,15 +719,18 @@ async fn submit_consensus_update(
 											signer: counterparty.address(),
 										};
 
-										trace!(target: "op-host", "{state_machine:?}: -> gotten update");
+										trace!(target: crate::LOG_TARGET, "{state_machine:?}: -> gotten update");
 
 										Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
 									} else {
-										trace!(target: "op-host", "{state_machine:?}: -> No dispute game updates between {previous_height:?} -> {current_height:?}");
+										trace!(target: crate::LOG_TARGET, "{state_machine:?}: -> No dispute game updates between {previous_height:?} -> {current_height:?}");
 										Some((Ok::<_, Error>(None), (interval, current_height)))
 									}
 								}
-								Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault proof game payload at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
+								// Advance the pointer past this range on a payload-fetch error so a
+								// range we can't build a payload for doesn't stall the task; the
+								// next tick moves on to newer L1 heights.
+								Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault proof game payload at height {current_height:?}\n{e:?}")), (interval, current_height),)),
 							}
 						}
 						Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching dispute game events at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
@@ -757,7 +769,7 @@ async fn submit_consensus_update(
 				}
 			},
 			Err(e) => {
-				log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+				log::error!(target: crate::LOG_TARGET, "Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 			},
 		}
 	}

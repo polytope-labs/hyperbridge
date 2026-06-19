@@ -15352,6 +15352,7 @@ dependencies = [
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "pharos-primitives",
  "polkadot-sdk",
  "scale-info",
  "substrate-state-machine",
@@ -28025,7 +28026,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "2.4.2"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28033,6 +28034,7 @@ dependencies = [
  "futures",
  "hex",
  "ismp",
+ "ismp-parachain",
  "log",
  "messaging",
  "pallet-beefy-consensus-proofs",
@@ -28539,7 +28541,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-prover"
-version = "2.1.0"
+version = "2.1.2"
 dependencies = [
  "anyhow",
  "clap",

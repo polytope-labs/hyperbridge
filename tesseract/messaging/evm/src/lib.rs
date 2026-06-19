@@ -1,10 +1,7 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "messaging-evm";
 
-use crate::{
-	abi::EvmHostInstance,
-	transport::RpcTransport,
-};
+use crate::{abi::EvmHostInstance, transport::RpcTransport};
 
 use alloy::{
 	eips::BlockId,
@@ -89,9 +86,7 @@ pub fn create_providers_per_url(urls: &[String]) -> Result<Vec<Arc<RootProvider>
 	if urls.is_empty() {
 		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
 	}
-	urls.iter()
-		.map(|u| Ok(Arc::new(RootProvider::new_http(u.parse()?))))
-		.collect()
+	urls.iter().map(|u| Ok(Arc::new(RootProvider::new_http(u.parse()?)))).collect()
 }
 
 #[cfg(test)]
@@ -216,8 +211,17 @@ impl EvmConfig {
 	/// Fill in `state_machine`, `ismp_host`, and `consensus_state_id`
 	/// from the chain RPC + [`crate::registry`] when the operator left
 	/// them unset. Returns a new config with all three guaranteed
-	/// `Some(...)`;
+	/// `Some(...)`.
+	///
+	/// If all three are already explicitly set in the config, the RPC call
+	/// to `eth_chainId` is skipped entirely.
 	pub async fn resolve(self) -> anyhow::Result<Self> {
+		if let (Some(_), Some(_), Some(_)) =
+			(&self.state_machine, &self.ismp_host, &self.consensus_state_id)
+		{
+			return Ok(self);
+		}
+
 		let chain_id = {
 			let url = self.rpc_urls.first().ok_or_else(|| {
 				anyhow::anyhow!("evm config requires at least one rpc_urls entry to resolve")
@@ -225,17 +229,23 @@ impl EvmConfig {
 			crate::registry::fetch_chain_id(url).await?
 		};
 
-		let state_machine = StateMachine::Evm(chain_id as u32);
+		let state_machine = self.state_machine.unwrap_or(StateMachine::Evm(chain_id as u32));
 
-		let ismp_host = crate::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
-			anyhow::anyhow!(
-				"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
-				 or add the chain to tesseract_evm::registry"
-			)
-		})?;
+		let ismp_host = self
+			.ismp_host
+			.or_else(|| crate::registry::ismp_host_for_chain_id(chain_id))
+			.ok_or_else(|| {
+				anyhow::anyhow!(
+					"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
+					 or add the chain to tesseract_evm::registry"
+				)
+			})?;
 
-		let consensus_state_id = crate::registry::consensus_state_id_for_chain_id(chain_id)
-			.map(|s| s.to_string())
+		let consensus_state_id = self
+			.consensus_state_id
+			.or_else(|| {
+				crate::registry::consensus_state_id_for_chain_id(chain_id).map(|s| s.to_string())
+			})
 			.ok_or_else(|| {
 				anyhow::anyhow!(
 					"no consensus_state_id configured for chain_id={chain_id}; set it \

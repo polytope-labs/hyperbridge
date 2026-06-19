@@ -52,6 +52,7 @@ jobs:
 
             - name: Build
               run: |
+                  sudo apt-get update -y
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
                   cargo build --release -p tesseract
 
@@ -61,7 +62,7 @@ jobs:
             - name: Resolve version
               id: version
               run: |
-                  VERSION=$(cargo get package.version --entry ./tesseract/messaging/relayer)
+                  VERSION=$(cargo get package.version --entry ./tesseract/relayer)
                   echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
             - name: Login to Docker Hub

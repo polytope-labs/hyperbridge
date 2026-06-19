@@ -33,7 +33,10 @@ use subxt::{
 use std::sync::Arc;
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-use ismp_parachain::parachain_consensus_state_id;
+use ismp_parachain::{
+	consensus::{ASSET_HUB_MAINNET_CHAIN_ID, ASSET_HUB_PARA_ID, PASSET_HUB_TESTNET_CHAIN_ID},
+	parachain_consensus_state_id,
+};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_substrate_evm::{SubstrateEvmClient, SubstrateEvmClientConfig};
@@ -224,7 +227,9 @@ where
 	pub fn para_id(&self) -> u32 {
 		match self.state_machine {
 			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-			StateMachine::Evm(id) if id == 420420417 || id == 420420419 => 1000,
+			StateMachine::Evm(id)
+				if id == PASSET_HUB_TESTNET_CHAIN_ID || id == ASSET_HUB_MAINNET_CHAIN_ID =>
+				ASSET_HUB_PARA_ID,
 			// checked in `new`
 			_ => unreachable!("ParachainHost checked state machine at construction"),
 		}

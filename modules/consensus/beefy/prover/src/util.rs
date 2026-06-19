@@ -108,6 +108,10 @@ pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
 	Ok(TimeStampExtWithProof { ext, proof })
 }
 
+/// Sentinel leaf for a BEEFY key that fails `to_eth_address`, matching the latest
+/// `pallet_beefy_mmr::BeefyEcdsaToEthereum` (`FAILED_BEEFY_TO_ETH_ADDRESS`).
+const FAILED_BEEFY_TO_ETH_ADDRESS: [u8; 20] = [0u8; 20];
+
 /// Hash encoded authority public keys
 pub fn hash_authority_addresses(
 	encoded_public_keys: Vec<Vec<u8>>,
@@ -115,8 +119,21 @@ pub fn hash_authority_addresses(
 	let authority_address_hashes = encoded_public_keys
 		.into_iter()
 		.map(|x| {
-			sp_consensus_beefy::ecdsa_crypto::AuthorityId::decode(&mut &*x)
-				.map(|id| keccak_256(&pallet_beefy_mmr::BeefyEcdsaToEthereum::convert(id)))
+			sp_consensus_beefy::ecdsa_crypto::AuthorityId::decode(&mut &*x).map(|id| {
+				// Mirror the latest `BeefyEcdsaToEthereum`: a key that fails `to_eth_address` is
+				// committed as `FAILED_BEEFY_TO_ETH_ADDRESS = [0u8; 20]`, not an empty Vec. The
+				// pinned pallet-beefy-mmr (46.0.0, from the polkadot-sdk umbrella) still returns
+				// `Vec::default()`, hashing `keccak([])` and so producing the wrong authority-set
+				// root for any set containing an unconvertible key (Polkadot mainnet from set 5066
+				// on). `convert` returns empty iff the conversion failed, so substituting the
+				// sentinel on empty reproduces the new crate's root exactly (verified against the
+				// on-chain keyset commitments d47f121c / 1c9dedf8).
+				let mut address = pallet_beefy_mmr::BeefyEcdsaToEthereum::convert(id);
+				if address.is_empty() {
+					address = FAILED_BEEFY_TO_ETH_ADDRESS.to_vec();
+				}
+				keccak_256(&address)
+			})
 		})
 		.collect::<Result<Vec<_>, codec::Error>>()?;
 	Ok(authority_address_hashes)

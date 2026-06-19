@@ -161,8 +161,8 @@ where
 		// Ethereum trie stores. Returns `None` for an unset / zero-address
 		// slot, which we surface as `OutboundDeliveryNotProven` (logically
 		// equivalent to "no delivery proven yet").
-		let evm_address =
-			Self::decode_epochs_slot_address(&raw).ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+		let evm_address = Self::decode_epochs_slot_address(destination, &raw)
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
 		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
 		let msg = outbound_consensus_delivery_message(set_id, destination, payee);
@@ -197,17 +197,22 @@ where
 		Ok(())
 	}
 
-	/// Decode the EVM `address` value stored at
-	/// `EvmHost._epochs[set_id]`, as returned by
-	/// `EvmStateMachine::verify_state_proof`.
-	pub fn decode_epochs_slot_address(raw: &[u8]) -> Option<Address> {
+	/// Decode the `address` value from `EvmHost._epochs[set_id]` as returned
+	/// by `EvmStateMachine::verify_state_proof`. Standard EVM chains RLP-encode
+	/// the value; Pharos stores it as a raw 32-byte ABI-padded word.
+	pub fn decode_epochs_slot_address(
+		state_id: ismp::host::StateMachine,
+		raw: &[u8],
+	) -> Option<Address> {
 		use alloy_rlp::Decodable;
-		let addr = Address::decode(&mut &*raw).ok()?;
-		if addr == Address::ZERO {
-			None
-		} else {
-			Some(addr)
+		if let Ok(addr) = Address::decode(&mut &*raw) {
+			return if addr == Address::ZERO { None } else { Some(addr) };
 		}
+		if crate::is_pharos(&state_id) && raw.len() == 32 {
+			let addr = Address::from_slice(&raw[12..]);
+			return if addr == Address::ZERO { None } else { Some(addr) };
+		}
+		None
 	}
 }
 

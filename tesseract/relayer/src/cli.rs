@@ -30,6 +30,7 @@ use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
 use crate::{
+	claim_rewards::ClaimRewards,
 	config::{setup_logging, HyperbridgeConfig},
 	fees::AccumulateFees,
 	provider::{ConsensusProofSource, OffchainProofSource},
@@ -89,6 +90,11 @@ pub enum Subcommand {
 	/// directions, and (optionally) withdraw the resulting hyperbridge
 	/// balance to each destination.
 	AccumulateFees(AccumulateFees),
+	/// Manually claim outbound consensus delivery rewards for all pending
+	/// rotation claims in the local DB. For Polkadot Hub deliveries, submits
+	/// a parachain consensus proof to Hyperbridge first so the claim proof can
+	/// be anchored against a known state commitment.
+	ClaimRewards(ClaimRewards),
 }
 
 const BANNER: &str = r"
@@ -305,6 +311,7 @@ impl Cli {
 				relayer_config: messaging_config.clone(),
 				tx_payment: tx_payment.clone(),
 				fees_disabled,
+				consensus_hosts: consensus_hosts.clone(),
 			},
 			&task_manager,
 		)

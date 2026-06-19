@@ -13,6 +13,7 @@ evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 ismp = { workspace = true }
 crypto-utils = { workspace = true }
+pharos-primitives = { workspace = true }
 
 # crates.io
 log = { workspace = true, default-features = false }
@@ -58,6 +59,7 @@ std = [
     "evm-state-machine/std",
     "pallet-ismp-host-executive/std",
     "anyhow/std",
-    "crypto-utils/std"
+    "crypto-utils/std",
+    "pharos-primitives/std"
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

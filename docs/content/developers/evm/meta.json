@@ -5,6 +5,7 @@
         "messaging",
         "hyper-fungible-token",
         "intent-gateway",
+        "streaming-yield-vault",
         "bandwidth",
         "lz-endpoint",
         "contract-addresses",

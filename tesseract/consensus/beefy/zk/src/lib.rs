@@ -106,6 +106,23 @@ where
 				.collect::<Vec<_>>();
 
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
+
+			// Sanity check: the merkle root of the actual on-chain authorities must equal the
+			// `keyset_commitment` of the set selected by the commitment's `validator_set_id`. The
+			// guest verifies authority membership against `authority.keyset_commitment`, so if this
+			// invariant is broken the proof would fail on-chain. A mismatch here means either the
+			// validator-set selection is wrong or `hash_authority_addresses` has diverged from
+			// `pallet-beefy-mmr`'s eth-address commitment (see `FAILED_BEEFY_TO_ETH_ADDRESS`).
+			let computed_root = tree.root().ok_or_else(|| anyhow!("empty authority set"))?;
+			if computed_root != authority.keyset_commitment.0 {
+				Err(anyhow!(
+					"authority root mismatch for validator set {}: computed 0x{} != keyset_commitment 0x{}",
+					authority.id,
+					hex::encode(computed_root),
+					hex::encode(authority.keyset_commitment.0),
+				))?
+			}
+
 			let proof = tree.proof(&indices);
 			proof.proof_hashes().iter().map(|item| item.clone().into()).collect()
 		};

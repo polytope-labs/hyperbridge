@@ -118,9 +118,78 @@ export interface UniswapV4OutputFundingConfig {
 }
 
 // =========================================================================
+// Vault Types
+// =========================================================================
+
+/**
+ * A single ERC-4626 vault the filler is willing to source from (e.g. Aave's
+ * stataToken for USDC). Only the vault address is needed; the underlying asset
+ * and its decimals are resolved on-chain during initialisation.
+ */
+export interface VaultConfig {
+	/** ERC-4626 vault address. */
+	vault: HexString
+	/**
+	 * High-water trigger, in absolute human units (e.g. "5000"). A sweep fires
+	 * only once the wallet balance reaches this, then deposits everything down to
+	 * `minBalance`. Omit to disable sweeping for this vault (withdraw-only).
+	 */
+	threshold?: string
+	/**
+	 * Floor of the underlying to always keep liquid in the wallet, in absolute
+	 * human units (e.g. "3000") — covers direct fills and gas/paymaster paid in
+	 * this token. The sweep never drops below it. Required when `threshold` is
+	 * set, and must be strictly less than it.
+	 */
+	minBalance?: string
+	/**
+	 * Whether to redeem this vault's position back to the underlying asset on
+	 * shutdown. Defaults to false (the position is kept across restarts). Set
+	 * true to unwind it back to the underlying on stop.
+	 */
+	redeemOnShutdown?: boolean
+}
+
+/**
+ * Runtime representation of an ERC-4626 vault after on-chain hydration.
+ */
+export interface HydratedVault {
+	vault: HexString
+	/** Underlying asset from `vault.asset()`. */
+	asset: HexString
+	/** Underlying asset decimals. */
+	decimals: number
+	/** High-water sweep trigger scaled to token units, or null when sweeping is disabled. */
+	thresholdScaled: bigint | null
+	/** Wallet floor the sweep deposits down to, scaled to token units. */
+	minBalanceScaled: bigint
+	/** Whether shutdown redeems this position back to the underlying asset. */
+	redeemOnShutdown: boolean
+
+	// --- live state (updated on refresh) ---
+	/** Solver's position in asset terms (`previewRedeem(balanceOf(solver))`). */
+	positionAssets: bigint
+	/** Vault's authoritative withdraw cap (`maxWithdraw(solver)`). */
+	maxWithdrawable: bigint
+	/** Sourceable amount after consume() accounting for pending fills this round. */
+	remaining: bigint
+}
+
+/**
+ * Top-level vault funding config.
+ */
+export interface VaultOutputFundingConfig {
+	/** Chain identifier → vaults to source liquidity from. */
+	vaultsByChain: Record<string, VaultConfig[]>
+	/** Sweep timer cadence in ms. Defaults to 5 minutes. */
+	sweepIntervalMs?: number
+}
+
+// =========================================================================
 // Combined Output Funding Config
 // =========================================================================
 
 export interface OutputFundingConfig {
 	uniswapV4?: UniswapV4OutputFundingConfig
+	vault?: VaultOutputFundingConfig
 }

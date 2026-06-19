@@ -82,65 +82,81 @@ The Hyperbridge coprocessor client used for bid fetching and UserOp submission.
 
 ## Methods
 
-### execute(order, graffiti?, options?)
+### execute(order, graffiti?, options)
 
-Bidirectional async generator that orchestrates the full order lifecycle: placement, fee estimation, bid collection, and execution. Yields a status update at each lifecycle stage. The caller is responsible for signing and broadcasting the placement transaction when prompted.
+Consumer-driven bidirectional async generator that orchestrates the full order lifecycle: placement, fee estimation, and a timed bid auction. The caller signs the placement transaction when prompted, then **selects and executes a bid itself** — on `BIDS_RECEIVED` the generator yields executable [`Bid`](#bid) objects, and the caller feeds the [`SelectBidResult`](#selectbidresult) from `bid.execute()` back via `gen.next(result)`.
+
+For the batteries-included "pick the best and go" behaviour, use [`executeBest`](#executebestorder-graffiti-options) instead.
 
 ```typescript lineNumbers
 async *execute(
   order: Order,
-  graffiti?: HexString,
-  options?: {
+  graffiti: HexString = DEFAULT_GRAFFITI,
+  options: {
+    auctionTimeMs: number
     maxPriorityFeePerGasBumpPercent?: number
     maxFeePerGasBumpPercent?: number
-    minBids?: number
-    bidTimeoutMs?: number
     pollIntervalMs?: number
+    solver?: { address: HexString; timeoutMs: number }
   },
-): AsyncGenerator<IntentOrderStatusUpdate, void, HexString>
+): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined>
 ```
 
 **Parameters:**
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `order` | `Order` | — | The order to place and execute |
+| `order` | `Order` | — | The order to place and execute. `order.fees` may be `0`; it is estimated automatically if so. |
 | `graffiti` | `HexString` | `0x000...0` | Optional bytes32 tag for orderflow attribution/revenue share |
-| `options.minBids` | `number` | `1` | Minimum number of bids to collect before selecting |
-| `options.bidTimeoutMs` | `number` | `60000` | How long to poll for bids in milliseconds |
+| `options.auctionTimeMs` | `number` | — | **Required.** Duration in ms to collect bids before surfacing them for selection |
 | `options.maxPriorityFeePerGasBumpPercent` | `number` | `8` | Bump percentage applied to priority fee estimate |
 | `options.maxFeePerGasBumpPercent` | `number` | `10` | Bump percentage applied to max fee estimate |
 | `options.pollIntervalMs` | `number` | — | Interval between bid-polling attempts |
+| `options.solver` | `{ address, timeoutMs }` | — | Restrict bids to `address` until `timeoutMs` elapses, then accept any solver |
 
 **Yields:** `IntentOrderStatusUpdate`
+
+**Receives (via `gen.next(value)`):** the signed placement tx (hash or raw tx) after `AWAITING_PLACE_ORDER`, and a `SelectBidResult` after `BIDS_RECEIVED` (or `undefined` to keep polling for fresh bids).
 
 **Example:**
 
 ```typescript lineNumbers
 const signer = createWalletClient({ ... })
 
-// execute is a bidirectional generator — hold a reference to pass the tx back
-const gen = gateway.execute(order)
-for await (const update of gen) {
+// execute is a bidirectional generator — hold a reference to pass values back
+const gen = gateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
+
+let input: HexString | SelectBidResult | undefined
+while (true) {
+  const { value: update, done } = await gen.next(input)
+  input = undefined
+  if (done) break
+
   switch (update.status) {
     case "AWAITING_PLACE_ORDER": {
-      // Sign and broadcast the placement transaction
-      const txHash = await signer.sendTransaction({
+      // Sign and broadcast the placement transaction, then feed the hash back.
+      input = await signer.sendTransaction({
         to: update.to,
         data: update.data,
         value: update.value,
       })
-      // Pass the tx hash back; the generator confirms on-chain and yields ORDER_PLACED.
-      // gen.next() here consumes ORDER_PLACED so the for-await resumes at AWAITING_BIDS.
-      const { value: placed } = await gen.next(txHash)
-      if (placed?.status === "ORDER_PLACED") {
-        console.log("Order on-chain:", placed.receipt.transactionHash)
-      }
       break
     }
-    case "AWAITING_BIDS":
-      console.log("Waiting for solver bids...")
+    case "BIDS_RECEIVED": {
+      // You own selection. Rank the bids however you like, simulate, execute.
+      const sorted = await gateway.sortBids(order, update.bids)
+      for (const bid of sorted) {
+        try {
+          await bid.simulate()
+          input = await bid.execute() // feed the SelectBidResult back to the generator
+          break
+        } catch {
+          // bid failed simulation/execution — try the next one
+        }
+      }
+      // leaving `input` undefined keeps the auction polling for fresh bids
       break
+    }
     case "BID_SELECTED":
       console.log("Solver selected:", update.selectedSolver)
       break
@@ -212,7 +228,112 @@ const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n
 
 ---
 
+### executeBest(order, graffiti?, options)
+
+Batteries-included variant of [`execute`](#executeorder-graffiti-options): places the order, then auto-selects and executes the best bid each round (sort → simulate → sign → submit) with no bid-selection input from the caller. The caller still signs the placement transaction (`AWAITING_PLACE_ORDER`); every other stage is handled automatically and surfaced for observation. If a round's bids all fail, it keeps polling for fresh bids until the deadline.
+
+```typescript lineNumbers
+async *executeBest(
+  order: Order,
+  graffiti: HexString = DEFAULT_GRAFFITI,
+  options: {
+    auctionTimeMs: number
+    maxPriorityFeePerGasBumpPercent?: number
+    maxFeePerGasBumpPercent?: number
+    pollIntervalMs?: number
+    solver?: { address: HexString; timeoutMs: number }
+  },
+): AsyncGenerator<IntentOrderStatusUpdate, void, HexString>
+```
+
+**Example:**
+
+```typescript lineNumbers
+const gen = gateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
+for await (const update of gen) {
+  if (update.status === "AWAITING_PLACE_ORDER") {
+    const txHash = await signer.sendTransaction({ to: update.to, data: update.data, value: update.value })
+    await gen.next(txHash) // only the placement step needs feedback
+  } else if (update.status === "FILLED") {
+    console.log("Order filled!")
+  }
+}
+```
+
+---
+
+### resume(order, options) / resumeBest(order, options)
+
+Resume execution of a previously placed order (after an app restart or crash). The order must already be on-chain — it must have a valid `id` and `session`. There is no placement step, so a plain `for await` loop is sufficient.
+
+- `resume` is consumer-driven, mirroring [`execute`](#executeorder-graffiti-options) (you select bids and feed back `SelectBidResult`).
+- `resumeBest` is the autopilot, mirroring [`executeBest`](#executebestorder-graffiti-options).
+
+```typescript lineNumbers
+async *resume(order: Order, options: ResumeIntentOrderOptions):
+  AsyncGenerator<IntentOrderStatusUpdate, void, SelectBidResult | undefined>
+
+async *resumeBest(order: Order, options: ResumeIntentOrderOptions):
+  AsyncGenerator<IntentOrderStatusUpdate, void>
+```
+
+`ResumeIntentOrderOptions` is `{ sessionPrivateKey?, auctionTimeMs, pollIntervalMs?, solver? }`.
+
+---
+
+### buildBids(order, bids, sessionPrivateKey?)
+
+Decodes raw filler bids (as fetched from the coprocessor) into first-class [`Bid`](#bid) objects that can be ranked, simulated, and executed.
+
+```typescript lineNumbers
+buildBids(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString): Bid[]
+```
+
+---
+
+### sortBids(order, bids)
+
+Sorts [`Bid`](#bid) objects by output value, using the same strategy the autopilot uses. Returns a new sorted array.
+
+```typescript lineNumbers
+async sortBids(order: Order, bids: Bid[]): Promise<Bid[]>
+```
+
+---
+
+### selectAndExecuteBest(order, bids)
+
+Autopilot bid selection over already-built [`Bid`](#bid) objects: sorts the bids, simulates each until one passes, then executes it.
+
+```typescript lineNumbers
+async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult>
+```
+
+---
+
+### selectBid(order, bids, sessionPrivateKey?)
+
+Legacy one-shot: decodes, sorts, simulates, signs, and submits the best of the given raw filler bids with no per-bid input from the caller. Prefer [`buildBids`](#buildbidsorder-bids-sessionprivatekey) + [`selectAndExecuteBest`](#selectandexecutebestorder-bids) (or [`executeBest`](#executebestorder-graffiti-options)) for new code.
+
+```typescript lineNumbers
+async selectBid(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString): Promise<SelectBidResult>
+```
+
+---
+
+### prepareSubmitBid(options)
+
+Solver-side helper: constructs a signed `PackedUserOperation` for a solver to submit as a bid.
+
+```typescript lineNumbers
+async prepareSubmitBid(options: SubmitBidOptions): Promise<PackedUserOperation>
+```
+
+---
+
 ### quoteUniswap(params)
+
+> Standalone export (`import { quoteUniswap } from "@hyperbridge/sdk"`), not a method on `IntentGateway`.
 
 Quotes a same-chain Uniswap swap that can be used when constructing the input or output side of an intent order. The helper checks Uniswap V2, V3, and V4 by default; pass `protocols: ["v4"]` to quote Uniswap V4 only.
 
@@ -530,7 +651,8 @@ type IntentOrderStatusUpdate =
   | { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
   | { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
   | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
-  | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
+  | { status: "NEW_BID"; commitment: HexString; bid: Bid }
+  | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: Bid[] }
   | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation; transactionHash?: HexString }
   | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
@@ -543,12 +665,64 @@ type IntentOrderStatusUpdate =
 | `AWAITING_PLACE_ORDER` | `to`, `data`, `value?`, `sessionPrivateKey` | Caller must sign and broadcast the placement transaction, then send back the tx hash |
 | `ORDER_PLACED` | `order`, `receipt` | Order confirmed on-chain; `receipt` is the full viem `TransactionReceipt` of the placement transaction |
 | `AWAITING_BIDS` | `commitment`, `totalFilledAssets`, `remainingAssets` | Polling the coprocessor for solver bids |
-| `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | One or more bids collected |
+| `NEW_BID` | `commitment`, `bid` | A previously unseen bid arrived during the auction (informational; one [`Bid`](#bid)) |
+| `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | Auction round complete; `bids` is an array of executable [`Bid`](#bid) objects to select from |
 | `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash?` | Best bid selected and UserOperation submitted to the bundler |
 | `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
 | `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
 | `EXPIRED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order deadline reached or no new bids available — terminal |
 | `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Retryable error (e.g. bundler rejection, simulation failure) — executor retries automatically |
+
+---
+
+### Bid
+
+A first-class, executable solver bid surfaced via the `NEW_BID` and `BIDS_RECEIVED` status updates. Each `Bid` wraps a single decoded `FillerBid` and exposes the metadata needed to rank it alongside the two primitives required to act on it: `simulate()` to pre-check it off-chain, and `execute()` to sign the solver selection and submit the UserOperation to the bundler.
+
+```typescript lineNumbers
+interface Bid {
+  /** The solver account that submitted this bid (`userOp.sender`). */
+  readonly solverAddress: HexString
+  /** Decoded fill outputs — the tokens and amounts the solver offers. */
+  readonly outputs: TokenInfo[]
+  /** Relayer fee from the decoded fill options. */
+  readonly relayerFee: bigint
+  /** Hyperbridge native dispatch fee from the decoded fill options. */
+  readonly nativeDispatchFee: bigint
+  /** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
+  readonly userOp: PackedUserOperation
+
+  /** Runs the batched `select` + `fillOrder` `eth_call` simulation. Throws if it reverts. */
+  simulate(): Promise<void>
+  /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler. */
+  execute(): Promise<SelectBidResult>
+  /** Prices the bid's outputs in USD. Returns `null` when any output token cannot be priced. */
+  outputUsdValue(): Promise<Decimal | null>
+}
+```
+
+The session-key signature over the `SelectSolver` message is resolved lazily and cached, so it is signed at most once whether you call `simulate()`, `execute()`, or both.
+
+---
+
+### SelectBidResult
+
+Returned by `Bid.execute()` (and the autopilot helpers). Fed back into the `execute` / `resume` generator after `BIDS_RECEIVED` so the executor can continue tracking fills.
+
+```typescript lineNumbers
+interface SelectBidResult {
+  userOp: PackedUserOperation
+  userOpHash: HexString
+  solverAddress: HexString
+  commitment: HexString
+  /** Destination fill tx hash, once available. */
+  txnHash?: HexString
+  /** Fill outcome for same-chain orders, derived from on-chain logs. */
+  fillStatus?: "full" | "partial"
+  /** Assets filled in this UserOperation (best-effort, from `PartialFill` logs). */
+  filledAssets?: TokenInfo[]
+}
+```
 
 ---
 

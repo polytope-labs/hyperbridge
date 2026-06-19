@@ -17,6 +17,9 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = concat!("messaging", "-inbound");
 
+/// How often both outbound claim tasks wake to process pending rows.
+pub(crate) const CLAIM_INTERVAL_SECS: u64 = 600;
+
 pub mod events;
 pub mod fees;
 mod get_requests;

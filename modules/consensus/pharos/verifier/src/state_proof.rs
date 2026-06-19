@@ -36,6 +36,8 @@ use pharos_primitives::{
 };
 use primitive_types::{H256, U256};
 
+const MAX_VALIDATORS: usize = 4096;
+
 /// Verify a storage proof of `currentEpoch` (slot 5) against `state_root` and
 /// return the proven epoch number.
 pub fn verify_current_epoch_proof(state_root: H256, proof: &EpochProof) -> Result<u64, Error> {
@@ -125,6 +127,10 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	let validator_count = decode_u256_from_storage(&values[1])?;
 
 	let count = validator_count.low_u64() as usize;
+
+	if count > MAX_VALIDATORS {
+		return Err(Error::TooManyValidators { count, max: MAX_VALIDATORS });
+	}
 
 	// Pool IDs start at index 2 (after totalStake, array length)
 	let pool_set_start = 2;
@@ -300,16 +306,12 @@ fn compute_all_storage_keys<H: Keccak256>(
 	// Index 1: activePoolSets length
 	keys.push(layout.raw_slot_key(layout.active_pool_set_slot));
 
-	// Parse validator count from storage_values[1]
-	let count_val = decode_u256_from_storage(&storage_values[1])?;
-	let count = count_val.low_u64() as usize;
+	let count = decode_u256_from_storage(&storage_values[1])?.low_u64() as usize;
 
-	// Pool ID array element keys
-	for i in 0..count {
-		keys.push(layout.array_element_key::<H>(layout.active_pool_set_slot, i as u64));
+	if count > MAX_VALIDATORS {
+		return Err(Error::TooManyValidators { count, max: MAX_VALIDATORS });
 	}
 
-	// Extract pool IDs from storage values to compute validator keys
 	let pool_set_start = 2;
 	let pool_ids_end = pool_set_start + count;
 
@@ -321,8 +323,11 @@ fn compute_all_storage_keys<H: Keccak256>(
 		});
 	}
 
-	// For each validator, dynamically determine the BLS data slot count
-	// from the header value in storage_values
+	// Pool ID array element keys
+	for i in 0..count {
+		keys.push(layout.array_element_key::<H>(layout.active_pool_set_slot, i as u64));
+	}
+
 	let mut idx = pool_ids_end;
 	for i in 0..count {
 		let v = &storage_values[pool_set_start + i];
@@ -341,11 +346,18 @@ fn compute_all_storage_keys<H: Keccak256>(
 		}
 		let data_slots = bls_data_slots_from_header(&storage_values[idx])?;
 
+		let next_idx = idx.saturating_add(data_slots).saturating_add(2);
+		if next_idx > storage_values.len() {
+			return Err(Error::InsufficientStorageValues {
+				expected: next_idx,
+				got: storage_values.len(),
+			});
+		}
+
 		let validator_keys = layout.get_validator_keys::<H>(&pool_id, data_slots);
 		keys.extend(validator_keys);
 
-		// Advance index: 1 (header) + data_slots + 1 (stake)
-		idx += 1 + data_slots + 1;
+		idx = next_idx;
 	}
 
 	Ok(keys)

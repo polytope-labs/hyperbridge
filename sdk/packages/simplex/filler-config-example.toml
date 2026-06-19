@@ -201,6 +201,9 @@ points = [
 # spreadBps = 50
 #
 # # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
+# # One-sided LP: omit one curve to fill in a single direction. Keep only askPriceCurve to
+# # accumulate stablecoins (sell exotic, e.g. give away cNGN); keep only bidPriceCurve to
+# # accumulate the exotic token (buy exotic).
 # # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
 # bidPriceCurve = [
 #     { amount = "100",  price = "1580" },
@@ -221,8 +224,13 @@ points = [
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+# #
+# # One-sided LP under pool pricing (no bid/ask curves): set `side` to fill a single direction.
+# # "ask" sells exotic (accumulate stablecoins); "bid" buys exotic (accumulate the exotic token).
+# # Omit `side` to fill both directions.
 #
 # [strategies.vault.uniswapV4]
+# side = "ask"
 # positions = [
 #     { chain = "EVM-8453", tokenId = "123456789" },
 # ]

@@ -221,22 +221,15 @@ points = [
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+# #
+# # Optional per-position price guard: set referencePrice (exotic per USD, same units as the
+# # bid/ask curves) and maxDeviationBps together to reject orders whenever the live pool quote
+# # on that chain drifts beyond the band. Guards against a manipulated, stale, or thin pool.
 #
 # [strategies.vault.uniswapV4]
 # positions = [
-#     { chain = "EVM-8453", tokenId = "123456789" },
+#     { chain = "EVM-8453", tokenId = "123456789", referencePrice = "1575", maxDeviationBps = 200 },
 # ]
-#
-# # Uniswap price guard (optional). Only applies with Uniswap V4 venue pricing.
-# # Rejects orders when the live pool quote drifts more than maxDeviationBps from the
-# # chain's static reference price (exotic per USD, same units as the bid/ask curves).
-# # Guards against a manipulated, stale, or thin pool. Reference chains must exist in token1.
-# [strategies.priceGuard]
-# maxDeviationBps = 200    # reject if the pool quote is more than 2% off the reference
-#
-# [strategies.priceGuard.referencePrices]
-# "EVM-56"  = "1575"
-# "EVM-137" = "1575"
 #
 
 

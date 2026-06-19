@@ -141,9 +141,9 @@ Startup validation requires a pricing source: **either** full static `bidPriceCu
 
 #### Uniswap price guards
 
-Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. The optional **`[strategies.priceGuard]`** block bounds that risk: it sets a static reference price per chain and a tolerance in basis points. Whenever the pool quote drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
+Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. To bound that risk, give a position a **`referencePrice`** and **`maxDeviationBps`**. Whenever the pool quote on that chain drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
 
-Reference prices are expressed in **exotic tokens per USD**, the same units as the bid/ask curves, and are keyed by chain (each key must also appear in `token1`). The guard only applies when Uniswap V4 venue pricing is configured.
+`referencePrice` is expressed in **exotic tokens per USD**, the same units as the bid/ask curves. The two fields must be set together; omit both to leave the chain unguarded.
 
 ```toml lineNumbers
 [[strategies]]
@@ -155,14 +155,9 @@ maxOrderUsd = 5000
 
 [strategies.vault.uniswapV4]
 positions = [
-    { chain = "EVM-8453", tokenId = "2087350" },
+    # referencePrice is the expected cNGN per USD; reject if the quote is more than 2% off
+    { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
 ]
-
-[strategies.priceGuard]
-maxDeviationBps = 200  # reject if the pool quote is more than 2% off the reference
-
-[strategies.priceGuard.referencePrices]
-"EVM-8453" = "1575"  # expected cNGN per USD
 ```
 
 #### Example profit calculation

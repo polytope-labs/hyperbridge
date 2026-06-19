@@ -11,7 +11,7 @@ const CHAIN = "EVM-8453"
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const REFERENCE = "1575" // exotic per USD
 
-function makeFiller(priceGuard?: { maxDeviationBps: number; referencePrices: Record<string, string> }): FXFiller {
+function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>): FXFiller {
 	const configService = {
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
@@ -39,7 +39,7 @@ describe("FXFiller Uniswap price guard", () => {
 	})
 
 	it("passes a quote inside the band", () => {
-		const filler = makeFiller({ maxDeviationBps: 200, referencePrices: { [CHAIN]: REFERENCE } })
+		const filler = makeFiller({ [CHAIN]: { referencePrice: REFERENCE, maxDeviationBps: 200 } })
 		// 1% above and below — within the 2% band
 		expect(check(filler, "1590")).toBe(true)
 		expect(check(filler, "1560")).toBe(true)
@@ -48,17 +48,17 @@ describe("FXFiller Uniswap price guard", () => {
 	})
 
 	it("rejects a quote above the band", () => {
-		const filler = makeFiller({ maxDeviationBps: 200, referencePrices: { [CHAIN]: REFERENCE } })
+		const filler = makeFiller({ [CHAIN]: { referencePrice: REFERENCE, maxDeviationBps: 200 } })
 		expect(check(filler, "1700")).toBe(false) // ~7.9% above
 	})
 
 	it("rejects a quote below the band", () => {
-		const filler = makeFiller({ maxDeviationBps: 200, referencePrices: { [CHAIN]: REFERENCE } })
+		const filler = makeFiller({ [CHAIN]: { referencePrice: REFERENCE, maxDeviationBps: 200 } })
 		expect(check(filler, "1400")).toBe(false) // ~11% below
 	})
 
 	it("passes when no reference exists for the chain", () => {
-		const filler = makeFiller({ maxDeviationBps: 200, referencePrices: { "EVM-137": REFERENCE } })
+		const filler = makeFiller({ "EVM-137": { referencePrice: REFERENCE, maxDeviationBps: 200 } })
 		expect(check(filler, "5000")).toBe(true)
 	})
 })

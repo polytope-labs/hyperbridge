@@ -7,7 +7,7 @@ import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { StableFiller } from "@/strategies/stable"
-import { FXFiller, AccumulationSide } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
@@ -107,7 +107,9 @@ interface FxStrategyConfig {
 	 * the filler pays out fewer stablecoins per exotic token received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the ask) is one-sided LP: the filler stops buying exotic and only
+	 * sells it, accumulating stablecoins.
 	 */
 	bidPriceCurve?: Array<{
 		amount: string
@@ -119,7 +121,9 @@ interface FxStrategyConfig {
 	 * the filler sends fewer exotic tokens per stablecoin received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the bid) is one-sided LP: the filler stops selling exotic and only
+	 * buys it, accumulating the exotic token.
 	 */
 	askPriceCurve?: Array<{
 		amount: string
@@ -132,12 +136,6 @@ interface FxStrategyConfig {
 	spreadBps?: number
 	/** Maximum USD value per order */
 	maxOrderUsd: number
-	/**
-	 * One-sided LP. Omit to fill both directions (default).
-	 * - "stable": only fill stable-in/exotic-out legs (accumulate stable, give away exotic)
-	 * - "exotic": only fill exotic-in/stable-out legs (accumulate exotic, give away stable)
-	 */
-	accumulate?: AccumulationSide
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
 	token1: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
@@ -461,7 +459,6 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
-								accumulate: strategyConfig.accumulate,
 							},
 						)
 					}
@@ -705,19 +702,15 @@ function validateConfig(config: FillerTomlConfig): void {
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0
 			const askLen = strategy.askPriceCurve?.length ?? 0
-			if (bidLen > 0 !== askLen > 0) {
-				throw new Error(
-					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using vault.uniswapV4 for pricing",
-				)
-			}
 
 			// A single point is a valid flat curve — FillerPricePolicy returns that price at every size.
-			const hasStaticCurves = bidLen >= 1 && askLen >= 1
+			// One-sided LP: providing only one of bid/ask restricts the filler to that direction.
+			const hasAnyCurve = bidLen >= 1 || askLen >= 1
 			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
-			if (!hasStaticCurves && !hasUniswapV4Positions) {
+			if (!hasAnyCurve && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide bid+ask price curves (≥1 point each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
@@ -725,13 +718,6 @@ function validateConfig(config: FillerTomlConfig): void {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
 				}
-			}
-
-			if (
-				strategy.accumulate !== undefined &&
-				!Object.values(AccumulationSide).includes(strategy.accumulate)
-			) {
-				throw new Error("hyperfx: 'accumulate' must be either 'stable' or 'exotic'")
 			}
 
 			if (bidLen > 0) {

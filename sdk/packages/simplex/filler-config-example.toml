@@ -200,12 +200,10 @@ points = [
 # # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
 # spreadBps = 50
 #
-# # One-sided LP (optional). Omit to fill both directions.
-# # "stable" fills only stable-in/exotic-out orders (accumulate USDC, give away cNGN);
-# # "exotic" fills only exotic-in/stable-out orders (accumulate cNGN, give away USDC).
-# accumulate = "stable"
-#
 # # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
+# # One-sided LP: omit one curve to fill in a single direction. Keep only askPriceCurve to
+# # accumulate stablecoins (sell exotic, e.g. give away cNGN); keep only bidPriceCurve to
+# # accumulate the exotic token (buy exotic).
 # # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
 # bidPriceCurve = [
 #     { amount = "100",  price = "1580" },

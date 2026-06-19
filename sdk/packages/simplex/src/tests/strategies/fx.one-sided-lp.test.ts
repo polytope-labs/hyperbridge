@@ -1,18 +1,21 @@
-import { FXFiller, AccumulationSide } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { parseUnits } from "viem"
 
-// Pure unit tests for the one-sided LP (`accumulate`) constraint on FXFiller.
-// Exercises `canFill` directly with mocked services so no chain access is needed.
+// Pure unit tests for one-sided LP on FXFiller. One-sided LP is expressed by omitting
+// a bid/ask price curve: a side without a curve is disabled, so the filler skips orders
+// in that direction. Exercises `canFill` with mocked services so no chain access is needed.
 
 const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
-function makeFiller(accumulate?: AccumulationSide): FXFiller {
+const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
+
+function makeFiller(options: { bidPricePolicy?: FillerPricePolicy; askPricePolicy?: FillerPricePolicy }): FXFiller {
 	const configService = {
 		getUsdcAsset: () => STABLE,
 		getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
@@ -31,11 +34,7 @@ function makeFiller(accumulate?: AccumulationSide): FXFiller {
 	const signer = { account: { address: SOLVER } } as any
 	const clientManager = {} as any
 
-	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, {
-		bidPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] }),
-		askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] }),
-		accumulate,
-	})
+	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, options)
 }
 
 function makeOrder(id: string, input: HexString, output: HexString): Order {
@@ -57,22 +56,22 @@ function makeOrder(id: string, input: HexString, output: HexString): Order {
 }
 
 describe("FXFiller one-sided LP", () => {
-	it("fills both directions when accumulate is unset", async () => {
-		const filler = makeFiller()
+	it("fills both directions when both curves are set", async () => {
+		const filler = makeFiller({ bidPricePolicy: FLAT, askPricePolicy: FLAT })
 		// stable in, exotic out
 		expect(await filler.canFill(makeOrder("a", STABLE, EXOTIC))).toBe(true)
 		// exotic in, stable out
 		expect(await filler.canFill(makeOrder("b", EXOTIC, STABLE))).toBe(true)
 	})
 
-	it("accumulate=stable accepts stable-in/exotic-out and rejects the reverse", async () => {
-		const filler = makeFiller(AccumulationSide.Stable)
+	it("ask-only accepts stable-in/exotic-out (sell exotic) and rejects the reverse", async () => {
+		const filler = makeFiller({ askPricePolicy: FLAT })
 		expect(await filler.canFill(makeOrder("c", STABLE, EXOTIC))).toBe(true)
 		expect(await filler.canFill(makeOrder("d", EXOTIC, STABLE))).toBe(false)
 	})
 
-	it("accumulate=exotic accepts exotic-in/stable-out and rejects the reverse", async () => {
-		const filler = makeFiller(AccumulationSide.Exotic)
+	it("bid-only accepts exotic-in/stable-out (buy exotic) and rejects the reverse", async () => {
+		const filler = makeFiller({ bidPricePolicy: FLAT })
 		expect(await filler.canFill(makeOrder("e", EXOTIC, STABLE))).toBe(true)
 		expect(await filler.canFill(makeOrder("f", STABLE, EXOTIC))).toBe(false)
 	})

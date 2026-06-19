@@ -22,17 +22,6 @@ import type { FundingVenue } from "@/funding/types"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
- * One-sided LP accumulation side for {@link FXFiller}. String-valued so it maps
- * directly onto the `accumulate` value parsed from the filler's TOML config.
- */
-export enum AccumulationSide {
-	/** Only fill stable-in/exotic-out legs (accumulate stable, give away exotic). */
-	Stable = "stable",
-	/** Only fill exotic-in/stable-out legs (accumulate exotic, give away stable). */
-	Exotic = "exotic",
-}
-
-/**
  * Strategy for swaps between USD-pegged stablecoins (USDC/USDT) and a single
  * configurable exotic token priced via a `FillerPricePolicy`.
  * Supports both same-chain and cross-chain orders.
@@ -87,11 +76,13 @@ export class FXFiller implements FillerStrategy {
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
 	/**
-	 * One-sided LP constraint. When set, the filler only fills orders in a single
-	 * direction so it keeps accumulating one asset while giving away the other.
-	 * Undefined fills both directions.
+	 * Whether the filler buys exotic from users (exotic-in/stable-out legs), priced
+	 * with the bid curve. Disabled by omitting the bid curve — the basis for one-sided
+	 * LP: drop a side and the filler skips orders in that direction.
 	 */
-	private accumulate?: AccumulationSide
+	private bidEnabled: boolean
+	/** Whether the filler sells exotic to users (stable-in/exotic-out legs), priced with the ask curve. */
+	private askEnabled: boolean
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -105,6 +96,10 @@ export class FXFiller implements FillerStrategy {
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
 	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
+	 *
+	 * One-sided LP: omitting one of `bidPricePolicy`/`askPricePolicy` (while providing the
+	 * other) restricts the filler to that side's direction. Omitting both (venue pricing
+	 * only) keeps both directions open.
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -119,7 +114,6 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
 			spreadBps?: number
-			accumulate?: AccumulationSide
 		},
 	) {
 		const {
@@ -128,18 +122,19 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy,
 			fundingVenues = [],
 			spreadBps = 50,
-			accumulate,
 		} = options ?? {}
 
-		const hasPolicies = bidPricePolicy && askPricePolicy
+		const hasAnyPolicy = !!(bidPricePolicy || askPricePolicy)
 		const hasVenues = fundingVenues.length > 0
 
-		if (!hasPolicies && !hasVenues) {
-			throw new Error("FXFiller requires either bid/ask price policies or funding venues (or both)")
+		if (!hasAnyPolicy && !hasVenues) {
+			throw new Error("FXFiller requires a bid and/or ask price policy, or funding venues")
 		}
-		if ((bidPricePolicy && !askPricePolicy) || (!bidPricePolicy && askPricePolicy)) {
-			throw new Error("FXFiller requires both bidPricePolicy and askPricePolicy, or neither")
-		}
+
+		// Direction enablement. With at least one curve, only the side(s) with a curve are
+		// filled (one-sided LP). With no curves (venue pricing only), both sides are open.
+		this.bidEnabled = hasAnyPolicy ? !!bidPricePolicy : true
+		this.askEnabled = hasAnyPolicy ? !!askPricePolicy : true
 
 		this.configService = configService
 		this.clientManager = clientManager
@@ -147,9 +142,9 @@ export class FXFiller implements FillerStrategy {
 		this.token1 = token1
 		this.fundingVenues = fundingVenues
 		this.spreadBps = spreadBps
-		this.accumulate = accumulate
 
-		// When no policies provided, create placeholder flat policies (overwritten in initialise by venue prices)
+		// Absent policies get a placeholder flat curve. A side without a curve is either
+		// disabled (so never priced) or venue-priced at runtime, so the placeholder is unused.
 		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 		this.askPricePolicy = askPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 
@@ -799,17 +794,22 @@ export class FXFiller implements FillerStrategy {
 				return null
 			}
 
-			// One-sided LP: reject the whole order if any leg runs against the
-			// configured accumulation side. The IntentGateway fills all legs
-			// atomically, so a mixed-direction order can't be partially honoured.
+			// One-sided LP: reject the whole order if any leg runs in a disabled
+			// direction (its pricing curve was omitted). A stable-in leg sells exotic
+			// and needs the ask side; an exotic-in leg buys exotic and needs the bid
+			// side. The IntentGateway fills all legs atomically, so a mixed-direction
+			// order can't be partially honoured.
 			const leg = pairs[pairs.length - 1]
-			if (
-				(this.accumulate === AccumulationSide.Stable && !leg.inputIsStable) ||
-				(this.accumulate === AccumulationSide.Exotic && leg.inputIsStable)
-			) {
+			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
 				this.logger.debug(
-					{ orderId: order.id, leg: i, accumulate: this.accumulate, inputIsStable: leg.inputIsStable },
-					"Rejecting order: leg direction conflicts with one-sided LP accumulation side",
+					{
+						orderId: order.id,
+						leg: i,
+						inputIsStable: leg.inputIsStable,
+						bidEnabled: this.bidEnabled,
+						askEnabled: this.askEnabled,
+					},
+					"Rejecting order: leg direction disabled (price curve omitted for this side)",
 				)
 				return null
 			}

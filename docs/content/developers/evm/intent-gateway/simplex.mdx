@@ -83,18 +83,24 @@ askPriceCurve = [
 
 #### One-sided LP
 
-By default HyperFX fills in both directions. The optional **`accumulate`** field restricts the filler to a single direction so it keeps accumulating one asset while only giving away the other:
+With both curves set HyperFX fills in both directions. Omitting one curve restricts the filler to a single direction, so it keeps accumulating one asset while only giving away the other:
 
-- **`"stable"`** — fill only orders where the user sends stable and receives exotic. The filler accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
-- **`"exotic"`** — fill only orders where the user sends exotic and receives stable. The filler accumulates the exotic token and gives away the stablecoin (for example, take cNGN, hand out USDC).
+- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* exotic, filling orders where the user sends stable and receives exotic. It accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the filler only *buys* exotic, filling orders where the user sends exotic and receives stable. It accumulates the exotic token and gives away the stablecoin.
 
-Omit the field to keep filling both directions. Orders whose direction runs against the configured side are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
+Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically). With Uniswap V4 pool pricing, the same applies: provide just one curve to price and enable a single side.
 
 ```toml lineNumbers
 [[strategies]]
 type = "hyperfx"
 maxOrderUsd = 5000
-accumulate = "stable"  # only fill stable-in/exotic-out orders; keep accumulating USDC
+
+# Ask curve only — keep accumulating USDC by only selling cNGN
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
 
 [strategies.token1]
 "EVM-56"  = "0xExoticTokenAddressOnBsc"

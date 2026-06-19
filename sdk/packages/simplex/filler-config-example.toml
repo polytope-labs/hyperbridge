@@ -224,8 +224,13 @@ points = [
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+# #
+# # One-sided LP under pool pricing (no bid/ask curves): set `side` to fill a single direction.
+# # "ask" sells exotic (accumulate stablecoins); "bid" buys exotic (accumulate the exotic token).
+# # Omit `side` to fill both directions.
 #
 # [strategies.vault.uniswapV4]
+# side = "ask"
 # positions = [
 #     { chain = "EVM-8453", tokenId = "123456789" },
 # ]

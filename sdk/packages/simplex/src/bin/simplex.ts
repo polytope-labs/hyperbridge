@@ -144,6 +144,12 @@ interface FxStrategyConfig {
 	vault?: {
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
+			/**
+			 * One-sided LP under pool pricing. "bid" buys exotic (accumulate exotic);
+			 * "ask" sells exotic (accumulate stable). Only valid with pool pricing — i.e.
+			 * no `bidPriceCurve`/`askPriceCurve` set. Omit to fill both directions.
+			 */
+			side?: "bid" | "ask"
 		}
 	}
 }
@@ -459,6 +465,7 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
+								side: strategyConfig.vault?.uniswapV4?.side,
 							},
 						)
 					}
@@ -717,6 +724,23 @@ function validateConfig(config: FillerTomlConfig): void {
 			if (strategy.spreadBps !== undefined) {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
+				}
+			}
+
+			// One-sided LP under pool pricing: `side` enables a single direction. Only valid
+			// with venue pricing and no static curves (curves express one-sided by omission).
+			const side = strategy.vault?.uniswapV4?.side
+			if (side !== undefined) {
+				if (side !== "bid" && side !== "ask") {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' must be either 'bid' or 'ask'")
+				}
+				if (!hasUniswapV4Positions) {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' requires [strategies.vault.uniswapV4].positions")
+				}
+				if (hasAnyCurve) {
+					throw new Error(
+						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit 'bidPriceCurve'/'askPriceCurve' (or drop one curve to do one-sided LP with static pricing)",
+					)
 				}
 			}
 

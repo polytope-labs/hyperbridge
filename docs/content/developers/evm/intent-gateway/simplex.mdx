@@ -88,7 +88,7 @@ With both curves set HyperFX fills in both directions. Omitting one curve restri
 - **Ask only** (omit `bidPriceCurve`) — the filler only *sells* exotic, filling orders where the user sends stable and receives exotic. It accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
 - **Bid only** (omit `askPriceCurve`) — the filler only *buys* exotic, filling orders where the user sends exotic and receives stable. It accumulates the exotic token and gives away the stablecoin.
 
-Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically). With Uniswap V4 pool pricing, the same applies: provide just one curve to price and enable a single side.
+Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
 
 ```toml lineNumbers
 [[strategies]]
@@ -105,6 +105,23 @@ askPriceCurve = [
 [strategies.token1]
 "EVM-56"  = "0xExoticTokenAddressOnBsc"
 "EVM-137" = "0xExoticTokenAddressOnPolygon"
+```
+
+When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[strategies.vault.uniswapV4]` block instead — `"ask"` to only sell exotic (accumulate stablecoins) or `"bid"` to only buy exotic. Omit `side` to fill both directions. `side` cannot be combined with static curves.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+side = "ask"  # only sell exotic; keep accumulating stablecoins
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
 ```
 
 

@@ -97,9 +97,13 @@ export class FXFiller implements FillerStrategy {
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
 	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
 	 *
-	 * One-sided LP: omitting one of `bidPricePolicy`/`askPricePolicy` (while providing the
-	 * other) restricts the filler to that side's direction. Omitting both (venue pricing
-	 * only) keeps both directions open.
+	 * One-sided LP, two ways depending on the pricing mode:
+	 * - Static curves: omit one of `bidPricePolicy`/`askPricePolicy` to fill only the other
+	 *   side. Providing both keeps both directions open.
+	 * - Venue (pool) pricing with no curves: set `side` to restrict to one direction.
+	 *   Omitting `side` keeps both directions open.
+	 * @param options.side Pool-pricing one-sided switch ("bid" buys exotic, "ask" sells exotic).
+	 *   Only valid with venue pricing and no static curves.
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -114,6 +118,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
 			spreadBps?: number
+			side?: "bid" | "ask"
 		},
 	) {
 		const {
@@ -122,6 +127,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy,
 			fundingVenues = [],
 			spreadBps = 50,
+			side,
 		} = options ?? {}
 
 		const hasAnyPolicy = !!(bidPricePolicy || askPricePolicy)
@@ -130,11 +136,15 @@ export class FXFiller implements FillerStrategy {
 		if (!hasAnyPolicy && !hasVenues) {
 			throw new Error("FXFiller requires a bid and/or ask price policy, or funding venues")
 		}
+		if (side && hasAnyPolicy) {
+			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit bid/ask price policies")
+		}
 
-		// Direction enablement. With at least one curve, only the side(s) with a curve are
-		// filled (one-sided LP). With no curves (venue pricing only), both sides are open.
-		this.bidEnabled = hasAnyPolicy ? !!bidPricePolicy : true
-		this.askEnabled = hasAnyPolicy ? !!askPricePolicy : true
+		// Direction enablement. With static curves, only the side(s) with a curve are filled
+		// (one-sided LP). With venue pricing (no curves), `side` optionally restricts to one
+		// direction; without it both sides are open.
+		this.bidEnabled = hasAnyPolicy ? !!bidPricePolicy : side ? side === "bid" : true
+		this.askEnabled = hasAnyPolicy ? !!askPricePolicy : side ? side === "ask" : true
 
 		this.configService = configService
 		this.clientManager = clientManager
@@ -795,10 +805,10 @@ export class FXFiller implements FillerStrategy {
 			}
 
 			// One-sided LP: reject the whole order if any leg runs in a disabled
-			// direction (its pricing curve was omitted). A stable-in leg sells exotic
-			// and needs the ask side; an exotic-in leg buys exotic and needs the bid
-			// side. The IntentGateway fills all legs atomically, so a mixed-direction
-			// order can't be partially honoured.
+			// direction (curve omitted, or excluded by the venue `side`). A stable-in
+			// leg sells exotic and needs the ask side; an exotic-in leg buys exotic and
+			// needs the bid side. The IntentGateway fills all legs atomically, so a
+			// mixed-direction order can't be partially honoured.
 			const leg = pairs[pairs.length - 1]
 			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
 				this.logger.debug(
@@ -809,7 +819,7 @@ export class FXFiller implements FillerStrategy {
 						bidEnabled: this.bidEnabled,
 						askEnabled: this.askEnabled,
 					},
-					"Rejecting order: leg direction disabled (price curve omitted for this side)",
+					"Rejecting order: leg direction disabled for one-sided LP",
 				)
 				return null
 			}

@@ -15,7 +15,12 @@ const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
 
-function makeFiller(options: { bidPricePolicy?: FillerPricePolicy; askPricePolicy?: FillerPricePolicy }): FXFiller {
+function makeFiller(options: {
+	bidPricePolicy?: FillerPricePolicy
+	askPricePolicy?: FillerPricePolicy
+	fundingVenues?: any[]
+	side?: "bid" | "ask"
+}): FXFiller {
 	const configService = {
 		getUsdcAsset: () => STABLE,
 		getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
@@ -74,5 +79,30 @@ describe("FXFiller one-sided LP", () => {
 		const filler = makeFiller({ bidPricePolicy: FLAT })
 		expect(await filler.canFill(makeOrder("e", EXOTIC, STABLE))).toBe(true)
 		expect(await filler.canFill(makeOrder("f", STABLE, EXOTIC))).toBe(false)
+	})
+
+	// Pool pricing (no curves): one-sided LP via the venue `side` switch.
+	const VENUE = [{ name: "UniswapV4" }]
+
+	it("venue side=ask sells exotic only and rejects the reverse", async () => {
+		const filler = makeFiller({ fundingVenues: VENUE, side: "ask" })
+		expect(await filler.canFill(makeOrder("g", STABLE, EXOTIC))).toBe(true)
+		expect(await filler.canFill(makeOrder("h", EXOTIC, STABLE))).toBe(false)
+	})
+
+	it("venue side=bid buys exotic only and rejects the reverse", async () => {
+		const filler = makeFiller({ fundingVenues: VENUE, side: "bid" })
+		expect(await filler.canFill(makeOrder("i", EXOTIC, STABLE))).toBe(true)
+		expect(await filler.canFill(makeOrder("j", STABLE, EXOTIC))).toBe(false)
+	})
+
+	it("venue with no side fills both directions", async () => {
+		const filler = makeFiller({ fundingVenues: VENUE })
+		expect(await filler.canFill(makeOrder("k", STABLE, EXOTIC))).toBe(true)
+		expect(await filler.canFill(makeOrder("l", EXOTIC, STABLE))).toBe(true)
+	})
+
+	it("rejects 'side' combined with static curves", () => {
+		expect(() => makeFiller({ fundingVenues: VENUE, side: "ask", askPricePolicy: FLAT })).toThrow()
 	})
 })

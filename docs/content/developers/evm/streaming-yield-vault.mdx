@@ -10,12 +10,12 @@ description: An ERC-4626 vault that distributes yield by streaming it linearly o
 It is a self-contained primitive with **no Hyperbridge/ISMP dependency** — it can be used on any EVM chain on its own.
 
 <Callout type="info">
-The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without transfer callbacks (no ERC-777 hooks). Wrap exotic tokens before using them as the underlying.
+The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without *automatic* transfer callbacks (no ERC-777 `tokensReceived` hooks). [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) assets are supported and let the owner fund yield in a single transaction (see [Adding yield](#adding-yield)). Wrap exotic tokens before using them as the underlying.
 </Callout>
 
 ## How it works
 
-Yield is not recognized instantly. Instead, each contribution is recognized **linearly over a fixed window** (`VEST`, 23 hours). The exchange rate is:
+Yield is not recognized instantly. Instead, each contribution is recognized **linearly over a fixed window** (`VEST`, 22 hours). The exchange rate is:
 
 ```
 totalAssets = asset.balanceOf(vault) − lockedYield
@@ -26,6 +26,8 @@ where `lockedYield` is the not-yet-vested portion of the current tranche. This d
 - **No yield sniping.** Because recognition is keyed on `block.timestamp`, a deposit and withdrawal in the *same block* observe an identical share price and capture nothing. An attacker can only collect the dust that vests across blocks while bearing real exposure — so they can't sandwich a yield event.
 - **No instant jump.** Adding yield never moves `totalAssets` in the same block; it only raises the price as the tranche vests.
 - **No backlog.** `addYield` reverts until the previous tranche has fully vested, so tranches never overlap and no yield is left permanently locked.
+- **No mid-tranche dilution.** Deposits and mints are **disabled while a tranche is vesting** — `maxDeposit`/`maxMint` report `0` and `deposit`/`mint` revert. New capital can only enter *after* a tranche fully vests and *before* the next `addYield`, so a latecomer never shares yield meant for the holders already in.
+- **A guaranteed deposit window.** `addYield` must wait at least `MIN_WINDOW` (2 hours) past the end of vesting, so every cycle has a deposit window of at least `MIN_WINDOW` regardless of how promptly the keeper runs. The window is the interval `[vestedAt(), nextYieldAt()]`.
 
 The first-depositor inflation/donation attack is mitigated with OpenZeppelin's virtual shares/assets (a non-zero decimals offset). A **seed-and-burn** at deployment is still recommended.
 
@@ -66,12 +68,12 @@ StreamingYieldVault vault = new StreamingYieldVault(
     IERC20(USDC),        // underlying asset (standard ERC-20)
     "Yield USDC",        // share token name
     "yUSDC",             // share token symbol
-    MULTISIG             // owner (controls addYield, pause/unpause)
+    MULTISIG             // owner (controls addYield)
 );
 ```
 
 <Callout type="warn">
-Set the owner to a **multisig or timelock**, never an EOA. The owner can pause the vault and supply yield.
+Set the owner to a **multisig or timelock**, never an EOA. The owner supplies yield via `addYield`.
 </Callout>
 </Step>
 <Step>
@@ -88,14 +90,14 @@ vault.transfer(address(0xdead), shares); // burn
 <Step>
 ### Schedule yield top-ups
 
-Have your treasury/keeper call `addYield` on a regular cadence (e.g. daily). Because `VEST` is 23h, scheduling daily leaves margin so the call never reverts on the vesting guard.
+Have your treasury/keeper call `addYield` on a regular cadence (e.g. daily). With `VEST = 22h` and `MIN_WINDOW = 2h` the minimum cadence is **24h**: `addYield` reverts until the prior tranche has vested *and* its 2h deposit window has elapsed, which keeps a deposit window open every cycle.
 
 ```solidity lineNumbers
 IERC20(USDC).approve(address(vault), amount);
-vault.addYield(amount); // owner only; reverts if the prior tranche is still vesting
+vault.addYield(amount); // owner only; reverts while the prior tranche vests or its deposit window is open
 ```
 
-Use the `vestedAt()` view to know the earliest time the next `addYield` is allowed.
+Use `nextYieldAt()` for the earliest time the next `addYield` is allowed, and `vestedAt()` for when the deposit window opens.
 </Step>
 </Steps>
 
@@ -107,6 +109,10 @@ The vault is a standard ERC-4626, so integrators use the usual entrypoints. Depo
 asset.approve(address(vault), amount);
 uint256 shares = vault.deposit(amount, receiver); // fixed asset amount in
 ```
+
+<Callout type="info">
+Deposits and mints are only open **between tranches** — after a tranche fully vests and before the next `addYield`. While a tranche is vesting, `maxDeposit`/`maxMint` return `0` and `deposit`/`mint` revert with the standard `ERC4626ExceededMaxDeposit`/`ERC4626ExceededMaxMint`. Check `maxDeposit(receiver)` (or `vestedAt()`/`nextYieldAt()`) to find the open window. Withdrawals and redeems are always available.
+</Callout>
 
 Exiting uses `redeem` (clean full exit) or `withdraw` (fixed asset amount out):
 
@@ -128,40 +134,42 @@ uint256 burned = vault.withdraw(assets, receiver, owner);
 function addYield(uint256 amount) external onlyOwner;
 ```
 
-It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fully vested, and `ZeroAmount()` for a zero amount. Yield may be added while the vault is paused — it simply can't be withdrawn until unpaused.
+It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fully vested, `DepositWindowOpen(closesAt)` if it is called during the guaranteed deposit window (before `MIN_WINDOW` has elapsed past the vest end), and `ZeroAmount()` for a zero amount.
 
-## Pausing
+### Single-transaction top-ups (ERC-1363)
 
-The owner can freeze all share movement — transfers, deposits, and withdrawals — in an emergency. Pausing is enforced at a single `_update` chokepoint that every mint, burn, and transfer flows through.
+If the underlying asset is an [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) ("payable") token, the owner can fund a tranche in **one transaction** via `transferAndCall` — no separate `approve` + `addYield`. The asset transfers to the vault and then calls the vault's `onTransferReceived` hook, which arms the tranche.
 
 ```solidity lineNumbers
-vault.pause();    // owner only — blocks transfers, deposits, withdrawals
-vault.unpause();  // owner only — restores share movement
+asset.transferAndCall(address(vault), amount); // equivalent to approve + addYield
 ```
 
-<Callout type="warn">
-While paused, holders **cannot withdraw**. Treat the pause as an emergency stop and restrict it to a trusted owner.
-</Callout>
+Authorization and guards mirror `addYield`: the funds must come from the **owner** (otherwise it reverts), and a top-up while a tranche is still vesting or inside the deposit window reverts — rolling the transfer back. `onTransferReceived` is callable only by the asset.
 
 ## Reference
 
 | Member | Description |
 | --- | --- |
-| `VEST` | Vesting window per tranche (constant, `23 hours`). Keep `≤` your `addYield` cadence. |
+| `VEST` | Vesting window per tranche (constant, `22 hours`). |
+| `MIN_WINDOW` | Minimum gap `addYield` must leave after the vest end (constant, `2 hours`); guarantees a deposit window each cycle. Minimum cadence is `VEST + MIN_WINDOW` (24h). |
 | `addYield(uint256)` | Owner-only; streams a yield tranche over `VEST`. |
 | `lockedYield()` | The not-yet-recognized portion of the active tranche. |
-| `vestedAt()` | Timestamp the active tranche finishes vesting / next `addYield` is allowed. |
-| `pause()` / `unpause()` | Owner-only emergency stop for all share movement. |
+| `vestedAt()` | Timestamp the active tranche finishes vesting and the deposit window opens. |
+| `nextYieldAt()` | Earliest time the next `addYield` is allowed; close of the guaranteed deposit window. |
+| `maxDeposit` / `maxMint` | `0` while a tranche is vesting (deposits closed), unbounded otherwise. |
+| `onTransferReceived(...)` | ERC-1363 hook; single-tx yield top-up via the asset's `transferAndCall`. Owner + asset only. |
 | `totalAssets()` | `balanceOf(vault) − lockedYield`. |
 | `YieldAdded(amount, vestingStart)` | Emitted when a tranche begins vesting. |
 | `YieldStillVesting(vestedAt)` | Reverts `addYield` while the prior tranche is vesting. |
+| `DepositWindowOpen(closesAt)` | Reverts `addYield` during the guaranteed deposit window. |
+| `CallerNotAsset(caller)` | Reverts `onTransferReceived` when the caller isn't the underlying asset. |
 | `ZeroAmount()` | Reverts `addYield` for a zero amount. |
 
 ## Security considerations
 
 - **Standard ERC-20 only.** Fee-on-transfer and rebasing assets desync the vault's accounting; ERC-777 callbacks reintroduce reentrancy vectors the design otherwise avoids.
 - **Seed-and-burn at deploy.** Combined with the decimals offset, this removes the empty-vault inflation attack.
-- **Tune `VEST` to your cadence.** It must be `≤` the interval between `addYield` calls; otherwise the guard rejects timely top-ups. 23h suits a daily cadence.
-- **Owner is trusted.** The owner can pause withdrawals and supply yield — use a multisig/timelock.
+- **Mind the cadence.** Minimum cadence is `VEST + MIN_WINDOW` (24h): `addYield` reverts until the prior tranche has vested *and* its deposit window has elapsed. Deposits are closed while a tranche vests, so capital enters in bursts during the window.
+- **Owner is trusted.** The owner supplies yield via `addYield` — use a multisig/timelock.
 
-The contract is covered by an extensive Foundry suite exercising the inflation attack, yield sniping, vesting math, the `addYield` guard, the pause chokepoint, access control, and ERC-4626 rounding/preview parity.
+The contract is covered by an extensive Foundry suite exercising the inflation attack, yield sniping, vesting math, the `addYield` guard, the deposit lock and guaranteed window, access control, and ERC-4626 rounding/preview parity.

@@ -982,9 +982,21 @@ export function adjustDecimals(feeInFeeToken: bigint, fromDecimals: number, toDe
 export const USE_ETHERSCAN_CHAINS = new Set(["EVM-137", "EVM-56", "EVM-1"])
 
 /**
- * Testnet chains
+ * Testnet state-machine IDs. Used to short-circuit price/gas lookups that would
+ * otherwise hit CoinGecko, which has no testnet listings and rate-limits CI.
  */
-export const TESTNET_CHAINS = new Set(["EVM-10200", "EVM-97"])
+export const TESTNET_CHAINS = new Set([
+	"EVM-97", // BSC Chapel
+	"EVM-10200", // Gnosis Chiado
+	"EVM-11155111", // Sepolia
+	"EVM-421614", // Arbitrum Sepolia
+	"EVM-84532", // Base Sepolia
+	"EVM-11155420", // Optimism Sepolia
+	"EVM-80002", // Polygon Amoy
+	"EVM-420420417", // Polkadot Asset Hub Paseo
+	"EVM-3448148188", // Tron Nile
+	"EVM-688689", // Pharos Atlantic
+])
 
 /**
  * Recursively collects every call to the target contract from nested calls

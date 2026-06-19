@@ -62,7 +62,7 @@ jobs:
             - name: Resolve version
               id: version
               run: |
-                  VERSION=$(cargo get package.version --entry ./tesseract/messaging/relayer)
+                  VERSION=$(cargo get package.version --entry ./tesseract/relayer)
                   echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
             - name: Login to Docker Hub

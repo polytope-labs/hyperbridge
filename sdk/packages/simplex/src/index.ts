@@ -5,7 +5,7 @@ export { IntentFiller } from "@/core/filler"
 export { EventMonitor } from "@/core/event-monitor"
 
 // Strategy exports
-export { BasicFiller } from "@/strategies/basic"
+export { StableFiller } from "@/strategies/stable"
 export { FXFiller } from "@/strategies/fx"
 
 // Configuration exports
@@ -18,3 +18,4 @@ export { ChainClientManager, ContractInteractionService } from "@/services"
 // Output funding
 export type { OutputFundingConfig } from "@/funding/types"
 export { UniswapV4LiquidityState, UniswapV4FundingPlanner } from "@/funding"
+export { VaultLiquidityState, VaultFundingPlanner } from "@/funding"

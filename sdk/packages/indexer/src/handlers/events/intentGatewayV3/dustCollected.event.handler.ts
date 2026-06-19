@@ -24,5 +24,5 @@ export const handleDustCollectedEventV3 = wrap(async (event: DustCollectedLog): 
 		})}`,
 	)
 
-	await ProtocolRevenueService.recordDustCollected(token, BigInt(amount.toString()), timestamp)
+	await ProtocolRevenueService.recordDustCollected(chain, token, BigInt(amount.toString()), timestamp)
 })

@@ -22,6 +22,17 @@ import type { FundingVenue } from "@/funding/types"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
+ * One-sided LP accumulation side for {@link FXFiller}. String-valued so it maps
+ * directly onto the `accumulate` value parsed from the filler's TOML config.
+ */
+export enum AccumulationSide {
+	/** Only fill stable-in/exotic-out legs (accumulate stable, give away exotic). */
+	Stable = "stable",
+	/** Only fill exotic-in/stable-out legs (accumulate exotic, give away stable). */
+	Exotic = "exotic",
+}
+
+/**
  * Strategy for swaps between USD-pegged stablecoins (USDC/USDT) and a single
  * configurable exotic token priced via a `FillerPricePolicy`.
  * Supports both same-chain and cross-chain orders.
@@ -75,6 +86,12 @@ export class FXFiller implements FillerStrategy {
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
+	/**
+	 * One-sided LP constraint. When set, the filler only fills orders in a single
+	 * direction so it keeps accumulating one asset while giving away the other.
+	 * Undefined fills both directions.
+	 */
+	private accumulate?: AccumulationSide
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -102,6 +119,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
 			spreadBps?: number
+			accumulate?: AccumulationSide
 		},
 	) {
 		const {
@@ -110,6 +128,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy,
 			fundingVenues = [],
 			spreadBps = 50,
+			accumulate,
 		} = options ?? {}
 
 		const hasPolicies = bidPricePolicy && askPricePolicy
@@ -128,6 +147,7 @@ export class FXFiller implements FillerStrategy {
 		this.token1 = token1
 		this.fundingVenues = fundingVenues
 		this.spreadBps = spreadBps
+		this.accumulate = accumulate
 
 		// When no policies provided, create placeholder flat policies (overwritten in initialise by venue prices)
 		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
@@ -776,6 +796,21 @@ export class FXFiller implements FillerStrategy {
 					exoticToken: order.inputs[i].token,
 				})
 			} else {
+				return null
+			}
+
+			// One-sided LP: reject the whole order if any leg runs against the
+			// configured accumulation side. The IntentGateway fills all legs
+			// atomically, so a mixed-direction order can't be partially honoured.
+			const leg = pairs[pairs.length - 1]
+			if (
+				(this.accumulate === AccumulationSide.Stable && !leg.inputIsStable) ||
+				(this.accumulate === AccumulationSide.Exotic && leg.inputIsStable)
+			) {
+				this.logger.debug(
+					{ orderId: order.id, leg: i, accumulate: this.accumulate, inputIsStable: leg.inputIsStable },
+					"Rejecting order: leg direction conflicts with one-sided LP accumulation side",
+				)
 				return null
 			}
 		}

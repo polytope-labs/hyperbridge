@@ -7,7 +7,7 @@ import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { StableFiller } from "@/strategies/stable"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, AccumulationSide } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
@@ -132,6 +132,12 @@ interface FxStrategyConfig {
 	spreadBps?: number
 	/** Maximum USD value per order */
 	maxOrderUsd: number
+	/**
+	 * One-sided LP. Omit to fill both directions (default).
+	 * - "stable": only fill stable-in/exotic-out legs (accumulate stable, give away exotic)
+	 * - "exotic": only fill exotic-in/stable-out legs (accumulate exotic, give away stable)
+	 */
+	accumulate?: AccumulationSide
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
 	token1: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
@@ -455,6 +461,7 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
+								accumulate: strategyConfig.accumulate,
 							},
 						)
 					}
@@ -718,6 +725,13 @@ function validateConfig(config: FillerTomlConfig): void {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
 				}
+			}
+
+			if (
+				strategy.accumulate !== undefined &&
+				!Object.values(AccumulationSide).includes(strategy.accumulate)
+			) {
+				throw new Error("hyperfx: 'accumulate' must be either 'stable' or 'exotic'")
 			}
 
 			if (bidLen > 0) {

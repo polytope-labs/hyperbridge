@@ -142,6 +142,15 @@ interface FxStrategyConfig {
 			positions?: UniswapV4PositionToml[]
 		}
 	}
+	/**
+	 * Optional Uniswap price guard. Only meaningful with Uniswap V4 venue pricing.
+	 * Rejects orders when the pool quote drifts more than `maxDeviationBps` from the
+	 * chain's static `referencePrices` value (exotic per USD, same units as the curves).
+	 */
+	priceGuard?: {
+		maxDeviationBps: number
+		referencePrices: Record<string, string>
+	}
 }
 
 type StrategyConfig = StableStrategyConfig | FxStrategyConfig
@@ -455,6 +464,7 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
+								priceGuard: strategyConfig.priceGuard,
 							},
 						)
 					}
@@ -717,6 +727,30 @@ function validateConfig(config: FillerTomlConfig): void {
 			if (strategy.spreadBps !== undefined) {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
+				}
+			}
+
+			if (strategy.priceGuard !== undefined) {
+				const { maxDeviationBps, referencePrices } = strategy.priceGuard
+				if (!hasUniswapV4Positions) {
+					throw new Error(
+						"hyperfx: 'priceGuard' only applies to Uniswap V4 venue pricing; configure [strategies.vault.uniswapV4].positions",
+					)
+				}
+				if (!Number.isFinite(maxDeviationBps) || maxDeviationBps <= 0 || maxDeviationBps > 10_000) {
+					throw new Error("hyperfx: 'priceGuard.maxDeviationBps' must be a number between 0 (exclusive) and 10000")
+				}
+				if (!referencePrices || Object.keys(referencePrices).length === 0) {
+					throw new Error("hyperfx: 'priceGuard.referencePrices' must have at least one chain entry")
+				}
+				for (const [chain, price] of Object.entries(referencePrices)) {
+					if (!(chain in strategy.token1)) {
+						throw new Error(`hyperfx: 'priceGuard.referencePrices' chain '${chain}' is not present in 'token1'`)
+					}
+					const parsed = Number(price)
+					if (!Number.isFinite(parsed) || parsed <= 0) {
+						throw new Error(`hyperfx: 'priceGuard.referencePrices.${chain}' must be a positive number`)
+					}
 				}
 			}
 

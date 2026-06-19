@@ -139,6 +139,32 @@ positions = [
 Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.vault.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
 </Callout>
 
+#### Uniswap price guards
+
+Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. The optional **`[strategies.priceGuard]`** block bounds that risk: it sets a static reference price per chain and a tolerance in basis points. Whenever the pool quote drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
+
+Reference prices are expressed in **exotic tokens per USD**, the same units as the bid/ask curves, and are keyed by chain (each key must also appear in `token1`). The guard only applies when Uniswap V4 venue pricing is configured.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+
+[strategies.priceGuard]
+maxDeviationBps = 200  # reject if the pool quote is more than 2% off the reference
+
+[strategies.priceGuard.referencePrices]
+"EVM-8453" = "1575"  # expected cNGN per USD
+```
+
 #### Example profit calculation
 
 For a \$1000 USDC → cNGN order, the curve interpolates to bid 1575, ask 1555 at the $1000 size:

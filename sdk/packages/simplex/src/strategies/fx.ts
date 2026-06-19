@@ -75,6 +75,13 @@ export class FXFiller implements FillerStrategy {
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
+	/**
+	 * Optional Uniswap price guard. When set, a venue (pool) quote is only trusted
+	 * if it stays within `maxDeviationBps` of the chain's static reference price
+	 * (exotic per USD). A quote outside the band rejects the order — defence against
+	 * a manipulated, stale, or thin pool. Keyed by chain, mirroring `token1`.
+	 */
+	private priceGuard?: { maxDeviationBps: number; referencePrices: Map<string, Decimal> }
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -102,6 +109,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
 			spreadBps?: number
+			priceGuard?: { maxDeviationBps: number; referencePrices: Record<string, string> }
 		},
 	) {
 		const {
@@ -110,6 +118,7 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy,
 			fundingVenues = [],
 			spreadBps = 50,
+			priceGuard,
 		} = options ?? {}
 
 		const hasPolicies = bidPricePolicy && askPricePolicy
@@ -128,6 +137,13 @@ export class FXFiller implements FillerStrategy {
 		this.token1 = token1
 		this.fundingVenues = fundingVenues
 		this.spreadBps = spreadBps
+		if (priceGuard) {
+			const referencePrices = new Map<string, Decimal>()
+			for (const [chain, price] of Object.entries(priceGuard.referencePrices)) {
+				referencePrices.set(chain, new Decimal(price))
+			}
+			this.priceGuard = { maxDeviationBps: priceGuard.maxDeviationBps, referencePrices }
+		}
 
 		// When no policies provided, create placeholder flat policies (overwritten in initialise by venue prices)
 		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
@@ -185,6 +201,35 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 		return null
+	}
+
+	/**
+	 * Validates a live venue quote against the static reference price for the chain.
+	 * Returns true (pass) when no guard is configured, or no reference exists for the
+	 * chain. Returns false when the quote (exotic per USD) deviates from the reference
+	 * by more than `maxDeviationBps`, in which case the order must not be filled.
+	 */
+	private checkPriceGuard(orderId: string | undefined, chain: string, venueExoticPerUsd: Decimal): boolean {
+		if (!this.priceGuard) return true
+		const reference = this.priceGuard.referencePrices.get(chain)
+		if (!reference || reference.lte(0)) return true
+
+		const deviationBps = venueExoticPerUsd.minus(reference).abs().div(reference).mul(10000)
+		if (deviationBps.gt(this.priceGuard.maxDeviationBps)) {
+			this.logger.warn(
+				{
+					orderId,
+					chain,
+					venuePrice: venueExoticPerUsd.toString(),
+					referencePrice: reference.toString(),
+					deviationBps: deviationBps.toFixed(2),
+					maxDeviationBps: this.priceGuard.maxDeviationBps,
+				},
+				"Rejecting order: Uniswap venue quote outside price-guard band",
+			)
+			return false
+		}
+		return true
 	}
 
 	async canFill(order: Order): Promise<boolean> {
@@ -292,6 +337,15 @@ export class FXFiller implements FillerStrategy {
 			const sourceVenuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
 			const destVenuePrice = sourceChain !== destChain && this.fundingVenues.length > 0
 				? await this.getVenuePrice(destChain) : sourceVenuePrice
+
+			// Price guard: reject the whole order if a venue quote on any involved chain
+			// has drifted beyond the configured band from its static reference price.
+			if (sourceVenuePrice && !this.checkPriceGuard(order.id, sourceChain, sourceVenuePrice.bid)) {
+				return 0
+			}
+			if (sourceChain !== destChain && destVenuePrice && !this.checkPriceGuard(order.id, destChain, destVenuePrice.bid)) {
+				return 0
+			}
 
 			let deadlineTimestamp: bigint | undefined
 			try {

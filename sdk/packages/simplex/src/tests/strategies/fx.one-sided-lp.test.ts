@@ -15,11 +15,24 @@ const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
 
+// Mirrors how simplex.ts shares one contractService (and its classification cache)
+// across every strategy. Pass the same instance to two fillers to exercise that.
+function makeContractService(): any {
+	const cache = new Map<string, unknown>()
+	return {
+		cacheService: {
+			getPairClassifications: (id: string) => cache.get(id),
+			setPairClassifications: (id: string, pairs: unknown) => cache.set(id, pairs),
+		},
+	}
+}
+
 function makeFiller(options: {
 	bidPricePolicy?: FillerPricePolicy
 	askPricePolicy?: FillerPricePolicy
 	fundingVenues?: any[]
 	side?: "bid" | "ask"
+	contractService?: any
 }): FXFiller {
 	const configService = {
 		getUsdcAsset: () => STABLE,
@@ -28,18 +41,13 @@ function makeFiller(options: {
 		getMaxConsecutiveClamps: () => 3,
 	} as any
 
-	const cache = new Map<string, unknown>()
-	const contractService = {
-		cacheService: {
-			getPairClassifications: (id: string) => cache.get(id),
-			setPairClassifications: (id: string, pairs: unknown) => cache.set(id, pairs),
-		},
-	} as any
+	const { contractService: provided, ...fillerOptions } = options
+	const contractService = provided ?? makeContractService()
 
 	const signer = { account: { address: SOLVER } } as any
 	const clientManager = {} as any
 
-	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, options)
+	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, fillerOptions)
 }
 
 function makeOrder(id: string, input: HexString, output: HexString): Order {
@@ -104,5 +112,18 @@ describe("FXFiller one-sided LP", () => {
 
 	it("rejects 'side' combined with static curves", () => {
 		expect(() => makeFiller({ fundingVenues: VENUE, side: "ask", askPricePolicy: FLAT })).toThrow()
+	})
+
+	// Regression: the gate must run even when another strategy already cached the
+	// (intrinsic) classification for this order id under the shared cache.
+	it("enforces one-sided even when the classification is already cached by another strategy", async () => {
+		const shared = makeContractService()
+		const twoSided = makeFiller({ bidPricePolicy: FLAT, askPricePolicy: FLAT, contractService: shared })
+		const askOnly = makeFiller({ askPricePolicy: FLAT, contractService: shared })
+
+		// Two-sided filler classifies and caches the exotic-in order.
+		expect(await twoSided.canFill(makeOrder("shared-1", EXOTIC, STABLE))).toBe(true)
+		// Ask-only filler reads the cached classification but must still reject the bid-side order.
+		expect(await askOnly.canFill(makeOrder("shared-1", EXOTIC, STABLE))).toBe(false)
 	})
 })

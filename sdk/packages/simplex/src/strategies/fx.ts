@@ -232,6 +232,10 @@ export class FXFiller implements FillerStrategy {
 				return false
 			}
 
+			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
+				return false
+			}
+
 			return true
 		} catch (error) {
 			this.logger.error({ err: error }, "Error in canFill")
@@ -273,6 +277,10 @@ export class FXFiller implements FillerStrategy {
 			const pairs = this.classifyAllPairs(order)
 			if (!pairs) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not classify token pairs")
+				return 0
+			}
+
+			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
 				return 0
 			}
 
@@ -803,26 +811,6 @@ export class FXFiller implements FillerStrategy {
 			} else {
 				return null
 			}
-
-			// One-sided LP: reject the whole order if any leg runs in a disabled
-			// direction (curve omitted, or excluded by the venue `side`). A stable-in
-			// leg sells exotic and needs the ask side; an exotic-in leg buys exotic and
-			// needs the bid side. The IntentGateway fills all legs atomically, so a
-			// mixed-direction order can't be partially honoured.
-			const leg = pairs[pairs.length - 1]
-			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
-				this.logger.debug(
-					{
-						orderId: order.id,
-						leg: i,
-						inputIsStable: leg.inputIsStable,
-						bidEnabled: this.bidEnabled,
-						askEnabled: this.askEnabled,
-					},
-					"Rejecting order: leg direction disabled for one-sided LP",
-				)
-				return null
-			}
 		}
 
 		if (order.id) {
@@ -830,6 +818,37 @@ export class FXFiller implements FillerStrategy {
 		}
 
 		return pairs
+	}
+
+	/**
+	 * One-sided LP gate: returns false if any leg runs in a disabled direction
+	 * (curve omitted, or excluded by the venue `side`). A stable-in leg sells exotic
+	 * and needs the ask side; an exotic-in leg buys exotic and needs the bid side.
+	 * The IntentGateway settles all legs atomically, so a mixed-direction order can't
+	 * be partially honoured.
+	 *
+	 * Kept separate from `classifyAllPairs`: that result is cached and shared across
+	 * strategies, whereas enablement is per-strategy, so this must run on every
+	 * evaluation regardless of cache state.
+	 */
+	private isOrderDirectionEnabled(pairs: CachedPairClassification[], orderId: string | undefined): boolean {
+		for (let i = 0; i < pairs.length; i++) {
+			const leg = pairs[i]
+			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
+				this.logger.debug(
+					{
+						orderId,
+						leg: i,
+						inputIsStable: leg.inputIsStable,
+						bidEnabled: this.bidEnabled,
+						askEnabled: this.askEnabled,
+					},
+					"Rejecting order: leg direction disabled for one-sided LP",
+				)
+				return false
+			}
+		}
+		return true
 	}
 
 	private getStableType(normalizedAddress: string, chain: string): boolean {

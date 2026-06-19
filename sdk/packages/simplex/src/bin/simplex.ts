@@ -116,7 +116,9 @@ interface FxStrategyConfig {
 	 * the filler pays out fewer stablecoins per exotic token received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the ask) is one-sided LP: the filler stops buying exotic and only
+	 * sells it, accumulating stablecoins.
 	 */
 	bidPriceCurve?: Array<{
 		amount: string
@@ -128,7 +130,9 @@ interface FxStrategyConfig {
 	 * the filler sends fewer exotic tokens per stablecoin received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the bid) is one-sided LP: the filler stops selling exotic and only
+	 * buys it, accumulating the exotic token.
 	 */
 	askPriceCurve?: Array<{
 		amount: string
@@ -149,6 +153,12 @@ interface FxStrategyConfig {
 	vault?: {
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
+			/**
+			 * One-sided LP under pool pricing. "bid" buys exotic (accumulate exotic);
+			 * "ask" sells exotic (accumulate stable). Only valid with pool pricing — i.e.
+			 * no `bidPriceCurve`/`askPriceCurve` set. Omit to fill both directions.
+			 */
+			side?: "bid" | "ask"
 		}
 	}
 }
@@ -472,6 +482,7 @@ program
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
 								priceGuard,
+								side: strategyConfig.vault?.uniswapV4?.side,
 							},
 						)
 					}
@@ -715,19 +726,15 @@ function validateConfig(config: FillerTomlConfig): void {
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0
 			const askLen = strategy.askPriceCurve?.length ?? 0
-			if (bidLen > 0 !== askLen > 0) {
-				throw new Error(
-					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using vault.uniswapV4 for pricing",
-				)
-			}
 
 			// A single point is a valid flat curve — FillerPricePolicy returns that price at every size.
-			const hasStaticCurves = bidLen >= 1 && askLen >= 1
+			// One-sided LP: providing only one of bid/ask restricts the filler to that direction.
+			const hasAnyCurve = bidLen >= 1 || askLen >= 1
 			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
-			if (!hasStaticCurves && !hasUniswapV4Positions) {
+			if (!hasAnyCurve && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide bid+ask price curves (≥1 point each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
@@ -773,6 +780,23 @@ function validateConfig(config: FillerTomlConfig): void {
 				guardByChain[position.chain] = {
 					referencePrice: position.referencePrice!,
 					maxDeviationBps: position.maxDeviationBps!,
+				}
+			}
+
+			// One-sided LP under pool pricing: `side` enables a single direction. Only valid
+			// with venue pricing and no static curves (curves express one-sided by omission).
+			const side = strategy.vault?.uniswapV4?.side
+			if (side !== undefined) {
+				if (side !== "bid" && side !== "ask") {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' must be either 'bid' or 'ask'")
+				}
+				if (!hasUniswapV4Positions) {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' requires [strategies.vault.uniswapV4].positions")
+				}
+				if (hasAnyCurve) {
+					throw new Error(
+						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit 'bidPriceCurve'/'askPriceCurve' (or drop one curve to do one-sided LP with static pricing)",
+					)
 				}
 			}
 

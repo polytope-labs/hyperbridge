@@ -8,6 +8,7 @@ import { ENV_CONFIG, ITokenPriceFeedDetails } from "@/constants"
 import { ChainLinkAggregatorV3Abi__factory } from "@/configs/src/types/contracts"
 import { ethers } from "ethers"
 import { UNISWAP_ADDRESSES } from "@/addresses/uniswap.addresses"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
 import uniswapV2Abi from "@/configs/abis/UniswapV2.abi.json"
 import uniswapV3FactoryAbi from "@/configs/abis/UniswapV3Factory.abi.json"
 import uniswapV3PoolAbi from "@/configs/abis/UniswapV3Pool.abi.json"
@@ -113,7 +114,7 @@ export default class PriceHelper {
 
 			let priceInUSD: string
 			if (isNativeToken) {
-				const nativePrice = await this.getNativeCurrencyPrice(chainId)
+				const nativePrice = await this.getNativeCurrencyPrice(getHostStateMachine(chainId))
 				priceInUSD = new Decimal(nativePrice.toString()).dividedBy(new Decimal(10).pow(18)).toFixed(18)
 			} else {
 				const uniswapPrice = await this.getUniswapPrice(tokenAddress, decimals)
@@ -187,7 +188,7 @@ export default class PriceHelper {
 
 								if (liquidity > BigInt(0)) {
 									const quoter = new ethers.Contract(V3_QUOTER, uniswapV3QuoterV2Abi, api)
-									const quoteResult = await quoter.quoteExactInputSingle({
+									const quoteResult = await quoter.callStatic.quoteExactInputSingle({
 										tokenIn: tokenAddress,
 										tokenOut: quoteToken,
 										fee: fee,
@@ -306,7 +307,7 @@ export default class PriceHelper {
 			throw new Error(`No Uniswap V2, V3, or V4 pair found for token ${tokenAddress}`)
 		} catch (error) {
 			logger.error(`Error getting Uniswap price for ${tokenAddress}: ${error}`)
-			return new Decimal(1)
+			return new Decimal(0)
 		}
 	}
 

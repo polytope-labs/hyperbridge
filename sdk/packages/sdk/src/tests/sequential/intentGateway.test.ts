@@ -5,6 +5,11 @@ import type { PublicClient } from "viem"
 import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import {
+	deductProtocolFee,
+	grossUpForProtocolFee,
+	UNISWAP_INTENT_QUOTE_CHAIN,
+} from "@/protocols/intents/quote/uniswapV4"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
 
@@ -51,6 +56,58 @@ describe("Uniswap quote helper", () => {
 		assert.equal(result.bestQuote?.protocol, "v4")
 		assert.equal(result.bestQuote?.amountOut, 103n)
 	})
+})
+
+describe("Intent quote helper", () => {
+	const BASE_CHAIN = "EVM-8453"
+
+	it("applies the gateway protocol fee to quoted amounts", () => {
+		assert.equal(UNISWAP_INTENT_QUOTE_CHAIN, BASE_CHAIN)
+		// 30 bps fee: exact-input nets less to the swap, exact-output grosses up.
+		assert.equal(deductProtocolFee(1_000_000n, 30n), 997_000n)
+		assert.equal(grossUpForProtocolFee(997_000n, 30n), 1_000_000n)
+		// Gross-up rounds up so the post-fee net never falls short.
+		assert.equal(grossUpForProtocolFee(1n, 30n), 2n)
+		// Zero fee is a no-op in both directions.
+		assert.equal(deductProtocolFee(1_000_000n, 0n), 1_000_000n)
+		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
+	})
+
+	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {
+		const configService = new ChainConfigService()
+		console.log("Base USDC -> cNGN intent quote")
+
+		const baseChain = makeEvmChain(CHAINS.base, configService)
+		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+
+		const quote = await intentGateway.quoteIntent({
+			tokenIn: {
+				address: configService.getUsdcAsset(BASE_CHAIN),
+				decimals: 6,
+				symbol: "USDC",
+			},
+			tokenOut: {
+				address: configService.getCNgnAsset(BASE_CHAIN)!,
+				decimals: 6,
+				symbol: "cNGN",
+			},
+			amountIn: 1_000_000n,
+		})
+
+		console.log("amountIn:", quote.amountIn.toString())
+		console.log("amountOut:", quote.amountOut.toString())
+		console.log("protocolFeeBps:", quote.quoteMetadata.protocolFeeBps.toString())
+		console.log("poolKey:", quote.quoteMetadata.poolKey)
+		console.log("quoterAddress:", quote.quoteMetadata.quoterAddress)
+
+		assert.equal(quote.strategy, "uniswap_v4")
+		assert.equal(quote.tradeType, "EXACT_INPUT")
+		assert.equal(quote.amountIn, 1_000_000n)
+		assert(quote.amountOut > 0n)
+		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
+		assert.equal(quote.quoteMetadata.poolKey.fee, 1500)
+		assert.equal(quote.quoteMetadata.poolKey.tickSpacing, 30)
+	}, 120_000)
 })
 
 // ---------------------------------------------------------------------------
@@ -157,7 +214,7 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 	return EvmChain.fromParams({
 		chainId: chain.numericId,
 		host: configService.getHostAddress(chain.id),
-		rpcUrl: process.env[chain.rpcEnvVar]!,
+		rpcUrl: process.env[chain.rpcEnvVar] ?? configService.getRpcUrl(chain.id),
 		bundlerUrl,
 	})
 }

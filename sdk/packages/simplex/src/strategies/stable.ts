@@ -10,6 +10,7 @@ import {
 	TokenInfo,
 	adjustDecimals,
 	IntentsCoprocessor,
+	type ERC7821Call,
 } from "@hyperbridge/sdk"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -17,18 +18,22 @@ import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 import { FillerBpsPolicy, ConfirmationPolicy } from "@/config/interpolated-curve"
 import { SupportedTokenType } from "@/strategies/base"
+import type { FundingVenue } from "@/funding/types"
+import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { SigningAccount } from "@/services/wallet"
 
-export class BasicFiller implements FillerStrategy {
-	name = "BasicFiller"
+export class StableFiller implements FillerStrategy {
+	name = "StableFiller"
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
 	private bpsPolicy: FillerBpsPolicy
 	private signer: SigningAccount
-	private logger = getLogger("basic-simplex")
+	private logger = getLogger("stable-simplex")
 	/** Ceiling bps above user-requested output. Sourced from filler config. */
 	private readonly maxOverfillBps: bigint
+	/** On-chain liquidity sources for topping up output-token shortfalls (e.g. ERC-4626 vaults). */
+	private fundingVenues: FundingVenue[]
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	constructor(
@@ -38,6 +43,7 @@ export class BasicFiller implements FillerStrategy {
 		contractService: ContractInteractionService,
 		bpsPolicy: FillerBpsPolicy,
 		confirmationPolicy: ConfirmationPolicy,
+		fundingVenues: FundingVenue[] = [],
 	) {
 		this.configService = configService
 		this.clientManager = clientManager
@@ -49,6 +55,16 @@ export class BasicFiller implements FillerStrategy {
 		}
 		this.signer = signer
 		this.maxOverfillBps = configService.getMaxOverfillBps()
+		this.fundingVenues = fundingVenues
+	}
+
+	/**
+	 * Call once at startup after construction. Hydrates funding venue state so
+	 * output-token shortfalls can be sourced on-chain during fills.
+	 */
+	async initialise(): Promise<void> {
+		const solver = this.signer.account.address as HexString
+		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
 	/**
@@ -59,7 +75,7 @@ export class BasicFiller implements FillerStrategy {
 	 */
 	async canFill(order: Order): Promise<boolean> {
 		try {
-			// Validate basic structure
+			// Validate order structure
 			if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
 				this.logger.debug(
 					{ inputs: order.inputs.length, outputs: order.output.assets.length },
@@ -152,6 +168,15 @@ export class BasicFiller implements FillerStrategy {
 					"User expects more output than filler can provide based on bps",
 				)
 				return 0
+			}
+
+			// Source output-token shortfalls from funding venues (e.g. ERC-4626 vaults).
+			// Runs before gas estimation so the prepend gas bump is accounted for.
+			const fillerOutputs = this.contractService.cacheService.getFillerOutputs(order.id!)
+			if (fillerOutputs && this.fundingVenues.length > 0) {
+				const fundable = await this.planFunding(order, fillerOutputs)
+				if (!fundable) return 0
+				this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
 			}
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
@@ -326,6 +351,124 @@ export class BasicFiller implements FillerStrategy {
 
 		this.contractService.cacheService.setFillerOutputs(order.id!, outputs)
 		return outputs
+	}
+
+	/**
+	 * Sources each output token from the solver's wallet, topping up shortfalls
+	 * via funding venues (e.g. an ERC-4626 vault `withdraw`). When a venue can only
+	 * partially cover the deficit, the competitive output is reduced to the
+	 * coverable amount — never below the user's requested minimum. The venue
+	 * withdrawal calls are recorded as ERC-7821 prepends so they execute atomically
+	 * before `fillOrder` in the same batch.
+	 *
+	 * Mutates `fillerOutputs` in place. Returns false when an output cannot be
+	 * sourced down to the user's minimum, signalling the order should be skipped.
+	 */
+	private async planFunding(order: Order, fillerOutputs: TokenInfo[]): Promise<boolean> {
+		const destClient = this.clientManager.getPublicClient(order.destination)
+		const solver = this.signer.account.address as HexString
+		const balanceCache = new Map<string, bigint>()
+		const fundingCalls: ERC7821Call[] = []
+
+		for (let i = 0; i < fillerOutputs.length; i++) {
+			const out = fillerOutputs[i]
+			const userMin = order.output.assets[i].amount
+			const tokenLower = bytes32ToBytes20(out.token).toLowerCase()
+
+			// Native outputs can't be sourced from token venues.
+			if (tokenLower === ADDRESS_ZERO.toLowerCase()) continue
+
+			const walletBalance = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
+
+			// Wallet floor reserved for gas/paymaster (the vault minBalance) — never filled from.
+			let reserve = 0n
+			for (const venue of this.fundingVenues) {
+				reserve += venue.walletReserveForToken(order.destination, tokenLower)
+			}
+			const usableWallet = walletBalance > reserve ? walletBalance - reserve : 0n
+
+			// Spend the free wallet balance (above the reserve) first, then source any
+			// remaining shortfall from the funding venues (the vault).
+			const walletContribution = out.amount < usableWallet ? out.amount : usableWallet
+
+			let credited = 0n
+			let needed = out.amount - walletContribution
+			for (const venue of this.fundingVenues) {
+				if (needed <= 0n) break
+				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, needed)
+				if (planned.calls.length > 0) {
+					fundingCalls.push(...planned.calls)
+					credited += planned.credited
+					needed -= planned.credited
+				}
+			}
+
+			const available = walletContribution + credited
+
+			const effectiveOutput = out.amount < available ? out.amount : available
+			if (effectiveOutput < userMin) {
+				this.logger.info(
+					{
+						orderId: order.id,
+						token: out.token,
+						userMin: userMin.toString(),
+						sourceable: available.toString(),
+					},
+					"Skipping order: cannot source output token down to user minimum",
+				)
+				this.contractService.cacheService.clearFundingPrepends(order.id!)
+				return false
+			}
+
+			if (effectiveOutput < out.amount) {
+				this.logger.info(
+					{
+						orderId: order.id,
+						token: out.token,
+						competitive: out.amount.toString(),
+						coverable: effectiveOutput.toString(),
+					},
+					"Reducing output to coverable amount (partial funding)",
+				)
+				out.amount = effectiveOutput
+			}
+			// Decrement the wallet pool by what this leg drew from it (vault-sourced tokens
+			// are tracked by the venue's own reservations) so repeated outputs share one pool.
+			balanceCache.set(tokenLower, walletBalance - walletContribution)
+		}
+
+		if (fundingCalls.length > 0) {
+			this.contractService.cacheService.setFundingPrepends(order.id!, fundingCalls)
+		} else {
+			this.contractService.cacheService.clearFundingPrepends(order.id!)
+		}
+		return true
+	}
+
+	/**
+	 * Reads (and memoises) the solver's balance of a token on the destination
+	 * chain. Lets multiple output legs in one evaluation share a balance pool.
+	 */
+	private async getAndCacheBalance(
+		tokenAddressLower: string,
+		walletAddress: HexString,
+		// biome-ignore lint/suspicious/noExplicitAny: viem public client type varies per chain
+		destClient: any,
+		balanceCache: Map<string, bigint>,
+	): Promise<bigint> {
+		const key = tokenAddressLower.toLowerCase()
+		const cached = balanceCache.get(key)
+		if (cached !== undefined) return cached
+
+		const balance = (await destClient.readContract({
+			abi: ERC20_ABI,
+			address: key as HexString,
+			functionName: "balanceOf",
+			args: [walletAddress],
+		})) as bigint
+
+		balanceCache.set(key, balance)
+		return balance
 	}
 
 	/**

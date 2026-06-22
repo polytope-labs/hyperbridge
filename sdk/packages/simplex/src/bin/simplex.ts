@@ -6,10 +6,11 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { BasicFiller } from "@/strategies/basic"
+import { StableFiller } from "@/strategies/stable"
 import { FXFiller } from "@/strategies/fx"
-import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
+import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
+import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
@@ -59,8 +61,8 @@ interface ChainConfirmationPolicy {
 	}>
 }
 
-interface BasicStrategyConfig {
-	type: "basic"
+interface StableStrategyConfig {
+	type: "stable"
 	/**
 	 * Array of (amount, value) coordinates defining the BPS curve.
 	 * value = basis points at that order amount
@@ -73,10 +75,38 @@ interface BasicStrategyConfig {
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
 
-/** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
+/** TOML row for a Uniswap V4 position; only chain + tokenId required. */
 interface UniswapV4PositionToml {
 	chain: string
 	tokenId: string // bigint as string in TOML
+	/**
+	 * Optional price guard. When set (alongside `maxDeviationBps`), the filler rejects
+	 * orders whenever the pool quote on this chain drifts more than `maxDeviationBps`
+	 * from this static reference price (exotic per USD, same units as the bid/ask curves).
+	 * Guards against a manipulated, stale, or thin pool.
+	 */
+	referencePrice?: string
+	/** Tolerance in basis points for the price guard. Required when `referencePrice` is set. */
+	maxDeviationBps?: number
+}
+
+/**
+ * TOML row for an ERC-4626 vault entry. `threshold` (absolute human units) is the
+ * high-water mark that triggers a sweep down to `minBalance`; omit both for
+ * withdraw-only sourcing.
+ */
+interface VaultToml {
+	chain: string
+	vault: HexString
+	threshold?: string
+	minBalance?: string
+	redeemOnShutdown?: boolean
+}
+
+/** Top-level vault config: shared by the withdraw venue and the sweep timer. */
+interface VaultTomlConfig {
+	vaults: VaultToml[]
+	sweepIntervalMs?: number
 }
 
 interface FxStrategyConfig {
@@ -87,7 +117,9 @@ interface FxStrategyConfig {
 	 * the filler pays out fewer stablecoins per exotic token received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the ask) is one-sided LP: the filler stops buying exotic and only
+	 * sells it, accumulating stablecoins.
 	 */
 	bidPriceCurve?: Array<{
 		amount: string
@@ -99,7 +131,9 @@ interface FxStrategyConfig {
 	 * the filler sends fewer exotic tokens per stablecoin received.
 	 *
 	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup.
+	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
+	 * (while keeping the bid) is one-sided LP: the filler stops selling exotic and only
+	 * buys it, accumulating the exotic token.
 	 */
 	askPriceCurve?: Array<{
 		amount: string
@@ -120,19 +154,50 @@ interface FxStrategyConfig {
 	vault?: {
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
+			/**
+			 * One-sided LP under pool pricing. "bid" buys exotic (accumulate exotic);
+			 * "ask" sells exotic (accumulate stable). Only valid with pool pricing — i.e.
+			 * no `bidPriceCurve`/`askPriceCurve` set. Omit to fill both directions.
+			 */
+			side?: "bid" | "ask"
 		}
 	}
 }
 
-type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
+type StrategyConfig = StableStrategyConfig | FxStrategyConfig
 
 /** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
 const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
-	"1":     { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 15 }] },   // Ethereum (~12s blocks, ~24s–3min)
-	"56":    { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 3 }] },    // BNB Chain (~3s blocks, fast finality)
-	"137":   { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 32 }] },   // Polygon (~2s blocks, milestone finality)
-	"8453":  { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 90 }] },   // Base (~2s blocks, L2)
-	"42161": { points: [{ amount: "1000", value: 8 },  { amount: "100000", value: 720 }] },  // Arbitrum (~0.25s blocks, L2)
+	"1": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		],
+	}, // Ethereum (~12s blocks, ~24s–3min)
+	"56": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 3 },
+		],
+	}, // BNB Chain (~3s blocks, fast finality)
+	"137": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 32 },
+		],
+	}, // Polygon (~2s blocks, milestone finality)
+	"8453": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 90 },
+		],
+	}, // Base (~2s blocks, L2)
+	"42161": {
+		points: [
+			{ amount: "1000", value: 8 },
+			{ amount: "100000", value: 720 },
+		],
+	}, // Arbitrum (~0.25s blocks, L2)
 }
 
 interface QueueConfig {
@@ -193,6 +258,8 @@ interface FillerTomlConfig {
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
+	/** Filler-wide vault config: stablecoin sourcing for fills + threshold sweeping. */
+	vault?: VaultTomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
 }
@@ -238,10 +305,7 @@ program
 
 			logger.info("Resolving chain IDs from RPC endpoints...")
 			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
-			logger.info(
-				{ chains: resolvedChains.map((c) => c.chainId) },
-				"Chain IDs resolved",
-			)
+			logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 			const fillerConfigForService: FillerServiceConfig = {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
@@ -319,24 +383,53 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
+			// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
+			// Circle paymaster so gas is paid in USDC instead of native token.
+			const userOpSender = new UserOpSender(chainClientManager, configService, runtimeSigner)
+
+			// Build the shared vault venue (withdraw sourcing + threshold sweeping).
+			// A single instance is shared across strategies and the sweep timer.
+			let vaultVenue: VaultFundingPlanner | undefined
+			if (config.vault?.vaults?.length) {
+				const vaultsByChain: Record<string, VaultConfig[]> = {}
+				for (const row of config.vault.vaults) {
+					if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
+					vaultsByChain[row.chain].push({
+						vault: row.vault,
+						threshold: row.threshold,
+						minBalance: row.minBalance,
+						redeemOnShutdown: row.redeemOnShutdown,
+					})
+				}
+				vaultVenue = new VaultFundingPlanner(
+					chainClientManager,
+					{
+						vaultsByChain,
+						sweepIntervalMs: config.vault.sweepIntervalMs,
+					},
+					userOpSender,
+				)
+			}
+
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
 				switch (strategyConfig.type) {
-					case "basic": {
+					case "stable": {
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
-						const mergedBasicPolicies = {
+						const mergedStablePolicies = {
 							...DEFAULT_CONFIRMATION_POLICIES,
 							...(strategyConfig.confirmationPolicies ?? {}),
 						}
-						const confirmationPolicy = new ConfirmationPolicy(mergedBasicPolicies)
-						return new BasicFiller(
+						const confirmationPolicy = new ConfirmationPolicy(mergedStablePolicies)
+						return new StableFiller(
 							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
 							bpsPolicy,
 							confirmationPolicy,
+							vaultVenue ? [vaultVenue] : [],
 						)
 					}
 					case "hyperfx": {
@@ -352,6 +445,14 @@ program
 						}
 						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
+						// Vault first: source stablecoins from the idle-yield treasury before
+						// draining a V4 LP position (which also pulls the paired exotic and
+						// perturbs the pool used for exotic pricing). V4 then covers the
+						// exotic legs and any stablecoin the vault can't fully fund.
+						if (vaultVenue) {
+							fundingVenues.push(vaultVenue)
+						}
+						const priceGuard: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
 						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
 							for (const row of strategyConfig.vault.uniswapV4.positions) {
@@ -360,9 +461,20 @@ program
 								positionsByChain[chain].push({
 									tokenId: BigInt(row.tokenId),
 								})
+								if (row.referencePrice !== undefined) {
+									priceGuard[chain] = {
+										referencePrice: row.referencePrice,
+										maxDeviationBps: row.maxDeviationBps!,
+									}
+								}
 							}
 							fundingVenues.push(
-								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
+								new UniswapV4FundingPlanner(
+									chainClientManager,
+									{ positionsByChain },
+									configService,
+									strategyConfig.spreadBps,
+								),
 							)
 						}
 						return new FXFiller(
@@ -378,6 +490,8 @@ program
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
+								priceGuard,
+								side: strategyConfig.vault?.uniswapV4?.side,
 							},
 						)
 					}
@@ -386,12 +500,18 @@ program
 				}
 			})
 
-			// Initialise FXFiller strategies (hydrate funding venue state)
+			// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller) {
+				if (strategy instanceof FXFiller || strategy instanceof StableFiller) {
 					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
+			}
+
+			// Ensure the shared vault venue is hydrated even if no strategy
+			// initialised it, so the sweep timer has live state. Idempotent.
+			if (vaultVenue) {
+				await vaultVenue.initialise(runtimeSigner.account.address as HexString)
 			}
 
 			// Initialize rebalancing service only if fully configured
@@ -467,6 +587,9 @@ program
 			// Start the filler
 			intentFiller.start()
 
+			// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
+			vaultVenue?.startSweeping()
+
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
 						.filter(([, value]) => value === true)
@@ -489,7 +612,10 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
+				vaultVenue?.stopSweeping()
 				await intentFiller.stop()
+				// Exit all vault positions back to the underlying asset (best-effort).
+				await vaultVenue?.redeemAll()
 				process.exit(0)
 			}
 
@@ -559,20 +685,24 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 	}
 
+	if (config.vault?.vaults?.length) {
+		VaultFundingPlanner.validateConfig(config.vault.vaults)
+	}
+
 	// Validate strategies
 	for (const strategy of config.strategies) {
 		if (!strategy.type) {
 			throw new Error("Strategy type is required")
 		}
 
-		if (!["basic", "hyperfx"].includes(strategy.type)) {
+		if (!["stable", "hyperfx"].includes(strategy.type)) {
 			throw new Error(`Invalid strategy type: ${strategy.type}`)
 		}
 
-		if (strategy.type === "basic") {
+		if (strategy.type === "stable") {
 			// Validate BPS curve
 			if (!strategy.bpsCurve || !Array.isArray(strategy.bpsCurve) || strategy.bpsCurve.length < 2) {
-				throw new Error("Basic strategy must have a 'bpsCurve' array with at least 2 points")
+				throw new Error("Stable strategy must have a 'bpsCurve' array with at least 2 points")
 			}
 
 			for (const point of strategy.bpsCurve) {
@@ -605,25 +735,77 @@ function validateConfig(config: FillerTomlConfig): void {
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0
 			const askLen = strategy.askPriceCurve?.length ?? 0
-			if (bidLen > 0 !== askLen > 0) {
-				throw new Error(
-					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using vault.uniswapV4 for pricing",
-				)
-			}
 
 			// A single point is a valid flat curve — FillerPricePolicy returns that price at every size.
-			const hasStaticCurves = bidLen >= 1 && askLen >= 1
+			// One-sided LP: providing only one of bid/ask restricts the filler to that direction.
+			const hasAnyCurve = bidLen >= 1 || askLen >= 1
 			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
-			if (!hasStaticCurves && !hasUniswapV4Positions) {
+			if (!hasAnyCurve && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide bid+ask price curves (≥1 point each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
 			if (strategy.spreadBps !== undefined) {
 				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
 					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
+				}
+			}
+
+			// Per-position price guard: referencePrice and maxDeviationBps are optional but
+			// must be set together. A given chain may not carry conflicting guard values.
+			const guardByChain: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
+			for (const position of strategy.vault?.uniswapV4?.positions ?? []) {
+				const hasRef = position.referencePrice !== undefined
+				const hasBps = position.maxDeviationBps !== undefined
+				if (hasRef !== hasBps) {
+					throw new Error(
+						"hyperfx: a Uniswap V4 position price guard needs both 'referencePrice' and 'maxDeviationBps', or neither",
+					)
+				}
+				if (!hasRef) continue
+
+				const parsedRef = Number(position.referencePrice)
+				if (!Number.isFinite(parsedRef) || parsedRef <= 0) {
+					throw new Error(`hyperfx: position 'referencePrice' for chain '${position.chain}' must be a positive number`)
+				}
+				if (
+					!Number.isFinite(position.maxDeviationBps!) ||
+					position.maxDeviationBps! <= 0 ||
+					position.maxDeviationBps! > 10_000
+				) {
+					throw new Error(
+						`hyperfx: position 'maxDeviationBps' for chain '${position.chain}' must be a number between 0 (exclusive) and 10000`,
+					)
+				}
+				const existing = guardByChain[position.chain]
+				if (
+					existing &&
+					(existing.referencePrice !== position.referencePrice || existing.maxDeviationBps !== position.maxDeviationBps)
+				) {
+					throw new Error(`hyperfx: conflicting price guard values for chain '${position.chain}'`)
+				}
+				guardByChain[position.chain] = {
+					referencePrice: position.referencePrice!,
+					maxDeviationBps: position.maxDeviationBps!,
+				}
+			}
+
+			// One-sided LP under pool pricing: `side` enables a single direction. Only valid
+			// with venue pricing and no static curves (curves express one-sided by omission).
+			const side = strategy.vault?.uniswapV4?.side
+			if (side !== undefined) {
+				if (side !== "bid" && side !== "ask") {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' must be either 'bid' or 'ask'")
+				}
+				if (!hasUniswapV4Positions) {
+					throw new Error("hyperfx: 'vault.uniswapV4.side' requires [strategies.vault.uniswapV4].positions")
+				}
+				if (hasAnyCurve) {
+					throw new Error(
+						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit 'bidPriceCurve'/'askPriceCurve' (or drop one curve to do one-sided LP with static pricing)",
+					)
 				}
 			}
 

@@ -113,6 +113,15 @@ export const tronNile = defineChain({
 // Known Tron chain IDs (mainnet + Nile testnet)
 export const tronChainIds = new Set([728126428, 3448148188])
 
+export type ConfiguredAssetSymbol = "WETH" | "DAI" | "USDC" | "USDT" | "cNGN" | "EXT"
+
+export interface UniswapV4PoolConfigData {
+	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
+	fee: number
+	tickSpacing: number
+	hooks?: `0x${string}`
+}
+
 export interface ChainConfigData {
 	chainId: number
 	stateMachineId: Chains
@@ -172,6 +181,7 @@ export interface ChainConfigData {
 	consensusStateId: string
 	coingeckoId: string
 	popularTokens?: string[]
+	uniswapV4Pools?: UniswapV4PoolConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
 	layerZeroEid?: number
 }
@@ -508,6 +518,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "base",
 		layerZeroEid: 30184,
+		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
 		popularTokens: [
 			"0x4200000000000000000000000000000000000006",
 			"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",

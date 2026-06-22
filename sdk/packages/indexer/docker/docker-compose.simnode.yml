@@ -16,6 +16,7 @@ services:
             - --block-confirmations=0
             - --store-cache-async=false
             - --store-cache-threshold=1
+            - --skipTransactions
         environment:
             DB_USER: postgres
             DB_PASS: postgres

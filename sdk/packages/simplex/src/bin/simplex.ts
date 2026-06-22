@@ -23,6 +23,7 @@ import {
 } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
+import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
@@ -382,6 +383,10 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
+			// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
+			// Circle paymaster so gas is paid in USDC instead of native token.
+			const userOpSender = new UserOpSender(chainClientManager, configService, runtimeSigner)
+
 			// Build the shared vault venue (withdraw sourcing + threshold sweeping).
 			// A single instance is shared across strategies and the sweep timer.
 			let vaultVenue: VaultFundingPlanner | undefined
@@ -396,10 +401,14 @@ program
 						redeemOnShutdown: row.redeemOnShutdown,
 					})
 				}
-				vaultVenue = new VaultFundingPlanner(chainClientManager, {
-					vaultsByChain,
-					sweepIntervalMs: config.vault.sweepIntervalMs,
-				})
+				vaultVenue = new VaultFundingPlanner(
+					chainClientManager,
+					{
+						vaultsByChain,
+						sweepIntervalMs: config.vault.sweepIntervalMs,
+					},
+					userOpSender,
+				)
 			}
 
 			// Initialize strategies with shared services

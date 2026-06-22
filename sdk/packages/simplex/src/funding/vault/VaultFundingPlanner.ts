@@ -113,6 +113,17 @@ export class VaultFundingPlanner implements FundingVenue {
 		return null
 	}
 
+	/**
+	 * The vault's `minBalance` floor for `tokenLower` on `chain` — the wallet
+	 * balance the fill must keep liquid (gas/paymaster). 0 when no configured
+	 * vault on the chain holds the token.
+	 */
+	walletReserveForToken(chain: string, tokenLower: string): bigint {
+		const state = this.stateByChain.get(chain)
+		if (!state || !state.isHydrated()) return 0n
+		return state.reserveFor(tokenLower)
+	}
+
 	// =========================================================================
 	// Planning (FundingVenue)
 	// =========================================================================

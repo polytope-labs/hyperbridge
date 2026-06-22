@@ -162,6 +162,11 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	// Pricing (FundingVenue)
 	// =========================================================================
 
+	/** Uniswap V4 sources from LP positions, not a wallet float — no reserve. */
+	walletReserveForToken(_chain: string, _tokenLower: string): bigint {
+		return 0n
+	}
+
 	async getExoticTokenPrice(chain: string, exoticToken: string): Promise<Decimal | null> {
 		const state = this.stateByChain.get(chain)
 		if (!state || !state.isHydrated()) return null

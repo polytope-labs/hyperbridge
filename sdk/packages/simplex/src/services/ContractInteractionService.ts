@@ -636,6 +636,10 @@ export class ContractInteractionService {
 	/**
 	 * Builds ERC-7821 batch calldata that prepends any required ERC20 approvals
 	 * before the fillOrder call, all within a single UserOp payload.
+	 *
+	 * Same-chain fills release escrow locally with no Hyperbridge dispatch, so the
+	 * gateway never pulls the fee token — its approval is skipped. Only cross-chain
+	 * fills, which dispatch a RedeemEscrow message paid in the fee token, need it.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,
@@ -656,9 +660,11 @@ export class ContractInteractionService {
 			perTokenRequired.set(key, (perTokenRequired.get(key) ?? 0n) + output.amount)
 		}
 
-		const feeToken = await this.getFeeTokenWithDecimals(chain)
-		const feeKey = feeToken.address.toLowerCase()
-		perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
+		if (order.source !== order.destination) {
+			const feeToken = await this.getFeeTokenWithDecimals(chain)
+			const feeKey = feeToken.address.toLowerCase()
+			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
+		}
 
 		// Check allowances in parallel
 		const entries = [...perTokenRequired.entries()]

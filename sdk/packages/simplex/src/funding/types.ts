@@ -41,6 +41,13 @@ export interface FundingVenue {
 	 * Computed on-demand from the venue's current pool state.
 	 */
 	getExoticTokenPrice(chain: string, exoticToken: string): Promise<Decimal | null>
+	/**
+	 * Wallet balance of `tokenLower` the fill must keep liquid and never source
+	 * from — the vault's `minBalance` floor, reserved for gas/paymaster paid in
+	 * this token. Returns 0 when the venue has no reserve for the token (e.g. no
+	 * configured vault, or a venue without a wallet-floor concept like Uniswap V4).
+	 */
+	walletReserveForToken(chain: string, tokenLower: string): bigint
 }
 
 export interface FundingPlanResult {

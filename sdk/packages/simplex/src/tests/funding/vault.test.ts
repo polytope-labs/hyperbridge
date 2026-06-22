@@ -28,7 +28,10 @@ interface Balances {
  * `readContract` dispatches on functionName/address to return controlled
  * vault data and balances.
  */
-function makeWithdrawPlanner(balances: Balances) {
+function makeWithdrawPlanner(
+	balances: Balances,
+	vaultCfg: VaultOutputFundingConfig["vaultsByChain"][string][number] = { vault: VAULT_USDC },
+) {
 	const fakeClient = {
 		async readContract({
 			address,
@@ -57,7 +60,7 @@ function makeWithdrawPlanner(balances: Balances) {
 	}
 
 	const clientManager = { getPublicClient: () => fakeClient } as unknown as ChainClientManager
-	const config: VaultOutputFundingConfig = { vaultsByChain: { [CHAIN]: [{ vault: VAULT_USDC }] } }
+	const config: VaultOutputFundingConfig = { vaultsByChain: { [CHAIN]: [vaultCfg] } }
 	return new VaultFundingPlanner(clientManager, config)
 }
 
@@ -212,6 +215,30 @@ describe("VaultFundingPlanner", () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+
+	it("exposes the configured minBalance as the wallet reserve for the token", async () => {
+		const planner = makeWithdrawPlanner(
+			{ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n },
+			{ vault: VAULT_USDC, minBalance: "3000" },
+		)
+		await planner.initialise(SOLVER)
+		expect(planner.walletReserveForToken(CHAIN, USDC.toLowerCase())).toBe(u("3000"))
+	})
+
+	it("reports a zero reserve when the vault sets no minBalance", async () => {
+		const planner = makeWithdrawPlanner({ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n })
+		await planner.initialise(SOLVER)
+		expect(planner.walletReserveForToken(CHAIN, USDC.toLowerCase())).toBe(0n)
+	})
+
+	it("reports a zero reserve for tokens with no configured vault", async () => {
+		const planner = makeWithdrawPlanner(
+			{ positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n },
+			{ vault: VAULT_USDC, minBalance: "3000" },
+		)
+		await planner.initialise(SOLVER)
+		expect(planner.walletReserveForToken(CHAIN, USDT.toLowerCase())).toBe(0n)
 	})
 
 	it("returns null for exotic-token pricing (stable-only venue)", async () => {

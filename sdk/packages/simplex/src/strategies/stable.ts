@@ -346,22 +346,32 @@ export class StableFiller implements FillerStrategy {
 			// Native outputs can't be sourced from token venues.
 			if (tokenLower === ADDRESS_ZERO.toLowerCase()) continue
 
-			let available = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
-			if (available >= out.amount) {
-				balanceCache.set(tokenLower, available - out.amount)
-				continue
-			}
+			const walletBalance = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
 
-			let deficit = out.amount - available
+			// Wallet floor reserved for gas/paymaster (the vault minBalance) — never filled from.
+			let reserve = 0n
 			for (const venue of this.fundingVenues) {
-				if (deficit <= 0n) break
-				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, deficit)
+				reserve += venue.walletReserveForToken(order.destination, tokenLower)
+			}
+			const usableWallet = walletBalance > reserve ? walletBalance - reserve : 0n
+
+			// Spend the free wallet balance (above the reserve) first, then source any
+			// remaining shortfall from the funding venues (the vault).
+			const walletContribution = out.amount < usableWallet ? out.amount : usableWallet
+
+			let credited = 0n
+			let needed = out.amount - walletContribution
+			for (const venue of this.fundingVenues) {
+				if (needed <= 0n) break
+				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, needed)
 				if (planned.calls.length > 0) {
 					fundingCalls.push(...planned.calls)
-					available += planned.credited
-					deficit -= planned.credited
+					credited += planned.credited
+					needed -= planned.credited
 				}
 			}
+
+			const available = walletContribution + credited
 
 			const effectiveOutput = out.amount < available ? out.amount : available
 			if (effectiveOutput < userMin) {
@@ -390,7 +400,9 @@ export class StableFiller implements FillerStrategy {
 				)
 				out.amount = effectiveOutput
 			}
-			balanceCache.set(tokenLower, available - effectiveOutput)
+			// Decrement the wallet pool by what this leg drew from it (vault-sourced tokens
+			// are tracked by the venue's own reservations) so repeated outputs share one pool.
+			balanceCache.set(tokenLower, walletBalance - walletContribution)
 		}
 
 		if (fundingCalls.length > 0) {

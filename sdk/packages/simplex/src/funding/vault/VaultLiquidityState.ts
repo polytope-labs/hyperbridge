@@ -197,6 +197,11 @@ export class VaultLiquidityState {
 		return this.vaults.get(asset.toLowerCase())?.remaining ?? 0n
 	}
 
+	/** Wallet floor (`minBalance`) for `asset` the fill must never spend below. 0 if not configured. */
+	reserveFor(asset: string): bigint {
+		return this.vaults.get(asset.toLowerCase())?.minBalanceScaled ?? 0n
+	}
+
 	consume(asset: string, amount: bigint): void {
 		const key = asset.toLowerCase()
 		const list = this.reservations.get(key) ?? []

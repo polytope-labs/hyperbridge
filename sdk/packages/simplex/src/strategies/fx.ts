@@ -455,21 +455,34 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 
-				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
+				// Spend the free wallet balance first, down to the configured minBalance
+				// reserve — kept liquid for the gas/paymaster pull during
+				// validatePaymasterUserOp — then source any remaining shortfall from the
+				// funding venues (the vault).
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-				let effectiveBalance = balance
-				let deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
+				let reserve = 0n
 				for (const venue of this.fundingVenues) {
-					if (deficit <= 0n) break
-					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, deficit, deadlineTimestamp)
+					reserve += venue.walletReserveForToken(destChain, tokenAddress)
+				}
+				const usableWallet = balance > reserve ? balance - reserve : 0n
+
+				const walletContribution = policyMaxOutput < usableWallet ? policyMaxOutput : usableWallet
+
+				let credited = 0n
+				let needed = policyMaxOutput - walletContribution
+				for (const venue of this.fundingVenues) {
+					if (needed <= 0n) break
+					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
 					if (planned.calls.length > 0) {
 						fundingCalls.push(...planned.calls)
-						effectiveBalance += planned.credited
-						deficit -= planned.credited
+						credited += planned.credited
+						needed -= planned.credited
 					}
 				}
+
+				const effectiveBalance = walletContribution + credited
 
 				const finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
 
@@ -511,9 +524,11 @@ export class FXFiller implements FillerStrategy {
 					return 0
 				}
 
-				// Decrement remaining balance for this token so repeated outputs share the same pool.
-				const remaining = effectiveBalance - finalOutputAmount
-				balanceCache.set(tokenAddress, remaining > 0n ? remaining : 0n)
+				// Decrement the wallet pool by what this leg drew from it (vault-sourced
+				// tokens are tracked by the venue's own reservations) so repeated outputs
+				// of the same token share one wallet balance.
+				const walletRemaining = balance - walletContribution
+				balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)

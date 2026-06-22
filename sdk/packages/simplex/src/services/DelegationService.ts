@@ -165,14 +165,29 @@ export class DelegationService {
 				"Setting up EIP-7702 delegation via bundler with paymaster",
 			)
 
+			// Fixed limits for the no-op delegation op — bundler estimation of EIP-7702
+			// ops is unreliable (Alchemy echoes the input limits rather than simulating).
+			//
+			// A FRESH delegation (EOA has no code) burns far more verification gas on
+			// first-time cold storage, so the proven 150k account + default 200k paymaster
+			// limits clear rundler's verification-efficiency policy. A RE-delegation
+			// (EOA already delegated) uses much less (warm slots, paymaster allowance
+			// reused) — actual ~96k — so those loose limits fall below the 0.4 floor
+			// (`actual / (accountVerif + paymasterVerif)`). Tighten both verification
+			// limits for that case so the ratio clears 0.4 while still covering usage.
+			const code = await this.clientManager.getPublicClient(chain).getCode({
+				address: this.signer.account.address as HexString,
+			})
+			const isFreshEoa = !code || code === "0x"
+
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData: "0x" as HexString,
 				eip7702Auth: authorization,
-				// Fixed limits for the no-op delegation op. The EOA has no code to
-				// simulate on a first delegation, and bundler estimation of EIP-7702 ops
-				// is unreliable (Alchemy echoes the input limits rather than simulating).
-				gas: { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
+				gas: isFreshEoa
+					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
+					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
+				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
 			})
 
 			if (result) {

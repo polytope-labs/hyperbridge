@@ -24,6 +24,13 @@ export async function buildCirclePaymasterData(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
+	/**
+	 * Override for the paymaster verification gas limit. Defaults to the
+	 * Circle-recommended {@link VERIFICATION_GAS_LIMIT_CIRCLE}. A caller can pass a
+	 * tighter value for a known, cheap op (e.g. a re-delegation) so the bundler's
+	 * verification-gas-limit efficiency policy accepts it — see the delegation path.
+	 */
+	paymasterVerificationGasLimit: bigint = VERIFICATION_GAS_LIMIT_CIRCLE,
 ): Promise<PaymasterResult> {
 	const usdcAddress = configService.getUsdcAsset(chain)
 	const usdcDecimals = configService.getUsdcDecimals(chain)
@@ -47,7 +54,7 @@ export async function buildCirclePaymasterData(
 		return {
 			paymaster: paymasterAddress,
 			paymasterData,
-			paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_CIRCLE,
+			paymasterVerificationGasLimit,
 			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
 		}
 	}

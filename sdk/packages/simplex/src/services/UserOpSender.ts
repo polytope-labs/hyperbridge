@@ -40,6 +40,13 @@ export interface SponsoredUserOpRequest {
 	 * simulate so estimation is unreliable. When omitted, limits are estimated.
 	 */
 	gas?: UserOpGasLimits
+	/**
+	 * Override for the Circle paymaster verification gas limit (default 200k).
+	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
+	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
+	 * accepts the op (e.g. re-delegation).
+	 */
+	paymasterVerificationGasLimit?: bigint
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
@@ -83,7 +90,7 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const { chain, callData, eip7702Auth, nonceKey = 0n, gas } = req
+		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, paymasterVerificationGasLimit } = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -119,6 +126,7 @@ export class UserOpSender {
 			walletClient,
 			signer: this.signer,
 			configService: this.configService,
+			paymasterVerificationGasLimit,
 		})
 		if (pm.type === "none") {
 			this.logger.warn({ chain }, "Paymaster data unavailable; caller should fall back to native")

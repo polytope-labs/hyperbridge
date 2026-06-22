@@ -355,10 +355,12 @@ export class StableFiller implements FillerStrategy {
 			}
 			const usableWallet = walletBalance > reserve ? walletBalance - reserve : 0n
 
-			// Vault-first: source the full output from venues, leaving the wallet untouched.
-			// Only the venues' shortfall is drawn from the wallet, above the reserve.
+			// Spend the free wallet balance (above the reserve) first, then source any
+			// remaining shortfall from the funding venues (the vault).
+			const walletContribution = out.amount < usableWallet ? out.amount : usableWallet
+
 			let credited = 0n
-			let needed = out.amount
+			let needed = out.amount - walletContribution
 			for (const venue of this.fundingVenues) {
 				if (needed <= 0n) break
 				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, needed)
@@ -369,8 +371,7 @@ export class StableFiller implements FillerStrategy {
 				}
 			}
 
-			const walletContribution = needed < usableWallet ? needed : usableWallet
-			const available = credited + walletContribution
+			const available = walletContribution + credited
 
 			const effectiveOutput = out.amount < available ? out.amount : available
 			if (effectiveOutput < userMin) {

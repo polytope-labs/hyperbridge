@@ -455,10 +455,10 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 
-				// Source the output from funding venues first (the vault), leaving the wallet
-				// untouched. Only what the venues can't cover is drawn from the wallet, and
-				// never below the configured minBalance reserve — kept liquid for the
-				// gas/paymaster pull during validatePaymasterUserOp.
+				// Spend the free wallet balance first, down to the configured minBalance
+				// reserve — kept liquid for the gas/paymaster pull during
+				// validatePaymasterUserOp — then source any remaining shortfall from the
+				// funding venues (the vault).
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
@@ -468,8 +468,10 @@ export class FXFiller implements FillerStrategy {
 				}
 				const usableWallet = balance > reserve ? balance - reserve : 0n
 
+				const walletContribution = policyMaxOutput < usableWallet ? policyMaxOutput : usableWallet
+
 				let credited = 0n
-				let needed = policyMaxOutput
+				let needed = policyMaxOutput - walletContribution
 				for (const venue of this.fundingVenues) {
 					if (needed <= 0n) break
 					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
@@ -480,8 +482,7 @@ export class FXFiller implements FillerStrategy {
 					}
 				}
 
-				const walletContribution = needed < usableWallet ? needed : usableWallet
-				const effectiveBalance = credited + walletContribution
+				const effectiveBalance = walletContribution + credited
 
 				const finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
 

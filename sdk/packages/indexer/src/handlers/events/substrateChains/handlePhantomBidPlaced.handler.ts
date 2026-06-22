@@ -1,5 +1,5 @@
 import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData, decodeAbiParameters, encodeFunctionData } from "viem"
+import { decodeFunctionData, decodeAbiParameters } from "viem"
 import { hexToU8a } from "@polkadot/util"
 import { Struct, Bytes, Vector, u8 } from "scale-ts"
 
@@ -112,21 +112,6 @@ const FILL_ORDER_ABI = [
 	},
 ] as const
 
-// ─── ERC-20 transferFrom ABI ──────────────────────────────────────────────────
-
-const TRANSFER_FROM_ABI = [
-	{
-		name: "transferFrom",
-		type: "function",
-		inputs: [
-			{ name: "from", type: "address" },
-			{ name: "to", type: "address" },
-			{ name: "amount", type: "uint256" },
-		],
-		outputs: [{ type: "bool" }],
-	},
-] as const
-
 // ─── SCALE codec for PackedUserOperation (mirrors SDK's definition) ──────────
 
 const PackedUserOperationCodec = Struct({
@@ -142,6 +127,11 @@ const PackedUserOperationCodec = Struct({
 })
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+// Block override value that makes phantom orders (deadline = 0) appear unexpired.
+// With block.number = 0, the gateway's expiry check (block.number > deadline)
+// evaluates to 0 > 0 = false, so the fill proceeds against real on-chain state.
+const BLOCK_OVERRIDE_ZERO = "0x0"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -282,50 +272,35 @@ async function getActivePhantomCommitment(blockHash: string): Promise<{ commitme
 }
 
 /**
- * Simulates each ERC-20 `transferFrom(solver → beneficiary, amount)` against
- * real on-chain state via `eth_call`. Returns `true` when every transfer
- * succeeds, `false` when at least one reverts, and `null` when the simulation
- * could not be run (e.g. RPC error or unsupported node).
+ * Simulates the filler's ERC-7821 execute batch against real on-chain state
+ * via `eth_call`, with a block number override of 0. The override makes the
+ * gateway's expiry check (block.number > deadline) pass for phantom orders
+ * whose deadline is 0. Solver balances and allowances are NOT overridden —
+ * the simulation reflects the solver's actual ability to back its quote.
+ *
+ * Returns `true` when the call succeeds, `false` when it reverts, and `null`
+ * when the result cannot be interpreted (RPC error, unsupported node).
  */
-async function simulateTransfers(
-	evmRpcUrl: string,
-	gatewayAddress: string,
-	solver: string,
-	beneficiary: string,
-	outputs: TokenAmount[],
-): Promise<boolean | null> {
+async function simulateBid(evmRpcUrl: string, solver: string, callData: `0x${string}`): Promise<boolean | null> {
 	try {
-		for (const output of outputs) {
-			const tokenAddr = bytes32ToAddress(output.token)
-			if (tokenAddr.toLowerCase() === ZERO_ADDRESS) continue
+		const response = await fetchWithRetry(evmRpcUrl, {
+			method: "POST",
+			headers: { accept: "application/json", "content-type": "application/json" },
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_call",
+				params: [
+					{ to: solver, data: callData },
+					"latest",
+					{},
+					{ number: BLOCK_OVERRIDE_ZERO },
+				],
+			}),
+		})
 
-			const data = encodeFunctionData({
-				abi: TRANSFER_FROM_ABI,
-				functionName: "transferFrom",
-				args: [solver as `0x${string}`, beneficiary as `0x${string}`, output.amount],
-			})
-
-			const response = await fetchWithRetry(evmRpcUrl, {
-				method: "POST",
-				headers: { accept: "application/json", "content-type": "application/json" },
-				body: JSON.stringify({
-					id: 1,
-					jsonrpc: "2.0",
-					method: "eth_call",
-					params: [{ from: gatewayAddress, to: tokenAddr, data }, "latest"],
-				}),
-			})
-
-			const result = await response.json()
-			if (result.error) return null
-
-			const returnedFalse =
-				!result.result ||
-				result.result === "0x" ||
-				result.result === "0x0000000000000000000000000000000000000000000000000000000000000000"
-
-			if (returnedFalse) return false
-		}
+		const result = await response.json()
+		if (result.error) return null
 
 		return true
 	} catch {
@@ -392,11 +367,11 @@ export const handlePhantomBidPlaced = wrap(async (event: SubstrateEvent): Promis
 			const gatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V2_ADDRESSES]
 			if (gatewayAddress) {
 				fillData = extractFillData(callData, gatewayAddress)
+			}
 
-				const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[chain] ?? "")
-				if (evmUrl && fillData && solver) {
-					simulationSuccess = await simulateTransfers(evmUrl, gatewayAddress, solver, fillData.beneficiary, fillData.outputs)
-				}
+			const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[chain] ?? "")
+			if (evmUrl) {
+				simulationSuccess = await simulateBid(evmUrl, solver, callData)
 			}
 		} catch (err) {
 			logger.warn({ err, bidId }, "Failed to decode UserOp for phantom bid")

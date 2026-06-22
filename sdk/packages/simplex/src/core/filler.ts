@@ -362,69 +362,12 @@ export class IntentFiller {
 		}
 	}
 
-	private async handlePhantomOrder(order: Order): Promise<void> {
-		if (!this.hyperbridge) {
-			this.logger.debug({ orderId: order.id }, "Skipping phantom order — Hyperbridge not configured")
-			return
-		}
-
-		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
-		if (!entryPointAddress) {
-			this.logger.debug({ orderId: order.id, chain: order.destination }, "Skipping phantom order — no EntryPoint configured")
-			return
-		}
-
-		// Find the first strategy that can quote this token pair
-		let fillerOutputs: TokenInfo[] | null = null
-		for (const strategy of this.strategies) {
-			if (typeof strategy.quotePhantomFill !== "function") continue
-			try {
-				fillerOutputs = await strategy.quotePhantomFill(order)
-				if (fillerOutputs) break
-			} catch (err) {
-				this.logger.warn({ orderId: order.id, strategy: strategy.name, err }, "quotePhantomFill failed")
-			}
-		}
-
-		if (!fillerOutputs) {
-			this.logger.debug({ orderId: order.id }, "No strategy can quote this phantom order token pair")
-			return
-		}
-
-		try {
-			const solverAccountAddress = this.fillerAddress as HexString
-			const { commitment, userOp } = await this.contractService.preparePhantomBidUserOp(
-				order,
-				entryPointAddress,
-				solverAccountAddress,
-				fillerOutputs,
-			)
-
-			const hyperbridge = await this.hyperbridge
-			const result = await hyperbridge.submitBid(commitment, userOp)
-			if (result.success) {
-				this.logger.info({ commitment, orderId: order.id }, "Phantom bid submitted")
-			} else {
-				this.logger.warn({ commitment, orderId: order.id, err: result.error }, "Phantom bid submission failed")
-			}
-		} catch (err) {
-			this.logger.error({ orderId: order.id, err }, "Error preparing phantom bid")
-		}
-	}
-
 	private handleNewOrder(order: Order, transactionHash: string): void {
 		// Use the global queue for the initial analysis
 		// This can happen in parallel for PublicClient orders
 		this.globalQueue.add(async () => {
 			this.logger.info({ orderId: order.id }, "New order detected")
 			try {
-				// Phantom orders are expired same-chain swaps used for price/liquidity indexing.
-				// Route them to the phantom handler which skips escrow checks and confirmation waiting.
-				if (order.source === order.destination && order.deadline === 0n) {
-					await this.handlePhantomOrder(order)
-					return
-				}
-
 				// Early check: if solver selection is active, ensure hyperbridge is configured
 				const solverSelectionActive = this.contractService.getCache().getSolverSelection(order.destination)
 				if (solverSelectionActive == null) {

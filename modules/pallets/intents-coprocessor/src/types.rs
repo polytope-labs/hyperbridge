@@ -18,7 +18,8 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-
+use ismp::host::StateMachine;
+use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
 
@@ -135,12 +136,30 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
-/// Tracks the single active phantom order registered by the intent coprocessor.
+/// Tracks the single active phantom order recognised by the pallet.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderInfo<BlockNumber> {
 	pub created_at_block: BlockNumber,
-	/// Raw state machine identifier bytes (e.g. `b"EVM-8453"`).
+	/// Raw state machine identifier bytes (e.g. b"EVM-8453").
 	pub chain: Vec<u8>,
+}
+
+/// A single token pair the phantom generator probes for price and liquidity.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomTokenPair {
+	pub token_a: H160,
+	pub token_b: H160,
+	pub standard_amount: u128,
+	pub min_output: u128,
+}
+
+/// Governance-settable configuration for autonomous phantom order generation.
+/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderConfiguration {
+	pub chain: StateMachine,
+	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<10>>,
+	pub interval_blocks: u32,
 }
 
 /// A bid placed by a filler for an order

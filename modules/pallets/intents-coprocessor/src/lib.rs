@@ -43,8 +43,8 @@ use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
 
 use types::{
-	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderInfo, RequestKind, TokenDecimalsUpdate,
-	TokenInfo,
+	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderConfiguration, PhantomOrderInfo,
+	PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -67,6 +67,7 @@ pub mod pallet {
 	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use polkadot_sdk::sp_runtime::traits::Saturating;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -127,8 +128,8 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
-	/// The single active phantom order. Only one is recognised at a time; registering
-	/// a new one replaces the previous.
+	/// The single active phantom order. Only one is recognised at a time; the hook
+	/// replaces it on each generation cycle.
 	#[pallet::storage]
 	pub type CurrentPhantomOrder<T: Config> =
 		StorageValue<_, (H256, PhantomOrderInfo<BlockNumberFor<T>>), OptionQuery>;
@@ -137,6 +138,12 @@ pub mod pallet {
 	/// Falls back to PhantomOrderBidWindowBlocks when zero.
 	#[pallet::storage]
 	pub type PhantomBidWindow<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	/// Governance-settable phantom order configuration. When present, the
+	/// on_initialize hook generates a new phantom commitment every interval_blocks.
+	#[pallet::storage]
+	pub type PhantomOrderConfig<T: Config> =
+		StorageValue<_, PhantomOrderConfiguration, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -166,10 +173,12 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
-		/// A phantom order was registered as the current active one
+		/// The runtime generated a new phantom order commitment
 		PhantomOrderRegistered { commitment: H256, chain: Vec<u8>, created_at: BlockNumberFor<T> },
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
+		/// The phantom order configuration was updated by governance
+		PhantomOrderConfigSet { chain: StateMachine, pair_count: u32, interval_blocks: u32 },
 	}
 
 	#[pallet::error]
@@ -485,22 +494,30 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Register a phantom order as the single active one. Replaces any previously
-		/// registered phantom order. Called by the intent coprocessor service.
+		/// Set the phantom order configuration. The on_initialize hook reads this every
+		/// block and generates a new phantom commitment when the interval elapses.
+		/// Also clears the current active phantom order so the hook fires immediately
+		/// on the next block.
 		#[pallet::call_index(7)]
-		#[pallet::weight(T::WeightInfo::register_phantom_order())]
-		pub fn register_phantom_order(
+		#[pallet::weight(T::WeightInfo::set_phantom_order_config())]
+		pub fn set_phantom_order_config(
 			origin: OriginFor<T>,
-			commitment: H256,
-			chain: Vec<u8>,
+			config: PhantomOrderConfiguration,
 		) -> DispatchResult {
-			ensure_signed(origin)?;
+			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			let created_at = frame_system::Pallet::<T>::block_number();
-			let info = PhantomOrderInfo { created_at_block: created_at, chain: chain.clone() };
-			CurrentPhantomOrder::<T>::put((commitment, info));
+			let pair_count = config.token_pairs.len() as u32;
+			let interval_blocks = config.interval_blocks;
+			let chain = config.chain.clone();
 
-			Self::deposit_event(Event::PhantomOrderRegistered { commitment, chain, created_at });
+			PhantomOrderConfig::<T>::put(&config);
+			CurrentPhantomOrder::<T>::kill();
+
+			Self::deposit_event(Event::PhantomOrderConfigSet {
+				chain,
+				pair_count,
+				interval_blocks,
+			});
 
 			Ok(())
 		}
@@ -516,6 +533,46 @@ pub mod pallet {
 			Self::deposit_event(Event::PhantomBidWindowUpdated { window });
 
 			Ok(())
+		}
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+			let Some(config) = PhantomOrderConfig::<T>::get() else {
+				return Weight::zero();
+			};
+
+			let should_generate = match CurrentPhantomOrder::<T>::get() {
+				None => true,
+				Some((_, info)) => {
+					let interval: BlockNumberFor<T> = config.interval_blocks.into();
+					!interval.is_zero() && n >= info.created_at_block.saturating_add(interval)
+				},
+			};
+
+			if !should_generate {
+				return T::DbWeight::get().reads(2);
+			}
+
+			let chain_bytes = config.chain.to_string().into_bytes();
+			for pair in config.token_pairs.iter() {
+				let commitment = Self::compute_phantom_commitment(n, &chain_bytes, pair);
+				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
+				CurrentPhantomOrder::<T>::put((commitment, info));
+				Self::deposit_event(Event::PhantomOrderRegistered {
+					commitment,
+					chain: chain_bytes.clone(),
+					created_at: n,
+				});
+			}
+
+			T::DbWeight::get()
+				.reads(2)
+				.saturating_add(T::DbWeight::get().writes(config.token_pairs.len() as u64 + 1))
 		}
 	}
 
@@ -547,6 +604,21 @@ pub mod pallet {
 		/// Generate offchain storage key for a bid
 		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
 			offchain_bid_key_raw(commitment, &filler.encode())
+		}
+
+		fn compute_phantom_commitment(
+			block: BlockNumberFor<T>,
+			chain: &[u8],
+			pair: &PhantomTokenPair,
+		) -> H256 {
+			let mut preimage = Vec::new();
+			preimage.extend_from_slice(chain);
+			preimage.extend_from_slice(pair.token_a.as_bytes());
+			preimage.extend_from_slice(pair.token_b.as_bytes());
+			preimage.extend_from_slice(&pair.standard_amount.to_be_bytes());
+			preimage.extend_from_slice(&pair.min_output.to_be_bytes());
+			preimage.extend_from_slice(&block.encode());
+			sp_io::hashing::keccak_256(&preimage).into()
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

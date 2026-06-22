@@ -2132,45 +2132,6 @@ type BandwidthTier @entity {
 	lastUpdatedAt: BigInt!
 }
 
-# ─── Phantom Order Price / Liquidity Indexing ────────────────────────────────
-
-"""
-A phantom order placed by the coprocessor as a price/liquidity probe.
-Phantom orders are expired same-chain swaps (deadline = 0) that never
-execute; fillers bid on them to reveal their available fill prices.
-"""
-type PhantomOrder @entity {
-	"""
-	Order commitment (keccak256 of the encoded order struct).
-	"""
-	id: ID!
-
-	"""
-	Target EVM chain identifier (e.g. "EVM-8453").
-	"""
-	chain: String! @index
-
-	"""
-	Block number on Hyperbridge where the registration was recorded.
-	"""
-	blockNumber: BigInt!
-
-	"""
-	Block timestamp of the registration block.
-	"""
-	blockTimestamp: Date! @index
-
-	"""
-	Wall-clock time the entity was created.
-	"""
-	createdAt: Date!
-
-	"""
-	Bids submitted by fillers for this phantom order.
-	"""
-	bids: [PhantomOrderBid] @derivedFrom(field: "order")
-}
-
 """
 A bid submitted by a filler for a phantom order.
 Contains the filler's proposed output amounts (the price signal) and the
@@ -2183,9 +2144,9 @@ type PhantomOrderBid @entity {
 	id: ID!
 
 	"""
-	The phantom order this bid belongs to.
+	The phantom order commitment this bid targets.
 	"""
-	order: PhantomOrder!
+	commitment: String! @index
 
 	"""
 	Filler account identifier (hex).

@@ -1,10 +1,10 @@
 /**
  * End-to-end integration test for the phantom order bid lifecycle.
  *
- * Tests the full SDK ↔ pallet-intents-coprocessor integration: a coprocessor
- * registers phantom orders, fillers place bids via the SDK, and the bids are
- * discoverable via intents_getBidsForOrder RPC. Governance (bid window) is
- * exercised via sudo.
+ * Tests the full governance → on_initialize → bid flow: governance sets the
+ * phantom order config, the runtime hook generates a commitment each interval,
+ * fillers place bids via the SDK, and the bids are discoverable via
+ * intents_getBidsForOrder RPC.
  *
  * Requires a running hyperbridge simnode (WITHOUT --instant):
  *   cargo build -p hyperbridge
@@ -16,15 +16,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
 import { keccakAsU8a } from "@polkadot/util-crypto"
-import { randomBytes } from "crypto"
 import { IntentsCoprocessor, encodeUserOpScale } from "@hyperbridge/sdk"
 import type { HexString, PackedUserOperation } from "@hyperbridge/sdk"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
-
-function randomCommitment(): HexString {
-	return `0x${randomBytes(32).toString("hex")}` as HexString
-}
 
 function makeUserOp(callData: string = "0x"): HexString {
 	const userOp: PackedUserOperation = {
@@ -61,7 +56,6 @@ async function submitAndSeal(
 	await createBlock(api)
 	const header = await api.rpc.chain.getHeader()
 	const apiAt = await api.at(header.hash)
-	// Find this extrinsic's index in the block so we only check its events
 	const block = await api.rpc.chain.getBlock(header.hash)
 	const extrinsicIndex = block.block.extrinsics.findIndex((ext: any) => ext.hash.toHex() === txHash)
 	const events: any[] = (await apiAt.query.system.events()) as any
@@ -86,6 +80,41 @@ async function sudoAndSeal(api: ApiPromise, call: any): Promise<void> {
 	if (!result.success) throw new Error(result.error || "sudo call failed")
 }
 
+/**
+ * Submits a `set_phantom_order_config` governance call and seals a block.
+ * Uses a single token pair of zero-address tokens as a probe.
+ */
+async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalBlocks: number): Promise<void> {
+	const config = {
+		chain: { Evm: chainId },
+		token_pairs: [
+			{
+				token_a: "0x0101010101010101010101010101010101010101",
+				token_b: "0x0202020202020202020202020202020202020202",
+				standard_amount: 1_000_000_000_000_000_000n,
+				min_output: 900_000_000_000_000_000n,
+			},
+		],
+		interval_blocks: intervalBlocks,
+	}
+	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
+}
+
+/**
+ * Reads the active phantom commitment from `CurrentPhantomOrder` storage at
+ * the latest block. Returns null when the storage slot is empty.
+ *
+ * Storage layout (SCALE): `H256 (32 bytes) | u32 LE (4 bytes) | compact Vec<u8>`
+ */
+async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
+	const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
+	const raw: any = await api.rpc.state.getStorage(storageKey)
+	if (!raw) return null
+	const hex: string = raw.toHex()
+	if (!hex || hex === "0x" || hex.length < 66) return null
+	return `0x${hex.slice(2, 66)}` as HexString
+}
+
 describe("Phantom Order E2E (simnode)", () => {
 	let api: ApiPromise
 	let coprocessor: IntentsCoprocessor
@@ -103,7 +132,6 @@ describe("Phantom Order E2E (simnode)", () => {
 			},
 		})
 
-		// Use URI derivation paths — works with any Substrate dev chain regardless of genesis funding
 		coprocessor = IntentsCoprocessor.fromApi(api, "//Alice")
 		bobFiller = IntentsCoprocessor.fromApi(api, "//Bob")
 		charlieFiller = IntentsCoprocessor.fromApi(api, "//Charlie")
@@ -117,7 +145,7 @@ describe("Phantom Order E2E (simnode)", () => {
 		await submitAndSeal(api, api.tx.balances.transferKeepAlive(charlieAddress, 10_000_000_000_000_000_000n), alice)
 		await submitAndSeal(api, api.tx.balances.transferKeepAlive(daveAddress, 10_000_000_000_000_000_000n), alice)
 
-		// Reset bid window to a generous default so tests start from a clean state
+		// Reset bid window to a generous default so tests start from a clean state.
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(100))
 	}, 60_000)
 
@@ -125,41 +153,34 @@ describe("Phantom Order E2E (simnode)", () => {
 		await api.disconnect()
 	})
 
-	it("registerPhantomOrder() stores the commitment on Hyperbridge", async () => {
-		const commitment = randomCommitment()
-		const chain = "EVM-8453"
+	it("setPhantomOrderConfig() triggers on_initialize which stores a commitment", async () => {
+		await setPhantomOrderConfig(api, 8453, 10)
 
-		const promise = coprocessor.registerPhantomOrder(commitment, chain)
-		await new Promise((r) => setTimeout(r, 300))
+		// on_initialize fires in the next block.
 		await createBlock(api)
-		const result = await promise
 
-		console.log("registerPhantomOrder result:", result)
-		expect(result.success).toBe(true)
-
-		// Verify CurrentPhantomOrder storage via raw RPC — avoids type registration for custom types.
-		// OptionQuery stores the raw value T directly (no 0x01 Some prefix); the first 32 bytes are H256.
-		const storageKey = await api.query.intentsCoprocessor.currentPhantomOrder.key()
+		const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
 		const raw: any = await api.rpc.state.getStorage(storageKey)
 		expect(raw).not.toBeNull()
 
 		const hex: string = raw.toHex()
-		// hex = "0x" + <H256 commitment 64 chars> + <PhantomOrderInfo SCALE bytes>
-		expect(hex.slice(2, 66).toLowerCase()).toBe(commitment.slice(2).toLowerCase())
+		expect(hex.length).toBeGreaterThanOrEqual(66)
+
+		// bytes[36] = SCALE compact length of the chain bytes
+		const bytes = Buffer.from(hex.slice(2), "hex")
+		const chainLen = bytes[36] >> 2
+		const storedChain = bytes.slice(37, 37 + chainLen).toString("utf8")
+		expect(storedChain).toBe("EVM-8453")
 	}, 30_000)
 
 	it("submitBid() places a filler bid visible via getBidsForOrder()", async () => {
-		const commitment = randomCommitment()
-		const userOp = makeUserOp("0x0001")
-
-		// Register phantom order
-		const regPromise = coprocessor.registerPhantomOrder(commitment, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
+		await setPhantomOrderConfig(api, 8453, 10)
 		await createBlock(api)
-		await regPromise
 
-		// Bob places a bid
-		const bidPromise = bobFiller.submitBid(commitment, userOp)
+		const commitment = await getActivePhantomCommitment(api)
+		expect(commitment).not.toBeNull()
+
+		const bidPromise = bobFiller.submitBid(commitment!, makeUserOp("0x0001"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 		const result = await bidPromise
@@ -167,24 +188,20 @@ describe("Phantom Order E2E (simnode)", () => {
 		console.log("submitBid result:", result)
 		expect(result.success).toBe(true)
 
-		// Verify via getBidsForOrder
-		const bids = await coprocessor.getBidsForOrder(commitment)
+		const bids = await coprocessor.getBidsForOrder(commitment!)
 		console.log("bids:", bids.length, bids.map((b) => b.filler))
 		expect(bids.length).toBe(1)
 	}, 60_000)
 
 	it("multiple fillers can bid on the same phantom order", async () => {
-		const commitment = randomCommitment()
-
-		// Register phantom order
-		const regPromise = coprocessor.registerPhantomOrder(commitment, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
+		await setPhantomOrderConfig(api, 8453, 10)
 		await createBlock(api)
-		await regPromise
 
-		// Queue both bids simultaneously, then seal one block for both
-		const bobPromise = bobFiller.submitBid(commitment, makeUserOp("0x00bb"))
-		const charliePromise = charlieFiller.submitBid(commitment, makeUserOp("0x00cc"))
+		const commitment = await getActivePhantomCommitment(api)
+		expect(commitment).not.toBeNull()
+
+		const bobPromise = bobFiller.submitBid(commitment!, makeUserOp("0x00bb"))
+		const charliePromise = charlieFiller.submitBid(commitment!, makeUserOp("0x00cc"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 
@@ -195,29 +212,27 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(bobResult.success).toBe(true)
 		expect(charlieResult.success).toBe(true)
 
-		const bids = await coprocessor.getBidsForOrder(commitment)
+		const bids = await coprocessor.getBidsForOrder(commitment!)
 		console.log("bids count:", bids.length)
 		expect(bids.length).toBe(2)
 	}, 60_000)
 
 	it("duplicate bid from same filler is rejected with DuplicatePhantomBid", async () => {
-		const commitment = randomCommitment()
-
-		// Register
-		const regPromise = coprocessor.registerPhantomOrder(commitment, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
+		await setPhantomOrderConfig(api, 8453, 10)
 		await createBlock(api)
-		await regPromise
 
-		// First bid from Bob — should succeed
-		const firstPromise = bobFiller.submitBid(commitment, makeUserOp("0x0001"))
+		const commitment = await getActivePhantomCommitment(api)
+		expect(commitment).not.toBeNull()
+
+		// First bid from Bob — should succeed.
+		const firstPromise = bobFiller.submitBid(commitment!, makeUserOp("0x0001"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 		const firstResult = await firstPromise
 		expect(firstResult.success).toBe(true)
 
-		// Second bid from same account (Bob) — should fail with DuplicatePhantomBid
-		const dupPromise = bobFiller.submitBid(commitment, makeUserOp("0x0002"))
+		// Second bid from the same account — should fail.
+		const dupPromise = bobFiller.submitBid(commitment!, makeUserOp("0x0002"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 		const dupResult = await dupPromise
@@ -228,23 +243,22 @@ describe("Phantom Order E2E (simnode)", () => {
 	}, 60_000)
 
 	it("bid is rejected after the bid window closes", async () => {
-		const commitment = randomCommitment()
-
-		// Set bid window to 1 block
+		// Block N: set bid window to 1.
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(1))
 
-		// Register (block N)
-		const regPromise = coprocessor.registerPhantomOrder(commitment, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
-		await createBlock(api)
-		await regPromise
+		// Block N+1: set config (on_initialize at N+1 has no config yet).
+		await setPhantomOrderConfig(api, 8453, 10)
 
-		// Advance two more empty blocks — window closes after block N+1
+		// Block N+2: on_initialize fires, phantom created at N+2.
 		await createBlock(api)
+		const commitment = await getActivePhantomCommitment(api)
+		expect(commitment).not.toBeNull()
+
+		// Block N+3: advance empty block — window still open (N+3 <= N+2+1).
 		await createBlock(api)
 
-		// Bid at block N+3 — window already closed
-		const bidPromise = bobFiller.submitBid(commitment, makeUserOp("0x00ff"))
+		// Submit bid; it will be included in block N+4 (window closed: N+4 > N+3).
+		const bidPromise = bobFiller.submitBid(commitment!, makeUserOp("0x00ff"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 		const result = await bidPromise
@@ -253,47 +267,35 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/PhantomOrderBidWindowClosed/i)
 
-		// Reset window so subsequent tests are not affected
+		// Reset window so subsequent tests are unaffected.
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(100))
 	}, 60_000)
 
-	it("registration replaces the previous phantom order", async () => {
-		const first = randomCommitment()
-		const second = randomCommitment()
+	it("on_initialize replaces the commitment on each interval", async () => {
+		// interval_blocks=1 means the hook re-fires every block.
+		await setPhantomOrderConfig(api, 8453, 1)
 
-		// Register first
-		const firstPromise = coprocessor.registerPhantomOrder(first, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
-		await firstPromise
+		const c1 = await getActivePhantomCommitment(api)
+		expect(c1).not.toBeNull()
 
-		// Register second — should overwrite
-		const secondPromise = coprocessor.registerPhantomOrder(second, "EVM-1")
-		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
-		const result = await secondPromise
-		expect(result.success).toBe(true)
+		const c2 = await getActivePhantomCommitment(api)
+		expect(c2).not.toBeNull()
 
-		// CurrentPhantomOrder should now hold the second commitment
-		const storageKey = await api.query.intentsCoprocessor.currentPhantomOrder.key()
-		const raw: any = await api.rpc.state.getStorage(storageKey)
-		const hex: string = raw.toHex()
-		expect(hex.slice(2, 66).toLowerCase()).toBe(second.slice(2).toLowerCase())
+		expect(c1).not.toBe(c2)
 	}, 60_000)
 
 	it("full flow: three fillers bid, all discoverable via getBidsForOrder", async () => {
-		const commitment = randomCommitment()
-
-		// Register phantom order
-		const regPromise = coprocessor.registerPhantomOrder(commitment, "EVM-8453")
-		await new Promise((r) => setTimeout(r, 300))
+		await setPhantomOrderConfig(api, 8453, 10)
 		await createBlock(api)
-		await regPromise
 
-		// Three fillers queue bids simultaneously; one block includes all three
-		const bobPromise = bobFiller.submitBid(commitment, makeUserOp("0x00bb"))
-		const charliePromise = charlieFiller.submitBid(commitment, makeUserOp("0x00cc"))
-		const davePromise = daveFiller.submitBid(commitment, makeUserOp("0x00dd"))
+		const commitment = await getActivePhantomCommitment(api)
+		expect(commitment).not.toBeNull()
+
+		const bobPromise = bobFiller.submitBid(commitment!, makeUserOp("0x00bb"))
+		const charliePromise = charlieFiller.submitBid(commitment!, makeUserOp("0x00cc"))
+		const davePromise = daveFiller.submitBid(commitment!, makeUserOp("0x00dd"))
 		await new Promise((r) => setTimeout(r, 300))
 		await createBlock(api)
 
@@ -306,7 +308,7 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(charlieResult.success).toBe(true)
 		expect(daveResult.success).toBe(true)
 
-		const bids = await coprocessor.getBidsForOrder(commitment)
+		const bids = await coprocessor.getBidsForOrder(commitment!)
 		console.log("All bids count:", bids.length, bids.map((b) => b.filler))
 		expect(bids.length).toBe(3)
 	}, 60_000)

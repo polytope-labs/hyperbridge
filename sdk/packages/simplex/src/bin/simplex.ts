@@ -6,19 +6,17 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { PhantomOrderGenerator } from "@/core/phantom-generator"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
 import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import { ChainConfig, FillerConfig, HexString, IntentsCoprocessor } from "@hyperbridge/sdk"
+import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
 	type UserProvidedChainConfig,
 	type ResolvedChainConfig,
 	type AllowlistConfig,
-	type PhantomGeneratorConfig,
 	FillerConfig as FillerServiceConfig,
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
@@ -197,8 +195,6 @@ interface FillerTomlConfig {
 	binance?: BinanceConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
-	/** Optional phantom order generator for price and liquidity indexing. */
-	phantom_generator?: PhantomGeneratorConfig
 }
 
 const program = new Command()
@@ -259,7 +255,6 @@ program
 				gasFeeBump: config.simplex.gasFeeBump,
 				overfillProtection: config.simplex.overfillProtection,
 				allowlist: config.allowlist,
-				phantomGenerator: config.phantom_generator,
 			}
 
 			const configService = new FillerConfigService(resolvedChains, fillerConfigForService)
@@ -472,24 +467,6 @@ program
 			// Start the filler
 			intentFiller.start()
 
-			// Start phantom order generator when configured
-			let phantomGenerator: PhantomOrderGenerator | undefined
-			const phantomCfg = configService.getPhantomGeneratorConfig()
-			if (phantomCfg && phantomCfg.enabled !== false) {
-				const wsUrl = configService.getHyperbridgeWsUrl()
-				const substrateKey = configService.getSubstratePrivateKey()
-				if (wsUrl && substrateKey) {
-					const coprocessor = await IntentsCoprocessor.connect(wsUrl, substrateKey)
-					phantomGenerator = new PhantomOrderGenerator(chainClientManager, configService, coprocessor)
-					// Run first round immediately, then on schedule
-					phantomGenerator.run().catch((err) => logger.error({ err }, "Initial phantom order round failed"))
-					phantomGenerator.start()
-					logger.info({ chain: phantomCfg.chain, pairs: phantomCfg.token_pairs.length }, "Phantom order generator started")
-				} else {
-					logger.warn("Phantom generator configured but hyperbridgeWsUrl or substratePrivateKey is missing")
-				}
-			}
-
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
 						.filter(([, value]) => value === true)
@@ -512,7 +489,6 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
-				phantomGenerator?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			}

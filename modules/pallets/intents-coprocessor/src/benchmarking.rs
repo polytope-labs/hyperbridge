@@ -187,17 +187,27 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn register_phantom_order() {
-		let caller: T::AccountId = whitelisted_caller();
-		let commitment = H256::repeat_byte(0xab);
-		// Realistic chain identifier bytes (e.g. b"EVM-8453")
-		let chain = b"EVM-8453".to_vec();
+	fn set_phantom_order_config() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let config = types::PhantomOrderConfiguration {
+			chain: StateMachine::Evm(8453),
+			token_pairs: vec![types::PhantomTokenPair {
+				token_a: H160::repeat_byte(0x01),
+				token_b: H160::repeat_byte(0x02),
+				standard_amount: 1_000_000_000_000_000_000u128,
+				min_output: 990_000_000_000_000_000u128,
+			}]
+			.try_into()
+			.expect("one pair fits in BoundedVec<_, 10>"),
+			interval_blocks: 10,
+		};
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller), commitment, chain);
+		_(origin as T::RuntimeOrigin, config);
 
-		// Verify the phantom order was stored
-		assert!(CurrentPhantomOrder::<T>::get().is_some());
+		assert!(PhantomOrderConfig::<T>::get().is_some());
+		Ok(())
 	}
 
 	#[benchmark]

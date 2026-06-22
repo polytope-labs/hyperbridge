@@ -323,27 +323,6 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Registers a phantom order as the single active one on Hyperbridge.
-	 * Any previously registered phantom order is replaced. Called by the intent coprocessor.
-	 *
-	 * @param commitment - The order commitment hash (bytes32)
-	 * @param chain - State machine identifier string (e.g. "EVM-8453")
-	 * @returns BidSubmissionResult with success status and block/extrinsic hash
-	 */
-	async registerPhantomOrder(commitment: HexString, chain: string): Promise<BidSubmissionResult> {
-		try {
-			const chainBytes = Array.from(new TextEncoder().encode(chain))
-			const extrinsic = this.api.tx.intentsCoprocessor.registerPhantomOrder(commitment, chainBytes)
-			return await this.signAndSendExtrinsic(extrinsic)
-		} catch (error) {
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : "Unknown error",
-			}
-		}
-	}
-
-	/**
 	 * Retracts a bid from Hyperbridge and reclaims the deposit
 	 *
 	 * Use this to remove unused quotes and claim back deposited BRIDGE tokens.

@@ -164,16 +164,18 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	/// Storage: `IntentsCoprocessor::PhantomOrderConfig` (r:0 w:1)
+	/// Proof: `IntentsCoprocessor::PhantomOrderConfig` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `IntentsCoprocessor::CurrentPhantomOrder` (r:0 w:1)
 	/// Proof: `IntentsCoprocessor::CurrentPhantomOrder` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn register_phantom_order() -> Weight {
+	fn set_phantom_order_config() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 11_482_000 picoseconds.
-		Weight::from_parts(11_822_000, 0)
+		// Minimum execution time: 10_049_000 picoseconds.
+		Weight::from_parts(10_340_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
-			.saturating_add(T::DbWeight::get().writes(1))
+			.saturating_add(T::DbWeight::get().writes(2))
 	}
 	/// Storage: `IntentsCoprocessor::PhantomBidWindow` (r:0 w:1)
 	/// Proof: `IntentsCoprocessor::PhantomBidWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -181,8 +183,8 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 8_426_000 picoseconds.
-		Weight::from_parts(8_666_000, 0)
+		// Minimum execution time: 8_226_000 picoseconds.
+		Weight::from_parts(8_446_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}

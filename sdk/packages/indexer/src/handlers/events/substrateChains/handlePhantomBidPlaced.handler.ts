@@ -1,5 +1,5 @@
 import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData, decodeAbiParameters, encodeAbiParameters, encodeFunctionData, keccak256 } from "viem"
+import { decodeFunctionData, decodeAbiParameters, encodeFunctionData } from "viem"
 import { hexToU8a } from "@polkadot/util"
 import { Struct, Bytes, Vector, u8 } from "scale-ts"
 
@@ -10,7 +10,7 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
-import { PhantomOrder, PhantomOrderBid, PhantomOrderBidOutput } from "@/configs/src/types"
+import { PhantomOrderBid, PhantomOrderBidOutput } from "@/configs/src/types"
 
 // ─── ERC-7821 batch-execute ABI ──────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ const FILL_ORDER_ABI = [
 	},
 ] as const
 
-// ─── ERC-20 transferFrom ABI (used in simulation) ────────────────────────────
+// ─── ERC-20 transferFrom ABI ──────────────────────────────────────────────────
 
 const TRANSFER_FROM_ABI = [
 	{
@@ -142,7 +142,6 @@ const PackedUserOperationCodec = Struct({
 })
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
-const MAX_UINT256 = `0x${"f".repeat(64)}` as `0x${string}`
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -226,25 +225,6 @@ export function extractFillData(callData: `0x${string}`, gatewayAddress: string)
 }
 
 /**
- * Computes the OZ ERC-20 storage slot for `balances[account]` (mapping at slot 0).
- */
-export function balanceOfSlot(account: string): `0x${string}` {
-	return keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [account as `0x${string}`, 0n]))
-}
-
-/**
- * Computes the OZ ERC-20 storage slot for `allowances[owner][spender]` (mapping at slot 1).
- */
-export function allowanceSlot(owner: string, spender: string): `0x${string}` {
-	const ownerHash = keccak256(
-		encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [owner as `0x${string}`, 1n]),
-	)
-	return keccak256(
-		encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [spender as `0x${string}`, ownerHash]),
-	)
-}
-
-/**
  * Fetches all current bids for an order commitment via the custom
  * `intents_getBidsForOrder` substrate RPC method.
  */
@@ -259,16 +239,55 @@ async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<R
 }
 
 /**
- * Simulates each ERC-20 `transferFrom(solver → beneficiary, amount)` via
- * `eth_call` using state overrides that grant the solver infinite balance and
- * allowance on the token contract (OZ ERC-20 storage layout: slot 0 = balances,
- * slot 1 = allowances).
+ * Reads the active phantom order commitment and chain from `CurrentPhantomOrder`
+ * storage at the given block hash. Returns null when the storage is empty or
+ * decoding fails.
  *
- * Returns `true` when every simulated transfer succeeds, `false` when at least
- * one reverts, and `null` when the simulation could not be run (e.g. RPC error,
- * unsupported node).
+ * Storage layout (SCALE): `H256 (32 bytes) | u32 LE (4 bytes) | compact Vec<u8>`
  */
-async function simulateTokenTransfers(
+async function getActivePhantomCommitment(blockHash: string): Promise<{ commitment: string; chain: string } | null> {
+	try {
+		const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
+		const rawResult = await api.rpc.state.getStorage(storageKey, blockHash)
+
+		const hex: string = rawResult.toHex()
+		if (!hex || hex === "0x") return null
+
+		const bytes = Buffer.from(hex.replace("0x", ""), "hex")
+		if (bytes.length < 37) return null
+
+		const commitment = "0x" + bytes.slice(0, 32).toString("hex")
+
+		// bytes[32..36] = created_at_block u32 LE (not needed here)
+		const compactByte = bytes[36]
+		const mode = compactByte & 0x03
+		let chainStart: number
+		let chainLen: number
+
+		if (mode === 0) {
+			chainLen = compactByte >> 2
+			chainStart = 37
+		} else if (mode === 1) {
+			chainLen = (compactByte | (bytes[37] << 8)) >>> 2
+			chainStart = 38
+		} else {
+			return null
+		}
+
+		const chain = bytes.slice(chainStart, chainStart + chainLen).toString("utf8")
+		return { commitment, chain }
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Simulates each ERC-20 `transferFrom(solver → beneficiary, amount)` against
+ * real on-chain state via `eth_call`. Returns `true` when every transfer
+ * succeeds, `false` when at least one reverts, and `null` when the simulation
+ * could not be run (e.g. RPC error or unsupported node).
+ */
+async function simulateTransfers(
 	evmRpcUrl: string,
 	gatewayAddress: string,
 	solver: string,
@@ -279,16 +298,6 @@ async function simulateTokenTransfers(
 		for (const output of outputs) {
 			const tokenAddr = bytes32ToAddress(output.token)
 			if (tokenAddr.toLowerCase() === ZERO_ADDRESS) continue
-
-			// Build state overrides: give solver infinite balance and allowance.
-			const stateOverride = {
-				[tokenAddr]: {
-					stateDiff: {
-						[balanceOfSlot(solver)]: MAX_UINT256,
-						[allowanceSlot(solver, gatewayAddress)]: MAX_UINT256,
-					},
-				},
-			}
 
 			const data = encodeFunctionData({
 				abi: TRANSFER_FROM_ABI,
@@ -303,15 +312,13 @@ async function simulateTokenTransfers(
 					id: 1,
 					jsonrpc: "2.0",
 					method: "eth_call",
-					params: [{ from: gatewayAddress, to: tokenAddr, data }, "latest", stateOverride],
+					params: [{ from: gatewayAddress, to: tokenAddr, data }, "latest"],
 				}),
 			})
 
 			const result = await response.json()
-
 			if (result.error) return null
 
-			// Decode the bool return value; anything that isn't a clean `true` is a failure.
 			const returnedFalse =
 				!result.result ||
 				result.result === "0x" ||
@@ -336,15 +343,17 @@ export const handlePhantomBidPlaced = wrap(async (event: SubstrateEvent): Promis
 	const commitment = commitmentData.toString()
 	const deposit = BigInt(depositData.toString())
 
-	const phantomOrder = await PhantomOrder.get(commitment)
-	if (!phantomOrder) {
+	const host = getHostStateMachine(chainId)
+	const blockHash = event.block.block.header.hash.toString()
+	const blockNumber = event.block.block.header.number.toBigInt()
+
+	const activePhantom = await getActivePhantomCommitment(blockHash)
+	if (!activePhantom || activePhantom.commitment.toLowerCase() !== commitment.toLowerCase()) {
 		// Regular order bid — not a phantom; nothing to index here.
 		return
 	}
 
-	const host = getHostStateMachine(chainId)
-	const blockHash = event.block.block.header.hash.toString()
-	const blockNumber = event.block.block.header.number.toBigInt()
+	const chain = activePhantom.chain
 	const blockTimestamp = await getBlockTimestamp(blockHash, host)
 
 	const nodeUrl = replaceWebsocketWithHttp(ENV_CONFIG[host] ?? "")
@@ -380,19 +389,13 @@ export const handlePhantomBidPlaced = wrap(async (event: SubstrateEvent): Promis
 			const callData = bytesToHex(decoded.callData)
 			const solver = bytesToHex(decoded.sender)
 
-			const gatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[phantomOrder.chain as keyof typeof INTENT_GATEWAY_V2_ADDRESSES]
+			const gatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[chain as keyof typeof INTENT_GATEWAY_V2_ADDRESSES]
 			if (gatewayAddress) {
 				fillData = extractFillData(callData, gatewayAddress)
 
-				const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[phantomOrder.chain] ?? "")
+				const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[chain] ?? "")
 				if (evmUrl && fillData && solver) {
-					simulationSuccess = await simulateTokenTransfers(
-						evmUrl,
-						gatewayAddress,
-						solver,
-						fillData.beneficiary,
-						fillData.outputs,
-					)
+					simulationSuccess = await simulateTransfers(evmUrl, gatewayAddress, solver, fillData.beneficiary, fillData.outputs)
 				}
 			}
 		} catch (err) {
@@ -402,7 +405,7 @@ export const handlePhantomBidPlaced = wrap(async (event: SubstrateEvent): Promis
 
 	const bid = PhantomOrderBid.create({
 		id: bidId,
-		orderId: commitment,
+		commitment,
 		filler: fillerHex,
 		deposit,
 		blockNumber,
@@ -427,7 +430,7 @@ export const handlePhantomBidPlaced = wrap(async (event: SubstrateEvent): Promis
 	logger.info(
 		{
 			bidId,
-			chain: phantomOrder.chain,
+			chain,
 			outputCount: fillData?.outputs.length ?? 0,
 			simulationSuccess,
 		},

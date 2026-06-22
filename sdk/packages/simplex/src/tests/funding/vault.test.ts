@@ -4,6 +4,7 @@ import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultOutputFundingConfig } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { UserOpSender } from "@/services/UserOpSender"
 import type { HexString } from "@hyperbridge/sdk"
 
 const CHAIN = "EVM-8453"
@@ -75,6 +76,7 @@ function makeSweepPlanner(
 	vaults: VaultOutputFundingConfig["vaultsByChain"][string],
 	shares: Record<string, bigint> = {},
 	maxDeposit = 10_000_000_000n,
+	userOpSender?: UserOpSender,
 ) {
 	const sendTransaction = vi.fn(async (_tx: { to: HexString; data: HexString; value: bigint }) => "0xtx" as HexString)
 
@@ -116,7 +118,7 @@ function makeSweepPlanner(
 		getWalletClient: () => walletClient,
 	} as unknown as ChainClientManager
 
-	const planner = new VaultFundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } })
+	const planner = new VaultFundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } }, userOpSender)
 	return { planner, sendTransaction }
 }
 
@@ -385,5 +387,54 @@ describe("VaultFundingPlanner.redeemAll", () => {
 		await planner.redeemAll()
 
 		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+})
+
+describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
+	const sweepVault: VaultOutputFundingConfig["vaultsByChain"][string] = [
+		{ vault: VAULT_USDC, threshold: "5000", minBalance: "3000" },
+	]
+	const sweepWallet = { [USDC.toLowerCase()]: u("6000") }
+
+	function makeSender(opts: {
+		canSponsor: boolean
+		result?: { txHash: HexString } | null
+	}): { sender: UserOpSender; trySendSponsored: ReturnType<typeof vi.fn> } {
+		const trySendSponsored = vi.fn(async () => opts.result ?? null)
+		const sender = {
+			canSponsor: () => opts.canSponsor,
+			trySendSponsored,
+		} as unknown as UserOpSender
+		return { sender, trySendSponsored }
+	}
+
+	it("submits the sweep as a sponsored UserOp, not a native tx", async () => {
+		const { sender, trySendSponsored } = makeSender({ canSponsor: true, result: { txHash: "0xabc" as HexString } })
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("falls back to a native tx when the op was never submitted (null)", async () => {
+		const { sender, trySendSponsored } = makeSender({ canSponsor: true, result: null })
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("uses a native tx when the chain cannot be sponsored", async () => {
+		const { sender, trySendSponsored } = makeSender({ canSponsor: false })
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).toHaveBeenCalledOnce()
 	})
 })

@@ -3,6 +3,7 @@ import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { UserOpSender } from "@/services/UserOpSender"
 import { getLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
@@ -36,9 +37,15 @@ export class VaultFundingPlanner implements FundingVenue {
 	private solver: HexString | null = null
 	private sweepInterval?: NodeJS.Timeout
 
+	/**
+	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
+	 * Paymaster-sponsored UserOps (gas paid in USDC) where the chain supports it,
+	 * falling back to a native EOA tx. Omit to always use native txs.
+	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly config: VaultOutputFundingConfig,
+		private readonly userOpSender?: UserOpSender,
 	) {}
 
 	/**
@@ -299,16 +306,46 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			if (calls.length === 0) return
 
-			const walletClient = this.clientManager.getWalletClient(chain)
-			const tx = await walletClient.sendTransaction({
-				to: solver,
-				data: encodeERC7821ExecuteBatch(calls),
-				value: 0n,
-				chain: walletClient.chain,
-			})
-			const receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1 })
-			logger.info({ chain, tx, status: receipt.status, pairs: calls.length / 2 }, "Vault sweep submitted")
+			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
+			logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
 		})
+	}
+
+	/**
+	 * Sends an ERC-7821 batch to the solver account. Prefers a Circle-Paymaster-
+	 * sponsored UserOp (gas paid in USDC) when a sender is wired and the chain
+	 * supports it, falling back to a native EOA tx.
+	 *
+	 * The sponsored path only falls back to native when the op was **never
+	 * submitted**; a submitted-but-unconfirmed op throws so a native resend can't
+	 * double-execute the batch (the caller's timer logs and retries next cycle).
+	 */
+	private async submitBatch(
+		chain: string,
+		solver: HexString,
+		calls: ERC7821Call[],
+	): Promise<{ txHash: HexString; sponsored: boolean }> {
+		const callData = encodeERC7821ExecuteBatch(calls)
+
+		if (this.userOpSender?.canSponsor(chain)) {
+			const result = await this.userOpSender.trySendSponsored({ chain, callData })
+			if (result) return { txHash: result.txHash, sponsored: true }
+			logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
+		}
+
+		const walletClient = this.clientManager.getWalletClient(chain)
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const tx = await walletClient.sendTransaction({
+			to: solver,
+			data: callData,
+			value: 0n,
+			chain: walletClient.chain,
+		})
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1, timeout: 60_000 })
+		if (receipt.status !== "success") {
+			throw new Error(`Vault batch tx reverted: ${tx}`)
+		}
+		return { txHash: tx, sponsored: false }
 	}
 
 	// =========================================================================
@@ -369,19 +406,8 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			if (calls.length === 0) return
 
-			const walletClient = this.clientManager.getWalletClient(chain)
-			const tx = await walletClient.sendTransaction({
-				to: solver,
-				data: encodeERC7821ExecuteBatch(calls),
-				value: 0n,
-				chain: walletClient.chain,
-			})
-			const receipt = await publicClient.waitForTransactionReceipt({
-				hash: tx,
-				confirmations: 1,
-				timeout: 60_000,
-			})
-			logger.info({ chain, tx, status: receipt.status, vaults: calls.length }, "Vault shutdown redeem submitted")
+			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
+			logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
 		})
 	}
 }

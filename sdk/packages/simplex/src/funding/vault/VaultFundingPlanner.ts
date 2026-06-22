@@ -328,7 +328,20 @@ export class VaultFundingPlanner implements FundingVenue {
 		const callData = encodeERC7821ExecuteBatch(calls)
 
 		if (this.userOpSender?.canSponsor(chain)) {
-			const result = await this.userOpSender.trySendSponsored({ chain, callData })
+			// The bundler echoes input gas limits for these ops instead of simulating, so
+			// pass measured fixed limits. Verification efficiency `used / (verif + pmVerif)`
+			// must clear rundler's 0.4 floor — the Circle paymaster verification (~75k) is
+			// the dominant term, account validation only ~24k.
+			const result = await this.userOpSender.trySendSponsored({
+				chain,
+				callData,
+				gas: {
+					verificationGasLimit: 60_000n,
+					callGasLimit: 350_000n * BigInt(calls.length) + 100_000n,
+					preVerificationGas: 150_000n,
+				},
+				paymasterVerificationGasLimit: 140_000n,
+			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
 		}

@@ -182,6 +182,7 @@ export class IntentFiller {
 	public start(): void {
 		this.monitor.startListening()
 
+		// Start periodic rebalancing if service is configured
 		if (this.rebalancingService) {
 			this.startRebalancing()
 		}
@@ -284,14 +285,17 @@ export class IntentFiller {
 			this.phantomUnsubscribe = null
 		}
 
+		// Stop rebalancing interval
 		if (this.rebalancingInterval) {
 			clearInterval(this.rebalancingInterval)
 			this.rebalancingInterval = undefined
+			this.logger.info("Periodic rebalancing checks stopped")
 		}
 
 		if (this.retractionSweepInterval) {
 			clearInterval(this.retractionSweepInterval)
 			this.retractionSweepInterval = undefined
+			this.logger.info("Periodic retraction sweep stopped")
 		}
 
 		// Wait for all queues to complete

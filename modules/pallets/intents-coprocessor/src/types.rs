@@ -295,19 +295,25 @@ pub(crate) mod sol_types {
 	}
 }
 
-/// Computes the IntentGatewayV2 commitment for a phantom order. The result is
-/// `keccak256(abi.encode(order))` over a synthetic Order whose source and
-/// destination are both `chain`, deadline is 0, and nonce is the block number.
-/// This matches how the gateway derives commitments on-chain, so filler UserOps
-/// that embed this order can be validated without any special casing.
+/// Fixed session address for all phantom orders, derived from private key 0x01.
+/// The indexer uses the matching private key when signing simulated bids.
+pub const PHANTOM_SESSION_ADDRESS: alloy_primitives::Address =
+	alloy_primitives::address!("7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
+
+/// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
+/// ABI-encoded bytes and its `keccak256` commitment.
+///
+/// `deadline_secs` is the Unix timestamp (in seconds) beyond which the order is
+/// considered expired by the gateway.  Callers should set this to a non-zero
+/// value; zero prevents the order from simulating correctly.
 pub fn phantom_order_commitment(
 	block: u64,
 	chain: &[u8],
 	token_a: &H160,
 	token_b: &H160,
 	standard_amount: u128,
-	min_output: u128,
-) -> H256 {
+	deadline_secs: u64,
+) -> (H256, Vec<u8>) {
 	use alloy_primitives::{Address, Bytes, FixedBytes, U256 as AlloyU256};
 
 	let mut token_a_bytes = [0u8; 32];
@@ -319,10 +325,10 @@ pub fn phantom_order_commitment(
 		user: FixedBytes::from([0u8; 32]),
 		source: Bytes::copy_from_slice(chain),
 		destination: Bytes::copy_from_slice(chain),
-		deadline: AlloyU256::ZERO,
+		deadline: AlloyU256::from(deadline_secs),
 		nonce: AlloyU256::from(block),
 		fees: AlloyU256::ZERO,
-		session: Address::ZERO,
+		session: PHANTOM_SESSION_ADDRESS,
 		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
 		inputs: vec![sol_types::TokenInfo {
 			token: FixedBytes::from(token_a_bytes),
@@ -338,7 +344,9 @@ pub fn phantom_order_commitment(
 		},
 	};
 
-	sp_io::hashing::keccak_256(&order.abi_encode()).into()
+	let encoded = order.abi_encode();
+	let commitment = sp_io::hashing::keccak_256(&encoded).into();
+	(commitment, encoded)
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {

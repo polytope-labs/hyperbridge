@@ -64,11 +64,19 @@ pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8>
 	key
 }
 
+/// Generate the offchain storage key for the ABI-encoded phantom order, keyed by commitment.
+pub fn offchain_phantom_key(commitment: &H256) -> Vec<u8> {
+	let mut key = b"intents::phantom::order::".to_vec();
+	key.extend_from_slice(commitment.as_bytes());
+	key
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
+	use frame_support::traits::UnixTime;
 	use frame_system::pallet_prelude::*;
 	use polkadot_sdk::sp_runtime::traits::Saturating;
 
@@ -569,11 +577,17 @@ pub mod pallet {
 				return T::DbWeight::get().reads(2);
 			}
 
+			// Use pallet-ismp's time provider so the deadline is a real chain timestamp
+			// (non-zero). Simulation uses block 0 (timestamp=0) so the check still passes.
+			let deadline_secs = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
+
 			let chain_bytes = config.chain.to_string().into_bytes();
 			for pair in config.token_pairs.iter() {
-				let commitment = Self::compute_phantom_commitment(n, &chain_bytes, pair);
+				let (commitment, order_bytes) =
+					Self::compute_phantom_commitment(n, &chain_bytes, pair, deadline_secs);
 				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
 				CurrentPhantomOrder::<T>::put((commitment, info));
+				offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
 				Self::deposit_event(Event::PhantomOrderRegistered {
 					commitment,
 					chain: chain_bytes.clone(),
@@ -625,14 +639,15 @@ pub mod pallet {
 			block: BlockNumberFor<T>,
 			chain: &[u8],
 			pair: &PhantomTokenPair,
-		) -> H256 {
+			deadline_secs: u64,
+		) -> (H256, Vec<u8>) {
 			types::phantom_order_commitment(
 				block.saturated_into::<u64>(),
 				chain,
 				&pair.token_a,
 				&pair.token_b,
 				pair.standard_amount,
-				pair.min_output,
+				deadline_secs,
 			)
 		}
 

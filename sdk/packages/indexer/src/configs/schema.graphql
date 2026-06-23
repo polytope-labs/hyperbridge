@@ -2245,10 +2245,10 @@ type PhantomOrder @entity {
 
 """
 A periodic price and liquidity snapshot for a phantom order, written every 10 Hyperbridge blocks.
-Each snapshot collects all live bids for the phantom order via intents_getBidsForOrder, simulates
-each filler's user operation against the IntentGatewayV2 contract (using eth_call with block=0
-and empty gateway bytecode), verifies the filler has sufficient token balance, and records
-the output amount distribution across all bids that pass validation.
+Each snapshot collects all live bids via intents_getBidsForOrder, simulates each filler's user
+operation against the real IntentGatewayV2 code (with the phantom commitment injected via state
+override and block timestamp set to zero), and records the output amount distribution and total
+solver liquidity across all bids that pass simulation.
 Snapshots are only written when at least one valid bid exists and an EVM RPC endpoint is
 configured for the phantom order's destination chain.
 """
@@ -2287,9 +2287,15 @@ type PhantomOrderPriceSnapshot @entity {
 	highestPrice: BigInt
 
 	"""
-	Number of valid bids that contributed to this snapshot (passed simulation and solver balance checks).
+	Number of valid bids that contributed to this snapshot (passed simulation).
 	"""
 	bidCount: Int!
+
+	"""
+	Total liquidity available from the winning solver across raw ERC-20 balance and ERC-4626
+	vault positions (e.g. Aave stataTokens, yield vaults) for the output token.
+	"""
+	lpBalance: BigInt
 
 	"""
 	Timestamp of the Hyperbridge block at which this snapshot was taken.

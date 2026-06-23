@@ -1,6 +1,12 @@
 import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData } from "viem"
-import { decodeUserOpScale, decodeERC7821ExecuteBatch, IntentGatewayABI, type HexString } from "@hyperbridge/sdk"
+import { decodeFunctionData, toHex } from "viem"
+import {
+	decodeUserOpScale,
+	decodeERC7821ExecuteBatch,
+	IntentGatewayABI,
+	requestCommitmentKey,
+	type HexString,
+} from "@hyperbridge/sdk"
 
 import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
@@ -10,6 +16,7 @@ import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
+import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { PhantomOrder, PhantomOrderPriceSnapshot } from "@/configs/src/types"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -56,15 +63,18 @@ async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<R
 	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
-// Simulates using block=0 (phantom deadline=0 never appears expired) and empty
-// gateway bytecode so any structurally valid bid succeeds regardless of output amount.
+// Block number is overridden to 0 so the deadline check (deadline < block.number)
+// always passes. The intent gateway's requestCommitments slot is overridden so the
+// gateway treats the phantom commitment as a registered order.
 async function simulateBid(
 	evmRpcUrl: string,
 	solver: string,
-	callData: `0x${string}`,
+	callData: HexString,
 	gatewayAddress: string,
+	commitment: string,
 ): Promise<boolean> {
 	try {
+		const { slot1, slot2 } = requestCommitmentKey(commitment as HexString)
 		const response = await fetchWithRetry(evmRpcUrl, {
 			method: "POST",
 			headers: { accept: "application/json", "content-type": "application/json" },
@@ -75,8 +85,15 @@ async function simulateBid(
 				params: [
 					{ from: solver, to: solver, data: callData },
 					"latest",
-					{ [gatewayAddress]: { code: "0x" } },
-					{ number: "0x0" },
+					{
+						[gatewayAddress]: {
+							stateDiff: {
+								[slot2]: toHex(1n, { size: 32 }),
+								[slot1]: toHex(1n, { size: 32 }),
+							},
+						},
+					},
+					{ number: toHex(0n) },
 				],
 			}),
 		})
@@ -87,10 +104,10 @@ async function simulateBid(
 	}
 }
 
-async function getTokenBalance(evmRpcUrl: string, token: string, holder: string): Promise<bigint | null> {
+async function getTokenBalance(evmRpcUrl: string, token: string, holder: string): Promise<bigint> {
 	try {
 		const paddedHolder = holder.replace("0x", "").padStart(64, "0")
-		const data = `0x70a08231${paddedHolder}` as `0x${string}`
+		const data = `0x70a08231${paddedHolder}` as HexString
 		const response = await fetchWithRetry(evmRpcUrl, {
 			method: "POST",
 			headers: { accept: "application/json", "content-type": "application/json" },
@@ -102,11 +119,50 @@ async function getTokenBalance(evmRpcUrl: string, token: string, holder: string)
 			}),
 		})
 		const result = await response.json()
-		if (result.error || !result.result || result.result === "0x") return null
+		if (result.error || !result.result || result.result === "0x") return 0n
 		return BigInt(result.result)
 	} catch {
-		return null
+		return 0n
 	}
+}
+
+// Calls ERC-4626 maxWithdraw(owner) to get the solver's redeemable balance from a vault.
+async function getVaultBalance(evmRpcUrl: string, vault: string, owner: string): Promise<bigint> {
+	try {
+		const paddedOwner = owner.replace("0x", "").padStart(64, "0")
+		// maxWithdraw(address owner) → bytes4 selector ce96cb77
+		const data = `0xce96cb77${paddedOwner}` as HexString
+		const response = await fetchWithRetry(evmRpcUrl, {
+			method: "POST",
+			headers: { accept: "application/json", "content-type": "application/json" },
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_call",
+				params: [{ to: vault, data }, "latest"],
+			}),
+		})
+		const result = await response.json()
+		if (result.error || !result.result || result.result === "0x") return 0n
+		return BigInt(result.result)
+	} catch {
+		return 0n
+	}
+}
+
+// Returns raw ERC-20 balance plus total redeemable from all configured yield vaults
+// for the given token on the given chain.
+async function getTotalSolverBalance(
+	evmRpcUrl: string,
+	chain: string,
+	token: string,
+	solver: string,
+): Promise<bigint> {
+	const raw = await getTokenBalance(evmRpcUrl, token, solver)
+	const vaultMap = YIELD_VAULT_ADDRESSES[chain] ?? {}
+	const vaults = vaultMap[token.toLowerCase()] ?? []
+	const vaultBalances = await Promise.all(vaults.map((v) => getVaultBalance(evmRpcUrl, v, solver)))
+	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
 // Reads the commitment of the currently active phantom order from storage.
@@ -156,7 +212,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		return
 	}
 
-	const blockTimestamp = await getBlockTimestamp(blockHash, chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, host)
 
 	for (const phantom of phantomOrders) {
 		const snapshotId = `${phantom.id}-${blockNumber}`
@@ -177,6 +233,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		if (!evmUrl || !gatewayAddress) continue
 
 		const prices: bigint[] = []
+		let bestLpBalance = 0n
 
 		for (const bid of bids) {
 			if (!bid.user_op) continue
@@ -188,17 +245,15 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 				const fillData = extractFillData(callData, gatewayAddress)
 				if (!fillData?.outputs.length) continue
 
-				const output = fillData.outputs[0]
-				const outputAmount = output.amount
-
-				const simOk = await simulateBid(evmUrl, solver, callData, gatewayAddress)
+				const simOk = await simulateBid(evmUrl, solver, callData, gatewayAddress, phantom.id)
 				if (!simOk) continue
 
+				const output = fillData.outputs[0]
 				const tokenAddress = bytes32ToBytes20(output.token)
-				const balance = await getTokenBalance(evmUrl, tokenAddress, solver)
-				if (balance === null || balance < outputAmount) continue
+				const totalBalance = await getTotalSolverBalance(evmUrl, phantom.chain, tokenAddress, solver)
 
-				prices.push(outputAmount)
+				prices.push(output.amount)
+				if (totalBalance > bestLpBalance) bestLpBalance = totalBalance
 			} catch (err) {
 				logger.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 			}
@@ -216,6 +271,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			highestPrice: sorted[sorted.length - 1],
 			medianPrice: medianOf(prices),
 			bidCount: prices.length,
+			lpBalance: bestLpBalance > 0n ? bestLpBalance : undefined,
 			snapshotTime: timestampToDate(blockTimestamp),
 		}).save()
 

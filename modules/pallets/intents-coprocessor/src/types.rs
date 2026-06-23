@@ -332,7 +332,7 @@ pub fn phantom_order_commitment(
 			beneficiary: FixedBytes::from([0u8; 32]),
 			assets: vec![sol_types::TokenInfo {
 				token: FixedBytes::from(token_b_bytes),
-				amount: AlloyU256::from(min_output),
+				amount: AlloyU256::ZERO,
 			}],
 			call: Bytes::new(),
 		},

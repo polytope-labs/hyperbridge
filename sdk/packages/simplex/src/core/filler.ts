@@ -8,6 +8,8 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
+	type PhantomOrderEvent,
+	orderCommitment,
 	bytes32ToBytes20,
 	type TokenInfo,
 } from "@hyperbridge/sdk"
@@ -41,6 +43,7 @@ export class IntentFiller {
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
+	private phantomUnsubscribe: (() => void) | null = null
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -179,13 +182,16 @@ export class IntentFiller {
 	public start(): void {
 		this.monitor.startListening()
 
-		// Start periodic rebalancing if service is configured
 		if (this.rebalancingService) {
 			this.startRebalancing()
 		}
 
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
+		}
+
+		if (this.hyperbridge) {
+			this.startPhantomBidding()
 		}
 	}
 
@@ -273,17 +279,19 @@ export class IntentFiller {
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
 
-		// Stop rebalancing interval
+		if (this.phantomUnsubscribe) {
+			this.phantomUnsubscribe()
+			this.phantomUnsubscribe = null
+		}
+
 		if (this.rebalancingInterval) {
 			clearInterval(this.rebalancingInterval)
 			this.rebalancingInterval = undefined
-			this.logger.info("Periodic rebalancing checks stopped")
 		}
 
 		if (this.retractionSweepInterval) {
 			clearInterval(this.retractionSweepInterval)
 			this.retractionSweepInterval = undefined
-			this.logger.info("Periodic retraction sweep stopped")
 		}
 
 		// Wait for all queues to complete
@@ -728,5 +736,87 @@ export class IntentFiller {
 				this.logger.error({ commitment, err: error }, "Error retracting bid")
 			}
 		})
+	}
+
+	private startPhantomBidding(): void {
+		if (!this.hyperbridge) return
+		this.hyperbridge
+			.then(async (coprocessor) => {
+				this.phantomUnsubscribe = await coprocessor.subscribePhantomOrders((event) => {
+					this.globalQueue.add(() => this.handlePhantomOrder(event, coprocessor))
+				})
+				this.logger.info("Phantom order subscription active")
+			})
+			.catch((err) => {
+				this.logger.error({ err }, "Failed to start phantom order subscription")
+			})
+	}
+
+	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
+		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${getChainId(event.chain) ?? event.chain}`)
+		if (!entryPointAddress) {
+			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
+			return
+		}
+
+		// Reconstruct the Order with the same field values the pallet used when computing the commitment.
+		const ZERO_BYTES32 = `0x${"00".repeat(32)}` as HexString
+		const ZERO_ADDRESS = `0x${"00".repeat(20)}` as HexString
+		const phantomOrder: Order = {
+			user: ZERO_BYTES32,
+			source: event.chain,
+			destination: event.chain,
+			deadline: 0n,
+			nonce: BigInt(event.createdAt),
+			fees: 0n,
+			session: ZERO_ADDRESS,
+			predispatch: { assets: [], call: "0x" },
+			inputs: [{ token: event.tokenA, amount: event.standardAmount }],
+			output: {
+				beneficiary: ZERO_BYTES32,
+				assets: [{ token: event.tokenB, amount: event.minOutput }],
+				call: "0x",
+			},
+		}
+		phantomOrder.id = orderCommitment(phantomOrder)
+
+		const strategy = this.strategies.find((s) => typeof s.quotePhantomFill === "function")
+		if (!strategy?.quotePhantomFill) {
+			this.logger.debug("No strategy supports quotePhantomFill, skipping phantom order")
+			return
+		}
+
+		let fillerOutputs: TokenInfo[] | null = null
+		try {
+			fillerOutputs = await strategy.quotePhantomFill(phantomOrder)
+		} catch (err) {
+			this.logger.warn({ err, commitment: phantomOrder.id, chain: event.chain }, "quotePhantomFill failed")
+			return
+		}
+
+		if (!fillerOutputs || fillerOutputs.length === 0) {
+			this.logger.debug({ chain: event.chain }, "Strategy declined phantom order")
+			return
+		}
+
+		const solverAccountAddress = this.signer.account.address as HexString
+
+		try {
+			const { commitment, userOp } = await this.contractService.preparePhantomBidUserOp(
+				phantomOrder,
+				entryPointAddress,
+				solverAccountAddress,
+				fillerOutputs,
+			)
+
+			const result = await coprocessor.submitBid(commitment, userOp)
+			if (result.success) {
+				this.logger.info({ commitment, chain: event.chain }, "Phantom bid submitted")
+			} else {
+				this.logger.warn({ commitment, chain: event.chain, error: result.error }, "Phantom bid rejected")
+			}
+		} catch (err) {
+			this.logger.error({ err, chain: event.chain }, "Failed to prepare or submit phantom bid")
+		}
 	}
 }

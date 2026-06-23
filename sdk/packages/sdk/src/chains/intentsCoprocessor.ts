@@ -82,6 +82,16 @@ interface RpcBidInfo {
 	user_op: HexString
 }
 
+export interface PhantomOrderEvent {
+	commitment: HexString
+	chain: string
+	createdAt: number
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+	minOutput: bigint
+}
+
 /**
  * Service for interacting with Hyperbridge's pallet-intents coprocessor.
  * Handles bid submission and retrieval for the IntentGatewayV2 protocol.
@@ -446,5 +456,30 @@ export class IntentsCoprocessor {
 	/** Builds offchain storage key: "intents::bid::" + commitment + filler */
 	private buildOffchainBidKey(commitment: HexString, filler: string): Uint8Array {
 		return u8aConcat(OFFCHAIN_BID_PREFIX, hexToU8a(commitment), decodeAddress(filler))
+	}
+
+	/**
+	 * Subscribes to PhantomOrderRegistered events from the intents coprocessor pallet.
+	 * Calls the callback for each new phantom order as blocks arrive.
+	 * Returns an unsubscribe function to stop the subscription.
+	 */
+	async subscribePhantomOrders(callback: (event: PhantomOrderEvent) => void): Promise<() => void> {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const unsub = await (this.api.query.system.events as any)((records: any[]) => {
+			for (const { event } of records) {
+				if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
+				const [commitment, chain, createdAt, tokenA, tokenB, standardAmount, minOutput] = event.data
+				callback({
+					commitment: commitment.toHex() as HexString,
+					chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
+					createdAt: createdAt.toNumber(),
+					tokenA: tokenA.toHex() as HexString,
+					tokenB: tokenB.toHex() as HexString,
+					standardAmount: BigInt(standardAmount.toString()),
+					minOutput: BigInt(minOutput.toString()),
+				})
+			}
+		})
+		return unsub as () => void
 	}
 }

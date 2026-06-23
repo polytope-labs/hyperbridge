@@ -1,0 +1,363 @@
+import { SubstrateEvent } from "@subql/types"
+import { decodeFunctionData, decodeAbiParameters } from "viem"
+import { hexToU8a } from "@polkadot/util"
+import { Struct, Bytes, Vector, u8 } from "scale-ts"
+
+import { wrap } from "@/utils/event.utils"
+import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { timestampToDate } from "@/utils/date.helpers"
+import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
+import { ENV_CONFIG } from "@/constants"
+import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
+import { PhantomOrder, PhantomOrderPriceSnapshot } from "@/configs/src/types"
+
+// ─── ABI definitions ─────────────────────────────────────────────────────────
+
+const ERC7821_ABI = [
+	{
+		name: "execute",
+		type: "function",
+		inputs: [
+			{ name: "mode", type: "bytes32" },
+			{ name: "executionData", type: "bytes" },
+		],
+		outputs: [],
+	},
+] as const
+
+const CALL_COMPONENTS = [
+	{ name: "target", type: "address" },
+	{ name: "value", type: "uint256" },
+	{ name: "data", type: "bytes" },
+] as const
+
+const FILL_ORDER_ABI = [
+	{
+		name: "fillOrder",
+		type: "function",
+		inputs: [
+			{
+				type: "tuple",
+				name: "order",
+				components: [
+					{ type: "bytes32", name: "user" },
+					{ type: "bytes", name: "source" },
+					{ type: "bytes", name: "destination" },
+					{ type: "uint256", name: "deadline" },
+					{ type: "uint256", name: "nonce" },
+					{ type: "uint256", name: "fees" },
+					{ type: "address", name: "session" },
+					{
+						type: "tuple",
+						name: "predispatch",
+						components: [
+							{
+								type: "tuple[]",
+								name: "assets",
+								components: [
+									{ type: "bytes32", name: "token" },
+									{ type: "uint256", name: "amount" },
+								],
+							},
+							{ type: "bytes", name: "call" },
+						],
+					},
+					{
+						type: "tuple[]",
+						name: "inputs",
+						components: [
+							{ type: "bytes32", name: "token" },
+							{ type: "uint256", name: "amount" },
+						],
+					},
+					{
+						type: "tuple",
+						name: "output",
+						components: [
+							{ type: "bytes32", name: "beneficiary" },
+							{
+								type: "tuple[]",
+								name: "assets",
+								components: [
+									{ type: "bytes32", name: "token" },
+									{ type: "uint256", name: "amount" },
+								],
+							},
+							{ type: "bytes", name: "call" },
+						],
+					},
+				],
+			},
+			{
+				type: "tuple",
+				name: "options",
+				components: [
+					{ type: "uint256", name: "relayerFee" },
+					{ type: "uint256", name: "nativeDispatchFee" },
+					{
+						type: "tuple[]",
+						name: "outputs",
+						components: [
+							{ type: "bytes32", name: "token" },
+							{ type: "uint256", name: "amount" },
+						],
+					},
+				],
+			},
+		],
+		outputs: [],
+	},
+] as const
+
+const PackedUserOperationCodec = Struct({
+	sender: Bytes(20),
+	nonce: Bytes(32),
+	initCode: Vector(u8),
+	callData: Vector(u8),
+	accountGasLimits: Bytes(32),
+	preVerificationGas: Bytes(32),
+	gasFees: Bytes(32),
+	paymasterAndData: Vector(u8),
+	signature: Vector(u8),
+})
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface RpcBidInfo {
+	commitment: string
+	filler: string
+	user_op: string
+}
+
+interface TokenAmount {
+	token: string
+	amount: bigint
+}
+
+interface FillData {
+	outputs: TokenAmount[]
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function bytesToHex(bytes: Uint8Array | number[]): `0x${string}` {
+	return `0x${Array.from(bytes)
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("")}` as `0x${string}`
+}
+
+function bytes32ToAddress(bytes32: string): string {
+	return `0x${bytes32.replace("0x", "").slice(24)}`
+}
+
+function decodeERC7821Execute(
+	callData: `0x${string}`,
+): Array<{ target: string; value: bigint; data: `0x${string}` }> | null {
+	try {
+		const decoded = decodeFunctionData({ abi: ERC7821_ABI, data: callData })
+		if (decoded.functionName !== "execute" || !decoded.args || decoded.args.length < 2) return null
+		const executionData = decoded.args[1] as `0x${string}`
+		const [calls] = decodeAbiParameters([{ type: "tuple[]", components: CALL_COMPONENTS }], executionData) as any
+		return calls.map((c: any) => ({ target: c.target as string, value: c.value as bigint, data: c.data as `0x${string}` }))
+	} catch {
+		return null
+	}
+}
+
+function extractFillData(callData: `0x${string}`, gatewayAddress: string): FillData | null {
+	const calls = decodeERC7821Execute(callData)
+	if (!calls) return null
+
+	const normalized = gatewayAddress.toLowerCase()
+	for (const call of calls) {
+		if (call.target.toLowerCase() !== normalized) continue
+		try {
+			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data })
+			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
+			const options = decoded.args[1] as { outputs: { token: string; amount: bigint }[] }
+			if (!options.outputs?.length) continue
+			return { outputs: options.outputs.map((o) => ({ token: o.token as string, amount: o.amount })) }
+		} catch {
+			continue
+		}
+	}
+	return null
+}
+
+async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<RpcBidInfo[]> {
+	const response = await fetchWithRetry(nodeUrl, {
+		method: "POST",
+		headers: { accept: "application/json", "content-type": "application/json" },
+		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "intents_getBidsForOrder", params: [commitment] }),
+	})
+	const data = await response.json()
+	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
+}
+
+// Simulates using block=0 (phantom deadline=0 never appears expired) and empty
+// gateway bytecode so any structurally valid bid succeeds regardless of output amount.
+async function simulateBid(
+	evmRpcUrl: string,
+	solver: string,
+	callData: `0x${string}`,
+	gatewayAddress: string,
+): Promise<boolean> {
+	try {
+		const response = await fetchWithRetry(evmRpcUrl, {
+			method: "POST",
+			headers: { accept: "application/json", "content-type": "application/json" },
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_call",
+				params: [
+					{ from: solver, to: solver, data: callData },
+					"latest",
+					{ [gatewayAddress]: { code: "0x" } },
+					{ number: "0x0" },
+				],
+			}),
+		})
+		const result = await response.json()
+		return !result.error
+	} catch {
+		return false
+	}
+}
+
+async function getTokenBalance(evmRpcUrl: string, token: string, holder: string): Promise<bigint | null> {
+	try {
+		const paddedHolder = holder.replace("0x", "").padStart(64, "0")
+		const data = `0x70a08231${paddedHolder}` as `0x${string}`
+		const response = await fetchWithRetry(evmRpcUrl, {
+			method: "POST",
+			headers: { accept: "application/json", "content-type": "application/json" },
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_call",
+				params: [{ to: token, data }, "latest"],
+			}),
+		})
+		const result = await response.json()
+		if (result.error || !result.result || result.result === "0x") return null
+		return BigInt(result.result)
+	} catch {
+		return null
+	}
+}
+
+// Reads the commitment of the currently active phantom order from storage.
+// The first 32 bytes of the SCALE-encoded value are always the H256 commitment.
+async function getActiveCommitment(blockHash: string): Promise<string | null> {
+	try {
+		const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
+		const rawResult = await api.rpc.state.getStorage(storageKey, blockHash)
+		const hex: string = rawResult.toHex()
+		if (!hex || hex === "0x") return null
+		const bare = hex.replace("0x", "")
+		if (bare.length < 64) return null
+		return "0x" + bare.slice(0, 64)
+	} catch {
+		return null
+	}
+}
+
+function medianOf(values: bigint[]): bigint {
+	const sorted = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+	return sorted[Math.floor(sorted.length / 2)]
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────────
+
+export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Promise<void> => {
+	const blockNumber = event.block.block.header.number.toBigInt()
+	if (blockNumber % 10n !== 0n) return
+	const blockHash = event.block.block.header.hash.toString()
+
+	// Use the storage value to identify the current interval — only its commitment is needed.
+	const activeCommitment = await getActiveCommitment(blockHash)
+	if (!activeCommitment) return
+
+	// The anchor order tells us createdAtBlock, which all pairs in the same interval share.
+	const anchor = await PhantomOrder.get(activeCommitment)
+	if (!anchor) return
+
+	// Fetch every pair registered in the same interval.
+	const phantomOrders = await PhantomOrder.getByCreatedAtBlock(anchor.createdAtBlock, { limit: 100 })
+	if (!phantomOrders.length) return
+
+	const host = getHostStateMachine(chainId)
+	const nodeUrl = replaceWebsocketWithHttp(ENV_CONFIG[host] ?? "")
+	if (!nodeUrl) {
+		logger.warn({ host }, "No RPC URL configured for Hyperbridge node")
+		return
+	}
+
+	const blockTimestamp = await getBlockTimestamp(blockHash, chainId)
+
+	for (const phantom of phantomOrders) {
+		const snapshotId = `${phantom.id}-${blockNumber}`
+		if (await PhantomOrderPriceSnapshot.get(snapshotId)) continue
+
+		let bids: RpcBidInfo[]
+		try {
+			bids = await fetchBidsForOrder(nodeUrl, phantom.id)
+		} catch (err) {
+			logger.warn({ err, commitment: phantom.id }, "intents_getBidsForOrder failed")
+			continue
+		}
+
+		if (bids.length === 0) continue
+
+		const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[phantom.chain] ?? "")
+		const gatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[phantom.chain as keyof typeof INTENT_GATEWAY_V2_ADDRESSES]
+		if (!evmUrl || !gatewayAddress) continue
+
+		const prices: bigint[] = []
+
+		for (const bid of bids) {
+			if (!bid.user_op) continue
+			try {
+				const decoded = PackedUserOperationCodec.dec(hexToU8a(bid.user_op))
+				const callData = bytesToHex(decoded.callData)
+				const solver = bytesToHex(decoded.sender)
+
+				const fillData = extractFillData(callData, gatewayAddress)
+				if (!fillData?.outputs.length) continue
+
+				const output = fillData.outputs[0]
+				const outputAmount = output.amount
+
+				const simOk = await simulateBid(evmUrl, solver, callData, gatewayAddress)
+				if (!simOk) continue
+
+				const tokenAddress = bytes32ToAddress(output.token)
+				const balance = await getTokenBalance(evmUrl, tokenAddress, solver)
+				if (balance === null || balance < outputAmount) continue
+
+				prices.push(outputAmount)
+			} catch (err) {
+				logger.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
+			}
+		}
+
+		if (prices.length === 0) continue
+
+		const sorted = [...prices].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+
+		await PhantomOrderPriceSnapshot.create({
+			id: snapshotId,
+			commitment: phantom.id,
+			blockNumber,
+			lowestPrice: sorted[0],
+			highestPrice: sorted[sorted.length - 1],
+			medianPrice: medianOf(prices),
+			bidCount: prices.length,
+			snapshotTime: timestampToDate(blockTimestamp),
+		}).save()
+
+		logger.info({ commitment: phantom.id, blockNumber, bidCount: prices.length }, "PhantomOrderPriceSnapshot saved")
+	}
+})

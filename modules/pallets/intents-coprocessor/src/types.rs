@@ -22,6 +22,7 @@ use ismp::host::StateMachine;
 use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
+use sp_io;
 
 /// Represents a token and amount pair for cross-chain transfers
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
@@ -213,11 +214,10 @@ pub enum RequestKind {
 }
 
 // Solidity type definitions for cross-chain encoding
-mod sol_types {
+pub(crate) mod sol_types {
 	use alloy_sol_types::sol;
 
 	sol! {
-		/// Solidity representation of Params
 		struct Params {
 			address host;
 			address dispatcher;
@@ -227,48 +227,111 @@ mod sol_types {
 			address priceOracle;
 		}
 
-		/// Solidity representation of DestinationFee
 		struct DestinationFee {
 			uint256 destinationFeeBps;
 			bytes chain;
 		}
 
-		/// Solidity representation of ParamsUpdate
 		struct ParamsUpdate {
 			Params params;
 			DestinationFee[] destinationFees;
 		}
 
-		/// Solidity representation of NewDeployment
 		struct NewDeployment {
 			bytes chain;
 			address gateway;
 		}
 
-		/// Solidity representation of TokenInfo
 		struct TokenInfo {
 			bytes32 token;
 			uint256 amount;
 		}
 
-		/// Solidity representation of SweepDust
+		struct DispatchInfo {
+			TokenInfo[] assets;
+			bytes call;
+		}
+
+		struct PaymentInfo {
+			bytes32 beneficiary;
+			TokenInfo[] assets;
+			bytes call;
+		}
+
+		struct Order {
+			bytes32 user;
+			bytes source;
+			bytes destination;
+			uint256 deadline;
+			uint256 nonce;
+			uint256 fees;
+			address session;
+			DispatchInfo predispatch;
+			TokenInfo[] inputs;
+			PaymentInfo output;
+		}
+
 		struct SweepDust {
 			address beneficiary;
 			TokenInfo[] outputs;
 		}
 
-		/// Solidity representation of TokenDecimal
 		struct TokenDecimal {
 			address token;
 			uint8 decimals;
 		}
 
-		/// Solidity representation of TokenDecimalsUpdate
 		struct TokenDecimalsUpdate {
 			bytes sourceChain;
 			TokenDecimal[] tokens;
 		}
 	}
+}
+
+/// Computes the IntentGatewayV2 commitment for a phantom order. The result is
+/// `keccak256(abi.encode(order))` over a synthetic Order whose source and
+/// destination are both `chain`, deadline is 0, and nonce is the block number.
+/// This matches how the gateway derives commitments on-chain, so filler UserOps
+/// that embed this order can be validated without any special casing.
+pub fn phantom_order_commitment(
+	block: u64,
+	chain: &[u8],
+	token_a: &H160,
+	token_b: &H160,
+	standard_amount: u128,
+	min_output: u128,
+) -> H256 {
+	use alloy_primitives::{Address, Bytes, FixedBytes, U256 as AlloyU256};
+
+	let mut token_a_bytes = [0u8; 32];
+	token_a_bytes[12..].copy_from_slice(token_a.as_bytes());
+	let mut token_b_bytes = [0u8; 32];
+	token_b_bytes[12..].copy_from_slice(token_b.as_bytes());
+
+	let order = sol_types::Order {
+		user: FixedBytes::from([0u8; 32]),
+		source: Bytes::copy_from_slice(chain),
+		destination: Bytes::copy_from_slice(chain),
+		deadline: AlloyU256::ZERO,
+		nonce: AlloyU256::from(block),
+		fees: AlloyU256::ZERO,
+		session: Address::ZERO,
+		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
+		inputs: vec![sol_types::TokenInfo {
+			token: FixedBytes::from(token_a_bytes),
+			amount: AlloyU256::from(standard_amount),
+		}],
+		output: sol_types::PaymentInfo {
+			beneficiary: FixedBytes::from([0u8; 32]),
+			assets: vec![sol_types::TokenInfo {
+				token: FixedBytes::from(token_b_bytes),
+				amount: AlloyU256::from(min_output),
+			}],
+			call: Bytes::new(),
+		},
+	};
+
+	sp_io::hashing::keccak_256(&order.abi_encode()).into()
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {

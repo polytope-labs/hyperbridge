@@ -21,7 +21,8 @@ export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSw
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
-export { handlePhantomBidPlaced } from "@/handlers/events/substrateChains/handlePhantomBidPlaced.handler"
+export { handlePhantomOrderRegistered } from "@/handlers/events/substrateChains/handlePhantomOrderRegistered.handler"
+export { handlePhantomOrderPrices } from "@/handlers/events/substrateChains/handlePhantomOrderPrices.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
 export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/handleRequestEvent.handler"
 export { handleSubstrateResponseEvent } from "@/handlers/events/substrateChains/handleResponseEvent.handler"

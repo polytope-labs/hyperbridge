@@ -39,7 +39,10 @@ use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
 use sp_io::offchain_index;
-use sp_runtime::traits::{ConstU32, Zero};
+use sp_runtime::{
+	traits::{ConstU32, Zero},
+	SaturatedConversion,
+};
 pub use weights::WeightInfo;
 
 use types::{
@@ -174,7 +177,15 @@ pub mod pallet {
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 		/// The runtime generated a new phantom order commitment
-		PhantomOrderRegistered { commitment: H256, chain: Vec<u8>, created_at: BlockNumberFor<T> },
+		PhantomOrderRegistered {
+			commitment: H256,
+			chain: Vec<u8>,
+			created_at: BlockNumberFor<T>,
+			token_a: H160,
+			token_b: H160,
+			standard_amount: u128,
+			min_output: u128,
+		},
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
 		/// The phantom order configuration was updated by governance
@@ -567,6 +578,10 @@ pub mod pallet {
 					commitment,
 					chain: chain_bytes.clone(),
 					created_at: n,
+					token_a: pair.token_a,
+					token_b: pair.token_b,
+					standard_amount: pair.standard_amount,
+					min_output: pair.min_output,
 				});
 			}
 
@@ -611,14 +626,14 @@ pub mod pallet {
 			chain: &[u8],
 			pair: &PhantomTokenPair,
 		) -> H256 {
-			let mut preimage = Vec::new();
-			preimage.extend_from_slice(chain);
-			preimage.extend_from_slice(pair.token_a.as_bytes());
-			preimage.extend_from_slice(pair.token_b.as_bytes());
-			preimage.extend_from_slice(&pair.standard_amount.to_be_bytes());
-			preimage.extend_from_slice(&pair.min_output.to_be_bytes());
-			preimage.extend_from_slice(&block.encode());
-			sp_io::hashing::keccak_256(&preimage).into()
+			types::phantom_order_commitment(
+				block.saturated_into::<u64>(),
+				chain,
+				&pair.token_a,
+				&pair.token_b,
+				pair.standard_amount,
+				pair.min_output,
+			)
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

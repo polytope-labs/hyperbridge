@@ -11,7 +11,7 @@ export type {
 	UniswapV4IntentQuoteOptions,
 	UniswapV4PoolKey,
 } from "./quote"
-export { encodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
+export { encodeERC7821ExecuteBatch, decodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
 	DEFAULT_GRAFFITI,

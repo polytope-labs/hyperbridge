@@ -1,126 +1,16 @@
 import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData, decodeAbiParameters } from "viem"
-import { hexToU8a } from "@polkadot/util"
-import { Struct, Bytes, Vector, u8 } from "scale-ts"
+import { decodeFunctionData } from "viem"
+import { decodeUserOpScale, decodeERC7821ExecuteBatch, IntentGatewayABI, type HexString } from "@hyperbridge/sdk"
 
 import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
 import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
+import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
 import { PhantomOrder, PhantomOrderPriceSnapshot } from "@/configs/src/types"
-
-// ─── ABI definitions ─────────────────────────────────────────────────────────
-
-const ERC7821_ABI = [
-	{
-		name: "execute",
-		type: "function",
-		inputs: [
-			{ name: "mode", type: "bytes32" },
-			{ name: "executionData", type: "bytes" },
-		],
-		outputs: [],
-	},
-] as const
-
-const CALL_COMPONENTS = [
-	{ name: "target", type: "address" },
-	{ name: "value", type: "uint256" },
-	{ name: "data", type: "bytes" },
-] as const
-
-const FILL_ORDER_ABI = [
-	{
-		name: "fillOrder",
-		type: "function",
-		inputs: [
-			{
-				type: "tuple",
-				name: "order",
-				components: [
-					{ type: "bytes32", name: "user" },
-					{ type: "bytes", name: "source" },
-					{ type: "bytes", name: "destination" },
-					{ type: "uint256", name: "deadline" },
-					{ type: "uint256", name: "nonce" },
-					{ type: "uint256", name: "fees" },
-					{ type: "address", name: "session" },
-					{
-						type: "tuple",
-						name: "predispatch",
-						components: [
-							{
-								type: "tuple[]",
-								name: "assets",
-								components: [
-									{ type: "bytes32", name: "token" },
-									{ type: "uint256", name: "amount" },
-								],
-							},
-							{ type: "bytes", name: "call" },
-						],
-					},
-					{
-						type: "tuple[]",
-						name: "inputs",
-						components: [
-							{ type: "bytes32", name: "token" },
-							{ type: "uint256", name: "amount" },
-						],
-					},
-					{
-						type: "tuple",
-						name: "output",
-						components: [
-							{ type: "bytes32", name: "beneficiary" },
-							{
-								type: "tuple[]",
-								name: "assets",
-								components: [
-									{ type: "bytes32", name: "token" },
-									{ type: "uint256", name: "amount" },
-								],
-							},
-							{ type: "bytes", name: "call" },
-						],
-					},
-				],
-			},
-			{
-				type: "tuple",
-				name: "options",
-				components: [
-					{ type: "uint256", name: "relayerFee" },
-					{ type: "uint256", name: "nativeDispatchFee" },
-					{
-						type: "tuple[]",
-						name: "outputs",
-						components: [
-							{ type: "bytes32", name: "token" },
-							{ type: "uint256", name: "amount" },
-						],
-					},
-				],
-			},
-		],
-		outputs: [],
-	},
-] as const
-
-const PackedUserOperationCodec = Struct({
-	sender: Bytes(20),
-	nonce: Bytes(32),
-	initCode: Vector(u8),
-	callData: Vector(u8),
-	accountGasLimits: Bytes(32),
-	preVerificationGas: Bytes(32),
-	gasFees: Bytes(32),
-	paymasterAndData: Vector(u8),
-	signature: Vector(u8),
-})
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -130,50 +20,21 @@ interface RpcBidInfo {
 	user_op: string
 }
 
-interface TokenAmount {
-	token: string
-	amount: bigint
-}
-
 interface FillData {
-	outputs: TokenAmount[]
+	outputs: { token: string; amount: bigint }[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function bytesToHex(bytes: Uint8Array | number[]): `0x${string}` {
-	return `0x${Array.from(bytes)
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("")}` as `0x${string}`
-}
-
-function bytes32ToAddress(bytes32: string): string {
-	return `0x${bytes32.replace("0x", "").slice(24)}`
-}
-
-function decodeERC7821Execute(
-	callData: `0x${string}`,
-): Array<{ target: string; value: bigint; data: `0x${string}` }> | null {
-	try {
-		const decoded = decodeFunctionData({ abi: ERC7821_ABI, data: callData })
-		if (decoded.functionName !== "execute" || !decoded.args || decoded.args.length < 2) return null
-		const executionData = decoded.args[1] as `0x${string}`
-		const [calls] = decodeAbiParameters([{ type: "tuple[]", components: CALL_COMPONENTS }], executionData) as any
-		return calls.map((c: any) => ({ target: c.target as string, value: c.value as bigint, data: c.data as `0x${string}` }))
-	} catch {
-		return null
-	}
-}
-
-function extractFillData(callData: `0x${string}`, gatewayAddress: string): FillData | null {
-	const calls = decodeERC7821Execute(callData)
+function extractFillData(callData: HexString, gatewayAddress: string): FillData | null {
+	const calls = decodeERC7821ExecuteBatch(callData)
 	if (!calls) return null
 
 	const normalized = gatewayAddress.toLowerCase()
 	for (const call of calls) {
 		if (call.target.toLowerCase() !== normalized) continue
 		try {
-			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data })
+			const decoded = decodeFunctionData({ abi: IntentGatewayABI, data: call.data })
 			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
 			const options = decoded.args[1] as { outputs: { token: string; amount: bigint }[] }
 			if (!options.outputs?.length) continue
@@ -320,9 +181,9 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		for (const bid of bids) {
 			if (!bid.user_op) continue
 			try {
-				const decoded = PackedUserOperationCodec.dec(hexToU8a(bid.user_op))
-				const callData = bytesToHex(decoded.callData)
-				const solver = bytesToHex(decoded.sender)
+				const decoded = decodeUserOpScale(bid.user_op as HexString)
+				const callData = decoded.callData
+				const solver = decoded.sender
 
 				const fillData = extractFillData(callData, gatewayAddress)
 				if (!fillData?.outputs.length) continue
@@ -333,7 +194,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 				const simOk = await simulateBid(evmUrl, solver, callData, gatewayAddress)
 				if (!simOk) continue
 
-				const tokenAddress = bytes32ToAddress(output.token)
+				const tokenAddress = bytes32ToBytes20(output.token)
 				const balance = await getTokenBalance(evmUrl, tokenAddress, solver)
 				if (balance === null || balance < outputAmount) continue
 

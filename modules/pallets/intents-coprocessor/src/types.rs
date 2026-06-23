@@ -218,6 +218,7 @@ pub(crate) mod sol_types {
 	use alloy_sol_types::sol;
 
 	sol! {
+		/// Solidity representation of Params
 		struct Params {
 			address host;
 			address dispatcher;
@@ -227,21 +228,25 @@ pub(crate) mod sol_types {
 			address priceOracle;
 		}
 
+		/// Solidity representation of DestinationFee
 		struct DestinationFee {
 			uint256 destinationFeeBps;
 			bytes chain;
 		}
 
+		/// Solidity representation of ParamsUpdate
 		struct ParamsUpdate {
 			Params params;
 			DestinationFee[] destinationFees;
 		}
 
+		/// Solidity representation of NewDeployment
 		struct NewDeployment {
 			bytes chain;
 			address gateway;
 		}
 
+		/// Solidity representation of TokenInfo
 		struct TokenInfo {
 			bytes32 token;
 			uint256 amount;
@@ -276,11 +281,13 @@ pub(crate) mod sol_types {
 			TokenInfo[] outputs;
 		}
 
+		/// Solidity representation of TokenDecimal
 		struct TokenDecimal {
 			address token;
 			uint8 decimals;
 		}
 
+		/// Solidity representation of TokenDecimalsUpdate
 		struct TokenDecimalsUpdate {
 			bytes sourceChain;
 			TokenDecimal[] tokens;

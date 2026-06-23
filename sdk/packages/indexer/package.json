@@ -48,6 +48,7 @@
 		"build:release": "tsx scripts/generate-chain-yamls.ts --skip-rpc && npm run codegen:l2-chains && npm run codegen:subql && ./node_modules/.bin/subql build"
 	},
 	"dependencies": {
+		"@hyperbridge/sdk": "workspace:*",
 		"@ethersproject/abi": "^5.7.0",
 		"@ethersproject/providers": "^5.7.2",
 		"@ethersproject/shims": "^5.7.0",

@@ -375,7 +375,7 @@ impl RequestKind {
 				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
 
 				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
-				body.extend_from_slice(&payload.abi_encode_params());
+				body.extend_from_slice(&payload.abi_encode());
 				body
 			},
 		}

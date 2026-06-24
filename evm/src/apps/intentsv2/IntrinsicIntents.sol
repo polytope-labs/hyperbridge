@@ -75,6 +75,9 @@ abstract contract IntrinsicIntents is IntentsBase {
             uint256 remaining = totalRequired - alreadyFilled;
             if (remaining == 0 || solverAmount == 0) {
                 if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
+                // Record the real tokens (with zero amounts) so emitted events carry token identity.
+                escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: 0});
+                outputFills[i] = TokenInfo({token: outputToken, amount: 0});
                 continue;
             }
             uint256 fillAmount;

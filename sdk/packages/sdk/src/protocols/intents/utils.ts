@@ -1,16 +1,14 @@
-import { encodeFunctionData, encodeAbiParameters, decodeFunctionData, decodeAbiParameters, formatUnits, parseUnits, keccak256 } from "viem"
+import { encodeAbiParameters, formatUnits, parseUnits, keccak256 } from "viem"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import Decimal from "decimal.js"
 import type { Order } from "@/types"
-import type { ERC7821Call } from "@/types"
 import type { HexString } from "@/types"
 import { retryPromise, fetchPrice, normalizeAddressForEvmBytes32, encodeStateMachineId, TESTNET_CHAINS } from "@/utils"
-import ERC7821ABI from "@/abis/erc7281"
-import { ERC7821_BATCH_MODE } from "./types"
 import type { IntentGatewayContext } from "./types"
 import { requestCommitmentKey } from "@/chain"
 import type { IEvmChain } from "@/chain"
 import type { IProof } from "@/chain"
+export { encodeERC7821ExecuteBatch, decodeERC7821ExecuteBatch } from "./decode-utils"
 
 type ContractOrder = Omit<Order, "id" | "source" | "destination"> & {
 	source: HexString
@@ -45,60 +43,6 @@ export async function getFeeToken(
 	const fresh = await chain.getFeeTokenWithDecimals()
 	ctx.feeTokenCache.set(chainId, { ...fresh, cachedAt: Date.now() })
 	return fresh
-}
-
-/**
- * Encodes a list of calls into ERC-7821 `execute` function calldata using
- * single-batch mode.
- *
- * This is a standalone utility that can be used outside of the
- * `IntentGatewayV2` class — for example, by filler strategies that need to
- * build custom batch calldata for combined swap-and-fill operations before
- * submitting a UserOperation.
- *
- * @param calls - Ordered list of calls to batch; each specifies a target
- *   address, ETH value, and calldata.
- * @returns ABI-encoded calldata for the ERC-7821 `execute(bytes32,bytes)` function.
- */
-export function encodeERC7821ExecuteBatch(calls: ERC7821Call[]): HexString {
-	const executionData = encodeAbiParameters(
-		[{ type: "tuple[]", components: ERC7821ABI.ABI[1].components }],
-		[calls.map((call) => ({ target: call.target, value: call.value, data: call.data }))],
-	) as HexString
-
-	return encodeFunctionData({
-		abi: ERC7821ABI.ABI,
-		functionName: "execute",
-		args: [ERC7821_BATCH_MODE, executionData],
-	}) as HexString
-}
-
-/**
- * Decodes ERC-7821 `execute` calldata back into its constituent calls.
- *
- * Returns `null` if the calldata does not match the expected `execute`
- * function signature or cannot be decoded.
- *
- * @param callData - Hex-encoded calldata produced by {@link encodeERC7821ExecuteBatch}.
- * @returns Array of decoded {@link ERC7821Call} objects, or `null` on failure.
- */
-export function decodeERC7821ExecuteBatch(callData: HexString): ERC7821Call[] | null {
-	try {
-		const decoded = decodeFunctionData({ abi: ERC7821ABI.ABI, data: callData })
-		if (decoded.functionName !== "execute" || !decoded.args || decoded.args.length < 2) return null
-		const executionData = decoded.args[1] as HexString
-		const [calls] = decodeAbiParameters(
-			[{ type: "tuple[]", components: ERC7821ABI.ABI[1].components }],
-			executionData,
-		) as [ERC7821Call[]]
-		return calls.map((call) => ({
-			target: call.target as HexString,
-			value: call.value,
-			data: call.data as HexString,
-		}))
-	} catch {
-		return null
-	}
 }
 
 /**

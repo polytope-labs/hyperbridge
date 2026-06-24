@@ -12,10 +12,21 @@
 			"require": "./dist/node/index.cjs",
 			"default": "./dist/node/index.js"
 		},
+		"./intents-helpers": {
+			"types": "./dist/node/intents-helpers.d.ts",
+			"import": "./dist/node/intents-helpers.js",
+			"require": "./dist/node/intents-helpers.cjs",
+			"default": "./dist/node/intents-helpers.js"
+		},
 		"./plugins/vite": {
 			"types": "./plugins/vite.d.ts",
 			"import": "./plugins/vite.js",
 			"default": "./plugins/vite.js"
+		}
+	},
+	"typesVersions": {
+		"*": {
+			"intents-helpers": ["./dist/node/intents-helpers.d.ts"]
 		}
 	},
 	"files": [

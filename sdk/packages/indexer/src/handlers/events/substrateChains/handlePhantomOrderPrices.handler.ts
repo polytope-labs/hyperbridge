@@ -1,7 +1,6 @@
 import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData, decodeAbiParameters, keccak256, concat, toHex } from "viem"
-import { hexToU8a, u8aToHex } from "@polkadot/util"
-import { Bytes, Struct, u8, Vector } from "scale-ts"
+import { decodeFunctionData, keccak256, concat, toHex } from "viem"
+import { decodeERC7821ExecuteBatch, decodeUserOpScale, IntentGatewayV2 } from "@hyperbridge/sdk/intents-helpers"
 import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
@@ -13,99 +12,9 @@ import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
 
-// ─── Inlined SDK helpers (avoids bundling TronWeb which crashes in SubQuery VM2) ─
-
 type HexString = `0x${string}`
 
-const PackedUserOperationCodec = Struct({
-	sender: Bytes(20),
-	nonce: Bytes(32),
-	initCode: Vector(u8),
-	callData: Vector(u8),
-	accountGasLimits: Bytes(32),
-	preVerificationGas: Bytes(32),
-	gasFees: Bytes(32),
-	paymasterAndData: Vector(u8),
-	signature: Vector(u8),
-})
-
-function decodeUserOpScale(hex: string): { sender: string; callData: string } {
-	const d = PackedUserOperationCodec.dec(hexToU8a(hex))
-	return {
-		sender: u8aToHex(new Uint8Array(d.sender)),
-		callData: u8aToHex(new Uint8Array(d.callData)),
-	}
-}
-
-const ERC7821_ABI = [
-	{ name: "execute", type: "function", inputs: [{ name: "mode", type: "bytes32" }, { name: "executionData", type: "bytes" }], outputs: [] },
-] as const
-
-function decodeERC7821ExecuteBatch(callData: string): Array<{ target: string; value: bigint; data: string }> | null {
-	try {
-		const decoded = decodeFunctionData({ abi: ERC7821_ABI, data: callData as HexString })
-		if (decoded.functionName !== "execute" || !decoded.args || decoded.args.length < 2) return null
-		const executionData = decoded.args[1] as HexString
-		const [calls] = decodeAbiParameters(
-			[{ type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }] }],
-			executionData,
-		) as [Array<{ target: string; value: bigint; data: string }>]
-		return calls.map((c) => ({ target: c.target, value: c.value, data: c.data }))
-	} catch {
-		return null
-	}
-}
-
-// fillOrder(Order order, FillOptions options) — only the outputs field from FillOptions is needed
-const FILL_ORDER_ABI = [
-	{
-		name: "fillOrder",
-		type: "function",
-		inputs: [
-			{
-				name: "order",
-				type: "tuple",
-				components: [
-					{ name: "user", type: "bytes32" },
-					{ name: "source", type: "bytes" },
-					{ name: "destination", type: "bytes" },
-					{ name: "deadline", type: "uint256" },
-					{ name: "nonce", type: "uint256" },
-					{ name: "fees", type: "uint256" },
-					{ name: "session", type: "address" },
-					{
-						name: "predispatch",
-						type: "tuple",
-						components: [
-							{ name: "assets", type: "tuple[]", components: [{ name: "token", type: "bytes32" }, { name: "amount", type: "uint256" }] },
-							{ name: "call", type: "bytes" },
-						],
-					},
-					{ name: "inputs", type: "tuple[]", components: [{ name: "token", type: "bytes32" }, { name: "amount", type: "uint256" }] },
-					{
-						name: "output",
-						type: "tuple",
-						components: [
-							{ name: "beneficiary", type: "bytes32" },
-							{ name: "assets", type: "tuple[]", components: [{ name: "token", type: "bytes32" }, { name: "amount", type: "uint256" }] },
-							{ name: "call", type: "bytes" },
-						],
-					},
-				],
-			},
-			{
-				name: "options",
-				type: "tuple",
-				components: [
-					{ name: "outputs", type: "tuple[]", components: [{ name: "token", type: "bytes32" }, { name: "amount", type: "uint256" }] },
-					{ name: "nativeDispatchFee", type: "uint256" },
-					{ name: "proverData", type: "bytes" },
-				],
-			},
-		],
-		outputs: [],
-	},
-] as const
+const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
 // Computes the EVM storage slot for _orders[commitment][inputToken] in IntentGatewayV2.
 // _orders is a mapping(bytes32 => mapping(address => uint256)) at storage slot 10.
@@ -358,7 +267,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		for (const bid of bids) {
 			if (!bid.user_op) continue
 			try {
-				const decoded = decodeUserOpScale(bid.user_op)
+				const decoded = decodeUserOpScale(bid.user_op as HexString)
 				const callData = decoded.callData as HexString
 				const solver = decoded.sender
 

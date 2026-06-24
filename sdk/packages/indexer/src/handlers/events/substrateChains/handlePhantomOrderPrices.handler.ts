@@ -1,5 +1,5 @@
-import { SubstrateEvent } from "@subql/types"
-import { decodeFunctionData, keccak256, concat, toHex } from "viem"
+import { SubstrateBlock } from "@subql/types"
+import { decodeFunctionData, encodeFunctionData, encodeAbiParameters, keccak256, concat, toHex } from "viem"
 import { decodeERC7821ExecuteBatch, decodeUserOpScale, IntentGatewayV2 } from "@hyperbridge/sdk/intents-helpers"
 import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
@@ -10,23 +10,21 @@ import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
+import { TOKEN_EQUIVALENCES } from "@/token-equivalences"
+import { getActiveIntervalCommitments } from "@/active-phantom-interval"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
 
 type HexString = `0x${string}`
 
 const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
-// Computes the EVM storage slot for _orders[commitment][inputToken] in IntentGatewayV2.
-// _orders is a mapping(bytes32 => mapping(address => uint256)) at storage slot 10.
-// inputTokenBytes32 is the bytes32 token field from the order (address left-padded to 32 bytes),
-// which is identical to the abi.encode(address) key Solidity uses for the inner mapping.
+// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 10.
+// inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
 function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {
 	const ORDERS_SLOT = BigInt(10)
 	const innerSlot = keccak256(concat([commitment, toHex(ORDERS_SLOT, { size: 32 })]))
 	return keccak256(concat([inputTokenBytes32, innerSlot]))
 }
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface RpcBidInfo {
 	commitment: string
@@ -35,11 +33,11 @@ interface RpcBidInfo {
 }
 
 interface FillData {
-	outputs: { token: string; amount: bigint }[]
-	fillCalldata: HexString
+	order: Record<string, unknown>
+	options: { relayerFee: bigint; nativeDispatchFee: bigint; outputs: { token: HexString; amount: bigint }[] }
+	outputToken: HexString
+	solverAmount: bigint
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function extractFillData(callData: HexString, gatewayAddress: string): FillData | null {
 	const calls = decodeERC7821ExecuteBatch(callData)
@@ -51,12 +49,16 @@ function extractFillData(callData: HexString, gatewayAddress: string): FillData 
 		try {
 			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data as HexString })
 			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
-			const options = decoded.args[1] as unknown as { outputs: { token: string; amount: bigint }[] }
-			if (!options.outputs?.length) continue
-			return {
-				outputs: options.outputs.map((o) => ({ token: o.token as string, amount: o.amount })),
-				fillCalldata: call.data as HexString,
+			const order = decoded.args[0] as unknown as Record<string, unknown>
+			const options = decoded.args[1] as unknown as {
+				relayerFee: bigint
+				nativeDispatchFee: bigint
+				outputs: { token: HexString; amount: bigint }[]
 			}
+			if (!options.outputs?.length) continue
+			const outputToken = (order.output as { assets: { token: HexString }[] }).assets?.[0]?.token
+			if (!outputToken) continue
+			return { order, options, outputToken, solverAmount: options.outputs[0].amount }
 		} catch {
 			continue
 		}
@@ -74,22 +76,75 @@ async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<R
 	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
-// Simulates a fillOrder call from the solver on the IntentGatewayV2.
-// Block number is overridden to 0 so the deadline check (deadline < block.number)
-// always passes for any non-zero deadline. The _orders[commitment][inputToken]
-// storage slot is injected via state diff so the gateway sees the phantom escrow
-// and releases it to the solver on success.
+// Verifies the solver can deliver solverAmount of the output token by simulating fillOrder via eth_call.
+// The order is modified to force same-chain routing (source = destination) and set the solver as
+// beneficiary, so safeTransferFrom(solver → solver) validates their balance and allowance in place.
+// The commitment is recomputed from the modified order and all required storage slots are injected
+// via stateDiff. Block number is overridden to 0 so deadline checks always pass.
 async function simulateBid(
 	evmRpcUrl: string,
 	solver: string,
-	fillCalldata: HexString,
+	fillData: FillData,
 	gatewayAddress: string,
-	commitment: string,
 	inputTokenBytes32: HexString,
 	inputAmount: bigint,
 ): Promise<boolean> {
 	try {
-		const storageSlot = ordersStorageSlot(commitment as HexString, inputTokenBytes32)
+		const { order, options, outputToken, solverAmount } = fillData
+
+		const inputTokenAddress = bytes32ToBytes20(inputTokenBytes32)
+		const outputTokenAddress = bytes32ToBytes20(outputToken)
+		const solverPadded = toHex(BigInt(solver), { size: 32 })
+		const MAX_UINT256 = 2n ** 256n - 1n
+
+		// OZ ERC-20 storage layout: _balances at slot 0, _allowances at slot 1.
+		const balanceSlot = (owner: string): HexString =>
+			keccak256(concat([toHex(BigInt(owner), { size: 32 }), toHex(0n, { size: 32 })]))
+		const allowanceSlot = (owner: string, spender: string): HexString => {
+			const inner = keccak256(concat([toHex(BigInt(owner), { size: 32 }), toHex(1n, { size: 32 })]))
+			return keccak256(concat([toHex(BigInt(spender), { size: 32 }), inner]))
+		}
+
+		const outputInfo = order.output as {
+			beneficiary: HexString
+			assets: { token: HexString; amount: bigint }[]
+			call: HexString
+		}
+
+		const modifiedOrder = {
+			...order,
+			source: (order as { destination: HexString }).destination,
+			session: "0x0000000000000000000000000000000000000000",
+			output: {
+				...outputInfo,
+				beneficiary: solverPadded,
+				assets: outputInfo.assets.map((asset, i) => ({
+					...asset,
+					amount: i === 0 ? solverAmount : asset.amount,
+				})),
+				call: "0x",
+			},
+		}
+
+		const fillOrderAbi = FILL_ORDER_ABI.find(
+			(item): item is typeof item & { type: "function"; name: string; inputs: readonly unknown[] } =>
+				item.type === "function" && "name" in item && item.name === "fillOrder",
+		)
+		if (!fillOrderAbi) return false
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const newFillCalldata = (encodeFunctionData as any)({
+			abi: FILL_ORDER_ABI,
+			functionName: "fillOrder",
+			args: [modifiedOrder, options],
+		}) as HexString
+
+		const orderAbiType = (fillOrderAbi as { inputs: readonly unknown[] }).inputs[0]
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const newCommitment = keccak256((encodeAbiParameters as any)([orderAbiType], [modifiedOrder])) as HexString
+
+		const escrowSlot = ordersStorageSlot(newCommitment, inputTokenBytes32)
+
 		const response = await fetchWithRetry(evmRpcUrl, {
 			method: "POST",
 			headers: { accept: "application/json", "content-type": "application/json" },
@@ -98,12 +153,28 @@ async function simulateBid(
 				jsonrpc: "2.0",
 				method: "eth_call",
 				params: [
-					{ from: solver, to: gatewayAddress, data: fillCalldata },
+					{ from: solver, to: gatewayAddress, data: newFillCalldata },
 					"latest",
 					{
 						[gatewayAddress]: {
 							stateDiff: {
-								[storageSlot]: toHex(inputAmount, { size: 32 }),
+								// slot 5 holds dispatcher + solverSelection — zeroing both avoids the tload selection check
+								[toHex(5n, { size: 32 })]: toHex(0n, { size: 32 }),
+								// slot 8 is priceOracle — zero skips the recordSpread call
+								[toHex(8n, { size: 32 })]: toHex(0n, { size: 32 }),
+								[escrowSlot]: toHex(inputAmount, { size: 32 }),
+							},
+						},
+						[inputTokenAddress]: {
+							stateDiff: {
+								// gateway needs a balance so _withdraw's safeTransfer to the solver succeeds
+								[balanceSlot(gatewayAddress)]: toHex(inputAmount, { size: 32 }),
+							},
+						},
+						[outputTokenAddress]: {
+							stateDiff: {
+								// the batch-level ERC-20 approve is dropped when extractFillData unwraps the inner call
+								[allowanceSlot(solver, gatewayAddress)]: toHex(MAX_UINT256, { size: 32 }),
 							},
 						},
 					},
@@ -140,11 +211,10 @@ async function getTokenBalance(evmRpcUrl: string, token: string, holder: string)
 	}
 }
 
-// Calls ERC-4626 maxWithdraw(owner) to get the solver's redeemable balance from a vault.
 async function getVaultBalance(evmRpcUrl: string, vault: string, owner: string): Promise<bigint> {
 	try {
 		const paddedOwner = owner.replace("0x", "").padStart(64, "0")
-		// maxWithdraw(address owner) → bytes4 selector ce96cb77
+		// maxWithdraw(address) selector
 		const data = `0xce96cb77${paddedOwner}` as HexString
 		const response = await fetchWithRetry(evmRpcUrl, {
 			method: "POST",
@@ -164,8 +234,6 @@ async function getVaultBalance(evmRpcUrl: string, vault: string, owner: string):
 	}
 }
 
-// Returns raw ERC-20 balance plus total redeemable from all configured yield vaults
-// for the given token on the given chain.
 async function getTotalSolverBalance(
 	evmRpcUrl: string,
 	chain: string,
@@ -179,23 +247,29 @@ async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
-// Sums the solver's balance of the output token across ALL configured EVM chains.
-// Uses the same token address on every chain
-// Returns 0 for chains where the token address does not exist.
-async function getTotalSolverBalanceAllChains(outputTokenAddress: string, solver: string): Promise<bigint> {
+// Uses TOKEN_EQUIVALENCES to resolve the per-chain address for the output token before summing.
+// Chains with no mapping are skipped rather than queried with the wrong address.
+async function getTotalSolverBalanceAllChains(
+	destinationChain: string,
+	outputTokenAddress: string,
+	solver: string,
+): Promise<bigint> {
+	const tokenLower = outputTokenAddress.toLowerCase()
+	const chainMap = TOKEN_EQUIVALENCES[destinationChain]?.[tokenLower] ?? {}
+
 	const checks = Object.entries(ENV_CONFIG)
 		.filter(([chain]) => chain.startsWith("EVM-"))
 		.map(async ([chain, url]) => {
 			const evmRpcUrl = replaceWebsocketWithHttp(url ?? "")
 			if (!evmRpcUrl) return 0n
-			return getTotalSolverBalance(evmRpcUrl, chain, outputTokenAddress, solver)
+			const tokenAddress = chain === destinationChain ? outputTokenAddress : chainMap[chain]
+			if (!tokenAddress) return 0n
+			return getTotalSolverBalance(evmRpcUrl, chain, tokenAddress, solver)
 		})
 	const balances = await Promise.all(checks)
 	return balances.reduce((acc, b) => acc + b, 0n)
 }
 
-// Reads the commitment of the currently active phantom order from storage.
-// The first 32 bytes of the SCALE-encoded value are always the H256 commitment.
 async function getActiveCommitment(blockHash: string): Promise<string | null> {
 	try {
 		const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
@@ -210,28 +284,33 @@ async function getActiveCommitment(blockHash: string): Promise<string | null> {
 	}
 }
 
+// Returns the upper-middle element for even-length arrays rather than averaging the two midpoints.
 function medianOf(values: bigint[]): bigint {
 	const sorted = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 	return sorted[Math.floor(sorted.length / 2)]
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
+export const handlePhantomOrderPrices = wrap(async (event: SubstrateBlock): Promise<void> => {
+	const blockNumber = event.block.header.number.toBigInt()
+	const blockHash = event.block.header.hash.toString()
 
-export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Promise<void> => {
-	const blockNumber = event.block.block.header.number.toBigInt()
-	if (blockNumber % 10n !== 0n) return
-	const blockHash = event.block.block.header.hash.toString()
+	// Use the in-session set when available — it covers every pair in the interval, not just the
+	// last one written to currentPhantomOrder. Falls back to chain-state after a restart.
+	const { commitments: activeCommitments } = getActiveIntervalCommitments()
 
-	// Use the storage value to identify the current interval — only its commitment is needed.
-	const activeCommitment = await getActiveCommitment(blockHash)
-	if (!activeCommitment) return
+	let phantomOrders: PhantomOrder[]
+	if (activeCommitments.size > 0) {
+		phantomOrders = (
+			await Promise.all([...activeCommitments].map((c) => PhantomOrder.get(c)))
+		).filter((o): o is PhantomOrder => o !== null)
+	} else {
+		const activeCommitment = await getActiveCommitment(blockHash)
+		if (!activeCommitment) return
+		const anchor = await PhantomOrder.get(activeCommitment)
+		if (!anchor) return
+		phantomOrders = await PhantomOrder.getByCreatedAtBlock(anchor.createdAtBlock, { limit: 100 })
+	}
 
-	// The anchor order tells us createdAtBlock, which all pairs in the same interval share.
-	const anchor = await PhantomOrder.get(activeCommitment)
-	if (!anchor) return
-
-	// Fetch every pair registered in the same interval.
-	const phantomOrders = await PhantomOrder.getByCreatedAtBlock(anchor.createdAtBlock, { limit: 100 })
 	if (!phantomOrders.length) return
 
 	const host = getHostStateMachine(chainId)
@@ -272,24 +351,22 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 				const solver = decoded.sender
 
 				const fillData = extractFillData(callData, gatewayAddress)
-				if (!fillData?.outputs.length) continue
+				if (!fillData) continue
 
 				const simOk = await simulateBid(
 					evmUrl,
 					solver,
-					fillData.fillCalldata,
+					fillData,
 					gatewayAddress,
-					phantom.id,
 					phantom.tokenA as HexString,
 					BigInt(phantom.standardAmount.toString()),
 				)
 				if (!simOk) continue
 
-				const output = fillData.outputs[0]
-				const outputTokenAddress = bytes32ToBytes20(output.token)
-				const totalBalance = await getTotalSolverBalanceAllChains(outputTokenAddress, solver)
+				const outputTokenAddress = bytes32ToBytes20(fillData.outputToken)
+				const totalBalance = await getTotalSolverBalanceAllChains(phantom.chain, outputTokenAddress, solver)
 
-				prices.push(output.amount)
+				prices.push(fillData.solverAmount)
 				if (totalBalance > bestLpBalance) bestLpBalance = totalBalance
 
 				await PhantomOrderLpBalance.create({

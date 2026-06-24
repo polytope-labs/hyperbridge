@@ -5,6 +5,7 @@ import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
 import { PhantomOrder } from "@/configs/src/types"
+import { registerPhantomCommitment } from "@/active-phantom-interval"
 
 export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): Promise<void> => {
 	const [commitmentData, chainData, createdAtData, tokenAData, tokenBData, standardAmountData] =
@@ -32,6 +33,8 @@ export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): 
 		createdAtBlock,
 		blockTimestamp: timestampToDate(blockTimestamp),
 	}).save()
+
+	registerPhantomCommitment(commitment, createdAtBlock)
 
 	logger.info({ commitment, chain, tokenA, tokenB }, "PhantomOrder indexed")
 })

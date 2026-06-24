@@ -44,6 +44,7 @@ export class IntentFiller {
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
 	private phantomUnsubscribe: (() => void) | null = null
+	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -722,16 +723,17 @@ export class IntentFiller {
 		this.enqueueRetraction(commitment)
 	}
 
-	private enqueueRetraction(commitment: HexString): void {
+	// trackInStorage controls whether bidStorage is updated — phantom bids aren't tracked there.
+	private enqueueRetraction(commitment: HexString, trackInStorage = true): void {
 		this.retractionQueue.add(async () => {
 			try {
-				this.logger.info({ commitment }, "Retracting bid after on-chain OrderFilled")
-
+				this.logger.info({ commitment }, "Retracting bid")
 				const coprocessor = await this.hyperbridge!
 				const result = await coprocessor.retractBid(commitment)
-
 				if (result.success) {
-					this.bidStorage!.markBidAsRetracted(commitment, result.extrinsicHash as HexString)
+					if (trackInStorage && this.bidStorage) {
+						this.bidStorage.markBidAsRetracted(commitment, result.extrinsicHash as HexString)
+					}
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else {
 					this.logger.error({ commitment, error: result.error }, "Failed to retract bid")
@@ -795,18 +797,27 @@ export class IntentFiller {
 		const solverAccountAddress = this.signer.account.address as HexString
 
 		try {
-			const { commitment, userOp } = await this.contractService.preparePhantomBidUserOp(
+			const { userOp } = await this.contractService.preparePhantomBidUserOp(
 				phantomOrder,
 				entryPointAddress,
 				solverAccountAddress,
 				fillerOutputs,
 			)
 
-			const result = await coprocessor.submitBid(commitment, userOp)
+			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
+			if (prevCommitment && prevCommitment !== event.commitment) {
+				// Retract the previous bid so its deposit is reclaimed before the new interval starts.
+				this.enqueueRetraction(prevCommitment, false)
+			}
+
+			// Use event.commitment directly — re-deriving it from the decoded order risks parity
+			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
+			const result = await coprocessor.submitBid(event.commitment, userOp)
 			if (result.success) {
-				this.logger.info({ commitment, chain: event.chain }, "Phantom bid submitted")
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
+				this.logger.info({ commitment: event.commitment, chain: event.chain }, "Phantom bid submitted")
 			} else {
-				this.logger.warn({ commitment, chain: event.chain, error: result.error }, "Phantom bid rejected")
+				this.logger.warn({ commitment: event.commitment, chain: event.chain, error: result.error }, "Phantom bid rejected")
 			}
 		} catch (err) {
 			this.logger.error({ err, chain: event.chain }, "Failed to prepare or submit phantom bid")

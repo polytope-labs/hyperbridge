@@ -10,21 +10,16 @@ import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
-import { TOKEN_EQUIVALENCES } from "@/token-equivalences"
-import { getActiveIntervalCommitments } from "@/active-phantom-interval"
+import { TOKEN_SLOT_OVERRIDES } from "@/token-slot-overrides"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
+
+// Maps a token on its destination chain to equivalent addresses on other chains for cross-chain
+// LP balance aggregation. Chains with no entry for a given token are skipped.
+const TOKEN_EQUIVALENCES: Record<string, Record<string, Record<string, string>>> = {}
 
 type HexString = `0x${string}`
 
 const FILL_ORDER_ABI = IntentGatewayV2.ABI
-
-// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 10.
-// inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
-function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {
-	const ORDERS_SLOT = BigInt(10)
-	const innerSlot = keccak256(concat([commitment, toHex(ORDERS_SLOT, { size: 32 })]))
-	return keccak256(concat([inputTokenBytes32, innerSlot]))
-}
 
 interface RpcBidInfo {
 	commitment: string
@@ -34,9 +29,31 @@ interface RpcBidInfo {
 
 interface FillData {
 	order: Record<string, unknown>
-	options: { relayerFee: bigint; nativeDispatchFee: bigint; outputs: { token: HexString; amount: bigint }[] }
+	options: Record<string, unknown>
 	outputToken: HexString
 	solverAmount: bigint
+}
+
+function tokenSlots(address: string): { balanceSlot: bigint; allowanceSlot: bigint } {
+	return TOKEN_SLOT_OVERRIDES[address.toLowerCase()] ?? { balanceSlot: 0n, allowanceSlot: 1n }
+}
+
+// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 10.
+// inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
+// NOTE: If PR #988 (removes _admin from IntentGatewayV2) merges first, _orders shifts to slot 9.
+function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {
+	const innerSlot = keccak256(concat([commitment, toHex(10n, { size: 32 })]))
+	return keccak256(concat([inputTokenBytes32, innerSlot]))
+}
+
+function erc20BalanceSlot(holder: HexString, slot: bigint): HexString {
+	return keccak256(concat([toHex(BigInt(holder), { size: 32 }), toHex(slot, { size: 32 })]))
+}
+
+// _allowances[owner][spender]: inner slot keys on owner, outer on spender.
+function erc20AllowanceSlot(owner: HexString, spender: HexString, slot: bigint): HexString {
+	const innerSlot = keccak256(concat([toHex(BigInt(owner), { size: 32 }), toHex(slot, { size: 32 })]))
+	return keccak256(concat([toHex(BigInt(spender), { size: 32 }), innerSlot]))
 }
 
 function extractFillData(callData: HexString, gatewayAddress: string): FillData | null {
@@ -49,16 +66,14 @@ function extractFillData(callData: HexString, gatewayAddress: string): FillData 
 		try {
 			const decoded = decodeFunctionData({ abi: FILL_ORDER_ABI, data: call.data as HexString })
 			if (decoded.functionName !== "fillOrder" || !decoded.args || decoded.args.length < 2) continue
-			const order = decoded.args[0] as unknown as Record<string, unknown>
-			const options = decoded.args[1] as unknown as {
-				relayerFee: bigint
-				nativeDispatchFee: bigint
-				outputs: { token: HexString; amount: bigint }[]
-			}
-			if (!options.outputs?.length) continue
-			const outputToken = (order.output as { assets: { token: HexString }[] }).assets?.[0]?.token
-			if (!outputToken) continue
-			return { order, options, outputToken, solverAmount: options.outputs[0].amount }
+			const order = decoded.args[0] as Record<string, unknown>
+			const options = decoded.args[1] as Record<string, unknown>
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const outputToken = (order as any)?.output?.assets?.[0]?.token as HexString | undefined
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const outputs = (options as any)?.outputs as { amount: bigint }[] | undefined
+			if (!outputToken || !outputs?.length) continue
+			return { order, options, outputToken, solverAmount: outputs[0].amount }
 		} catch {
 			continue
 		}
@@ -66,21 +81,6 @@ function extractFillData(callData: HexString, gatewayAddress: string): FillData 
 	return null
 }
 
-async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<RpcBidInfo[]> {
-	const response = await fetchWithRetry(nodeUrl, {
-		method: "POST",
-		headers: { accept: "application/json", "content-type": "application/json" },
-		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "intents_getBidsForOrder", params: [commitment] }),
-	})
-	const data = await response.json()
-	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
-}
-
-// Verifies the solver can deliver solverAmount of the output token by simulating fillOrder via eth_call.
-// The order is modified to force same-chain routing (source = destination) and set the solver as
-// beneficiary, so safeTransferFrom(solver → solver) validates their balance and allowance in place.
-// The commitment is recomputed from the modified order and all required storage slots are injected
-// via stateDiff. Block number is overridden to 0 so deadline checks always pass.
 async function simulateBid(
 	evmRpcUrl: string,
 	solver: string,
@@ -92,58 +92,55 @@ async function simulateBid(
 	try {
 		const { order, options, outputToken, solverAmount } = fillData
 
-		const inputTokenAddress = bytes32ToBytes20(inputTokenBytes32)
-		const outputTokenAddress = bytes32ToBytes20(outputToken)
-		const solverPadded = toHex(BigInt(solver), { size: 32 })
-		const MAX_UINT256 = 2n ** 256n - 1n
+		// Route through _fillSameChain to avoid live ISMP dispatch and disable the price oracle.
+		const modifiedOrder = { ...order, source: order.destination, session: 0n }
 
-		// OZ ERC-20 storage layout: _balances at slot 0, _allowances at slot 1.
-		const balanceSlot = (owner: string): HexString =>
-			keccak256(concat([toHex(BigInt(owner), { size: 32 }), toHex(0n, { size: 32 })]))
-		const allowanceSlot = (owner: string, spender: string): HexString => {
-			const inner = keccak256(concat([toHex(BigInt(owner), { size: 32 }), toHex(1n, { size: 32 })]))
-			return keccak256(concat([toHex(BigInt(spender), { size: 32 }), inner]))
-		}
+		// Recompute the commitment for the modified order so the escrow injection keys correctly.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const orderType = (FILL_ORDER_ABI as unknown as any[]).find((f) => f.name === "fillOrder")?.inputs?.[0]
+		if (!orderType) return false
 
-		const outputInfo = order.output as {
-			beneficiary: HexString
-			assets: { token: HexString; amount: bigint }[]
-			call: HexString
-		}
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const newCommitment = keccak256((encodeAbiParameters as any)([orderType], [modifiedOrder])) as HexString
 
-		const modifiedOrder = {
-			...order,
-			source: (order as { destination: HexString }).destination,
-			session: "0x0000000000000000000000000000000000000000",
-			output: {
-				...outputInfo,
-				beneficiary: solverPadded,
-				assets: outputInfo.assets.map((asset, i) => ({
-					...asset,
-					amount: i === 0 ? solverAmount : asset.amount,
-				})),
-				call: "0x",
+		const outputTokenAddress = bytes32ToBytes20(outputToken) as HexString
+		const inputTokenAddress = bytes32ToBytes20(inputTokenBytes32) as HexString
+		const inputSlots = tokenSlots(inputTokenAddress)
+		const outputSlots = tokenSlots(outputTokenAddress)
+
+		const stateDiff = {
+			[gatewayAddress]: {
+				stateDiff: {
+					// Phantom escrow: _orders[newCommitment][inputToken] = inputAmount
+					[ordersStorageSlot(newCommitment, inputTokenBytes32)]: toHex(inputAmount, { size: 32 }),
+					// Disable solver selection and price oracle
+					[toHex(5n, { size: 32 })]: toHex(0n, { size: 32 }),
+					[toHex(8n, { size: 32 })]: toHex(0n, { size: 32 }),
+				},
+			},
+			[inputTokenAddress]: {
+				stateDiff: {
+					// Gateway must hold inputAmount to release to the solver via _withdraw.
+					[erc20BalanceSlot(gatewayAddress as HexString, inputSlots.balanceSlot)]: toHex(inputAmount, {
+						size: 32,
+					}),
+				},
+			},
+			[outputTokenAddress]: {
+				stateDiff: {
+					// Solver must have approved the gateway to pull solverAmount of the output token.
+					[erc20AllowanceSlot(solver as HexString, gatewayAddress as HexString, outputSlots.allowanceSlot)]:
+						toHex(solverAmount, { size: 32 }),
+				},
 			},
 		}
 
-		const fillOrderAbi = FILL_ORDER_ABI.find(
-			(item): item is typeof item & { type: "function"; name: string; inputs: readonly unknown[] } =>
-				item.type === "function" && "name" in item && item.name === "fillOrder",
-		)
-		if (!fillOrderAbi) return false
-
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const newFillCalldata = (encodeFunctionData as any)({
+		const callData = (encodeFunctionData as any)({
 			abi: FILL_ORDER_ABI,
 			functionName: "fillOrder",
 			args: [modifiedOrder, options],
-		}) as HexString
-
-		const orderAbiType = (fillOrderAbi as { inputs: readonly unknown[] }).inputs[0]
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const newCommitment = keccak256((encodeAbiParameters as any)([orderAbiType], [modifiedOrder])) as HexString
-
-		const escrowSlot = ordersStorageSlot(newCommitment, inputTokenBytes32)
+		})
 
 		const response = await fetchWithRetry(evmRpcUrl, {
 			method: "POST",
@@ -152,34 +149,7 @@ async function simulateBid(
 				id: 1,
 				jsonrpc: "2.0",
 				method: "eth_call",
-				params: [
-					{ from: solver, to: gatewayAddress, data: newFillCalldata },
-					"latest",
-					{
-						[gatewayAddress]: {
-							stateDiff: {
-								// slot 5 holds dispatcher + solverSelection — zeroing both avoids the tload selection check
-								[toHex(5n, { size: 32 })]: toHex(0n, { size: 32 }),
-								// slot 8 is priceOracle — zero skips the recordSpread call
-								[toHex(8n, { size: 32 })]: toHex(0n, { size: 32 }),
-								[escrowSlot]: toHex(inputAmount, { size: 32 }),
-							},
-						},
-						[inputTokenAddress]: {
-							stateDiff: {
-								// gateway needs a balance so _withdraw's safeTransfer to the solver succeeds
-								[balanceSlot(gatewayAddress)]: toHex(inputAmount, { size: 32 }),
-							},
-						},
-						[outputTokenAddress]: {
-							stateDiff: {
-								// the batch-level ERC-20 approve is dropped when extractFillData unwraps the inner call
-								[allowanceSlot(solver, gatewayAddress)]: toHex(MAX_UINT256, { size: 32 }),
-							},
-						},
-					},
-					{ number: toHex(0n) },
-				],
+				params: [{ from: solver, to: gatewayAddress, data: callData }, "latest", stateDiff],
 			}),
 		})
 		const result = await response.json()
@@ -187,6 +157,16 @@ async function simulateBid(
 	} catch {
 		return false
 	}
+}
+
+async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<RpcBidInfo[]> {
+	const response = await fetchWithRetry(nodeUrl, {
+		method: "POST",
+		headers: { accept: "application/json", "content-type": "application/json" },
+		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "intents_getBidsForOrder", params: [commitment] }),
+	})
+	const data = await response.json()
+	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
 async function getTokenBalance(evmRpcUrl: string, token: string, holder: string): Promise<bigint> {
@@ -270,6 +250,7 @@ async function getTotalSolverBalanceAllChains(
 	return balances.reduce((acc, b) => acc + b, 0n)
 }
 
+// The first 32 bytes of the SCALE-encoded currentPhantomOrder value are the H256 commitment.
 async function getActiveCommitment(blockHash: string): Promise<string | null> {
 	try {
 		const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
@@ -294,23 +275,13 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateBlock): Prom
 	const blockNumber = event.block.header.number.toBigInt()
 	const blockHash = event.block.header.hash.toString()
 
-	// Use the in-session set when available — it covers every pair in the interval, not just the
-	// last one written to currentPhantomOrder. Falls back to chain-state after a restart.
-	const { commitments: activeCommitments } = getActiveIntervalCommitments()
+	const activeCommitment = await getActiveCommitment(blockHash)
+	if (!activeCommitment) return
 
-	let phantomOrders: PhantomOrder[]
-	if (activeCommitments.size > 0) {
-		phantomOrders = (
-			await Promise.all([...activeCommitments].map((c) => PhantomOrder.get(c)))
-		).filter((o): o is PhantomOrder => o !== null)
-	} else {
-		const activeCommitment = await getActiveCommitment(blockHash)
-		if (!activeCommitment) return
-		const anchor = await PhantomOrder.get(activeCommitment)
-		if (!anchor) return
-		phantomOrders = await PhantomOrder.getByCreatedAtBlock(anchor.createdAtBlock, { limit: 100 })
-	}
+	const anchor = await PhantomOrder.get(activeCommitment)
+	if (!anchor) return
 
+	const phantomOrders = await PhantomOrder.getByCreatedAtBlock(anchor.createdAtBlock, { limit: 100 })
 	if (!phantomOrders.length) return
 
 	const host = getHostStateMachine(chainId)
@@ -359,7 +330,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateBlock): Prom
 					fillData,
 					gatewayAddress,
 					phantom.tokenA as HexString,
-					BigInt(phantom.standardAmount.toString()),
+					phantom.standardAmount,
 				)
 				if (!simOk) continue
 

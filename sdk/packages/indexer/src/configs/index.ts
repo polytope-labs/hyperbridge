@@ -19,6 +19,16 @@ const evmContractsSchema = z.object({
 			}),
 		)
 		.optional(),
+	tokenSlots: z
+		.record(
+			z.string(),
+			z.object({
+				description: z.string(),
+				balanceSlot: z.number().int().min(0),
+				allowanceSlot: z.number().int().min(0),
+			}),
+		)
+		.optional(),
 })
 
 // Base chain configuration schema

@@ -62,19 +62,19 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Deployer authorized to call `initialize` once on the proxy. An immutable (zero storage
+     * @dev Owner authorized to call `initialize` once on the proxy. Immutable (zero storage
      * slots), so it must be byte-identical across chains or the deterministic proxy address diverges.
      */
-    address private immutable _deployer;
+    address private immutable _owner;
 
     /**
      * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2",
-     * records the deployer authorized to initialize the proxy, and locks this raw
+     * records the owner authorized to initialize the proxy, and locks this raw
      * implementation so it can never be initialized directly.
-     * @param deployer The address permitted to call `initialize` on the proxy.
+     * @param owner The address permitted to call `initialize` on the proxy.
      */
-    constructor(address deployer) EIP712("IntentGateway", "2") {
-        _deployer = deployer;
+    constructor(address owner) EIP712("IntentGateway", "2") {
+        _owner = owner;
         _disableInitializers();
     }
 
@@ -96,20 +96,15 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
-     * caps it to a single call; the deployer gate closes the front-run window left by deploying
-     * the proxy with empty init data. Later config changes go through `onAccept` governance.
+     * @dev One-time initialization run against the proxy's storage, typically atomically via the
+     * proxy's init data. The `initializer` modifier caps it to a single call and the owner gate
+     * restricts who may call it. Cross-chain peers resolve to `address(this)` (the shared gateway
+     * address), and later config changes go through `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
-     * @param deployments The initial gateway cross-chain peers
      */
-    function initialize(Params memory p, Deployment[] memory deployments) public initializer {
-        if (msg.sender != _deployer) revert Unauthorized();
-
-        uint256 deploymentsLength = deployments.length;
-        for (uint256 i = 0; i < deploymentsLength; i++) {
-            _addDeployment(deployments[i]);
-        }
+    function initialize(Params memory p) public initializer {
+        if (msg.sender != _owner) revert Unauthorized();
         _validateParams(p);
         _params = p;
     }

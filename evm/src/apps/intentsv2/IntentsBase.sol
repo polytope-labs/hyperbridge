@@ -185,11 +185,6 @@ abstract contract IntentsBase is EIP712 {
     error UnknownOrder();
 
     /*
-     * @dev Thrown when the cross-chain peer is unknown.
-    */
-    error UnknownInstance();
-
-    /*
      * @dev Thrown when a solver attempts to partially fill an order that carries
      * output calldata. Such orders must be filled completely in a single fill.
     */
@@ -321,8 +316,7 @@ abstract contract IntentsBase is EIP712 {
      */
     function _instance(bytes calldata stateMachineId) internal view returns (address) {
         address gateway = _instances[keccak256(stateMachineId)];
-        if (gateway == address(0)) revert UnknownInstance();
-        return gateway;
+        return gateway == address(0) ? address(this) : gateway;
     }
 
     /**

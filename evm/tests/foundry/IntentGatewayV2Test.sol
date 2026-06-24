@@ -85,7 +85,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
         // Cross-chain peers resolve to `address(this)` (the shared gateway address), so no
         // explicit peer registration is needed in these single-contract tests.
-        intentGateway.initialize(intentParams);
+        intentGateway.initialize(intentParams, new bytes[](0));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -525,7 +525,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        zeroFeeGateway.initialize(zeroFeeParams);
+        zeroFeeGateway.initialize(zeroFeeParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -805,7 +805,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18;
 
@@ -883,7 +883,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -946,7 +946,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -1026,7 +1026,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 surplusShareBps: 5000,
                 protocolFeeBps: 0,
                 priceOracle: address(0)
-            })
+            }),
+            new bytes[](0)
         );
 
         // Setup order WITH calldata
@@ -1394,7 +1395,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(newParams);
+        gatewayWithSelection.initialize(newParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -1465,7 +1466,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(newParams);
+        gatewayWithSelection.initialize(newParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -2638,7 +2639,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         // Set destination-specific fee via governance
         bytes memory destinationChain = bytes("ARBITRUM");
@@ -2729,7 +2730,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         // Place order to destination without specific fee set
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
@@ -2925,7 +2926,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC
@@ -3051,7 +3052,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 1000, // 10%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 1000) / 10000; // 100 USDC
@@ -3131,7 +3132,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0, // 0%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
 
@@ -3187,7 +3188,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 200, // 2%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
         uint256 daiAmount = 500 * 1e18; // 500 DAI
@@ -3284,7 +3285,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 500, // 5%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams);
+        customGateway.initialize(customParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
@@ -3447,7 +3448,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p);
+        gw.initialize(p, new bytes[](0));
     }
 
     /// @notice setParams rejects EOA dispatcher (no code).
@@ -3462,7 +3463,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p);
+        gw.initialize(p, new bytes[](0));
     }
 
     /// @notice setParams rejects surplusShareBps > 10000.
@@ -3477,7 +3478,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p);
+        gw.initialize(p, new bytes[](0));
     }
 
     /// @notice setParams rejects protocolFeeBps >= 10000.
@@ -3492,7 +3493,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p);
+        gw.initialize(p, new bytes[](0));
     }
 
     /// @notice setParams rejects non-contract priceOracle.
@@ -3507,7 +3508,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0xbeef)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.initialize(p);
+        gw.initialize(p, new bytes[](0));
     }
 
     /// @notice updateParams via governance rejects destinationFeeBps >= 10000.
@@ -3715,7 +3716,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        IntentGatewayV2(payable(impl)).initialize(p);
+        IntentGatewayV2(payable(impl)).initialize(p, new bytes[](0));
     }
 
     function testProxyCannotBeReinitialized() public {
@@ -3729,7 +3730,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.initialize(p);
+        intentGateway.initialize(p, new bytes[](0));
     }
 }
 

@@ -10,6 +10,7 @@ import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -18,13 +19,29 @@ contract DeployScript is BaseScript {
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
         // Deploy implementation and proxy via CREATE2 with the same salt. The proxy is initialized
-        // atomically through its init data, so its address depends on (impl address, salt, params).
-        // Params are identical across chains, keeping the proxy address identical everywhere — which
-        // lets cross-chain peers resolve to `address(this)` rather than a stored registry.
+        // atomically through its init data. The cross-chain peer registry is passed in by chain id
+        // only — `initialize` binds each to `address(this)` — so no peer address is embedded in the
+        // init data. The address depends on (impl address, salt, params, peer chain ids), all of
+        // which are identical across chains, keeping the proxy address identical everywhere.
         address priceOracle = address(0);
-        // address priceOracle = deployPriceOracle(address(intentGateway));
-
         IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        bytes[] memory peerChains;
+        if (config.get("is_mainnet").toBool()) {
+            peerChains = new bytes[](9);
+            peerChains[0] = StateMachine.evm(1); // ethereum
+            peerChains[1] = StateMachine.evm(10); // optimism
+            peerChains[2] = StateMachine.evm(42161); // arbitrum
+            peerChains[3] = StateMachine.evm(8453); // base
+            peerChains[4] = StateMachine.evm(56); // bsc
+            peerChains[5] = StateMachine.evm(100); // gnosis
+            peerChains[6] = StateMachine.evm(137); // polygon
+            peerChains[7] = StateMachine.evm(420420419); // polkadot
+            peerChains[8] = StateMachine.evm(1868); // soneium
+        } else {
+            peerChains = new bytes[](2);
+            peerChains[0] = StateMachine.evm(97); // bsc testnet (chapel)
+            peerChains[1] = StateMachine.evm(80002); // polygon amoy
+        }
 
         bytes memory initData = abi.encodeCall(
             IntentGatewayV2.initialize,
@@ -36,12 +53,12 @@ contract DeployScript is BaseScript {
                     surplusShareBps: 5_000, // 50%
                     protocolFeeBps: 30, // 0.3%
                     priceOracle: priceOracle
-                })
+                }),
+                peerChains
             )
         );
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
         IntentGatewayV2 intentGateway = IntentGatewayV2(payable(address(proxy)));
-
         SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
 
         vm.stopBroadcast();
@@ -53,124 +70,5 @@ contract DeployScript is BaseScript {
         config.set("INTENT_GATEWAY_V2", address(intentGateway));
         config.set("SOLVER_ACCOUNT", address(solverAccount));
         config.set("PRICE_ORACLE", address(priceOracle));
-    }
-
-    function deployPriceOracle(address intentGateway) internal returns (address) {
-        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin, intentGateway);
-        console.log("VWAPOracle deployed at:", address(priceOracle));
-
-        // Initialize price oracle with token decimals
-        VWAPOracle.TokenDecimalsUpdate[] memory decimalsUpdates = new VWAPOracle.TokenDecimalsUpdate[](9);
-
-        // Ethereum
-        decimalsUpdates[0].sourceChain = bytes("EVM-1");
-        decimalsUpdates[0].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[0].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[0].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0xdAC17F958D2ee523a2206206994597C13D831ec7, // USDT
-            decimals: 6
-        });
-
-        // Arbitrum
-        decimalsUpdates[1].sourceChain = bytes("EVM-42161");
-        decimalsUpdates[1].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[1].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[1].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
-            decimals: 6
-        });
-
-        // Optimism
-        decimalsUpdates[2].sourceChain = bytes("EVM-10");
-        decimalsUpdates[2].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[2].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[2].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0x94b008aA00579c1307B0EF2c499aD98a8ce58e58, // USDT
-            decimals: 6
-        });
-
-        // Base
-        decimalsUpdates[3].sourceChain = bytes("EVM-8453");
-        decimalsUpdates[3].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[3].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[3].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2, // USDT
-            decimals: 6
-        });
-
-        // BSC
-        decimalsUpdates[4].sourceChain = bytes("EVM-56");
-        decimalsUpdates[4].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[4].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d, // USDC
-            decimals: 18
-        });
-        decimalsUpdates[4].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0x55d398326f99059fF775485246999027B3197955, // USDT
-            decimals: 18
-        });
-
-        // Gnosis
-        decimalsUpdates[5].sourceChain = bytes("EVM-100");
-        decimalsUpdates[5].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[5].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83, // USDC (WXDAI)
-            decimals: 6
-        });
-        decimalsUpdates[5].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0x4ECaBa5870353805a9F068101A40E0f32ed605C6, // USDT
-            decimals: 6
-        });
-
-        // Polygon
-        decimalsUpdates[6].sourceChain = bytes("EVM-137");
-        decimalsUpdates[6].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[6].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[6].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0xc2132D05D31c914a87C6611C10748AEb04B58e8F, // USDT
-            decimals: 6
-        });
-
-        // Unichain
-        decimalsUpdates[7].sourceChain = bytes("EVM-130");
-        decimalsUpdates[7].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[7].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x078D782b760474a361dDA0AF3839290b0EF57AD6, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[7].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0x9151434b16b9763660705744891fA906F660EcC5, // USDT
-            decimals: 6
-        });
-
-        // Tron
-        decimalsUpdates[8].sourceChain = bytes("EVM-728126428");
-        decimalsUpdates[8].tokens = new VWAPOracle.TokenDecimal[](2);
-        decimalsUpdates[8].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x742b023b58488B4be587bBA63ed11134b02217B3, // USDC
-            decimals: 6
-        });
-        decimalsUpdates[8].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C, // USDT
-            decimals: 6
-        });
-        priceOracle.init(HOST_ADDRESS, decimalsUpdates);
-
-        return address(priceOracle);
     }
 }

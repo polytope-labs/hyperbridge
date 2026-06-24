@@ -148,7 +148,8 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
                 surplusShareBps: 0,
                 protocolFeeBps:  0,
                 priceOracle:     address(0)
-            })
+            }),
+            new bytes[](0)
         );
 
         maliciousBeneficiary = new ReentrantBeneficiary(payable(address(intentGateway)));

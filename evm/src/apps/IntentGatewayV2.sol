@@ -96,15 +96,28 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev One-time initialization run against the proxy's storage, typically atomically via the
-     * proxy's init data. The `initializer` modifier caps it to a single call and the owner gate
-     * restricts who may call it. Cross-chain peers resolve to `address(this)` (the shared gateway
-     * address), and later config changes go through `onAccept` governance.
+     * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
+     * caps it to a single call and the owner gate restricts who may call it. Registers the initial
+     * cross-chain peers; chains without a registered deployment fall back to `address(this)`. Later
+     * config changes go through `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
+     * @param peerChains The state-machine ids of the cross-chain peers to register. Each is bound to
+     * this gateway's own address (`address(this)`), which is identical across chains under
+     * deterministic CREATE2 deployment — so no peer address is carried in (or depended on by) the
+     * proxy's init data.
      */
-    function initialize(Params memory p) public initializer {
+    function initialize(Params memory p, bytes[] memory peerChains) public initializer {
         if (msg.sender != _owner) revert Unauthorized();
+
+        uint256 peersLength = peerChains.length;
+        for (uint256 i = 0; i < peersLength; i++) {
+            Deployment memory deployment = Deployment({
+                chain: peerChains[i],
+                gateway: address(this)
+            });
+            _addDeployment(deployment);
+        }
         _validateParams(p);
         _params = p;
     }

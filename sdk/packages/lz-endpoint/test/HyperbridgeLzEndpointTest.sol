@@ -13,6 +13,7 @@ import {
     MessagingFee,
     Origin
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import {ILayerZeroReceiver} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroReceiver.sol";
 
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
@@ -36,6 +37,38 @@ contract TestOFT is OFT {
         address _delegate
     ) OFT("Test OFT", "tOFT", _endpoint, _delegate) Ownable(_delegate) {
         _mint(_delegate, 1_000_000 ether);
+    }
+}
+
+/// @dev Minimal ILayerZeroReceiver whose delivery can be toggled to revert on demand, used to
+/// exercise the adapter's inbound failure-isolation and recovery paths. Enforces the same
+/// `onlyEndpoint` guard a real OApp does, so both the onAccept and retryPayload paths are
+/// validated to call the OApp *as the endpoint*.
+contract MockLzReceiver is ILayerZeroReceiver {
+    address public immutable endpoint;
+    bool public shouldRevert;
+    uint256 public received;
+
+    constructor(address _endpoint) {
+        endpoint = _endpoint;
+    }
+
+    function setShouldRevert(bool v) external {
+        shouldRevert = v;
+    }
+
+    function allowInitializePath(Origin calldata) external pure override returns (bool) {
+        return true;
+    }
+
+    function nextNonce(uint32, bytes32) external pure override returns (uint64) {
+        return 0;
+    }
+
+    function lzReceive(Origin calldata, bytes32, bytes calldata, address, bytes calldata) external payable override {
+        require(msg.sender == endpoint, "MockLzReceiver: only endpoint");
+        if (shouldRevert) revert("MockLzReceiver: boom");
+        received++;
     }
 }
 
@@ -295,6 +328,108 @@ contract HyperbridgeLzEndpointTest is Test {
         vm.prank(MAINNET_HOST);
         vm.expectRevert(HyperbridgeLzEndpoint.UnknownSource.selector);
         dstEndpoint.onAccept(IncomingPostRequest({request: request, relayer: address(0)}));
+    }
+
+    // ==================== Inbound failure-isolation / recovery (HYPERBR-1939) ====================
+
+    /// @dev Delivers an inbound message to `ep` for `receiverAddr` at `nonce`, as the host would.
+    function _deliver(
+        HyperbridgeLzEndpoint ep,
+        address receiverAddr,
+        uint64 nonce,
+        bytes memory payload
+    ) internal returns (bytes32 guid, bytes32 sender) {
+        sender = bytes32(uint256(uint160(address(srcOft))));
+        bytes32 receiver = bytes32(uint256(uint160(receiverAddr)));
+        guid = keccak256(abi.encodePacked(nonce, SRC_EID, sender, DST_EID, receiver));
+        bytes memory body = abi.encode(guid, SRC_EID, sender, nonce, receiver, payload);
+
+        PostRequest memory request = PostRequest({
+            source: srcStateMachine,
+            dest: dstStateMachine,
+            nonce: 0,
+            from: abi.encodePacked(address(ep)),
+            to: abi.encodePacked(address(ep)),
+            timeoutTimestamp: 0,
+            body: body
+        });
+
+        vm.prank(MAINNET_HOST);
+        ep.onAccept(IncomingPostRequest({request: request, relayer: address(0)}));
+    }
+
+    /// @notice A deterministically reverting message must NOT brick the channel: onAccept still
+    /// succeeds, the nonce advances, the payload is retained, and later messages are delivered.
+    function test_RevertingMessageDoesNotBrickChannel() public {
+        MockLzReceiver recv = new MockLzReceiver(address(dstEndpoint));
+        recv.setShouldRevert(true);
+
+        bytes memory payload = abi.encode("payload-1");
+        (bytes32 guid1, bytes32 sender) = _deliver(dstEndpoint, address(recv), 1, payload);
+
+        // onAccept did not revert; nonce advanced; failed payload retained for recovery
+        assertEq(dstEndpoint.inboundNonce(address(recv), SRC_EID, sender), 1, "nonce should advance past the revert");
+        assertEq(
+            dstEndpoint.inboundPayloadHash(address(recv), SRC_EID, sender, 1),
+            keccak256(abi.encode(guid1, payload)),
+            "failed payload should be retained"
+        );
+        assertEq(recv.received(), 0, "nothing should have been delivered yet");
+
+        // The next message is still deliverable — the lane is alive.
+        recv.setShouldRevert(false);
+        _deliver(dstEndpoint, address(recv), 2, abi.encode("payload-2"));
+        assertEq(dstEndpoint.inboundNonce(address(recv), SRC_EID, sender), 2, "later message should advance the nonce");
+        assertEq(recv.received(), 1, "later message should be delivered");
+    }
+
+    /// @notice A retained payload can be retried permissionlessly once the failure condition clears.
+    function test_FailedPayloadCanBeRetried() public {
+        MockLzReceiver recv = new MockLzReceiver(address(dstEndpoint));
+        recv.setShouldRevert(true);
+
+        bytes memory payload = abi.encode("retry-me");
+        (bytes32 guid, bytes32 sender) = _deliver(dstEndpoint, address(recv), 1, payload);
+        Origin memory origin = Origin({srcEid: SRC_EID, sender: sender, nonce: 1});
+
+        // Retry while still failing: reverts and the payload is preserved.
+        vm.expectRevert();
+        dstEndpoint.retryPayload(address(recv), origin, guid, payload);
+        assertEq(
+            dstEndpoint.inboundPayloadHash(address(recv), SRC_EID, sender, 1),
+            keccak256(abi.encode(guid, payload)),
+            "payload preserved after a failed retry"
+        );
+
+        // Clear the condition and retry: succeeds and the stored payload is removed.
+        recv.setShouldRevert(false);
+        dstEndpoint.retryPayload(address(recv), origin, guid, payload);
+        assertEq(recv.received(), 1, "retry should deliver");
+        assertEq(dstEndpoint.inboundPayloadHash(address(recv), SRC_EID, sender, 1), bytes32(0), "payload cleared");
+
+        // Nothing left to retry.
+        vm.expectRevert(HyperbridgeLzEndpoint.InvalidPayloadHash.selector);
+        dstEndpoint.retryPayload(address(recv), origin, guid, payload);
+    }
+
+    /// @notice Recovery primitives are gated to the OApp or its delegate.
+    function test_RecoveryIsAccessControlled() public {
+        MockLzReceiver recv = new MockLzReceiver(address(dstEndpoint));
+        recv.setShouldRevert(true);
+
+        bytes memory payload = abi.encode("guard");
+        (bytes32 guid, bytes32 sender) = _deliver(dstEndpoint, address(recv), 1, payload);
+        Origin memory origin = Origin({srcEid: SRC_EID, sender: sender, nonce: 1});
+
+        // A random account cannot clear the payload.
+        vm.prank(bob);
+        vm.expectRevert(HyperbridgeLzEndpoint.UnauthorizedRecovery.selector);
+        dstEndpoint.clear(address(recv), origin, guid, payload);
+
+        // The OApp itself can discard the poisoned payload.
+        vm.prank(address(recv));
+        dstEndpoint.clear(address(recv), origin, guid, payload);
+        assertEq(dstEndpoint.inboundPayloadHash(address(recv), SRC_EID, sender, 1), bytes32(0), "payload cleared by OApp");
     }
 
     // ==================== Pause Tests ====================

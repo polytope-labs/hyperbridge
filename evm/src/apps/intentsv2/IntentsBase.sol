@@ -136,6 +136,9 @@ abstract contract IntentsBase is EIP712 {
      */
     mapping(bytes32 => uint256) public _destinationProtocolFees;
 
+    /// @dev Appended last to preserve existing storage slots.
+    bool public _paused;
+
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
      */

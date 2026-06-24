@@ -16,6 +16,8 @@ export const TOKEN_SLOT_OVERRIDES: Record<string, { balanceSlot: bigint; allowan
 	"0x0b2c639c533813f4aa9d7837caf62653d097ff85": { balanceSlot: 9n, allowanceSlot: 10n },
 	// USDC native Circle (FiatToken) — balances at slot 9, allowed at slot 10
 	"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { balanceSlot: 9n, allowanceSlot: 10n },
+	// cNGN (Nigerian Naira stablecoin, custom upgradeable layout) — balances at slot 201, allowed at slot 202
+	"0x46c85152bfe9f96829aa94755d9f915f9b10ef5f": { balanceSlot: 201n, allowanceSlot: 202n },
 	// BSC USDC (BEP-20 wrapper) — balances at slot 1, allowed at slot 2
 	"0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": { balanceSlot: 1n, allowanceSlot: 2n },
 	// BSC USDT (BEP-20 TetherUSD) — balances at slot 1, allowed at slot 2

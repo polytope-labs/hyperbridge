@@ -298,7 +298,16 @@ pub fn verify_evm_kv_proofs(
 			(addr, slot_arr)
 		};
 
-		let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
+		// Ethermint-style Tendermint EVM stores expose EVM storage under IAVL keys of the form
+		// `prefix || address || keccak256(slot)` (see `verify_non_membership`,
+		// `DefaultEvmKeys::storage_key`, and the prover's `abci_query_key` docs). The GET `keys`
+		// carry the raw 32-byte storage slot, so it must be keccak256-hashed before being folded
+		// into the IAVL key — exactly as the membership and non-membership paths already do.
+		// Without this, the key resolves to one that never exists in the tree, so a valid ICS23
+		// non-existence proof for the unhashed key falsely reports a present slot as absent
+		// (returns `None`), which can release source escrow for an order that was actually filled.
+		let hashed_slot = ICS23HostFunctions::keccak256(&slot).0;
+		let key = storage_key_for(proof.height.id.state_id, &addr.0, hashed_slot);
 
 		let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
 			.map_err(|e| TendermintEvmError::InvalidCommitmentProof(e.to_string()))?;

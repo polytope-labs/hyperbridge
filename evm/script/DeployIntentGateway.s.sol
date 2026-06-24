@@ -24,7 +24,7 @@ contract DeployScript is BaseScript {
         // init data. The address depends on (impl address, salt, params, peer chain ids), all of
         // which are identical across chains, keeping the proxy address identical everywhere.
         address priceOracle = address(0);
-        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}();
         bytes[] memory peerChains;
         if (config.get("is_mainnet").toBool()) {
             peerChains = new bytes[](9);

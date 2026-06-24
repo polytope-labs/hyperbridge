@@ -62,19 +62,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Owner authorized to call `initialize` once on the proxy. Immutable (zero storage
-     * slots), so it must be byte-identical across chains or the deterministic proxy address diverges.
-     */
-    address private immutable _owner;
-
-    /**
      * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2",
-     * records the owner authorized to initialize the proxy, and locks this raw
-     * implementation so it can never be initialized directly.
-     * @param owner The address permitted to call `initialize` on the proxy.
+     * and locks this raw implementation so it can never be initialized directly.
      */
-    constructor(address owner) EIP712("IntentGateway", "2") {
-        _owner = owner;
+    constructor() EIP712("IntentGateway", "2") {
         _disableInitializers();
     }
 
@@ -97,10 +88,11 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
     /**
      * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
-     * caps it to a single call and the owner gate restricts who may call it. Registers the initial
-     * cross-chain peers (each bound to `address(this)`); a chain never registered here or later via
-     * `onAccept` is rejected by `_instance` with `UnknownInstance`. Later config changes go through
-     * `onAccept` governance.
+     * caps it to a single call; with atomic CREATE2 deployment the init data is bound into the
+     * proxy's initcode hash, so only the canonical params can produce the canonical address.
+     * Registers the initial cross-chain peers (each bound to `address(this)`); a chain never
+     * registered here or later via `onAccept` is rejected by `_instance` with `UnknownInstance`.
+     * Later config changes go through `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
      * @param peerChains The state-machine ids of the cross-chain peers to register. Each is bound to
@@ -109,8 +101,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      * proxy's init data.
      */
     function initialize(Params memory p, bytes[] memory peerChains) public initializer {
-        if (msg.sender != _owner) revert Unauthorized();
-
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
             Deployment memory deployment = Deployment({

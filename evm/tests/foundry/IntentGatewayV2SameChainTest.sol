@@ -65,7 +65,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     event DustCollected(address indexed token, uint256 amount);
 
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = new IntentGatewayV2();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }

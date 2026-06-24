@@ -95,12 +95,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _fundTestAccounts();
     }
 
-    /// @dev Deploys an IntentGatewayV2 implementation behind an ERC-1967 proxy, mirroring
-    /// production. The proxy is created with empty init data, so `initialize` must be called
-    /// separately by the deployer (`address(this)`). The proxy address is known before
-    /// initialization, so callers can register it as a cross-chain peer.
+    /// @dev Deploys an IntentGatewayV2 implementation behind an ERC-1967 proxy with empty init
+    /// data, leaving `initialize` to be called separately so each test can pick its own params and
+    /// peer set. Production initializes atomically (see `testAtomicInitialization`).
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        IntentGatewayV2 implementation = new IntentGatewayV2();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }
@@ -3652,7 +3651,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(intentGateway._filled(filledCommitment), filler, "precondition: order A filled");
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed");
 
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded();
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -3670,6 +3669,34 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
     }
 
+    /// @dev Exercises the production deploy path: the proxy is initialized atomically through its
+    /// init data, so the initializing call arrives via the proxy constructor (msg.sender is the
+    /// proxy's deployer, not necessarily any privileged owner). This must succeed and leave the
+    /// gateway configured.
+    function testAtomicInitialization() public {
+        IntentGatewayV2 implementation = new IntentGatewayV2();
+        Params memory intentParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        bytes[] memory peers = new bytes[](1);
+        peers[0] = bytes("SOURCE_CHAIN");
+
+        bytes memory initData = abi.encodeCall(IntentGatewayV2.initialize, (intentParams, peers));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        IntentGatewayV2 gateway = IntentGatewayV2(payable(address(proxy)));
+
+        assertEq(gateway.params().host, address(host), "params set via atomic init");
+        assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
+
+        vm.expectRevert();
+        gateway.initialize(intentParams, peers);
+    }
+
     function testFilledMappingStaysAtSlotTwo() public {
         (bytes32 filledCommitment,,,) = _seedUpgradeState();
 
@@ -3684,7 +3711,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpgradeContractRejectsNonHyperbridgeSource() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded();
 
         // A registered peer gateway (not the Hyperbridge coprocessor) must not be able to upgrade.
         PostRequest memory request = _upgradeRequest(bytes("SOURCE_CHAIN"), address(newImpl), "");
@@ -3743,7 +3770,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 /// storage variables (append-only layout) and only adds new logic, so swapping to it must
 /// leave existing storage intact.
 contract IntentGatewayV2Upgraded is IntentGatewayV2 {
-    constructor(address deployer) IntentGatewayV2(deployer) {}
+    constructor() IntentGatewayV2() {}
 
     function upgradedMarker() external pure returns (uint256) {
         return 42;

@@ -10,6 +10,15 @@ const evmContractsSchema = z.object({
 	handlerV1: z.string().min(3, "Invalid Ethereum address"),
 	erc6160ext20: z.string().min(3, "Invalid Ethereum address"),
 	intentGatewayV3: z.string().optional(),
+	yieldVaults: z
+		.record(
+			z.string(),
+			z.object({
+				description: z.string(),
+				vaults: z.array(z.string()),
+			}),
+		)
+		.optional(),
 })
 
 // Base chain configuration schema

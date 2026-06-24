@@ -763,26 +763,15 @@ export class IntentFiller {
 			return
 		}
 
-		// Reconstruct the Order with the same field values the pallet used when computing the commitment.
-		const ZERO_BYTES32 = `0x${"00".repeat(32)}` as HexString
-		const ZERO_ADDRESS = `0x${"00".repeat(20)}` as HexString
-		const phantomOrder: Order = {
-			user: ZERO_BYTES32,
-			source: event.chain,
-			destination: event.chain,
-			deadline: 0n,
-			nonce: BigInt(event.createdAt),
-			fees: 0n,
-			session: ZERO_ADDRESS,
-			predispatch: { assets: [], call: "0x" },
-			inputs: [{ token: event.tokenA, amount: event.standardAmount }],
-			output: {
-				beneficiary: ZERO_BYTES32,
-				assets: [{ token: event.tokenB, amount: event.minOutput }],
-				call: "0x",
-			},
+		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage.
+		const phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
+		if (!phantomOrder) {
+			this.logger.warn(
+				{ commitment: event.commitment, chain: event.chain },
+				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
+			)
+			return
 		}
-		phantomOrder.id = orderCommitment(phantomOrder)
 
 		const strategy = this.strategies.find((s) => typeof s.quotePhantomFill === "function")
 		if (!strategy?.quotePhantomFill) {

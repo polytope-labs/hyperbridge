@@ -35,6 +35,7 @@ use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 };
+use pallet_ismp::LatestStateMachineHeight;
 use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
@@ -76,7 +77,6 @@ pub mod pallet {
 	use super::*;
 	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
-	use frame_support::traits::UnixTime;
 	use frame_system::pallet_prelude::*;
 	use polkadot_sdk::sp_runtime::traits::Saturating;
 
@@ -192,7 +192,6 @@ pub mod pallet {
 			token_a: H160,
 			token_b: H160,
 			standard_amount: u128,
-			min_output: u128,
 		},
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
@@ -577,14 +576,28 @@ pub mod pallet {
 				return T::DbWeight::get().reads(2);
 			}
 
-			// Use pallet-ismp's time provider so the deadline is a real chain timestamp
-			// (non-zero). Simulation uses block 0 (timestamp=0) so the check still passes.
-			let deadline_secs = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
-
+			// Use the latest confirmed EVM block for the destination chain as the deadline
+			// base. The gateway checks `order.deadline < block.number`, so we add the
+			// current interval as a buffer to keep the order valid for one full window.
 			let chain_bytes = config.chain.to_string().into_bytes();
+			let opt_latest_height = LatestStateMachineHeight::<T>::iter()
+				.filter_map(|(id, height)| {
+					if id.state_id == config.chain { Some(height) } else { None }
+				})
+				.max();
+			let Some(latest_evm_height) = opt_latest_height else {
+				log::warn!(
+					target: "pallet-intents",
+					"No confirmed state machine height for {:?}, skipping phantom order generation",
+					config.chain,
+				);
+				return T::DbWeight::get().reads(3);
+			};
+			let deadline = latest_evm_height.saturating_add(config.interval_blocks as u64);
+
 			for pair in config.token_pairs.iter() {
 				let (commitment, order_bytes) =
-					Self::compute_phantom_commitment(n, &chain_bytes, pair, deadline_secs);
+					Self::compute_phantom_commitment(n, &chain_bytes, pair, deadline);
 				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
 				CurrentPhantomOrder::<T>::put((commitment, info));
 				offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
@@ -595,7 +608,6 @@ pub mod pallet {
 					token_a: pair.token_a,
 					token_b: pair.token_b,
 					standard_amount: pair.standard_amount,
-					min_output: pair.min_output,
 				});
 			}
 
@@ -639,7 +651,7 @@ pub mod pallet {
 			block: BlockNumberFor<T>,
 			chain: &[u8],
 			pair: &PhantomTokenPair,
-			deadline_secs: u64,
+			deadline: u64,
 		) -> (H256, Vec<u8>) {
 			types::phantom_order_commitment(
 				block.saturated_into::<u64>(),
@@ -647,7 +659,7 @@ pub mod pallet {
 				&pair.token_a,
 				&pair.token_b,
 				pair.standard_amount,
-				deadline_secs,
+				deadline,
 			)
 		}
 

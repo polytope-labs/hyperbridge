@@ -151,7 +151,6 @@ pub struct PhantomTokenPair {
 	pub token_a: H160,
 	pub token_b: H160,
 	pub standard_amount: u128,
-	pub min_output: u128,
 }
 
 /// Governance-settable configuration for autonomous phantom order generation.
@@ -303,18 +302,17 @@ pub const PHANTOM_SESSION_ADDRESS: alloy_primitives::Address =
 /// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
 /// ABI-encoded bytes and its `keccak256` commitment.
 ///
-/// `deadline_secs` is the Unix timestamp (in seconds) beyond which the order is
-/// considered expired by the gateway.  Callers should set this to a non-zero
-/// value; zero prevents the order from simulating correctly.
+/// `deadline` is the EVM block number beyond which the gateway treats the order
+/// as expired (`order.deadline < block.number` reverts).
 pub fn phantom_order_commitment(
 	block: u64,
 	chain: &[u8],
 	token_a: &H160,
 	token_b: &H160,
 	standard_amount: u128,
-	deadline_secs: u64,
+	deadline: u64,
 ) -> (H256, Vec<u8>) {
-	use alloy_primitives::{Address, Bytes, FixedBytes, U256 as AlloyU256};
+	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
 
 	let mut token_a_bytes = [0u8; 32];
 	token_a_bytes[12..].copy_from_slice(token_a.as_bytes());
@@ -325,7 +323,7 @@ pub fn phantom_order_commitment(
 		user: FixedBytes::from([0u8; 32]),
 		source: Bytes::copy_from_slice(chain),
 		destination: Bytes::copy_from_slice(chain),
-		deadline: AlloyU256::from(deadline_secs),
+		deadline: AlloyU256::from(deadline),
 		nonce: AlloyU256::from(block),
 		fees: AlloyU256::ZERO,
 		session: PHANTOM_SESSION_ADDRESS,

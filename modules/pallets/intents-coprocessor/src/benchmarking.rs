@@ -196,7 +196,6 @@ mod benchmarks {
 				token_a: H160::repeat_byte(0x01),
 				token_b: H160::repeat_byte(0x02),
 				standard_amount: 1_000_000_000_000_000_000u128,
-				min_output: 990_000_000_000_000_000u128,
 			}]
 			.try_into()
 			.expect("one pair fits in BoundedVec<_, 10>"),

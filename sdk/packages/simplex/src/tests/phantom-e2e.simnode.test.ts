@@ -92,7 +92,6 @@ async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalB
 				token_a: "0x0101010101010101010101010101010101010101",
 				token_b: "0x0202020202020202020202020202020202020202",
 				standard_amount: 1_000_000_000_000_000_000n,
-				min_output: 900_000_000_000_000_000n,
 			},
 		],
 		interval_blocks: intervalBlocks,

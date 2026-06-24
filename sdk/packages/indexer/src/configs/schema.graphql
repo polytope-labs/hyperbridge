@@ -2227,11 +2227,6 @@ type PhantomOrder @entity {
 	standardAmount: BigInt!
 
 	"""
-	Minimum acceptable output amount in the smallest unit of tokenB. Bids below this threshold are rejected by the pallet.
-	"""
-	minOutput: BigInt!
-
-	"""
 	Hyperbridge block number at which this phantom order was registered (emitted via PhantomOrderRegistered).
 	All phantom orders sharing the same createdAtBlock belong to the same generation interval.
 	"""
@@ -2303,5 +2298,40 @@ type PhantomOrderPriceSnapshot @entity {
 	snapshotTime: Date!
 }
 
+"""
+Per-solver liquidity balance recorded at each phantom order price snapshot.
+One entity is written for every valid bidder whose fill simulation passes.
+The balance is summed across all configured EVM chains for the output token.
+"""
+type PhantomOrderLpBalance @entity {
+	"""
+	Composite identifier: {commitment}-{blockNumber}-{solverAddress}.
+	"""
+	id: ID!
 
+	"""
+	The phantom order commitment this balance belongs to.
+	"""
+	commitment: String! @index
 
+	"""
+	Hyperbridge block number at which this balance was recorded.
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	EVM address of the solver whose balance is recorded.
+	"""
+	solver: String! @index
+
+	"""
+	Total solver balance for the output token across all configured EVM chains,
+	including raw ERC-20 balance and redeemable ERC-4626 vault positions.
+	"""
+	balance: BigInt!
+
+	"""
+	Timestamp of the Hyperbridge block at which this balance was recorded.
+	"""
+	snapshotTime: Date!
+}

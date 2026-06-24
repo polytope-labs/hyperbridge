@@ -7,7 +7,7 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { PhantomOrder } from "@/configs/src/types"
 
 export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): Promise<void> => {
-	const [commitmentData, chainData, createdAtData, tokenAData, tokenBData, standardAmountData, minOutputData] =
+	const [commitmentData, chainData, createdAtData, tokenAData, tokenBData, standardAmountData] =
 		event.event.data
 
 	const commitment = commitmentData.toString()
@@ -19,7 +19,6 @@ export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): 
 	const tokenA = tokenAData.toHex()
 	const tokenB = tokenBData.toHex()
 	const standardAmount = BigInt(standardAmountData.toString())
-	const minOutput = BigInt(minOutputData.toString())
 
 	const blockHash = event.block.block.header.hash.toString()
 	const blockTimestamp = await getBlockTimestamp(blockHash, chainId)
@@ -30,7 +29,6 @@ export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): 
 		tokenA,
 		tokenB,
 		standardAmount,
-		minOutput,
 		createdAtBlock,
 		blockTimestamp: timestampToDate(blockTimestamp),
 	}).save()

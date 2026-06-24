@@ -4,6 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {SolverAccount} from "../../../src/apps/intentsv2/SolverAccount.sol";
 import {IntentGatewayV2} from "../../../src/apps/IntentGatewayV2.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     SelectOptions,
     Order,
@@ -31,6 +32,12 @@ contract SolverAccountTest is Test {
 
     bytes32 public testCommitment;
 
+    function _deployGatewayProxy() internal returns (IntentGatewayV2) {
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+        return IntentGatewayV2(payable(address(proxy)));
+    }
+
     function setUp() public {
         // Create test accounts
         solverPrivateKey = 0x1234567890abcdef;
@@ -40,7 +47,7 @@ contract SolverAccountTest is Test {
         sessionKey = vm.addr(sessionKeyPrivateKey);
 
         // Deploy IntentGateway
-        intentGateway = new IntentGatewayV2(address(this));
+        intentGateway = _deployGatewayProxy();
 
         Params memory params = Params({
             host: address(new MockContract()),
@@ -50,7 +57,7 @@ contract SolverAccountTest is Test {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        intentGateway.init(params, new Deployment[](0));
+        intentGateway.initialize(params, new Deployment[](0));
 
         // Deploy SolverAccount at a temporary address to get bytecode
         SolverAccount tempAccount = new SolverAccount(address(intentGateway));

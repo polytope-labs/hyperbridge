@@ -156,4 +156,13 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	/// Storage: `Gateways` (r:1 w:0)
+	/// Proof: `Gateways` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn upgrade_gateway() -> Weight {
+		// Estimated from the `update_token_decimals` dispatch profile (gateway read + cross-chain dispatch).
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
 }

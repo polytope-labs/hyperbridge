@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
 import {IntentGatewayV2, Params, Deployment} from "../src/apps/IntentGatewayV2.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
@@ -17,8 +18,15 @@ contract DeployScript is BaseScript {
     /// @notice Main deployment logic - called by BaseScript's run() functions
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
-        IntentGatewayV2 intentGateway = new IntentGatewayV2{salt: salt}(admin);
-        console.log("IntentGateway deployed at:", address(intentGateway));
+        // Deploy the implementation and proxy both via CREATE2 with the same salt. The proxy
+        // is created with empty init data so its address depends only on (impl address, salt) —
+        // identical across chains. Initialization runs as a separate, deployer-gated call below.
+        IntentGatewayV2 implementation = new IntentGatewayV2{salt: salt}(admin);
+        console.log("IntentGateway implementation deployed at:", address(implementation));
+
+        ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), "");
+        IntentGatewayV2 intentGateway = IntentGatewayV2(payable(address(proxy)));
+        console.log("IntentGateway proxy deployed at:", address(intentGateway));
 
         SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
         console.log("SolverAccount deployed at:", address(solverAccount));
@@ -77,7 +85,7 @@ contract DeployScript is BaseScript {
             });
         }
 
-        intentGateway.init(
+        intentGateway.initialize(
             Params({
                 host: HOST_ADDRESS,
                 dispatcher: config.get("CALL_DISPATCHER").toAddress(),

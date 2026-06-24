@@ -33,6 +33,9 @@ import {
     SelectOptions
 } from "../../src/apps/IntentGatewayV2.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -58,6 +61,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     // Protocol fee in BPS (30 BPS = 0.3%)
     uint256 public constant PROTOCOL_FEE_BPS = 30;
 
+    // EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1.
+    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
     function setUp() public override {
         super.setUp();
 
@@ -66,7 +72,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         filler = makeAddr("filler");
 
         // Deploy IntentGatewayV2
-        intentGateway = new IntentGatewayV2(address(this));
+        intentGateway = _deployGatewayProxy();
 
         // Set params
         Params memory intentParams = Params({
@@ -85,10 +91,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         deployments[0] = Deployment({chain: host.host(), gateway: address(intentGateway)});
         deployments[1] = Deployment({chain: bytes("SOURCE_CHAIN"), gateway: address(intentGateway)});
         deployments[2] = Deployment({chain: bytes("DEST_CHAIN"), gateway: address(intentGateway)});
-        intentGateway.init(intentParams, deployments);
+        intentGateway.initialize(intentParams, deployments);
 
         // Fund test accounts
         _fundTestAccounts();
+    }
+
+    /// @dev Deploys an IntentGatewayV2 implementation behind an ERC-1967 proxy, mirroring
+    /// production. The proxy is created with empty init data, so `initialize` must be called
+    /// separately by the deployer (`address(this)`). The proxy address is known before
+    /// initialization, so callers can register it as a cross-chain peer.
+    function _deployGatewayProxy() internal returns (IntentGatewayV2) {
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+        return IntentGatewayV2(payable(address(proxy)));
     }
 
     function _fundTestAccounts() internal {
@@ -505,7 +521,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testNoDustCollectionWhenExactAmount() public {
         // Test that no dust is collected when solver provides exact amount
-        IntentGatewayV2 zeroFeeGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 zeroFeeGateway = _deployGatewayProxy();
 
         Params memory zeroFeeParams = Params({
             host: address(host),
@@ -515,7 +531,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        zeroFeeGateway.init(zeroFeeParams, new Deployment[](0));
+        zeroFeeGateway.initialize(zeroFeeParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -786,7 +802,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testSurplusSplitBetweenBeneficiaryAndProtocol() public {
         // Test 50/50 split: solver provides 2100 DAI, user gets 2050, protocol gets 50
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -795,7 +811,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18;
 
@@ -864,7 +880,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testSurplusSplitWith100PercentToBeneficiary() public {
         // Test with 100% surplus going to beneficiary (0% to protocol)
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -873,7 +889,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -927,7 +943,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testSurplusSplitWith0PercentToBeneficiary() public {
         // Test 0/100 split: solver provides 2100 DAI, user gets 2000, protocol gets 100
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -936,7 +952,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
 
@@ -1007,8 +1023,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Test that when calldata is present, ALL surplus goes to protocol
         // Compare: without calldata and 50% split, protocol gets 50 DAI
         //          with calldata and 50% split, protocol gets 100 DAI (all surplus)
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
-        customGateway.init(
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
+        customGateway.initialize(
             Params({
                 host: address(host),
                 dispatcher: address(dispatcher),
@@ -1383,8 +1399,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
 
-        IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
-        gatewayWithSelection.init(newParams, new Deployment[](0));
+        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
+        gatewayWithSelection.initialize(newParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -1454,8 +1470,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
 
-        IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
-        gatewayWithSelection.init(newParams, new Deployment[](0));
+        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
+        gatewayWithSelection.initialize(newParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6;
 
@@ -2619,7 +2635,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testPlaceOrderWithDestinationSpecificFee() public {
         // Setup: Set default protocol fee to 1% and destination-specific fee to 0.5%
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -2628,7 +2644,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         // Set destination-specific fee via governance
         bytes memory destinationChain = bytes("ARBITRUM");
@@ -2710,7 +2726,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testPlaceOrderDestinationFeeWithFallback() public {
         // Test that when destination fee is not set (or is 0), it falls back to default protocol fee
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -2719,7 +2735,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1% default
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         // Place order to destination without specific fee set
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
@@ -2905,7 +2921,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testProtocolFeeWith1Percent() public {
         // Test with 1% protocol fee (100 basis points)
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -2917,7 +2933,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Register the local chain peer so the later RedeemEscrow onAccept authenticates.
         Deployment[] memory deployments = new Deployment[](1);
         deployments[0] = Deployment({chain: host.host(), gateway: address(customGateway)});
-        customGateway.init(customParams, deployments);
+        customGateway.initialize(customParams, deployments);
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC
@@ -2990,7 +3006,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Calculate storage slot for _orders[commitment][token]
         // _orders is at storage slot 8 (see forge inspect storage-layout)
         // For nested mappings: keccak256(abi.encode(innerKey, keccak256(abi.encode(outerKey, baseSlot))))
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
         bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount (not full amount)
@@ -3034,7 +3050,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testProtocolFeeWith10Percent() public {
         // Test with 10% protocol fee (1000 basis points)
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3043,7 +3059,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 1000, // 10%
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 1000) / 10000; // 100 USDC
@@ -3104,7 +3120,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
 
         // Calculate storage slot for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
         bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount
@@ -3114,7 +3130,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testProtocolFeeWithZeroPercent() public {
         // Test with 0% protocol fee - should not emit DustCollected
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3123,7 +3139,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0, // 0%
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
 
@@ -3170,7 +3186,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testProtocolFeeWithMultipleTokens() public {
         // Test protocol fee with multiple input tokens
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3179,7 +3195,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 200, // 2%
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
         uint256 daiAmount = 500 * 1e18; // 500 DAI
@@ -3253,7 +3269,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
 
         // Calculate storage slots for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(9)));
         bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
         bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
 
@@ -3267,7 +3283,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testProtocolFeeOrderPlacedEventHasReducedAmounts() public {
         // Test that OrderPlaced event contains reduced amounts after protocol fee
-        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        IntentGatewayV2 customGateway = _deployGatewayProxy();
         Params memory customParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3276,7 +3292,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 500, // 5%
             priceOracle: address(0)
         });
-        customGateway.init(customParams, new Deployment[](0));
+        customGateway.initialize(customParams, new Deployment[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
@@ -3429,7 +3445,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     /// @notice setParams rejects zero host address.
     function testRevert_SetParams_ZeroHost() public {
-        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gw = _deployGatewayProxy();
         Params memory p = Params({
             host: address(0),
             dispatcher: address(dispatcher),
@@ -3439,12 +3455,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.init(p, new Deployment[](0));
+        gw.initialize(p, new Deployment[](0));
     }
 
     /// @notice setParams rejects EOA dispatcher (no code).
     function testRevert_SetParams_EOADispatcher() public {
-        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gw = _deployGatewayProxy();
         Params memory p = Params({
             host: address(host),
             dispatcher: address(0xdead),
@@ -3454,12 +3470,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.init(p, new Deployment[](0));
+        gw.initialize(p, new Deployment[](0));
     }
 
     /// @notice setParams rejects surplusShareBps > 10000.
     function testRevert_SetParams_SurplusShareBpsTooHigh() public {
-        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gw = _deployGatewayProxy();
         Params memory p = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3469,12 +3485,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.init(p, new Deployment[](0));
+        gw.initialize(p, new Deployment[](0));
     }
 
     /// @notice setParams rejects protocolFeeBps >= 10000.
     function testRevert_SetParams_ProtocolFeeBpsTooHigh() public {
-        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gw = _deployGatewayProxy();
         Params memory p = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3484,12 +3500,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.init(p, new Deployment[](0));
+        gw.initialize(p, new Deployment[](0));
     }
 
     /// @notice setParams rejects non-contract priceOracle.
     function testRevert_SetParams_EOAPriceOracle() public {
-        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gw = _deployGatewayProxy();
         Params memory p = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3499,7 +3515,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             priceOracle: address(0xbeef)
         });
         vm.expectRevert(IntentsBase.InvalidInput.selector);
-        gw.init(p, new Deployment[](0));
+        gw.initialize(p, new Deployment[](0));
     }
 
     /// @notice updateParams via governance rejects destinationFeeBps >= 10000.
@@ -3534,5 +3550,204 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    // ============================================================
+    // UpgradeContract (cross-chain governance upgrade) Tests
+    // ============================================================
+
+    /// @dev Builds a same-chain order with the given input/output amounts and nonce.
+    /// `user`, `source`, and `nonce` mirror what `placeOrder` will stamp, so the local
+    /// `keccak256(abi.encode(order))` equals the on-chain commitment (protocol fee is 0).
+    function _sameChainOrder(uint256 inputAmount, uint256 outputAmount, uint256 nonce)
+        internal
+        view
+        returns (Order memory)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+        DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
+
+        return Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: host.host(),
+            deadline: block.number + 1000,
+            nonce: nonce,
+            fees: 0,
+            session: address(0),
+            predispatch: predispatch,
+            inputs: inputs,
+            output: output
+        });
+    }
+
+    /// @dev Seeds proxy state: order A is placed and fully filled (sets `_filled`); order B
+    /// is placed only (leaves `_orders` escrowed). Returns the two commitments plus the
+    /// escrowed token/amount so callers can assert these survive an implementation swap.
+    function _seedUpgradeState()
+        internal
+        returns (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount)
+    {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        inputToken = address(usdc);
+        escrowedAmount = inputAmount; // protocolFeeBps is 0 in setUp, so escrow == input.
+
+        // Order A: place + full fill -> _filled[commitment] = filler.
+        Order memory orderA = _sameChainOrder(inputAmount, outputAmount, 0);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(orderA, bytes32(0));
+        vm.stopPrank();
+        filledCommitment = keccak256(abi.encode(orderA));
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), outputAmount);
+        intentGateway.fillOrder(orderA, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        vm.stopPrank();
+
+        // Order B: place only -> _orders[commitment][usdc] = inputAmount.
+        Order memory orderB = _sameChainOrder(inputAmount, outputAmount, 1);
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(orderB, bytes32(0));
+        vm.stopPrank();
+        escrowedCommitment = keccak256(abi.encode(orderB));
+    }
+
+    /// @dev Builds an UpgradeContract onAccept request originating from `source`.
+    function _upgradeRequest(bytes memory source, address newImpl, bytes memory initData)
+        internal
+        view
+        returns (PostRequest memory)
+    {
+        return PostRequest({
+            source: source,
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpgradeContract)), abi.encode(newImpl, initData)),
+            timeoutTimestamp: 0
+        });
+    }
+
+    function _implementationOf(address proxy) internal view returns (address) {
+        return address(uint160(uint256(vm.load(proxy, ERC1967_IMPL_SLOT))));
+    }
+
+    function testOnAcceptUpgradeContractPreservesState() public {
+        (bytes32 filledCommitment, bytes32 escrowedCommitment, address inputToken, uint256 escrowedAmount) =
+            _seedUpgradeState();
+
+        uint256 nonceBefore = intentGateway._nonce();
+        assertEq(nonceBefore, 2, "precondition: two orders placed");
+        assertEq(intentGateway._filled(filledCommitment), filler, "precondition: order A filled");
+        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed");
+
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+        PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // The proxy now points at the new implementation and its new logic is reachable.
+        assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
+        assertEq(
+            IntentGatewayV2Upgraded(payable(address(intentGateway))).upgradedMarker(), 42, "new logic is active"
+        );
+
+        // All escrow-critical state survives the implementation swap.
+        assertEq(intentGateway._nonce(), nonceBefore, "_nonce preserved");
+        assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
+        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
+    }
+
+    function testFilledMappingStaysAtSlotTwo() public {
+        (bytes32 filledCommitment,,,) = _seedUpgradeState();
+
+        // _filled is `mapping(bytes32 => address)` declared at storage slot 2. The cross-chain
+        // cancel proof (FILLED_SLOT_BIG_ENDIAN_BYTES) depends on this exact slot.
+        bytes32 slot = keccak256(abi.encode(filledCommitment, uint256(2)));
+        address filledFromSlot = address(uint160(uint256(vm.load(address(intentGateway), slot))));
+
+        assertEq(filledFromSlot, filler, "_filled must occupy storage slot 2");
+        assertEq(filledFromSlot, intentGateway._filled(filledCommitment), "slot-2 read matches getter");
+    }
+
+    function testOnAcceptUpgradeContractRejectsNonHyperbridgeSource() public {
+        address implBefore = _implementationOf(address(intentGateway));
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
+
+        // A registered peer gateway (not the Hyperbridge coprocessor) must not be able to upgrade.
+        PostRequest memory request = _upgradeRequest(bytes("SOURCE_CHAIN"), address(newImpl), "");
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation must be unchanged");
+    }
+
+    function testOnAcceptUpgradeContractRejectsNoCodeImpl() public {
+        address implBefore = _implementationOf(address(intentGateway));
+        address noCode = makeAddr("noCodeImpl"); // EOA, no contract code.
+
+        PostRequest memory request = _upgradeRequest(host.hyperbridge(), noCode, "");
+
+        vm.prank(address(host));
+        vm.expectRevert(abi.encodeWithSelector(ERC1967Utils.ERC1967InvalidImplementation.selector, noCode));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation must be unchanged");
+    }
+
+    function testRawImplementationCannotBeInitialized() public {
+        // The raw implementation behind the proxy is locked by `_disableInitializers()`.
+        address impl = _implementationOf(address(intentGateway));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        IntentGatewayV2(payable(impl)).initialize(p, new Deployment[](0));
+    }
+
+    function testProxyCannotBeReinitialized() public {
+        // The proxy was already initialized in setUp; a second initialize must revert.
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        intentGateway.initialize(p, new Deployment[](0));
+    }
+}
+
+/// @dev Minimal upgraded implementation used by the governance-upgrade tests. It appends no
+/// storage variables (append-only layout) and only adds new logic, so swapping to it must
+/// leave existing storage intact.
+contract IntentGatewayV2Upgraded is IntentGatewayV2 {
+    constructor(address deployer) IntentGatewayV2(deployer) {}
+
+    function upgradedMarker() external pure returns (uint256) {
+        return 42;
     }
 }

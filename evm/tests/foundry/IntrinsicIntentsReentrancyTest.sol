@@ -26,6 +26,7 @@ import {
     FillOptions,
     Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -126,14 +127,20 @@ contract IntrinsicIntentsReentrancyTest is MainnetForkBaseTest {
 
     // ── setup ─────────────────────────────────────────────────────────────────
 
+    function _deployGatewayProxy() internal returns (IntentGatewayV2) {
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+        return IntentGatewayV2(payable(address(proxy)));
+    }
+
     function setUp() public override {
         super.setUp();
 
         attacker         = makeAddr("attacker");
         legitimateSolver = makeAddr("legitimateSolver");
 
-        intentGateway = new IntentGatewayV2(address(this));
-        intentGateway.init(
+        intentGateway = _deployGatewayProxy();
+        intentGateway.initialize(
             Params({
                 host:            address(host),
                 dispatcher:      address(dispatcher),

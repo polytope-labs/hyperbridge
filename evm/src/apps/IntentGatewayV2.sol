@@ -23,6 +23,7 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -57,16 +58,24 @@ import {
  *           \       /
  *        IntentGatewayV2
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient {
+contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2".
-     * Sets the initial admin who has one-time authority to call `setParams`.
-     * @param admin The address that will have permission to set initial parameters.
+     * @dev Deployer authorized to call `initialize` once on the proxy. An immutable (zero storage
+     * slots), so it must be byte-identical across chains or the deterministic proxy address diverges.
      */
-    constructor(address admin) EIP712("IntentGateway", "2") {
-        _admin = admin;
+    address private immutable _deployer;
+
+    /**
+     * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2",
+     * records the deployer authorized to initialize the proxy, and locks this raw
+     * implementation so it can never be initialized directly.
+     * @param deployer The address permitted to call `initialize` on the proxy.
+     */
+    constructor(address deployer) EIP712("IntentGateway", "2") {
+        _deployer = deployer;
+        _disableInitializers();
     }
 
     /**
@@ -87,17 +96,15 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev One-time parameter initialization. Can only be called by the admin set in
-     * the constructor. After successful execution, the admin is burned (set to address(0)),
-     * preventing any further calls.
-     *
-     * Subsequent parameter updates must come through Hyperbridge governance via the `onAccept` callback.
+     * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
+     * caps it to a single call; the deployer gate closes the front-run window left by deploying
+     * the proxy with empty init data. Later config changes go through `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
      * @param deployments The initial gateway cross-chain peers
      */
-    function init(Params memory p, Deployment[] memory deployments) public {
-        if (msg.sender != _admin) revert Unauthorized();
+    function initialize(Params memory p, Deployment[] memory deployments) public initializer {
+        if (msg.sender != _deployer) revert Unauthorized();
 
         uint256 deploymentsLength = deployments.length;
         for (uint256 i = 0; i < deploymentsLength; i++) {
@@ -105,7 +112,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         }
         _validateParams(p);
         _params = p;
-        _admin = address(0);
     }
 
     /**

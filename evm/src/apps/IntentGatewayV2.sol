@@ -98,8 +98,9 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     /**
      * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
      * caps it to a single call and the owner gate restricts who may call it. Registers the initial
-     * cross-chain peers; chains without a registered deployment fall back to `address(this)`. Later
-     * config changes go through `onAccept` governance.
+     * cross-chain peers (each bound to `address(this)`); a chain never registered here or later via
+     * `onAccept` is rejected by `_instance` with `UnknownInstance`. Later config changes go through
+     * `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
      * @param peerChains The state-machine ids of the cross-chain peers to register. Each is bound to
@@ -132,7 +133,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
     /**
      * @dev Returns the registered gateway address for a given state machine.
-     * Falls back to this contract's address if no remote deployment is registered.
+     * Reverts with `UnknownInstance` if no remote deployment is registered.
      * @param stateMachineId The raw state machine identifier bytes.
      * @return The gateway address for the given state machine.
      */

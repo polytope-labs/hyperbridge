@@ -185,6 +185,11 @@ abstract contract IntentsBase is EIP712 {
     error UnknownOrder();
 
     /*
+     * @dev Thrown when the cross-chain peer is unknown.
+    */
+    error UnknownInstance();
+
+    /*
      * @dev Thrown when a solver attempts to partially fill an order that carries
      * output calldata. Such orders must be filled completely in a single fill.
     */
@@ -309,14 +314,14 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Resolves the IntentGateway instance address for a given state machine.
-     * Falls back to `address(this)` if no remote deployment has been registered,
-     * meaning this contract is the canonical gateway for that chain.
+     * Reverts with `UnknownInstance` if no remote deployment has been registered for that chain.
      * @param stateMachineId The raw state machine identifier bytes.
      * @return The gateway address for the given state machine.
      */
     function _instance(bytes calldata stateMachineId) internal view returns (address) {
         address gateway = _instances[keccak256(stateMachineId)];
-        return gateway == address(0) ? address(this) : gateway;
+        if (gateway == address(0)) revert UnknownInstance();
+        return gateway;
     }
 
     /**

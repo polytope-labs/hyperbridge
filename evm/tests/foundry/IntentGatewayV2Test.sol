@@ -83,9 +83,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0,
             priceOracle: address(0)
         });
-        // Cross-chain peers resolve to `address(this)` (the shared gateway address), so no
-        // explicit peer registration is needed in these single-contract tests.
-        intentGateway.initialize(intentParams, new bytes[](0));
+        // Register the peer chains exercised by the cross-chain tests, all bound to this gateway's
+        // own address — `_instance` reverts with UnknownInstance for unregistered chains.
+        bytes[] memory peers = new bytes[](3);
+        peers[0] = host.host();
+        peers[1] = bytes("SOURCE_CHAIN");
+        peers[2] = bytes("DEST_CHAIN");
+        intentGateway.initialize(intentParams, peers);
 
         // Fund test accounts
         _fundTestAccounts();
@@ -2786,10 +2790,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testInstance() public {
         bytes memory stateMachineId = bytes("TEST_CHAIN");
 
-        // An unregistered chain resolves to this gateway's own (shared) address.
-        assertEq(
-            intentGateway.instance(stateMachineId), address(intentGateway), "Unregistered chain should resolve to self"
-        );
+        // An unregistered chain reverts with UnknownInstance.
+        vm.expectRevert(IntentsBase.UnknownInstance.selector);
+        intentGateway.instance(stateMachineId);
 
         // Register an explicit override deployment
         address gateway = address(0xABCD);
@@ -2926,7 +2929,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 100, // 1%
             priceOracle: address(0)
         });
-        customGateway.initialize(customParams, new bytes[](0));
+        bytes[] memory peers = new bytes[](1);
+        peers[0] = host.host();
+        customGateway.initialize(customParams, peers);
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC

@@ -259,7 +259,7 @@ contract HyperFungibleTokenUpgradeable is
      * @param params The send parameters
      * @return The fee amount in native currency
      */
-    function quote(SendParams calldata params) public view returns (uint256) {
+    function quote(SendParams calldata params) public returns (uint256) {
         return quote(_buildDispatchPost(params));
     }
 

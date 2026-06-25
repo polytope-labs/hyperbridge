@@ -44,6 +44,9 @@ env:
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
     SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
     POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
+    # Live endpoints for the BEEFY consensus-proof simtest; override via repo secrets.
+    RELAY_WS_URL: ${{ secrets.RELAY_WS_URL || 'wss://paseo.dotters.network' }}
+    PARA_WS_URL: ${{ secrets.PARA_WS_URL || 'wss://gargantua.rpc.polytope.technology' }}
     WASM_BINDGEN_TEST_TIMEOUT: 5400
     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}

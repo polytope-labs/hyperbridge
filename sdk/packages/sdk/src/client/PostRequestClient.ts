@@ -632,6 +632,42 @@ export class PostRequestClient {
 
 		if (destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+			const commitment = postRequestCommitment(request).commitment
+
+			// Fast path: if the destination's Hyperbridge light client has already been advanced past
+			// the delivery height (e.g. by another message or a relayer), there's no need to build a
+			// consensus proof — submit a plain PostRequest proof at the already-finalized height.
+			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: request.dest,
+			})
+			if (existingFinality) {
+				const proof = await hyperbridge.queryProof({ Requests: [commitment] }, request.dest, BigInt(existingFinality.height))
+				const calldata = destChain.encode({
+					kind: "PostRequest",
+					proof: {
+						stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: BigInt(existingFinality.height),
+					},
+					requests: [request],
+					signer: pad("0x"),
+				})
+				return {
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: existingFinality.blockHash,
+						blockNumber: existingFinality.height,
+						transactionHash: existingFinality.transactionHash,
+						timestamp: existingFinality.timestamp,
+						calldata,
+					},
+				}
+			}
+
+			// Otherwise advance the destination's Hyperbridge light client and deliver in one batch.
 			const currentEpoch = await destChain.currentEpoch()
 			const consensusResult = await hyperbridgeSubstrate.queryConsensusProofs(
 				BigInt(hyperbridgeDelivered.metadata.blockNumber),
@@ -639,11 +675,7 @@ export class PostRequestClient {
 			)
 			if (!consensusResult) return undefined
 
-			const proof = await hyperbridge.queryProof(
-				{ Requests: [postRequestCommitment(request).commitment] },
-				request.dest,
-				consensusResult.provenHeight,
-			)
+			const proof = await hyperbridge.queryProof({ Requests: [commitment] }, request.dest, consensusResult.provenHeight)
 
 			const calldata = destChain.encode({
 				kind: "BatchConsensusAndPostRequest",
@@ -731,13 +763,52 @@ export class PostRequestClient {
 
 		if (destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+			const commitment = postRequestCommitment(request).commitment
+
+			// Fast path: if the destination's Hyperbridge light client is already advanced past the
+			// delivery height, skip the consensus proof and submit a plain PostRequest proof.
+			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: stateMachineId,
+				height: Number(neededHeight),
+				chain: request.dest,
+			})
+			if (existingFinality) {
+				this.logger.trace(
+					`[streamFinalized] destination already finalized at height=${existingFinality.height}; skipping consensus proof`,
+				)
+				const proof = await this.fetchProofWithRetry(signal, () =>
+					hyperbridge.queryProof({ Requests: [commitment] }, request.dest, BigInt(existingFinality.height)),
+				)
+				const calldata = destChain.encode({
+					kind: "PostRequest",
+					proof: {
+						stateMachine: stateMachineId,
+						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: BigInt(existingFinality.height),
+					},
+					requests: [request],
+					signer: pad("0x"),
+				})
+				return {
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: existingFinality.blockHash,
+						blockNumber: existingFinality.height,
+						transactionHash: existingFinality.transactionHash,
+						timestamp: existingFinality.timestamp,
+						calldata,
+					},
+				}
+			}
+
+			// Otherwise wait for Hyperbridge's consensus proof and deliver via a batch tx.
 			const currentEpoch = await destChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
 				signal,
 				promise: () => hyperbridgeSubstrate.queryConsensusProofs(neededHeight, currentEpoch),
 			})
 
-			const commitment = postRequestCommitment(request).commitment
 			this.logger.trace(
 				`[streamFinalized] consensusProofs found (${consensusResult.proofs.length} proofs), provenHeight=${consensusResult.provenHeight}, ` +
 					`commitment=${commitment}, dest=${request.dest}`,

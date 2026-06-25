@@ -671,11 +671,13 @@ export class PostRequestClient {
 			}
 		}
 
-		// Substrate destination: use state machine update from indexer
+		// Substrate destination: wait for Hyperbridge to finalize itself. Hyperbridge runs a light
+		// client of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
+		// Hyperbridge state machine is observed on Hyperbridge — not on the destination chain.
 		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: request.dest,
+			chain: this.ctx.config.hyperbridge.config.stateMachineId,
 		})
 		if (!hyperbridgeFinality) return undefined
 
@@ -771,14 +773,16 @@ export class PostRequestClient {
 			}
 		}
 
-		// Substrate destination: wait for state machine update
+		// Substrate destination: wait for Hyperbridge to finalize itself. Hyperbridge runs a light
+		// client of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
+		// Hyperbridge state machine is observed on Hyperbridge — not on the destination chain.
 		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
 			signal,
 			promise: () =>
 				this.queries.queryStateMachineUpdateByHeight({
 					statemachineId: stateMachineId,
 					height: Number(neededHeight),
-					chain: request.dest,
+					chain: stateMachineId,
 				}),
 		})
 

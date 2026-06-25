@@ -83,9 +83,10 @@ dataSources:
             module: intentsCoprocessor
             method: PhantomOrderRegistered
         - handler: handlePhantomOrderPrices
-          kind: substrate/BlockHandler
+          kind: substrate/EventHandler
           filter:
-            modulo: 10 # Samples active phantom order bids once per minute.
+            module: intentsCoprocessor
+            method: PhantomBidWindowExhausted
 {{/if}}
         - handler: handlePendingStatusFlush
           kind: substrate/BlockHandler

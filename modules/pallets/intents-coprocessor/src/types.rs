@@ -18,7 +18,7 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use ismp::host::StateMachine;
+use ismp::consensus::StateMachineId;
 use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
@@ -137,7 +137,11 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
-/// Tracks the single active phantom order recognised by the pallet.
+/// Upper bound on the token pairs a single config may probe, and therefore on the number
+/// of phantom orders active at once.
+pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 10;
+
+/// Tracks a phantom order recognised by the pallet.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderInfo<BlockNumber> {
 	pub created_at_block: BlockNumber,
@@ -154,11 +158,13 @@ pub struct PhantomTokenPair {
 }
 
 /// Governance-settable configuration for autonomous phantom order generation.
-/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block.
+/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block. The
+/// `chain` carries the consensus state id so the hook can look up the latest
+/// confirmed height directly instead of scanning every state machine.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderConfiguration {
-	pub chain: StateMachine,
-	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<10>>,
+	pub chain: StateMachineId,
+	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
 	pub interval_blocks: u32,
 }
 
@@ -294,11 +300,6 @@ pub(crate) mod sol_types {
 	}
 }
 
-/// Fixed session address for all phantom orders, derived from private key 0x01.
-/// The indexer uses the matching private key when signing simulated bids.
-pub const PHANTOM_SESSION_ADDRESS: alloy_primitives::Address =
-	alloy_primitives::address!("7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
-
 /// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
 /// ABI-encoded bytes and its `keccak256` commitment.
 ///
@@ -326,7 +327,7 @@ pub fn phantom_order_commitment(
 		deadline: AlloyU256::from(deadline),
 		nonce: AlloyU256::from(block),
 		fees: AlloyU256::ZERO,
-		session: PHANTOM_SESSION_ADDRESS,
+		session: alloy_primitives::Address::ZERO,
 		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
 		inputs: vec![sol_types::TokenInfo {
 			token: FixedBytes::from(token_a_bytes),

@@ -2235,17 +2235,16 @@ type PhantomOrder @entity {
 	"""
 	Timestamp of the Hyperbridge block at which this phantom order was registered.
 	"""
-	blockTimestamp: Date
+	blockTimestamp: Date @index
 }
 
 """
-A periodic price and liquidity snapshot for a phantom order, written every 10 Hyperbridge blocks.
-Each snapshot collects all live bids via intents_getBidsForOrder, simulates each filler's user
-operation against the real IntentGatewayV2 code (with the phantom commitment injected via state
-override and block timestamp set to zero), and records the output amount distribution and total
-solver liquidity across all bids that pass simulation.
-Snapshots are only written when at least one valid bid exists and an EVM RPC endpoint is
-configured for the phantom order's destination chain.
+The price snapshot for a phantom order, written once its bid window closes (signalled by the
+PhantomBidWindowExhausted event). It collects all live bids via intents_getBidsForOrder, simulates
+each filler's user operation against the real IntentGatewayV2 code with the phantom escrow injected
+via state override, and records the output amount distribution across the bids that pass simulation.
+A snapshot is only written when at least one valid bid exists and an EVM RPC endpoint is configured
+for the phantom order's destination chain.
 """
 type PhantomOrderPriceSnapshot @entity {
 	"""
@@ -2267,30 +2266,24 @@ type PhantomOrderPriceSnapshot @entity {
 	Median output amount across all valid bids, in the smallest unit of the output token (tokenB).
 	Null if no valid bids were found.
 	"""
-	medianPrice: BigInt
+	medianPrice: BigInt @index
 
 	"""
-	Lowest output amount across all valid bids — the least the user would receive (most favorable for the solver).
+	Lowest output amount across all valid bids, the least the user would receive (most favorable for the solver).
 	Null if no valid bids were found.
 	"""
-	lowestPrice: BigInt
+	lowestPrice: BigInt @index
 
 	"""
-	Highest output amount across all valid bids — the most the user would receive (most favorable for the user).
+	Highest output amount across all valid bids, the most the user would receive (most favorable for the user).
 	Null if no valid bids were found.
 	"""
-	highestPrice: BigInt
+	highestPrice: BigInt @index
 
 	"""
 	Number of valid bids that contributed to this snapshot (passed simulation).
 	"""
 	bidCount: Int!
-
-	"""
-	Total liquidity available from the winning solver across raw ERC-20 balance and ERC-4626
-	vault positions (e.g. Aave stataTokens, yield vaults) for the output token.
-	"""
-	lpBalance: BigInt
 
 	"""
 	Timestamp of the Hyperbridge block at which this snapshot was taken.
@@ -2299,9 +2292,10 @@ type PhantomOrderPriceSnapshot @entity {
 }
 
 """
-Per-solver liquidity balance recorded at each phantom order price snapshot.
-One entity is written for every valid bidder whose fill simulation passes.
-The balance is summed across all configured EVM chains for the output token.
+Per-solver, per-token liquidity balance recorded at a phantom order price snapshot.
+One entity is written for every valid bidder whose fill simulation passes. The balance covers a
+single output token on the order's destination chain, as raw ERC-20 plus redeemable ERC-4626
+vault positions. Balances of different tokens are never combined into one value.
 """
 type PhantomOrderLpBalance @entity {
 	"""
@@ -2325,7 +2319,12 @@ type PhantomOrderLpBalance @entity {
 	solver: String! @index
 
 	"""
-	Total solver balance for the output token across all configured EVM chains,
+	EVM address of the output token this balance is measured in.
+	"""
+	tokenAddress: String! @index
+
+	"""
+	Solver balance for tokenAddress on the order's destination chain,
 	including raw ERC-20 balance and redeemable ERC-4626 vault positions.
 	"""
 	balance: BigInt!

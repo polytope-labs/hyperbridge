@@ -121,10 +121,13 @@ fn phantom_config_value(chain_id: u64, interval_blocks: u32) -> Value {
 		("token_a", Value::from_bytes([1u8; 20])),
 		("token_b", Value::from_bytes([2u8; 20])),
 		("standard_amount", Value::u128(1_000_000_000_000_000_000u128)),
-		("min_output", Value::u128(900_000_000_000_000_000u128)),
+	]);
+	let chain = Value::named_composite(vec![
+		("state_id", Value::variant("Evm", Composite::unnamed(vec![Value::u128(chain_id.into())]))),
+		("consensus_state_id", Value::from_bytes(*b"ETH0")),
 	]);
 	Value::named_composite(vec![
-		("chain", Value::variant("Evm", Composite::unnamed(vec![Value::u128(chain_id.into())]))),
+		("chain", chain),
 		("token_pairs", Value::unnamed_composite(vec![pair])),
 		("interval_blocks", Value::u128(interval_blocks as u128)),
 	])
@@ -145,8 +148,12 @@ async fn set_phantom_order_config(
 	sudo_and_seal(client, rpc, call.into_value()).await
 }
 
-/// Read the active phantom commitment from `CurrentPhantomOrder` storage at
+/// Read the first active phantom commitment from `CurrentPhantomOrder` storage at
 /// the given block hash. Returns `None` when the storage slot is empty.
+///
+/// `CurrentPhantomOrder` is a `BoundedVec<(H256, PhantomOrderInfo), _>`, so the raw bytes
+/// start with a one byte compact length (single byte for the small bounds here) before the
+/// first entry's commitment.
 async fn read_active_commitment(
 	client: &subxt::OnlineClient<Hyperbridge>,
 	block_hash: H256,
@@ -157,11 +164,11 @@ async fn read_active_commitment(
 		.fetch_raw(current_phantom_order_key())
 		.await
 		.ok()??;
-	if raw.len() < 32 {
+	if raw.len() < 33 {
 		return None;
 	}
 	let mut bytes = [0u8; 32];
-	bytes.copy_from_slice(&raw[..32]);
+	bytes.copy_from_slice(&raw[1..33]);
 	Some(H256::from(bytes))
 }
 
@@ -218,9 +225,10 @@ async fn test_set_phantom_order_config_stores_and_emits_event() -> Result<(), an
 		.await?
 		.expect("CurrentPhantomOrder must be set after config block");
 
-	// Layout: [H256 (32)] [u32 LE (4)] [SCALE compact len (1)] [chain bytes]
-	let chain_len = (raw[36] >> 2) as usize;
-	let stored_chain = &raw[37..37 + chain_len];
+	// BoundedVec layout: [compact len (1)] [H256 (32)] [u32 LE (4)] [SCALE compact len (1)] [chain
+	// bytes]
+	let chain_len = (raw[37] >> 2) as usize;
+	let stored_chain = &raw[38..38 + chain_len];
 	assert_eq!(stored_chain, b"EVM-8453", "chain must match the governance-set value");
 
 	let events = client.events().at(block_hash).await?;

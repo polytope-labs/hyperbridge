@@ -25,7 +25,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::RawOrigin;
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use sp_runtime::traits::ConstU32;
 
@@ -191,7 +191,10 @@ mod benchmarks {
 		let origin =
 			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let config = types::PhantomOrderConfiguration {
-			chain: StateMachine::Evm(8453),
+			chain: StateMachineId {
+				state_id: StateMachine::Evm(8453),
+				consensus_state_id: *b"ETH0",
+			},
 			token_pairs: vec![types::PhantomTokenPair {
 				token_a: H160::repeat_byte(0x01),
 				token_b: H160::repeat_byte(0x02),

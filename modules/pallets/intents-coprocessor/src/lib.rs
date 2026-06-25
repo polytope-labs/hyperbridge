@@ -32,6 +32,7 @@ use frame_support::{
 	BoundedVec,
 };
 use ismp::{
+	consensus::StateMachineId,
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 };
@@ -48,7 +49,7 @@ pub use weights::WeightInfo;
 
 use types::{
 	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderConfiguration, PhantomOrderInfo,
-	PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo,
+	PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo, MAX_PHANTOM_TOKEN_PAIRS,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -56,6 +57,9 @@ pub use pallet::*;
 
 /// Pallet identifier for ISMP routing
 pub const PALLET_INTENTS_ID: &[u8] = b"pallet-intents";
+
+/// Logging target for this pallet.
+const LOG_TARGET: &str = "runtime::intents-coprocessor";
 
 /// Generate the offchain storage key for a bid given raw commitment and filler bytes.
 pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8> {
@@ -139,11 +143,21 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
-	/// The single active phantom order. Only one is recognised at a time; the hook
-	/// replaces it on each generation cycle.
+	/// The phantom orders active for the current interval, one entry per configured token
+	/// pair. Keeping them all here lets `place_bid` enforce the bid rules for every pair
+	/// rather than only the last one generated. Replaced as a whole each cycle.
 	#[pallet::storage]
-	pub type CurrentPhantomOrder<T: Config> =
-		StorageValue<_, (H256, PhantomOrderInfo<BlockNumberFor<T>>), OptionQuery>;
+	pub type CurrentPhantomOrder<T: Config> = StorageValue<
+		_,
+		BoundedVec<(H256, PhantomOrderInfo<BlockNumberFor<T>>), ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+		OptionQuery,
+	>;
+
+	/// Commitments whose bid window just closed, replaced each cycle. The indexer reads this
+	/// (and the matching PhantomBidWindowExhausted event) as the pointer for aggregating snapshots.
+	#[pallet::storage]
+	pub type ExhaustedPhantomOrder<T: Config> =
+		StorageValue<_, BoundedVec<H256, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>, OptionQuery>;
 
 	/// Governance-updatable bid acceptance window for phantom orders (in blocks).
 	/// Falls back to PhantomOrderBidWindowBlocks when zero.
@@ -196,7 +210,9 @@ pub mod pallet {
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
 		/// The phantom order configuration was updated by governance
-		PhantomOrderConfigSet { chain: StateMachine, pair_count: u32, interval_blocks: u32 },
+		PhantomOrderConfigSet { chain: StateMachineId, pair_count: u32, interval_blocks: u32 },
+		/// A phantom order's bid window closed; the indexer can now aggregate its snapshot.
+		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
 	}
 
 	#[pallet::error]
@@ -246,9 +262,10 @@ pub mod pallet {
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
 
 			// Phantom orders have stricter rules: one bid per filler, no updates, and only
-			// within the configured acceptance window after the order was registered.
-			if let Some((phantom_commitment, info)) = CurrentPhantomOrder::<T>::get() {
-				if commitment == phantom_commitment {
+			// within the configured acceptance window after the order was registered. Every
+			// active pair is checked, not just the most recently generated one.
+			if let Some(active) = CurrentPhantomOrder::<T>::get() {
+				if let Some((_, info)) = active.iter().find(|(c, _)| *c == commitment) {
 					let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
 					ensure!(
 						frame_system::Pallet::<T>::block_number() <= info.created_at_block + window,
@@ -564,7 +581,8 @@ pub mod pallet {
 				return Weight::zero();
 			};
 
-			let should_generate = match CurrentPhantomOrder::<T>::get() {
+			let active = CurrentPhantomOrder::<T>::get();
+			let should_generate = match active.as_ref().and_then(|orders| orders.first()) {
 				None => true,
 				Some((_, info)) => {
 					let interval: BlockNumberFor<T> = config.interval_blocks.into();
@@ -576,30 +594,43 @@ pub mod pallet {
 				return T::DbWeight::get().reads(2);
 			}
 
-			// Use the latest confirmed EVM block for the destination chain as the deadline
-			// base. The gateway checks `order.deadline < block.number`, so we add the
-			// current interval as a buffer to keep the order valid for one full window.
-			let chain_bytes = config.chain.to_string().into_bytes();
-			let opt_latest_height = LatestStateMachineHeight::<T>::iter()
-				.filter_map(|(id, height)| {
-					if id.state_id == config.chain { Some(height) } else { None }
-				})
-				.max();
-			let Some(latest_evm_height) = opt_latest_height else {
+			// Phantom orders carry the latest confirmed height as their deadline so they read
+			// as already expired on-chain and can never be executed for real. Bail before
+			// touching storage if the destination chain has no confirmed height yet.
+			let chain_bytes = config.chain.state_id.to_string().into_bytes();
+			let Some(deadline) = LatestStateMachineHeight::<T>::get(config.chain) else {
 				log::warn!(
-					target: "pallet-intents",
+					target: LOG_TARGET,
 					"No confirmed state machine height for {:?}, skipping phantom order generation",
 					config.chain,
 				);
 				return T::DbWeight::get().reads(3);
 			};
-			let deadline = latest_evm_height.saturating_add(config.interval_blocks as u64);
 
+			// The previous batch has seen every bid it will get. Signal each commitment so the
+			// indexer can aggregate, and record them as the exhausted pointer before replacing.
+			if let Some(active) = active {
+				let mut exhausted: BoundedVec<H256, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>> =
+					BoundedVec::new();
+				for (commitment, info) in active.iter() {
+					Self::deposit_event(Event::PhantomBidWindowExhausted {
+						commitment: *commitment,
+						created_at: info.created_at_block,
+					});
+					let _ = exhausted.try_push(*commitment);
+				}
+				ExhaustedPhantomOrder::<T>::put(exhausted);
+			}
+
+			let mut batch: BoundedVec<
+				(H256, PhantomOrderInfo<BlockNumberFor<T>>),
+				ConstU32<MAX_PHANTOM_TOKEN_PAIRS>,
+			> = BoundedVec::new();
 			for pair in config.token_pairs.iter() {
 				let (commitment, order_bytes) =
 					Self::compute_phantom_commitment(n, &chain_bytes, pair, deadline);
 				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
-				CurrentPhantomOrder::<T>::put((commitment, info));
+				let _ = batch.try_push((commitment, info));
 				offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
 				Self::deposit_event(Event::PhantomOrderRegistered {
 					commitment,
@@ -610,10 +641,9 @@ pub mod pallet {
 					standard_amount: pair.standard_amount,
 				});
 			}
+			CurrentPhantomOrder::<T>::put(batch);
 
-			T::DbWeight::get()
-				.reads(2)
-				.saturating_add(T::DbWeight::get().writes(config.token_pairs.len() as u64 + 1))
+			T::DbWeight::get().reads_writes(3, 2)
 		}
 	}
 
@@ -688,7 +718,7 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 
 			log::info!(
-				target: "pallet-intents",
+				target: LOG_TARGET,
 				"Dispatched cross-chain request to {:?}, commitment: {:?}",
 				state_machine,
 				commitment

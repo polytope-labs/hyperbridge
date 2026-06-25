@@ -33,11 +33,11 @@ export function hasTokenSlotOverride(address: string): boolean {
 	return address.toLowerCase() in TOKEN_SLOT_OVERRIDES
 }
 
-// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 10.
+// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 9 in IntentGatewayV2.
+// (PR #988 removed the _admin slot, shifting _orders down from slot 10 to slot 9.)
 // inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
-// NOTE: If PR #988 (removes _admin from IntentGatewayV2) merges first, _orders shifts to slot 9.
 export function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {
-	const innerSlot = keccak256(concat([commitment, toHex(10n, { size: 32 })]))
+	const innerSlot = keccak256(concat([commitment, toHex(9n, { size: 32 })]))
 	return keccak256(concat([inputTokenBytes32, innerSlot]))
 }
 

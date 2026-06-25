@@ -361,8 +361,8 @@ pub mod pallet {
 			// Only notify gateways with different addresses (same address automatically accepts)
 			for (existing_state_machine, existing_gateway_info) in Gateways::<T>::iter() {
 				// Skip if same state machine or same gateway address
-				if existing_state_machine == state_machine ||
-					existing_gateway_info.gateway == gateway
+				if existing_state_machine == state_machine
+					|| existing_gateway_info.gateway == gateway
 				{
 					continue;
 				}
@@ -616,23 +616,9 @@ pub mod pallet {
 	{
 		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
 			let Some(config) = PhantomOrderConfig::<T>::get() else {
-				return Weight::zero();
+				// Reserve the read on_finalize performs on CurrentPhantomOrder.
+				return T::DbWeight::get().reads(2);
 			};
-
-			// Signal each active commitment on the block its bid window closes so the indexer can
-			// aggregate that order's snapshot. Done before the generation gate so it still fires on
-			// blocks where no new batch is produced.
-			if let Some(active) = CurrentPhantomOrder::<T>::get() {
-				let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
-				for (commitment, info) in active.iter() {
-					if n == info.created_at_block.saturating_add(window) {
-						Self::deposit_event(Event::PhantomBidWindowExhausted {
-							commitment: *commitment,
-							created_at: info.created_at_block,
-						});
-					}
-				}
-			}
 
 			let should_generate = match LastPhantomGeneration::<T>::get() {
 				None => true,
@@ -642,8 +628,9 @@ pub mod pallet {
 				},
 			};
 
+			// reads here (config + last_generation) plus the reads on_finalize performs.
 			if !should_generate {
-				return T::DbWeight::get().reads(3);
+				return T::DbWeight::get().reads(4);
 			}
 
 			// Phantom orders carry the latest confirmed height as their deadline so they read
@@ -656,7 +643,7 @@ pub mod pallet {
 					"No confirmed state machine height for {:?}, skipping phantom order generation",
 					config.chain,
 				);
-				return T::DbWeight::get().reads(4);
+				return T::DbWeight::get().reads(5);
 			};
 
 			let mut batch: BoundedVec<
@@ -681,7 +668,28 @@ pub mod pallet {
 			CurrentPhantomOrder::<T>::put(batch);
 			LastPhantomGeneration::<T>::put(n);
 
-			T::DbWeight::get().reads_writes(4, 2)
+			// reads: config + last_generation + latest_height + the on_finalize reads.
+			T::DbWeight::get().reads_writes(5, 2)
+		}
+
+		fn on_finalize(n: BlockNumberFor<T>) {
+			// Signal each active commitment on the block its bid window closes so the indexer can
+			// aggregate that order's snapshot. Emitted in on_finalize (after all extrinsics) so any
+			// bid placed in the window-closing block is already in storage when the snapshot is
+			// taken. The bid window is expected to be shorter than the generation interval, so the
+			// active batch is never replaced by on_initialize on the same block its window closes.
+			let Some(active) = CurrentPhantomOrder::<T>::get() else {
+				return;
+			};
+			let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
+			for (commitment, info) in active.iter() {
+				if n == info.created_at_block.saturating_add(window) {
+					Self::deposit_event(Event::PhantomBidWindowExhausted {
+						commitment: *commitment,
+						created_at: info.created_at_block,
+					});
+				}
+			}
 		}
 	}
 

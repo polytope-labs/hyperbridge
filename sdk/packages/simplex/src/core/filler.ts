@@ -804,15 +804,15 @@ export class IntentFiller {
 				fillerOutputs,
 			)
 
-			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
-			if (prevCommitment && prevCommitment !== event.commitment) {
-				// Retract the previous bid so its deposit is reclaimed before the new interval starts.
-				this.enqueueRetraction(prevCommitment, false)
-			}
-
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity
 			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			const result = await coprocessor.submitBid(event.commitment, userOp)
+			// When a previous interval's bid is still live, retract it and place the new bid in one
+			// batchAll transaction so its deposit is reclaimed atomically.
+			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
+			const result =
+				prevCommitment && prevCommitment !== event.commitment
+					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
+					: await coprocessor.submitBid(event.commitment, userOp)
 			if (result.success) {
 				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
 				this.logger.info({ commitment: event.commitment, chain: event.chain }, "Phantom bid submitted")

@@ -273,7 +273,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			prices.push(fillData.solverAmount)
 
 			await PhantomOrderLpBalance.create({
-				id: `${commitment}-${blockNumber}-${solver}`,
+				id: `${outputTokenAddress}-${solver}`,
 				commitment,
 				blockNumber,
 				solver,
@@ -293,6 +293,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	await PhantomOrderPriceSnapshot.create({
 		id: snapshotId,
 		commitment,
+		tokenA: phantom.tokenA,
+		tokenB: phantom.tokenB,
 		blockNumber,
 		lowestPrice: sorted[0],
 		highestPrice: sorted[sorted.length - 1],

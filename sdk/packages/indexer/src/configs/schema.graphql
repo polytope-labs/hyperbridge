@@ -2258,6 +2258,16 @@ type PhantomOrderPriceSnapshot @entity {
 	commitment: String! @index
 
 	"""
+	EVM address of the input token (tokenA) priced by this snapshot, as a 0x-prefixed hex string.
+	"""
+	tokenA: String! @index
+
+	"""
+	EVM address of the output token (tokenB) the prices are denominated in, as a 0x-prefixed hex string.
+	"""
+	tokenB: String! @index
+
+	"""
 	Hyperbridge block number at which this snapshot was taken.
 	"""
 	blockNumber: BigInt! @index
@@ -2299,7 +2309,8 @@ vault positions. Balances of different tokens are never combined into one value.
 """
 type PhantomOrderLpBalance @entity {
 	"""
-	Composite identifier: {commitment}-{blockNumber}-{solverAddress}.
+	Composite identifier: {tokenAddress}-{solverAddress}. One row per solver per token, holding
+	their latest measured liquidity.
 	"""
 	id: ID!
 

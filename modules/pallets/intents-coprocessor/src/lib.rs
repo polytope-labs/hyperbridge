@@ -153,11 +153,10 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Commitments whose bid window just closed, replaced each cycle. The indexer reads this
-	/// (and the matching PhantomBidWindowExhausted event) as the pointer for aggregating snapshots.
+	/// The block at which phantom orders were last generated, used to decide when the next
+	/// interval is due. Cleared by set_phantom_order_config so generation restarts immediately.
 	#[pallet::storage]
-	pub type ExhaustedPhantomOrder<T: Config> =
-		StorageValue<_, BoundedVec<H256, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>, OptionQuery>;
+	pub type LastPhantomGeneration<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
 	/// Governance-updatable bid acceptance window for phantom orders (in blocks).
 	/// Falls back to PhantomOrderBidWindowBlocks when zero.
@@ -547,6 +546,7 @@ pub mod pallet {
 
 			PhantomOrderConfig::<T>::put(&config);
 			CurrentPhantomOrder::<T>::kill();
+			LastPhantomGeneration::<T>::kill();
 
 			Self::deposit_event(Event::PhantomOrderConfigSet {
 				chain,
@@ -581,17 +581,31 @@ pub mod pallet {
 				return Weight::zero();
 			};
 
-			let active = CurrentPhantomOrder::<T>::get();
-			let should_generate = match active.as_ref().and_then(|orders| orders.first()) {
+			// Signal each active commitment on the block its bid window closes so the indexer can
+			// aggregate that order's snapshot. Done before the generation gate so it still fires on
+			// blocks where no new batch is produced.
+			if let Some(active) = CurrentPhantomOrder::<T>::get() {
+				let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
+				for (commitment, info) in active.iter() {
+					if n == info.created_at_block.saturating_add(window) {
+						Self::deposit_event(Event::PhantomBidWindowExhausted {
+							commitment: *commitment,
+							created_at: info.created_at_block,
+						});
+					}
+				}
+			}
+
+			let should_generate = match LastPhantomGeneration::<T>::get() {
 				None => true,
-				Some((_, info)) => {
+				Some(last) => {
 					let interval: BlockNumberFor<T> = config.interval_blocks.into();
-					!interval.is_zero() && n >= info.created_at_block.saturating_add(interval)
+					!interval.is_zero() && n >= last.saturating_add(interval)
 				},
 			};
 
 			if !should_generate {
-				return T::DbWeight::get().reads(2);
+				return T::DbWeight::get().reads(3);
 			}
 
 			// Phantom orders carry the latest confirmed height as their deadline so they read
@@ -604,23 +618,8 @@ pub mod pallet {
 					"No confirmed state machine height for {:?}, skipping phantom order generation",
 					config.chain,
 				);
-				return T::DbWeight::get().reads(3);
+				return T::DbWeight::get().reads(4);
 			};
-
-			// The previous batch has seen every bid it will get. Signal each commitment so the
-			// indexer can aggregate, and record them as the exhausted pointer before replacing.
-			if let Some(active) = active {
-				let mut exhausted: BoundedVec<H256, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>> =
-					BoundedVec::new();
-				for (commitment, info) in active.iter() {
-					Self::deposit_event(Event::PhantomBidWindowExhausted {
-						commitment: *commitment,
-						created_at: info.created_at_block,
-					});
-					let _ = exhausted.try_push(*commitment);
-				}
-				ExhaustedPhantomOrder::<T>::put(exhausted);
-			}
 
 			let mut batch: BoundedVec<
 				(H256, PhantomOrderInfo<BlockNumberFor<T>>),
@@ -642,8 +641,9 @@ pub mod pallet {
 				});
 			}
 			CurrentPhantomOrder::<T>::put(batch);
+			LastPhantomGeneration::<T>::put(n);
 
-			T::DbWeight::get().reads_writes(3, 2)
+			T::DbWeight::get().reads_writes(4, 2)
 		}
 	}
 

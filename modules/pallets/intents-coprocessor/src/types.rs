@@ -139,7 +139,7 @@ pub struct GatewayInfo {
 
 /// Upper bound on the token pairs a single config may probe, and therefore on the number
 /// of phantom orders active at once.
-pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 10;
+pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
 
 /// Tracks a phantom order recognised by the pallet.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]

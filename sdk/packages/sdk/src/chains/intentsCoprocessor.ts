@@ -355,6 +355,34 @@ export class IntentsCoprocessor {
 	}
 
 	/**
+	 * Retracts a previous bid and places a new one in a single atomic transaction via
+	 * utility.batchAll, so the old deposit is reclaimed in the same block the new bid lands.
+	 *
+	 * @param retractCommitment - The order commitment of the bid to retract (bytes32)
+	 * @param bidCommitment - The order commitment of the new bid (bytes32)
+	 * @param userOp - The encoded PackedUserOperation as hex string
+	 * @returns BidSubmissionResult with success status and block/extrinsic hash
+	 */
+	async submitBidWithRetraction(
+		retractCommitment: HexString,
+		bidCommitment: HexString,
+		userOp: HexString,
+	): Promise<BidSubmissionResult> {
+		try {
+			const batch = this.api.tx.utility.batchAll([
+				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
+				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
+			])
+			return await this.signAndSendExtrinsic(batch)
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			}
+		}
+	}
+
+	/**
 	 * Fetches all bid storage entries for a given order commitment.
 	 * Returns the on-chain data only (filler addresses and deposits).
 	 *

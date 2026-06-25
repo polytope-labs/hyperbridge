@@ -147,6 +147,8 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
+		/// A gateway implementation upgrade was initiated
+		GatewayUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
 	}
 
 	#[pallet::error]
@@ -440,6 +442,41 @@ pub mod pallet {
 			StorageDepositFee::<T>::put(fee);
 
 			Self::deposit_event(Event::StorageDepositFeeUpdated { fee });
+
+			Ok(())
+		}
+
+		/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy via cross-chain
+		/// governance. The upgrade is authorized on the gateway by `source == hyperbridge`, the
+		/// same authority used for `update_params`/`sweep_dust`.
+		///
+		/// # Parameters
+		/// - `state_machine`: The state machine where the gateway is deployed
+		/// - `new_impl`: The address of the new implementation contract
+		/// - `init_data`: Optional migration calldata executed atomically against the proxy on upgrade
+		///
+		/// # Errors
+		/// - `GatewayNotFound`: If no gateway exists for the state machine
+		/// - `DispatchFailed`: If cross-chain dispatch fails
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::upgrade_gateway())]
+		pub fn upgrade_gateway(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			new_impl: H160,
+			init_data: Vec<u8>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let gateway_info =
+				Gateways::<T>::get(state_machine).ok_or(Error::<T>::GatewayNotFound)?;
+
+			let request = RequestKind::UpgradeContract { new_impl, init_data };
+			let body = request.encode_body();
+
+			Self::dispatch(state_machine, gateway_info.gateway, body)?;
+
+			Self::deposit_event(Event::GatewayUpgradeInitiated { state_machine, new_impl });
 
 			Ok(())
 		}

@@ -23,6 +23,7 @@ import {
 	ordersStorageSlot,
 	ORDER_FILLED_TOPIC,
 	tokenSlots,
+	weightedMedian,
 } from "./phantom-simulation.helpers"
 
 interface RpcBidInfo {
@@ -203,12 +204,6 @@ async function getTotalSolverBalance(evmRpcUrl: string, chain: string, token: st
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
-// Returns the upper-middle element for even-length arrays rather than averaging the two midpoints.
-function medianOf(values: bigint[]): bigint {
-	const sorted = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-	return sorted[Math.floor(sorted.length / 2)]
-}
-
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
 // already in. Aggregates that single order's bids into one price snapshot.
 export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Promise<void> => {
@@ -251,7 +246,9 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	if (!evmUrl || !gatewayAddress) return
 
 	const blockTimestamp = await getBlockTimestamp(blockHash, host)
-	const prices: bigint[] = []
+	// Each entry pairs a solver's quoted output amount with its total balance for that token
+	// (native + vaults), which weights how much the quote influences the median price.
+	const quotes: { price: bigint; weight: bigint }[] = []
 
 	for (const bid of bids) {
 		if (!bid.user_op) continue
@@ -276,7 +273,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			const outputTokenAddress = bytes32ToBytes20(fillData.outputToken)
 			const totalBalance = await getTotalSolverBalance(evmUrl, phantom.chain, outputTokenAddress, solver)
 
-			prices.push(fillData.solverAmount)
+			quotes.push({ price: fillData.solverAmount, weight: totalBalance })
 
 			await PhantomOrderLpBalance.create({
 				id: `${outputTokenAddress}-${solver}`,
@@ -292,9 +289,11 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		}
 	}
 
-	if (prices.length === 0) return
+	if (quotes.length === 0) return
 
-	const sorted = [...prices].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+	// lowest/highest are the raw quote range; the median is liquidity-weighted so solvers with
+	// more balance for the token pull it harder.
+	const sortedPrices = quotes.map((q) => q.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
 	await PhantomOrderPriceSnapshot.create({
 		id: snapshotId,
@@ -302,12 +301,12 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		tokenA: phantom.tokenA,
 		tokenB: phantom.tokenB,
 		blockNumber,
-		lowestPrice: sorted[0],
-		highestPrice: sorted[sorted.length - 1],
-		medianPrice: medianOf(prices),
-		bidCount: prices.length,
+		lowestPrice: sortedPrices[0],
+		highestPrice: sortedPrices[sortedPrices.length - 1],
+		medianPrice: weightedMedian(quotes),
+		bidCount: quotes.length,
 		snapshotTime: timestampToDate(blockTimestamp),
 	}).save()
 
-	logger.info({ commitment, blockNumber, bidCount: prices.length }, "PhantomOrderPriceSnapshot saved")
+	logger.info({ commitment, blockNumber, bidCount: quotes.length }, "PhantomOrderPriceSnapshot saved")
 })

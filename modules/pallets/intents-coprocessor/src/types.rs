@@ -216,6 +216,13 @@ pub enum RequestKind {
 	SweepDust(SweepDust),
 	/// Update token decimals in VWAP Oracle
 	UpdateTokenDecimals(Vec<TokenDecimalsUpdate>),
+	/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy
+	UpgradeContract {
+		/// The new implementation contract address
+		new_impl: H160,
+		/// Optional migration calldata run atomically against the proxy on upgrade
+		init_data: Vec<u8>,
+	},
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -397,6 +404,7 @@ enum IntentGatewayRequestKind {
 	UpdateParams = 2,
 	SweepDust = 3,
 	RefundEscrow = 4,
+	UpgradeContract = 5,
 }
 
 /// Mirrors the `RequestKind` enum in `VWAPOracle.sol`.
@@ -463,6 +471,66 @@ impl RequestKind {
 				body.extend_from_slice(&updates_sol.abi_encode());
 				body
 			},
+			RequestKind::UpgradeContract { new_impl, init_data } => {
+				use alloy_primitives::{Address, Bytes};
+				// Mirrors the Solidity `abi.decode(body[1:], (address, bytes))` in
+				// `ExtrinsicIntents.onAccept`. `abi_encode_params` emits the two values as bare
+				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl, initData)`.
+				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
+
+				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
 		}
+	}
+}
+
+#[cfg(test)]
+mod request_kind_tests {
+	use super::*;
+	use alloy_primitives::{Address, Bytes};
+
+	// Proves the UpgradeContract body matches Solidity `abi.decode(body[1:], (address, bytes))`.
+	#[test]
+	fn upgrade_contract_encode_matches_solidity_two_param_abi() {
+		let new_impl = H160::repeat_byte(0x11);
+		let body = RequestKind::UpgradeContract { new_impl, init_data: Vec::new() }.encode_body();
+
+		// Discriminator byte must equal the EVM enum value (UpgradeContract = 5).
+		assert_eq!(body[0], 5, "discriminator must match IntentsBase.RequestKind.UpgradeContract");
+
+		// Hand-computed `abi.encode(address, bytes)` for (0x11 * 20, "") — exactly 96 bytes:
+		//   word0: address right-aligned in 32 bytes
+		//   word1: offset to the bytes tail (0x40)
+		//   word2: byte length (0)
+		let mut expected = Vec::new();
+		expected.extend_from_slice(&[0u8; 12]);
+		expected.extend_from_slice(&[0x11u8; 20]);
+		let mut offset = [0u8; 32];
+		offset[31] = 0x40;
+		expected.extend_from_slice(&offset);
+		expected.extend_from_slice(&[0u8; 32]);
+		assert_eq!(&body[1..], expected.as_slice(), "payload must equal abi.encode(addr, bytes)");
+
+		// And it decodes through the exact Solidity analogue.
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert!(decoded_data.is_empty());
+	}
+
+	#[test]
+	fn upgrade_contract_encode_with_init_data_round_trips() {
+		let new_impl = H160::repeat_byte(0xAB);
+		let init_data = vec![0xDE, 0xAD, 0xBE, 0xEF];
+		let body =
+			RequestKind::UpgradeContract { new_impl, init_data: init_data.clone() }.encode_body();
+		assert_eq!(body[0], 5);
+
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
 	}
 }

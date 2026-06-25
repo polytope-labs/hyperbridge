@@ -470,6 +470,60 @@ fn update_params_fails_when_gateway_not_found() {
 }
 
 #[test]
+fn upgrade_gateway_works() {
+	new_test_ext().execute_with(|| {
+		let state_machine = StateMachine::Evm(1);
+		let gateway = H160::default();
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+
+		assert_ok!(Intents::add_deployment(RuntimeOrigin::root(), state_machine, gateway, params));
+
+		assert_ok!(Intents::upgrade_gateway(
+			RuntimeOrigin::root(),
+			state_machine,
+			H160::repeat_byte(0x42),
+			vec![0xDE, 0xAD],
+		));
+	});
+}
+
+#[test]
+fn upgrade_gateway_fails_when_gateway_not_found() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::upgrade_gateway(
+				RuntimeOrigin::root(),
+				StateMachine::Evm(1),
+				H160::repeat_byte(0x42),
+				vec![]
+			),
+			Error::<Test>::GatewayNotFound
+		);
+	});
+}
+
+#[test]
+fn upgrade_gateway_requires_governance_origin() {
+	new_test_ext().execute_with(|| {
+		// A signed (non-governance) origin must be rejected before any gateway lookup.
+		assert!(Intents::upgrade_gateway(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			StateMachine::Evm(1),
+			H160::repeat_byte(0x42),
+			vec![]
+		)
+		.is_err());
+	});
+}
+
+#[test]
 fn update_token_decimals_works() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);

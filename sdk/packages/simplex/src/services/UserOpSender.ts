@@ -154,8 +154,8 @@ export class UserOpSender {
 				}
 			: undefined
 
-		// Explicit limits skip estimation (needed for the not-yet-delegated EIP-7702
-		// case, where there is no account code to simulate).
+		// Explicit limits skip estimation — the bundler echoes the input limits for
+		// these ops rather than simulating, so callers pass measured fixed limits.
 		const { verificationGasLimit, callGasLimit, preVerificationGas } =
 			gas ??
 			(await this.estimateGas({

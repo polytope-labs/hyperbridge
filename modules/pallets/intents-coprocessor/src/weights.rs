@@ -43,6 +43,7 @@ pub trait WeightInfo {
 	fn update_token_decimals() -> Weight;
 	fn set_phantom_order_config() -> Weight;
 	fn set_phantom_bid_window() -> Weight;
+	fn upgrade_gateway() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -123,6 +124,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(10_000_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
+
+	/// Storage: Gateways (r:1 w:0)
+	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
+	/// Storage: Nonce (r:1 w:1)
+	/// Proof Skipped: Nonce (max_values: Some(1), max_size: None, mode: Measured)
+	fn upgrade_gateway() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 }
 
 // For backwards compatibility and tests
@@ -150,5 +162,8 @@ impl WeightInfo for () {
 	}
 	fn set_phantom_bid_window() -> Weight {
 		Weight::from_parts(10_000_000, 0)
+	}
+	fn upgrade_gateway() -> Weight {
+		Weight::from_parts(70_000_000, 0)
 	}
 }

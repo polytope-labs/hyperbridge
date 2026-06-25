@@ -66,6 +66,40 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     /// @notice Thrown when a compose message doesn't match the queued hash
     error InvalidCompose();
 
+    /// @notice Thrown when a recovery action is attempted by neither the OApp nor its delegate
+    error UnauthorizedRecovery();
+
+    /// @notice Thrown when a supplied payload doesn't match the stored inbound payload hash
+    error InvalidPayloadHash();
+
+    /// @notice Thrown when burning a payload that was never nilified
+    error PayloadNotNilified();
+
+    /// @notice Thrown when a recovery action targets a slot with no stored payload
+    error PayloadNotFound();
+
+    /// @notice Emitted when an OApp's `lzReceive` reverts and the payload is retained for retry
+    event InboundPayloadStored(
+        address indexed receiver, uint32 indexed srcEid, bytes32 sender, uint64 nonce, bytes32 payloadHash
+    );
+
+    /// @notice Emitted when a stored payload is successfully retried or cleared
+    event InboundPayloadResolved(address indexed receiver, uint32 indexed srcEid, bytes32 sender, uint64 nonce);
+
+    /// @notice Emitted when a stuck inbound nonce is skipped by the OApp or its delegate
+    event InboundNonceSkippedBy(address indexed receiver, uint32 indexed srcEid, bytes32 sender, uint64 nonce);
+
+    /// @notice Emitted when a stored payload is nilified
+    event InboundPayloadNilified(
+        address indexed receiver, uint32 indexed srcEid, bytes32 sender, uint64 nonce, bytes32 payloadHash
+    );
+
+    /// @notice Emitted when a nilified payload is burned
+    event InboundPayloadBurned(address indexed receiver, uint32 indexed srcEid, bytes32 sender, uint64 nonce);
+
+    /// @notice Emitted when an OApp configures its recovery delegate
+    event RecoveryDelegateSet(address indexed oapp, address indexed delegate);
+
     /// @notice Address of the ISMP host contract
     address internal _host;
 
@@ -92,6 +126,24 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
 
     /// @notice Compose message queue: keccak256(from, to, guid, index) => keccak256(message)
     mapping(bytes32 => bytes32) internal _composeQueue;
+
+    /// @notice Sentinel hash marking a deliberately un-executable (nilified) inbound payload
+    bytes32 internal constant NIL_PAYLOAD_HASH = bytes32(type(uint256).max);
+
+    /// @notice Retained payload hashes for inbound messages whose OApp `lzReceive` reverted, keyed
+    /// by (receiver, srcEid, sender, nonce). Enables retry/clear/nilify/burn recovery so a single
+    /// reverting message can never permanently brick a channel.
+    mapping(address => mapping(uint32 => mapping(bytes32 => mapping(uint64 => bytes32))))
+        internal _inboundPayloadHashes;
+
+    /// @notice Per-OApp recovery delegate authorized to manage stuck inbound payloads
+    mapping(address => address) internal _delegates;
+
+    /// @notice Restricts inbound-payload recovery to the target OApp or its configured delegate
+    modifier onlyOAppOrDelegate(address oapp) {
+        if (msg.sender != oapp && msg.sender != _delegates[oapp]) revert UnauthorizedRecovery();
+        _;
+    }
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
@@ -320,15 +372,27 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         uint32 expectedEid = _stateMachineToEid[keccak256(request.source)];
         if (expectedEid == 0 || expectedEid != srcEid) revert UnknownSource();
 
-        // Validate and increment nonce
+        // Validate and advance the nonce. The nonce is committed BEFORE (and independently of)
+        // OApp execution: a reverting `lzReceive` must not roll back this write. Otherwise the
+        // message would be retried forever at the same nonce and every later nonce would be
+        // permanently rejected, bricking the (receiver, srcEid, sender) channel.
         address receiverAddr = address(uint160(uint256(receiver)));
         uint64 expectedNonce = _inboundNonce[receiverAddr][srcEid][sender] + 1;
         if (nonce != expectedNonce) revert InvalidNonce(expectedNonce, nonce);
         _inboundNonce[receiverAddr][srcEid][sender] = nonce;
 
-        // Deliver to the OApp
+        // Deliver to the OApp. Isolate the external call so a deterministic revert (zero
+        // recipient, over-cap mint, blocklisted recipient, malformed payload, paused OApp, etc.)
+        // does not revert `onAccept`. On failure the payload is retained for later retry/recovery
+        // via retryPayload/clear/skip/nilify/burn.
         Origin memory origin = Origin({srcEid: srcEid, sender: sender, nonce: nonce});
-        ILayerZeroReceiver(receiverAddr).lzReceive(origin, guid, message, address(0), "");
+        try ILayerZeroReceiver(receiverAddr).lzReceive(origin, guid, message, address(0), "") {
+            // delivered successfully
+        } catch {
+            bytes32 payloadHash = keccak256(abi.encode(guid, message));
+            _inboundPayloadHashes[receiverAddr][srcEid][sender][nonce] = payloadHash;
+            emit InboundPayloadStored(receiverAddr, srcEid, sender, nonce, payloadHash);
+        }
     }
 
     /**
@@ -338,9 +402,42 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
      */
     function onPostRequestTimeout(PostRequestTimeout memory) external override onlyHost {}
 
+    /**
+     * @notice Retries an inbound delivery whose OApp `lzReceive` previously reverted in {onAccept}.
+     * @dev Mirrors {onAccept}'s direct call to the OApp (the adapter is the caller, so the OApp's
+     * `onlyEndpoint` check still passes). Permissionless: anyone may push a stuck payload through
+     * once it is executable again. On success the stored payload hash is cleared; if delivery
+     * reverts again the whole call reverts and the payload remains recoverable.
+     * @param receiver The destination OApp
+     * @param origin The (srcEid, sender, nonce) of the stored payload
+     * @param guid The original message guid
+     * @param message The original message payload (must match the stored hash)
+     */
+    function retryPayload(
+        address receiver,
+        Origin calldata origin,
+        bytes32 guid,
+        bytes calldata message
+    ) external payable {
+        bytes32 stored = _inboundPayloadHashes[receiver][origin.srcEid][origin.sender][origin.nonce];
+        if (stored == bytes32(0) || stored == NIL_PAYLOAD_HASH || stored != keccak256(abi.encode(guid, message))) {
+            revert InvalidPayloadHash();
+        }
+
+        // Clear first; if the retry reverts, this deletion rolls back with the rest of the tx and
+        // the payload remains recoverable.
+        delete _inboundPayloadHashes[receiver][origin.srcEid][origin.sender][origin.nonce];
+
+        ILayerZeroReceiver(receiver).lzReceive{value: msg.value}(origin, guid, message, msg.sender, "");
+        emit InboundPayloadResolved(receiver, origin.srcEid, origin.sender, origin.nonce);
+    }
+
     // ==================== LZ Endpoint Stubs ====================
 
     /// @inheritdoc ILayerZeroEndpointV2
+    /// @dev Not part of the Hyperbridge delivery path: inbound messages are delivered by calling
+    /// `lzReceive` directly on the destination OApp from {onAccept}, never on this endpoint. A
+    /// failed delivery is retried via {retryPayload}, which mirrors that direct call.
     function lzReceive(
         Origin calldata,
         address,
@@ -370,7 +467,20 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     }
 
     /// @inheritdoc ILayerZeroEndpointV2
-    function clear(address, Origin calldata, bytes32, bytes calldata) external pure override {}
+    /// @notice Discards a stored failed payload without executing it. Callable by the OApp or its delegate.
+    function clear(
+        address _oapp,
+        Origin calldata _origin,
+        bytes32 _guid,
+        bytes calldata _message
+    ) external override onlyOAppOrDelegate(_oapp) {
+        bytes32 stored = _inboundPayloadHashes[_oapp][_origin.srcEid][_origin.sender][_origin.nonce];
+        if (stored == bytes32(0) || stored == NIL_PAYLOAD_HASH || stored != keccak256(abi.encode(_guid, _message))) {
+            revert InvalidPayloadHash();
+        }
+        delete _inboundPayloadHashes[_oapp][_origin.srcEid][_origin.sender][_origin.nonce];
+        emit InboundPayloadResolved(_oapp, _origin.srcEid, _origin.sender, _origin.nonce);
+    }
 
     /// @inheritdoc ILayerZeroEndpointV2
     function setLzToken(address) external pure override {}
@@ -386,7 +496,11 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     }
 
     /// @inheritdoc ILayerZeroEndpointV2
-    function setDelegate(address) external pure override {}
+    /// @notice Authorizes a delegate to perform inbound-payload recovery on the caller OApp's behalf.
+    function setDelegate(address _delegate) external override {
+        _delegates[msg.sender] = _delegate;
+        emit RecoveryDelegateSet(msg.sender, _delegate);
+    }
 
     // ==================== IMessagingChannel ====================
 
@@ -394,11 +508,49 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         return _eid;
     }
 
-    function skip(address, uint32, bytes32, uint64) external pure override {}
+    /// @notice Advances the inbound nonce past `_nonce` (which must be the next expected nonce),
+    /// discarding any stored payload at that slot. Callable by the OApp or its delegate.
+    function skip(
+        address _oapp,
+        uint32 _srcEid,
+        bytes32 _sender,
+        uint64 _nonce
+    ) external override onlyOAppOrDelegate(_oapp) {
+        uint64 expected = _inboundNonce[_oapp][_srcEid][_sender] + 1;
+        if (_nonce != expected) revert InvalidNonce(expected, _nonce);
+        _inboundNonce[_oapp][_srcEid][_sender] = _nonce;
+        delete _inboundPayloadHashes[_oapp][_srcEid][_sender][_nonce];
+        emit InboundNonceSkippedBy(_oapp, _srcEid, _sender, _nonce);
+    }
 
-    function nilify(address, uint32, bytes32, uint64, bytes32) external pure override {}
+    /// @notice Marks a stored payload as nil (deliberately un-executable) prior to burning it.
+    function nilify(
+        address _oapp,
+        uint32 _srcEid,
+        bytes32 _sender,
+        uint64 _nonce,
+        bytes32 _payloadHash
+    ) external override onlyOAppOrDelegate(_oapp) {
+        bytes32 stored = _inboundPayloadHashes[_oapp][_srcEid][_sender][_nonce];
+        if (stored == bytes32(0) || stored == NIL_PAYLOAD_HASH) revert PayloadNotFound();
+        if (stored != _payloadHash) revert InvalidPayloadHash();
+        _inboundPayloadHashes[_oapp][_srcEid][_sender][_nonce] = NIL_PAYLOAD_HASH;
+        emit InboundPayloadNilified(_oapp, _srcEid, _sender, _nonce, _payloadHash);
+    }
 
-    function burn(address, uint32, bytes32, uint64, bytes32) external pure override {}
+    /// @notice Permanently removes a previously nilified payload.
+    function burn(
+        address _oapp,
+        uint32 _srcEid,
+        bytes32 _sender,
+        uint64 _nonce,
+        bytes32 _payloadHash
+    ) external override onlyOAppOrDelegate(_oapp) {
+        if (_payloadHash != NIL_PAYLOAD_HASH) revert InvalidPayloadHash();
+        if (_inboundPayloadHashes[_oapp][_srcEid][_sender][_nonce] != NIL_PAYLOAD_HASH) revert PayloadNotNilified();
+        delete _inboundPayloadHashes[_oapp][_srcEid][_sender][_nonce];
+        emit InboundPayloadBurned(_oapp, _srcEid, _sender, _nonce);
+    }
 
     function nextGuid(
         address _sender,
@@ -427,8 +579,13 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         return _outboundNonce[_sender][_dstEid][_receiver];
     }
 
-    function inboundPayloadHash(address, uint32, bytes32, uint64) external pure override returns (bytes32) {
-        return bytes32(0);
+    function inboundPayloadHash(
+        address _receiver,
+        uint32 _srcEid,
+        bytes32 _sender,
+        uint64 _nonce
+    ) external view override returns (bytes32) {
+        return _inboundPayloadHashes[_receiver][_srcEid][_sender][_nonce];
     }
 
     function lazyInboundNonce(

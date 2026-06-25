@@ -212,6 +212,8 @@ pub mod pallet {
 		PhantomOrderConfigSet { chain: StateMachineId, pair_count: u32, interval_blocks: u32 },
 		/// A phantom order's bid window closed; the indexer can now aggregate its snapshot.
 		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
+		/// A gateway implementation upgrade was initiated
+		GatewayUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
 	}
 
 	#[pallet::error]
@@ -532,7 +534,7 @@ pub mod pallet {
 		/// block and generates a new phantom commitment when the interval elapses.
 		/// Also clears the current active phantom order so the hook fires immediately
 		/// on the next block.
-		#[pallet::call_index(7)]
+		#[pallet::call_index(8)]
 		#[pallet::weight(T::WeightInfo::set_phantom_order_config())]
 		pub fn set_phantom_order_config(
 			origin: OriginFor<T>,
@@ -558,7 +560,7 @@ pub mod pallet {
 		}
 
 		/// Update the phantom order bid acceptance window.
-		#[pallet::call_index(8)]
+		#[pallet::call_index(9)]
 		#[pallet::weight(T::WeightInfo::set_phantom_bid_window())]
 		pub fn set_phantom_bid_window(origin: OriginFor<T>, window: u32) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
@@ -566,6 +568,42 @@ pub mod pallet {
 			PhantomBidWindow::<T>::put(window);
 
 			Self::deposit_event(Event::PhantomBidWindowUpdated { window });
+
+			Ok(())
+		}
+
+		/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy via cross-chain
+		/// governance. The upgrade is authorized on the gateway by `source == hyperbridge`, the
+		/// same authority used for `update_params`/`sweep_dust`.
+		///
+		/// # Parameters
+		/// - `state_machine`: The state machine where the gateway is deployed
+		/// - `new_impl`: The address of the new implementation contract
+		/// - `init_data`: Optional migration calldata executed atomically against the proxy on
+		///   upgrade
+		///
+		/// # Errors
+		/// - `GatewayNotFound`: If no gateway exists for the state machine
+		/// - `DispatchFailed`: If cross-chain dispatch fails
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::upgrade_gateway())]
+		pub fn upgrade_gateway(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			new_impl: H160,
+			init_data: Vec<u8>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let gateway_info =
+				Gateways::<T>::get(state_machine).ok_or(Error::<T>::GatewayNotFound)?;
+
+			let request = RequestKind::UpgradeContract { new_impl, init_data };
+			let body = request.encode_body();
+
+			Self::dispatch(state_machine, gateway_info.gateway, body)?;
+
+			Self::deposit_event(Event::GatewayUpgradeInitiated { state_machine, new_impl });
 
 			Ok(())
 		}

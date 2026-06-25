@@ -78,7 +78,7 @@ export async function buildCirclePaymasterData(
 	return {
 		paymaster: paymasterAddress,
 		paymasterData,
-		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_CIRCLE,
+		paymasterVerificationGasLimit,
 		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
 	}
 }

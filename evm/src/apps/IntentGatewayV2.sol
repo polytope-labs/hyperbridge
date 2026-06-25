@@ -61,11 +61,16 @@ import {
 contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
-    /**
-     * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2",
-     * and locks this raw implementation so it can never be initialized directly.
-     */
-    constructor() EIP712("IntentGateway", "2") {
+    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
+    /// be identical across chains or the deterministic proxy address diverges. Does not gate
+    /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
+    address public immutable _owner;
+
+    /// @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the admin, and locks this raw
+    /// implementation against direct initialization.
+    /// @param owner The privileged admin address.
+    constructor(address owner) EIP712("IntentGateway", "2") {
+        _owner = owner;
         _disableInitializers();
     }
 
@@ -87,18 +92,14 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev One-time initialization run against the proxy's storage. The `initializer` modifier
-     * caps it to a single call; with atomic CREATE2 deployment the init data is bound into the
-     * proxy's initcode hash, so only the canonical params can produce the canonical address.
-     * Registers the initial cross-chain peers (each bound to `address(this)`); a chain never
-     * registered here or later via `onAccept` is rejected by `_instance` with `UnknownInstance`.
-     * Later config changes go through `onAccept` governance.
+     * @dev One-time init (the `initializer` modifier caps it to a single call). Registers the
+     * initial cross-chain peers, each bound to `address(this)`; `_instance` reverts with
+     * `UnknownInstance` for any chain not registered here or later via `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
-     * @param peerChains The state-machine ids of the cross-chain peers to register. Each is bound to
-     * this gateway's own address (`address(this)`), which is identical across chains under
-     * deterministic CREATE2 deployment — so no peer address is carried in (or depended on by) the
-     * proxy's init data.
+     * @param peerChains State-machine ids of the cross-chain peers to register. Each is bound to
+     * this gateway's own address, identical across chains under deterministic CREATE2, so no peer
+     * address is carried in the proxy's init data.
      */
     function initialize(Params memory p, bytes[] memory peerChains) public initializer {
         uint256 peersLength = peerChains.length;

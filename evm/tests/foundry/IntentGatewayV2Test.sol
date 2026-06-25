@@ -95,11 +95,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         _fundTestAccounts();
     }
 
-    /// @dev Deploys an IntentGatewayV2 implementation behind an ERC-1967 proxy with empty init
-    /// data, leaving `initialize` to be called separately so each test can pick its own params and
-    /// peer set. Production initializes atomically (see `testAtomicInitialization`).
+    /// @dev Proxy with empty init data so each test calls `initialize` with its own params and
+    /// peers. Production initializes atomically (see `testAtomicInitialization`).
     function _deployGatewayProxy() internal returns (IntentGatewayV2) {
-        IntentGatewayV2 implementation = new IntentGatewayV2();
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
         return IntentGatewayV2(payable(address(proxy)));
     }
@@ -3651,7 +3650,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(intentGateway._filled(filledCommitment), filler, "precondition: order A filled");
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed");
 
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded();
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
 
         vm.prank(address(host));
@@ -3669,12 +3668,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "_orders preserved");
     }
 
-    /// @dev Exercises the production deploy path: the proxy is initialized atomically through its
-    /// init data, so the initializing call arrives via the proxy constructor (msg.sender is the
-    /// proxy's deployer, not necessarily any privileged owner). This must succeed and leave the
-    /// gateway configured.
+    /// @dev Production deploy path: the proxy initializes atomically via its init data, so the
+    /// `initialize` call arrives through the proxy constructor (not from `_owner`). Must succeed.
     function testAtomicInitialization() public {
-        IntentGatewayV2 implementation = new IntentGatewayV2();
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -3711,7 +3708,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpgradeContractRejectsNonHyperbridgeSource() public {
         address implBefore = _implementationOf(address(intentGateway));
-        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded();
+        IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
 
         // A registered peer gateway (not the Hyperbridge coprocessor) must not be able to upgrade.
         PostRequest memory request = _upgradeRequest(bytes("SOURCE_CHAIN"), address(newImpl), "");
@@ -3770,7 +3767,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 /// storage variables (append-only layout) and only adds new logic, so swapping to it must
 /// leave existing storage intact.
 contract IntentGatewayV2Upgraded is IntentGatewayV2 {
-    constructor() IntentGatewayV2() {}
+    constructor(address deployer) IntentGatewayV2(deployer) {}
 
     function upgradedMarker() external pure returns (uint256) {
         return 42;

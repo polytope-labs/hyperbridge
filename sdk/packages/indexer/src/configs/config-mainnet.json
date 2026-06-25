@@ -45,7 +45,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"arbitrum-mainnet": {
@@ -57,7 +57,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"optimism-mainnet": {
@@ -69,7 +69,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"base-mainnet": {
@@ -81,7 +81,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"bsc-mainnet": {
@@ -94,7 +94,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"gnosis-mainnet": {
@@ -107,7 +107,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"soneium-mainnet": {
@@ -131,7 +131,7 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
 		}
 	},
 	"polkadot-hub-mainnet": {

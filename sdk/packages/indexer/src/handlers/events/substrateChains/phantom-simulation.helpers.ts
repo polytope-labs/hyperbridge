@@ -1,4 +1,4 @@
-import { decodeFunctionData, keccak256, concat, toHex, toBytes } from "viem"
+import { decodeFunctionData, keccak256, concat, toHex } from "viem"
 import { decodeERC7821ExecuteBatch, IntentGatewayV2 } from "@hyperbridge/sdk/intents-helpers"
 import { TOKEN_SLOT_OVERRIDES } from "@/token-slot-overrides"
 
@@ -6,10 +6,10 @@ export type HexString = `0x${string}`
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
-// topic0 of OrderFilled(bytes32,address,TokenInfo[],TokenInfo[]); its presence in the simulated
-// call logs is what tells us the fill actually went through rather than just not reverting.
+// topic0 of OrderFilled(bytes32,address,TokenInfo[],TokenInfo[]); its presence in the simulated call
+// logs is what tells us the fill actually went through rather than just not reverting. 
 export const ORDER_FILLED_TOPIC = keccak256(
-	toBytes("OrderFilled(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])"),
+	toHex("OrderFilled(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])"),
 ).toLowerCase()
 
 // A deadline far beyond any real chain head so the simulated order clears the gateway's

@@ -224,7 +224,13 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const snapshotId = `${commitment}-${blockNumber}`
 	if (await PhantomOrderPriceSnapshot.get(snapshotId)) return
 
-	const host = getHostStateMachine(chainId)
+	let host: string
+	try {
+		host = getHostStateMachine(chainId)
+	} catch (err) {
+		logger.warn({ err, chainId }, "Unrecognised host chain for phantom price snapshot, skipping")
+		return
+	}
 	const nodeUrl = replaceWebsocketWithHttp(ENV_CONFIG[host] ?? "")
 	if (!nodeUrl) {
 		logger.warn({ host }, "No RPC URL configured for Hyperbridge node")

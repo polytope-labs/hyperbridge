@@ -236,6 +236,21 @@ const generateChainsByIsmpHost = () => {
 	console.log("Generated chains-by-ismp-host.ts")
 }
 
+const generateChainsIntentGatewayV2Addresses = () => {
+	const intentGatewayV2 = {}
+
+	validChains.forEach((config) => {
+		if (config.type === "evm" && config.contracts?.intentGatewayV2) {
+			intentGatewayV2[config.stateMachineId] = config.contracts.intentGatewayV2
+		}
+	})
+
+	const value = `// Auto-generated, DO NOT EDIT \nexport const INTENT_GATEWAY_V2_ADDRESSES = ${JSON.stringify(intentGatewayV2, null, 2)}`
+
+	fs.writeFileSync(root + "/src/intent-gateway-v2-addresses.ts", value)
+	console.log("Generated intent-gateway-v2-addresses.ts")
+}
+
 const generateChainsIntentGatewayV3Addresses = () => {
 	const intentGatewayV3 = {}
 
@@ -381,6 +396,7 @@ try {
 	generateMultichainYaml()
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
+	generateChainsIntentGatewayV2Addresses()
 	generateChainsIntentGatewayV3Addresses()
 	generateYieldVaultAddresses()
 	generateTokenSlotOverrides()

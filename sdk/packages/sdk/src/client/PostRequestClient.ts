@@ -629,45 +629,49 @@ export class PostRequestClient {
 	): Promise<RequestStatusWithMetadata | undefined> {
 		const destChain = this.ctx.config.dest
 		const hyperbridge = this.ctx.config.hyperbridge
+		const { config } = hyperbridge
 
+		// Check for existing finality first. Hyperbridge runs a light client of itself
+		// (pallet-beefy-consensus-proofs), so if its self state-machine update already finalizes the
+		// message, deliver with a plain PostRequest proof — no consensus proof needed.
+		const finality = await this.queries.queryStateMachineUpdateByHeight({
+			statemachineId: config.stateMachineId,
+			height: hyperbridgeDelivered.metadata.blockNumber,
+			chain: config.stateMachineId,
+		})
+		if (finality) {
+			const proof = await hyperbridge.queryProof(
+				{ Requests: [postRequestCommitment(request).commitment] },
+				request.dest,
+				BigInt(finality.height),
+			)
+			const calldata = destChain.encode({
+				kind: "PostRequest",
+				proof: {
+					stateMachine: config.stateMachineId,
+					consensusStateId: config.consensusStateId,
+					proof,
+					height: BigInt(finality.height),
+				},
+				requests: [request],
+				signer: pad("0x"),
+			})
+			return {
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: finality.blockHash,
+					blockNumber: finality.height,
+					transactionHash: finality.transactionHash,
+					timestamp: finality.timestamp,
+					calldata,
+				},
+			}
+		}
+
+		// No existing finality. For an EVM destination, advance its Hyperbridge light client and
+		// deliver in one batch (consensus proof + message proof).
 		if (destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
-			const commitment = postRequestCommitment(request).commitment
-
-			// Fast path: if the destination's Hyperbridge light client has already been advanced past
-			// the delivery height (e.g. by another message or a relayer), there's no need to build a
-			// consensus proof — submit a plain PostRequest proof at the already-finalized height.
-			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
-				statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
-				height: hyperbridgeDelivered.metadata.blockNumber,
-				chain: request.dest,
-			})
-			if (existingFinality) {
-				const proof = await hyperbridge.queryProof({ Requests: [commitment] }, request.dest, BigInt(existingFinality.height))
-				const calldata = destChain.encode({
-					kind: "PostRequest",
-					proof: {
-						stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
-						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
-						proof,
-						height: BigInt(existingFinality.height),
-					},
-					requests: [request],
-					signer: pad("0x"),
-				})
-				return {
-					status: RequestStatus.HYPERBRIDGE_FINALIZED,
-					metadata: {
-						blockHash: existingFinality.blockHash,
-						blockNumber: existingFinality.height,
-						transactionHash: existingFinality.transactionHash,
-						timestamp: existingFinality.timestamp,
-						calldata,
-					},
-				}
-			}
-
-			// Otherwise advance the destination's Hyperbridge light client and deliver in one batch.
 			const currentEpoch = await destChain.currentEpoch()
 			const consensusResult = await hyperbridgeSubstrate.queryConsensusProofs(
 				BigInt(hyperbridgeDelivered.metadata.blockNumber),
@@ -675,14 +679,18 @@ export class PostRequestClient {
 			)
 			if (!consensusResult) return undefined
 
-			const proof = await hyperbridge.queryProof({ Requests: [commitment] }, request.dest, consensusResult.provenHeight)
+			const proof = await hyperbridge.queryProof(
+				{ Requests: [postRequestCommitment(request).commitment] },
+				request.dest,
+				consensusResult.provenHeight,
+			)
 
 			const calldata = destChain.encode({
 				kind: "BatchConsensusAndPostRequest",
 				consensusProofs: consensusResult.proofs,
 				proof: {
-					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
-					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+					stateMachine: config.stateMachineId,
+					consensusStateId: config.consensusStateId,
 					proof,
 					height: consensusResult.provenHeight,
 				},
@@ -703,44 +711,7 @@ export class PostRequestClient {
 			}
 		}
 
-		// Substrate destination: wait for Hyperbridge to finalize itself. Hyperbridge runs a light
-		// client of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
-		// Hyperbridge state machine is observed on Hyperbridge — not on the destination chain.
-		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
-			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
-			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: this.ctx.config.hyperbridge.config.stateMachineId,
-		})
-		if (!hyperbridgeFinality) return undefined
-
-		const proof = await hyperbridge.queryProof(
-			{ Requests: [postRequestCommitment(request).commitment] },
-			request.dest,
-			BigInt(hyperbridgeFinality.height),
-		)
-
-		const calldata = destChain.encode({
-			kind: "PostRequest",
-			proof: {
-				stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
-				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
-				proof,
-				height: BigInt(hyperbridgeFinality.height),
-			},
-			requests: [request],
-			signer: pad("0x"),
-		})
-
-		return {
-			status: RequestStatus.HYPERBRIDGE_FINALIZED,
-			metadata: {
-				blockHash: hyperbridgeFinality.blockHash,
-				blockNumber: hyperbridgeFinality.height,
-				transactionHash: hyperbridgeFinality.transactionHash,
-				timestamp: hyperbridgeFinality.timestamp,
-				calldata,
-			},
-		}
+		return undefined
 	}
 
 	/**
@@ -761,48 +732,19 @@ export class PostRequestClient {
 
 		this.logger.trace(`[streamFinalized] neededHeight=${neededHeight}`)
 
-		if (destChain instanceof EvmChain) {
+		const commitment = postRequestCommitment(request).commitment
+
+		// Check for existing finality first (Hyperbridge's self state-machine update).
+		let finality = await this.queries.queryStateMachineUpdateByHeight({
+			statemachineId: stateMachineId,
+			height: Number(neededHeight),
+			chain: stateMachineId,
+		})
+
+		// No existing finality and the destination is EVM: advance its Hyperbridge light client and
+		// deliver in one batch (consensus proof + message proof).
+		if (!finality && destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
-			const commitment = postRequestCommitment(request).commitment
-
-			// Fast path: if the destination's Hyperbridge light client is already advanced past the
-			// delivery height, skip the consensus proof and submit a plain PostRequest proof.
-			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
-				statemachineId: stateMachineId,
-				height: Number(neededHeight),
-				chain: request.dest,
-			})
-			if (existingFinality) {
-				this.logger.trace(
-					`[streamFinalized] destination already finalized at height=${existingFinality.height}; skipping consensus proof`,
-				)
-				const proof = await this.fetchProofWithRetry(signal, () =>
-					hyperbridge.queryProof({ Requests: [commitment] }, request.dest, BigInt(existingFinality.height)),
-				)
-				const calldata = destChain.encode({
-					kind: "PostRequest",
-					proof: {
-						stateMachine: stateMachineId,
-						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
-						proof,
-						height: BigInt(existingFinality.height),
-					},
-					requests: [request],
-					signer: pad("0x"),
-				})
-				return {
-					status: RequestStatus.HYPERBRIDGE_FINALIZED,
-					metadata: {
-						blockHash: existingFinality.blockHash,
-						blockNumber: existingFinality.height,
-						transactionHash: existingFinality.transactionHash,
-						timestamp: existingFinality.timestamp,
-						calldata,
-					},
-				}
-			}
-
-			// Otherwise wait for Hyperbridge's consensus proof and deliver via a batch tx.
 			const currentEpoch = await destChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
 				signal,
@@ -844,26 +786,32 @@ export class PostRequestClient {
 			}
 		}
 
-		// Substrate destination: wait for Hyperbridge to finalize itself. Hyperbridge runs a light
-		// client of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
-		// Hyperbridge state machine is observed on Hyperbridge — not on the destination chain.
-		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
-			signal,
-			promise: () =>
-				this.queries.queryStateMachineUpdateByHeight({
-					statemachineId: stateMachineId,
-					height: Number(neededHeight),
-					chain: stateMachineId,
-				}),
-		})
+		// Otherwise wait for Hyperbridge's
+		// self-finality then deliver with a plain PostRequest proof.
+		if (!finality) {
+			finality = await waitOrAbort(this.ctx, {
+				signal,
+				promise: () =>
+					this.queries.queryStateMachineUpdateByHeight({
+						statemachineId: stateMachineId,
+						height: Number(neededHeight),
+						chain: stateMachineId,
+					}),
+			})
+		}
 
 		const proof = await this.fetchProofWithRetry(signal, () =>
-			hyperbridge.queryProof(
-				{ Requests: [postRequestCommitment(request).commitment] },
-				request.dest,
-				BigInt(hyperbridgeFinalized.height),
-			),
+			hyperbridge.queryProof({ Requests: [commitment] }, request.dest, BigInt(finality.height)),
 		)
+
+		// Substrate destinations must wait out the consensus challenge period before the proof is usable.
+		if (!(destChain instanceof EvmChain)) {
+			const { stateId } = parseStateMachineId(stateMachineId)
+			await waitForChallengePeriod(destChain, {
+				height: BigInt(finality.height),
+				id: { stateId, consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId },
+			})
+		}
 
 		const calldata = destChain.encode({
 			kind: "PostRequest",
@@ -871,25 +819,19 @@ export class PostRequestClient {
 				stateMachine: stateMachineId,
 				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 				proof,
-				height: BigInt(hyperbridgeFinalized.height),
+				height: BigInt(finality.height),
 			},
 			requests: [request],
 			signer: pad("0x"),
 		})
 
-		const { stateId } = parseStateMachineId(stateMachineId)
-		await waitForChallengePeriod(destChain, {
-			height: BigInt(hyperbridgeFinalized.height),
-			id: { stateId, consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId },
-		})
-
 		return {
 			status: RequestStatus.HYPERBRIDGE_FINALIZED,
 			metadata: {
-				blockHash: hyperbridgeFinalized.blockHash,
-				blockNumber: hyperbridgeFinalized.height,
-				transactionHash: hyperbridgeFinalized.transactionHash,
-				timestamp: hyperbridgeFinalized.timestamp,
+				blockHash: finality.blockHash,
+				blockNumber: finality.height,
+				transactionHash: finality.transactionHash,
+				timestamp: finality.timestamp,
 				calldata,
 			},
 		}

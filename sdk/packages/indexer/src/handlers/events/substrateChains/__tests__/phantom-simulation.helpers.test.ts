@@ -11,6 +11,7 @@ import {
 	ordersStorageSlot,
 	SIM_DEADLINE,
 	tokenSlots,
+	weightedMedian,
 } from "../phantom-simulation.helpers"
 
 type HexString = `0x${string}`
@@ -177,5 +178,58 @@ describe("storage slot helpers", () => {
 		expect(balance).not.toBe(allowance)
 		// Same inputs always hash to the same slot.
 		expect(erc20BalanceSlot(SOLVER as HexString, 9n)).toBe(balance)
+	})
+})
+
+describe("weightedMedian", () => {
+	it("equals the single quote when there is only one", () => {
+		expect(weightedMedian([{ price: 100n, weight: 5n }])).toBe(100n)
+	})
+
+	it("weights quotes by balance — the high-liquidity solver pulls the median to its price", () => {
+		const quotes = [
+			{ price: 100n, weight: 1n },
+			{ price: 200n, weight: 1n },
+			{ price: 300n, weight: 100n },
+		]
+		// Total weight 102; cumulative reaches half (>=51) only at price 300.
+		expect(weightedMedian(quotes)).toBe(300n)
+	})
+
+	it("reduces to the lower median when all weights are equal", () => {
+		const quotes = [
+			{ price: 10n, weight: 7n },
+			{ price: 20n, weight: 7n },
+			{ price: 30n, weight: 7n },
+		]
+		expect(weightedMedian(quotes)).toBe(20n)
+	})
+
+	it("ignores zero-weight quotes so a solver with no liquidity has no influence", () => {
+		const quotes = [
+			{ price: 1n, weight: 0n },
+			{ price: 500n, weight: 0n },
+			{ price: 100n, weight: 10n },
+		]
+		expect(weightedMedian(quotes)).toBe(100n)
+	})
+
+	it("falls back to the unweighted median when every weight is zero", () => {
+		const quotes = [
+			{ price: 30n, weight: 0n },
+			{ price: 10n, weight: 0n },
+			{ price: 20n, weight: 0n },
+		]
+		expect(weightedMedian(quotes)).toBe(20n)
+	})
+
+	it("returns the smallest price whose cumulative weight reaches half the total", () => {
+		const quotes = [
+			{ price: 10n, weight: 3n },
+			{ price: 20n, weight: 4n },
+			{ price: 30n, weight: 3n },
+		]
+		// Total 10; cumulative: 3 (10), 7 (20) — 7*2>=10 → median is 20.
+		expect(weightedMedian(quotes)).toBe(20n)
 	})
 })

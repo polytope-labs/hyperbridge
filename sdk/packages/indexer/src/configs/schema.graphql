@@ -2273,8 +2273,10 @@ type PhantomOrderPriceSnapshot @entity {
 	blockNumber: BigInt! @index
 
 	"""
-	Median output amount across all valid bids, in the smallest unit of the output token (tokenB).
-	Null if no valid bids were found.
+	Liquidity-weighted median output amount across all valid bids, in the smallest unit of the
+	output token (tokenB). Each bid is weighted by the solver's total balance for that token
+	(native + ERC-4626 vault venues), so solvers that can actually deliver size influence the
+	median more than those quoting on thin liquidity. Null if no valid bids were found.
 	"""
 	medianPrice: BigInt @index
 

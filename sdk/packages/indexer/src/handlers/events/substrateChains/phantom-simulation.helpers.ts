@@ -86,6 +86,36 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 // to validate. The phantom order's output amount is zero, so without this the fill is a no-op.
 // Session is left as decoded (already the zero address); solver selection is disabled via a
 // storage override on the gateway, so the session value is irrelevant here.
+// Liquidity-weighted median of solver quotes. Each quote's influence is proportional to `weight`
+// — the solver's total balance for the output token across native + vault venues — so a solver
+// that can actually deliver size moves the price more than one quoting on thin liquidity.
+// Returns the lower weighted median: the smallest price whose cumulative weight reaches half of
+// the total. Zero-weight quotes contribute nothing; if every weight is zero (no measurable
+// liquidity) it falls back to the unweighted median so a price is still reported.
+export function weightedMedian(entries: { price: bigint; weight: bigint }[]): bigint {
+	const sorted = [...entries].sort((a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0))
+	const totalWeight = sorted.reduce((acc, e) => (e.weight > 0n ? acc + e.weight : acc), 0n)
+
+	if (totalWeight === 0n) {
+		return sorted[Math.floor(sorted.length / 2)].price
+	}
+
+	let cumulative = 0n
+	for (const entry of sorted) {
+		if (entry.weight <= 0n) continue
+		cumulative += entry.weight
+		if (cumulative * 2n >= totalWeight) return entry.price
+	}
+	return sorted[sorted.length - 1].price
+}
+
+// Rebuilds the bid's order for simulation. Matching source to destination routes the gateway
+// through _fillSameChain (no ISMP dispatch), the future deadline clears the expiry check, and
+// pointing the single output at the solver for solverAmount makes _fillSameChain run
+// safeTransferFrom(solver -> solver) and read the injected escrow, which is the liquidity we want
+// to validate. The phantom order's output amount is zero, so without this the fill is a no-op.
+// Session is left as decoded (already the zero address); solver selection is disabled via a
+// storage override on the gateway, so the session value is irrelevant here.
 export function buildSimulationOrder(
 	order: Record<string, unknown>,
 	solver: string,

@@ -25,7 +25,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::EnsureRoot;
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use ismp_testsuite::mocks::MockRouter;
 
 use polkadot_sdk::*;
@@ -136,12 +136,14 @@ impl pallet_ismp::Config for Test {
 
 parameter_types! {
 	pub const StorageDepositFee: Balance = 100;
+	pub const PhantomOrderBidWindowBlocks: u32 = 100;
 }
 
 impl pallet_intents::Config for Test {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = StorageDepositFee;
+	type PhantomOrderBidWindowBlocks = PhantomOrderBidWindowBlocks;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = ();
 }
@@ -586,5 +588,70 @@ fn multiple_fillers_can_bid_on_same_order() {
 		// Verify both bids exist
 		assert!(Bids::<Test>::contains_key(&commitment, &filler1));
 		assert!(Bids::<Test>::contains_key(&commitment, &filler2));
+	});
+}
+
+fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
+	types::PhantomOrderConfiguration {
+		chain: StateMachineId { state_id: StateMachine::Evm(1), consensus_state_id: *b"ETH0" },
+		token_pairs: BoundedVec::try_from(vec![types::PhantomTokenPair {
+			token_a: H160::repeat_byte(1),
+			token_b: H160::repeat_byte(2),
+			standard_amount: 1_000_000,
+		}])
+		.unwrap(),
+		interval_blocks,
+	}
+}
+
+#[test]
+fn set_phantom_order_config_rejects_window_not_shorter_than_interval() {
+	new_test_ext().execute_with(|| {
+		// Default PhantomBidWindow is 0, so the effective window is the fallback constant (100).
+		// An interval equal to or below the window must be rejected.
+		assert_noop!(
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(100)),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+		assert_noop!(
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(50)),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+
+		// An interval strictly greater than the window is accepted.
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+
+		// interval_blocks == 0 means generate-once (no regeneration), so the invariant is vacuous.
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(0)));
+	});
+}
+
+#[test]
+fn set_phantom_bid_window_rejects_window_not_shorter_than_interval() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+
+		// A window equal to or above the active interval must be rejected.
+		assert_noop!(
+			Intents::set_phantom_bid_window(RuntimeOrigin::root(), 200),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+		assert_noop!(
+			Intents::set_phantom_bid_window(RuntimeOrigin::root(), 250),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+
+		// A window of 0 resolves to the fallback constant (100), which is < 200.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 0));
+		// An explicit window below the interval is accepted.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 50));
+	});
+}
+
+#[test]
+fn set_phantom_bid_window_allows_any_window_when_no_config() {
+	new_test_ext().execute_with(|| {
+		// With no active config there is no interval to violate.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 1_000_000));
 	});
 }

@@ -234,6 +234,10 @@ pub mod pallet {
 		PhantomOrderBidWindowClosed,
 		/// A filler already has a bid for this phantom order
 		DuplicatePhantomBid,
+		/// The effective phantom bid window is not shorter than the generation interval.
+		/// They must satisfy `window < interval_blocks` so a batch is never replaced on the
+		/// same block its bid window closes (which would drop its exhaustion snapshot).
+		PhantomBidWindowNotShorterThanInterval,
 	}
 
 	#[pallet::call]
@@ -546,6 +550,14 @@ pub mod pallet {
 			let interval_blocks = config.interval_blocks;
 			let chain = config.chain.clone();
 
+			// The bid window must close strictly before the next generation so on_finalize emits
+			// each batch's exhaustion before on_initialize replaces it. interval_blocks == 0 means
+			// generate once and never regenerate, so there is no replacement to race.
+			ensure!(
+				interval_blocks == 0 || Self::phantom_bid_window() < interval_blocks,
+				Error::<T>::PhantomBidWindowNotShorterThanInterval
+			);
+
 			PhantomOrderConfig::<T>::put(&config);
 			CurrentPhantomOrder::<T>::kill();
 			LastPhantomGeneration::<T>::kill();
@@ -564,6 +576,18 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::set_phantom_bid_window())]
 		pub fn set_phantom_bid_window(origin: OriginFor<T>, window: u32) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			// Resolve the window the way phantom_bid_window() would: 0 falls back to the
+			// configured constant. Enforce window < interval_blocks against the active config
+			// (if any) so a batch is never replaced on the block its bid window closes.
+			let effective_window =
+				if window == 0 { T::PhantomOrderBidWindowBlocks::get() } else { window };
+			if let Some(config) = PhantomOrderConfig::<T>::get() {
+				ensure!(
+					config.interval_blocks == 0 || effective_window < config.interval_blocks,
+					Error::<T>::PhantomBidWindowNotShorterThanInterval
+				);
+			}
 
 			PhantomBidWindow::<T>::put(window);
 

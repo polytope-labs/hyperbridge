@@ -80,13 +80,28 @@ async function sudoAndSeal(api: ApiPromise, call: any): Promise<void> {
 	if (!result.success) throw new Error(result.error || "sudo call failed")
 }
 
+// Consensus state id used for the EVM destination chain in these tests.
+const ETH0_CONSENSUS_ID = "0x45544830"
+
+/**
+ * Seeds a confirmed height for the destination chain in `Ismp::LatestStateMachineHeight` via sudo
+ * `system.setStorage`. The on_initialize hook reads this to set the phantom order deadline; a bare
+ * simnode has no external consensus, so without it generation is skipped.
+ */
+async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: bigint): Promise<void> {
+	const id = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
+	const key = api.query.ismp.latestStateMachineHeight.key(id)
+	const value = api.createType("u64", height).toHex()
+	await sudoAndSeal(api, api.tx.system.setStorage([[key, value]]))
+}
+
 /**
  * Submits a `set_phantom_order_config` governance call and seals a block.
  * Uses a single token pair of zero-address tokens as a probe.
  */
 async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalBlocks: number): Promise<void> {
 	const config = {
-		chain: { Evm: chainId },
+		chain: { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
 		token_pairs: [
 			{
 				token_a: "0x0101010101010101010101010101010101010101",
@@ -147,6 +162,9 @@ describe("Phantom Order E2E (simnode)", () => {
 
 		// Reset bid window to a generous default so tests start from a clean state.
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(100))
+
+		// Seed a confirmed destination height so on_initialize can generate phantom orders.
+		await seedStateMachineHeight(api, 8453, 1_000_000n)
 	}, 60_000)
 
 	afterAll(async () => {

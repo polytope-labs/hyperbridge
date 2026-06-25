@@ -28,7 +28,8 @@
 
 use std::env;
 
-use codec::Decode;
+use codec::{Decode, Encode};
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use pallet_intents_rpc::RpcBidInfo;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -62,6 +63,37 @@ fn phantom_bid_window_key() -> Vec<u8> {
 		sp_core::twox_128(b"PhantomBidWindow").to_vec(),
 	]
 	.concat()
+}
+
+// Storage key for `Ismp::LatestStateMachineHeight[StateMachineId { Evm(chain_id), ETH0 }]`.
+// The on_initialize hook reads this map to set the phantom order deadline; a bare simnode has no
+// confirmed external heights, so the tests seed one here.
+fn latest_state_machine_height_key(chain_id: u32) -> Vec<u8> {
+	let id = StateMachineId { state_id: StateMachine::Evm(chain_id), consensus_state_id: *b"ETH0" };
+	let encoded = id.encode();
+	[
+		sp_core::twox_128(b"Ismp").to_vec(),
+		sp_core::twox_128(b"LatestStateMachineHeight").to_vec(),
+		sp_core::hashing::blake2_128(&encoded).to_vec(),
+		encoded,
+	]
+	.concat()
+}
+
+/// Seed a confirmed height for the destination chain via sudo `System::set_storage`, so the
+/// on_initialize hook has a deadline to use and proceeds with phantom order generation.
+async fn seed_state_machine_height(
+	client: &subxt::OnlineClient<Hyperbridge>,
+	rpc: &subxt::backend::rpc::RpcClient,
+	chain_id: u32,
+	height: u64,
+) -> Result<H256, anyhow::Error> {
+	let item = Value::unnamed_composite(vec![
+		Value::from_bytes(latest_state_machine_height_key(chain_id)),
+		Value::from_bytes(height.encode()),
+	]);
+	let call = subxt::dynamic::tx("System", "set_storage", vec![Value::unnamed_composite(vec![item])]);
+	sudo_and_seal(client, rpc, call.into_value()).await
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +172,8 @@ async fn set_phantom_order_config(
 	chain_id: u64,
 	interval_blocks: u32,
 ) -> Result<H256, anyhow::Error> {
+	// Generation needs a confirmed destination height for the deadline; seed it first.
+	seed_state_machine_height(client, rpc, chain_id as u32, 1_000_000).await?;
 	let call = subxt::dynamic::tx(
 		"IntentsCoprocessor",
 		"set_phantom_order_config",

@@ -204,13 +204,16 @@ export class HyperFungibleToken {
 
 		let totalNativeCost = 0n
 		try {
-			totalNativeCost = (await this.source.client.readContract({
+			// `quote` is non-view: the host's fee oracle is a Uniswap V3/V4 quoter that
+			// writes state and reverts to read the result, so it can't run under STATICCALL.
+			// simulateContract runs it via eth_call and returns the value without a STATICCALL.
+			const { result } = await this.source.client.simulateContract({
 				address: params.token,
 				abi: HyperFungibleTokenABI,
 				functionName: "quote",
 				args: [sendParams],
-			})) as bigint
-			totalNativeCost = (totalNativeCost * 101n) / 100n // 1% buffer
+			})
+			totalNativeCost = ((result as bigint) * 101n) / 100n // 1% buffer
 		} catch {
 			// host may not be set up to price native fees on this chain yet
 		}

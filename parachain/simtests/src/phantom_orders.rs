@@ -92,7 +92,8 @@ async fn seed_state_machine_height(
 		Value::from_bytes(latest_state_machine_height_key(chain_id)),
 		Value::from_bytes(height.encode()),
 	]);
-	let call = subxt::dynamic::tx("System", "set_storage", vec![Value::unnamed_composite(vec![item])]);
+	let call =
+		subxt::dynamic::tx("System", "set_storage", vec![Value::unnamed_composite(vec![item])]);
 	sudo_and_seal(client, rpc, call.into_value()).await
 }
 

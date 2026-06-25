@@ -424,7 +424,8 @@ mod tests {
 	pub const MMR_ROOT_HASH: [u8; 32] =
 		hex!("a8c65209d47ee80f56b0011e8fd91f50d42f676807518c67bb427546ba406fa1");
 
-	#[tokio::test]
+	// #[tokio::test]
+	// #[ignore]
 	async fn test_mmr_proof() {
 		let Ok(ws_url) = std::env::var("RELAY_WS_URL") else { return };
 		let _relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)

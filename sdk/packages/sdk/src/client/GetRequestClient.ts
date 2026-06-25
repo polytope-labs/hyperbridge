@@ -253,6 +253,53 @@ export class GetRequestClient {
 
 		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+
+			// Fast path: if the source's Hyperbridge light client has already been advanced past the
+			// delivery height (e.g. by another message or a relayer), there's no need to build a
+			// consensus proof — submit a plain GetResponse proof at the already-finalized height.
+			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: request.source,
+			})
+			if (existingFinality) {
+				const proof = await hyperbridge.queryProof(
+					{ Responses: [response.commitment as HexString] },
+					request.source,
+					BigInt(existingFinality.height),
+				)
+				const calldata = sourceChain.encode({
+					kind: "GetResponse",
+					proof: {
+						stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: BigInt(existingFinality.height),
+					},
+					responses: [
+						{
+							get: request,
+							values: request.keys.map((key, index) => ({
+								key,
+								value: (response.values[index] as HexString) || "0x",
+							})),
+						},
+					],
+					signer: pad("0x"),
+				})
+				return {
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: existingFinality.blockHash,
+						blockNumber: existingFinality.height,
+						transactionHash: existingFinality.transactionHash,
+						timestamp: existingFinality.timestamp,
+						calldata,
+					},
+				}
+			}
+
+			// Otherwise advance the source's Hyperbridge light client and deliver in one batch.
 			const currentEpoch = await sourceChain.currentEpoch()
 			const consensusResult = await hyperbridgeSubstrate.queryConsensusProofs(
 				BigInt(hyperbridgeDelivered.metadata.blockNumber),
@@ -300,11 +347,13 @@ export class GetRequestClient {
 			}
 		}
 
-		// Substrate source: use state machine update from indexer
+		// Substrate source: wait for Hyperbridge to finalize itself. Hyperbridge runs a light client
+		// of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
+		// Hyperbridge state machine is observed on Hyperbridge — not on the source chain.
 		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: request.source,
+			chain: this.ctx.config.hyperbridge.config.stateMachineId,
 		})
 		if (!hyperbridgeFinality) return undefined
 
@@ -367,6 +416,52 @@ export class GetRequestClient {
 
 		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+
+			// Fast path: if the source's Hyperbridge light client is already advanced past the
+			// delivery height, skip the consensus proof and submit a plain GetResponse proof.
+			const existingFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: stateMachineId,
+				height: Number(neededHeight),
+				chain: request.source,
+			})
+			if (existingFinality) {
+				const proof = await hyperbridge.queryProof(
+					{ Responses: [response?.commitment as HexString] },
+					request.source,
+					BigInt(existingFinality.height),
+				)
+				const calldata = sourceChain.encode({
+					kind: "GetResponse",
+					proof: {
+						stateMachine: stateMachineId,
+						consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: BigInt(existingFinality.height),
+					},
+					responses: [
+						{
+							get: request,
+							values: request.keys.map((key, index) => ({
+								key,
+								value: (response?.values[index] as HexString) || "0x",
+							})),
+						},
+					],
+					signer: pad("0x"),
+				})
+				return {
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: existingFinality.blockHash,
+						blockNumber: existingFinality.height,
+						transactionHash: existingFinality.transactionHash,
+						timestamp: existingFinality.timestamp,
+						calldata,
+					},
+				}
+			}
+
+			// Otherwise wait for Hyperbridge's consensus proof and deliver via a batch tx.
 			const currentEpoch = await sourceChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
 				signal,
@@ -413,14 +508,16 @@ export class GetRequestClient {
 			}
 		}
 
-		// Substrate source: wait for state machine update
+		// Substrate source: wait for Hyperbridge to finalize itself. Hyperbridge runs a light client
+		// of itself (pallet-beefy-consensus-proofs), so the StateMachineUpdated event for the
+		// Hyperbridge state machine is observed on Hyperbridge — not on the source chain.
 		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
 			signal,
 			promise: () =>
 				this.queries.queryStateMachineUpdateByHeight({
 					statemachineId: stateMachineId,
 					height: Number(neededHeight),
-					chain: request.source,
+					chain: stateMachineId,
 				}),
 		})
 

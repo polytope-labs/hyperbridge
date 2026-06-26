@@ -34,6 +34,7 @@
 	"scripts": {
 		"prepack": "rm -rf dist && npm run build",
 		"test": "jest --runInBand --detectOpenHandles",
+		"test:phantom-e2e": "jest --runInBand --detectOpenHandles --testPathIgnorePatterns=/node_modules/ src/test/phantom-indexer.e2e.test.ts",
 		"format": "prettier --write \"**/*.ts\"",
 		"clean": "rm -rf dist node_modules",
 		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV polytopelabs/omnihedron:latest --name=app --playground",

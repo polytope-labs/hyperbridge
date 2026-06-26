@@ -37,7 +37,13 @@ import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
-import { aggregatePhantomBids, type TokenSlotOverrides } from "@hyperbridge/sdk/intents-helpers"
+import {
+	aggregatePhantomBids,
+	fetchBidsForOrder,
+	decodeUserOpScale,
+	extractFillData,
+	type TokenSlotOverrides,
+} from "@hyperbridge/sdk/intents-helpers"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
@@ -247,10 +253,20 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		const bids = await driver.getBidsForOrder(commitment)
 		expect(bids.length).toBe(FILLERS.length)
 
+		// Log each solver's quoted cNGN output (decoded from the submitted UserOp).
+		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
+		const rawBids = await fetchBidsForOrder(nodeUrl, commitment)
+		console.log(`\n[phantom-e2e] ${rawBids.length} bids for ${commitment}:`)
+		for (const b of rawBids) {
+			const decoded = decodeUserOpScale(b.user_op as HexString)
+			const fd = extractFillData(decoded.callData as HexString, gateway)
+			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
+		}
+
 		// Aggregation half: the indexer's logic (shared from the SDK) simulates each fill against the
 		// forked Base, measures cNGN liquidity, and reduces the quotes to a snapshot.
 		const result = await aggregatePhantomBids({
-			nodeUrl: SIMNODE_URL.replace(/^ws/, "http"),
+			nodeUrl,
 			evmRpcUrl: ANVIL_URL,
 			chain: BASE_STATE_MACHINE,
 			gatewayAddress: gateway,
@@ -261,8 +277,20 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			yieldVaults: {}, // raw cNGN balance only; no vaults funded in this test
 		})
 
+		console.log("\n[phantom-e2e] aggregation snapshot:")
+		console.log(`[phantom-e2e]   bidCount:     ${result?.bidCount}`)
+		console.log(`[phantom-e2e]   lowestPrice:  ${result?.lowestPrice}`)
+		console.log(`[phantom-e2e]   medianPrice:  ${result?.medianPrice}  (liquidity-weighted)`)
+		console.log(`[phantom-e2e]   highestPrice: ${result?.highestPrice}`)
+		for (const lp of result?.lpBalances ?? []) {
+			console.log(`[phantom-e2e]   LP ${lp.solver}: ${lp.balance} cNGN`)
+		}
+
 		expect(result).not.toBeNull()
 		expect(result!.bidCount).toBe(FILLERS.length)
+		// Real cNGN quotes — guards against the fillers quoting 0 (e.g. the overfill cap collapsing
+		// to the phantom order's zero requested output).
+		expect(result!.lowestPrice).toBeGreaterThan(0n)
 		expect(result!.lowestPrice).toBeLessThanOrEqual(result!.medianPrice)
 		expect(result!.medianPrice).toBeLessThanOrEqual(result!.highestPrice)
 		expect(result!.lpBalances.length).toBe(FILLERS.length)

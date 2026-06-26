@@ -6,9 +6,10 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
+import { TOKEN_SLOT_OVERRIDES } from "@/token-slot-overrides"
+import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
-import { HexString } from "./phantom-simulation.helpers"
-import { aggregatePhantomBids } from "./phantom-aggregation"
+import { aggregatePhantomBids, type HexString } from "@hyperbridge/sdk/intents-helpers"
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
 // already in. Aggregates that single order's bids into one price snapshot. The heavy lifting lives in
@@ -53,6 +54,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			commitment,
 			inputToken: phantom.tokenA as HexString,
 			standardAmount: phantom.standardAmount,
+			tokenSlotOverrides: TOKEN_SLOT_OVERRIDES,
+			yieldVaults: YIELD_VAULT_ADDRESSES,
 			logger,
 		})
 	} catch (err) {

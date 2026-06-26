@@ -1,7 +1,6 @@
 import { encodeFunctionData } from "viem"
-import { encodeERC7821ExecuteBatch } from "@hyperbridge/sdk/intents-helpers"
-
 import {
+	encodeERC7821ExecuteBatch,
 	buildSimulationOrder,
 	erc20AllowanceSlot,
 	erc20BalanceSlot,
@@ -12,7 +11,8 @@ import {
 	SIM_DEADLINE,
 	tokenSlots,
 	weightedMedian,
-} from "../phantom-simulation.helpers"
+} from "@hyperbridge/sdk/intents-helpers"
+import { TOKEN_SLOT_OVERRIDES } from "@/token-slot-overrides"
 
 type HexString = `0x${string}`
 
@@ -137,21 +137,21 @@ describe("buildSimulationOrder", () => {
 describe("tokenSlots", () => {
 	it("returns the configured override for a known token", () => {
 		// USDC (Circle FiatToken) lives at balance slot 9, allowance slot 10.
-		expect(tokenSlots("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")).toEqual({
+		expect(tokenSlots("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", TOKEN_SLOT_OVERRIDES)).toEqual({
 			balanceSlot: 9n,
 			allowanceSlot: 10n,
 		})
 	})
 
 	it("is case-insensitive on the token address", () => {
-		expect(tokenSlots("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48")).toEqual({
+		expect(tokenSlots("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48", TOKEN_SLOT_OVERRIDES)).toEqual({
 			balanceSlot: 9n,
 			allowanceSlot: 10n,
 		})
 	})
 
 	it("falls back to the OZ default for an unknown token", () => {
-		expect(tokenSlots("0x000000000000000000000000000000000000dead")).toEqual({
+		expect(tokenSlots("0x000000000000000000000000000000000000dead", TOKEN_SLOT_OVERRIDES)).toEqual({
 			balanceSlot: 0n,
 			allowanceSlot: 1n,
 		})
@@ -160,9 +160,9 @@ describe("tokenSlots", () => {
 
 describe("hasTokenSlotOverride", () => {
 	it("is true for a configured token and false for an unknown one", () => {
-		expect(hasTokenSlotOverride("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")).toBe(true)
-		expect(hasTokenSlotOverride("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48")).toBe(true)
-		expect(hasTokenSlotOverride("0x000000000000000000000000000000000000dead")).toBe(false)
+		expect(hasTokenSlotOverride("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", TOKEN_SLOT_OVERRIDES)).toBe(true)
+		expect(hasTokenSlotOverride("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48", TOKEN_SLOT_OVERRIDES)).toBe(true)
+		expect(hasTokenSlotOverride("0x000000000000000000000000000000000000dead", TOKEN_SLOT_OVERRIDES)).toBe(false)
 	})
 })
 

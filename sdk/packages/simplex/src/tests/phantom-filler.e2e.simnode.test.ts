@@ -37,6 +37,7 @@ import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
+import { aggregatePhantomBids, type TokenSlotOverrides } from "@hyperbridge/sdk/intents-helpers"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
@@ -119,7 +120,7 @@ async function buildPhantomFiller(opts: {
 	suri: string
 	evmKey: HexString
 	cngnPerUsd: string
-}): Promise<{ filler: IntentFiller; solver: HexString }> {
+}): Promise<{ filler: IntentFiller; solver: HexString; gateway: HexString }> {
 	const resolvedChains: ResolvedChainConfig[] = [
 		{ chainId: BASE_CHAIN_ID, rpcUrls: [ANVIL_URL], bundlerUrl: `${ANVIL_URL}/bundler` },
 	]
@@ -168,7 +169,19 @@ async function buildPhantomFiller(opts: {
 	)
 	await filler.initialize()
 	filler.start()
-	return { filler, solver: signer.account.address as HexString }
+	return {
+		filler,
+		solver: signer.account.address as HexString,
+		// The gateway the filler targets in its fillOrder call — the aggregation must filter on the same one.
+		gateway: configService.getIntentGatewayAddress(BASE_STATE_MACHINE) as HexString,
+	}
+}
+
+// Minimal slot map for the two tokens this test touches (Base USDC + cNGN), in place of the
+// indexer's generated TOKEN_SLOT_OVERRIDES.
+const TEST_TOKEN_SLOTS: TokenSlotOverrides = {
+	[USDC_BASE.toLowerCase()]: { balanceSlot: 9n, allowanceSlot: 10n },
+	[CNGN_BASE.toLowerCase()]: { balanceSlot: 201n, allowanceSlot: 202n },
 }
 
 // ─── test ───────────────────────────────────────────────────────────────────────────────────────
@@ -176,6 +189,7 @@ async function buildPhantomFiller(opts: {
 describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)", () => {
 	let api: ApiPromise
 	let driver: IntentsCoprocessor
+	let gateway: HexString
 	const fillers: IntentFiller[] = []
 
 	beforeAll(async () => {
@@ -202,8 +216,9 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		}
 
 		for (const f of FILLERS) {
-			const { filler } = await buildPhantomFiller(f)
+			const { filler, gateway: gw } = await buildPhantomFiller(f)
 			fillers.push(filler)
+			gateway = gw
 		}
 	}, 180_000)
 
@@ -212,7 +227,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		await api?.disconnect()
 	})
 
-	it("real fillers watch, quote USDC→cNGN, and submit discoverable bids", async () => {
+	it("real fillers watch + submit USDC→cNGN bids that the SDK aggregation reduces to a snapshot", async () => {
 		// Register the phantom order; the fillers' subscriptions pick it up and submit bids.
 		await setPhantomOrderConfig(api)
 		await createBlock(api)
@@ -227,7 +242,32 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		await new Promise((r) => setTimeout(r, 2_000))
 		await createBlock(api)
 
+		// Submission half: every filler's bid landed on-chain.
 		const bids = await driver.getBidsForOrder(commitment)
 		expect(bids.length).toBe(FILLERS.length)
-	}, 120_000)
+
+		// Aggregation half: the indexer's logic (shared from the SDK) simulates each fill against the
+		// forked Base, measures cNGN liquidity, and reduces the quotes to a snapshot.
+		const result = await aggregatePhantomBids({
+			nodeUrl: SIMNODE_URL.replace(/^ws/, "http"),
+			evmRpcUrl: ANVIL_URL,
+			chain: BASE_STATE_MACHINE,
+			gatewayAddress: gateway,
+			commitment,
+			inputToken: USDC_BASE,
+			standardAmount: STANDARD_AMOUNT,
+			tokenSlotOverrides: TEST_TOKEN_SLOTS,
+			yieldVaults: {}, // raw cNGN balance only; no vaults funded in this test
+		})
+
+		expect(result).not.toBeNull()
+		expect(result!.bidCount).toBe(FILLERS.length)
+		expect(result!.lowestPrice).toBeLessThanOrEqual(result!.medianPrice)
+		expect(result!.medianPrice).toBeLessThanOrEqual(result!.highestPrice)
+		expect(result!.lpBalances.length).toBe(FILLERS.length)
+		for (const lp of result!.lpBalances) {
+			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
+			expect(lp.balance).toBeGreaterThan(0n)
+		}
+	}, 180_000)
 })

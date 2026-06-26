@@ -495,14 +495,21 @@ jobs:
 
             - name: Install Kurtosis
               run: |
-                  echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-                  sudo apt-get update
-                  sudo apt-get install -y kurtosis-cli
+                  # The legacy Gemfury apt repo only serves old Kurtosis (<=1.15.x), which cannot
+                  # run current ethereum-package (it uses the newer GpuConfig Starlark API). Install
+                  # a pinned modern release directly from the official release artifacts instead.
+                  KURTOSIS_VERSION=1.20.0
+                  curl -fsSL -o /tmp/kurtosis-cli.deb \
+                    "https://github.com/kurtosis-tech/kurtosis-cli-release-artifacts/releases/download/${KURTOSIS_VERSION}/kurtosis-cli_${KURTOSIS_VERSION}_linux_amd64.deb"
+                  sudo dpkg -i /tmp/kurtosis-cli.deb
+                  kurtosis version
 
             - name: Setup Eth POS Devnet
               run: |
+                  # Pin ethereum-package to a known-good commit so the devnet (and its
+                  # genesis_validators_root, which KurtosisDevnet hardcodes) stays reproducible.
                   kurtosis engine start
-                  kurtosis run github.com/ethpandaops/ethereum-package --args-file ./sync-committee-devnet.yaml --enclave sync-committee-devnet
+                  kurtosis run github.com/ethpandaops/ethereum-package@d4bd739b78565ca5a9768461a59ad59942e4e941 --args-file ./sync-committee-devnet.yaml --enclave sync-committee-devnet
                   ./scripts/wait_for_tcp_port_opening.sh localhost 53001
 
             - name: Run Sync Committee Tests

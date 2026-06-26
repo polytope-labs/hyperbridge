@@ -17,7 +17,7 @@ use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Balance, Balances, Fishermen, Ismp, IsmpParachain, Mmr, ParachainInfo,
 	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount, TreasuryPalletId,
-	EXISTENTIAL_DEPOSIT, HOURS,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -297,7 +297,7 @@ impl pallet_bandwidth::Config for Runtime {
 
 parameter_types! {
 	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
-	pub const IntentsPhantomOrderBidWindow: u32 = HOURS as u32;
+	pub const IntentsPhantomOrderBidWindow: u32 = 25;
 }
 
 impl pallet_intents_coprocessor::Config for Runtime {

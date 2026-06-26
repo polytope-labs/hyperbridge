@@ -40,15 +40,22 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		return
 	}
 
-	const evmRpcUrl = replaceWebsocketWithHttp(ENV_CONFIG[phantom.chain] ?? "")
+	// RPC per supported EVM chain — the aggregation sweeps every LP's liquidity across all of them,
+	// not just the phantom order's destination chain.
+	const evmRpcUrls: Record<string, string> = {}
+	for (const [stateMachineId, url] of Object.entries(ENV_CONFIG)) {
+		if (!stateMachineId.startsWith("EVM-")) continue
+		const http = replaceWebsocketWithHttp(url ?? "")
+		if (http) evmRpcUrls[stateMachineId] = http
+	}
 	const gatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[phantom.chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
-	if (!evmRpcUrl || !gatewayAddress) return
+	if (!evmRpcUrls[phantom.chain] || !gatewayAddress) return
 
 	let aggregate
 	try {
 		aggregate = await aggregatePhantomBids({
 			nodeUrl,
-			evmRpcUrl,
+			evmRpcUrls,
 			chain: phantom.chain,
 			gatewayAddress,
 			commitment,
@@ -68,11 +75,11 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const snapshotTime = timestampToDate(blockTimestamp)
 
 	for (const lp of aggregate.lpBalances) {
-		// One row per solver per snapshot so liquidity history is preserved and each balance is
-		// attributable to the snapshot whose weighted median it fed.
+		// One row per solver per (chain, token) per snapshot so liquidity history is preserved and
+		// each balance is attributable to the snapshot whose weighted median it fed.
 		await PhantomOrderLpBalance.create({
-			id: `${phantom.chain}-${commitment}-${blockNumber}-${lp.solver}`,
-			chain: phantom.chain,
+			id: `${lp.chain}-${lp.tokenAddress}-${commitment}-${blockNumber}-${lp.solver}`,
+			chain: lp.chain,
 			commitment,
 			blockNumber,
 			solver: lp.solver,

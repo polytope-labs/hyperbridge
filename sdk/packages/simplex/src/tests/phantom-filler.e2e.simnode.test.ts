@@ -267,14 +267,16 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		// forked Base, measures cNGN liquidity, and reduces the quotes to a snapshot.
 		const result = await aggregatePhantomBids({
 			nodeUrl,
-			evmRpcUrl: ANVIL_URL,
+			evmRpcUrls: { [BASE_STATE_MACHINE]: ANVIL_URL },
 			chain: BASE_STATE_MACHINE,
 			gatewayAddress: gateway,
 			commitment,
 			inputToken: USDC_BASE,
 			standardAmount: STANDARD_AMOUNT,
 			tokenSlotOverrides: TEST_TOKEN_SLOTS,
-			yieldVaults: {}, // raw cNGN balance only; no vaults funded in this test
+			// Liquidity is swept per configured token per chain. cNGN with no vaults => raw balance
+			// only (the funded amount); proves balances come from the config sweep, not the bid output.
+			yieldVaults: { [BASE_STATE_MACHINE]: { [CNGN_BASE.toLowerCase()]: [] } },
 		})
 
 		console.log("\n[phantom-e2e] aggregation snapshot:")
@@ -283,7 +285,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		console.log(`[phantom-e2e]   medianPrice:  ${result?.medianPrice}  (liquidity-weighted)`)
 		console.log(`[phantom-e2e]   highestPrice: ${result?.highestPrice}`)
 		for (const lp of result?.lpBalances ?? []) {
-			console.log(`[phantom-e2e]   LP ${lp.solver}: ${lp.balance} cNGN`)
+			console.log(`[phantom-e2e]   LP ${lp.solver} on ${lp.chain} token ${lp.tokenAddress}: ${lp.balance}`)
 		}
 
 		expect(result).not.toBeNull()
@@ -293,8 +295,10 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		expect(result!.lowestPrice).toBeGreaterThan(0n)
 		expect(result!.lowestPrice).toBeLessThanOrEqual(result!.medianPrice)
 		expect(result!.medianPrice).toBeLessThanOrEqual(result!.highestPrice)
+		// One swept balance per filler: cNGN on Base (the single configured token/chain).
 		expect(result!.lpBalances.length).toBe(FILLERS.length)
 		for (const lp of result!.lpBalances) {
+			expect(lp.chain).toBe(BASE_STATE_MACHINE)
 			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
 			expect(lp.balance).toBeGreaterThan(0n)
 		}

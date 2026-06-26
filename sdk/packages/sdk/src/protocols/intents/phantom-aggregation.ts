@@ -43,9 +43,11 @@ export interface RpcBidInfo {
 	user_op: string
 }
 
-/** One solver's measured liquidity for the output token at this snapshot. */
+/** One solver's measured liquidity for a configured token on one chain at this snapshot. */
 export interface LpBalance {
 	solver: string
+	/** State machine id of the chain the balance was measured on (e.g. EVM-8453). */
+	chain: string
 	tokenAddress: HexString
 	balance: bigint
 }
@@ -326,17 +328,40 @@ export async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+// Sweeps a solver's liquidity for every configured yield-vault token on every supported chain: for
+// each chain that has both an RPC (in evmRpcUrls) and configured tokens (in yieldVaults), the
+// solver's balance (raw ERC-20 + ERC-4626 vault positions) for each token. Captures the LP's whole
+// liquidity picture, not just the token of the bid being priced.
+async function sweepSolverLiquidity(
+	evmRpcUrls: Record<string, string>,
+	yieldVaults: YieldVaultMap,
+	solver: string,
+): Promise<LpBalance[]> {
+	const balances: LpBalance[] = []
+	for (const [chain, tokens] of Object.entries(yieldVaults)) {
+		const url = evmRpcUrls[chain]
+		if (!url) continue
+		for (const token of Object.keys(tokens)) {
+			const balance = await getTotalSolverBalance(url, chain, token, solver, yieldVaults)
+			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
+		}
+	}
+	return balances
+}
+
 /**
  * Aggregates every bid for a phantom order into a single price/liquidity snapshot.
  *
- * Fetches the live bids via `intents_getBidsForOrder`, simulates each filler's fillOrder against the
- * (forked) EVM chain to confirm it would succeed, measures the solver's liquidity for the output
- * token, and returns the quote range plus the liquidity-weighted median. Returns `null` when no bid
- * passes simulation.
+ * Fetches the live bids via `intents_getBidsForOrder` and simulates each filler's fillOrder against
+ * the destination chain to confirm it would succeed. The liquidity-weighted median weights each
+ * quote by the solver's balance of the output token on the destination chain. For each bidding
+ * solver it also records a full liquidity sweep — every configured yield-vault token on every
+ * supported chain (raw ERC-20 + vault positions). Returns `null` when no bid passes simulation.
  */
 export async function aggregatePhantomBids(params: {
 	nodeUrl: string
-	evmRpcUrl: string
+	/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
+	evmRpcUrls: Record<string, string>
 	chain: string
 	gatewayAddress: string
 	commitment: string
@@ -347,9 +372,12 @@ export async function aggregatePhantomBids(params: {
 	yieldVaults: YieldVaultMap
 	logger?: AggregationLogger
 }): Promise<PhantomAggregation | null> {
-	const { nodeUrl, evmRpcUrl, chain, gatewayAddress, commitment, inputToken, standardAmount } = params
+	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, inputToken, standardAmount } = params
 	const { tokenSlotOverrides, yieldVaults } = params
 	const logger = params.logger ?? NOOP_LOGGER
+
+	const destUrl = evmRpcUrls[chain]
+	if (!destUrl) return null
 
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
@@ -367,7 +395,7 @@ export async function aggregatePhantomBids(params: {
 			if (!fillData) continue
 
 			const simOk = await simulateBid(
-				evmRpcUrl,
+				destUrl,
 				solver,
 				fillData,
 				gatewayAddress,
@@ -378,11 +406,13 @@ export async function aggregatePhantomBids(params: {
 			)
 			if (!simOk) continue
 
+			// Price influence: the solver's liquidity in the output token on the destination chain.
 			const outputTokenAddress = toAddress(fillData.outputToken)
-			const balance = await getTotalSolverBalance(evmRpcUrl, chain, outputTokenAddress, solver, yieldVaults)
+			const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
+			quotes.push({ price: fillData.solverAmount, weight })
 
-			quotes.push({ price: fillData.solverAmount, weight: balance })
-			lpBalances.push({ solver, tokenAddress: outputTokenAddress, balance })
+			// Full liquidity picture: every configured token on every supported chain.
+			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver)))
 		} catch (err) {
 			logger.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}

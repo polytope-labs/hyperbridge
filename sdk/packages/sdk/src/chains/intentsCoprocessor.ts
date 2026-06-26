@@ -355,8 +355,10 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Retracts a previous bid and places a new one in a single atomic transaction via
-	 * utility.batchAll, so the old deposit is reclaimed in the same block the new bid lands.
+	 * Retracts a previous bid and places a new one in a single transaction via utility.batch.
+	 * The retraction runs first, so the old deposit is reclaimed even if the new bid then fails
+	 * (batch is non-atomic — a failing call interrupts the batch without reverting the calls that
+	 * already succeeded, unlike batchAll which would roll the retraction back too).
 	 *
 	 * @param retractCommitment - The order commitment of the bid to retract (bytes32)
 	 * @param bidCommitment - The order commitment of the new bid (bytes32)
@@ -369,7 +371,7 @@ export class IntentsCoprocessor {
 		userOp: HexString,
 	): Promise<BidSubmissionResult> {
 		try {
-			const batch = this.api.tx.utility.batchAll([
+			const batch = this.api.tx.utility.batch([
 				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
 				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
 			])

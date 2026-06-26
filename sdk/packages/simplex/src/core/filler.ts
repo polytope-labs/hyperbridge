@@ -723,17 +723,16 @@ export class IntentFiller {
 		this.enqueueRetraction(commitment)
 	}
 
-	// trackInStorage controls whether bidStorage is updated — phantom bids aren't tracked there.
-	private enqueueRetraction(commitment: HexString, trackInStorage = true): void {
+	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
-				this.logger.info({ commitment }, "Retracting bid")
+				this.logger.info({ commitment }, "Retracting bid after on-chain OrderFilled")
+
 				const coprocessor = await this.hyperbridge!
 				const result = await coprocessor.retractBid(commitment)
+
 				if (result.success) {
-					if (trackInStorage && this.bidStorage) {
-						this.bidStorage.markBidAsRetracted(commitment, result.extrinsicHash as HexString)
-					}
+					this.bidStorage!.markBidAsRetracted(commitment, result.extrinsicHash as HexString)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else {
 					this.logger.error({ commitment, error: result.error }, "Failed to retract bid")
@@ -807,7 +806,7 @@ export class IntentFiller {
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity
 			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
 			// When a previous interval's bid is still live, retract it and place the new bid in one
-			// batchAll transaction so its deposit is reclaimed atomically.
+			// utility.batch so the old deposit is reclaimed even if the new bid fails.
 			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
 			const result =
 				prevCommitment && prevCommitment !== event.commitment

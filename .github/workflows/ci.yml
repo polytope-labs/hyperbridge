@@ -492,6 +492,14 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            # Authenticate to Docker Hub so the many images Kurtosis/ethereum-package pull are
+            # not subject to the anonymous per-IP rate limit (shared across GitHub runners),
+            # which otherwise surfaces as image-pull timeouts during `kurtosis engine start`.
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
             - name: Install Kurtosis
               run: |
@@ -508,8 +516,23 @@ jobs:
               run: |
                   # Pin ethereum-package to a known-good commit so the devnet (and its
                   # genesis_validators_root, which KurtosisDevnet hardcodes) stays reproducible.
-                  kurtosis engine start
-                  kurtosis run github.com/ethpandaops/ethereum-package@d4bd739b78565ca5a9768461a59ad59942e4e941 --args-file ./sync-committee-devnet.yaml --enclave sync-committee-devnet
+                  ETH_PKG=github.com/ethpandaops/ethereum-package@d4bd739b78565ca5a9768461a59ad59942e4e941
+
+                  # Image pulls can still time out transiently; retry a few times before failing.
+                  for i in 1 2 3; do
+                    kurtosis engine start && break
+                    [ "$i" = 3 ] && { echo "kurtosis engine start failed after 3 attempts"; exit 1; }
+                    echo "engine start attempt $i failed; retrying in 15s"; sleep 15
+                  done
+
+                  for i in 1 2 3; do
+                    kurtosis run "$ETH_PKG" --args-file ./sync-committee-devnet.yaml --enclave sync-committee-devnet && break
+                    [ "$i" = 3 ] && { echo "kurtosis run failed after 3 attempts"; exit 1; }
+                    echo "devnet run attempt $i failed; cleaning up and retrying in 15s"
+                    kurtosis enclave rm -f sync-committee-devnet || true
+                    sleep 15
+                  done
+
                   ./scripts/wait_for_tcp_port_opening.sh localhost 53001
 
             - name: Run Sync Committee Tests

@@ -2314,8 +2314,9 @@ type PhantomOrderPriceSnapshot @entity {
 Per-solver, per-chain, per-token liquidity balance recorded at a phantom order price snapshot.
 For every valid bidder whose fill simulation passes, the solver's liquidity is swept across every
 configured yield-vault token on every supported chain — so one entity is written per (solver, chain,
-token). Each balance is a single token measured as raw ERC-20 plus redeemable ERC-4626 vault
-positions; balances of different tokens are never combined into one value.
+token) the solver actually holds (zero balances are skipped). Each balance is a single token measured
+as raw ERC-20 plus redeemable ERC-4626 vault positions; balances of different tokens are never
+combined into one value.
 """
 type PhantomOrderLpBalance @entity {
 	"""

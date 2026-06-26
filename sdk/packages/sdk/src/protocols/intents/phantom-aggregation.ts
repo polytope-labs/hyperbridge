@@ -331,7 +331,8 @@ export async function getTotalSolverBalance(
 // Sweeps a solver's liquidity for every configured yield-vault token on every supported chain: for
 // each chain that has both an RPC (in evmRpcUrls) and configured tokens (in yieldVaults), the
 // solver's balance (raw ERC-20 + ERC-4626 vault positions) for each token. Captures the LP's whole
-// liquidity picture, not just the token of the bid being priced.
+// liquidity picture, not just the token of the bid being priced. Zero balances are skipped so the
+// snapshot only records tokens the solver actually holds.
 async function sweepSolverLiquidity(
 	evmRpcUrls: Record<string, string>,
 	yieldVaults: YieldVaultMap,
@@ -343,6 +344,7 @@ async function sweepSolverLiquidity(
 		if (!url) continue
 		for (const token of Object.keys(tokens)) {
 			const balance = await getTotalSolverBalance(url, chain, token, solver, yieldVaults)
+			if (balance === 0n) continue
 			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
 		}
 	}

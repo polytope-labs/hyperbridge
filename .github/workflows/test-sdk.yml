@@ -195,6 +195,12 @@ jobs:
               with:
                   version: 11
 
+            # Required by the sp1-recursion-gnark-ffi build script, which compiles a Go library.
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
             - name: Build hyperbridge simnode
               run: cargo build -p hyperbridge
 

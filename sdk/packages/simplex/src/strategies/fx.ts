@@ -989,15 +989,9 @@ export class FXFiller implements FillerStrategy {
 
 			remainingUsd = remainingUsd.minus(legResult.usdUsed)
 
-			// Phantom orders request a zero output (they only probe price), so the user-requested
-			// overfill ceiling is zero — capping to it would always quote 0. Skip the cap in that
-			// case and quote the full policy output; otherwise keep the (1 + maxOverfillBps) ceiling.
-			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-			const amount =
-				output.amount > 0n && legResult.policyMaxOutput > overfillCeiling
-					? overfillCeiling
-					: legResult.policyMaxOutput
-			outputs.push({ token: output.token, amount })
+			// Phantom orders only probe price (they request a zero output), so there is no
+			// user-requested amount to cap against — quote the full policy output.
+			outputs.push({ token: output.token, amount: legResult.policyMaxOutput })
 
 			if (remainingUsd.lte(0)) break
 		}

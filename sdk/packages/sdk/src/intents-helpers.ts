@@ -20,6 +20,7 @@ export {
 	SIM_DEADLINE,
 	type AggregationLogger,
 	type FillData,
+	type HexString,
 	type LpBalance,
 	type PhantomAggregation,
 	type RpcBidInfo,

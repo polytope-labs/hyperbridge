@@ -71,7 +71,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		// One row per solver per snapshot so liquidity history is preserved and each balance is
 		// attributable to the snapshot whose weighted median it fed.
 		await PhantomOrderLpBalance.create({
-			id: `${commitment}-${blockNumber}-${lp.solver}`,
+			id: `${phantom.chain}-${commitment}-${blockNumber}-${lp.solver}`,
+			chain: phantom.chain,
 			commitment,
 			blockNumber,
 			solver: lp.solver,

@@ -2318,12 +2318,17 @@ vault positions. Balances of different tokens are never combined into one value.
 """
 type PhantomOrderLpBalance @entity {
 	"""
-	Composite identifier: {commitment}-{blockNumber}-{solverAddress}. One row per solver per
+	Composite identifier: {chain}-{commitment}-{blockNumber}-{solverAddress}. One row per solver per
 	snapshot, so liquidity is a time series (keyed to the snapshot whose weighted median it fed)
 	rather than a single overwritten latest value. For a solver's current liquidity, take the row
 	with the greatest blockNumber for that (solver, tokenAddress).
 	"""
 	id: ID!
+
+	"""
+	Destination chain state machine ID (e.g. EVM-8453) where this balance was recorded.
+	"""
+	chain: String! @index
 
 	"""
 	The phantom order commitment this balance belongs to.

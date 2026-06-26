@@ -276,7 +276,9 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			quotes.push({ price: fillData.solverAmount, weight: totalBalance })
 
 			await PhantomOrderLpBalance.create({
-				id: `${outputTokenAddress}-${solver}`,
+				// One row per solver per snapshot so liquidity history is preserved and each
+				// balance is attributable to the snapshot whose weighted median it fed.
+				id: `${commitment}-${blockNumber}-${solver}`,
 				commitment,
 				blockNumber,
 				solver,
@@ -298,8 +300,11 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	await PhantomOrderPriceSnapshot.create({
 		id: snapshotId,
 		commitment,
-		tokenA: phantom.tokenA,
-		tokenB: phantom.tokenB,
+		tokenA: bytes32ToBytes20(phantom.tokenA),
+		tokenB: bytes32ToBytes20(phantom.tokenB),
+		// Denormalized from PhantomOrder so a rate (medianPrice / standardAmount) is computable
+		// from a single snapshot row without joining back to the order.
+		standardAmount: phantom.standardAmount,
 		blockNumber,
 		lowestPrice: sortedPrices[0],
 		highestPrice: sortedPrices[sortedPrices.length - 1],

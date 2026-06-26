@@ -4,6 +4,7 @@ import { hexToU8a } from "@polkadot/util"
 import { wrap } from "@/utils/event.utils"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
+import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { PhantomOrder } from "@/configs/src/types"
 
 export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): Promise<void> => {
@@ -16,8 +17,8 @@ export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): 
 
 	const chain = Buffer.from(hexToU8a(chainData.toHex())).toString("utf8")
 	const createdAtBlock = BigInt(createdAtData.toString())
-	const tokenA = tokenAData.toHex()
-	const tokenB = tokenBData.toHex()
+	const tokenA = bytes32ToBytes20(tokenAData.toHex())
+	const tokenB = bytes32ToBytes20(tokenBData.toHex())
 	const standardAmount = BigInt(standardAmountData.toString())
 
 	const blockHash = event.block.block.header.hash.toString()

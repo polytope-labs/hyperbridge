@@ -2268,6 +2268,13 @@ type PhantomOrderPriceSnapshot @entity {
 	tokenB: String! @index
 
 	"""
+	Standard input amount (smallest unit of tokenA) the prices are quoted against. Denormalized from
+	PhantomOrder so the exchange rate (medianPrice / standardAmount, adjusted for token decimals) is
+	computable from a single snapshot row without joining back to the order.
+	"""
+	standardAmount: BigInt!
+
+	"""
 	Hyperbridge block number at which this snapshot was taken.
 	"""
 	blockNumber: BigInt! @index
@@ -2311,8 +2318,10 @@ vault positions. Balances of different tokens are never combined into one value.
 """
 type PhantomOrderLpBalance @entity {
 	"""
-	Composite identifier: {tokenAddress}-{solverAddress}. One row per solver per token, holding
-	their latest measured liquidity.
+	Composite identifier: {commitment}-{blockNumber}-{solverAddress}. One row per solver per
+	snapshot, so liquidity is a time series (keyed to the snapshot whose weighted median it fed)
+	rather than a single overwritten latest value. For a solver's current liquidity, take the row
+	with the greatest blockNumber for that (solver, tokenAddress).
 	"""
 	id: ID!
 

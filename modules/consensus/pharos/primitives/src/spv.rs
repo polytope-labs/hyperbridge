@@ -342,13 +342,22 @@ pub fn verify_non_existence_proof(
 	// When the terminal is all-zero it only marks the end of an empty path; the actual
 	// sibling evidence lives in the deepest ancestor that has non-empty non-path slots.
 	//
-	// The two branches differ in parent_end by design: for a non-empty terminal the
-	// anchor is excluded and must reappear as sib.proof_path[0] (re-routed via the
-	// sibling slot); for an all-zero terminal the anchor is an ancestor already
-	// committed in parent_nodes, so sib.proof_path begins at the sibling slot's child.
+	// Both branches INCLUDE the anchor in parent_nodes so every sibling's combined walk
+	// (`parent_nodes ++ sib.proof_path`) is forced to descend through `anchor.slot[idx]`,
+	// pinning that slot to the root; `sib.proof_path` begins at the sibling slot's child in
+	// either case. For a non-empty terminal the anchor is the terminal itself
+	// (parent_end = proof_nodes.len()); for an all-zero terminal it is the deepest branching
+	// ancestor (parent_end = ni + 1).
 	let (anchor, anchor_depth, anchor_queried_nibble, anchor_non_empty_count, parent_end) =
 		if non_empty_count > 0 {
-			(last as &[u8], depth, nibble, non_empty_count, proof_nodes.len() - 1)
+			// The anchor IS the terminal, so include the whole proof (terminal included) in
+			// parent_nodes: `proof_nodes.len()`, not `len() - 1`. Excluding the terminal would
+			// let each sibling's combined walk reconnect at the terminal's *parent* and descend
+			// through an unrelated parent slot instead of `anchor.slot[idx]`, leaving the queried
+			// slot unpinned. With SkipEmpty hashing that lets an attacker relabel the queried
+			// slot's child into a free slot and "pin" it via a leaf from a different subtree,
+			// forging non-membership of a key that genuinely exists.
+			(last as &[u8], depth, nibble, non_empty_count, proof_nodes.len())
 		} else {
 			let anchor_idx = (1..proof_nodes.len().saturating_sub(1)).rev().find(|&ni| {
 				let node = &proof_nodes[ni].proof_node;
@@ -845,6 +854,91 @@ mod tests {
 			verify_non_existence_proof(&forged_proof, key, &root, &[]),
 			Err(Error::SiblingCountMismatch)
 		));
+	}
+
+	#[test]
+	fn test_non_existence_nonempty_terminal_divergent_sibling_rejected() {
+		// Regression for the anchor-exclusion forgery (HYPERBR-1962). In the non-empty-terminal
+		// branch a sibling proof must descend through `anchor.slot[idx]` to pin it. Before the fix
+		// the terminal/anchor was excluded from `parent_nodes`, so a "sibling" whose combined walk
+		// reconnected at the terminal's PARENT — an unrelated leaf in a different subtree that only
+		// satisfies the key-nibble binding — could pin the slot without ever touching the anchor.
+		// With SkipEmpty hashing this forges non-membership of a key that exists. The fix includes
+		// the terminal in `parent_nodes`, forcing the walk through `anchor.slot[idx]`.
+		let query = b"queried_key_K";
+		let key_hash = sha256(query);
+		let msu_slot = *query.last().unwrap() as usize;
+		let parent_slot = nibble_at_depth(&key_hash, 0).unwrap() as usize; // T sits here under P
+		let target_slot = nibble_at_depth(&key_hash, 1).unwrap() as usize; // queried slot in T (empty)
+		let sibling_slot = (target_slot + 1) % INTERNAL_NODE_SLOTS; // T's only non-path child
+		let fake_parent_slot = (parent_slot + 1) % INTERNAL_NODE_SLOTS; // divergent leaf lives here under P
+		let last = query[query.len() - 1];
+
+		// Find a key sharing `query`'s MSU subtree (same last byte) with given nibbles at depths 0/1.
+		let find_key = |prefix: &[u8], n0: usize, n1: usize| {
+			(0u32..)
+				.map(|i| {
+					let mut k = prefix.to_vec();
+					k.extend_from_slice(&i.to_le_bytes());
+					k.push(last);
+					k
+				})
+				.find(|k| {
+					let h = sha256(k);
+					nibble_at_depth(&h, 0).unwrap() as usize == n0
+						&& nibble_at_depth(&h, 1).unwrap() as usize == n1
+				})
+				.unwrap()
+		};
+		// Genuine occupant of T.slot[sibling_slot]: under P.slot[parent_slot], routes to sibling_slot.
+		let real_key = find_key(b"real_", parent_slot, sibling_slot);
+		// Divergent leaf: under P.slot[fake_parent_slot], but nibble at the anchor depth (1) is
+		// sibling_slot, so it satisfies the key-only binding while living in a different subtree.
+		let fake_key = find_key(b"fake_", fake_parent_slot, sibling_slot);
+
+		let real_leaf = make_leaf(&real_key, b"v");
+		let real_leaf_hash = sha256(&real_leaf);
+		let fake_leaf = make_leaf(&fake_key, b"v");
+		let fake_leaf_hash = sha256(&fake_leaf);
+
+		// Terminal T: only non-path child is real_leaf at sibling_slot; the queried slot is empty.
+		let terminal = make_internal_with_child(sibling_slot, &real_leaf_hash);
+		let terminal_hash = hash_internal_node(&terminal);
+
+		// Parent P: T at parent_slot and fake_leaf at fake_parent_slot (this is what let the pre-fix
+		// combined walk `[MSU, P, fake_leaf]` validate against the root).
+		let mut parent = make_internal_with_child(parent_slot, &terminal_hash);
+		let fps = INTERNAL_NODE_HEADER + fake_parent_slot * INTERNAL_NODE_SLOT_SIZE;
+		parent[fps..fps + 32].copy_from_slice(&fake_leaf_hash);
+		let parent_hash = hash_internal_node(&parent);
+
+		let msu_root = make_msu_root_with_child(msu_slot, &parent_hash);
+		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let proof = vec![
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(parent, 0, 0),
+			node(terminal, 0, 0),
+		];
+
+		// Forged: pin sibling_slot with the divergent fake_leaf (routed through P, not through T).
+		let forged_sibling = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: fake_key.clone(),
+			proof_path: vec![node(fake_leaf.clone(), 0, 0)],
+		};
+		// Rejected after the fix: the combined walk is forced through T.slot[sibling_slot] (which
+		// holds real_leaf, not fake_leaf), so the divergent sibling fails to validate.
+		assert!(verify_non_existence_proof(&proof, query, &root, &[forged_sibling]).is_err());
+
+		// Honest sibling (the genuine occupant of T.slot[sibling_slot]) still verifies.
+		let honest_sibling = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: real_key.clone(),
+			proof_path: vec![node(real_leaf.clone(), 0, 0)],
+		};
+		assert!(verify_non_existence_proof(&proof, query, &root, &[honest_sibling]).is_ok());
 	}
 
 	#[test]

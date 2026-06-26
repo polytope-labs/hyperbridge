@@ -16,6 +16,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol";
 import {WrappedHyperFungibleToken} from "@hyperbridge/core/apps/WrappedHyperFungibleToken.sol";
+import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
+import {UniV3UniswapV2Wrapper} from "../../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
+import {HostParams} from "../../src/core/EvmHost.sol";
 
 // Concrete HyperFungibleToken for testing
 contract TestHFT is HyperFungibleToken {
@@ -722,4 +725,49 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
     }
 
     receive() external payable {}
+}
+
+/// @notice Forks mainnet and prices a cross-chain send through `HyperApp.quote()` against a host
+/// whose fee oracle is the real `UniV3UniswapV2Wrapper`.
+///
+/// The V3 quoter prices `getAmountsIn` by executing a swap and reverting to read the result, so it
+/// writes state. `quote()` must therefore reach it via a `CALL`; a `view` `quote()` emits a
+/// `STATICCALL`, which rejects the state write and reverts before the fee can be priced.
+contract HyperFungibleTokenQuoteForkTest is MainnetForkBaseTest {
+    function testQuotePricesNativeFeeThroughV3Wrapper() public {
+        UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper(address(this));
+        wrapper.init(
+            UniV3UniswapV2Wrapper.Params({
+                WETH: _uniswapV2Router.WETH(),
+                swapRouter: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
+                quoter: 0x61fFE014bA17989E743c5F6cB21bF9697530B21e,
+                maxFee: 500
+            })
+        );
+
+        // Point the host's fee oracle at the V3 wrapper, as it is configured on mainnet.
+        HostParams memory params = host.hostParams();
+        params.uniswapV2 = address(wrapper);
+        vm.prank(address(manager));
+        host.updateHostParams(params);
+
+        bytes memory destChain = StateMachine.evm(42161); // Arbitrum
+        bytes memory remoteContract = abi.encodePacked(address(0xBEEF));
+
+        TestHFT hft = new TestHFT();
+        hft.configure(HyperFungibleToken.ConfigOptions({host: address(host), dispatcher: address(dispatcher)}));
+        hft.addChain(destChain, remoteContract);
+
+        HyperFungibleToken.SendParams memory sendParams = HyperFungibleToken.SendParams({
+            dest: destChain,
+            to: remoteContract,
+            amount: 1 ether,
+            timeout: 3600,
+            relayerFee: 10 * 1e18, // 10 DAI
+            data: ""
+        });
+
+        uint256 nativeFee = hft.quote(sendParams);
+        assertGt(nativeFee, 0, "quote should price the relayer fee in native through the V3 wrapper");
+    }
 }

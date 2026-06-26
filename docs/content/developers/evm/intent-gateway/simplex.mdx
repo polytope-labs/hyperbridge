@@ -20,15 +20,15 @@ docker run --rm -it polytopelabs/simplex:latest --help
 
 Simplex ships with two built-in strategies configured as `[[strategies]]` entries in your TOML config. For every order, Simplex evaluates all configured strategies and executes whichever returns the highest profit.
 
-### Basic
+### Stable
 
-Basic strategy fills cross-chain orders where the input and output token are the same — USDC→USDC or USDT→USDT across chains. It checks your balance on the destination chain, estimates `order fees - (gas + protocol fees + relayer fees)`, and fills directly if profitable.
+The Stable strategy fills cross-chain orders where the input and output token are the same — USDC→USDC or USDT→USDT across chains. It checks your balance on the destination chain, estimates `order fees - (gas + protocol fees + relayer fees)`, and fills directly if profitable.
 
 The `bpsCurve` sets the minimum basis-point margin required at each order size. Points are interpolated, so you can model tighter spreads for larger orders:
 
 ```toml lineNumbers
 [[strategies]]
-type = "basic"
+type = "stable"
 bpsCurve = [
     { amount = "100",    value = 100 },   # $100 orders: 1% minimum margin
     { amount = "1000",   value = 50  },   # $1000 orders: 0.5%
@@ -37,7 +37,7 @@ bpsCurve = [
 ]
 ```
 
-BasicFiller requires pre-positioned stablecoins on each destination chain.
+The Stable strategy requires pre-positioned stablecoins on each destination chain (optionally backed by the [`[vault]` treasury](#vault-treasury-erc-4626)).
 
 ---
 
@@ -81,8 +81,55 @@ askPriceCurve = [
 "EVM-137" = "0xExoticTokenAddressOnPolygon"
 ```
 
+#### One-sided LP
 
-#### Vaults
+With both curves set HyperFX fills in both directions. Omitting one curve restricts the filler to a single direction, so it keeps accumulating one asset while only giving away the other:
+
+- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* exotic, filling orders where the user sends stable and receives exotic. It accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the filler only *buys* exotic, filling orders where the user sends exotic and receives stable. It accumulates the exotic token and gives away the stablecoin.
+
+Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+# Ask curve only — keep accumulating USDC by only selling cNGN
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+
+[strategies.token1]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+```
+
+When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[strategies.vault.uniswapV4]` block instead — `"ask"` to only sell exotic (accumulate stablecoins) or `"bid"` to only buy exotic. Omit `side` to fill both directions. `side` cannot be combined with static curves.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+side = "ask"  # only sell exotic; keep accumulating stablecoins
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```
+
+
+#### Uniswap V4 LP funding
+
+<Callout type="info">
+This is the HyperFX-specific **Uniswap V4 LP** funding source, configured per strategy under `[strategies.vault.uniswapV4]`. It funds (and prices) the **exotic** token from concentrated-liquidity positions. It is distinct from the filler-wide [`[vault]` stablecoin treasury](#vault-treasury-erc-4626) (ERC-4626), which is configured at the top level and sources **stablecoins**.
+</Callout>
 
 When the solver's wallet balance on the destination chain is insufficient to fill an order, HyperFX can automatically withdraw liquidity from on-chain positions to cover the deficit. Withdrawal calls are prepended to the UserOperation as ERC-7821 batch calls, making the funding atomic with the fill.
 
@@ -134,6 +181,27 @@ positions = [
 <Callout type="info">
 Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.vault.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
 </Callout>
+
+#### Uniswap price guards
+
+Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. To bound that risk, give a position a **`referencePrice`** and **`maxDeviationBps`**. Whenever the pool quote on that chain drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
+
+`referencePrice` is expressed in **exotic tokens per USD**, the same units as the bid/ask curves. The two fields must be set together; omit both to leave the chain unguarded.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+positions = [
+    # referencePrice is the expected cNGN per USD; reject if the quote is more than 2% off
+    { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
+]
+```
 
 #### Example profit calculation
 
@@ -222,20 +290,103 @@ No manual steps are required — delegation is idempotent and skipped if the EOA
 
 ### Overfill Protection
 
-Bounds per-leg loss if the filler's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the filler clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount`. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. The FX strategy additionally rejects any order where the total output USD value ≥ total input USD value.
+Bounds per-leg loss if the filler's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the filler clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount` — this ceiling applies to every strategy. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the **HyperFX** strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. HyperFX additionally rejects any order where the total output USD value ≥ total input USD value.
 
-Defaults are sensible (`maxOverfillBps = 100` ≈ 1% ceiling, `maxConsecutiveClamps = 3`). Override under `[simplex.overfillProtection]`:
+Defaults are sensible (`maxOverfillBps = 500` ≈ 5% ceiling, `maxConsecutiveClamps = 3`). Override under `[simplex.overfillProtection]`:
 
 ```toml lineNumbers
 [simplex.overfillProtection]
-maxOverfillBps       = 100   # 1% ceiling above user-requested output
-maxConsecutiveClamps = 3     # halt threshold
+maxOverfillBps       = 500   # 5% ceiling above user-requested output
+maxConsecutiveClamps = 3     # halt threshold (HyperFX)
+```
+
+### Vault treasury (ERC-4626)
+
+The optional top-level `[vault]` section configures a **filler-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Only the vault address is required; the underlying asset and its decimals are resolved on-chain at startup.
+
+<Callout type="info">
+This is distinct from the HyperFX-specific [`[strategies.vault.uniswapV4]`](#uniswap-v4-lp-funding) source. `[vault]` is filler-wide and sources **stablecoins** (the input/output token of the Stable strategy); `[strategies.vault.uniswapV4]` is per-strategy and sources/prices the **exotic** token.
+</Callout>
+
+One vault list drives three behaviours:
+
+1. **Sourcing** — when wallet balance is short on a fill, Simplex withdraws the deficit from the solver's vault position. The withdrawal is prepended to the UserOperation as ERC-7821 batch calls, so it is atomic with the fill.
+2. **Sweeping** — a timer (`sweepIntervalMs`, default 5 min) waits for wallet balance to reach the `threshold` high-water mark, then deposits everything down to `minBalance`. Size `minBalance` to cover working fill float plus gas/paymaster spend; the `threshold`–`minBalance` gap is the guaranteed minimum sweep size, so balance oscillates between the two without thrashing on dust.
+3. **Shutdown** — on stop, positions are kept across restarts by default. Set `redeemOnShutdown = true` on a vault to instead redeem its position back to the underlying asset when the filler stops.
+
+Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
+
+```toml lineNumbers
+[vault]
+sweepIntervalMs = 300000   # optional, default 5 min
+vaults = [
+    # Aave stataUSDC on Base — once balance hits $5,000, sweep down to $3,000
+    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" },
+    # Aave stataUSDT on Arbitrum
+    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" },
+]
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `chain` | yes | State-machine ID the vault lives on (e.g. `"EVM-8453"`) |
+| `vault` | yes | ERC-4626 vault address |
+| `threshold` | no | High-water balance (human units) that triggers a sweep down to `minBalance`. Omit to disable sweeping (withdraw-only). |
+| `minBalance` | conditional | Wallet floor (human units) the sweep deposits down to. Required when `threshold` is set, and must be less than it. |
+| `redeemOnShutdown` | no | Redeem this position back to the underlying asset on shutdown. Defaults to `false` (the position is kept across restarts). |
+
+### Rebalancing
+
+The optional `[rebalancing]` section keeps per-chain, per-asset balances near a configured base. Rebalancing triggers when a balance falls to `(1 - triggerPercentage) × baseBalance`. Base balances are expressed in USD value (treated as $1 per stablecoin), keyed by asset symbol and then by numeric chain ID.
+
+```toml lineNumbers
+[rebalancing]
+triggerPercentage = 0.5   # trigger when balance ≤ 50% of base
+
+[rebalancing.baseBalances."USDC"]
+"1"     = "10000"   # Ethereum: $10k USDC base
+"8453"  = "10000"   # Base
+"42161" = "10000"   # Arbitrum
+
+[rebalancing.baseBalances."USDT"]
+"1"     = "10000"
+"8453"  = "10000"
+"42161" = "10000"
+```
+
+### Allowlist
+
+The optional `[allowlist]` section restricts which order `user` addresses the filler will process. Omit the section entirely to accept orders from all users (the default). When present, only listed users are accepted; address comparisons are case-insensitive.
+
+```toml lineNumbers
+[allowlist]
+# Users eligible across all source chains
+users = [
+    "0x1111111111111111111111111111111111111111",
+]
+
+# Per-source-chain overrides, keyed by state-machine ID. Merged with the global list.
+[allowlist.bySource]
+"EVM-1"     = ["0x2222222222222222222222222222222222222222"]   # Ethereum-only partner
+"EVM-42161" = ["0x3333333333333333333333333333333333333333"]   # Arbitrum-only partner
+```
+
+A source chain whose merged set (global `users` + its `bySource` override) is empty rejects every order from that chain.
+
+### Gas Fee Bump
+
+UserOperation gas prices are bumped above the base `gasPrice` by configurable percentages. Defaults are `8%` for the priority fee and `10%` for the max fee. Override under `[simplex.gasFeeBump]`:
+
+```toml lineNumbers
+[simplex.gasFeeBump]
+maxPriorityFeePerGasBumpPercent = 8    # added to base gasPrice for the priority fee
+maxFeePerGasBumpPercent         = 10   # added to base gasPrice for the max fee
 ```
 
 ### Confirmation Policy
 
 <Callout type="info">
-Confirmation policies are configured per strategy. Both BasicFiller and HyperFX can use confirmation policies for cross-chain orders.
+Confirmation policies are configured per strategy. Both the Stable strategy and HyperFX can use confirmation policies for cross-chain orders.
 </Callout>
 
 Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
@@ -260,7 +411,7 @@ Confirmation policies are configured **per strategy** under `[strategies.confirm
 
 ```toml lineNumbers
 [[strategies]]
-type = "basic"
+type = "stable"
 bpsCurve = [
     { amount = "100",    value = 100 },
     { amount = "100000", value = 10  },
@@ -393,11 +544,28 @@ callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 maxRechecks    = 10
 recheckDelayMs = 30000
 
-# Optional — defaults: maxOverfillBps = 100, maxConsecutiveClamps = 3
+# Optional — defaults: maxOverfillBps = 500, maxConsecutiveClamps = 3
 # [simplex.overfillProtection]
-# maxOverfillBps       = 100
+# maxOverfillBps       = 500
 # maxConsecutiveClamps = 3
 
+# Optional filler-wide ERC-4626 stablecoin treasury (sourcing + sweeping + shutdown)
+[vault]
+sweepIntervalMs = 300000   # optional, default 5 min
+vaults = [
+    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" }, # Aave stataUSDC on Base
+    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" }, # Aave stataUSDT on Arbitrum
+]
+
+# Same-token stablecoin fills (USDC→USDC, USDT→USDT)
+[[strategies]]
+type     = "stable"
+bpsCurve = [
+    { amount = "100",    value = 100 },
+    { amount = "100000", value = 10  },
+]
+
+# Exotic-token swaps (e.g. stablecoin ↔ cNGN)
 [[strategies]]
 type        = "hyperfx"
 maxOrderUsd = 50000

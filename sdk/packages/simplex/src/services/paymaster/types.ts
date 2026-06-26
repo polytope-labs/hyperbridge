@@ -20,6 +20,8 @@ export interface PaymasterOptions {
 	walletClient: WalletClient
 	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> }
 	configService: FillerConfigService
+	/** Override for the Circle paymaster verification gas limit (default 200k). */
+	paymasterVerificationGasLimit?: bigint
 }
 
 export interface PaymasterDataResult {

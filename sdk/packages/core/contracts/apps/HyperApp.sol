@@ -31,7 +31,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 interface IUniswapV2Router02 {
     function WETH() external pure returns (address);
 
-    function getAmountsIn(uint256, address[] calldata) external pure returns (uint256[] memory);
+    function getAmountsIn(uint256, address[] calldata) external returns (uint256[] memory);
 }
 
 /**
@@ -70,7 +70,7 @@ abstract contract HyperApp is IApp {
     /**
      * @dev returns the quoted fee in the native token for dispatching a POST request
      */
-    function quote(DispatchPost memory request) public view returns (uint256) {
+    function quote(DispatchPost memory request) public returns (uint256) {
         address _host = host();
         address _uniswap = IDispatcher(_host).uniswapV2Router();
         address[] memory path = new address[](2);
@@ -82,7 +82,7 @@ abstract contract HyperApp is IApp {
     /**
      * @dev returns the quoted fee in the native token for dispatching a GET request
      */
-    function quote(DispatchGet memory request) public view returns (uint256) {
+    function quote(DispatchGet memory request) public returns (uint256) {
         address _host = host();
         address _uniswap = IDispatcher(_host).uniswapV2Router();
         address[] memory path = new address[](2);

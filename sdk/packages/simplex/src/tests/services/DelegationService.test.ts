@@ -43,9 +43,14 @@ const PIMLICO_BUNDLER_URL = process.env.BASE_PIMLICO_BUNDLER_URL
 // Alchemy's bundler shares its RPC endpoint; reuse BASE_MAINNET unless a separate URL is needed.
 const ALCHEMY_BUNDLER_URL = RPC_URL
 
+interface SendBundlerRpc {
+	sendBundlerRpc: <T>(bundlerUrl: string, method: string, params: unknown[]) => Promise<T>
+}
+
 interface DelegationServicePrivates {
 	setupDelegationViaBundler: (chain: string) => Promise<boolean>
-	sendBundlerRpc: <T>(bundlerUrl: string, method: string, params: unknown[]) => Promise<T>
+	/** The shared sender now owns the bundler RPC; the test patches it to surface send errors. */
+	userOpSender: SendBundlerRpc
 }
 
 function build(bundlerUrl: string) {
@@ -60,8 +65,9 @@ function build(bundlerUrl: string) {
 	// `eth_sendUserOperation` error instead — a bare `false` would hide why it failed.
 	let capturedError: Error | null = null
 	const privates = service as unknown as DelegationServicePrivates
-	const original = privates.sendBundlerRpc.bind(service)
-	privates.sendBundlerRpc = async (url, method, params) => {
+	const sender = privates.userOpSender
+	const original = sender.sendBundlerRpc.bind(sender)
+	sender.sendBundlerRpc = async (url, method, params) => {
 		try {
 			return await original(url, method, params)
 		} catch (err) {

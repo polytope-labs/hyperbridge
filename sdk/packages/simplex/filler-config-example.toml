@@ -93,6 +93,25 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
+# Vault configuration (optional) — filler-wide stablecoin treasury.
+# Any ERC-4626 vault works (e.g. Aave's stataToken); the underlying asset is
+# resolved on-chain from the vault. Used for three things, sharing one vault list:
+#   1. Sourcing: when wallet balance is short on a fill, withdraw the deficit
+#      from the solver's vault position (atomic with the fill).
+#   2. Sweeping: once wallet balance reaches `threshold`, a timer deposits
+#      everything down to `minBalance`. Size `minBalance` to cover working fill
+#      float plus gas/paymaster spend; `threshold` must be greater than it.
+#   3. Shutdown: vault positions are redeemed back to the underlying asset.
+# Omit `threshold`/`minBalance` on a vault to source-only (no sweeping) for that token.
+# Positions are kept across restarts by default; set `redeemOnShutdown = true` to unwind on stop.
+#
+# [vault]
+# sweepIntervalMs = 300000   # optional, default 5 min
+# vaults = [
+#     { chain = "EVM-8453", vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" },                       # Aave stataUSDC on Base
+#     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000", redeemOnShutdown = true }, # Aave stataUSDT on Arbitrum, unwound on shutdown
+# ]
+
 # Allowlist configuration (optional)
 # Restricts which order `user` addresses the filler will process.
 # - Omit the entire [allowlist] section to accept orders from all users (default).
@@ -115,7 +134,7 @@ triggerPercentage = 0.5
 # You can configure multiple strategies
 # All strategies use the configured simplex signer (privateKey or mpcVault)
 [[strategies]]
-type = "basic"
+type = "stable"
 # Filler BPS (basis points) curve based on order value
 # Uses polynomial interpolation to create a smooth curve through all points
 # - Small orders: Higher BPS to make filling worthwhile
@@ -182,6 +201,9 @@ points = [
 # spreadBps = 50
 #
 # # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
+# # One-sided LP: omit one curve to fill in a single direction. Keep only askPriceCurve to
+# # accumulate stablecoins (sell exotic, e.g. give away cNGN); keep only bidPriceCurve to
+# # accumulate the exotic token (buy exotic).
 # # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
 # bidPriceCurve = [
 #     { amount = "100",  price = "1580" },
@@ -202,10 +224,19 @@ points = [
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+# #
+# # Optional per-position price guard: set referencePrice (exotic per USD, same units as the
+# # bid/ask curves) and maxDeviationBps together to reject orders whenever the live pool quote
+# # on that chain drifts beyond the band. Guards against a manipulated, stale, or thin pool.
+# #
+# # One-sided LP under pool pricing (no bid/ask curves): set `side` to fill a single direction.
+# # "ask" sells exotic (accumulate stablecoins); "bid" buys exotic (accumulate the exotic token).
+# # Omit `side` to fill both directions.
 #
 # [strategies.vault.uniswapV4]
+# side = "ask"
 # positions = [
-#     { chain = "EVM-8453", tokenId = "123456789" },
+#     { chain = "EVM-8453", tokenId = "123456789", referencePrice = "1575", maxDeviationBps = 200 },
 # ]
 #
 

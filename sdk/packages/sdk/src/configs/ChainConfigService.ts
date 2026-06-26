@@ -1,5 +1,12 @@
 import type { ChainConfig, HexString } from "@/types"
-import { chainConfigs, getConfigByStateMachineId, Chains, hyperbridgeAddress } from "@/configs/chain"
+import {
+	chainConfigs,
+	getConfigByStateMachineId,
+	Chains,
+	hyperbridgeAddress,
+	type ConfiguredAssetSymbol,
+	type UniswapV4PoolConfigData,
+} from "@/configs/chain"
 
 export class ChainConfigService {
 	private rpcUrls: Record<string, string> = {}
@@ -47,6 +54,10 @@ export class ChainConfigService {
 
 	getDaiAsset(chain: string): HexString {
 		return (this.getConfig(chain)?.assets?.DAI ?? "0x") as HexString
+	}
+
+	getAssetAddress(chain: string, symbol: ConfiguredAssetSymbol): HexString | undefined {
+		return this.getConfig(chain)?.assets?.[symbol] as HexString | undefined
 	}
 
 	getUsdtAsset(chain: string): HexString {
@@ -139,6 +150,10 @@ export class ChainConfigService {
 		return (this.getConfig(chain)?.addresses.UniswapV4StateView ?? "0x") as HexString
 	}
 
+	getUniswapV4PoolConfigs(chain: string): UniswapV4PoolConfigData[] {
+		return this.getConfig(chain)?.uniswapV4Pools ?? []
+	}
+
 	getPermit2Address(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.Permit2 ?? "0x") as HexString
 	}
@@ -152,7 +167,7 @@ export class ChainConfigService {
 	}
 
 	getEtherscanApiKey(): string | undefined {
-		return typeof process !== "undefined" ? (process as any)?.env?.ETHERSCAN_API_KEY : undefined
+		return typeof process !== "undefined" ? process.env?.ETHERSCAN_API_KEY : undefined
 	}
 
 	getCalldispatcherAddress(chain: string): HexString {

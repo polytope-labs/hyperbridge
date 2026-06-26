@@ -33,7 +33,7 @@ export function hasTokenSlotOverride(address: string): boolean {
 	return address.toLowerCase() in TOKEN_SLOT_OVERRIDES
 }
 
-// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 9 in IntentGatewayV2.
+// _orders is mapping(bytes32 => mapping(address => uint256)) at slot 9 in the IntentGateway.
 // (PR #988 removed the _admin slot, shifting _orders down from slot 10 to slot 9.)
 // inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
 export function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {

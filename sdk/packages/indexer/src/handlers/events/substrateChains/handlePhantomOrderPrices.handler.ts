@@ -8,7 +8,7 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
-import { INTENT_GATEWAY_V2_ADDRESSES } from "@/intent-gateway-v2-addresses"
+import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
 import {
@@ -242,7 +242,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	if (bids.length === 0) return
 
 	const evmUrl = replaceWebsocketWithHttp(ENV_CONFIG[phantom.chain] ?? "")
-	const gatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[phantom.chain as keyof typeof INTENT_GATEWAY_V2_ADDRESSES]
+	const gatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[phantom.chain as keyof typeof INTENT_GATEWAY_V3_ADDRESSES]
 	if (!evmUrl || !gatewayAddress) return
 
 	const blockTimestamp = await getBlockTimestamp(blockHash, host)

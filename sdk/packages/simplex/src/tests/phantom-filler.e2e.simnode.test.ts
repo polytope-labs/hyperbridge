@@ -207,7 +207,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			await submitAndSeal(api, api.tx.balances.transferKeepAlive(addr, 10_000_000_000_000_000_000n), alice)
 		}
 
-		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(100))
+		// Bid window must be shorter than the config's interval_blocks (10), enforced on-chain.
+		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(5))
 		await seedStateMachineHeight(api, BASE_CHAIN_ID, 1_000_000n)
 
 		// Each solver needs forked cNGN liquidity — that is what they pay out and what the snapshot records.

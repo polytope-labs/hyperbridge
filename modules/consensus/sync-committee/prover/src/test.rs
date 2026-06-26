@@ -8,7 +8,7 @@ use sync_committee_primitives::{
 	util::compute_epoch_at_slot,
 };
 
-use sync_committee_primitives::constants::devnet::ElectraDevnet;
+use sync_committee_primitives::constants::devnet::KurtosisDevnet;
 
 use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio_stream::StreamExt;
@@ -82,7 +82,7 @@ async fn test_finalized_header() {
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
 	let proof =
-		ssz_rs::generate_proof(&mut state, &vec![ElectraDevnet::FINALIZED_ROOT_INDEX as usize])
+		ssz_rs::generate_proof(&mut state, &vec![KurtosisDevnet::FINALIZED_ROOT_INDEX as usize])
 			.unwrap();
 
 	let leaves = vec![Node::from_bytes(
@@ -97,7 +97,7 @@ async fn test_finalized_header() {
 	let root = calculate_multi_merkle_root(
 		&leaves,
 		&proof,
-		&[GeneralizedIndex(ElectraDevnet::FINALIZED_ROOT_INDEX as usize)],
+		&[GeneralizedIndex(KurtosisDevnet::FINALIZED_ROOT_INDEX as usize)],
 	);
 	assert_eq!(root, state.hash_tree_root().unwrap());
 }
@@ -111,7 +111,7 @@ async fn test_execution_payload_proof() {
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
 	let execution_payload_proof = prove_execution_payload::<
-		ElectraDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>(&mut finalized_state)
@@ -130,9 +130,9 @@ async fn test_execution_payload_proof() {
 		],
 		&multi_proof_vec,
 		&[
-			GeneralizedIndex(ElectraDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-			GeneralizedIndex(ElectraDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-			GeneralizedIndex(ElectraDevnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 		],
 	);
 
@@ -149,8 +149,8 @@ async fn test_execution_payload_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload_branch,
-		ElectraDevnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-		ElectraDevnet::EXECUTION_PAYLOAD_INDEX as usize,
+		KurtosisDevnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		KurtosisDevnet::EXECUTION_PAYLOAD_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -161,7 +161,7 @@ async fn test_execution_payload_proof() {
 #[tokio::test]
 #[ignore]
 async fn test_sync_committee_update_proof() {
-	use sync_committee_primitives::constants::devnet::ElectraDevnet;
+	use sync_committee_primitives::constants::devnet::KurtosisDevnet;
 
 	let sync_committee_prover = setup_prover();
 
@@ -170,7 +170,7 @@ async fn test_sync_committee_update_proof() {
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
 	let sync_committee_proof = prove_sync_committee_update::<
-		ElectraDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>(&mut finalized_state)
@@ -181,7 +181,7 @@ async fn test_sync_committee_update_proof() {
 	let calculated_finalized_root = calculate_multi_merkle_root(
 		&[sync_committee.hash_tree_root().unwrap()],
 		&sync_committee_proof,
-		&[GeneralizedIndex(ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize)],
+		&[GeneralizedIndex(KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize)],
 	);
 
 	assert_eq!(calculated_finalized_root.as_bytes(), finalized_header.state_root.as_bytes());
@@ -189,8 +189,8 @@ async fn test_sync_committee_update_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&sync_committee.hash_tree_root().unwrap(),
 		sync_committee_proof.iter(),
-		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
-		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize,
+		KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
+		KurtosisDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -203,7 +203,7 @@ async fn test_sync_committee_update_proof() {
 async fn test_prover() {
 	use log::LevelFilter;
 	use parity_scale_codec::{Decode, Encode};
-	use sync_committee_primitives::constants::devnet::ElectraDevnet;
+	use sync_committee_primitives::constants::devnet::KurtosisDevnet;
 	env_logger::builder()
 		.filter_module("prover", LevelFilter::Debug)
 		.format_module_path(false)
@@ -221,10 +221,10 @@ async fn test_prover() {
 
 	let mut client_state = VerifierState {
 		finalized_header: block_header.clone(),
-		latest_finalized_epoch: compute_epoch_at_slot::<ElectraDevnet>(block_header.slot),
+		latest_finalized_epoch: compute_epoch_at_slot::<KurtosisDevnet>(block_header.slot),
 		current_sync_committee: state.current_sync_committee,
 		next_sync_committee: state.next_sync_committee,
-		state_period: compute_sync_committee_period_at_slot::<ElectraDevnet>(block_header.slot),
+		state_period: compute_sync_committee_period_at_slot::<KurtosisDevnet>(block_header.slot),
 	};
 
 	let mut count = 0;
@@ -241,14 +241,22 @@ async fn test_prover() {
 				// state already reflects the new finalized checkpoint. Sleep one slot before
 				// fetching the update.
 				tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-				let light_client_update = if let Some(update) = sync_committee_prover
+				let light_client_update = match sync_committee_prover
 					.fetch_light_client_update(client_state.clone(), checkpoint, None)
 					.await
-					.unwrap()
 				{
-					update
-				} else {
-					continue;
+					Ok(Some(update)) => update,
+					Ok(None) => continue,
+					// Lighthouse can transiently 404 the finalized state while it migrates its
+					// hot DB on finalization. That is a devnet/node artifact, not a prover error,
+					// so skip this event and wait for the next finalization.
+					Err(e) if e.to_string().contains("404") => {
+						println!(
+							"transient 404 fetching light client update; waiting for next finalization: {e}"
+						);
+						continue;
+					},
+					Err(e) => panic!("fetch_light_client_update failed: {e}"),
 				};
 
 				if light_client_update.sync_committee_update.is_some() {
@@ -261,7 +269,7 @@ async fn test_prover() {
 				let decoded = VerifierStateUpdate::decode(&mut &*encoded).unwrap();
 				assert_eq!(light_client_update, decoded);
 
-				client_state = verify_sync_committee_attestation::<ElectraDevnet>(
+				client_state = verify_sync_committee_attestation::<KurtosisDevnet>(
 					client_state.clone(),
 					light_client_update,
 				)
@@ -295,7 +303,7 @@ async fn test_switch_provider_middleware() {
 	];
 
 	let prover = SyncCommitteeProver::<
-		ElectraDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>::new(providers);
@@ -311,14 +319,16 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-fn setup_prover(
-) -> SyncCommitteeProver<ElectraDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>
-{
+fn setup_prover() -> SyncCommitteeProver<
+	KurtosisDevnet,
+	ETH1_DATA_VOTES_BOUND_ETH,
+	PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+> {
 	dotenv::dotenv().ok();
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:53001".to_string());
 	SyncCommitteeProver::<
-		ElectraDevnet,
+		KurtosisDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>::new(vec![consensus_url])

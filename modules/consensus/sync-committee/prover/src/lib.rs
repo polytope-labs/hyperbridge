@@ -321,33 +321,15 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let attested_block_id = get_block_id(block.parent_root);
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
-			match self.fetch_beacon_state(&attested_header.slot.to_string()).await {
-				Ok(state) => state,
-				Err(e) if e.to_string().contains("404") => return Ok(None),
-				Err(e) => return Err(e),
-			};
+			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
 		if attested_state.finalized_checkpoint.root == Node::default() {
 			return Ok(None);
 		}
 		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
-		// Lighthouse may be briefly migrating the hot DB when finalization fires; retry before
-		// giving up and signalling the caller to wait for the next SSE event.
-		let mut finalized_state = {
-			let slot = finalized_header.slot.to_string();
-			let mut attempts = 0u32;
-			loop {
-				match self.fetch_beacon_state(&slot).await {
-					Ok(s) => break s,
-					Err(e) if attempts < 3 && e.to_string().contains("404") => {
-						attempts += 1;
-						tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-					},
-					Err(e) if e.to_string().contains("404") => return Ok(None),
-					Err(e) => return Err(e),
-				}
-			}
-		};
+		// Fetch the finalized state by slot rather than by state root.
+		let mut finalized_state =
+			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
 			finality_branch: prove_finalized_header::<
@@ -444,25 +426,12 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
-			self.fetch_beacon_state(&attested_header.slot.to_string()).await?;
+			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
 		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
-		let mut finalized_state = {
-			let slot = finalized_header.slot.to_string();
-			let mut last_err = None;
-			let mut result = None;
-			for _ in 0..3u32 {
-				match self.fetch_beacon_state(&slot).await {
-					Ok(s) => { result = Some(s); break; },
-					Err(e) if e.to_string().contains("404") => {
-						last_err = Some(e);
-						tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-					},
-					Err(e) => return Err(e),
-				}
-			}
-			result.ok_or_else(|| last_err.unwrap())?
-		};
+		// Fetch the finalized state by slot rather than by state root.
+		let mut finalized_state =
+			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
 			finality_branch: prove_finalized_header::<

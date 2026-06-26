@@ -179,6 +179,14 @@ describe("storage slot helpers", () => {
 		// Same inputs always hash to the same slot.
 		expect(erc20BalanceSlot(SOLVER as HexString, 9n)).toBe(balance)
 	})
+
+	it("ordersStorageSlot normalises a 20-byte address and its 32-byte form to the same slot", () => {
+		const commitment = `0x${"ab".repeat(32)}` as HexString
+		const usdc20 = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" as HexString
+		// The inner mapping is keyed by `address` (left-padded to 32 bytes), so the 20-byte address
+		// and its 32-byte token-field form must derive the identical escrow slot.
+		expect(ordersStorageSlot(commitment, usdc20)).toBe(ordersStorageSlot(commitment, USDC_BYTES32))
+	})
 })
 
 describe("weightedMedian", () => {

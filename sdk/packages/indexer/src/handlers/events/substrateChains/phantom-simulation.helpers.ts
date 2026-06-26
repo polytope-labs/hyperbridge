@@ -35,10 +35,13 @@ export function hasTokenSlotOverride(address: string): boolean {
 
 // _orders is mapping(bytes32 => mapping(address => uint256)) at slot 9 in the IntentGateway.
 // (PR #988 removed the _admin slot, shifting _orders down from slot 10 to slot 9.)
-// inputTokenBytes32 must be the address left-padded to 32 bytes, matching abi.encode(address).
-export function ordersStorageSlot(commitment: HexString, inputTokenBytes32: HexString): HexString {
+// The inner mapping is keyed by `address`, so the key must be the token left-padded to 32 bytes
+// (abi.encode(address)). `inputToken` may be passed either as a 20-byte address or a 32-byte
+// token field; normalise both to the address-as-uint256 form before hashing.
+export function ordersStorageSlot(commitment: HexString, inputToken: HexString): HexString {
+	const tokenKey = toHex(BigInt(inputToken), { size: 32 })
 	const innerSlot = keccak256(concat([commitment, toHex(9n, { size: 32 })]))
-	return keccak256(concat([inputTokenBytes32, innerSlot]))
+	return keccak256(concat([tokenKey, innerSlot]))
 }
 
 export function erc20BalanceSlot(holder: HexString, slot: bigint): HexString {

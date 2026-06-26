@@ -1,26 +1,7 @@
 name: CI
 
 on:
-#    push:
-#        branches:
-#            - main
-#        paths:
-#            - "**/*.rs"
-#            - "**/Cargo.toml"
-#            - "**/Cargo.lock"
-#            - ".github/workflows/ci.yml"
-#            - "!sdk/**"
-#
-#    pull_request:
-#       types: [opened, synchronize, reopened, ready_for_review]
-#       paths:
-#           - "**/*.rs"
-#           - "**/Cargo.toml"
-#           - "**/Cargo.lock"
-#           - ".github/workflows/ci.yml"
-#           - "!sdk/**"
-
-    pull_request_target:
+    push:
         branches:
             - main
         paths:
@@ -30,7 +11,26 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
+    pull_request:
+       types: [opened, synchronize, reopened, ready_for_review]
+       paths:
+           - "**/*.rs"
+           - "**/Cargo.toml"
+           - "**/Cargo.lock"
+           - ".github/workflows/ci.yml"
+           - "!sdk/**"
+
     workflow_dispatch:
+
+    # pull_request_target:
+    #     branches:
+    #         - main
+    #     paths:
+    #         - "**/*.rs"
+    #         - "**/Cargo.toml"
+    #         - "**/Cargo.lock"
+    #         - ".github/workflows/ci.yml"
+    #         - "!sdk/**"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}

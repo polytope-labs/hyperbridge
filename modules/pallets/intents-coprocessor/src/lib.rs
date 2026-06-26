@@ -538,6 +538,11 @@ pub mod pallet {
 		/// block and generates a new phantom commitment when the interval elapses.
 		/// Also clears the current active phantom order so the hook fires immediately
 		/// on the next block.
+		///
+		/// ⚠ Before calling: each pair's `standard_amount` MUST be exactly one unit of its input
+		/// token (`10^decimals(token_a)`) — no more, no less. It is the denominator of every
+		/// published rate and fails silently if wrong.
+		/// See [`PhantomTokenPair::standard_amount`](crate::types::PhantomTokenPair::standard_amount).
 		#[pallet::call_index(8)]
 		#[pallet::weight(T::WeightInfo::set_phantom_order_config())]
 		pub fn set_phantom_order_config(

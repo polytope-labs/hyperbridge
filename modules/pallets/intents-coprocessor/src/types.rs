@@ -150,10 +150,34 @@ pub struct PhantomOrderInfo<BlockNumber> {
 }
 
 /// A single token pair the phantom generator probes for price and liquidity.
+///
+/// Read the note on [`standard_amount`](PhantomTokenPair::standard_amount) before you set this.
+/// It is the one field that fails silently.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomTokenPair {
+	/// The input token being priced (tokenA). Quotes are expressed as how much `token_b`
+	/// a filler will give for `standard_amount` of this token.
 	pub token_a: H160,
+	/// The output token (tokenB) the price is quoted in.
 	pub token_b: H160,
+	/// ┌─────────────────────────────────────────────────────────────────────────────────┐
+	/// │  ⚠  EXACTLY ONE (1) UNIT OF THE INPUT TOKEN. NO MORE. NO LESS. NON-NEGOTIABLE.  ⚠  │
+	/// └─────────────────────────────────────────────────────────────────────────────────┘
+	///
+	/// This MUST be **one whole unit of `token_a`, denominated in the token's smallest unit**
+	/// — that is, `10^decimals(token_a)`:
+	///   • 6-decimal USDC  →  `1_000_000`
+	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000`
+	///
+	/// WHY THERE IS ZERO WIGGLE ROOM:
+	///   Every exchange rate the indexer publishes is `medianPrice / standard_amount`. This number
+	///   is the DENOMINATOR OF THE TRUTH. Put `2` units here and every downstream rate is silently
+	///   HALVED; put half a unit and every rate silently DOUBLES. It will not revert. It will not
+	///   warn. It will simply poison every price snapshot for this pair with an integer-factor
+	///   error until a human eventually notices the feed has drifted — and then has to backfill it.
+	///
+	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
+	/// Not two. Not a half. ONE. UNIT.
 	pub standard_amount: u128,
 }
 

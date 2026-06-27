@@ -1,0 +1,26 @@
+participants:
+  - el_type: geth
+    cl_type: lighthouse
+    count: 1
+
+network_params:
+  preset: mainnet
+  genesis_delay: 20
+  seconds_per_slot: 4
+  # All forks active at epoch 0 so the devnet starts on Electra (Pectra CL) immediately
+  altair_fork_epoch: 0
+  bellatrix_fork_epoch: 0
+  capella_fork_epoch: 0
+  deneb_fork_epoch: 0
+  electra_fork_epoch: 0
+
+# Expose beacon and execution ports on fixed local ports for easy access
+port_publisher:
+  cl:
+    enabled: true
+    public_port_start: 53000
+  el:
+    enabled: true
+    public_port_start: 52000
+
+additional_services: []

@@ -327,8 +327,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		}
 		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
+		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
-			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
+			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
 			finality_branch: prove_finalized_header::<
@@ -428,8 +429,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
 		let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
 		let finalized_header = self.fetch_header(&finalized_block_id).await?;
+		// Fetch the finalized state by slot rather than by state root.
 		let mut finalized_state =
-			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
+			self.fetch_beacon_state(&finalized_header.slot.to_string()).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
 			finality_branch: prove_finalized_header::<

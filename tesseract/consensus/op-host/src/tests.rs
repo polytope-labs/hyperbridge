@@ -46,6 +46,10 @@ async fn run_dispute_game_verification(
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
+		// Placeholders: `EvmClient::new` requires these to be resolved, but the dispute-game
+		// verification path exercised here never consults the L2 state machine id or ismp host.
+		state_machine: Some(StateMachine::Evm(0)),
+		ismp_host: Some(H160::zero()),
 		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
@@ -125,18 +129,19 @@ async fn test_aggregate_verifier_dispute_game_verification() {
 		.await;
 }
 
-/// End-to-end verification of a Cannon (gameType 0) dispute game created on Ethereum mainnet:
+/// End-to-end verification of a Cannon (gameType 8) dispute game created on Ethereum mainnet:
 ///
 /// ```text
 /// DisputeGameCreated(
-///     proxy:     0xE6512d19E2bac97A2Ed17e2cC1C5Df96E29d3EA8,
-///     gameType:  0,
-///     rootClaim: 0x76B0808A7D3244F52677F7FEC036A25FAAD2FB80EE4D9504C5458775A7024FFA,
+///     proxy:     0x48dDB9bfE0e24828FF39406aEda9cE1a9107b80f,
+///     gameType:  8,
+///     rootClaim: 0x1cbae15429a91277bfef6ab3578e7e72a9968741853d6b220c02676583436aa5,
 /// )
 /// ```
 ///
-/// Factory: `0xe5965Ab5962eDc7477C8520243A95517CD252fA9` on L1 mainnet. Requires
-/// `MAINNET_RPC_URL` (L1) and `OP_MAINNET_RPC_URL` (L2 Optimism mainnet) in the environment.
+/// Factory: `0xe5965Ab5962eDc7477C8520243A95517CD252fA9` on L1 mainnet, whose `gameImpls[8]`
+/// resolves to `0x2DDA3584b51eF5236f7726Dea5A0FB6B3cA94AeC`. Requires `MAINNET_RPC_URL` (L1) and
+/// `OP_MAINNET_RPC_URL` (L2 Optimism mainnet) in the environment.
 #[tokio::test]
 #[ignore]
 async fn test_cannon_dispute_game_verification() {
@@ -147,17 +152,17 @@ async fn test_cannon_dispute_game_verification() {
 		.expect("OP_MAINNET_RPC_URL must be set to an Optimism mainnet RPC endpoint");
 
 	let event = DisputeGameCreated {
-		disputeProxy: Address::from_slice(&hex!("e6512d19e2bac97a2ed17e2cc1c5df96e29d3ea8")),
-		gameType: 0,
+		disputeProxy: Address::from_slice(&hex!("48ddb9bfe0e24828ff39406aeda9ce1a9107b80f")),
+		gameType: 8,
 		rootClaim: B256::from(hex!(
-			"76b0808a7d3244f52677f7fec036a25faad2fb80ee4d9504c5458775a7024ffa"
+			"1cbae15429a91277bfef6ab3578e7e72a9968741853d6b220c02676583436aa5"
 		)),
 	};
 	let factory_addr = H160::from(hex!("e5965ab5962edc7477c8520243a95517cd252fa9"));
 	let game_type_configs = vec![GameTypeConfig {
-		game_type: 0,
-		// Cannon implementation pinned in the migration module.
-		expected_impl: H160::from(hex!("6dDBa09bc4cCB0D6Ca9Fc5350580f74165707499")),
+		game_type: 8,
+		// Cannon implementation pinned for gameImpls[8] on the OP mainnet factory.
+		expected_impl: H160::from(hex!("2DDA3584b51eF5236f7726Dea5A0FB6B3cA94AeC")),
 		kind: DisputeGameImpl::FaultDisputeGame,
 	}];
 

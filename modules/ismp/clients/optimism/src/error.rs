@@ -34,11 +34,11 @@ pub enum Error {
 	/// A storage-trie leaf is longer than 32 bytes — not a valid uint256/address.
 	#[error("Storage value longer than 32 bytes")]
 	StorageValueTooLong,
-	/// The `FaultDisputeGame.claimData[0]` storage word couldn't be RLP-decoded.
-	#[error("Error decoding claimData[0] value {0}")]
+	/// The `FaultDisputeGame.claimData` length slot couldn't be RLP-decoded.
+	#[error("Error decoding claimData length value {0}")]
 	DecodeClaimData(String),
-	/// The `claimData[0]` storage word is longer than 32 bytes.
-	#[error("claimData[0] storage value longer than 32 bytes")]
+	/// The `claimData` length storage word is longer than 32 bytes.
+	#[error("claimData length storage value longer than 32 bytes")]
 	ClaimDataTooLong,
 	/// The `AggregateVerifier.counteredByIntermediateRootIndexPlusOne` storage value
 	/// couldn't be RLP-decoded.
@@ -84,11 +84,12 @@ pub enum Error {
 		/// The implementation address configured for this game type.
 		expected: H160,
 	},
-	/// The `FaultDisputeGame.claimData[0]` storage word wasn't present in the proxy storage proof.
-	#[error("claimData[0] slot not found in proxy storage")]
+	/// The `FaultDisputeGame.claimData` length slot wasn't present in the proxy storage proof.
+	#[error("claimData length slot not found in proxy storage")]
 	ClaimDataSlotMissing,
-	/// The `FaultDisputeGame.claimData[0].counteredBy` field is non-zero — the game is challenged.
-	#[error("FaultDisputeGame has been challenged: claimData[0].counteredBy != 0")]
+	/// The `FaultDisputeGame.claimData.length` is not `1` — a `move()` has appended a
+	/// counter-claim, so the game has been challenged.
+	#[error("FaultDisputeGame has been challenged: claimData.length != 1")]
 	FaultDisputeGameChallenged,
 	/// The `AggregateVerifier.counteredByIntermediateRootIndexPlusOne` value is non-zero — the
 	/// game is challenged.

@@ -496,4 +496,5 @@ export class FillerConfigService {
 	getMaxConsecutiveClamps(): number {
 		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
 	}
+
 }

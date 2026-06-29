@@ -1,4 +1,4 @@
-import { Order, ExecutionResult, IntentsCoprocessor } from "@hyperbridge/sdk"
+import { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
 import { Decimal } from "decimal.js"
 
 /** Supported token types for same-token execution */
@@ -26,4 +26,11 @@ export interface FillerStrategy {
 	confirmationPolicy?: {
 		getConfirmationBlocks: (chainId: number, amountUsd: number) => number
 	}
+
+	/**
+	 * Quote fill outputs for a phantom (expired same-chain) order.
+	 * Returns the token amounts the strategy would provide without gas estimation.
+	 * Returns null when the strategy cannot handle this token pair.
+	 */
+	quotePhantomFill?(order: Order): Promise<TokenInfo[] | null>
 }

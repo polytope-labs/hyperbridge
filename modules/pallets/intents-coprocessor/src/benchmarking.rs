@@ -25,7 +25,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::RawOrigin;
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use sp_runtime::traits::ConstU32;
 
@@ -182,6 +182,47 @@ mod benchmarks {
 
 		#[extrinsic_call]
 		_(origin as T::RuntimeOrigin, state_machine, updates);
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_phantom_order_config() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let config = types::PhantomOrderConfiguration {
+			chain: StateMachineId {
+				state_id: StateMachine::Evm(8453),
+				consensus_state_id: *b"ETH0",
+			},
+			token_pairs: vec![types::PhantomTokenPair {
+				token_a: H160::repeat_byte(0x01),
+				token_b: H160::repeat_byte(0x02),
+				standard_amount: 1_000_000_000_000_000_000u128,
+			}]
+			.try_into()
+			.expect("one pair fits in BoundedVec<_, 10>"),
+			interval_blocks: 10,
+		};
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, config);
+
+		assert!(PhantomOrderConfig::<T>::get().is_some());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_phantom_bid_window() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let window: u32 = 100;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, window);
+
+		// Verify the window was stored
+		assert_eq!(PhantomBidWindow::<T>::get(), window);
 
 		Ok(())
 	}

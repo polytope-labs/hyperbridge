@@ -41,6 +41,8 @@ pub trait WeightInfo {
 	fn update_params() -> Weight;
 	fn sweep_dust() -> Weight;
 	fn update_token_decimals() -> Weight;
+	fn set_phantom_order_config() -> Weight;
+	fn set_phantom_bid_window() -> Weight;
 	fn upgrade_gateway() -> Weight;
 }
 
@@ -107,6 +109,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
+	/// Storage: PhantomOrderConfig (r:0 w:1), CurrentPhantomOrder (r:0 w:1)
+	/// Proof Skipped: PhantomOrderConfig (max_values: Some(1), max_size: None, mode: Measured)
+	fn set_phantom_order_config() -> Weight {
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 1_024))
+			.saturating_add(T::DbWeight::get().writes(2))
+	}
+
+	/// Storage: PhantomBidWindow (r:0 w:1)
+	/// Proof Skipped: PhantomBidWindow (max_values: Some(1), max_size: Some(4), mode: Measured)
+	fn set_phantom_bid_window() -> Weight {
+		// Measured on reference hardware; re-run benchmarks after schema changes.
+		Weight::from_parts(10_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
 	/// Storage: Gateways (r:1 w:0)
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
@@ -138,6 +156,12 @@ impl WeightInfo for () {
 	}
 	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
+	}
+	fn set_phantom_order_config() -> Weight {
+		Weight::from_parts(20_000_000, 0)
+	}
+	fn set_phantom_bid_window() -> Weight {
+		Weight::from_parts(10_000_000, 0)
 	}
 	fn upgrade_gateway() -> Weight {
 		Weight::from_parts(70_000_000, 0)

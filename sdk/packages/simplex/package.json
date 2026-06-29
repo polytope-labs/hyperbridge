@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"license": "Apache-2.0",
 	"description": "IntentGateway simplex package for hyperbridge",
 	"main": "dist/index.js",
@@ -29,6 +29,9 @@
 		"test:fx-testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.testnet.test.ts",
 		"test:mpcvault": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=120000 src/tests/wallet/mpcvault.integration.test.ts",
 		"test:uniswapV4Price": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/funding/uniswapV4Price.test.ts",
+		"test:prices": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=120000 src/tests/price-submission.simnode.test.ts",
+		"test:phantom-e2e": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=120000 src/tests/phantom-e2e.simnode.test.ts",
+		"test:phantom-filler-e2e": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/phantom-filler.e2e.simnode.test.ts",
 		"test:watch": "pnpm run codegen && vitest",
 		"lint": "pnpm run codegen && biome lint src/bin src/config src/core src/services src/strategies src/tests src/index.ts",
 		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/config src/core src/services src/strategies src/tests src/index.ts",

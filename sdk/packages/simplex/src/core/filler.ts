@@ -8,6 +8,8 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
+	type PhantomOrderEvent,
+	orderCommitment,
 	bytes32ToBytes20,
 	type TokenInfo,
 } from "@hyperbridge/sdk"
@@ -41,6 +43,8 @@ export class IntentFiller {
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
+	private phantomUnsubscribe: (() => void) | null = null
+	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -187,6 +191,10 @@ export class IntentFiller {
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
 		}
+
+		if (this.hyperbridge) {
+			this.startPhantomBidding()
+		}
 	}
 
 	/**
@@ -272,6 +280,11 @@ export class IntentFiller {
 
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
+
+		if (this.phantomUnsubscribe) {
+			this.phantomUnsubscribe()
+			this.phantomUnsubscribe = null
+		}
 
 		// Stop rebalancing interval
 		if (this.rebalancingInterval) {
@@ -728,5 +741,85 @@ export class IntentFiller {
 				this.logger.error({ commitment, err: error }, "Error retracting bid")
 			}
 		})
+	}
+
+	private startPhantomBidding(): void {
+		if (!this.hyperbridge) return
+		this.hyperbridge
+			.then(async (coprocessor) => {
+				this.phantomUnsubscribe = await coprocessor.subscribePhantomOrders((event) => {
+					this.globalQueue.add(() => this.handlePhantomOrder(event, coprocessor))
+				})
+				this.logger.info("Phantom order subscription active")
+			})
+			.catch((err) => {
+				this.logger.error({ err }, "Failed to start phantom order subscription")
+			})
+	}
+
+	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
+		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${getChainId(event.chain) ?? event.chain}`)
+		if (!entryPointAddress) {
+			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
+			return
+		}
+
+		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage.
+		const phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
+		if (!phantomOrder) {
+			this.logger.warn(
+				{ commitment: event.commitment, chain: event.chain },
+				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
+			)
+			return
+		}
+
+		const strategy = this.strategies.find((s) => typeof s.quotePhantomFill === "function")
+		if (!strategy?.quotePhantomFill) {
+			this.logger.debug("No strategy supports quotePhantomFill, skipping phantom order")
+			return
+		}
+
+		let fillerOutputs: TokenInfo[] | null = null
+		try {
+			fillerOutputs = await strategy.quotePhantomFill(phantomOrder)
+		} catch (err) {
+			this.logger.warn({ err, commitment: phantomOrder.id, chain: event.chain }, "quotePhantomFill failed")
+			return
+		}
+
+		if (!fillerOutputs || fillerOutputs.length === 0) {
+			this.logger.debug({ chain: event.chain }, "Strategy declined phantom order")
+			return
+		}
+
+		const solverAccountAddress = this.signer.account.address as HexString
+
+		try {
+			const { userOp } = await this.contractService.preparePhantomBidUserOp(
+				phantomOrder,
+				entryPointAddress,
+				solverAccountAddress,
+				fillerOutputs,
+			)
+
+			// Use event.commitment directly — re-deriving it from the decoded order risks parity
+			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
+			// When a previous interval's bid is still live, retract it and place the new bid in one
+			// utility.batch so the old deposit is reclaimed even if the new bid fails.
+			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
+			const result =
+				prevCommitment && prevCommitment !== event.commitment
+					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
+					: await coprocessor.submitBid(event.commitment, userOp)
+			if (result.success) {
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
+				this.logger.info({ commitment: event.commitment, chain: event.chain }, "Phantom bid submitted")
+			} else {
+				this.logger.warn({ commitment: event.commitment, chain: event.chain, error: result.error }, "Phantom bid rejected")
+			}
+		} catch (err) {
+			this.logger.error({ err, chain: event.chain }, "Failed to prepare or submit phantom bid")
+		}
 	}
 }

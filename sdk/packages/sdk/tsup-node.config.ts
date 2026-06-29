@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-	entry: ["src/index.ts"],
+	entry: ["src/index.ts", "src/intents-helpers.ts"],
 	outDir: "dist/node",
 	format: ["esm", "cjs"],
 	dts: true,

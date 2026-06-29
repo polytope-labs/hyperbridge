@@ -73,6 +73,9 @@ importers:
       '@ethersproject/shims':
         specifier: ^5.7.0
         version: 5.8.0
+      '@hyperbridge/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@open-web3/orml-type-definitions':
         specifier: ^2.0.1
         version: 2.0.1

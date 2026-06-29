@@ -264,12 +264,7 @@ export class PostRequestClient {
 	 * accompanying timeout-proof calldata.
 	 */
 	async addTimeoutFinalityEvents(request: PostRequestWithStatus): Promise<PostRequestWithStatus> {
-		const destChain = this.ctx.config.dest
-		const hyperbridge = this.ctx.config.hyperbridge
 		const events: RequestStatusWithMetadata[] = []
-		const commitment = postRequestCommitment(request).commitment
-		const receipt = await destChain.queryRequestReceipt(commitment)
-		const destTimestamp = await destChain.timestamp()
 
 		const commit = (req: PostRequestWithStatus) => {
 			this.logger.trace(`Added ${events.length} timeout events`, events)
@@ -278,15 +273,26 @@ export class PostRequestClient {
 		}
 
 		if (request.timeoutTimestamp === 0n) return commit(request)
+		// Skip timeout inference once the request has reached a terminal status.
+		if (
+			request.statuses.some(
+				(item) => item.status === RequestStatus.DESTINATION || item.status === TimeoutStatus.TIMED_OUT,
+			)
+		)
+			return commit(request)
+
+		const destChain = this.ctx.config.dest
+		const hyperbridge = this.ctx.config.hyperbridge
+		const commitment = postRequestCommitment(request).commitment
+		const receipt = await destChain.queryRequestReceipt(commitment)
+		const destTimestamp = await destChain.timestamp()
+
 		if (receipt || request.timeoutTimestamp > destTimestamp) return commit(request)
 
-		const is_finished = request.statuses.find((item) => item.status === RequestStatus.DESTINATION)
-		if (!is_finished) {
-			events.push({
-				status: TimeoutStatus.PENDING_TIMEOUT,
-				metadata: { blockHash: "0x", blockNumber: 0, transactionHash: "0x" },
-			})
-		}
+		events.push({
+			status: TimeoutStatus.PENDING_TIMEOUT,
+			metadata: { blockHash: "0x", blockNumber: 0, transactionHash: "0x" },
+		})
 
 		const delivered = request.statuses.find((item) => item.status === RequestStatus.HYPERBRIDGE_DELIVERED)
 

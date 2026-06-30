@@ -778,9 +778,33 @@ export class IntentFiller {
 			return
 		}
 
-		const strategy = this.strategies.find((s) => typeof s.quotePhantomFill === "function")
-		if (!strategy?.quotePhantomFill) {
-			this.logger.debug("No strategy supports quotePhantomFill, skipping phantom order")
+		// Pick the strategy that actually handles this order's token pair — the same canFill matching
+		// used for regular orders — then require it to support phantom quoting. (Selecting the first
+		// strategy that merely has quotePhantomFill could pick one that doesn't handle this pair, e.g.
+		// the stable strategy quoting an FX pair.)
+		let strategy: FillerStrategy | undefined
+		for (const candidate of this.strategies) {
+			try {
+				if (await candidate.canFill(phantomOrder)) {
+					strategy = candidate
+					break
+				}
+			} catch (err) {
+				this.logger.error(
+					{ err, commitment: event.commitment, strategy: candidate.name },
+					"canFill check failed for phantom order",
+				)
+			}
+		}
+		if (!strategy) {
+			this.logger.debug({ chain: event.chain }, "No strategy handles the phantom order's token pair, skipping")
+			return
+		}
+		if (typeof strategy.quotePhantomFill !== "function") {
+			this.logger.debug(
+				{ chain: event.chain, strategy: strategy.name },
+				"Matched strategy does not support phantom quoting, skipping",
+			)
 			return
 		}
 

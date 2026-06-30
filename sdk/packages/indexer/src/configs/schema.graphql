@@ -2373,10 +2373,10 @@ type LiquidityProviderBalance @entity {
 	Provider balance for tokenAddress on `chain`,
 	including raw ERC-20 balance and redeemable ERC-4626 vault positions.
 	"""
-	balance: BigInt!
+	balance: BigInt! @index
 
 	"""
 	Timestamp of the Hyperbridge block at which this balance was recorded.
 	"""
-	snapshotTime: Date!
+	snapshotTime: Date! @index
 }

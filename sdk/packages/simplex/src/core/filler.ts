@@ -44,7 +44,11 @@ export class IntentFiller {
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
 	private phantomUnsubscribe: (() => void) | null = null
-	private lastPhantomCommitmentByChain = new Map<string, HexString>()
+	// Last phantom bid commitment per phantom-order series — keyed by chain + the directed token
+	// pair, NOT by chain alone. The pallet generates one phantom order per configured token pair, so
+	// several are live on the same chain at once; a new interval's bid must only retract the previous
+	// bid for the SAME pair, otherwise bidding on a second pair would retract the first pair's bid.
+	private lastPhantomCommitmentByPair = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -805,16 +809,21 @@ export class IntentFiller {
 
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity
 			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			// When a previous interval's bid is still live, retract it and place the new bid in one
-			// utility.batch so the old deposit is reclaimed even if the new bid fails.
-			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
+			// When a previous interval's bid for THIS pair is still live, retract it and place the new
+			// bid in one utility.batch so the old deposit is reclaimed even if the new bid fails. The
+			// key is per (chain, token pair) so bidding on one pair never retracts another pair's bid.
+			const pairKey = `${event.chain}:${event.tokenA.toLowerCase()}:${event.tokenB.toLowerCase()}`
+			const prevCommitment = this.lastPhantomCommitmentByPair.get(pairKey)
 			const result =
 				prevCommitment && prevCommitment !== event.commitment
 					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
 					: await coprocessor.submitBid(event.commitment, userOp)
 			if (result.success) {
-				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
-				this.logger.info({ commitment: event.commitment, chain: event.chain }, "Phantom bid submitted")
+				this.lastPhantomCommitmentByPair.set(pairKey, event.commitment)
+				this.logger.info(
+					{ commitment: event.commitment, chain: event.chain, tokenA: event.tokenA, tokenB: event.tokenB },
+					"Phantom bid submitted",
+				)
 			} else {
 				this.logger.warn({ commitment: event.commitment, chain: event.chain, error: result.error }, "Phantom bid rejected")
 			}

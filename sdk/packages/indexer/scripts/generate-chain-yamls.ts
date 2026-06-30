@@ -160,6 +160,14 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 		config,
 		endpoints,
 		blockNumber,
+		// Flattened (vault, underlyingToken) pairs so the template can emit one Deposit/Withdraw
+		// datasource per vault. The handler resolves underlyingToken from YIELD_VAULT_ADDRESSES.
+		yieldVaults:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
+						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
+					)
+				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [
 			{ handler: "handleStateMachineUpdatedEvent", topics: ["StateMachineUpdated(string,uint256)"] },

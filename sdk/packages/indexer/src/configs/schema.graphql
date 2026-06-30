@@ -2363,3 +2363,287 @@ type PhantomOrderLpBalance @entity {
 	"""
 	snapshotTime: Date!
 }
+
+"""
+Whether a yield-vault ledger entry records capital entering (Deposit) or leaving (Withdraw/redeem)
+an LP's position. ERC-4626 `redeem` emits the same `Withdraw` event as `withdraw`, so both are WITHDRAW.
+"""
+enum VaultLedgerEventType {
+	DEPOSIT
+	WITHDRAW
+}
+
+"""
+A single ERC-4626 Deposit or Withdraw event on a supported yield vault, recording an LP moving
+principal in or out. Both `withdraw` and `redeem` surface here as WITHDRAW (they share the
+`Withdraw` event). The running sum of these per LP is the principal tracked by VaultLpPosition;
+each row is the immutable audit trail behind that sum.
+"""
+type VaultLedgerEvent @entity @compositeIndexes(fields: [["chain", "vault"], ["vault", "lp"]]) {
+	"""
+	Composite identifier: {chain}-{transactionHash}-{logIndex}.
+	"""
+	id: ID!
+
+	"""
+	State machine ID of the chain (e.g. EVM-8453) the vault is deployed on.
+	"""
+	chain: String! @index
+
+	"""
+	EVM address of the ERC-4626 vault, lowercased 0x-prefixed hex.
+	"""
+	vault: String! @index
+
+	"""
+	EVM address of the vault's underlying asset (the token whose principal is tracked), lowercased hex.
+	"""
+	underlyingToken: String! @index
+
+	"""
+	EVM address of the LP whose position changed — the `owner` of the shares (Deposit.owner /
+	Withdraw.owner), not necessarily the caller. This is the address principal is attributed to.
+	"""
+	lp: String! @index
+
+	"""
+	EVM address that initiated the call (Deposit.sender / Withdraw.sender), for provenance.
+	"""
+	caller: String!
+
+	"""
+	For Withdraw events, the EVM address that received the withdrawn assets (Withdraw.receiver).
+	Equal to `lp` for a plain `redeem`/`withdraw`; null for Deposit events.
+	"""
+	receiver: String
+
+	"""
+	Whether this entry is a DEPOSIT or a WITHDRAW.
+	"""
+	eventType: VaultLedgerEventType! @index
+
+	"""
+	Amount of the underlying asset moved, in its smallest unit (assets field of the ERC-4626 event).
+	"""
+	assets: BigInt!
+
+	"""
+	Amount of vault shares minted (Deposit) or burned (Withdraw), in the share token's smallest unit.
+	"""
+	shares: BigInt!
+
+	"""
+	Block number the event was emitted in.
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Hash of the transaction the event was emitted in.
+	"""
+	transactionHash: String!
+
+	"""
+	Timestamp of the block the event was emitted in.
+	"""
+	timestamp: Date! @index
+}
+
+"""
+An LP's running position in a single yield vault, accumulated from VaultLedgerEvent rows. Tracks
+the cumulative principal an LP has deposited and withdrawn so net principal
+(totalAssetsDeposited - totalAssetsWithdrawn) can be compared against the live asset value of their
+shares to derive yield. Also serves as the registry of LPs the daily snapshot iterates over for a
+given (chain, vault).
+"""
+type VaultLpPosition @entity @compositeIndexes(fields: [["chain", "vault"]]) {
+	"""
+	Composite identifier: {chain}-{vault}-{lp}.
+	"""
+	id: ID!
+
+	"""
+	State machine ID of the chain (e.g. EVM-8453) the vault is deployed on.
+	"""
+	chain: String! @index
+
+	"""
+	EVM address of the ERC-4626 vault, lowercased 0x-prefixed hex.
+	"""
+	vault: String! @index
+
+	"""
+	EVM address of the vault's underlying asset, lowercased hex.
+	"""
+	underlyingToken: String! @index
+
+	"""
+	EVM address of the LP this position belongs to (the share owner), lowercased hex.
+	"""
+	lp: String! @index
+
+	"""
+	Net vault shares the LP holds as accounted from Deposit (minted) minus Withdraw (burned) events.
+	Informational only — the daily snapshot reads the authoritative balance via `balanceOf` so this
+	can drift if shares are transferred LP-to-LP (vault ERC-20 transfers are not indexed).
+	"""
+	shares: BigInt!
+
+	"""
+	Cumulative underlying assets the LP has ever deposited, smallest unit. Monotonically increasing.
+	"""
+	totalAssetsDeposited: BigInt!
+
+	"""
+	Cumulative underlying assets the LP has ever withdrawn/redeemed, smallest unit. Monotonically increasing.
+	Net principal currently at risk is totalAssetsDeposited - totalAssetsWithdrawn.
+	"""
+	totalAssetsWithdrawn: BigInt!
+
+	"""
+	Number of Deposit events recorded for this LP on this vault.
+	"""
+	depositCount: Int!
+
+	"""
+	Number of Withdraw events recorded for this LP on this vault.
+	"""
+	withdrawCount: Int!
+
+	"""
+	Timestamp of the first ledger event that created this position.
+	"""
+	createdAt: Date! @index
+
+	"""
+	Timestamp of the most recent ledger event applied to this position.
+	"""
+	lastUpdatedAt: Date! @index
+}
+
+"""
+A daily snapshot of one LP's position in one vault: the live asset value of their shares
+(`convertToAssets(balanceOf(lp))`) measured via RPC, alongside their net principal, so yield earned
+(assetValue - netPrincipal) can be visualized as a time series. Written at most once per UTC day per
+(chain, vault, lp); the BlockHandler that produces it dedupes on the day bucket.
+"""
+type VaultPositionSnapshot @entity @compositeIndexes(fields: [["chain", "vault"], ["vault", "lp"]]) {
+	"""
+	Composite identifier: {chain}-{vault}-{lp}-{dayStartTimestamp}, where dayStartTimestamp is the
+	UNIX timestamp (seconds) of 00:00 UTC for the snapshot's day.
+	"""
+	id: ID!
+
+	"""
+	State machine ID of the chain (e.g. EVM-8453) the vault is deployed on.
+	"""
+	chain: String! @index
+
+	"""
+	EVM address of the ERC-4626 vault, lowercased 0x-prefixed hex.
+	"""
+	vault: String! @index
+
+	"""
+	EVM address of the vault's underlying asset, lowercased hex.
+	"""
+	underlyingToken: String! @index
+
+	"""
+	EVM address of the LP this snapshot is for, lowercased hex.
+	"""
+	lp: String! @index
+
+	"""
+	UNIX timestamp (seconds) of 00:00 UTC for the day this snapshot represents. One snapshot per day bucket.
+	"""
+	dayStartTimestamp: BigInt! @index
+
+	"""
+	The LP's live vault share balance at snapshot time, read via `balanceOf`. Smallest unit of the share token.
+	"""
+	shares: BigInt!
+
+	"""
+	Underlying-asset value of `shares` at snapshot time, read via `convertToAssets(shares)`. Smallest unit.
+	"""
+	assetValue: BigInt!
+
+	"""
+	The LP's net principal at snapshot time (totalAssetsDeposited - totalAssetsWithdrawn from VaultLpPosition).
+	"""
+	netPrincipal: BigInt!
+
+	"""
+	Yield earned on the position so far: assetValue - netPrincipal. May be negative if the vault lost value.
+	"""
+	yieldEarned: BigInt! @index
+
+	"""
+	Block number the snapshot reads were taken against.
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block the snapshot was taken at.
+	"""
+	snapshotTime: Date! @index
+}
+
+"""
+A daily vault-level snapshot: total assets, total shares, and the resulting price per share for a
+supported vault. Complements the per-LP VaultPositionSnapshot — lets aggregate vault yield be charted
+and the sum of LP positions sanity-checked. Written at most once per UTC day per (chain, vault).
+"""
+type VaultSnapshot @entity @compositeIndexes(fields: [["chain", "vault"]]) {
+	"""
+	Composite identifier: {chain}-{vault}-{dayStartTimestamp} (dayStartTimestamp is 00:00 UTC, seconds).
+	"""
+	id: ID!
+
+	"""
+	State machine ID of the chain (e.g. EVM-8453) the vault is deployed on.
+	"""
+	chain: String! @index
+
+	"""
+	EVM address of the ERC-4626 vault, lowercased 0x-prefixed hex.
+	"""
+	vault: String! @index
+
+	"""
+	EVM address of the vault's underlying asset, lowercased hex.
+	"""
+	underlyingToken: String! @index
+
+	"""
+	UNIX timestamp (seconds) of 00:00 UTC for the day this snapshot represents.
+	"""
+	dayStartTimestamp: BigInt! @index
+
+	"""
+	Total underlying assets backing the vault at snapshot time, read via `totalAssets()`. Smallest unit.
+	Note: for vest-based vaults this is net of any not-yet-vested yield, matching the value LPs can redeem.
+	"""
+	totalAssets: BigInt!
+
+	"""
+	Total vault shares outstanding at snapshot time, read via `totalSupply()`. Smallest unit of the share token.
+	"""
+	totalShares: BigInt!
+
+	"""
+	Assets redeemable for a single whole share (10^shareDecimals), read via `convertToAssets`. Smallest unit
+	of the underlying. A normalized price-per-share independent of totalShares for charting the exchange rate.
+	"""
+	assetsPerShare: BigInt!
+
+	"""
+	Block number the snapshot reads were taken against.
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block the snapshot was taken at.
+	"""
+	snapshotTime: Date! @index
+}

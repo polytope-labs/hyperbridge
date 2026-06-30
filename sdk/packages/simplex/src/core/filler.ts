@@ -44,11 +44,6 @@ export class IntentFiller {
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
 	private phantomUnsubscribe: (() => void) | null = null
-	// Serialises phantom bid submissions to Hyperbridge. Each bid is a separate signAndSend on the
-	// same substrate account, and the pallet emits several phantom orders per interval (one per token
-	// pair). Submitted in parallel they collide on the account nonce (the API's auto-nonce hands the
-	// concurrent calls the same value), so all but one fail. Concurrency 1 sequences the nonces.
-	private phantomBidQueue: pQueue
 	// Last phantom bid commitment per phantom-order series — keyed by chain + the directed token
 	// pair, NOT by chain alone. The pallet generates one phantom order per configured token pair, so
 	// several are live on the same chain at once; a new interval's bid must only retract the previous
@@ -94,7 +89,6 @@ export class IntentFiller {
 		})
 
 		this.retractionQueue = new pQueue({ concurrency: 1 })
-		this.phantomBidQueue = new pQueue({ concurrency: 1 })
 
 		const hyperbridgeWsUrl = configService.getHyperbridgeWsUrl()
 		const substrateKey = configService.getSubstratePrivateKey()
@@ -316,7 +310,6 @@ export class IntentFiller {
 		})
 		promises.push(this.globalQueue.onIdle())
 		promises.push(this.retractionQueue.onIdle())
-		promises.push(this.phantomBidQueue.onIdle())
 
 		await Promise.all(promises)
 
@@ -819,16 +812,15 @@ export class IntentFiller {
 			// When a previous interval's bid for THIS pair is still live, retract it and place the new
 			// bid in one utility.batch so the old deposit is reclaimed even if the new bid fails. The
 			// key is per (chain, token pair) so bidding on one pair never retracts another pair's bid.
+			// Submissions are serialised inside IntentsCoprocessor (a single nonce-ordered queue), so a
+			// new interval's bid can go out directly even when several pairs register in one block.
 			const pairKey = `${event.chain}:${event.tokenA.toLowerCase()}:${event.tokenB.toLowerCase()}`
 			const prevCommitment = this.lastPhantomCommitmentByPair.get(pairKey)
-			// Serialise the submission: concurrent signAndSend on the same account would reuse the
-			// account nonce (see phantomBidQueue), so multiple pairs' bids must go out one at a time.
-			const result = await this.phantomBidQueue.add(() =>
+			const result =
 				prevCommitment && prevCommitment !== event.commitment
-					? coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
-					: coprocessor.submitBid(event.commitment, userOp),
-			)
-			if (result?.success) {
+					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
+					: await coprocessor.submitBid(event.commitment, userOp)
+			if (result.success) {
 				this.lastPhantomCommitmentByPair.set(pairKey, event.commitment)
 				this.logger.info(
 					{ commitment: event.commitment, chain: event.chain, tokenA: event.tokenA, tokenB: event.tokenB },
@@ -836,7 +828,7 @@ export class IntentFiller {
 				)
 			} else {
 				this.logger.warn(
-					{ commitment: event.commitment, chain: event.chain, error: result?.error },
+					{ commitment: event.commitment, chain: event.chain, error: result.error },
 					"Phantom bid rejected",
 				)
 			}

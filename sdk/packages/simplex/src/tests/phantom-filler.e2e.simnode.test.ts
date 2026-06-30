@@ -115,15 +115,12 @@ async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
 }
-// All active phantom commitments (CurrentPhantomOrder is a BoundedVec<H256>, one per pair).
+// All active phantom commitments. CurrentPhantomOrder is a BoundedVec<(H256, PhantomOrderInfo)>
+// (commitment + created_at + chain), so toJSON gives [[commitment, info], ...]; take each commitment.
 async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
-	const raw: any = await api.rpc.state.getStorage(api.query.intentsCoprocessor.currentPhantomOrder.key())
-	const hex: string | undefined = raw?.toHex()
-	if (!hex || hex.length < 68) return []
-	const body = hex.slice(4) // drop 0x + the 1-byte compact vec length (a handful of entries here)
-	const commitments: HexString[] = []
-	for (let i = 0; i + 64 <= body.length; i += 64) commitments.push(`0x${body.slice(i, i + 64)}` as HexString)
-	return commitments
+	const active = await api.query.intentsCoprocessor.currentPhantomOrder()
+	const entries = active.toJSON() as Array<[HexString, unknown]> | null
+	return Array.isArray(entries) ? entries.map((entry) => entry[0]) : []
 }
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────

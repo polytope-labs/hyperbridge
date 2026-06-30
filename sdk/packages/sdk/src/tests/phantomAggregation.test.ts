@@ -1,32 +1,12 @@
 import { encodeFunctionData } from "viem"
 import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
-import {
-	buildSimulationOrder,
-	erc20AllowanceSlot,
-	erc20BalanceSlot,
-	extractFillData,
-	FILL_ORDER_ABI,
-	hasTokenSlotOverride,
-	ordersStorageSlot,
-	SIM_DEADLINE,
-	tokenSlots,
-	weightedMedian,
-	type HexString,
-	type TokenSlotOverrides,
-} from "@/protocols/intents/phantom-aggregation"
+import { extractFillData, weightedMedian, FILL_ORDER_ABI, type HexString } from "@/protocols/intents/phantom-aggregation"
 
 const GATEWAY = "0x2d61624A17f361020679FaA16fbB566C344AaF4B"
-const SOLVER = "0x1111111111111111111111111111111111111111"
-const SOLVER_PADDED = "0x0000000000000000000000001111111111111111111111111111111111111111"
 // USDC and USDT addresses left-padded to bytes32, as they appear in an order's token fields.
 const USDC_BYTES32 = "0x000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" as HexString
 const USDT_BYTES32 = "0x000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7" as HexString
 const SOLVER_AMOUNT = 1_000_000n
-
-// Stand-in for the indexer's generated TOKEN_SLOT_OVERRIDES — USDC at balance slot 9, allowed 10.
-const TOKEN_SLOTS: TokenSlotOverrides = {
-	"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { balanceSlot: 9n, allowanceSlot: 10n },
-}
 
 // A phantom order as it arrives in a bid: zero output amount (the solver's real quote lives in the
 // FillOptions outputs), distinct source and destination.
@@ -87,114 +67,6 @@ describe("extractFillData", () => {
 
 	it("returns null for calldata that is not an ERC-7821 batch", () => {
 		expect(extractFillData("0xdeadbeef", GATEWAY)).toBeNull()
-	})
-})
-
-describe("buildSimulationOrder", () => {
-	it("points the output at the solver for solverAmount so the fill is not a no-op", () => {
-		const order = phantomOrder()
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const modified = buildSimulationOrder(order, SOLVER, SOLVER_AMOUNT) as any
-
-		// Regression guard: a zero output amount makes _fillSameChain skip the transfer entirely.
-		expect(modified.output.assets[0].amount).toBe(SOLVER_AMOUNT)
-		expect(modified.output.beneficiary.toLowerCase()).toBe(SOLVER_PADDED.toLowerCase())
-	})
-
-	it("leaves session as a decoded address string rather than a bigint", () => {
-		const order = phantomOrder()
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const modified = buildSimulationOrder(order, SOLVER, SOLVER_AMOUNT) as any
-
-		// Regression guard: assigning 0n here throws in viem's encoder and kills every simulation.
-		expect(typeof modified.session).toBe("string")
-		expect(modified.session).toBe(order.session)
-	})
-
-	it("matches source to destination and sets the simulation deadline", () => {
-		const order = phantomOrder()
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const modified = buildSimulationOrder(order, SOLVER, SOLVER_AMOUNT) as any
-
-		expect(modified.source).toBe(order.destination)
-		expect(modified.deadline).toBe(SIM_DEADLINE)
-	})
-
-	it("preserves the other order fields", () => {
-		const order = phantomOrder()
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const modified = buildSimulationOrder(order, SOLVER, SOLVER_AMOUNT) as any
-
-		expect(modified.nonce).toBe(order.nonce)
-		expect(modified.user).toBe(order.user)
-		expect(modified.inputs).toEqual(order.inputs)
-	})
-
-	it("produces an order viem can encode (so the simulation call can be built)", () => {
-		const modified = buildSimulationOrder(phantomOrder(), SOLVER, SOLVER_AMOUNT)
-		expect(() =>
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(encodeFunctionData as any)({
-				abi: FILL_ORDER_ABI,
-				functionName: "fillOrder",
-				args: [modified, fillOptions()],
-			}),
-		).not.toThrow()
-	})
-})
-
-describe("tokenSlots", () => {
-	it("returns the configured override for a known token", () => {
-		// USDC (Circle FiatToken) lives at balance slot 9, allowance slot 10.
-		expect(tokenSlots("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", TOKEN_SLOTS)).toEqual({
-			balanceSlot: 9n,
-			allowanceSlot: 10n,
-		})
-	})
-
-	it("is case-insensitive on the token address", () => {
-		expect(tokenSlots("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48", TOKEN_SLOTS)).toEqual({
-			balanceSlot: 9n,
-			allowanceSlot: 10n,
-		})
-	})
-
-	it("falls back to the OZ default for an unknown token", () => {
-		expect(tokenSlots("0x000000000000000000000000000000000000dead", TOKEN_SLOTS)).toEqual({
-			balanceSlot: 0n,
-			allowanceSlot: 1n,
-		})
-	})
-})
-
-describe("hasTokenSlotOverride", () => {
-	it("is true for a configured token and false for an unknown one", () => {
-		expect(hasTokenSlotOverride("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", TOKEN_SLOTS)).toBe(true)
-		expect(hasTokenSlotOverride("0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48", TOKEN_SLOTS)).toBe(true)
-		expect(hasTokenSlotOverride("0x000000000000000000000000000000000000dead", TOKEN_SLOTS)).toBe(false)
-	})
-})
-
-describe("storage slot helpers", () => {
-	it("derive deterministic 32-byte slots that differ between balance and allowance layouts", () => {
-		const balance = erc20BalanceSlot(SOLVER as HexString, 9n)
-		const allowance = erc20AllowanceSlot(SOLVER as HexString, GATEWAY as HexString, 10n)
-		const orders = ordersStorageSlot(`0x${"ab".repeat(32)}`, USDC_BYTES32)
-
-		for (const slot of [balance, allowance, orders]) {
-			expect(slot).toMatch(/^0x[0-9a-f]{64}$/)
-		}
-		expect(balance).not.toBe(allowance)
-		// Same inputs always hash to the same slot.
-		expect(erc20BalanceSlot(SOLVER as HexString, 9n)).toBe(balance)
-	})
-
-	it("ordersStorageSlot normalises a 20-byte address and its 32-byte form to the same slot", () => {
-		const commitment = `0x${"ab".repeat(32)}` as HexString
-		const usdc20 = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" as HexString
-		// The inner mapping is keyed by `address` (left-padded to 32 bytes), so the 20-byte address
-		// and its 32-byte token-field form must derive the identical escrow slot.
-		expect(ordersStorageSlot(commitment, usdc20)).toBe(ordersStorageSlot(commitment, USDC_BYTES32))
 	})
 })
 

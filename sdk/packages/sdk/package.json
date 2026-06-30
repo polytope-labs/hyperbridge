@@ -85,6 +85,7 @@
 		"graphql-request": "^7.1.2",
 		"idb-keyval": "^6.2.2",
 		"lodash-es": "^4.17.15",
+		"p-queue": "^8.1.0",
 		"rpc-websocket-client": "^1.1.4",
 		"scale-ts": "^1.6.1",
 		"std-env": "^3.9.0",

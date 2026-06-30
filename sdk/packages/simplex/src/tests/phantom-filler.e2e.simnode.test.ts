@@ -42,7 +42,6 @@ import {
 	fetchBidsForOrder,
 	decodeUserOpScale,
 	extractFillData,
-	type TokenSlotOverrides,
 } from "@hyperbridge/sdk/intents-helpers"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
@@ -102,6 +101,26 @@ async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | 
 	const hex: string | undefined = raw?.toHex()
 	if (!hex || hex === "0x" || hex.length < 68) return null
 	return `0x${hex.slice(4, 68)}` as HexString
+}
+// Configures two pairs on the same chain (USDC→cNGN and cNGN→USDC) so the pallet generates two
+// phantom orders per interval — exercises the filler bidding on multiple phantom orders at once.
+async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
+	const config = {
+		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
+		token_pairs: [
+			{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT },
+			{ token_a: CNGN_BASE, token_b: USDC_BASE, standard_amount: STANDARD_AMOUNT },
+		],
+		interval_blocks: 10,
+	}
+	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
+}
+// All active phantom commitments. CurrentPhantomOrder is a BoundedVec<(H256, PhantomOrderInfo)>
+// (commitment + created_at + chain), so toJSON gives [[commitment, info], ...]; take each commitment.
+async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
+	const active = await api.query.intentsCoprocessor.currentPhantomOrder()
+	const entries = active.toJSON() as Array<[HexString, unknown]> | null
+	return Array.isArray(entries) ? entries.map((entry) => entry[0]) : []
 }
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
@@ -183,13 +202,6 @@ async function buildPhantomFiller(opts: {
 	}
 }
 
-// Minimal slot map for the two tokens this test touches (Base USDC + cNGN), in place of the
-// indexer's generated TOKEN_SLOT_OVERRIDES.
-const TEST_TOKEN_SLOTS: TokenSlotOverrides = {
-	[USDC_BASE.toLowerCase()]: { balanceSlot: 9n, allowanceSlot: 10n },
-	[CNGN_BASE.toLowerCase()]: { balanceSlot: 201n, allowanceSlot: 202n },
-}
-
 // ─── test ───────────────────────────────────────────────────────────────────────────────────────
 
 describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)", () => {
@@ -263,17 +275,14 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
 		}
 
-		// Aggregation half: the indexer's logic (shared from the SDK) simulates each fill against the
-		// forked Base, measures cNGN liquidity, and reduces the quotes to a snapshot.
+		// Aggregation half: the SDK's aggregatePhantomBids (same code the indexer runs) measures each
+		// solver's cNGN liquidity against the forked Base and reduces the quotes to a weighted snapshot.
 		const result = await aggregatePhantomBids({
 			nodeUrl,
 			evmRpcUrls: { [BASE_STATE_MACHINE]: ANVIL_URL },
 			chain: BASE_STATE_MACHINE,
 			gatewayAddress: gateway,
 			commitment,
-			inputToken: USDC_BASE,
-			standardAmount: STANDARD_AMOUNT,
-			tokenSlotOverrides: TEST_TOKEN_SLOTS,
 			// Liquidity is swept per configured token per chain. cNGN with no vaults => raw balance
 			// only (the funded amount); proves balances come from the config sweep, not the bid output.
 			yieldVaults: { [BASE_STATE_MACHINE]: { [CNGN_BASE.toLowerCase()]: [] } },
@@ -301,6 +310,31 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			expect(lp.chain).toBe(BASE_STATE_MACHINE)
 			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
 			expect(lp.balance).toBeGreaterThan(0n)
+		}
+	}, 180_000)
+
+	it("submits and keeps a bid for every phantom order pair (no cross-pair retraction)", async () => {
+		// Two pairs on the same chain (USDC→cNGN and cNGN→USDC) => two phantom orders per interval.
+		await setBothPhantomPairs(api)
+		await createBlock(api)
+
+		const commitments = await getActivePhantomCommitments(api)
+		expect(commitments.length).toBe(2)
+
+		// Let the fillers quote + submit bids for BOTH pairs, then seal the blocks carrying their bids.
+		await new Promise((r) => setTimeout(r, 6_000))
+		await createBlock(api)
+		await new Promise((r) => setTimeout(r, 2_000))
+		await createBlock(api)
+
+		// Regression guard for the per-chain retraction bug: the filler tracked its last phantom bid
+		// per chain, so bidding on the second pair retracted the first pair's bid via
+		// submitBidWithRetraction — leaving one pair with no live bids. Keyed by (chain, token pair),
+		// every pair keeps a full set of bids.
+		for (const commitment of commitments) {
+			const bids = await driver.getBidsForOrder(commitment)
+			console.log(`[phantom-multi] ${bids.length} bids for ${commitment}`)
+			expect(bids.length).toBe(FILLERS.length)
 		}
 	}, 180_000)
 })

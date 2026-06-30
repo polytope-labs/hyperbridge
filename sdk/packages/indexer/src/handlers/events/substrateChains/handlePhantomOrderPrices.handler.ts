@@ -6,10 +6,20 @@ import { timestampToDate } from "@/utils/date.helpers"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
-import { TOKEN_SLOT_OVERRIDES } from "@/token-slot-overrides"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
-import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
-import { aggregatePhantomBids, type HexString } from "@hyperbridge/sdk/intents-helpers"
+import {
+	LiquidityProvider,
+	LiquidityProviderBalance,
+	PhantomOrder,
+	PhantomOrderPriceSnapshot,
+} from "@/configs/src/types"
+import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
+import { safeFetch } from "@/utils/safeFetch"
+import { extractFillDataVm2 } from "@/utils/phantom-decode"
+
+// The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
+// Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
+setAggregationFetch(safeFetch)
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
 // already in. Aggregates that single order's bids into one price snapshot. The heavy lifting lives in
@@ -59,14 +69,14 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			chain: phantom.chain,
 			gatewayAddress,
 			commitment,
-			inputToken: phantom.tokenA as HexString,
-			standardAmount: phantom.standardAmount,
-			tokenSlotOverrides: TOKEN_SLOT_OVERRIDES,
 			yieldVaults: YIELD_VAULT_ADDRESSES,
+			// viem's keccak throws in the VM2 sandbox; inject the indexer's ethers-based decoder.
+			extractFill: extractFillDataVm2,
 			logger,
 		})
 	} catch (err) {
-		logger.warn({ err, commitment }, "Phantom bid aggregation failed")
+		const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+		logger.warn({ err, commitment }, `Phantom bid aggregation failed: ${msg}`)
 		return
 	}
 	if (!aggregate) return
@@ -75,14 +85,19 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const snapshotTime = timestampToDate(blockTimestamp)
 
 	for (const lp of aggregate.lpBalances) {
-		// One row per solver per (chain, token) per snapshot so liquidity history is preserved and
+		// Group balances under a LiquidityProvider keyed by solver address so they can be read as a
+		// nested array. Upsert the provider (one per solver) before linking its balances.
+		if (!(await LiquidityProvider.get(lp.solver))) {
+			await LiquidityProvider.create({ id: lp.solver }).save()
+		}
+		// One row per provider per (chain, token) per snapshot so liquidity history is preserved and
 		// each balance is attributable to the snapshot whose weighted median it fed.
-		await PhantomOrderLpBalance.create({
+		await LiquidityProviderBalance.create({
 			id: `${lp.chain}-${lp.tokenAddress}-${commitment}-${blockNumber}-${lp.solver}`,
+			providerId: lp.solver,
 			chain: lp.chain,
 			commitment,
 			blockNumber,
-			solver: lp.solver,
 			tokenAddress: lp.tokenAddress,
 			balance: lp.balance,
 			snapshotTime,

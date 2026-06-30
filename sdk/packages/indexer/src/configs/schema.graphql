@@ -2311,21 +2311,43 @@ type PhantomOrderPriceSnapshot @entity {
 }
 
 """
-Per-solver, per-chain, per-token liquidity balance recorded at a phantom order price snapshot.
-For every valid bidder whose fill simulation passes, the solver's liquidity is swept across every
-configured yield-vault token on every supported chain — so one entity is written per (solver, chain,
-token) the solver actually holds (zero balances are skipped). Each balance is a single token measured
-as raw ERC-20 plus redeemable ERC-4626 vault positions; balances of different tokens are never
-combined into one value.
+A liquidity provider (solver) that bids on phantom orders. Groups all of its measured liquidity
+balances so they can be read as a nested array off a single solver address.
 """
-type PhantomOrderLpBalance @entity {
+type LiquidityProvider @entity {
 	"""
-	Composite identifier: {chain}-{tokenAddress}-{commitment}-{blockNumber}-{solverAddress}. One row
-	per solver per (chain, token) per snapshot, so liquidity is a time series (keyed to the snapshot
-	whose weighted median it fed) rather than a single overwritten latest value. For a solver's
-	current liquidity, take the row with the greatest blockNumber for that (solver, chain, tokenAddress).
+	EVM address of the solver / liquidity provider.
 	"""
 	id: ID!
+
+	"""
+	Every per-chain, per-token liquidity balance measured for this provider across phantom order price
+	snapshots.
+	"""
+	balances: [LiquidityProviderBalance] @derivedFrom(field: "provider")
+}
+
+"""
+Per-provider, per-chain, per-token liquidity balance recorded at a phantom order price snapshot.
+For every valid bidder, the provider's liquidity is swept across every configured yield-vault token
+on every supported chain — so one entity is written per (provider, chain, token) the provider
+actually holds (zero balances are skipped). Each balance is a single token measured as raw ERC-20
+plus redeemable ERC-4626 vault positions; balances of different tokens are never combined into one
+value.
+"""
+type LiquidityProviderBalance @entity {
+	"""
+	Composite identifier: {chain}-{tokenAddress}-{commitment}-{blockNumber}-{providerAddress}. One row
+	per provider per (chain, token) per snapshot, so liquidity is a time series (keyed to the snapshot
+	whose weighted median it fed) rather than a single overwritten latest value. For a provider's
+	current liquidity, take the row with the greatest blockNumber for that (provider, chain, tokenAddress).
+	"""
+	id: ID!
+
+	"""
+	The liquidity provider (solver) this balance belongs to.
+	"""
+	provider: LiquidityProvider!
 
 	"""
 	State machine ID of the chain (e.g. EVM-8453) where this balance was measured.
@@ -2343,25 +2365,20 @@ type PhantomOrderLpBalance @entity {
 	blockNumber: BigInt! @index
 
 	"""
-	EVM address of the solver whose balance is recorded.
-	"""
-	solver: String! @index
-
-	"""
 	EVM address of the configured token this balance is measured in.
 	"""
 	tokenAddress: String! @index
 
 	"""
-	Solver balance for tokenAddress on `chain`,
+	Provider balance for tokenAddress on `chain`,
 	including raw ERC-20 balance and redeemable ERC-4626 vault positions.
 	"""
-	balance: BigInt!
+	balance: BigInt! @index
 
 	"""
 	Timestamp of the Hyperbridge block at which this balance was recorded.
 	"""
-	snapshotTime: Date!
+	snapshotTime: Date! @index
 }
 
 """

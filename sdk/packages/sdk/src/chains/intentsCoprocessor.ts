@@ -5,6 +5,7 @@ import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
+import PQueue from "p-queue"
 import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, Order } from "@/types"
 import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
@@ -104,6 +105,12 @@ export class IntentsCoprocessor {
 	/** Cached result of whether the node exposes intents_* RPC methods */
 	private hasIntentsRpc: boolean | null = null
 
+	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
+	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
+	// (bids for orders on different chains, or several phantom orders in one interval) they would grab
+	// the same nonce and all but one would fail. Concurrency 1 sequences them.
+	private submissionQueue = new PQueue({ concurrency: 1 })
+
 	/**
 	 * Creates and connects an IntentsCoprocessor to a Hyperbridge node.
 	 * This creates and manages its own API connection.
@@ -190,13 +197,27 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Signs and sends an extrinsic, handling status updates and errors
-	 * Implements retry logic with progressive tip increases for stuck transactions
+	 * Signs and sends an extrinsic. Submissions are serialised through {@link submissionQueue} so
+	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
+	 * before the next is signed.
 	 */
 	private async signAndSendExtrinsic(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
+	): Promise<BidSubmissionResult> {
+		const result = await this.submissionQueue.add(() => this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs))
+		return result ?? { success: false, error: "Submission queue returned no result" }
+	}
+
+	/**
+	 * Signs and sends an extrinsic, handling status updates and errors.
+	 * Implements retry logic with progressive tip increases for stuck transactions.
+	 */
+	private async sendExtrinsicWithRetries(
+		extrinsic: SubmittableExtrinsic<"promise">,
+		maxRetries: number,
+		timeoutMs: number,
 	): Promise<BidSubmissionResult> {
 		const keyPair = this.getKeyPair()
 		let baseTip = 500_000_000_000n // 0.5 BRIDGE tip to increase priority

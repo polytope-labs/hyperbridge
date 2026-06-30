@@ -7,7 +7,12 @@ import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
-import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
+import {
+	LiquidityProvider,
+	LiquidityProviderBalance,
+	PhantomOrder,
+	PhantomOrderPriceSnapshot,
+} from "@/configs/src/types"
 import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
 import { extractFillDataVm2 } from "@/utils/phantom-decode"
@@ -80,14 +85,19 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const snapshotTime = timestampToDate(blockTimestamp)
 
 	for (const lp of aggregate.lpBalances) {
-		// One row per solver per (chain, token) per snapshot so liquidity history is preserved and
+		// Group balances under a LiquidityProvider keyed by solver address so they can be read as a
+		// nested array. Upsert the provider (one per solver) before linking its balances.
+		if (!(await LiquidityProvider.get(lp.solver))) {
+			await LiquidityProvider.create({ id: lp.solver }).save()
+		}
+		// One row per provider per (chain, token) per snapshot so liquidity history is preserved and
 		// each balance is attributable to the snapshot whose weighted median it fed.
-		await PhantomOrderLpBalance.create({
+		await LiquidityProviderBalance.create({
 			id: `${lp.chain}-${lp.tokenAddress}-${commitment}-${blockNumber}-${lp.solver}`,
+			providerId: lp.solver,
 			chain: lp.chain,
 			commitment,
 			blockNumber,
-			solver: lp.solver,
 			tokenAddress: lp.tokenAddress,
 			balance: lp.balance,
 			snapshotTime,

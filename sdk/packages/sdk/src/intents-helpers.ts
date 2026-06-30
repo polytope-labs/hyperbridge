@@ -4,11 +4,10 @@ export { decodeERC7821ExecuteBatch, encodeERC7821ExecuteBatch } from "@/protocol
 export { decodeUserOpScale, encodeUserOpScale } from "@/chains/intentsCoprocessor"
 export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
 export {
+	aggregatePhantomBids,
 	extractFillData,
 	fetchBidsForOrder,
-	getTotalSolverBalance,
 	setAggregationFetch,
-	sweepSolverLiquidity,
 	weightedMedian,
 	FILL_ORDER_ABI,
 	type AggregationLogger,

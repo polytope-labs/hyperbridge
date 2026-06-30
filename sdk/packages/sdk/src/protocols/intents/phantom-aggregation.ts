@@ -1,9 +1,11 @@
-// Building blocks for phantom-order price/liquidity aggregation: fetching a window's bids, decoding
-// a bid's quoted output, measuring a solver's redeemable liquidity, and the liquidity-weighted
-// median. The orchestration that composes these lives in the indexer (the only consumer), which is
-// also why bid decoding is injectable there — see the indexer's phantom-aggregation/phantom-decode.
+// Phantom-order price/liquidity aggregation. Lives in the SDK so the indexer (which persists the
+// result as entities) and the simplex E2E test share one implementation. Bid decoding is injectable
+// (extractFill) because the indexer must decode without viem — viem's @noble/hashes keccak throws
+// "Uint8Array expected" in the SubQuery VM2 sandbox — so it passes a VM2-safe decoder; the default
+// is the viem-based extractFillData, fine for Node consumers (tests, simplex).
 import { decodeFunctionData } from "viem"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
+import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 
 export type HexString = `0x${string}`
@@ -168,7 +170,7 @@ async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise
 
 // Sums the solver's redeemable balance of a single token on its destination chain: the raw ERC-20
 // balance plus any ERC-4626 vault positions wrapping it.
-export async function getTotalSolverBalance(
+async function getTotalSolverBalance(
 	evmRpcUrl: string,
 	chain: string,
 	token: string,
@@ -189,7 +191,7 @@ export async function getTotalSolverBalance(
 // solver's balance (raw ERC-20 + ERC-4626 vault positions) for each token. Captures the LP's whole
 // liquidity picture, not just the token of the bid being priced. Zero balances are skipped so the
 // snapshot only records tokens the solver actually holds.
-export async function sweepSolverLiquidity(
+async function sweepSolverLiquidity(
 	evmRpcUrls: Record<string, string>,
 	yieldVaults: YieldVaultMap,
 	solver: string,
@@ -205,5 +207,83 @@ export async function sweepSolverLiquidity(
 		}
 	}
 	return balances
+}
+
+// Strips a bytes32 token field to a 20-byte lowercase address (or normalises an address as-is).
+function toAddress(token: string): HexString {
+	const hex = token.toLowerCase().replace(/^0x/, "")
+	const addr = hex.length > 40 ? hex.slice(-40) : hex.padStart(40, "0")
+	return `0x${addr}` as HexString
+}
+
+/**
+ * Aggregates every bid for a phantom order into a single price/liquidity snapshot.
+ *
+ * Fetches the live bids via `intents_getBidsForOrder` and reads each filler's quoted output amount.
+ * The liquidity-weighted median weights every quote by the solver's balance of the output token on
+ * the destination chain, so a solver that can't actually deliver size carries little or no weight —
+ * which is why no fill simulation is needed to filter unfillable quotes. For each bidding solver it
+ * also records a full liquidity sweep — every configured yield-vault token on every supported chain
+ * (raw ERC-20 + vault positions). Returns `null` when there are no decodable bids.
+ *
+ * `extractFill` decodes a bid's ERC-7821 calldata into the fill's order/output; it defaults to the
+ * viem-based {@link extractFillData}, but the indexer injects a VM2-safe variant (viem's
+ * decodeFunctionData keccak throws in the SubQuery sandbox).
+ */
+export async function aggregatePhantomBids(params: {
+	nodeUrl: string
+	/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
+	evmRpcUrls: Record<string, string>
+	chain: string
+	gatewayAddress: string
+	commitment: string
+	yieldVaults: YieldVaultMap
+	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
+	logger?: AggregationLogger
+}): Promise<PhantomAggregation | null> {
+	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, logger } = params
+	const extractFill = params.extractFill ?? extractFillData
+
+	const destUrl = evmRpcUrls[chain]
+	if (!destUrl) return null
+
+	const bids = await fetchBidsForOrder(nodeUrl, commitment)
+	if (bids.length === 0) return null
+
+	const quotes: { price: bigint; weight: bigint }[] = []
+	const lpBalances: LpBalance[] = []
+
+	for (const bid of bids) {
+		if (!bid.user_op) continue
+		try {
+			const decoded = decodeUserOpScale(bid.user_op as HexString)
+			const solver = decoded.sender
+
+			const fillData = extractFill(decoded.callData as HexString, gatewayAddress)
+			if (!fillData) continue
+
+			// Price influence: the solver's liquidity in the output token on the destination chain.
+			const outputTokenAddress = toAddress(fillData.outputToken)
+			const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
+			quotes.push({ price: fillData.solverAmount, weight })
+
+			// Full liquidity picture: every configured token on every supported chain.
+			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver)))
+		} catch (err) {
+			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
+		}
+	}
+
+	if (quotes.length === 0) return null
+
+	const sortedPrices = quotes.map((q) => q.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+
+	return {
+		lowestPrice: sortedPrices[0],
+		highestPrice: sortedPrices[sortedPrices.length - 1],
+		medianPrice: weightedMedian(quotes),
+		bidCount: quotes.length,
+		lpBalances,
+	}
 }
 

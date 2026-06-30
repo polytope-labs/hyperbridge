@@ -38,53 +38,11 @@ import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
 import {
+	aggregatePhantomBids,
 	fetchBidsForOrder,
 	decodeUserOpScale,
 	extractFillData,
-	getTotalSolverBalance,
-	sweepSolverLiquidity,
-	weightedMedian,
-	type LpBalance,
-	type YieldVaultMap,
 } from "@hyperbridge/sdk/intents-helpers"
-
-// Mirrors the indexer's phantom aggregation (src/utils/phantom-aggregation.ts) using the SDK
-// helpers. Aggregation lives in the indexer now; this Node-side copy lets the E2E assert the full
-// bid -> quote -> liquidity-weighted snapshot flow against the simnode + forked Base. viem's
-// extractFillData is fine here (Node, not the VM2 sandbox).
-const toAddr = (t: string): HexString => ("0x" + t.toLowerCase().replace(/^0x/, "").slice(-40).padStart(40, "0")) as HexString
-
-async function aggregate(p: {
-	nodeUrl: string
-	evmRpcUrls: Record<string, string>
-	chain: string
-	gatewayAddress: string
-	commitment: string
-	yieldVaults: YieldVaultMap
-}) {
-	const destUrl = p.evmRpcUrls[p.chain]
-	const bids = await fetchBidsForOrder(p.nodeUrl, p.commitment)
-	const quotes: { price: bigint; weight: bigint }[] = []
-	const lpBalances: LpBalance[] = []
-	for (const bid of bids) {
-		if (!bid.user_op) continue
-		const decoded = decodeUserOpScale(bid.user_op as HexString)
-		const fd = extractFillData(decoded.callData as HexString, p.gatewayAddress)
-		if (!fd) continue
-		const weight = await getTotalSolverBalance(destUrl, p.chain, toAddr(fd.outputToken), decoded.sender, p.yieldVaults)
-		quotes.push({ price: fd.solverAmount, weight })
-		lpBalances.push(...(await sweepSolverLiquidity(p.evmRpcUrls, p.yieldVaults, decoded.sender)))
-	}
-	if (quotes.length === 0) return null
-	const sorted = quotes.map((q) => q.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-	return {
-		lowestPrice: sorted[0],
-		highestPrice: sorted[sorted.length - 1],
-		medianPrice: weightedMedian(quotes),
-		bidCount: quotes.length,
-		lpBalances,
-	}
-}
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
@@ -143,6 +101,29 @@ async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | 
 	const hex: string | undefined = raw?.toHex()
 	if (!hex || hex === "0x" || hex.length < 68) return null
 	return `0x${hex.slice(4, 68)}` as HexString
+}
+// Configures two pairs on the same chain (USDC→cNGN and cNGN→USDC) so the pallet generates two
+// phantom orders per interval — exercises the filler bidding on multiple phantom orders at once.
+async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
+	const config = {
+		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
+		token_pairs: [
+			{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT },
+			{ token_a: CNGN_BASE, token_b: USDC_BASE, standard_amount: STANDARD_AMOUNT },
+		],
+		interval_blocks: 10,
+	}
+	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
+}
+// All active phantom commitments (CurrentPhantomOrder is a BoundedVec<H256>, one per pair).
+async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
+	const raw: any = await api.rpc.state.getStorage(api.query.intentsCoprocessor.currentPhantomOrder.key())
+	const hex: string | undefined = raw?.toHex()
+	if (!hex || hex.length < 68) return []
+	const body = hex.slice(4) // drop 0x + the 1-byte compact vec length (a handful of entries here)
+	const commitments: HexString[] = []
+	for (let i = 0; i + 64 <= body.length; i += 64) commitments.push(`0x${body.slice(i, i + 64)}` as HexString)
+	return commitments
 }
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
@@ -297,9 +278,9 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
 		}
 
-		// Aggregation half: mirror the indexer's logic — measure each solver's cNGN liquidity against
-		// the forked Base and reduce the quotes to a liquidity-weighted snapshot.
-		const result = await aggregate({
+		// Aggregation half: the SDK's aggregatePhantomBids (same code the indexer runs) measures each
+		// solver's cNGN liquidity against the forked Base and reduces the quotes to a weighted snapshot.
+		const result = await aggregatePhantomBids({
 			nodeUrl,
 			evmRpcUrls: { [BASE_STATE_MACHINE]: ANVIL_URL },
 			chain: BASE_STATE_MACHINE,
@@ -332,6 +313,31 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			expect(lp.chain).toBe(BASE_STATE_MACHINE)
 			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
 			expect(lp.balance).toBeGreaterThan(0n)
+		}
+	}, 180_000)
+
+	it("submits and keeps a bid for every phantom order pair (no cross-pair retraction)", async () => {
+		// Two pairs on the same chain (USDC→cNGN and cNGN→USDC) => two phantom orders per interval.
+		await setBothPhantomPairs(api)
+		await createBlock(api)
+
+		const commitments = await getActivePhantomCommitments(api)
+		expect(commitments.length).toBe(2)
+
+		// Let the fillers quote + submit bids for BOTH pairs, then seal the blocks carrying their bids.
+		await new Promise((r) => setTimeout(r, 6_000))
+		await createBlock(api)
+		await new Promise((r) => setTimeout(r, 2_000))
+		await createBlock(api)
+
+		// Regression guard for the per-chain retraction bug: the filler tracked its last phantom bid
+		// per chain, so bidding on the second pair retracted the first pair's bid via
+		// submitBidWithRetraction — leaving one pair with no live bids. Keyed by (chain, token pair),
+		// every pair keeps a full set of bids.
+		for (const commitment of commitments) {
+			const bids = await driver.getBidsForOrder(commitment)
+			console.log(`[phantom-multi] ${bids.length} bids for ${commitment}`)
+			expect(bids.length).toBe(FILLERS.length)
 		}
 	}, 180_000)
 })

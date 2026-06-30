@@ -8,9 +8,9 @@ import { ENV_CONFIG } from "@/constants"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/intent-gateway-v3-addresses"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { PhantomOrder, PhantomOrderLpBalance, PhantomOrderPriceSnapshot } from "@/configs/src/types"
-import { setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
+import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
-import { aggregatePhantomBids } from "@/utils/phantom-aggregation"
+import { extractFillDataVm2 } from "@/utils/phantom-decode"
 
 // The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
 // Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
@@ -65,6 +65,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			gatewayAddress,
 			commitment,
 			yieldVaults: YIELD_VAULT_ADDRESSES,
+			// viem's keccak throws in the VM2 sandbox; inject the indexer's ethers-based decoder.
+			extractFill: extractFillDataVm2,
 			logger,
 		})
 	} catch (err) {

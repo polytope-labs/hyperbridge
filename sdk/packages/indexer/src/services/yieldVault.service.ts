@@ -2,6 +2,7 @@ import { ethers } from "ethers"
 
 import Erc4626Abi from "@/configs/abis/Erc4626.abi.json"
 import {
+	LiquidityProvider,
 	VaultLedgerEvent,
 	VaultLedgerEventType,
 	VaultLpPosition,
@@ -80,6 +81,9 @@ export class YieldVaultService {
 			logger.warn(`[yield-vault] Unconfigured vault ${vault} on ${input.chain}, skipping ledger event`)
 			return
 		}
+
+		// Shared vaults carry many depositors; only track addresses that are our solvers.
+		if (!(await LiquidityProvider.get(lp))) return
 
 		// Idempotency guard: the position is folded with += / -=, so applying the same event twice would
 		// corrupt principal. Skip if this exact log was already recorded. (A reorg rolls back both the

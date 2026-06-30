@@ -939,6 +939,11 @@ export interface DispatchGet {
 	 * Context for the request
 	 */
 	context: HexString
+
+	/**
+	 * Who pays for this request?
+	 */
+	payer: HexString
 }
 
 export interface StateMachineHeight {

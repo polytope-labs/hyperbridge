@@ -11,12 +11,12 @@ import EVM_HOST from "@/abis/evmHost"
 import type { HexString } from "@/types"
 
 // WrappedHFT wrapping WBNB on BSC testnet (lock/unlock)
-const BSC_WRAPPED_HFT = "0x56a77F44a08cf357F59Cc3ae3de7aDfDFaa973d8" as const
+const BSC_WRAPPED_HFT = "0x5ae3C15EFa6FC9D226c108bD3c706F2400Ab7311" as const
 // HFT on Polygon Amoy (burn/mint) — paired with BSC WrappedHFT
-const POLYGON_HFT = "0xa0D8d6E104b92113c7E2815e970cb5626270E8c1" as const
+const POLYGON_HFT = "0x1bd0AB7686710a66255d4EFe4826f43CF2A11a1F" as const
 
-const BSC_HOST = "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D" as const
-const POLYGON_HOST = "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D" as const
+const BSC_HOST = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1" as const
+const POLYGON_HOST = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1" as const
 
 // TokenFaucet addresses (drips 1000 fee tokens per day)
 const BSC_FAUCET = "0xcb00f5b86aac5e2fdca9dc7f34d9bfe00b967c18" as const

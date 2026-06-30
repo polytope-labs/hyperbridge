@@ -38,12 +38,53 @@ import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
 import {
-	aggregatePhantomBids,
 	fetchBidsForOrder,
 	decodeUserOpScale,
 	extractFillData,
-	type TokenSlotOverrides,
+	getTotalSolverBalance,
+	sweepSolverLiquidity,
+	weightedMedian,
+	type LpBalance,
+	type YieldVaultMap,
 } from "@hyperbridge/sdk/intents-helpers"
+
+// Mirrors the indexer's phantom aggregation (src/utils/phantom-aggregation.ts) using the SDK
+// helpers. Aggregation lives in the indexer now; this Node-side copy lets the E2E assert the full
+// bid -> quote -> liquidity-weighted snapshot flow against the simnode + forked Base. viem's
+// extractFillData is fine here (Node, not the VM2 sandbox).
+const toAddr = (t: string): HexString => ("0x" + t.toLowerCase().replace(/^0x/, "").slice(-40).padStart(40, "0")) as HexString
+
+async function aggregate(p: {
+	nodeUrl: string
+	evmRpcUrls: Record<string, string>
+	chain: string
+	gatewayAddress: string
+	commitment: string
+	yieldVaults: YieldVaultMap
+}) {
+	const destUrl = p.evmRpcUrls[p.chain]
+	const bids = await fetchBidsForOrder(p.nodeUrl, p.commitment)
+	const quotes: { price: bigint; weight: bigint }[] = []
+	const lpBalances: LpBalance[] = []
+	for (const bid of bids) {
+		if (!bid.user_op) continue
+		const decoded = decodeUserOpScale(bid.user_op as HexString)
+		const fd = extractFillData(decoded.callData as HexString, p.gatewayAddress)
+		if (!fd) continue
+		const weight = await getTotalSolverBalance(destUrl, p.chain, toAddr(fd.outputToken), decoded.sender, p.yieldVaults)
+		quotes.push({ price: fd.solverAmount, weight })
+		lpBalances.push(...(await sweepSolverLiquidity(p.evmRpcUrls, p.yieldVaults, decoded.sender)))
+	}
+	if (quotes.length === 0) return null
+	const sorted = quotes.map((q) => q.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+	return {
+		lowestPrice: sorted[0],
+		highestPrice: sorted[sorted.length - 1],
+		medianPrice: weightedMedian(quotes),
+		bidCount: quotes.length,
+		lpBalances,
+	}
+}
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
@@ -183,13 +224,6 @@ async function buildPhantomFiller(opts: {
 	}
 }
 
-// Minimal slot map for the two tokens this test touches (Base USDC + cNGN), in place of the
-// indexer's generated TOKEN_SLOT_OVERRIDES.
-const TEST_TOKEN_SLOTS: TokenSlotOverrides = {
-	[USDC_BASE.toLowerCase()]: { balanceSlot: 9n, allowanceSlot: 10n },
-	[CNGN_BASE.toLowerCase()]: { balanceSlot: 201n, allowanceSlot: 202n },
-}
-
 // ─── test ───────────────────────────────────────────────────────────────────────────────────────
 
 describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)", () => {
@@ -263,17 +297,14 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
 		}
 
-		// Aggregation half: the indexer's logic (shared from the SDK) simulates each fill against the
-		// forked Base, measures cNGN liquidity, and reduces the quotes to a snapshot.
-		const result = await aggregatePhantomBids({
+		// Aggregation half: mirror the indexer's logic — measure each solver's cNGN liquidity against
+		// the forked Base and reduce the quotes to a liquidity-weighted snapshot.
+		const result = await aggregate({
 			nodeUrl,
 			evmRpcUrls: { [BASE_STATE_MACHINE]: ANVIL_URL },
 			chain: BASE_STATE_MACHINE,
 			gatewayAddress: gateway,
 			commitment,
-			inputToken: USDC_BASE,
-			standardAmount: STANDARD_AMOUNT,
-			tokenSlotOverrides: TEST_TOKEN_SLOTS,
 			// Liquidity is swept per configured token per chain. cNGN with no vaults => raw balance
 			// only (the funded amount); proves balances come from the config sweep, not the bid output.
 			yieldVaults: { [BASE_STATE_MACHINE]: { [CNGN_BASE.toLowerCase()]: [] } },

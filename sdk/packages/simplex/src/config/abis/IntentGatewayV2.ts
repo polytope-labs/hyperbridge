@@ -1336,6 +1336,12 @@ export const INTENT_GATEWAY_V2_ABI = [
 				internalType: "bytes32",
 			},
 			{
+				name: "solver",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+			{
 				name: "tokens",
 				type: "tuple[]",
 				indexed: false,

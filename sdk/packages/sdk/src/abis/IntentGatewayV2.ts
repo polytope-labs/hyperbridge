@@ -1336,6 +1336,12 @@ export const ABI = [
 				internalType: "bytes32",
 			},
 			{
+				name: "solver",
+				type: "address",
+				indexed: false,
+				internalType: "address",
+			},
+			{
 				name: "tokens",
 				type: "tuple[]",
 				indexed: false,

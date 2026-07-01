@@ -180,8 +180,10 @@ export class BidImpl implements Bid {
 	/**
 	 * Signs the `SelectSolver` message with the session key, appends it to the
 	 * solver's existing UserOp signature, and submits the UserOperation to the
-	 * bundler. For same-chain orders, waits for the receipt and reads
-	 * `OrderFilled` / `PartialFill` logs to determine fill status.
+	 * bundler. Waits for the destination-chain receipt and reads `OrderFilled` /
+	 * `PartialFill` logs to determine fill status — for both same-chain and
+	 * cross-chain orders, since the fill (and its events) always land on the
+	 * destination chain.
 	 *
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
 	 *   the solver address, transaction hash, and fill status.
@@ -230,35 +232,37 @@ export class BidImpl implements Bid {
 			)
 			txnHash = receipt.receipt.transactionHash
 
-			if (this.order.source === this.order.destination) {
-				try {
-					const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-						hash: txnHash,
-						confirmations: 1,
-					})
-					const events = parseEventLogs({
-						abi: IntentGatewayV2ABI,
-						logs: chainReceipt.logs,
-						eventName: ["OrderFilled", "PartialFill"],
-					})
+			// The fill executes on the destination chain and emits OrderFilled (full) or
+			// PartialFill (partial) there for both same-chain and cross-chain orders. Cross-chain
+			// escrow settlement is confirmed asynchronously via Hyperbridge, but the fill status is
+			// already observable on the destination receipt, so we read it here in both cases.
+			try {
+				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
+					hash: txnHash,
+					confirmations: 1,
+				})
+				const events = parseEventLogs({
+					abi: IntentGatewayV2ABI,
+					logs: chainReceipt.logs,
+					eventName: ["OrderFilled", "PartialFill"],
+				})
 
-					const matched = events.find((e) => {
-						if (e.eventName === "OrderFilled")
-							return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-						if (e.eventName === "PartialFill")
-							return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-						return false
-					})
+				const matched = events.find((e) => {
+					if (e.eventName === "OrderFilled")
+						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+					if (e.eventName === "PartialFill")
+						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+					return false
+				})
 
-					if (matched?.eventName === "OrderFilled") {
-						fillStatus = "full"
-					} else if (matched?.eventName === "PartialFill") {
-						fillStatus = "partial"
-						filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
-					}
-				} catch {
-					throw new Error("Failed to determine fill status from logs")
+				if (matched?.eventName === "OrderFilled") {
+					fillStatus = "full"
+				} else if (matched?.eventName === "PartialFill") {
+					fillStatus = "partial"
+					filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
 				}
+			} catch {
+				throw new Error("Failed to determine fill status from logs")
 			}
 		} catch (err) {
 			throw new Error(`Failed to execute bid: ${err instanceof Error ? err.message : String(err)}`)

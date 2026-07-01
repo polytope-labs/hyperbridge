@@ -544,6 +544,68 @@ export function encodeWithdrawalRequest(order: Order | Order, beneficiary: HexSt
 	) as HexString
 }
 
+/**
+ * Big-endian encoding of storage slot 12, the `_partialFills` mapping slot in IntentGatewayV2.
+ * Kept in sync with `PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES` in `evm/src/apps/intentsv2/IntentsBase.sol`,
+ * which asserts the slot index against the compiled storage layout in its test suite.
+ */
+const PARTIAL_FILLS_SLOT_BIG_ENDIAN =
+	"0x000000000000000000000000000000000000000000000000000000000000000c" as HexString
+
+/**
+ * Computes the storage slot hash for `_partialFills[commitment][token]` on a remote IntentGatewayV2.
+ *
+ * `_partialFills` is a nested mapping at slot 12, so the key follows the standard Solidity
+ * nested-mapping layout: `keccak256(token . keccak256(commitment . slot))`. This mirrors the
+ * contract's `_calculatePartialFillSlotHash` exactly and is used to build GET storage-proof keys
+ * for cross-chain partial-fill cancel verification. Computed off-chain because the contract exposes
+ * no public getter for this slot.
+ *
+ * @param commitment - The order commitment hash (bytes32).
+ * @param token - The output token whose fill progress is being proven (20- or 32-byte hex).
+ * @returns The storage slot hash for the nested-mapping entry.
+ */
+export function calculatePartialFillSlotHash(commitment: HexString, token: HexString): HexString {
+	const innerSlot = keccak256(concatHex([commitment, PARTIAL_FILLS_SLOT_BIG_ENDIAN]))
+	return keccak256(concatHex([normalizeAddressForEvmBytes32(token), innerSlot]))
+}
+
+/**
+ * ABI-encodes the GET-request context for a cross-chain cancel initiated from the source chain.
+ *
+ * Matches the IntentGatewayV2 `_cancelFromSource` context: `abi.encode(commitment, user, inputs,
+ * totalRequired)` where `totalRequired[i]` is `order.output.assets[i].amount`. This is the bare
+ * multi-argument `abi.encode` form (not a tuple-wrapped struct), so `encodeAbiParameters` over the
+ * four parameter types is the correct match. The destination decodes it as
+ * `(bytes32, bytes32, TokenInfo[], uint256[])`.
+ */
+export function encodeCancelFromSourceContext(order: Order): HexString {
+	return encodeAbiParameters(
+		[
+			{ name: "commitment", type: "bytes32" },
+			{ name: "user", type: "bytes32" },
+			{
+				name: "inputs",
+				type: "tuple[]",
+				components: [
+					{ name: "token", type: "bytes32" },
+					{ name: "amount", type: "uint256" },
+				],
+			},
+			{ name: "totalRequired", type: "uint256[]" },
+		],
+		[
+			order.id as HexString,
+			normalizeAddressForEvmBytes32(order.user),
+			order.inputs.map((input) => ({
+				token: normalizeAddressForEvmBytes32(input.token),
+				amount: input.amount,
+			})),
+			order.output.assets.map((asset) => asset.amount),
+		],
+	) as HexString
+}
+
 function constructEscrowRequestBody(kind: RequestKind, order: Order | Order, beneficiary: HexString): HexString {
 	const requestKind = encodePacked(["uint8"], [kind])
 	return concatHex([requestKind, encodeWithdrawalRequest(order, beneficiary)]) as HexString

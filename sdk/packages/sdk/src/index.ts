@@ -18,6 +18,8 @@ export {
 	constructRedeemEscrowRequestBody,
 	constructRefundEscrowRequestBody,
 	encodeWithdrawalRequest,
+	calculatePartialFillSlotHash,
+	encodeCancelFromSourceContext,
 	estimateGasForPost,
 	getStorageSlot,
 	getOrFetchStorageSlot,

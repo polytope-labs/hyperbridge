@@ -10,9 +10,12 @@ import {
 	VaultSnapshot,
 } from "@/configs/src/types"
 import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
+import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import { timestampToDate } from "@/utils/date.helpers"
 
 const SECONDS_PER_DAY = 86400n
+
+const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
 // Page size for streaming an LP set out of the store during a snapshot. The store caps a single
 // getByFields page, so positions are read in batches and snapshotted per page.
@@ -69,6 +72,23 @@ export class YieldVaultService {
 		)
 	}
 
+	/** Whether `lp` is EIP-7702-delegated to the chain's SolverAccount contract. Fails closed. */
+	static async isDelegatedSolver(chain: string, lp: string): Promise<boolean> {
+		const solverAccount = SOLVER_ACCOUNT_ADDRESSES[chain]
+		if (!solverAccount) return false
+
+		try {
+			const code: string = await (api as any).getCode(lp)
+			if (!code || !code.toLowerCase().startsWith(DELEGATION_INDICATOR_PREFIX)) return false
+			const delegatedTo = "0x" + code.slice(DELEGATION_INDICATOR_PREFIX.length)
+			return delegatedTo.toLowerCase() === solverAccount.toLowerCase()
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			logger.warn(`[yield-vault] Delegation check failed for ${lp} on ${chain}: ${message}`)
+			return false
+		}
+	}
+
 	/**
 	 * Persist one ledger event and fold it into the LP's running position. The position's net
 	 * principal (deposited - withdrawn) is the baseline the daily snapshot measures yield against.
@@ -82,8 +102,17 @@ export class YieldVaultService {
 			return
 		}
 
-		// Shared vaults carry many depositors; only track addresses that are our solvers.
-		if (!(await LiquidityProvider.get(lp))) return
+		// Only track our solvers. LiquidityProvider is written by the phantom handler on another node
+		// and may lag a solver's first deposit, so fall back to the on-chain delegation check.
+		const positionId = `${input.chain}-${vault}-${lp}`
+		const existingPosition = await VaultLpPosition.get(positionId)
+		if (
+			!existingPosition &&
+			!(await LiquidityProvider.get(lp)) &&
+			!(await this.isDelegatedSolver(input.chain, lp))
+		) {
+			return
+		}
 
 		// Idempotency guard: the position is folded with += / -=, so applying the same event twice would
 		// corrupt principal. Skip if this exact log was already recorded. (A reorg rolls back both the
@@ -113,8 +142,7 @@ export class YieldVaultService {
 			timestamp: eventTime,
 		}).save()
 
-		const positionId = `${input.chain}-${vault}-${lp}`
-		let position = await VaultLpPosition.get(positionId)
+		let position = existingPosition
 		if (!position) {
 			position = VaultLpPosition.create({
 				id: positionId,

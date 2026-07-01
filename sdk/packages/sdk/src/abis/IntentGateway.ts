@@ -1123,6 +1123,11 @@ const ABI = [
 						name: "context",
 						type: "bytes",
 					},
+					{
+						internalType: "address",
+						name: "payer",
+						type: "address",
+					},
 				],
 				internalType: "struct DispatchGet",
 				name: "request",
@@ -1390,6 +1395,11 @@ const ABI = [
 						internalType: "bytes",
 						name: "context",
 						type: "bytes",
+					},
+					{
+						internalType: "address",
+						name: "payer",
+						type: "address",
 					},
 				],
 				internalType: "struct DispatchGet",

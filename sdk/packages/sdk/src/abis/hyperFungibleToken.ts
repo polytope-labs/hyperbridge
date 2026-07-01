@@ -640,6 +640,11 @@ export const HyperFungibleTokenABI = [
 						type: "bytes",
 						internalType: "bytes",
 					},
+					{
+						name: "payer",
+						type: "address",
+						internalType: "address",
+					},
 				],
 			},
 		],
@@ -1761,6 +1766,11 @@ export const WrappedHyperFungibleTokenABI = [
 						name: "context",
 						type: "bytes",
 						internalType: "bytes",
+					},
+					{
+						name: "payer",
+						type: "address",
+						internalType: "address",
 					},
 				],
 			},

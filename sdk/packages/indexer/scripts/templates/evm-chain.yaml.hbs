@@ -11,6 +11,10 @@ dataSources:
         file: ./abis/EthereumHost.abi.json
       chainLinkAggregatorV3:
         file: ./abis/ChainLinkAggregatorV3.abi.json
+      # Listed so the Erc4626Abi interface is always generated for the yield-vault handlers, even on
+      # chains with no configured vaults (e.g. testnet); the vault datasources reference it for decoding.
+      erc4626:
+        file: ./abis/Erc4626.abi.json
     mapping:
       file: ./dist/index.js
       handlers:
@@ -78,6 +82,40 @@ dataSources:
           filter:
             topics:
               - 'DustSwept(address,uint256,address)'
+  {{/if}}
+  {{#each yieldVaults}}
+  - kind: ethereum/Runtime
+    startBlock: {{../blockNumber}}
+    options:
+      abi: erc4626
+      address: '{{this.vault}}'
+    assets:
+      erc4626:
+        file: ./abis/Erc4626.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleVaultDepositEvent
+          filter:
+            topics:
+              - 'Deposit(address,address,uint256,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handleVaultWithdrawEvent
+          filter:
+            topics:
+              - 'Withdraw(address,address,address,uint256,uint256)'
+  {{/each}}
+  {{#if yieldVaults.length}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleVaultSnapshotIndexing
+          kind: ethereum/BlockHandler
+          filter:
+            modulo: 50 # Daily LP yield snapshot; the handler dedupes per UTC day, so re-attempts bail cheaply.
   {{/if}}
   - kind: ethereum/Runtime
     startBlock: {{blockNumber}}

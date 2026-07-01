@@ -160,6 +160,14 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 		config,
 		endpoints,
 		blockNumber,
+		// Flattened (vault, underlyingToken) pairs so the template can emit one Deposit/Withdraw
+		// datasource per vault. The handler resolves underlyingToken from YIELD_VAULT_ADDRESSES.
+		yieldVaults:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
+						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
+					)
+				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [
 			{ handler: "handleStateMachineUpdatedEvent", topics: ["StateMachineUpdated(string,uint256)"] },
@@ -287,6 +295,25 @@ const generateYieldVaultAddresses = () => {
 	console.log("Generated yield-vault-addresses.ts")
 }
 
+const generateSolverAccountAddresses = () => {
+	const solverAccounts: Record<string, string> = {}
+
+	validChains.forEach((config) => {
+		if (config.type === "evm" && config.contracts?.solverAccount) {
+			solverAccounts[config.stateMachineId] = config.contracts.solverAccount
+		}
+	})
+
+	const value = `// Auto-generated, DO NOT EDIT
+// SolverAccount contract address per chain (EIP-7702 delegation target for our solver EOAs).
+// To add or update entries, edit the "solverAccount" field in the relevant chain entry
+// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.
+export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string> = ${JSON.stringify(solverAccounts, null, 2)}`
+
+	fs.writeFileSync(root + "/src/solver-account-addresses.ts", value)
+	console.log("Generated solver-account-addresses.ts")
+}
+
 const generateTokenSlotOverrides = () => {
 	const lines: string[] = []
 	lines.push("// Auto-generated, DO NOT EDIT")
@@ -383,6 +410,7 @@ try {
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayV3Addresses()
 	generateYieldVaultAddresses()
+	generateSolverAccountAddresses()
 	generateTokenSlotOverrides()
 	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()

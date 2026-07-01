@@ -38,6 +38,11 @@ export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handle
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"
 export { handlePendingStatusFlushEvm } from "@/handlers/events/pendingStatus/handlePendingStatusFlushEvm.event.handler"
 
+// Yield Vault Handlers
+export { handleVaultDepositEvent } from "@/handlers/events/yieldVault/deposit.event.handler"
+export { handleVaultWithdrawEvent } from "@/handlers/events/yieldVault/withdraw.event.handler"
+export { handleVaultSnapshotIndexing } from "@/handlers/events/yieldVault/snapshot.block.handler"
+
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"
 export { handleFeeRewardedEvent } from "@/handlers/events/incentives/feeRewarded.event.handler"
 

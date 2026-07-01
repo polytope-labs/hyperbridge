@@ -6,7 +6,8 @@ import {
 	getRequestCommitment,
 	postRequestCommitment,
 	constructRefundEscrowRequestBody,
-	encodeWithdrawalRequest,
+	calculatePartialFillSlotHash,
+	encodeCancelFromSourceContext,
 	adjustDecimals,
 	normalizeStateMachineId,
 	parseStateMachineId,
@@ -101,15 +102,16 @@ export class OrderCanceller {
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
-		const slotHash = await this.ctx.dest.client.readContract({
-			abi: IntentGatewayV2ABI,
-			address: destIntentGateway,
-			functionName: "calculateCommitmentSlotHash",
-			args: [order.id as HexString],
-		})
-		const key = concatHex([destIntentGateway as HexString, slotHash as HexString]) as HexString
+		// One GET key per output token: the destination's `_partialFills[commitment][outputToken]` slot.
+		const keys = order.output.assets.map(
+			(asset) =>
+				concatHex([
+					destIntentGateway as HexString,
+					calculatePartialFillSlotHash(order.id as HexString, asset.token as HexString),
+				]) as HexString,
+		)
 
-		const context = encodeWithdrawalRequest(order, order.user as HexString)
+		const context = encodeCancelFromSourceContext(order)
 
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
@@ -117,7 +119,7 @@ export class OrderCanceller {
 			from: this.ctx.source.configService.getIntentGatewayAddress(destStateMachine),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
-			keys: [key],
+			keys,
 			timeoutTimestamp: 0n,
 			context,
 		}
@@ -602,14 +604,14 @@ export class OrderCanceller {
 					this.ctx.dest.config.stateMachineId,
 				)
 				const orderId = this.orderId(order)
-				const slotHash = (await this.ctx.dest.client.readContract({
-					abi: IntentGatewayV2ABI,
-					address: intentGatewayV2Address,
-					functionName: "calculateCommitmentSlotHash",
-					args: [orderId as HexString],
-				})) as HexString
+				// Prove the destination's per-output-token `_partialFills` slots. These must match the
+				// GET request keys built in `quoteCancelFromSource`/`cancelOrderFromSource` so the
+				// response carries a value for every escrowed input.
+				const slotHashes = order.output.assets.map((asset) =>
+					calculatePartialFillSlotHash(orderId as HexString, asset.token as HexString),
+				)
 
-				const proofHex = await this.ctx.dest.queryStateProof(latestHeight, [slotHash], intentGatewayV2Address)
+				const proofHex = await this.ctx.dest.queryStateProof(latestHeight, slotHashes, intentGatewayV2Address)
 
 				const proof: IProof = {
 					consensusStateId: this.ctx.dest.config.consensusStateId,

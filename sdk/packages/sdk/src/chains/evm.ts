@@ -312,29 +312,67 @@ export class EvmChain implements IChain {
 
 	/**
 	 * Query and return the encoded storage proof for the provided keys at the given height.
+	 *
+	 * Keys may be either:
+	 *  - 32-byte storage slots — read from `address` (or the host contract when omitted), or
+	 *  - 52-byte cross-chain GET keys encoded as `address(20) || slot(32)`, where the target
+	 *    contract is embedded in the key. These may span multiple contracts.
+	 *
 	 * @param {bigint} at - The block height at which to query the storage proof.
 	 * @param {HexString[]} keys - The keys for which to query the storage proof.
-	 * @param {HexString} address - Optional contract address to fetch storage proof else default to host contract
+	 * @param {HexString} address - Optional contract address; forces all keys to be read as slots
+	 *   of this contract. Omit to let 52-byte keys carry their own contract address.
 	 * @returns {Promise<HexString>} The encoded storage proof.
 	 */
 	async queryStateProof(at: bigint, keys: HexString[], address?: HexString): Promise<HexString> {
-		const config: GetProofParameters = {
-			address: address ?? this.params.host,
-			storageKeys: keys,
+		// Group the requested slots by the contract they belong to.
+		const slotsByContract = new Map<HexString, HexString[]>()
+		for (const key of keys) {
+			let contract: HexString
+			let slot: HexString
+			if (address) {
+				contract = address.toLowerCase() as HexString
+				slot = key
+			} else if ((key.length - 2) / 2 === 52) {
+				// address(20) || slot(32)
+				contract = key.slice(0, 42).toLowerCase() as HexString
+				slot = `0x${key.slice(42)}` as HexString
+			} else {
+				contract = this.params.host.toLowerCase() as HexString
+				slot = key
+			}
+			const slots = slotsByContract.get(contract) ?? []
+			slots.push(slot)
+			slotsByContract.set(contract, slots)
 		}
-		if (!at) {
-			config.blockTag = "latest"
-		} else {
-			config.blockNumber = at
-		}
-		const proof = await this.publicClient.getProof(config)
-		const flattenedProof = Array.from(new Set(flatten(proof.storageProof.map((item) => item.proof))))
+
+		const contracts = Array.from(slotsByContract.entries())
+		const proofs = await Promise.all(
+			contracts.map(([contract, slots]) => {
+				const config: GetProofParameters = { address: contract, storageKeys: slots }
+				if (!at) {
+					config.blockTag = "latest"
+				} else {
+					config.blockNumber = at
+				}
+				return this.publicClient.getProof(config)
+			}),
+		)
+
+		// Account proofs across contracts share trie nodes near the root; merge + dedupe them into a
+		// single account-trie proof. Storage proofs stay keyed per contract.
+		const contractProof = Array.from(new Set(flatten(proofs.map((proof) => proof.accountProof))))
+		const storageProof = contracts.map(([contract], i) => {
+			const flattened = Array.from(new Set(flatten(proofs[i].storageProof.map((item) => item.proof))))
+			return [
+				Array.from(hexToBytes(contract)),
+				flattened.map((item) => Array.from(hexToBytes(item))),
+			] as [number[], number[][]]
+		})
 
 		const encoded = EvmStateProof.enc({
-			contractProof: proof.accountProof.map((item) => Array.from(hexToBytes(item))),
-			storageProof: [
-				[Array.from(hexToBytes(config.address)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
-			],
+			contractProof: contractProof.map((item) => Array.from(hexToBytes(item))),
+			storageProof,
 		})
 
 		return toHex(encoded)

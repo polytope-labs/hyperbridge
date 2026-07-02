@@ -847,7 +847,14 @@ export class IntentFiller {
 			if (result.success) {
 				this.lastPhantomCommitmentByPair.set(pairKey, event.commitment)
 				this.logger.info(
-					{ commitment: event.commitment, chain: event.chain, tokenA: event.tokenA, tokenB: event.tokenB },
+					{
+						commitment: event.commitment,
+						chain: event.chain,
+						tokenA: event.tokenA,
+						tokenB: event.tokenB,
+						txHash: result.extrinsicHash,
+						blockHash: result.blockHash,
+					},
 					"Phantom bid submitted",
 				)
 			} else {

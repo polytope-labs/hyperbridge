@@ -2,6 +2,7 @@
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "consensus-integration-tests";
 
+//mod beaconkit;
 // mod ethereum;
 // mod grandpa;
 // mod bsc;

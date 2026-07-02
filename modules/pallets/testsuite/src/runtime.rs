@@ -103,6 +103,7 @@ frame_support::construct_runtime!(
 		IsmpParachain: ismp_parachain,
 		Bandwidth: pallet_bandwidth,
 		StateCoprocessor: pallet_state_coprocessor,
+		IsmpBeaconKit: ismp_beacon_kit::pallet,
 	}
 );
 
@@ -440,6 +441,10 @@ impl ismp_parachain::Config for Test {
 	type IsmpHost = Ismp;
 	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_beacon_kit::pallet::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
 }
 
 impl ismp_beefy::BeefyClientConfig for Test {

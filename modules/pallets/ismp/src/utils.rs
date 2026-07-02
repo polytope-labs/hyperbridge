@@ -29,6 +29,7 @@ use sp_core::{
 	H160, H256,
 };
 use sp_std::prelude::*;
+use alloc::vec;
 
 /// Params to update the unbonding period for a consensus state
 #[derive(

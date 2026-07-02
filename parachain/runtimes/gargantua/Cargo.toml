@@ -54,6 +54,7 @@ pallet-hyper-fungible-token = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-beacon-kit = { workspace = true }
 ismp-pharos = { workspace =  true }
 ismp-tendermint = { workspace = true }
 evm-state-machine = { workspace = true }
@@ -169,6 +170,7 @@ std = [
     "ismp-optimism/std",
     "ismp-polygon/std",
     "ismp-tendermint/std",
+    "ismp-beacon-kit/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "ismp-pharos/std",

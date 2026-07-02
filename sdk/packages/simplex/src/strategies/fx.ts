@@ -233,9 +233,10 @@ export class FXFiller implements FillerStrategy {
 	 * outputs if the price policy makes that attractive. This is how we stay competitive.
 	 *
 	 * Cross-chain orders may already be partially filled by other solvers; each leg is
-	 * sized against its unfilled remainder. Since FX profit is fee-gated and the contract
-	 * forwards the fee pot to the completing solver only, a cross-chain fill is rejected
-	 * unless it completes the remainder.
+	 * sized against its unfilled remainder. The contract forwards the fee pot to the
+	 * completing solver only, so a completing fill is priced on fee profit as before,
+	 * while a non-completing slice books no fees and is only worth doing when its FX
+	 * margin covers the execution cost.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		if (this.halted) {
@@ -467,23 +468,11 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			// FX profit is fee-gated and the fee pot goes to the completing solver, so a
-			// cross-chain fill is only worth doing when it completes the unfilled remainder.
-			if (isCrossChain) {
-				const providedByLeg = new Map<number, bigint>()
-				fillerOutputLegs.forEach((legIndex, k) => providedByLeg.set(legIndex, fillerOutputs[k].amount))
-				const willComplete = order.output.assets.every((asset, i) => {
-					const legRemaining = asset.amount > alreadyFilled[i] ? asset.amount - alreadyFilled[i] : 0n
-					return (providedByLeg.get(i) ?? 0n) >= legRemaining
-				})
-				if (!willComplete) {
-					this.logger.info(
-						{ orderId: order.id },
-						"Skipping cross-chain order: cannot complete the unfilled remainder",
-					)
-					return 0
-				}
-			}
+			// `fillerOutputs` is per-leg aligned, so index i is leg i.
+			const willComplete = order.output.assets.every((asset, i) => {
+				const legRemaining = asset.amount > alreadyFilled[i] ? asset.amount - alreadyFilled[i] : 0n
+				return fillerOutputs[i].amount >= legRemaining
+			})
 
 			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
 
@@ -495,7 +484,8 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Realized FX margin, report-only — never rejects an order. A single fill is half a
+			// Realized FX margin. Report-only for completing fills; for a non-completing slice
+			// it is the only bookable profit and gates the fill below. A single fill is half a
 			// round-trip, so the open leg is marked at the opposite side of the spread:
 			// - sells exotic (stable→exotic): value the exotic given at bid (rebuy cost).
 			// - buys exotic (exotic→stable): value the exotic received at ask (resale value).
@@ -546,22 +536,30 @@ export class FXFiller implements FillerStrategy {
 			this.recordOrderOutcome(false, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
-			if (order.fees < totalCostInSourceFeeToken) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						orderFees: formatUnits(order.fees, feeTokenDecimals),
-						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
-					},
-					"Skipping order: attached fees do not cover estimated execution cost",
-				)
-				return 0
+
+			// The fee pot is forwarded to the solver whose fill completes the order. A completing
+			// fill is gated on fee profit only (fxMarginUsd stays report-only there); a
+			// non-completing slice books no fees and must clear execution costs from its FX margin.
+			let feeProfit = 0n
+			let totalProfit: number
+			if (willComplete) {
+				if (order.fees < totalCostInSourceFeeToken) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							orderFees: formatUnits(order.fees, feeTokenDecimals),
+							estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						},
+						"Skipping order: attached fees do not cover estimated execution cost",
+					)
+					return 0
+				}
+				feeProfit = order.fees - totalCostInSourceFeeToken
+				totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
+			} else {
+				const costUsd = parseFloat(formatUnits(totalCostInSourceFeeToken, feeTokenDecimals))
+				totalProfit = fxMarginUsd.toNumber() - costUsd
 			}
-			const feeProfit = order.fees - totalCostInSourceFeeToken
-			// FX bids are gated on fee profit only. fxMarginUsd is a theoretical mark-to-model
-			// value (open leg priced at the opposite curve) and is reported separately, never summed in.
-			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -578,6 +576,7 @@ export class FXFiller implements FillerStrategy {
 					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
 					fxMarginUsd: fxMarginUsd.toString(),
+					willComplete,
 					totalProfit,
 					profitable: totalProfit > 0,
 				},

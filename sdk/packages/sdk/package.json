@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "2.3.0",
+	"version": "2.3.1",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -67,6 +67,7 @@
 		"test:hyper-fungible-token": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/hyperFungibleToken.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
 		"test:token-list": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenList.test.ts",
+		"test:get-request": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/getRequestBscAmoy.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",

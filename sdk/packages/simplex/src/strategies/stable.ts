@@ -9,6 +9,7 @@ import {
 	ADDRESS_ZERO,
 	TokenInfo,
 	adjustDecimals,
+	cumulativeReleased,
 	IntentsCoprocessor,
 	type ERC7821Call,
 } from "@hyperbridge/sdk"
@@ -142,8 +143,15 @@ export class StableFiller implements FillerStrategy {
 	 * what will the filler receive and what will the filler pay.
 	 * Also validates that the order output amounts meet the filler's minimum requirements
 	 * based on the configured bps (basis points) curve.
+	 *
+	 * Cross-chain orders may already be partially filled by other solvers, and this filler
+	 * may itself provide only a slice when its balance cannot cover the full remainder. The
+	 * spread is priced on the proportional input-escrow slice the fill releases, and
+	 * `order.fees` is credited only when this fill completes the order, since the contract
+	 * forwards the fee pot to the completing solver.
+	 *
 	 * @param order The order to calculate the USD value for
-	 * @returns The profit in USD (Number), or 0 if not profitable or output amounts don't meet minimum
+	 * @returns The profit in USD (Number), or <= 0 if not profitable or output amounts don't meet minimum
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		try {
@@ -155,13 +163,19 @@ export class StableFiller implements FillerStrategy {
 			const inputUsdValue = await this.contractService.getInputUsdValue(order)
 			const fillerBps = this.bpsPolicy.getBps(inputUsdValue)
 
-			// Validate that order outputs meet filler's minimum bps requirements
-			// and calculate profit from slippage (normalized to dest fee token decimals)
-			const { isValid, profitFromSlippage } = await this.calculateSlippageProfit(
-				order,
-				destFeeTokenDecimals,
-				fillerBps,
-			)
+			const isCrossChain = order.source !== order.destination
+			const alreadyFilled = isCrossChain
+				? await this.contractService.getPartialFills(order)
+				: order.output.assets.map(() => 0n)
+
+			if (isCrossChain && order.output.assets.every((asset, i) => alreadyFilled[i] >= asset.amount)) {
+				this.logger.info({ orderId: order.id }, "Order already fully filled, skipping")
+				return 0
+			}
+
+			// Validate that order outputs meet filler's minimum bps requirements and size
+			// competitive outputs, capped to the unfilled remainder per leg
+			const { isValid } = await this.sizeFillerOutputs(order, fillerBps, alreadyFilled)
 			if (!isValid) {
 				this.logger.info(
 					{ orderId: order.id, orderValueUsd: inputUsdValue.toString(), fillerBps: fillerBps.toString() },
@@ -170,14 +184,21 @@ export class StableFiller implements FillerStrategy {
 				return 0
 			}
 
-			// Source output-token shortfalls from funding venues (e.g. ERC-4626 vaults).
-			// Runs before gas estimation so the prepend gas bump is accounted for.
-			const fillerOutputs = this.contractService.cacheService.getFillerOutputs(order.id!)
-			if (fillerOutputs && this.fundingVenues.length > 0) {
-				const fundable = await this.planFunding(order, fillerOutputs)
-				if (!fundable) return 0
-				this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
-			}
+			// Source output-token shortfalls from the wallet and funding venues (e.g. ERC-4626
+			// vaults). Cross-chain legs may be reduced to a partial slice. Runs before gas
+			// estimation so the prepend gas bump is accounted for.
+			const fillerOutputs = this.contractService.cacheService.getFillerOutputs(order.id!)!
+			const fundable = await this.planFunding(order, fillerOutputs, alreadyFilled)
+			if (!fundable) return 0
+			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
+
+			// Priced after funding since planFunding may have reduced the outputs
+			const profitFromSlippage = await this.spreadProfit(
+				order,
+				fillerOutputs,
+				alreadyFilled,
+				destFeeTokenDecimals,
+			)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
 
@@ -185,20 +206,30 @@ export class StableFiller implements FillerStrategy {
 				order.source,
 			)
 
-			// Profit from fees: order.fees - gas costs
-			const feeProfit = order.fees > totalCostInSourceFeeToken ? order.fees - totalCostInSourceFeeToken : 0n
+			const willComplete = order.output.assets.every(
+				(asset, i) => alreadyFilled[i] + fillerOutputs[i].amount >= asset.amount,
+			)
 
-			// Total profit = fee profit + profit from slippage (both normalized to dest fee token decimals)
-			const feeProfitInDestDecimals = adjustDecimals(feeProfit, sourceFeeTokenDecimals, destFeeTokenDecimals)
-			const totalProfit = feeProfitInDestDecimals + profitFromSlippage
+			// Cross-chain, the fee pot goes to the completing solver only, so a non-completing
+			// slice must clear its costs from spread alone (netFee may go negative)
+			const netFee = isCrossChain
+				? (willComplete ? order.fees : 0n) - totalCostInSourceFeeToken
+				: order.fees > totalCostInSourceFeeToken
+					? order.fees - totalCostInSourceFeeToken
+					: 0n
+
+			// Total profit = net fee + profit from slippage (both normalized to dest fee token decimals)
+			const netFeeInDestDecimals = adjustDecimals(netFee, sourceFeeTokenDecimals, destFeeTokenDecimals)
+			const totalProfit = netFeeInDestDecimals + profitFromSlippage
 
 			this.logger.info(
 				{
 					orderFeesUSD: formatUnits(order.fees, sourceFeeTokenDecimals),
 					totalCostInSourceFeeTokenUSD: formatUnits(totalCostInSourceFeeToken, sourceFeeTokenDecimals),
-					feeProfitUSD: formatUnits(feeProfitInDestDecimals, destFeeTokenDecimals),
+					netFeeUSD: formatUnits(netFeeInDestDecimals, destFeeTokenDecimals),
 					slippageProfitUSD: formatUnits(profitFromSlippage, destFeeTokenDecimals),
 					totalProfitUSD: formatUnits(totalProfit, destFeeTokenDecimals),
+					willComplete,
 					profitable: totalProfit > 0n,
 				},
 				"Profitability evaluation",
@@ -212,33 +243,34 @@ export class StableFiller implements FillerStrategy {
 
 	/**
 	 * Validates that the filler can meet the user's minimum output requirements
-	 * based on the configured bps (basis points), and calculates the profit from slippage.
-	 * Also caches the filler's calculated outputs for use during order execution.
+	 * based on the configured bps (basis points), and caches the filler's
+	 * competitive outputs for use during order execution.
 	 *
 	 * The logic:
 	 * - User sends X tokens and expects minimum Y tokens (order.output.amount)
 	 * - Filler calculates max they will provide: X * (10000 - fillerBps) / 10000
-	 * - If filler can provide >= user's minimum → valid, proceed
+	 * - If filler can provide >= user's minimum, the order is valid
 	 * - Filler pays out their calculated max (to be competitive)
-	 * - Profit = X - fillerMaxOutput (filler keeps their bps as profit)
 	 *
 	 * Example: User sends 100 USDC, expects minimum 99.4 USDC, filler has 50 bps (0.5%)
 	 * - Filler will provide: 100 * (10000 - 50) / 10000 = 99.5 USDC
-	 * - User expects 99.4 USDC, filler provides 99.5 → valid (99.5 >= 99.4)
-	 * - Profit = 100 - 99.5 = 0.5 USDC (filler receives 100, pays out 99.5)
+	 * - User expects 99.4 USDC, filler provides 99.5, so the order is valid (99.5 >= 99.4)
+	 *
+	 * On a partially-filled order each leg is capped to its unfilled remainder:
+	 * escrow release is capped at the total required, so overfilling a started leg
+	 * buys no competitiveness.
 	 *
 	 * @param order The order to validate (assumed to have passed canFill validation)
-	 * @param normalizeToDecimals The decimal precision to normalize the profit to (e.g., dest fee token decimals)
 	 * @param fillerBps The basis points to use for this order (determined by order value)
-	 * @returns Object with isValid boolean and profitFromSlippage (normalized to specified decimals)
+	 * @param alreadyFilled Cumulative filled amount per output leg
+	 * @returns Object with isValid boolean
 	 */
-	private async calculateSlippageProfit(
+	private async sizeFillerOutputs(
 		order: Order,
-		normalizeToDecimals: number,
 		fillerBps: bigint,
-	): Promise<{ isValid: boolean; profitFromSlippage: bigint }> {
+		alreadyFilled: bigint[],
+	): Promise<{ isValid: boolean }> {
 		const basisPoints = 10000n
-		let totalProfitNormalized = 0n
 		const fillerOutputs: TokenInfo[] = []
 
 		for (let i = 0; i < order.inputs.length; i++) {
@@ -272,7 +304,7 @@ export class StableFiller implements FillerStrategy {
 					},
 					"User expects more than filler can provide based on bps",
 				)
-				return { isValid: false, profitFromSlippage: 0n }
+				return { isValid: false }
 			}
 
 			// Clamp to at most (1 + maxOverfillBps) × user-requested to bound loss on pricing errors.
@@ -293,19 +325,16 @@ export class StableFiller implements FillerStrategy {
 				fillerMaxOutput = overfillCeiling
 			}
 
+			const remaining = output.amount > alreadyFilled[i] ? output.amount - alreadyFilled[i] : 0n
+			if (alreadyFilled[i] > 0n && fillerMaxOutput > remaining) {
+				fillerMaxOutput = remaining
+			}
+
 			// Store the filler's calculated output for this token
 			fillerOutputs.push({
 				token: output.token,
 				amount: fillerMaxOutput,
 			})
-
-			// Calculate profit: filler receives input, pays out their max (to be competitive)
-			// Profit = input - fillerMaxOutput (filler keeps their bps as profit)
-			const profitInOutputDecimals = convertedInputAmount - fillerMaxOutput
-
-			// Normalize profit to the target decimals for summing across different tokens
-			const profitNormalized = adjustDecimals(profitInOutputDecimals, outputDecimals, normalizeToDecimals)
-			totalProfitNormalized += profitNormalized
 		}
 
 		// Cache filler outputs for use during order execution
@@ -318,21 +347,67 @@ export class StableFiller implements FillerStrategy {
 			"Cached filler outputs for order",
 		)
 
-		return { isValid: true, profitFromSlippage: totalProfitNormalized }
+		return { isValid: true }
+	}
+
+	/**
+	 * Spread profit for the planned outputs, normalized to `normalizeToDecimals`.
+	 *
+	 * Each leg receives the input-escrow slice released for taking the fill from
+	 * `alreadyFilled` to `alreadyFilled + provided` (the completing slice picks up
+	 * the integer-division dust), and pays out `provided`. On a full fill of an
+	 * untouched order this reduces to input minus output.
+	 */
+	private async spreadProfit(
+		order: Order,
+		fillerOutputs: TokenInfo[],
+		alreadyFilled: bigint[],
+		normalizeToDecimals: number,
+	): Promise<bigint> {
+		let totalProfitNormalized = 0n
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const input = order.inputs[i]
+			const output = order.output.assets[i]
+			const provided = fillerOutputs[i].amount
+			if (provided === 0n) continue
+
+			const [inputDecimals, outputDecimals] = await Promise.all([
+				this.contractService.getTokenDecimals(input.token, order.source),
+				this.contractService.getTokenDecimals(output.token, order.destination),
+			])
+
+			const released =
+				cumulativeReleased(input.amount, alreadyFilled[i] + provided, output.amount) -
+				cumulativeReleased(input.amount, alreadyFilled[i], output.amount)
+
+			const releasedInOutputDecimals = adjustDecimals(released, inputDecimals, outputDecimals)
+			totalProfitNormalized += adjustDecimals(
+				releasedInOutputDecimals - provided,
+				outputDecimals,
+				normalizeToDecimals,
+			)
+		}
+
+		return totalProfitNormalized
 	}
 
 	/**
 	 * Sources each output token from the solver's wallet, topping up shortfalls
 	 * via funding venues (e.g. an ERC-4626 vault `withdraw`). When a venue can only
 	 * partially cover the deficit, the competitive output is reduced to the
-	 * coverable amount — never below the user's requested minimum. The venue
+	 * coverable amount. Same-chain legs are never reduced below the user's requested
+	 * minimum; cross-chain legs may be reduced to a partial slice of the remainder,
+	 * with profitability deciding whether the slice is worth filling. The venue
 	 * withdrawal calls are recorded as ERC-7821 prepends so they execute atomically
 	 * before `fillOrder` in the same batch.
 	 *
-	 * Mutates `fillerOutputs` in place. Returns false when an output cannot be
-	 * sourced down to the user's minimum, signalling the order should be skipped.
+	 * Mutates `fillerOutputs` in place. Returns false when nothing can be sourced —
+	 * a same-chain output below the user's minimum, or every cross-chain leg reduced
+	 * to zero — signalling the order should be skipped.
 	 */
-	private async planFunding(order: Order, fillerOutputs: TokenInfo[]): Promise<boolean> {
+	private async planFunding(order: Order, fillerOutputs: TokenInfo[], alreadyFilled: bigint[]): Promise<boolean> {
+		const isCrossChain = order.source !== order.destination
 		const destClient = this.clientManager.getPublicClient(order.destination)
 		const solver = this.signer.account.address as HexString
 		const balanceCache = new Map<string, bigint>()
@@ -345,6 +420,9 @@ export class StableFiller implements FillerStrategy {
 
 			// Native outputs can't be sourced from token venues.
 			if (tokenLower === ADDRESS_ZERO.toLowerCase()) continue
+
+			// Leg already fully filled by other solvers
+			if (out.amount === 0n) continue
 
 			let available = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
 			if (available >= out.amount) {
@@ -364,7 +442,7 @@ export class StableFiller implements FillerStrategy {
 			}
 
 			const effectiveOutput = out.amount < available ? out.amount : available
-			if (effectiveOutput < userMin) {
+			if (!isCrossChain && effectiveOutput < userMin) {
 				this.logger.info(
 					{
 						orderId: order.id,
@@ -383,6 +461,7 @@ export class StableFiller implements FillerStrategy {
 					{
 						orderId: order.id,
 						token: out.token,
+						alreadyFilled: alreadyFilled[i].toString(),
 						competitive: out.amount.toString(),
 						coverable: effectiveOutput.toString(),
 					},
@@ -391,6 +470,12 @@ export class StableFiller implements FillerStrategy {
 				out.amount = effectiveOutput
 			}
 			balanceCache.set(tokenLower, available - effectiveOutput)
+		}
+
+		if (isCrossChain && fillerOutputs.every((o) => o.amount === 0n)) {
+			this.logger.info({ orderId: order.id }, "Skipping order: no output can be sourced")
+			this.contractService.cacheService.clearFundingPrepends(order.id!)
+			return false
 		}
 
 		if (fundingCalls.length > 0) {

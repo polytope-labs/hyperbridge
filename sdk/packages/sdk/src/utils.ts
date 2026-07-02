@@ -571,6 +571,16 @@ export function calculatePartialFillSlotHash(commitment: HexString, token: HexSt
 }
 
 /**
+ * Mirrors IntentGatewayV2's `_cumulativeReleased`: the cumulative input escrow released to
+ * solvers once `filled` of `totalRequired` output has been provided. Integer-division dust
+ * is deferred to the completing fill.
+ */
+export function cumulativeReleased(escrowTotal: bigint, filled: bigint, totalRequired: bigint): bigint {
+	if (totalRequired === 0n || filled >= totalRequired) return escrowTotal
+	return (escrowTotal * filled) / totalRequired
+}
+
+/**
  * ABI-encodes the GET-request context for a cross-chain cancel initiated from the source chain.
  *
  * Matches the IntentGatewayV2 `_cancelFromSource` context: `abi.encode(commitment, user, inputs,

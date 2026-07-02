@@ -20,6 +20,7 @@ export {
 	encodeWithdrawalRequest,
 	calculatePartialFillSlotHash,
 	encodeCancelFromSourceContext,
+	cumulativeReleased,
 	estimateGasForPost,
 	getStorageSlot,
 	getOrFetchStorageSlot,

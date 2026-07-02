@@ -16,6 +16,7 @@ import {
 	type ERC7821Call,
 	transformOrderForContract,
 	TokenInfo,
+	normalizeAddressForEvmBytes32,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -230,6 +231,36 @@ export class ContractInteractionService {
 			this.logger.error({ err: error }, "Error estimating gas, using generous fallback values")
 			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
+	}
+
+	/**
+	 * Reads cumulative filled amounts from the destination `_partialFills` mapping,
+	 * one entry per `order.output.assets` leg.
+	 */
+	async getPartialFills(order: Order): Promise<bigint[]> {
+		const client = this.clientManager.getPublicClient(order.destination)
+		const intentGatewayAddress = this.configService.getIntentGatewayAddress(order.destination)
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
+
+		return Promise.all(
+			order.output.assets.map(
+				(asset) =>
+					retryPromise(
+						() =>
+							client.readContract({
+								abi: INTENT_GATEWAY_V2_ABI,
+								address: intentGatewayAddress,
+								functionName: "_partialFills",
+								args: [commitment, normalizeAddressForEvmBytes32(asset.token)],
+							}),
+						{
+							maxRetries: 3,
+							backoffMs: 250,
+							logMessage: "Failed to read partial fill progress",
+						},
+					) as Promise<bigint>,
+			),
+		)
 	}
 
 	/**

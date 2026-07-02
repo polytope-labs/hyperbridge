@@ -313,6 +313,13 @@ export class EventMonitor extends EventEmitter {
 					continue
 				}
 
+				// Any solver's partial fill matters: it stales our outstanding bid for the order.
+				if (log.eventName === "PartialFill") {
+					this.logger.info({ chainId, commitment, filler }, "PartialFill event detected")
+					this.emit("partialFillOnChain", { commitment, filler, chainId })
+					continue
+				}
+
 				if (filler?.toLowerCase() !== this.fillerAddress) {
 					continue
 				}

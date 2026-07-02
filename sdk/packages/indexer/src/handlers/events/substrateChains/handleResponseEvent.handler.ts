@@ -61,8 +61,10 @@ export const handleSubstrateResponseEvent = wrap(async (event: SubstrateEvent): 
 	}
 
 	// Only handling get response here as we not using post response anywhere.
-	if (data.result[0].Get) {
-		const getResponse = data.result[0].Get as Get
+	// `ismp_queryResponses` returns the GetResponse unwrapped as `{ get, values }`
+	// (lowercase `get`), not enum-tagged as `{ Get: … }` — guard on the actual shape.
+	if (data.result[0].get) {
+		const getResponse = data.result[0] as Get
 
 		await GetResponseService.findOrCreate({
 			chain: host,

@@ -309,6 +309,33 @@ export class IntentsCoprocessor {
 					} else if (result.status.isInBlock || result.status.isFinalized) {
 						resolved = true
 						clearTimeout(timeoutId)
+
+						// A utility.batch extrinsic is itself `Ok` even when one of its calls fails: the
+						// failure surfaces as a BatchInterrupted event, NOT a top-level dispatchError.
+						// BatchInterrupted { index, error } means calls [0, index) succeeded and the call
+						// at `index` failed (the rest are skipped). We order batches so the primary call
+						// is first, so an interruption at index 0 means nothing meaningful landed -> report
+						// failure. A later index means the primary call succeeded and only a trailing
+						// best-effort call (e.g. a deposit retraction) was skipped, which is still success.
+						const interrupted = result.events.find(
+							({ event }) => event.section === "utility" && event.method === "BatchInterrupted",
+						)
+						if (interrupted) {
+							// eslint-disable-next-line @typescript-eslint/no-explicit-any
+							const [indexCodec, dispatchError] = interrupted.event.data as any
+							if (Number(indexCodec.toString()) === 0) {
+								let errorMsg: string
+								if (dispatchError?.isModule) {
+									const decoded = this.api.registry.findMetaError(dispatchError.asModule)
+									errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
+								} else {
+									errorMsg = `Dispatch error: batch interrupted (${dispatchError?.toString()})`
+								}
+								resolve({ success: false, error: errorMsg })
+								return
+							}
+						}
+
 						resolve({
 							success: true,
 							blockHash: (result.status.isInBlock
@@ -376,10 +403,19 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Retracts a previous bid and places a new one in a single transaction via utility.batch.
-	 * The retraction runs first, so the old deposit is reclaimed even if the new bid then fails
-	 * (batch is non-atomic — a failing call interrupts the batch without reverting the calls that
-	 * already succeeded, unlike batchAll which would roll the retraction back too).
+	 * Places a new bid and retracts a previous one in a single transaction via utility.batch.
+	 *
+	 * The new bid is the primary operation, so `placeBid` MUST run first. `utility.batch` is
+	 * non-atomic: a failing call interrupts the batch (via a BatchInterrupted event) without
+	 * reverting the calls that already succeeded. Placing first guarantees the new bid lands even
+	 * when the retraction then fails — which it routinely does, because a previous commitment's bid
+	 * may already be gone (or was itself never placed), making `retractBid` return `BidNotFound`.
+	 *
+	 * Ordering retraction first (the previous behaviour) caused a self-sustaining cascade: a
+	 * `BidNotFound` on the leading retract skipped the trailing `placeBid`, so the current bid never
+	 * landed, so the *next* interval's retract of that never-placed commitment also failed, and so
+	 * on — silently, because the batch extrinsic itself reports success. The deposit reclaim is
+	 * best-effort; landing the bid is not.
 	 *
 	 * @param retractCommitment - The order commitment of the bid to retract (bytes32)
 	 * @param bidCommitment - The order commitment of the new bid (bytes32)
@@ -393,8 +429,8 @@ export class IntentsCoprocessor {
 	): Promise<BidSubmissionResult> {
 		try {
 			const batch = this.api.tx.utility.batch([
-				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
 				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
+				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
 			])
 			return await this.signAndSendExtrinsic(batch)
 		} catch (error) {

@@ -965,6 +965,12 @@ type IOrderV3InputAsset @entity {
 	Position index in the input assets array
 	"""
 	index: Int!
+
+	"""
+	Cumulative amount of this escrowed input released to solvers across all
+	(partial) redeems. Equals `amount` once the order is fully redeemed.
+	"""
+	released: BigInt
 }
 
 """
@@ -1000,6 +1006,12 @@ type IOrderV3OutputAsset @entity {
 	Beneficiary address for this output
 	"""
 	beneficiary: String! @index
+
+	"""
+	Cumulative amount of this output filled across all (partial) fills.
+	Equals `amount` once the order is fully filled.
+	"""
+	filled: BigInt
 }
 
 """
@@ -1303,6 +1315,12 @@ type IOrderV3EscrowRelease @entity {
 	The order whose escrow was released
 	"""
 	order: IOrderV3!
+
+	"""
+	The solver the escrow was released to. Null for events emitted before the
+	contract carried the solver in EscrowReleased.
+	"""
+	solver: String @index
 
 	"""
 	The chain on which the release occurred (source chain)

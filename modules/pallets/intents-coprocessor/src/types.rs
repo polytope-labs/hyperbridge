@@ -612,6 +612,10 @@ enum IntentGatewayRequestKind {
 	RefundEscrow = 4,
 	/// `UpgradeContract` on implementations from before the action; same discriminator.
 	Execute = 5,
+	/// Releases a proportional escrow slice after a cross-chain partial fill without
+	/// finalizing the order. Dispatched only by the gateway itself, never by this pallet.
+	#[allow(dead_code)]
+	RedeemEscrowPartial = 6,
 }
 
 /// Mirrors the `RequestKind` enum in `VWAPOracle.sol`.

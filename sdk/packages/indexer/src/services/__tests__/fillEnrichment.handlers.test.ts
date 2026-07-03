@@ -54,6 +54,7 @@ beforeEach(() => {
 	jest.spyOn(IntentGatewayV3Service, "publishInventoryAfterFill").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service, "recordOrderVolume").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service, "flushPendingStatuses").mockResolvedValue(undefined)
+	jest.spyOn(IntentGatewayV3Service as any, "backfillEarlyFills").mockResolvedValue(undefined)
 	jest.spyOn(IntentGatewayV3Service as any, "getOrderValue").mockResolvedValue({
 		inputUSD: "100",
 		outputUSD: "100",

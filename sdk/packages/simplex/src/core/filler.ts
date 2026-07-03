@@ -105,10 +105,6 @@ export class IntentFiller {
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId }) => {
 			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId)
 		})
-
-		this.monitor.on("partialFillOnChain", ({ commitment, filler, chainId }) => {
-			this.handlePartialFillOnChain(commitment as HexString, filler, chainId)
-		})
 	}
 
 	/**
@@ -720,50 +716,6 @@ export class IntentFiller {
 				{ commitment, filler, chainId },
 				"OrderFilled received before bid stored, deferring retraction",
 			)
-			return
-		}
-
-		if (bid.retracted) {
-			this.logger.debug({ commitment }, "Bid already retracted, skipping")
-			return
-		}
-
-		this.enqueueRetraction(commitment)
-	}
-
-	/**
-	 * A partial fill — ours or another solver's — stales any outstanding bid for the order:
-	 * its calldata was sized against the pre-fill remainder. Fill-and-forget: retract, don't
-	 * re-bid. Retraction is only deferred for our own fills; partial fills arrive for orders
-	 * we never bid on, and the periodic sweep covers the narrow bid-not-yet-stored race for
-	 * other solvers' fills.
-	 */
-	private handlePartialFillOnChain(commitment: HexString, filler: string, chainId: number): void {
-		// Top up EntryPoint deposit if we were the filler, but only on chains
-		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
-		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
-			const chain = `EVM-${chainId}`
-			if (!hasPaymaster(chain, this.configService)) {
-				const targetGasUnits = this.configService.getTargetGasUnits()
-				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
-					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
-				})
-			}
-		}
-
-		if (!this.bidStorage || !this.hyperbridge) {
-			return
-		}
-
-		const bid = this.bidStorage.getBidByCommitment(commitment)
-		if (!bid) {
-			if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
-				this.pendingRetractions.add(commitment)
-				this.logger.debug(
-					{ commitment, filler, chainId },
-					"PartialFill received before bid stored, deferring retraction",
-				)
-			}
 			return
 		}
 

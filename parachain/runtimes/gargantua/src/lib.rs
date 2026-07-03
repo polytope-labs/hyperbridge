@@ -26,12 +26,11 @@ extern crate alloc;
 
 mod genesis_config;
 mod ismp;
-mod migrations;
 mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::{AnyRelayNumber, RelayChainState};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -190,9 +189,6 @@ pub type Migrations = (
 	pallet_beefy_consensus_proofs::migrations::ClearSp1VkeyHash<Runtime>,
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
-	// One-shot: reset DMP/HRMP processing cursors for the Paseo relay-chain migration.
-	// Remove once the new relay has stabilized. See `migrations::ResetDownwardMessageState`.
-	migrations::ResetDownwardMessageState,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -255,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_601,
+	spec_version: 7_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -473,11 +469,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type ReservedDmpWeight = ReservedDmpWeight;
 	type XcmpMessageHandler = XcmpQueue;
 	type ReservedXcmpWeight = ReservedXcmpWeight;
-	// Temporarily relaxed for the Paseo relay-chain migration: the new relay restarts block
-	// numbering below values this parachain has already observed, which `RelayNumberMonotonically-
-	// Increases` would reject, halting block production. Revert to `RelayNumberMonotonicallyIncreases`
-	// once the new relay has stabilized. See `migrations::ResetDownwardMessageState`.
-	type CheckAssociatedRelayNumber = AnyRelayNumber;
+	type CheckAssociatedRelayNumber = RelayNumberMonotonicallyIncreases;
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;

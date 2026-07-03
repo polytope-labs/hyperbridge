@@ -64,12 +64,12 @@ abstract contract IntentsBase is EIP712 {
         hex"0000000000000000000000000000000000000000000000000000000000000002";
 
     /**
-     * @dev Big-endian encoding of storage slot 12 (the `_partialFills` mapping slot).
+     * @dev Big-endian encoding of storage slot 11 (the `_partialFills` mapping slot).
      * Used to construct storage proof keys for cross-chain partial-fill cancel verification.
      * Asserted against the compiled storage layout in the test suite to catch layout drift.
      */
     bytes32 constant PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES =
-        hex"000000000000000000000000000000000000000000000000000000000000000c";
+        hex"000000000000000000000000000000000000000000000000000000000000000b";
 
     /**
      * @dev Discriminator for cross-chain request types dispatched via Hyperbridge.
@@ -97,6 +97,10 @@ abstract contract IntentsBase is EIP712 {
          */
         RefundEscrow,
         /**
+         * @dev Upgrade the gateway implementation behind its ERC-1967 proxy.
+         */
+        UpgradeContract,
+        /**
          * @dev Release a proportional slice of escrowed tokens to the solver after a
          * cross-chain partial fill, without finalizing the order. The completing fill
          * uses `RedeemEscrow` (which finalizes and forwards accumulated fees).
@@ -123,12 +127,6 @@ abstract contract IntentsBase is EIP712 {
     Params internal _params;
 
     /**
-     * @dev One-time admin address set in the constructor. Has permission to call
-     * `setParams` exactly once, after which it is burned to address(0).
-     */
-    address internal _admin;
-
-    /**
      * @dev Maps (commitment, token address) to the escrowed amount for that token.
      * Decremented as tokens are released via fills or refunds.
      */
@@ -151,6 +149,9 @@ abstract contract IntentsBase is EIP712 {
      * override in basis points. If zero, the global `_params.protocolFeeBps` is used.
      */
     mapping(bytes32 => uint256) public _destinationProtocolFees;
+
+    /// @dev Appended last to preserve existing storage slots.
+    bool public _paused;
 
     /**
      * @dev Thrown when the caller is not authorized to perform the action.
@@ -329,8 +330,7 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev Resolves the IntentGateway instance address for a given state machine.
-     * Falls back to `address(this)` if no remote deployment has been registered,
-     * meaning this contract is the canonical gateway for that chain.
+     * Reverts with `UnknownInstance` if no remote deployment has been registered for that chain.
      * @param stateMachineId The raw state machine identifier bytes.
      * @return The gateway address for the given state machine.
      */

@@ -393,9 +393,43 @@ export class StableFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Sources each output token from the solver's wallet, topping up shortfalls
-	 * via funding venues (e.g. an ERC-4626 vault `withdraw`). When a venue can only
-	 * partially cover the deficit, the competitive output is reduced to the
+	 * Quotes fill outputs for a phantom order using the bps policy, without gas estimation.
+	 * Returns null when this strategy does not support the order's token pair.
+	 */
+	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
+		if (!(await this.canFill(order))) return null
+
+		const basisPoints = 10000n
+		const inputUsdValue = await this.contractService.getInputUsdValue(order)
+		const fillerBps = this.bpsPolicy.getBps(inputUsdValue)
+		const outputs: TokenInfo[] = []
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const input = order.inputs[i]
+			const output = order.output.assets[i]
+
+			const [inputDecimals, outputDecimals] = await Promise.all([
+				this.contractService.getTokenDecimals(input.token, order.source),
+				this.contractService.getTokenDecimals(output.token, order.destination),
+			])
+
+			const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
+			const bpsOutput = (convertedInput * (basisPoints - fillerBps)) / basisPoints
+			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+
+			outputs.push({ token: output.token, amount: bpsOutput > overfillCeiling ? overfillCeiling : bpsOutput })
+		}
+
+		this.contractService.cacheService.setFillerOutputs(order.id!, outputs)
+		return outputs
+	}
+
+	/**
+	 * Sources each output token from the solver's wallet (above the venue reserve
+	 * floor), topping up shortfalls via funding venues (e.g. an ERC-4626 vault
+	 * `withdraw`). Without venues the wallet balance alone is the budget, so the
+	 * fill is never sized beyond what the solver can actually transfer. When the
+	 * sourceable amount falls short, the competitive output is reduced to the
 	 * coverable amount. Same-chain legs are never reduced below the user's requested
 	 * minimum; cross-chain legs may be reduced to a partial slice of the remainder,
 	 * with profitability deciding whether the slice is worth filling. The venue
@@ -424,22 +458,32 @@ export class StableFiller implements FillerStrategy {
 			// Leg already fully filled by other solvers
 			if (out.amount === 0n) continue
 
-			let available = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
-			if (available >= out.amount) {
-				balanceCache.set(tokenLower, available - out.amount)
-				continue
-			}
+			const walletBalance = await this.getAndCacheBalance(tokenLower, solver, destClient, balanceCache)
 
-			let deficit = out.amount - available
+			// Wallet floor reserved for gas/paymaster (the vault minBalance) — never filled from.
+			let reserve = 0n
 			for (const venue of this.fundingVenues) {
-				if (deficit <= 0n) break
-				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, deficit)
+				reserve += venue.walletReserveForToken(order.destination, tokenLower)
+			}
+			const usableWallet = walletBalance > reserve ? walletBalance - reserve : 0n
+
+			// Spend the free wallet balance (above the reserve) first, then source any
+			// remaining shortfall from the funding venues (the vault).
+			const walletContribution = out.amount < usableWallet ? out.amount : usableWallet
+
+			let credited = 0n
+			let needed = out.amount - walletContribution
+			for (const venue of this.fundingVenues) {
+				if (needed <= 0n) break
+				const planned = await venue.planWithdrawalForToken(order.destination, solver, tokenLower, needed)
 				if (planned.calls.length > 0) {
 					fundingCalls.push(...planned.calls)
-					available += planned.credited
-					deficit -= planned.credited
+					credited += planned.credited
+					needed -= planned.credited
 				}
 			}
+
+			const available = walletContribution + credited
 
 			const effectiveOutput = out.amount < available ? out.amount : available
 			if (!isCrossChain && effectiveOutput < userMin) {
@@ -469,7 +513,9 @@ export class StableFiller implements FillerStrategy {
 				)
 				out.amount = effectiveOutput
 			}
-			balanceCache.set(tokenLower, available - effectiveOutput)
+			// Decrement the wallet pool by what this leg drew from it (vault-sourced tokens
+			// are tracked by the venue's own reservations) so repeated outputs share one pool.
+			balanceCache.set(tokenLower, walletBalance - walletContribution)
 		}
 
 		if (isCrossChain && fillerOutputs.every((o) => o.amount === 0n)) {

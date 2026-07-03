@@ -81,6 +81,49 @@ askPriceCurve = [
 "EVM-137" = "0xExoticTokenAddressOnPolygon"
 ```
 
+#### One-sided LP
+
+With both curves set HyperFX fills in both directions. Omitting one curve restricts the filler to a single direction, so it keeps accumulating one asset while only giving away the other:
+
+- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* exotic, filling orders where the user sends stable and receives exotic. It accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the filler only *buys* exotic, filling orders where the user sends exotic and receives stable. It accumulates the exotic token and gives away the stablecoin.
+
+Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+# Ask curve only — keep accumulating USDC by only selling cNGN
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+
+[strategies.token1]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+```
+
+When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[strategies.vault.uniswapV4]` block instead — `"ask"` to only sell exotic (accumulate stablecoins) or `"bid"` to only buy exotic. Omit `side` to fill both directions. `side` cannot be combined with static curves.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+side = "ask"  # only sell exotic; keep accumulating stablecoins
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```
+
 
 #### Uniswap V4 LP funding
 
@@ -138,6 +181,27 @@ positions = [
 <Callout type="info">
 Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.vault.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
 </Callout>
+
+#### Uniswap price guards
+
+Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. To bound that risk, give a position a **`referencePrice`** and **`maxDeviationBps`**. Whenever the pool quote on that chain drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
+
+`referencePrice` is expressed in **exotic tokens per USD**, the same units as the bid/ask curves. The two fields must be set together; omit both to leave the chain unguarded.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+positions = [
+    # referencePrice is the expected cNGN per USD; reject if the quote is more than 2% off
+    { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
+]
+```
 
 #### Example profit calculation
 

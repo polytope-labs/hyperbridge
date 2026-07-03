@@ -545,17 +545,17 @@ export function encodeWithdrawalRequest(order: Order | Order, beneficiary: HexSt
 }
 
 /**
- * Big-endian encoding of storage slot 12, the `_partialFills` mapping slot in IntentGatewayV2.
+ * Big-endian encoding of storage slot 11, the `_partialFills` mapping slot in IntentGatewayV2.
  * Kept in sync with `PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES` in `evm/src/apps/intentsv2/IntentsBase.sol`,
  * which asserts the slot index against the compiled storage layout in its test suite.
  */
 const PARTIAL_FILLS_SLOT_BIG_ENDIAN =
-	"0x000000000000000000000000000000000000000000000000000000000000000c" as HexString
+	"0x000000000000000000000000000000000000000000000000000000000000000b" as HexString
 
 /**
  * Computes the storage slot hash for `_partialFills[commitment][token]` on a remote IntentGatewayV2.
  *
- * `_partialFills` is a nested mapping at slot 12, so the key follows the standard Solidity
+ * `_partialFills` is a nested mapping at slot 11, so the key follows the standard Solidity
  * nested-mapping layout: `keccak256(token . keccak256(commitment . slot))`. This mirrors the
  * contract's `_calculatePartialFillSlotHash` exactly and is used to build GET storage-proof keys
  * for cross-chain partial-fill cancel verification. Computed off-chain because the contract exposes

@@ -44,6 +44,9 @@ env:
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
     SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
     POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
+    # Live endpoints for the BEEFY consensus-proof simtest; override via repo secrets.
+    RELAY_WS_URL: ${{ secrets.RELAY_WS_URL || 'wss://paseo.dotters.network' }}
+    PARA_WS_URL: ${{ secrets.PARA_WS_URL || 'wss://gargantua.rpc.polytope.technology' }}
     WASM_BINDGEN_TEST_TIMEOUT: 5400
     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
@@ -489,13 +492,48 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            # Authenticate to Docker Hub so the many images Kurtosis/ethereum-package pull are
+            # not subject to the anonymous per-IP rate limit (shared across GitHub runners),
+            # which otherwise surfaces as image-pull timeouts during `kurtosis engine start`.
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+            - name: Install Kurtosis
+              run: |
+                  # The legacy Gemfury apt repo only serves old Kurtosis (<=1.15.x), which cannot
+                  # run current ethereum-package (it uses the newer GpuConfig Starlark API). Install
+                  # a pinned modern release directly from the official release artifacts instead.
+                  KURTOSIS_VERSION=1.20.0
+                  curl -fsSL -o /tmp/kurtosis-cli.deb \
+                    "https://github.com/kurtosis-tech/kurtosis-cli-release-artifacts/releases/download/${KURTOSIS_VERSION}/kurtosis-cli_${KURTOSIS_VERSION}_linux_amd64.deb"
+                  sudo dpkg -i /tmp/kurtosis-cli.deb
+                  kurtosis version
 
             - name: Setup Eth POS Devnet
               run: |
-                  git clone --branch david/electra https://github.com/polytope-labs/eth-pos-devnet.git
-                  DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker compose -f ./eth-pos-devnet/docker-compose.yml up -d
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 3500
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 8545
+                  # Pin ethereum-package to a known-good commit so the devnet (and its
+                  # genesis_validators_root, which KurtosisDevnet hardcodes) stays reproducible.
+                  ETH_PKG=github.com/ethpandaops/ethereum-package@d4bd739b78565ca5a9768461a59ad59942e4e941
+
+                  # Image pulls can still time out transiently; retry a few times before failing.
+                  for i in 1 2 3; do
+                    kurtosis engine start && break
+                    [ "$i" = 3 ] && { echo "kurtosis engine start failed after 3 attempts"; exit 1; }
+                    echo "engine start attempt $i failed; retrying in 15s"; sleep 15
+                  done
+
+                  for i in 1 2 3; do
+                    kurtosis run "$ETH_PKG" --args-file ./sync-committee-devnet.yaml --enclave sync-committee-devnet && break
+                    [ "$i" = 3 ] && { echo "kurtosis run failed after 3 attempts"; exit 1; }
+                    echo "devnet run attempt $i failed; cleaning up and retrying in 15s"
+                    kurtosis enclave rm -f sync-committee-devnet || true
+                    sleep 15
+                  done
+
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 53001
 
             - name: Run Sync Committee Tests
               run: |
@@ -504,8 +542,8 @@ jobs:
             - name: Cleanup
               if: always()
               run: |
-                  docker-compose -f ./eth-pos-devnet/docker-compose.yml down || true
-                  sudo rm -rf ./eth-pos-devnet
+                  kurtosis enclave rm -f sync-committee-devnet || true
+                  kurtosis engine stop || true
 
     bsc-tests:
         name: Binance Smart Chain Tests

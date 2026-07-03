@@ -155,4 +155,32 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
             .saturating_add(T::DbWeight::get().reads(7_u64))
             .saturating_add(T::DbWeight::get().writes(4_u64))
     }
+    /// Storage: `Gateways` (r:1 w:0)
+    /// Proof: `Gateways` (`max_values`: None, `max_size`: None, mode: `Measured`)
+    fn upgrade_gateway() -> Weight {
+        // Estimated from the `update_token_decimals` dispatch profile (gateway read + cross-chain dispatch).
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
+    /// Storage: `IntentsCoprocessor::PhantomOrderConfig` (r:0 w:1)
+    /// Proof: `IntentsCoprocessor::PhantomOrderConfig` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+    /// Storage: `IntentsCoprocessor::CurrentPhantomOrder` (r:0 w:1)
+    /// Proof: `IntentsCoprocessor::CurrentPhantomOrder` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+    fn set_phantom_order_config() -> Weight {
+        // Proof Size summary in bytes:
+        //  Measured:  `0`
+        //  Estimated: `0`
+        // Minimum execution time: 10_049_000 picoseconds.
+        Weight::from_parts(10_340_000, 0).saturating_add(T::DbWeight::get().writes(2_u64))
+    }
+    /// Storage: `IntentsCoprocessor::PhantomBidWindow` (r:0 w:1)
+    /// Proof: `IntentsCoprocessor::PhantomBidWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+    fn set_phantom_bid_window() -> Weight {
+        // Proof Size summary in bytes:
+        //  Measured:  `0`
+        //  Estimated: `0`
+        // Minimum execution time: 8_226_000 picoseconds.
+        Weight::from_parts(8_446_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
+    }
 }

@@ -21,6 +21,8 @@ export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSw
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
+export { handlePhantomOrderRegistered } from "@/handlers/events/substrateChains/handlePhantomOrderRegistered.handler"
+export { handlePhantomOrderPrices } from "@/handlers/events/substrateChains/handlePhantomOrderPrices.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
 export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/handleRequestEvent.handler"
 export { handleSubstrateResponseEvent } from "@/handlers/events/substrateChains/handleResponseEvent.handler"
@@ -35,6 +37,11 @@ export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handle
 // Pending Status Flush Handler
 export { handlePendingStatusFlush } from "@/handlers/events/pendingStatus/handlePendingStatusFlush.event.handler"
 export { handlePendingStatusFlushEvm } from "@/handlers/events/pendingStatus/handlePendingStatusFlushEvm.event.handler"
+
+// Yield Vault Handlers
+export { handleVaultDepositEvent } from "@/handlers/events/yieldVault/deposit.event.handler"
+export { handleVaultWithdrawEvent } from "@/handlers/events/yieldVault/withdraw.event.handler"
+export { handleVaultSnapshotIndexing } from "@/handlers/events/yieldVault/snapshot.block.handler"
 
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"
 export { handleFeeRewardedEvent } from "@/handlers/events/incentives/feeRewarded.event.handler"

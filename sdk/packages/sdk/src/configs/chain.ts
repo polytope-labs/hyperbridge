@@ -113,6 +113,15 @@ export const tronNile = defineChain({
 // Known Tron chain IDs (mainnet + Nile testnet)
 export const tronChainIds = new Set([728126428, 3448148188])
 
+export type ConfiguredAssetSymbol = "WETH" | "DAI" | "USDC" | "USDT" | "cNGN" | "EXT"
+
+export interface UniswapV4PoolConfigData {
+	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
+	fee: number
+	tickSpacing: number
+	hooks?: `0x${string}`
+}
+
 export interface ChainConfigData {
 	chainId: number
 	stateMachineId: Chains
@@ -172,6 +181,7 @@ export interface ChainConfigData {
 	consensusStateId: string
 	coingeckoId: string
 	popularTokens?: string[]
+	uniswapV4Pools?: UniswapV4PoolConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
 	layerZeroEid?: number
 }
@@ -198,9 +208,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: { balanceSlot: 151, allowanceSlot: 152 },
 		},
 		addresses: {
-			IntentGateway: "0xE13fB34CAe12505ae51BaC8C405AF8EB27AC8058",
+			IntentGateway: "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			UniswapRouter02: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
 			UniswapV2Factory: "0x12e036669DA18F4A2777853d6e2136b32AceEC86",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -208,7 +218,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x0b5cfBc16ef60AD6930ba5A90Bb09475B7BF3815",
+			SolverAccount: "0x07FeC66d967800998060194EaECDd7C66dA4a1B1",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -239,7 +249,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
 			UniswapRouter02: "0x0000000000000000000000000000000000000000",
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -278,7 +288,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			UniswapRouter02: "0x0000000000000000000000000000000000000000",
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
@@ -315,8 +325,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -370,8 +380,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
@@ -426,8 +436,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -483,8 +493,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -508,6 +518,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "base",
 		layerZeroEid: 30184,
+		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
 		popularTokens: [
 			"0x4200000000000000000000000000000000000006",
 			"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -541,8 +552,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
@@ -622,13 +633,13 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
 		},
 		addresses: {
-			IntentGateway: "0xE13fB34CAe12505ae51BaC8C405AF8EB27AC8058",
+			IntentGateway: "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SolverAccount: "0x0b5cfBc16ef60AD6930ba5A90Bb09475B7BF3815",
+			SolverAccount: "0x07FeC66d967800998060194EaECDd7C66dA4a1B1",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
@@ -651,8 +662,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
@@ -685,8 +696,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			UniswapRouter02: "0xB2e26652e4BAd1e56055A051f922E06760cA0BFE", // Mocked
@@ -741,7 +752,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
@@ -765,7 +776,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia.optimism.io",
@@ -789,7 +800,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://sepolia.base.org",
@@ -814,7 +825,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x606ba811aa6cb424ce2108e8977c5284686f0d1f",
 			TokenGateway: "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		defaultRpcUrl: "https://testnet-asset-hub-eth-rpc.polkadot.io",
@@ -837,8 +848,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 		},
 		addresses: {
-			IntentGateway: "0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
-			SolverAccount: "0xB92A51A609e85f8316004a6da9feaB4421c01b43",
+			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			SolverAccount: "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
 			Host: "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			Calldispatcher: "0xE2C7e576E26E0bE7aC97c6fE925bcDAbD87c4bEd",
 		},
@@ -864,7 +875,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		wrappedNativeDecimals: 18,
 		addresses: {
 			TokenGateway: "0x451bDd8273839AD0Ec7F4Fa798E8B3DABb223fD8",
-			Host: "0xEB944071A9Bf22810757C5BcFf7a2aE9663a311D",
+			Host: "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			IntentGateway: "0xb8039832c6c9266F928d038eA49A8a169300C670",
 		},
 		consensusStateId: "PHAR",

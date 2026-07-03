@@ -250,7 +250,55 @@ export class GetRequestClient {
 	): Promise<RequestStatusWithMetadata | undefined> {
 		const sourceChain = this.ctx.config.source
 		const hyperbridge = this.ctx.config.hyperbridge
+		const { config } = hyperbridge
 
+		// Check for existing finality first. Hyperbridge runs a light client of itself
+		// (pallet-beefy-consensus-proofs), so if its self state-machine update already finalizes the
+		// response, deliver with a plain GetResponse proof — no consensus proof needed.
+		const finality = await this.queries.queryStateMachineUpdateByHeight({
+			statemachineId: config.stateMachineId,
+			height: hyperbridgeDelivered.metadata.blockNumber,
+			chain: config.stateMachineId,
+		})
+		if (finality) {
+			const proof = await hyperbridge.queryProof(
+				{ Responses: [response.commitment as HexString] },
+				request.source,
+				BigInt(finality.height),
+			)
+			const calldata = sourceChain.encode({
+				kind: "GetResponse",
+				proof: {
+					stateMachine: config.stateMachineId,
+					consensusStateId: config.consensusStateId,
+					proof,
+					height: BigInt(finality.height),
+				},
+				responses: [
+					{
+						get: request,
+						values: request.keys.map((key, index) => ({
+							key,
+							value: (response.values[index] as HexString) || "0x",
+						})),
+					},
+				],
+				signer: pad("0x"),
+			})
+			return {
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: finality.blockHash,
+					blockNumber: finality.height,
+					transactionHash: finality.transactionHash,
+					timestamp: finality.timestamp,
+					calldata,
+				},
+			}
+		}
+
+		// No existing finality. For an EVM source, advance its Hyperbridge light client and deliver in
+		// one batch (consensus proof + message proof).
 		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
 			const currentEpoch = await sourceChain.currentEpoch()
@@ -270,8 +318,8 @@ export class GetRequestClient {
 				kind: "BatchConsensusAndGetResponse",
 				consensusProofs: consensusResult.proofs,
 				proof: {
-					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
-					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+					stateMachine: config.stateMachineId,
+					consensusStateId: config.consensusStateId,
 					proof,
 					height: consensusResult.provenHeight,
 				},
@@ -300,50 +348,7 @@ export class GetRequestClient {
 			}
 		}
 
-		// Substrate source: use state machine update from indexer
-		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
-			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
-			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: request.source,
-		})
-		if (!hyperbridgeFinality) return undefined
-
-		const proof = await hyperbridge.queryProof(
-			{ Responses: [response.commitment as HexString] },
-			request.source,
-			BigInt(hyperbridgeFinality.height),
-		)
-
-		const calldata = sourceChain.encode({
-			kind: "GetResponse",
-			proof: {
-				stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
-				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
-				proof,
-				height: BigInt(hyperbridgeFinality.height),
-			},
-			responses: [
-				{
-					get: request,
-					values: request.keys.map((key, index) => ({
-						key,
-						value: (response.values[index] as HexString) || "0x",
-					})),
-				},
-			],
-			signer: pad("0x"),
-		})
-
-		return {
-			status: RequestStatus.HYPERBRIDGE_FINALIZED,
-			metadata: {
-				blockHash: hyperbridgeFinality.blockHash,
-				blockNumber: hyperbridgeFinality.height,
-				transactionHash: hyperbridgeFinality.transactionHash,
-				timestamp: hyperbridgeFinality.timestamp,
-				calldata,
-			},
-		}
+		return undefined
 	}
 
 	/**
@@ -365,7 +370,16 @@ export class GetRequestClient {
 		const stateMachineId = this.ctx.config.hyperbridge.config.stateMachineId
 		const neededHeight = BigInt(request.statuses[hyperbridgeDeliveredIndex].metadata.blockNumber)
 
-		if (sourceChain instanceof EvmChain) {
+		// Check for existing finality first (Hyperbridge's self state-machine update).
+		let finality = await this.queries.queryStateMachineUpdateByHeight({
+			statemachineId: stateMachineId,
+			height: Number(neededHeight),
+			chain: stateMachineId,
+		})
+
+		// No existing finality and the source is EVM: advance its Hyperbridge light client and deliver
+		// in one batch (consensus proof + message proof).
+		if (!finality && sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
 			const currentEpoch = await sourceChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
@@ -413,21 +427,24 @@ export class GetRequestClient {
 			}
 		}
 
-		// Substrate source: wait for state machine update
-		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
-			signal,
-			promise: () =>
-				this.queries.queryStateMachineUpdateByHeight({
-					statemachineId: stateMachineId,
-					height: Number(neededHeight),
-					chain: request.source,
-				}),
-		})
+		// Otherwise wait for Hyperbridge's
+		// self-finality then deliver with a plain GetResponse proof.
+		if (!finality) {
+			finality = await waitOrAbort(this.ctx, {
+				signal,
+				promise: () =>
+					this.queries.queryStateMachineUpdateByHeight({
+						statemachineId: stateMachineId,
+						height: Number(neededHeight),
+						chain: stateMachineId,
+					}),
+			})
+		}
 
 		const proof = await hyperbridge.queryProof(
 			{ Responses: [response?.commitment as HexString] },
 			request.source,
-			BigInt(hyperbridgeFinalized.height),
+			BigInt(finality.height),
 		)
 
 		const calldata = sourceChain.encode({
@@ -436,7 +453,7 @@ export class GetRequestClient {
 				stateMachine: stateMachineId,
 				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 				proof,
-				height: BigInt(hyperbridgeFinalized.height),
+				height: BigInt(finality.height),
 			},
 			responses: [
 				{
@@ -453,10 +470,10 @@ export class GetRequestClient {
 		return {
 			status: RequestStatus.HYPERBRIDGE_FINALIZED,
 			metadata: {
-				blockHash: hyperbridgeFinalized.blockHash,
-				blockNumber: hyperbridgeFinalized.height,
-				transactionHash: hyperbridgeFinalized.transactionHash,
-				timestamp: hyperbridgeFinalized.timestamp,
+				blockHash: finality.blockHash,
+				blockNumber: finality.height,
+				transactionHash: finality.transactionHash,
+				timestamp: finality.timestamp,
 				calldata,
 			},
 		}

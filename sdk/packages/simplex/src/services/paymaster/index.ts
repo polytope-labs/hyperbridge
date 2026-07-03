@@ -23,7 +23,7 @@ export function hasPaymaster(chain: string, configService: FillerConfigService):
  * 2. None — returns "0x" (caller falls back to EntryPoint deposit)
  */
 export async function buildPaymasterAndData(options: PaymasterOptions): Promise<PaymasterDataResult> {
-	const { chain, solverAccount, publicClient, signer, configService } = options
+	const { chain, solverAccount, publicClient, signer, configService, paymasterVerificationGasLimit } = options
 
 	const circleAddr = configService.getCirclePaymasterAddress(chain)
 	if (!circleAddr) {
@@ -42,7 +42,15 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 		return { paymasterAndData: "0x" as HexString, type: "none" }
 	}
 
-	const pm = await buildCirclePaymasterData(publicClient, signer, solverAccount, circleAddr, chain, configService)
+	const pm = await buildCirclePaymasterData(
+		publicClient,
+		signer,
+		solverAccount,
+		circleAddr,
+		chain,
+		configService,
+		paymasterVerificationGasLimit,
+	)
 	return {
 		paymasterAndData: packPaymasterAndData(pm),
 		type: "circle",

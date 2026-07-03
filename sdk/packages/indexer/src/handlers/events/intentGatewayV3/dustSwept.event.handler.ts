@@ -25,5 +25,5 @@ export const handleDustSweptEventV3 = wrap(async (event: DustSweptLog): Promise<
 		})}`,
 	)
 
-	await ProtocolRevenueService.recordDustSwept(token, BigInt(amount.toString()), timestamp)
+	await ProtocolRevenueService.recordDustSwept(chain, token, BigInt(amount.toString()), timestamp)
 })

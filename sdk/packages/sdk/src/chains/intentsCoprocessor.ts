@@ -3,13 +3,17 @@ import type { SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
-import { numberToBytes, bytesToBigInt } from "viem"
+import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
-import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid } from "@/types"
+import PQueue from "p-queue"
+import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, Order } from "@/types"
 import type { SubstrateChain } from "./substrate"
+import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
+/** Offchain storage key prefix for phantom orders */
+const OFFCHAIN_PHANTOM_PREFIX = new TextEncoder().encode("intents::phantom::order::")
 
 /** SCALE codec for Bid { filler: AccountId, user_op: Vec<u8> } */
 const BidCodec = Struct({ filler: Bytes(32), user_op: Vector(u8) })
@@ -82,6 +86,15 @@ interface RpcBidInfo {
 	user_op: HexString
 }
 
+export interface PhantomOrderEvent {
+	commitment: HexString
+	chain: string
+	createdAt: number
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+}
+
 /**
  * Service for interacting with Hyperbridge's pallet-intents coprocessor.
  * Handles bid submission and retrieval for the IntentGatewayV2 protocol.
@@ -91,6 +104,12 @@ interface RpcBidInfo {
 export class IntentsCoprocessor {
 	/** Cached result of whether the node exposes intents_* RPC methods */
 	private hasIntentsRpc: boolean | null = null
+
+	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
+	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
+	// (bids for orders on different chains, or several phantom orders in one interval) they would grab
+	// the same nonce and all but one would fail. Concurrency 1 sequences them.
+	private submissionQueue = new PQueue({ concurrency: 1 })
 
 	/**
 	 * Creates and connects an IntentsCoprocessor to a Hyperbridge node.
@@ -154,8 +173,8 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Creates a Substrate keypair from the configured private key
-	 * Supports both hex seed (without 0x prefix) and mnemonic phrases
+	 * Creates a Substrate keypair from the configured private key.
+	 * Supports hex seed (with or without 0x), mnemonic phrases, and URI derivation paths (//Alice).
 	 */
 	public getKeyPair(): KeyringPair {
 		if (!this.substratePrivateKey) {
@@ -164,6 +183,9 @@ export class IntentsCoprocessor {
 
 		const keyring = new Keyring({ type: "sr25519" })
 
+		if (this.substratePrivateKey.startsWith("//")) {
+			return keyring.addFromUri(this.substratePrivateKey)
+		}
 		if (this.substratePrivateKey.includes(" ")) {
 			return keyring.addFromMnemonic(this.substratePrivateKey)
 		}
@@ -175,13 +197,27 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Signs and sends an extrinsic, handling status updates and errors
-	 * Implements retry logic with progressive tip increases for stuck transactions
+	 * Signs and sends an extrinsic. Submissions are serialised through {@link submissionQueue} so
+	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
+	 * before the next is signed.
 	 */
 	private async signAndSendExtrinsic(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
+	): Promise<BidSubmissionResult> {
+		const result = await this.submissionQueue.add(() => this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs))
+		return result ?? { success: false, error: "Submission queue returned no result" }
+	}
+
+	/**
+	 * Signs and sends an extrinsic, handling status updates and errors.
+	 * Implements retry logic with progressive tip increases for stuck transactions.
+	 */
+	private async sendExtrinsicWithRetries(
+		extrinsic: SubmittableExtrinsic<"promise">,
+		maxRetries: number,
+		timeoutMs: number,
 	): Promise<BidSubmissionResult> {
 		const keyPair = this.getKeyPair()
 		let baseTip = 500_000_000_000n // 0.5 BRIDGE tip to increase priority
@@ -243,20 +279,70 @@ export class IntentsCoprocessor {
 				.signAndSend(keyPair, { tip }, (result) => {
 					if (resolved) return
 
-					if (result.status.isInBlock || result.status.isFinalized) {
+					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {
 						resolved = true
 						clearTimeout(timeoutId)
+						let errorMsg: string
+						if (result.dispatchError.isModule) {
+							const decoded = this.api.registry.findMetaError(result.dispatchError.asModule)
+							errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
+						} else {
+							errorMsg = `Dispatch error: ${result.dispatchError.toString()}`
+						}
 						resolve({
-							success: true,
-							blockHash: result.status.asInBlock.toHex() as HexString,
-							extrinsicHash: extrinsic.hash.toHex() as HexString,
+							success: false,
+							error: errorMsg,
 						})
-					} else if (result.dispatchError) {
+					} else if (
+						result.status.isDropped ||
+						result.status.isInvalid ||
+						result.status.isUsurped ||
+						result.status.isFinalityTimeout
+					) {
+						// Pool-level terminal statuses — don't retry, let caller decide
 						resolved = true
 						clearTimeout(timeoutId)
 						resolve({
 							success: false,
-							error: `Dispatch error: ${result.dispatchError.toString()}`,
+							error: `Transaction ${result.status.type.toLowerCase()}`,
+						})
+					} else if (result.status.isInBlock || result.status.isFinalized) {
+						resolved = true
+						clearTimeout(timeoutId)
+
+						// A utility.batch extrinsic is itself `Ok` even when one of its calls fails: the
+						// failure surfaces as a BatchInterrupted event, NOT a top-level dispatchError.
+						// BatchInterrupted { index, error } means calls [0, index) succeeded and the call
+						// at `index` failed (the rest are skipped). We order batches so the primary call
+						// is first, so an interruption at index 0 means nothing meaningful landed -> report
+						// failure. A later index means the primary call succeeded and only a trailing
+						// best-effort call (e.g. a deposit retraction) was skipped, which is still success.
+						const interrupted = result.events.find(
+							({ event }) => event.section === "utility" && event.method === "BatchInterrupted",
+						)
+						if (interrupted) {
+							// eslint-disable-next-line @typescript-eslint/no-explicit-any
+							const [indexCodec, dispatchError] = interrupted.event.data as any
+							if (Number(indexCodec.toString()) === 0) {
+								let errorMsg: string
+								if (dispatchError?.isModule) {
+									const decoded = this.api.registry.findMetaError(dispatchError.asModule)
+									errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
+								} else {
+									errorMsg = `Dispatch error: batch interrupted (${dispatchError?.toString()})`
+								}
+								resolve({ success: false, error: errorMsg })
+								return
+							}
+						}
+
+						resolve({
+							success: true,
+							blockHash: (result.status.isInBlock
+								? result.status.asInBlock
+								: result.status.asFinalized
+							).toHex() as HexString,
+							extrinsicHash: extrinsic.hash.toHex() as HexString,
 						})
 					}
 				})
@@ -308,6 +394,45 @@ export class IntentsCoprocessor {
 		try {
 			const extrinsic = this.api.tx.intentsCoprocessor.retractBid(commitment)
 			return await this.signAndSendExtrinsic(extrinsic)
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			}
+		}
+	}
+
+	/**
+	 * Places a new bid and retracts a previous one in a single transaction via utility.batch.
+	 *
+	 * The new bid is the primary operation, so `placeBid` MUST run first. `utility.batch` is
+	 * non-atomic: a failing call interrupts the batch (via a BatchInterrupted event) without
+	 * reverting the calls that already succeeded. Placing first guarantees the new bid lands even
+	 * when the retraction then fails — which it routinely does, because a previous commitment's bid
+	 * may already be gone (or was itself never placed), making `retractBid` return `BidNotFound`.
+	 *
+	 * Ordering retraction first (the previous behaviour) caused a self-sustaining cascade: a
+	 * `BidNotFound` on the leading retract skipped the trailing `placeBid`, so the current bid never
+	 * landed, so the *next* interval's retract of that never-placed commitment also failed, and so
+	 * on — silently, because the batch extrinsic itself reports success. The deposit reclaim is
+	 * best-effort; landing the bid is not.
+	 *
+	 * @param retractCommitment - The order commitment of the bid to retract (bytes32)
+	 * @param bidCommitment - The order commitment of the new bid (bytes32)
+	 * @param userOp - The encoded PackedUserOperation as hex string
+	 * @returns BidSubmissionResult with success status and block/extrinsic hash
+	 */
+	async submitBidWithRetraction(
+		retractCommitment: HexString,
+		bidCommitment: HexString,
+		userOp: HexString,
+	): Promise<BidSubmissionResult> {
+		try {
+			const batch = this.api.tx.utility.batch([
+				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
+				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
+			])
+			return await this.signAndSendExtrinsic(batch)
 		} catch (error) {
 			return {
 				success: false,
@@ -420,5 +545,88 @@ export class IntentsCoprocessor {
 	/** Builds offchain storage key: "intents::bid::" + commitment + filler */
 	private buildOffchainBidKey(commitment: HexString, filler: string): Uint8Array {
 		return u8aConcat(OFFCHAIN_BID_PREFIX, hexToU8a(commitment), decodeAddress(filler))
+	}
+
+	/**
+	 * Fetches the ABI-encoded phantom order from offchain storage and decodes it
+	 * into an `Order` object. The pallet writes the order bytes under the key
+	 * `intents::phantom::order::<commitment>` when it calls `on_initialize`.
+	 *
+	 * Returns `null` if the key is absent (e.g. the node is not an offchain worker
+	 * or the commitment has expired and been cleared).
+	 */
+	async fetchPhantomOrder(commitment: HexString): Promise<Order | null> {
+		const key = u8aConcat(OFFCHAIN_PHANTOM_PREFIX, hexToU8a(commitment))
+		const result = await this.api.rpc.offchain.localStorageGet("PERSISTENT", u8aToHex(key))
+		if (!result || result.isNone) return null
+
+		const rawHex = result.unwrap().toHex() as HexString
+		if (rawHex === "0x" || rawHex === "0x00") return null
+
+		const placeOrderAbi = (IntentGatewayV2.ABI as readonly { type: string; name?: string; inputs?: unknown[] }[]).find(
+			(item) => item.type === "function" && item.name === "placeOrder",
+		)
+		const orderType = placeOrderAbi?.inputs?.[0]
+		if (!orderType) return null
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const [decoded] = decodeAbiParameters([orderType as any], rawHex)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const d = decoded as any
+		const textDecoder = new TextDecoder()
+
+		return {
+			id: commitment,
+			user: d.user as HexString,
+			source: textDecoder.decode(hexToBytes(d.source as HexString)),
+			destination: textDecoder.decode(hexToBytes(d.destination as HexString)),
+			deadline: d.deadline as bigint,
+			nonce: d.nonce as bigint,
+			fees: d.fees as bigint,
+			session: d.session as HexString,
+			predispatch: {
+				assets: (d.predispatch.assets as { token: HexString; amount: bigint }[]).map((a) => ({
+					token: a.token,
+					amount: a.amount,
+				})),
+				call: d.predispatch.call as HexString,
+			},
+			inputs: (d.inputs as { token: HexString; amount: bigint }[]).map((i) => ({
+				token: i.token,
+				amount: i.amount,
+			})),
+			output: {
+				beneficiary: d.output.beneficiary as HexString,
+				assets: (d.output.assets as { token: HexString; amount: bigint }[]).map((a) => ({
+					token: a.token,
+					amount: a.amount,
+				})),
+				call: d.output.call as HexString,
+			},
+		}
+	}
+
+	/**
+	 * Subscribes to PhantomOrderRegistered events from the intents coprocessor pallet.
+	 * Calls the callback for each new phantom order as blocks arrive.
+	 * Returns an unsubscribe function to stop the subscription.
+	 */
+	async subscribePhantomOrders(callback: (event: PhantomOrderEvent) => void): Promise<() => void> {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const unsub = await (this.api.query.system.events as any)((records: any[]) => {
+			for (const { event } of records) {
+				if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
+				const [commitment, chain, createdAt, tokenA, tokenB, standardAmount] = event.data
+				callback({
+					commitment: commitment.toHex() as HexString,
+					chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
+					createdAt: createdAt.toNumber(),
+					tokenA: tokenA.toHex() as HexString,
+					tokenB: tokenB.toHex() as HexString,
+					standardAmount: BigInt(standardAmount.toString()),
+				})
+			}
+		})
+		return unsub as () => void
 	}
 }

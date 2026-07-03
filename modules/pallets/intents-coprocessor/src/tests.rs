@@ -25,7 +25,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::EnsureRoot;
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use ismp_testsuite::mocks::MockRouter;
 
 use polkadot_sdk::*;
@@ -136,12 +136,14 @@ impl pallet_ismp::Config for Test {
 
 parameter_types! {
 	pub const StorageDepositFee: Balance = 100;
+	pub const PhantomOrderBidWindowBlocks: u32 = 100;
 }
 
 impl pallet_intents::Config for Test {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = StorageDepositFee;
+	type PhantomOrderBidWindowBlocks = PhantomOrderBidWindowBlocks;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = ();
 }
@@ -470,6 +472,60 @@ fn update_params_fails_when_gateway_not_found() {
 }
 
 #[test]
+fn upgrade_gateway_works() {
+	new_test_ext().execute_with(|| {
+		let state_machine = StateMachine::Evm(1);
+		let gateway = H160::default();
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+
+		assert_ok!(Intents::add_deployment(RuntimeOrigin::root(), state_machine, gateway, params));
+
+		assert_ok!(Intents::upgrade_gateway(
+			RuntimeOrigin::root(),
+			state_machine,
+			H160::repeat_byte(0x42),
+			vec![0xDE, 0xAD],
+		));
+	});
+}
+
+#[test]
+fn upgrade_gateway_fails_when_gateway_not_found() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::upgrade_gateway(
+				RuntimeOrigin::root(),
+				StateMachine::Evm(1),
+				H160::repeat_byte(0x42),
+				vec![]
+			),
+			Error::<Test>::GatewayNotFound
+		);
+	});
+}
+
+#[test]
+fn upgrade_gateway_requires_governance_origin() {
+	new_test_ext().execute_with(|| {
+		// A signed (non-governance) origin must be rejected before any gateway lookup.
+		assert!(Intents::upgrade_gateway(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			StateMachine::Evm(1),
+			H160::repeat_byte(0x42),
+			vec![]
+		)
+		.is_err());
+	});
+}
+
+#[test]
 fn update_token_decimals_works() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
@@ -532,5 +588,70 @@ fn multiple_fillers_can_bid_on_same_order() {
 		// Verify both bids exist
 		assert!(Bids::<Test>::contains_key(&commitment, &filler1));
 		assert!(Bids::<Test>::contains_key(&commitment, &filler2));
+	});
+}
+
+fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
+	types::PhantomOrderConfiguration {
+		chain: StateMachineId { state_id: StateMachine::Evm(1), consensus_state_id: *b"ETH0" },
+		token_pairs: BoundedVec::try_from(vec![types::PhantomTokenPair {
+			token_a: H160::repeat_byte(1),
+			token_b: H160::repeat_byte(2),
+			standard_amount: 1_000_000,
+		}])
+		.unwrap(),
+		interval_blocks,
+	}
+}
+
+#[test]
+fn set_phantom_order_config_rejects_window_not_shorter_than_interval() {
+	new_test_ext().execute_with(|| {
+		// Default PhantomBidWindow is 0, so the effective window is the fallback constant (100).
+		// An interval equal to or below the window must be rejected.
+		assert_noop!(
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(100)),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+		assert_noop!(
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(50)),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+
+		// An interval strictly greater than the window is accepted.
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+
+		// interval_blocks == 0 means generate-once (no regeneration), so the invariant is vacuous.
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(0)));
+	});
+}
+
+#[test]
+fn set_phantom_bid_window_rejects_window_not_shorter_than_interval() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+
+		// A window equal to or above the active interval must be rejected.
+		assert_noop!(
+			Intents::set_phantom_bid_window(RuntimeOrigin::root(), 200),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+		assert_noop!(
+			Intents::set_phantom_bid_window(RuntimeOrigin::root(), 250),
+			Error::<Test>::PhantomBidWindowNotShorterThanInterval
+		);
+
+		// A window of 0 resolves to the fallback constant (100), which is < 200.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 0));
+		// An explicit window below the interval is accepted.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 50));
+	});
+}
+
+#[test]
+fn set_phantom_bid_window_allows_any_window_when_no_config() {
+	new_test_ext().execute_with(|| {
+		// With no active config there is no interval to violate.
+		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 1_000_000));
 	});
 }

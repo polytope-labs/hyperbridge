@@ -32,6 +32,7 @@ import {
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {RLPReader} from "@polytope-labs/solidity-merkle-trees/src/trie/ethereum/RLPReader.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 
 /**
@@ -358,6 +359,8 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      *   protocol fees. Only Hyperbridge may dispatch this request.
      * - SweepDust: Transfers accumulated protocol dust to a specified beneficiary.
      *   Only Hyperbridge may dispatch this request.
+     * - UpgradeContract: Points the ERC-1967 proxy at a new implementation, optionally
+     *   running migration calldata atomically. Only Hyperbridge may dispatch this request.
      *
      * @param incoming The incoming post request from Hyperbridge.
      */
@@ -385,6 +388,9 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             _updateParams(abi.decode(incoming.request.body[1:], (ParamsUpdate)));
         } else if (kind == RequestKind.SweepDust) {
             _sweepDust(abi.decode(incoming.request.body[1:], (SweepDust)));
+        } else if (kind == RequestKind.UpgradeContract) {
+            (address newImpl, bytes memory initData) = abi.decode(incoming.request.body[1:], (address, bytes));
+            ERC1967Utils.upgradeToAndCall(newImpl, initData);
         }
     }
 

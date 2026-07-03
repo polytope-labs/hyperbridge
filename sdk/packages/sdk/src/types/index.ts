@@ -729,10 +729,15 @@ export enum RequestKind {
 	RefundEscrow = 4,
 
 	/**
+	 * Identifies a request for upgrading the gateway implementation behind its ERC-1967 proxy
+	 */
+	UpgradeContract = 5,
+
+	/**
 	 * Identifies a request for releasing a proportional slice of escrowed tokens to a
 	 * solver after a cross-chain partial fill, without finalizing the order.
 	 */
-	RedeemEscrowPartial = 5,
+	RedeemEscrowPartial = 6,
 }
 
 /**
@@ -945,6 +950,11 @@ export interface DispatchGet {
 	 * Context for the request
 	 */
 	context: HexString
+
+	/**
+	 * Who pays for this request?
+	 */
+	payer: HexString
 }
 
 export interface StateMachineHeight {

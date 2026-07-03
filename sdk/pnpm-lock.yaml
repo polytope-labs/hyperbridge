@@ -73,6 +73,9 @@ importers:
       '@ethersproject/shims':
         specifier: ^5.7.0
         version: 5.8.0
+      '@hyperbridge/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@open-web3/orml-type-definitions':
         specifier: ^2.0.1
         version: 2.0.1
@@ -261,6 +264,9 @@ importers:
       lodash-es:
         specifier: ^4.17.15
         version: 4.18.1
+      p-queue:
+        specifier: ^8.1.0
+        version: 8.1.1
       rpc-websocket-client:
         specifier: ^1.1.4
         version: 1.1.4(bufferutil@4.1.0)(utf-8-validate@5.0.10)

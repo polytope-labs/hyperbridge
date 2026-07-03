@@ -548,7 +548,7 @@ export const HyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -599,7 +599,7 @@ export const HyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -640,6 +640,11 @@ export const HyperFungibleTokenABI = [
 						type: "bytes",
 						internalType: "bytes",
 					},
+					{
+						name: "payer",
+						type: "address",
+						internalType: "address",
+					},
 				],
 			},
 		],
@@ -650,7 +655,7 @@ export const HyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -1670,7 +1675,7 @@ export const WrappedHyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -1721,7 +1726,7 @@ export const WrappedHyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",
@@ -1762,6 +1767,11 @@ export const WrappedHyperFungibleTokenABI = [
 						type: "bytes",
 						internalType: "bytes",
 					},
+					{
+						name: "payer",
+						type: "address",
+						internalType: "address",
+					},
 				],
 			},
 		],
@@ -1772,7 +1782,7 @@ export const WrappedHyperFungibleTokenABI = [
 				internalType: "uint256",
 			},
 		],
-		stateMutability: "view",
+		stateMutability: "nonpayable",
 	},
 	{
 		type: "function",

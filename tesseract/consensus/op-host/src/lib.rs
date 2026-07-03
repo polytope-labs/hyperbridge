@@ -146,14 +146,13 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 /// contract layouts exactly so filtered games are precisely those that `verify_not_challenged`
 /// would reject.
 pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives::U256) -> bool {
-	const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
 	match kind {
 		DisputeGameImpl::OPSuccinct => false,
 		DisputeGameImpl::FaultDisputeGame => {
-			// claimData[0] packs (uint32 parentIndex, address counteredBy, ...) with
-			// counteredBy at bytes [8..28] of the 32-byte word viewed big-endian.
-			let bytes = slot_value.to_be_bytes::<32>();
-			&bytes[8..28] != ZERO_ADDRESS.as_slice()
+			// `claimData` is a dynamic array; its slot stores the element count. An unchallenged
+			// game holds exactly the root claim (length 1); every `move()` appends an entry. So
+			// the game is challenged iff `claimData.length != 1`.
+			slot_value != alloy::primitives::U256::from(1)
 		},
 		// `counteredByIntermediateRootIndexPlusOne == 0` iff unchallenged.
 		DisputeGameImpl::AggregateVerifier => !slot_value.is_zero(),
@@ -166,10 +165,11 @@ pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
 	match kind {
 		DisputeGameImpl::OPSuccinct => Vec::new(),
 		DisputeGameImpl::FaultDisputeGame => {
-			// claimData[0] lives at keccak256(abi.encode(claimDataSlot)).
-			let slot = U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian();
-			let hash = keccak_256(&slot);
-			vec![B256::from_slice(&hash)]
+			// `claimData.length` lives directly in the array's declaration slot (dynamic arrays
+			// store their element count in the slot itself).
+			let mut key = [0u8; 32];
+			key[24..].copy_from_slice(&FAULT_DISPUTE_CLAIM_DATA_SLOT.to_be_bytes());
+			vec![B256::from_slice(&key)]
 		},
 		DisputeGameImpl::AggregateVerifier => {
 			let mut key = [0u8; 32];

@@ -1,6 +1,5 @@
 import { GetRequestV2, GetRequestStatusMetadata, PendingStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
-import { solidityKeccak256 } from "ethers/lib/utils"
 import { timestampToDate } from "@/utils/date.helpers"
 
 const ENTITY_TYPE = "GetRequestV2"
@@ -233,18 +232,18 @@ export class GetRequestService {
 			})}`,
 		)
 
-		let keysEncoding = "0x".concat(keys.map((key) => key.slice(2)).join(""))
-
-		// Convert strings to bytes
+		// Convert source/dest from state-machine strings ("EVM-11155111" etc.) to bytes.
 		const sourceBytes = ethers.utils.toUtf8Bytes(source)
 		const destBytes = ethers.utils.toUtf8Bytes(dest)
 
-		// Pack the data in the same order as the Solidity code
-		const hash = solidityKeccak256(
-			["bytes", "bytes", "uint64", "uint64", "uint64", "bytes", "bytes", "bytes"],
-			[sourceBytes, destBytes, nonce, height, timeoutTimestamp, from, keysEncoding, context],
+		// Mirror the EVM host's commitment: keccak256(abi.encode(GetRequest)), with the
+		// outer tuple wrapper. Field order/types match the GetRequest struct in
+		// core/libraries/Message.sol: source, dest, nonce, from, timeoutTimestamp, keys, height, context.
+		const encoded = ethers.utils.defaultAbiCoder.encode(
+			["tuple(bytes,bytes,uint64,bytes,uint64,bytes[],uint64,bytes)"],
+			[[sourceBytes, destBytes, nonce, from, timeoutTimestamp, keys, height, context]],
 		)
 
-		return hash
+		return ethers.utils.keccak256(encoded)
 	}
 }

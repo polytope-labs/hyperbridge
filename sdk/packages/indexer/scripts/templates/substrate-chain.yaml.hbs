@@ -77,6 +77,16 @@ dataSources:
           kind: substrate/BlockHandler
           filter:
             modulo: 10 # Indexings 1 block every minute (6 seconds per block indexing).
+        - handler: handlePhantomOrderRegistered
+          kind: substrate/EventHandler
+          filter:
+            module: intentsCoprocessor
+            method: PhantomOrderRegistered
+        - handler: handlePhantomOrderPrices
+          kind: substrate/EventHandler
+          filter:
+            module: intentsCoprocessor
+            method: PhantomBidWindowExhausted
 {{/if}}
         - handler: handlePendingStatusFlush
           kind: substrate/BlockHandler

@@ -35,6 +35,13 @@ import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
+import {
+	type IntentQuoteStrategyHandler,
+	type QuoteIntentParams,
+	type QuoteIntentResult,
+	UniswapV4IntentQuoteStrategy,
+	UnsupportedIntentQuoteStrategyError,
+} from "./quote"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
 
@@ -43,6 +50,8 @@ import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/
  *
  * `IntentGateway` orchestrates the complete lifecycle of an intent-based
  * cross-chain swap:
+ * - **Quoting** — prices the order's input/output amounts via the configured
+ *   quote strategies (currently Uniswap V4) before order construction.
  * - **Order placement** — encodes and yields `placeOrder` calldata; caller
  *   signs and submits the transaction.
  * - **Order execution** — polls the Hyperbridge coprocessor for solver bids,
@@ -85,6 +94,8 @@ export class IntentGateway {
 	private readonly bidManager: BidManager
 	/** Estimates gas costs for filling an order and converts them to fee-token amounts. */
 	private readonly gasEstimator: GasEstimator
+	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
+	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -133,6 +144,9 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
+		this.quoteStrategies = {
+			uniswap_v4: new UniswapV4IntentQuoteStrategy(dest.configService),
+		}
 	}
 
 	/**
@@ -184,6 +198,35 @@ export class IntentGateway {
 				// Ignore
 			}
 		}
+	}
+
+	/**
+	 * Quotes an intent between this gateway's source and destination chains.
+	 *
+	 * `strategy` defaults to `uniswap_v4`, currently the only supported
+	 * strategy. Provide exactly one of `amountIn` or `amountOut`.
+	 *
+	 * The Uniswap quote strategy always prices against the configured Base
+	 * pool, regardless of this gateway's destination chain. Returned
+	 * `amountIn`/`amountOut` already account for the gateway's protocol fee
+	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order
+	 * inputs; apply only your own slippage tolerance before placing the order.
+	 *
+	 * @param params - Token pair, amount, and optional strategy/pool overrides.
+	 * @returns The quoted amounts plus strategy-specific metadata.
+	 * @throws {UnsupportedIntentQuoteStrategyError} For unknown strategies.
+	 * @throws {UnsupportedIntentQuotePairError} When no pool is configured for the pair.
+	 */
+	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult> {
+		const strategy = params.strategy ?? "uniswap_v4"
+		const handler = this.quoteStrategies[strategy]
+		if (!handler) throw new UnsupportedIntentQuoteStrategyError(strategy)
+
+		return handler.quote(
+			{ ...params, strategy },
+			{ stateMachineId: this.source.config.stateMachineId, client: this.source.client },
+			{ stateMachineId: this.dest.config.stateMachineId, client: this.dest.client },
+		)
 	}
 
 	/**

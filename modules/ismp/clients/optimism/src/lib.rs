@@ -48,11 +48,14 @@ pub const GAME_IMPLS_SLOT: u64 = 101;
 /// Slot for the l2Outputs array in the L2Oracle contract
 pub const L2_OUTPUTS_SLOT: u64 = 3;
 
-/// Slot of `claimData[]` inside a FaultDisputeGame proxy. Offset 4 bytes into element 0 is
-/// `counteredBy`. Matches the FaultDisputeGame implementation currently deployed across the
-/// Superchain (mainnet impl `0x6dDBa0…7499`) where `createdAt`/`resolvedAt`/`status` and
-/// assorted flags pack into slot 0 and `l2BlockNumberChallenger` takes slot 1, leaving
-/// `claimData` at slot 2.
+/// Slot of the `claimData[]` dynamic array inside a FaultDisputeGame proxy. For a dynamic array
+/// Solidity stores the element count in this slot itself (the elements live at
+/// `keccak256(slot)`). A freshly created, unchallenged game holds exactly one entry — the root
+/// claim appended in `initialize()` — and every `move()` appends another, so `claimData.length`
+/// reads `1` iff the game is unchallenged. Matches the FaultDisputeGame implementation currently
+/// deployed across the Superchain (mainnet impl `0x6dDBa0…7499`) where
+/// `createdAt`/`resolvedAt`/`status` and assorted flags pack into slot 0 and
+/// `l2BlockNumberChallenger` takes slot 1, leaving `claimData` at slot 2.
 pub const FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 2;
 
 /// Slot of `counteredByIntermediateRootIndexPlusOne` inside Base's AggregateVerifier.
@@ -74,7 +77,8 @@ pub enum DisputeGameImpl {
 	/// Succinct's `OPSuccinctDisputeGame` — no challenge mechanism, unchallenged by construction.
 	OPSuccinct,
 	/// Optimism's `FaultDisputeGame` (and the inheriting `PermissionedDisputeGame`). Unchallenged
-	/// when `claimData[0].counteredBy == address(0)`.
+	/// when `claimData.length == 1` — i.e. only the root claim has been registered and no `move()`
+	/// (attack or defense) has appended a counter-claim.
 	FaultDisputeGame,
 	/// Base's multiproof `AggregateVerifier`. Unchallenged when
 	/// `counteredByIntermediateRootIndexPlusOne == 0`.
@@ -424,18 +428,17 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 
 	match kind {
 		DisputeGameImpl::FaultDisputeGame => {
-			// claimData[0] is at keccak256(abi.encode(claimDataSlot)). The first 32-byte word
-			// holds `parentIndex (uint32)` at struct offset 0 and `counteredBy (address)` at
-			// offset 4. Viewed as a big-endian byte array, parentIndex occupies word[28..32]
-			// and counteredBy occupies word[8..28]. Absence is invalid here — a registered
-			// game must have written its root claim.
+			// `claimData` is a dynamic `ClaimData[]` at `FAULT_DISPUTE_CLAIM_DATA_SLOT`. Solidity
+			// stores a dynamic array's element count in the slot itself (the elements live at
+			// `keccak256(slot)`). A freshly created, unchallenged game holds exactly one entry —
+			// the root claim appended in `initialize()` — and every `move()` (attack or defense)
+			// appends another. So `claimData.length == 1` iff the game has not been challenged.
+			// Any other length (including absence, i.e. length 0 for a game that never registered
+			// its root claim) is rejected.
 			//
-			// The MPT trie path for a storage slot is `keccak256(storage_key)`, so we hash
-			// once more here: the storage key for the array's first element is itself a
-			// keccak256 of the slot number.
-			let storage_key =
-				H::keccak256(&U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian());
-			let trie_path = H::keccak256(&storage_key.0);
+			// The MPT trie path for a direct storage slot is `keccak256(slot)`.
+			let storage_key = U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian();
+			let trie_path = H::keccak256(&storage_key);
 			let value = get_value_from_proof::<H>(
 				trie_path.0.to_vec(),
 				proxy_storage_root,
@@ -449,18 +452,9 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			if raw.len() > 32 {
 				Err(Error::ClaimDataTooLong)?
 			}
-			let mut word = vec![0u8; 32 - raw.len()];
-			word.extend_from_slice(&raw);
-			// counteredBy sits at bytes [4..24] of the 32-byte word (little-endian packing: the
-			// struct's first word is laid out low-to-high in the word, so byte index from the
-			// LEFT when viewed big-endian is 32 - 4 - 20 = 8, spanning [8..28]).
-			//
-			// Solidity packs `parentIndex (uint32)` at offset 0 and `counteredBy (address)` at
-			// offset 4 within the struct. In the 32-byte storage word (big-endian), fields are
-			// laid out right-to-left: counteredBy occupies bytes [8..28] from the left, parentIndex
-			// occupies bytes [28..32].
-			const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
-			if &word[8..28] != ZERO_ADDRESS.as_slice() {
+			// RLP strips leading zeros from the stored length; reconstruct the uint256 and require
+			// it to be exactly one.
+			if U256::from_big_endian(&raw) != U256::one() {
 				Err(Error::FaultDisputeGameChallenged)?
 			}
 			Ok(())

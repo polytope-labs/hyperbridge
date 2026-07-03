@@ -9,7 +9,7 @@ const USD_SCALE = 18
 const USD_SCALE_FACTOR = new Decimal(10).pow(USD_SCALE)
 
 /** Convert a decimal-string USD value (e.g. "1.5") to a scaled BigInt (e.g. 1_500_000_000_000_000_000n). */
-function toScaledUsd(volumeUSD: string): bigint {
+export function toScaledUsd(volumeUSD: string): bigint {
 	return BigInt(new Decimal(volumeUSD).mul(USD_SCALE_FACTOR).toFixed(0))
 }
 

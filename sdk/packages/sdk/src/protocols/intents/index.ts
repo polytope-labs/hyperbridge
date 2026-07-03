@@ -1,6 +1,17 @@
 export { IntentGateway } from "./IntentGateway"
 export { OrderStatusChecker } from "./OrderStatusChecker"
-export { encodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
+export { UnsupportedIntentQuotePairError, UnsupportedIntentQuoteStrategyError } from "./quote"
+export type {
+	IntentQuoteStrategy,
+	IntentQuoteToken,
+	IntentQuoteTradeType,
+	QuoteIntentParams,
+	QuoteIntentResult,
+	UniswapV4IntentQuoteMetadata,
+	UniswapV4IntentQuoteOptions,
+	UniswapV4PoolKey,
+} from "./quote"
+export { encodeERC7821ExecuteBatch, decodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
 	DEFAULT_GRAFFITI,

@@ -32,23 +32,34 @@ use frame_support::{
 	BoundedVec,
 };
 use ismp::{
+	consensus::StateMachineId,
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 };
+use pallet_ismp::LatestStateMachineHeight;
 use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
 use sp_io::offchain_index;
-use sp_runtime::traits::{ConstU32, Zero};
+use sp_runtime::{
+	traits::{ConstU32, Zero},
+	SaturatedConversion,
+};
 pub use weights::WeightInfo;
 
-use types::{Bid, GatewayInfo, IntentGatewayParams, RequestKind, TokenDecimalsUpdate, TokenInfo};
+use types::{
+	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderConfiguration, PhantomOrderInfo,
+	PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo, MAX_PHANTOM_TOKEN_PAIRS,
+};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
 /// Pallet identifier for ISMP routing
 pub const PALLET_INTENTS_ID: &[u8] = b"pallet-intents";
+
+/// Logging target for this pallet.
+const LOG_TARGET: &str = "runtime::intents-coprocessor";
 
 /// Generate the offchain storage key for a bid given raw commitment and filler bytes.
 pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8> {
@@ -58,12 +69,20 @@ pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8>
 	key
 }
 
+/// Generate the offchain storage key for the ABI-encoded phantom order, keyed by commitment.
+pub fn offchain_phantom_key(commitment: &H256) -> Vec<u8> {
+	let mut key = b"intents::phantom::order::".to_vec();
+	key.extend_from_slice(commitment.as_bytes());
+	key
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use polkadot_sdk::sp_runtime::traits::Saturating;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -82,6 +101,11 @@ pub mod pallet {
 		/// The default storage deposit fee per bid (used as fallback)
 		#[pallet::constant]
 		type StorageDepositFee: Get<BalanceOf<Self>>;
+
+		/// How many blocks after phantom order creation bids are accepted. Fallback when
+		/// the PhantomBidWindow storage value is zero.
+		#[pallet::constant]
+		type PhantomOrderBidWindowBlocks: Get<u32>;
 
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
@@ -119,6 +143,32 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
+	/// The phantom orders active for the current interval, one entry per configured token
+	/// pair. Keeping them all here lets `place_bid` enforce the bid rules for every pair
+	/// rather than only the last one generated. Replaced as a whole each cycle.
+	#[pallet::storage]
+	pub type CurrentPhantomOrder<T: Config> = StorageValue<
+		_,
+		BoundedVec<(H256, PhantomOrderInfo<BlockNumberFor<T>>), ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+		OptionQuery,
+	>;
+
+	/// The block at which phantom orders were last generated, used to decide when the next
+	/// interval is due. Cleared by set_phantom_order_config so generation restarts immediately.
+	#[pallet::storage]
+	pub type LastPhantomGeneration<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+
+	/// Governance-updatable bid acceptance window for phantom orders (in blocks).
+	/// Falls back to PhantomOrderBidWindowBlocks when zero.
+	#[pallet::storage]
+	pub type PhantomBidWindow<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	/// Governance-settable phantom order configuration. When present, the
+	/// on_initialize hook generates a new phantom commitment every interval_blocks.
+	#[pallet::storage]
+	pub type PhantomOrderConfig<T: Config> =
+		StorageValue<_, PhantomOrderConfiguration, OptionQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -147,6 +197,23 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
+		/// The runtime generated a new phantom order commitment
+		PhantomOrderRegistered {
+			commitment: H256,
+			chain: Vec<u8>,
+			created_at: BlockNumberFor<T>,
+			token_a: H160,
+			token_b: H160,
+			standard_amount: u128,
+		},
+		/// The phantom order bid window was updated
+		PhantomBidWindowUpdated { window: u32 },
+		/// The phantom order configuration was updated by governance
+		PhantomOrderConfigSet { chain: StateMachineId, pair_count: u32, interval_blocks: u32 },
+		/// A phantom order's bid window closed; the indexer can now aggregate its snapshot.
+		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
+		/// A gateway implementation upgrade was initiated
+		GatewayUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
 	}
 
 	#[pallet::error]
@@ -163,6 +230,14 @@ pub mod pallet {
 		InvalidUserOp,
 		/// Failed to dispatch cross-chain request
 		DispatchFailed,
+		/// A bid was submitted for a phantom order after the acceptance window closed
+		PhantomOrderBidWindowClosed,
+		/// A filler already has a bid for this phantom order
+		DuplicatePhantomBid,
+		/// The effective phantom bid window is not shorter than the generation interval.
+		/// They must satisfy `window < interval_blocks` so a batch is never replaced on the
+		/// same block its bid window closes (which would drop its exhaustion snapshot).
+		PhantomBidWindowNotShorterThanInterval,
 	}
 
 	#[pallet::call]
@@ -190,6 +265,23 @@ pub mod pallet {
 
 			// Validate user_op is not empty
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
+
+			// Phantom orders have stricter rules: one bid per filler, no updates, and only
+			// within the configured acceptance window after the order was registered. Every
+			// active pair is checked, not just the most recently generated one.
+			if let Some(active) = CurrentPhantomOrder::<T>::get() {
+				if let Some((_, info)) = active.iter().find(|(c, _)| *c == commitment) {
+					let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
+					ensure!(
+						frame_system::Pallet::<T>::block_number() <= info.created_at_block + window,
+						Error::<T>::PhantomOrderBidWindowClosed
+					);
+					ensure!(
+						!Bids::<T>::contains_key(&commitment, &filler),
+						Error::<T>::DuplicatePhantomBid
+					);
+				}
+			}
 
 			// If a bid already exists, unreserve the old deposit first
 			if let Some(old_deposit) = Bids::<T>::get(&commitment, &filler) {
@@ -273,17 +365,15 @@ pub mod pallet {
 			// Only notify gateways with different addresses (same address automatically accepts)
 			for (existing_state_machine, existing_gateway_info) in Gateways::<T>::iter() {
 				// Skip if same state machine or same gateway address
-				if existing_state_machine == state_machine ||
-					existing_gateway_info.gateway == gateway
+				if existing_state_machine == state_machine
+					|| existing_gateway_info.gateway == gateway
 				{
 					continue;
 				}
 
 				// Prepare cross-chain request to notify existing gateway
-				let new_deployment = types::NewDeployment {
-					chain: state_machine.to_string().into_bytes(),
-					gateway,
-				};
+				let new_deployment =
+					types::NewDeployment { chain: state_machine.to_string().into_bytes(), gateway };
 				let request = RequestKind::AddDeployment(new_deployment);
 				let body = request.encode_body();
 
@@ -443,6 +533,193 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Set the phantom order configuration. The on_initialize hook reads this every
+		/// block and generates a new phantom commitment when the interval elapses.
+		/// Also clears the current active phantom order so the hook fires immediately
+		/// on the next block.
+		///
+		/// ⚠ Before calling: each pair's `standard_amount` MUST be exactly one unit of its input
+		/// token (`10^decimals(token_a)`) — no more, no less. It is the denominator of every
+		/// published rate and fails silently if wrong.
+		/// See [`PhantomTokenPair::standard_amount`](crate::types::PhantomTokenPair::standard_amount).
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::set_phantom_order_config())]
+		pub fn set_phantom_order_config(
+			origin: OriginFor<T>,
+			config: PhantomOrderConfiguration,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let pair_count = config.token_pairs.len() as u32;
+			let interval_blocks = config.interval_blocks;
+			let chain = config.chain.clone();
+
+			// The bid window must close strictly before the next generation so on_finalize emits
+			// each batch's exhaustion before on_initialize replaces it. interval_blocks == 0 means
+			// generate once and never regenerate, so there is no replacement to race.
+			ensure!(
+				interval_blocks == 0 || Self::phantom_bid_window() < interval_blocks,
+				Error::<T>::PhantomBidWindowNotShorterThanInterval
+			);
+
+			PhantomOrderConfig::<T>::put(&config);
+			CurrentPhantomOrder::<T>::kill();
+			LastPhantomGeneration::<T>::kill();
+
+			Self::deposit_event(Event::PhantomOrderConfigSet {
+				chain,
+				pair_count,
+				interval_blocks,
+			});
+
+			Ok(())
+		}
+
+		/// Update the phantom order bid acceptance window.
+		#[pallet::call_index(9)]
+		#[pallet::weight(T::WeightInfo::set_phantom_bid_window())]
+		pub fn set_phantom_bid_window(origin: OriginFor<T>, window: u32) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			// Resolve the window the way phantom_bid_window() would: 0 falls back to the
+			// configured constant. Enforce window < interval_blocks against the active config
+			// (if any) so a batch is never replaced on the block its bid window closes.
+			let effective_window =
+				if window == 0 { T::PhantomOrderBidWindowBlocks::get() } else { window };
+			if let Some(config) = PhantomOrderConfig::<T>::get() {
+				ensure!(
+					config.interval_blocks == 0 || effective_window < config.interval_blocks,
+					Error::<T>::PhantomBidWindowNotShorterThanInterval
+				);
+			}
+
+			PhantomBidWindow::<T>::put(window);
+
+			Self::deposit_event(Event::PhantomBidWindowUpdated { window });
+
+			Ok(())
+		}
+
+		/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy via cross-chain
+		/// governance. The upgrade is authorized on the gateway by `source == hyperbridge`, the
+		/// same authority used for `update_params`/`sweep_dust`.
+		///
+		/// # Parameters
+		/// - `state_machine`: The state machine where the gateway is deployed
+		/// - `new_impl`: The address of the new implementation contract
+		/// - `init_data`: Optional migration calldata executed atomically against the proxy on
+		///   upgrade
+		///
+		/// # Errors
+		/// - `GatewayNotFound`: If no gateway exists for the state machine
+		/// - `DispatchFailed`: If cross-chain dispatch fails
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::upgrade_gateway())]
+		pub fn upgrade_gateway(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			new_impl: H160,
+			init_data: Vec<u8>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let gateway_info =
+				Gateways::<T>::get(state_machine).ok_or(Error::<T>::GatewayNotFound)?;
+
+			let request = RequestKind::UpgradeContract { new_impl, init_data };
+			let body = request.encode_body();
+
+			Self::dispatch(state_machine, gateway_info.gateway, body)?;
+
+			Self::deposit_event(Event::GatewayUpgradeInitiated { state_machine, new_impl });
+
+			Ok(())
+		}
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+			let Some(config) = PhantomOrderConfig::<T>::get() else {
+				// Reserve the read on_finalize performs on CurrentPhantomOrder.
+				return T::DbWeight::get().reads(2);
+			};
+
+			let should_generate = match LastPhantomGeneration::<T>::get() {
+				None => true,
+				Some(last) => {
+					let interval: BlockNumberFor<T> = config.interval_blocks.into();
+					!interval.is_zero() && n >= last.saturating_add(interval)
+				},
+			};
+
+			// reads here (config + last_generation) plus the reads on_finalize performs.
+			if !should_generate {
+				return T::DbWeight::get().reads(4);
+			}
+
+			// Phantom orders carry the latest confirmed height as their deadline so they read
+			// as already expired on-chain and can never be executed for real. Bail before
+			// touching storage if the destination chain has no confirmed height yet.
+			let chain_bytes = config.chain.state_id.to_string().into_bytes();
+			let Some(deadline) = LatestStateMachineHeight::<T>::get(config.chain) else {
+				log::warn!(
+					target: LOG_TARGET,
+					"No confirmed state machine height for {:?}, skipping phantom order generation",
+					config.chain,
+				);
+				return T::DbWeight::get().reads(5);
+			};
+
+			let mut batch: BoundedVec<
+				(H256, PhantomOrderInfo<BlockNumberFor<T>>),
+				ConstU32<MAX_PHANTOM_TOKEN_PAIRS>,
+			> = BoundedVec::new();
+			for pair in config.token_pairs.iter() {
+				let (commitment, order_bytes) =
+					Self::compute_phantom_commitment(n, &chain_bytes, pair, deadline);
+				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
+				let _ = batch.try_push((commitment, info));
+				offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
+				Self::deposit_event(Event::PhantomOrderRegistered {
+					commitment,
+					chain: chain_bytes.clone(),
+					created_at: n,
+					token_a: pair.token_a,
+					token_b: pair.token_b,
+					standard_amount: pair.standard_amount,
+				});
+			}
+			CurrentPhantomOrder::<T>::put(batch);
+			LastPhantomGeneration::<T>::put(n);
+
+			// reads: config + last_generation + latest_height + the on_finalize reads.
+			T::DbWeight::get().reads_writes(5, 2)
+		}
+
+		fn on_finalize(n: BlockNumberFor<T>) {
+			// Signal each active commitment on the block its bid window closes so the indexer can
+			// aggregate that order's snapshot. Emitted in on_finalize (after all extrinsics) so any
+			// bid placed in the window-closing block is already in storage when the snapshot is
+			// taken. The bid window is expected to be shorter than the generation interval, so the
+			// active batch is never replaced by on_initialize on the same block its window closes.
+			let Some(active) = CurrentPhantomOrder::<T>::get() else {
+				return;
+			};
+			let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
+			for (commitment, info) in active.iter() {
+				if n == info.created_at_block.saturating_add(window) {
+					Self::deposit_event(Event::PhantomBidWindowExhausted {
+						commitment: *commitment,
+						created_at: info.created_at_block,
+					});
+				}
+			}
+		}
 	}
 
 	impl<T: Config> Pallet<T>
@@ -461,9 +738,34 @@ pub mod pallet {
 			}
 		}
 
+		pub fn phantom_bid_window() -> u32 {
+			let window = PhantomBidWindow::<T>::get();
+			if window == 0 {
+				T::PhantomOrderBidWindowBlocks::get()
+			} else {
+				window
+			}
+		}
+
 		/// Generate offchain storage key for a bid
 		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
 			offchain_bid_key_raw(commitment, &filler.encode())
+		}
+
+		fn compute_phantom_commitment(
+			block: BlockNumberFor<T>,
+			chain: &[u8],
+			pair: &PhantomTokenPair,
+			deadline: u64,
+		) -> (H256, Vec<u8>) {
+			types::phantom_order_commitment(
+				block.saturated_into::<u64>(),
+				chain,
+				&pair.token_a,
+				&pair.token_b,
+				pair.standard_amount,
+				deadline,
+			)
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract
@@ -491,7 +793,7 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 
 			log::info!(
-				target: "pallet-intents",
+				target: LOG_TARGET,
 				"Dispatched cross-chain request to {:?}, commitment: {:?}",
 				state_machine,
 				commitment

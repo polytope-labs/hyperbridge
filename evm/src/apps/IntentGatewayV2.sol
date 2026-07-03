@@ -23,6 +23,7 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -57,16 +58,20 @@ import {
  *           \       /
  *        IntentGatewayV2
  */
-contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient {
+contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardTransient, Initializable {
     using SafeERC20 for IERC20;
 
-    /**
-     * @dev Initializes the EIP-712 domain with name "IntentGateway" and version "2".
-     * Sets the initial admin who has one-time authority to call `setParams`.
-     * @param admin The address that will have permission to set initial parameters.
-     */
-    constructor(address admin) EIP712("IntentGateway", "2") {
-        _admin = admin;
+    /// @dev Privileged admin for future upgrade-gated actions (e.g. pausing). Immutable, so it must
+    /// be identical across chains or the deterministic proxy address diverges. Does not gate
+    /// `initialize`; atomic CREATE2 deployment already binds the init data to the canonical address.
+    address public immutable _owner;
+
+    /// @dev Sets the EIP-712 domain ("IntentGateway", "2"), records the admin, and locks this raw
+    /// implementation against direct initialization.
+    /// @param owner The privileged admin address.
+    constructor(address owner) EIP712("IntentGateway", "2") {
+        _owner = owner;
+        _disableInitializers();
     }
 
     /**
@@ -87,25 +92,26 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     }
 
     /**
-     * @dev One-time parameter initialization. Can only be called by the admin set in
-     * the constructor. After successful execution, the admin is burned (set to address(0)),
-     * preventing any further calls.
-     *
-     * Subsequent parameter updates must come through Hyperbridge governance via the `onAccept` callback.
+     * @dev One-time init (the `initializer` modifier caps it to a single call). Registers the
+     * initial cross-chain peers, each bound to `address(this)`; `_instance` reverts with
+     * `UnknownInstance` for any chain not registered here or later via `onAccept` governance.
      *
      * @param p The initial gateway configuration parameters.
-     * @param deployments The initial gateway cross-chain peers
+     * @param peerChains State-machine ids of the cross-chain peers to register. Each is bound to
+     * this gateway's own address, identical across chains under deterministic CREATE2, so no peer
+     * address is carried in the proxy's init data.
      */
-    function init(Params memory p, Deployment[] memory deployments) public {
-        if (msg.sender != _admin) revert Unauthorized();
-
-        uint256 deploymentsLength = deployments.length;
-        for (uint256 i = 0; i < deploymentsLength; i++) {
-            _addDeployment(deployments[i]);
+    function initialize(Params memory p, bytes[] memory peerChains) public initializer {
+        uint256 peersLength = peerChains.length;
+        for (uint256 i = 0; i < peersLength; i++) {
+            Deployment memory deployment = Deployment({
+                chain: peerChains[i],
+                gateway: address(this)
+            });
+            _addDeployment(deployment);
         }
         _validateParams(p);
         _params = p;
-        _admin = address(0);
     }
 
     /**
@@ -118,7 +124,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
 
     /**
      * @dev Returns the registered gateway address for a given state machine.
-     * Falls back to this contract's address if no remote deployment is registered.
+     * Reverts with `UnknownInstance` if no remote deployment is registered.
      * @param stateMachineId The raw state machine identifier bytes.
      * @return The gateway address for the given state machine.
      */

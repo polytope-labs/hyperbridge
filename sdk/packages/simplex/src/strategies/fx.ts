@@ -76,6 +76,22 @@ export class FXFiller implements FillerStrategy {
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
+	/**
+	 * Optional Uniswap price guard, keyed by chain. When a chain has an entry, a
+	 * venue (pool) quote is only trusted if it stays within `maxDeviationBps` of the
+	 * static `reference` price (exotic per USD); a quote outside the band rejects the
+	 * order — defence against a manipulated, stale, or thin pool. Sourced from the
+	 * per-position config under `[strategies.vault.uniswapV4]`.
+	 */
+	private priceGuard?: Map<string, { reference: Decimal; maxDeviationBps: number }>
+	/**
+	 * Whether the filler buys exotic from users (exotic-in/stable-out legs), priced
+	 * with the bid curve. Disabled by omitting the bid curve — the basis for one-sided
+	 * LP: drop a side and the filler skips orders in that direction.
+	 */
+	private bidEnabled: boolean
+	/** Whether the filler sells exotic to users (stable-in/exotic-out legs), priced with the ask curve. */
+	private askEnabled: boolean
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -89,6 +105,14 @@ export class FXFiller implements FillerStrategy {
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
 	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
+	 *
+	 * One-sided LP, two ways depending on the pricing mode:
+	 * - Static curves: omit one of `bidPricePolicy`/`askPricePolicy` to fill only the other
+	 *   side. Providing both keeps both directions open.
+	 * - Venue (pool) pricing with no curves: set `side` to restrict to one direction.
+	 *   Omitting `side` keeps both directions open.
+	 * @param options.side Pool-pricing one-sided switch ("bid" buys exotic, "ask" sells exotic).
+	 *   Only valid with venue pricing and no static curves.
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -103,6 +127,8 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
 			spreadBps?: number
+			priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>
+			side?: "bid" | "ask"
 		},
 	) {
 		const {
@@ -111,17 +137,25 @@ export class FXFiller implements FillerStrategy {
 			confirmationPolicy,
 			fundingVenues = [],
 			spreadBps = 50,
+			priceGuard,
+			side,
 		} = options ?? {}
 
-		const hasPolicies = bidPricePolicy && askPricePolicy
+		const hasAnyPolicy = !!(bidPricePolicy || askPricePolicy)
 		const hasVenues = fundingVenues.length > 0
 
-		if (!hasPolicies && !hasVenues) {
-			throw new Error("FXFiller requires either bid/ask price policies or funding venues (or both)")
+		if (!hasAnyPolicy && !hasVenues) {
+			throw new Error("FXFiller requires a bid and/or ask price policy, or funding venues")
 		}
-		if ((bidPricePolicy && !askPricePolicy) || (!bidPricePolicy && askPricePolicy)) {
-			throw new Error("FXFiller requires both bidPricePolicy and askPricePolicy, or neither")
+		if (side && hasAnyPolicy) {
+			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit bid/ask price policies")
 		}
+
+		// Direction enablement. With static curves, only the side(s) with a curve are filled
+		// (one-sided LP). With venue pricing (no curves), `side` optionally restricts to one
+		// direction; without it both sides are open.
+		this.bidEnabled = hasAnyPolicy ? !!bidPricePolicy : side ? side === "bid" : true
+		this.askEnabled = hasAnyPolicy ? !!askPricePolicy : side ? side === "ask" : true
 
 		this.configService = configService
 		this.clientManager = clientManager
@@ -129,8 +163,18 @@ export class FXFiller implements FillerStrategy {
 		this.token1 = token1
 		this.fundingVenues = fundingVenues
 		this.spreadBps = spreadBps
+		if (priceGuard && Object.keys(priceGuard).length > 0) {
+			this.priceGuard = new Map()
+			for (const [chain, guard] of Object.entries(priceGuard)) {
+				this.priceGuard.set(chain, {
+					reference: new Decimal(guard.referencePrice),
+					maxDeviationBps: guard.maxDeviationBps,
+				})
+			}
+		}
 
-		// When no policies provided, create placeholder flat policies (overwritten in initialise by venue prices)
+		// Absent policies get a placeholder flat curve. A side without a curve is either
+		// disabled (so never priced) or venue-priced at runtime, so the placeholder is unused.
 		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 		this.askPricePolicy = askPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 
@@ -188,6 +232,34 @@ export class FXFiller implements FillerStrategy {
 		return null
 	}
 
+	/**
+	 * Validates a live venue quote against the static reference price for the chain.
+	 * Returns true (pass) when no guard is configured, or no reference exists for the
+	 * chain. Returns false when the quote (exotic per USD) deviates from the reference
+	 * by more than `maxDeviationBps`, in which case the order must not be filled.
+	 */
+	private checkPriceGuard(orderId: string | undefined, chain: string, venueExoticPerUsd: Decimal): boolean {
+		const guard = this.priceGuard?.get(chain)
+		if (!guard || guard.reference.lte(0)) return true
+
+		const deviationBps = venueExoticPerUsd.minus(guard.reference).abs().div(guard.reference).mul(10000)
+		if (deviationBps.gt(guard.maxDeviationBps)) {
+			this.logger.warn(
+				{
+					orderId,
+					chain,
+					venuePrice: venueExoticPerUsd.toString(),
+					referencePrice: guard.reference.toString(),
+					deviationBps: deviationBps.toFixed(2),
+					maxDeviationBps: guard.maxDeviationBps,
+				},
+				"Rejecting order: Uniswap venue quote outside price-guard band",
+			)
+			return false
+		}
+		return true
+	}
+
 	async canFill(order: Order): Promise<boolean> {
 		if (this.halted) {
 			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
@@ -205,6 +277,10 @@ export class FXFiller implements FillerStrategy {
 			const pairs = this.classifyAllPairs(order)
 			if (!pairs) {
 				this.logger.debug({ sourceChain: order.source, destChain: order.destination }, "Unsupported token pair")
+				return false
+			}
+
+			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
 				return false
 			}
 
@@ -255,6 +331,10 @@ export class FXFiller implements FillerStrategy {
 			const pairs = this.classifyAllPairs(order)
 			if (!pairs) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not classify token pairs")
+				return 0
+			}
+
+			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
 				return 0
 			}
 
@@ -313,6 +393,15 @@ export class FXFiller implements FillerStrategy {
 			const sourceVenuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
 			const destVenuePrice = sourceChain !== destChain && this.fundingVenues.length > 0
 				? await this.getVenuePrice(destChain) : sourceVenuePrice
+
+			// Price guard: reject the whole order if a venue quote on any involved chain
+			// has drifted beyond the configured band from its static reference price.
+			if (sourceVenuePrice && !this.checkPriceGuard(order.id, sourceChain, sourceVenuePrice.bid)) {
+				return 0
+			}
+			if (sourceChain !== destChain && destVenuePrice && !this.checkPriceGuard(order.id, destChain, destVenuePrice.bid)) {
+				return 0
+			}
 
 			let deadlineTimestamp: bigint | undefined
 			try {
@@ -397,29 +486,40 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 
-				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
+				// Spend the free wallet balance first, down to the configured minBalance
+				// reserve — kept liquid for the gas/paymaster pull during
+				// validatePaymasterUserOp — then source any remaining shortfall from the
+				// funding venues (the vault).
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-				let effectiveBalance = balance
-				let deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
+				let reserve = 0n
 				for (const venue of this.fundingVenues) {
-					if (deficit <= 0n) break
-					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, deficit, deadlineTimestamp)
+					reserve += venue.walletReserveForToken(destChain, tokenAddress)
+				}
+				const usableWallet = balance > reserve ? balance - reserve : 0n
+
+				// Overfilling a started leg buys no competitiveness: escrow release is
+				// capped at the total required, so fund no more than the remainder.
+				const legTarget = alreadyFilled[i] > 0n && policyMaxOutput > remaining ? remaining : policyMaxOutput
+
+				const walletContribution = legTarget < usableWallet ? legTarget : usableWallet
+
+				let credited = 0n
+				let needed = legTarget - walletContribution
+				for (const venue of this.fundingVenues) {
+					if (needed <= 0n) break
+					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
 					if (planned.calls.length > 0) {
 						fundingCalls.push(...planned.calls)
-						effectiveBalance += planned.credited
-						deficit -= planned.credited
+						credited += planned.credited
+						needed -= planned.credited
 					}
 				}
 
-				let finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
+				const effectiveBalance = walletContribution + credited
 
-				// Overfilling a started leg buys no competitiveness: escrow release is
-				// capped at the total required.
-				if (alreadyFilled[i] > 0n && finalOutputAmount > remaining) {
-					finalOutputAmount = remaining
-				}
+				const finalOutputAmount = effectiveBalance > legTarget ? legTarget : effectiveBalance
 
 				if (finalOutputAmount === 0n) {
 					this.logger.info(
@@ -447,9 +547,11 @@ export class FXFiller implements FillerStrategy {
 					return 0
 				}
 
-				// Decrement remaining balance for this token so repeated outputs share the same pool.
-				const remainingBalance = effectiveBalance - finalOutputAmount
-				balanceCache.set(tokenAddress, remainingBalance > 0n ? remainingBalance : 0n)
+				// Decrement the wallet pool by what this leg drew from it (vault-sourced
+				// tokens are tracked by the venue's own reservations) so repeated outputs
+				// of the same token share one wallet balance.
+				const walletRemaining = balance - walletContribution
+				balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)
@@ -829,11 +931,118 @@ export class FXFiller implements FillerStrategy {
 		return pairs
 	}
 
+	/**
+	 * One-sided LP gate: returns false if any leg runs in a disabled direction
+	 * (curve omitted, or excluded by the venue `side`). A stable-in leg sells exotic
+	 * and needs the ask side; an exotic-in leg buys exotic and needs the bid side.
+	 * The IntentGateway settles all legs atomically, so a mixed-direction order can't
+	 * be partially honoured.
+	 *
+	 * Kept separate from `classifyAllPairs`: that result is cached and shared across
+	 * strategies, whereas enablement is per-strategy, so this must run on every
+	 * evaluation regardless of cache state.
+	 */
+	private isOrderDirectionEnabled(pairs: CachedPairClassification[], orderId: string | undefined): boolean {
+		for (let i = 0; i < pairs.length; i++) {
+			const leg = pairs[i]
+			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
+				this.logger.debug(
+					{
+						orderId,
+						leg: i,
+						inputIsStable: leg.inputIsStable,
+						bidEnabled: this.bidEnabled,
+						askEnabled: this.askEnabled,
+					},
+					"Rejecting order: leg direction disabled for one-sided LP",
+				)
+				return false
+			}
+		}
+		return true
+	}
+
 	private getStableType(normalizedAddress: string, chain: string): boolean {
 		return (
 			normalizedAddress === this.configService.getUsdcAsset(chain).toLowerCase() ||
 			normalizedAddress === this.configService.getUsdtAsset(chain).toLowerCase()
 		)
+	}
+
+	/**
+	 * Returns the filler's proposed output amounts for a phantom order without
+	 * checking on-chain balance or estimating gas. Phantom orders are probes that
+	 * never execute; we only need the price signal.
+	 *
+	 * Returns `null` when the pair is not supported or the USD value cannot be
+	 * computed (e.g. venue price unavailable and no fallback).
+	 */
+	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
+		if (!(await this.canFill(order))) return null
+
+		const pairs = this.classifyAllPairs(order)
+		if (!pairs) return null
+
+		const usdResult = await this.getOrderUsdValue(order)
+		if (!usdResult || usdResult.inputUsd.lte(0)) return null
+
+		const cappedOrderUsd = Decimal.min(usdResult.inputUsd, this.maxOrderUsd)
+		if (cappedOrderUsd.lte(0)) return null
+
+		const chain = order.source
+		const venuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(chain) : null
+		const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
+		const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
+
+		const outputs: TokenInfo[] = []
+		let remainingUsd = cappedOrderUsd
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const input = order.inputs[i]
+			const output = order.output.assets[i]
+			const pair = pairs[i]
+
+			const inputDecimals = await this.contractService.getTokenDecimals(
+				bytes32ToBytes20(input.token) as HexString,
+				chain,
+			)
+			const outputDecimals = await this.contractService.getTokenDecimals(
+				bytes32ToBytes20(output.token) as HexString,
+				chain,
+			)
+
+			const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
+			const exoticDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
+			const bidPrice = venuePrice?.bid ?? policyBidPrice
+			const askPrice = venuePrice?.ask ?? policyAskPrice
+
+			const legResult = this.computeLegPolicyOutput(
+				input.amount,
+				pair.inputIsStable,
+				stableDecimals,
+				exoticDecimals,
+				remainingUsd,
+				pair.inputIsStable ? askPrice : bidPrice,
+			)
+
+			if (!legResult) continue
+
+			remainingUsd = remainingUsd.minus(legResult.usdUsed)
+
+			// Phantom orders only probe price (they request a zero output), so there is no
+			// user-requested amount to cap against — quote the full policy output.
+			outputs.push({ token: output.token, amount: legResult.policyMaxOutput })
+
+			if (remainingUsd.lte(0)) break
+		}
+
+		if (outputs.length === 0) return null
+
+		if (order.id) {
+			this.contractService.cacheService.setFillerOutputs(order.id, outputs)
+		}
+
+		return outputs
 	}
 
 	/**

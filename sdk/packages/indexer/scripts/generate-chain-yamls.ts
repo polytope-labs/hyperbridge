@@ -160,6 +160,14 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 		config,
 		endpoints,
 		blockNumber,
+		// Flattened (vault, underlyingToken) pairs so the template can emit one Deposit/Withdraw
+		// datasource per vault. The handler resolves underlyingToken from YIELD_VAULT_ADDRESSES.
+		yieldVaults:
+			config.type === "evm" && config.contracts?.yieldVaults
+				? Object.entries(config.contracts.yieldVaults).flatMap(([token, entry]) =>
+						entry.vaults.map((vault) => ({ vault, underlyingToken: token })),
+					)
+				: [],
 		handlerKind: "ethereum/LogHandler",
 		handlers: [
 			{ handler: "handleStateMachineUpdatedEvent", topics: ["StateMachineUpdated(string,uint256)"] },
@@ -251,6 +259,96 @@ const generateChainsIntentGatewayV3Addresses = () => {
 	console.log("Generated intent-gateway-v3-addresses.ts")
 }
 
+const generateYieldVaultAddresses = () => {
+	const lines: string[] = []
+	lines.push("// Auto-generated, DO NOT EDIT")
+	lines.push("// ERC-4626 vault addresses per chain, keyed by underlying token address (lowercase).")
+	lines.push("// Aave stata token addresses sourced from https://github.com/bgd-labs/aave-address-book")
+	lines.push("// Values are arrays because multiple vaults may wrap the same underlying token.")
+	lines.push(
+		"// To add or update vaults, edit the \"yieldVaults\" field in the relevant chain entry",
+	)
+	lines.push("// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.")
+	lines.push("export const YIELD_VAULT_ADDRESSES: Record<string, Record<string, string[]>> = {")
+
+	let firstChain = true
+	validChains.forEach((config) => {
+		if (config.type !== "evm" || !config.contracts?.yieldVaults) return
+		if (!firstChain) lines.push("")
+		firstChain = false
+		lines.push(`\t// ${config.stateMachineId}`)
+		lines.push(`\t"${config.stateMachineId}": {`)
+		const entries = Object.entries(config.contracts.yieldVaults)
+		entries.forEach(([token, entry], i) => {
+			lines.push(`\t\t// ${entry.description}`)
+			const vaultsJson = JSON.stringify(entry.vaults)
+			const comma = i < entries.length - 1 ? "," : ""
+			lines.push(`\t\t"${token}": ${vaultsJson}${comma}`)
+		})
+		lines.push("\t},")
+	})
+
+	lines.push("}")
+	lines.push("")
+
+	fs.writeFileSync(root + "/src/yield-vault-addresses.ts", lines.join("\n"))
+	console.log("Generated yield-vault-addresses.ts")
+}
+
+const generateSolverAccountAddresses = () => {
+	const solverAccounts: Record<string, string> = {}
+
+	validChains.forEach((config) => {
+		if (config.type === "evm" && config.contracts?.solverAccount) {
+			solverAccounts[config.stateMachineId] = config.contracts.solverAccount
+		}
+	})
+
+	const value = `// Auto-generated, DO NOT EDIT
+// SolverAccount contract address per chain (EIP-7702 delegation target for our solver EOAs).
+// To add or update entries, edit the "solverAccount" field in the relevant chain entry
+// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.
+export const SOLVER_ACCOUNT_ADDRESSES: Record<string, string> = ${JSON.stringify(solverAccounts, null, 2)}`
+
+	fs.writeFileSync(root + "/src/solver-account-addresses.ts", value)
+	console.log("Generated solver-account-addresses.ts")
+}
+
+const generateTokenSlotOverrides = () => {
+	const lines: string[] = []
+	lines.push("// Auto-generated, DO NOT EDIT")
+	lines.push("// Per-token ERC-20 storage slot overrides for tokens that don't follow the standard OZ layout")
+	lines.push("// (slot 0 = _balances, slot 1 = _allowances).")
+	lines.push("// To add or update entries, edit the \"tokenSlots\" field in the relevant chain entry")
+	lines.push("// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.")
+	lines.push(
+		"export const TOKEN_SLOT_OVERRIDES: Record<string, { balanceSlot: bigint; allowanceSlot: bigint }> = {",
+	)
+
+	const seen = new Map<string, { description: string; balanceSlot: number; allowanceSlot: number }>()
+	validChains.forEach((config) => {
+		if (config.type !== "evm" || !config.contracts?.tokenSlots) return
+		Object.entries(config.contracts.tokenSlots).forEach(([token, entry]) => {
+			seen.set(token.toLowerCase(), entry)
+		})
+	})
+
+	const entries = Array.from(seen.entries())
+	entries.forEach(([token, entry], i) => {
+		lines.push(`\t// ${entry.description}`)
+		const comma = i < entries.length - 1 ? "," : ""
+		lines.push(
+			`\t"${token}": { balanceSlot: ${entry.balanceSlot}n, allowanceSlot: ${entry.allowanceSlot}n }${comma}`,
+		)
+	})
+
+	lines.push("}")
+	lines.push("")
+
+	fs.writeFileSync(root + "/src/token-slot-overrides.ts", lines.join("\n"))
+	console.log("Generated token-slot-overrides.ts")
+}
+
 const generateTestnetStateMachineIds = () => {
 	const testnetStateMachineIds = new Set()
 
@@ -311,6 +409,9 @@ try {
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayV3Addresses()
+	generateYieldVaultAddresses()
+	generateSolverAccountAddresses()
+	generateTokenSlotOverrides()
 	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()
 	process.exit(0)

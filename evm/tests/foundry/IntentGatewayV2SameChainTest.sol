@@ -27,6 +27,7 @@ import {
     CancelOptions,
     Deployment
 } from "../../src/apps/IntentGatewayV2.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -63,6 +64,12 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
     event DustCollected(address indexed token, uint256 amount);
 
+    function _deployGatewayProxy() internal returns (IntentGatewayV2) {
+        IntentGatewayV2 implementation = new IntentGatewayV2(address(this));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+        return IntentGatewayV2(payable(address(proxy)));
+    }
+
     function setUp() public override {
         super.setUp();
 
@@ -72,7 +79,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         otherUser = makeAddr("otherUser");
 
         // Deploy IntentGatewayV2
-        intentGateway = new IntentGatewayV2(address(this));
+        intentGateway = _deployGatewayProxy();
 
         // Set params with surplus sharing but no protocol fees (to simplify tests)
         Params memory intentParams = Params({
@@ -83,7 +90,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: 0, // No protocol fees for most tests
             priceOracle: address(0)
         });
-        intentGateway.init(intentParams, new Deployment[](0));
+        intentGateway.initialize(intentParams, new bytes[](0));
 
         // Fund test accounts
         _fundTestAccounts();
@@ -175,7 +182,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     function testSameChainSwap_WithProtocolFee() public {
         // Deploy a new gateway with protocol fees enabled
-        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gatewayWithFees = _deployGatewayProxy();
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -184,7 +191,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.init(intentParams, new Deployment[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0));
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 900 * 1e18; // 900 DAI
@@ -1376,8 +1383,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     }
 
     function testPartialFill_WithProtocolFee() public {
-        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
-        gatewayWithFees.init(
+        IntentGatewayV2 gatewayWithFees = _deployGatewayProxy();
+        gatewayWithFees.initialize(
             Params({
                 host: address(host),
                 dispatcher: address(dispatcher),
@@ -1385,8 +1392,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                 surplusShareBps: SURPLUS_SHARE_BPS,
                 protocolFeeBps: PROTOCOL_FEE_BPS,
                 priceOracle: address(0)
-            })
-        , new Deployment[](0));
+            }),
+            new bytes[](0)
+        );
 
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 900 * 1e18;
@@ -1945,7 +1953,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     /// @notice Duplicate input tokens with protocol fees enabled must also revert.
     function testRevert_PlaceOrder_DuplicateInputTokens_WithProtocolFee() public {
-        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gatewayWithFees = _deployGatewayProxy();
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -1954,7 +1962,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS,
             priceOracle: address(0)
         });
-        gatewayWithFees.init(intentParams, new Deployment[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0));
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
@@ -2289,7 +2297,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     /// @notice Fee-on-transfer with protocol fees: both deductions applied correctly.
     function testPlaceOrder_FeeOnTransferToken_WithProtocolFee() public {
-        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        IntentGatewayV2 gatewayWithFees = _deployGatewayProxy();
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
@@ -2298,7 +2306,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
             priceOracle: address(0)
         });
-        gatewayWithFees.init(intentParams, new Deployment[](0));
+        gatewayWithFees.initialize(intentParams, new bytes[](0));
 
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
         fot.mint(user, 10000 * 1e18);

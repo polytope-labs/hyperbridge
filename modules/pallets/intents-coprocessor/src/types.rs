@@ -18,9 +18,11 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-
+use ismp::consensus::StateMachineId;
+use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
+use sp_io;
 
 /// Represents a token and amount pair for cross-chain transfers
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
@@ -135,6 +137,61 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
+/// Upper bound on the token pairs a single config may probe, and therefore on the number
+/// of phantom orders active at once.
+pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
+
+/// Tracks a phantom order recognised by the pallet.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderInfo<BlockNumber> {
+	pub created_at_block: BlockNumber,
+	/// Raw state machine identifier bytes (e.g. b"EVM-8453").
+	pub chain: Vec<u8>,
+}
+
+/// A single token pair the phantom generator probes for price and liquidity.
+///
+/// Read the note on [`standard_amount`](PhantomTokenPair::standard_amount) before you set this.
+/// It is the one field that fails silently.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomTokenPair {
+	/// The input token being priced (tokenA). Quotes are expressed as how much `token_b`
+	/// a filler will give for `standard_amount` of this token.
+	pub token_a: H160,
+	/// The output token (tokenB) the price is quoted in.
+	pub token_b: H160,
+	/// ┌─────────────────────────────────────────────────────────────────────────────────┐
+	/// │  ⚠  EXACTLY ONE (1) UNIT OF THE INPUT TOKEN. NO MORE. NO LESS. NON-NEGOTIABLE.  ⚠  │
+	/// └─────────────────────────────────────────────────────────────────────────────────┘
+	///
+	/// This MUST be **one whole unit of `token_a`, denominated in the token's smallest unit**
+	/// — that is, `10^decimals(token_a)`:
+	///   • 6-decimal USDC  →  `1_000_000`
+	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000`
+	///
+	/// WHY THERE IS ZERO WIGGLE ROOM:
+	///   Every exchange rate the indexer publishes is `medianPrice / standard_amount`. This number
+	///   is the DENOMINATOR OF THE TRUTH. Put `2` units here and every downstream rate is silently
+	///   HALVED; put half a unit and every rate silently DOUBLES. It will not revert. It will not
+	///   warn. It will simply poison every price snapshot for this pair with an integer-factor
+	///   error until a human eventually notices the feed has drifted — and then has to backfill it.
+	///
+	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
+	/// Not two. Not a half. ONE. UNIT.
+	pub standard_amount: u128,
+}
+
+/// Governance-settable configuration for autonomous phantom order generation.
+/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block. The
+/// `chain` carries the consensus state id so the hook can look up the latest
+/// confirmed height directly instead of scanning every state machine.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderConfiguration {
+	pub chain: StateMachineId,
+	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+	pub interval_blocks: u32,
+}
+
 /// A bid placed by a filler for an order
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct Bid<AccountId> {
@@ -183,10 +240,17 @@ pub enum RequestKind {
 	SweepDust(SweepDust),
 	/// Update token decimals in VWAP Oracle
 	UpdateTokenDecimals(Vec<TokenDecimalsUpdate>),
+	/// Upgrade the Intent Gateway implementation behind its ERC-1967 proxy
+	UpgradeContract {
+		/// The new implementation contract address
+		new_impl: H160,
+		/// Optional migration calldata run atomically against the proxy on upgrade
+		init_data: Vec<u8>,
+	},
 }
 
 // Solidity type definitions for cross-chain encoding
-mod sol_types {
+pub(crate) mod sol_types {
 	use alloy_sol_types::sol;
 
 	sol! {
@@ -224,7 +288,30 @@ mod sol_types {
 			uint256 amount;
 		}
 
-		/// Solidity representation of SweepDust
+		struct DispatchInfo {
+			TokenInfo[] assets;
+			bytes call;
+		}
+
+		struct PaymentInfo {
+			bytes32 beneficiary;
+			TokenInfo[] assets;
+			bytes call;
+		}
+
+		struct Order {
+			bytes32 user;
+			bytes source;
+			bytes destination;
+			uint256 deadline;
+			uint256 nonce;
+			uint256 fees;
+			address session;
+			DispatchInfo predispatch;
+			TokenInfo[] inputs;
+			PaymentInfo output;
+		}
+
 		struct SweepDust {
 			address beneficiary;
 			TokenInfo[] outputs;
@@ -242,6 +329,54 @@ mod sol_types {
 			TokenDecimal[] tokens;
 		}
 	}
+}
+
+/// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
+/// ABI-encoded bytes and its `keccak256` commitment.
+///
+/// `deadline` is the EVM block number beyond which the gateway treats the order
+/// as expired (`order.deadline < block.number` reverts).
+pub fn phantom_order_commitment(
+	block: u64,
+	chain: &[u8],
+	token_a: &H160,
+	token_b: &H160,
+	standard_amount: u128,
+	deadline: u64,
+) -> (H256, Vec<u8>) {
+	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
+
+	let mut token_a_bytes = [0u8; 32];
+	token_a_bytes[12..].copy_from_slice(token_a.as_bytes());
+	let mut token_b_bytes = [0u8; 32];
+	token_b_bytes[12..].copy_from_slice(token_b.as_bytes());
+
+	let order = sol_types::Order {
+		user: FixedBytes::from([0u8; 32]),
+		source: Bytes::copy_from_slice(chain),
+		destination: Bytes::copy_from_slice(chain),
+		deadline: AlloyU256::from(deadline),
+		nonce: AlloyU256::from(block),
+		fees: AlloyU256::ZERO,
+		session: alloy_primitives::Address::ZERO,
+		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
+		inputs: vec![sol_types::TokenInfo {
+			token: FixedBytes::from(token_a_bytes),
+			amount: AlloyU256::from(standard_amount),
+		}],
+		output: sol_types::PaymentInfo {
+			beneficiary: FixedBytes::from([0u8; 32]),
+			assets: vec![sol_types::TokenInfo {
+				token: FixedBytes::from(token_b_bytes),
+				amount: AlloyU256::ZERO,
+			}],
+			call: Bytes::new(),
+		},
+	};
+
+	let encoded = order.abi_encode();
+	let commitment = sp_io::hashing::keccak_256(&encoded).into();
+	(commitment, encoded)
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {
@@ -293,6 +428,7 @@ enum IntentGatewayRequestKind {
 	UpdateParams = 2,
 	SweepDust = 3,
 	RefundEscrow = 4,
+	UpgradeContract = 5,
 }
 
 /// Mirrors the `RequestKind` enum in `VWAPOracle.sol`.
@@ -359,6 +495,66 @@ impl RequestKind {
 				body.extend_from_slice(&updates_sol.abi_encode());
 				body
 			},
+			RequestKind::UpgradeContract { new_impl, init_data } => {
+				use alloy_primitives::{Address, Bytes};
+				// Mirrors the Solidity `abi.decode(body[1:], (address, bytes))` in
+				// `ExtrinsicIntents.onAccept`. `abi_encode_params` emits the two values as bare
+				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl, initData)`.
+				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
+
+				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
 		}
+	}
+}
+
+#[cfg(test)]
+mod request_kind_tests {
+	use super::*;
+	use alloy_primitives::{Address, Bytes};
+
+	// Proves the UpgradeContract body matches Solidity `abi.decode(body[1:], (address, bytes))`.
+	#[test]
+	fn upgrade_contract_encode_matches_solidity_two_param_abi() {
+		let new_impl = H160::repeat_byte(0x11);
+		let body = RequestKind::UpgradeContract { new_impl, init_data: Vec::new() }.encode_body();
+
+		// Discriminator byte must equal the EVM enum value (UpgradeContract = 5).
+		assert_eq!(body[0], 5, "discriminator must match IntentsBase.RequestKind.UpgradeContract");
+
+		// Hand-computed `abi.encode(address, bytes)` for (0x11 * 20, "") — exactly 96 bytes:
+		//   word0: address right-aligned in 32 bytes
+		//   word1: offset to the bytes tail (0x40)
+		//   word2: byte length (0)
+		let mut expected = Vec::new();
+		expected.extend_from_slice(&[0u8; 12]);
+		expected.extend_from_slice(&[0x11u8; 20]);
+		let mut offset = [0u8; 32];
+		offset[31] = 0x40;
+		expected.extend_from_slice(&offset);
+		expected.extend_from_slice(&[0u8; 32]);
+		assert_eq!(&body[1..], expected.as_slice(), "payload must equal abi.encode(addr, bytes)");
+
+		// And it decodes through the exact Solidity analogue.
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert!(decoded_data.is_empty());
+	}
+
+	#[test]
+	fn upgrade_contract_encode_with_init_data_round_trips() {
+		let new_impl = H160::repeat_byte(0xAB);
+		let init_data = vec![0xDE, 0xAD, 0xBE, 0xEF];
+		let body =
+			RequestKind::UpgradeContract { new_impl, init_data: init_data.clone() }.encode_body();
+		assert_eq!(body[0], 5);
+
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
 	}
 }

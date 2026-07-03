@@ -210,6 +210,7 @@ export class IntentGatewayV3Service {
 			)
 
 			await this.flushPendingStatuses(order.id!)
+			await this.backfillEarlyFills(order.id!)
 
 			logger.info("Now awarding points for the OrderV3 Placed Event")
 
@@ -493,20 +494,83 @@ export class IntentGatewayV3Service {
 
 		await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
 
+		await this.awardFillPoints(commitment, filler, sliceUSD, transactionHash, timestamp)
+	}
+
+	/**
+	 * Points for one fill slice. A no-op while the order row is missing (a destination
+	 * fill can index before the source-chain OrderPlaced) — {@link backfillEarlyFills}
+	 * replays it when the order is created.
+	 */
+	private static async awardFillPoints(
+		commitment: string,
+		filler: string,
+		sliceUSD: Decimal,
+		transactionHash: string,
+		timestamp: bigint,
+	): Promise<void> {
 		const orderPlaced = await OrderV3Placed.get(commitment)
 		if (!orderPlaced) return
 
 		const pointsToAward = sliceUSD.floor().toNumber()
-		if (pointsToAward > 0) {
-			await PointsService.awardPoints(
-				filler,
-				decodeChain(orderPlaced.destChain),
-				BigInt(pointsToAward),
-				ProtocolParticipantType.FILLER,
-				PointsActivityType.ORDER_FILLED_POINTS,
-				transactionHash,
-				`Points awarded for filling orderV3 ${commitment} slice worth ${sliceUSD.toString()} USD`,
-				timestamp,
+		if (pointsToAward <= 0) return
+
+		await PointsService.awardPoints(
+			filler,
+			decodeChain(orderPlaced.destChain),
+			BigInt(pointsToAward),
+			ProtocolParticipantType.FILLER,
+			PointsActivityType.ORDER_FILLED_POINTS,
+			transactionHash,
+			`Points awarded for filling orderV3 ${commitment} slice worth ${sliceUSD.toString()} USD`,
+			timestamp,
+		)
+	}
+
+	/**
+	 * Replays fills that were indexed before the order was placed (the destination
+	 * chain can run ahead of the source chain). Such fills were recorded linked by
+	 * commitment, but the cumulative `filled` accounting and the filler's points were
+	 * skipped — the order's asset rows and dest chain did not exist yet. Volume was
+	 * already credited at event time so it is not replayed. Exactly-once holds because
+	 * any fill found here was recorded while the order row was absent (its points were
+	 * certainly skipped), and fills recorded after creation are credited inline.
+	 */
+	private static async backfillEarlyFills(commitment: string): Promise<void> {
+		const [partialFills, fills] = await Promise.all([
+			IOrderV3PartialFill.getByOrderId(commitment, { limit: 100 }),
+			IOrderV3Fill.getByOrderId(commitment, { limit: 100 }),
+		])
+		if (partialFills.length === 0 && fills.length === 0) return
+
+		const earlyFills = [
+			...partialFills.map((fill) => ({ fill, isPartial: true })),
+			...fills.map((fill) => ({ fill, isPartial: false })),
+		]
+
+		for (const { fill, isPartial } of earlyFills) {
+			const outputs: TokenInfo[] = []
+			for (let index = 0; ; index++) {
+				const assetId = `${fill.id}-output-${index}`
+				const asset = isPartial
+					? await IOrderV3PartialFillOutputAsset.get(assetId)
+					: await IOrderV3FillOutputAsset.get(assetId)
+				if (!asset) break
+				outputs.push({ token: asset.token as Hex, amount: asset.amount })
+			}
+
+			const provided = outputs.filter((output) => output.amount > 0n)
+			if (provided.length === 0) continue
+
+			await this.accumulateFilled(commitment, outputs)
+
+			const outputUSD = await this.getOutputValuesUSD(provided)
+			const sliceUSD = new Decimal(outputUSD.total)
+			if (sliceUSD.lte(0)) continue
+			await this.awardFillPoints(commitment, fill.filler, sliceUSD, fill.transactionHash, fill.timestamp)
+
+			logger.info(
+				`OrderV3 ${commitment}: backfilled early ${isPartial ? "partial fill" : "fill"} ${fill.id} on order placement`,
 			)
 		}
 	}

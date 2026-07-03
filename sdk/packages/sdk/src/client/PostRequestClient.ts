@@ -643,7 +643,7 @@ export class PostRequestClient {
 		const finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: config.stateMachineId,
+			chain: request.dest,
 		})
 		if (finality) {
 			const proof = await hyperbridge.queryProof(
@@ -744,7 +744,7 @@ export class PostRequestClient {
 		let finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: stateMachineId,
 			height: Number(neededHeight),
-			chain: stateMachineId,
+			chain: request.dest,
 		})
 
 		// No existing finality and the destination is EVM: advance its Hyperbridge light client and
@@ -793,7 +793,7 @@ export class PostRequestClient {
 		}
 
 		// Otherwise wait for Hyperbridge's
-		// self-finality then deliver with a plain PostRequest proof.
+		// finality on dest chain then deliver with a plain PostRequest proof.
 		if (!finality) {
 			finality = await waitOrAbort(this.ctx, {
 				signal,
@@ -801,7 +801,7 @@ export class PostRequestClient {
 					this.queries.queryStateMachineUpdateByHeight({
 						statemachineId: stateMachineId,
 						height: Number(neededHeight),
-						chain: stateMachineId,
+						chain: request.dest,
 					}),
 			})
 		}

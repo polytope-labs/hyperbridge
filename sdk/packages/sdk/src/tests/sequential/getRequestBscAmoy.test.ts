@@ -17,9 +17,10 @@ import type { HexString } from "@/types"
  *
  * Uses the deployed `HyperGet` test contract on BSC Chapel to dispatch a GET that reads
  * `WMATIC.balanceOf(reader)` on Polygon Amoy (balance mapping slot 3), then tracks it with
- * `IsmpClient.getRequestStatusStream`. The stream resolves the request from the indexer, waits
- * for SOURCE_FINALIZED, and self-delivers it to Hyperbridge (deliverToHyperbridge — its logs show
- * each proof being built + submitted). The test iterates until HYPERBRIDGE_DELIVERED.
+ * `IsmpClient.getRequestStatusStream` and drives it to completion: resolve from the indexer →
+ * SOURCE_FINALIZED → self-deliver to Hyperbridge (deliverToHyperbridge logs each proof) →
+ * HYPERBRIDGE_FINALIZED, at which point the GetResponse calldata is submitted to the BSC handler,
+ * invoking HyperGet.onGetResponse (which RLP-decodes and emits the balance) → DESTINATION.
  *
  * Requires funds + endpoints from sdk/.env.local; skipped otherwise. Slow (source finalization).
  *   npx vitest run --sequence.concurrent=false src/tests/sequential/getRequestBscAmoy.test.ts
@@ -46,13 +47,22 @@ const HYPER_GET_ABI = [
 		],
 		outputs: [{ type: "bytes32" }],
 	},
+	{
+		type: "event",
+		name: "BalanceReceived",
+		inputs: [
+			{ name: "commitment", type: "bytes32", indexed: true },
+			{ name: "account", type: "address", indexed: true },
+			{ name: "balance", type: "uint256", indexed: false },
+		],
+	},
 ] as const
 
 const has = (v?: string) => typeof v === "string" && v.length > 0
 
 describe("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => {
 	it.skipIf(!has(process.env.PRIVATE_KEY) || !has(process.env.BSC_CHAPEL))(
-		"reads WMATIC.balanceOf on Amoy via GET and self-delivers to Hyperbridge",
+		"reads WMATIC.balanceOf on Amoy via GET and drives it to completion on the source (onGetResponse)",
 		async () => {
 			const BSC = process.env.BSC_CHAPEL!.split(",")[0]
 			// The destination needs an ARCHIVE endpoint: by delivery time the GET's (fixed) read
@@ -103,16 +113,46 @@ describe("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => {
 			console.log(`[3] GET: ${a.source} → ${a.dest} nonce=${a.nonce} height=${a.height} commitment=${commitment}`)
 			expect(a.dest).toBe("EVM-80002")
 
-			// 4. Track + self-deliver via the real entry point. getRequestStatusStream resolves the
-			//    request from the indexer, waits for SOURCE_FINALIZED, and drives deliverToHyperbridge
-			//    (whose logs show each proof built + submitted). Iterate until Hyperbridge handles it.
+			// 4. Drive the full round-trip via the real entry point. getRequestStatusStream resolves
+			//    the request from the indexer, waits for SOURCE_FINALIZED, self-delivers it to
+			//    Hyperbridge (deliverToHyperbridge logs each proof), then finalizes the GetResponse.
+			//    At HYPERBRIDGE_FINALIZED we submit the response calldata to the BSC handler, which
+			//    invokes HyperGet.onGetResponse — completing the GET on the source chain.
 			const seen: string[] = []
+			let received: { account: HexString; balance: bigint } | undefined
 			for await (const update of client.getRequestStatusStream(commitment)) {
 				seen.push(update.status)
 				console.log(`[4] stream: ${update.status}`)
-				if (update.status === RequestStatus.HYPERBRIDGE_DELIVERED) break
+
+				if (update.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
+					const calldata = (update.metadata as { calldata?: HexString }).calldata
+					if (!calldata) throw new Error("HYPERBRIDGE_FINALIZED yielded no calldata")
+					const params = (await publicClient.readContract({
+						address: HOST,
+						abi: EVM_HOST.ABI,
+						functionName: "hostParams",
+					})) as { handler: HexString }
+					console.log(`[5] delivering GetResponse to BSC handler ${params.handler}`)
+					const respTx = await walletClient.sendTransaction({ to: params.handler, data: calldata })
+					const respReceipt = await publicClient.waitForTransactionReceipt({ hash: respTx })
+					const ev = parseEventLogs({ abi: HYPER_GET_ABI, logs: respReceipt.logs }).find(
+						(l) => l.eventName === "BalanceReceived",
+					) as any
+					if (ev) {
+						received = { account: ev.args.account, balance: ev.args.balance }
+						console.log(`[5] BalanceReceived: account=${received.account} balance=${received.balance}`)
+					}
+				}
+
+				if (update.status === RequestStatus.DESTINATION) break
 			}
+
+			// Completed on the source chain: Hyperbridge delivered + finalized, and the response was
+			// received by HyperGet, which RLP-decoded the queried account's WMATIC balance.
 			expect(seen).toContain(RequestStatus.HYPERBRIDGE_DELIVERED)
+			expect(seen).toContain(RequestStatus.DESTINATION)
+			expect(received?.account?.toLowerCase()).toBe(reader.toLowerCase())
+			expect(received?.balance).toBeGreaterThan(0n)
 
 			await hyperbridge.disconnect()
 		},

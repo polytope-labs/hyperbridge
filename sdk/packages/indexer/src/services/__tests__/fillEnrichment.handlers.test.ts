@@ -10,7 +10,9 @@ jest.mock("@/utils/rpc.helpers", () => ({ getBlockTimestamp: async () => 1000n, 
 jest.mock("@/utils/host.helpers", () => ({ getHostFeeToken: jest.fn() }))
 jest.mock("@/utils/substrate.helpers", () => ({ getHostStateMachine: () => "EVM-56" }))
 jest.mock("@/services/points.service", () => ({ PointsService: { awardPoints: jest.fn() } }))
-jest.mock("@/services/volume.service", () => ({ VolumeService: { updateVolume: jest.fn() } }))
+jest.mock("@/services/volume.service", () => ({
+	VolumeService: { updateVolume: jest.fn(), seedAggregateVolume: jest.fn() },
+}))
 jest.mock("@/services/userActivity.services", () => ({
 	getOrCreateUser: async () => ({ totalOrdersPlaced: 0n, totalOrderPlacedVolumeUSD: "0", save: jest.fn() }),
 }))
@@ -56,6 +58,8 @@ beforeEach(() => {
 		inputUSD: "100",
 		outputUSD: "100",
 	} as any)
+	// Fills credit the solver per slice, priced from the fill's own outputs.
+	jest.spyOn(IntentGatewayV3Service as any, "getOutputValuesUSD").mockResolvedValue({ total: "100", values: ["100"] })
 	jest.mocked(getHostFeeToken).mockResolvedValue({ address: token, decimals: 6 })
 })
 afterEach(() => jest.restoreAllMocks())

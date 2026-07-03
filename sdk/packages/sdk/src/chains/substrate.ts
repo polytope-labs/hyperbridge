@@ -198,6 +198,57 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
+	 * Returns the storage key for a response receipt in the child trie.
+	 * A response receipt is keyed by the originating *request* commitment.
+	 * @param {HexString} key - The request commitment (0x-prefixed H256 hex string)
+	 * @returns {HexString} The storage key as a hex string
+	 */
+	responseReceiptKey(key: HexString): HexString {
+		const prefix = new TextEncoder().encode("ResponseReceipts")
+
+		const keyBytes = hexToBytes(key)
+
+		// Concatenate the prefix and key bytes
+		return bytesToHex(new Uint8Array([...prefix, ...keyBytes]))
+	}
+
+	/**
+	 * Queries the response receipt for a request commitment. For a GET, Hyperbridge
+	 * produces the response as it processes the request, so the presence of a response
+	 * receipt indicates the request has already been delivered and handled.
+	 * @param {HexString} commitment - The originating request commitment to query.
+	 * @returns {Promise<HexString | undefined>} The receipt data if present, otherwise undefined.
+	 */
+	async queryResponseReceipt(commitment: HexString): Promise<HexString | undefined> {
+		const prefix = toHex(":child_storage:default:ISMP")
+		const key = this.responseReceiptKey(commitment)
+
+		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])
+
+		return item
+	}
+
+	/**
+	 * Queries the state-machine commitment Hyperbridge holds for a counterparty chain at an
+	 * exact height — the `BoundedStateCommitments` map that `state_machine_commitment` (and thus
+	 * proof verification) reads. Returns the committed `stateRoot`, or undefined if Hyperbridge
+	 * has not finalized that chain at exactly that height.
+	 * @param {StateMachineHeight} height - The counterparty state machine id + height.
+	 * @returns {Promise<HexString | undefined>} The committed state root, or undefined if absent.
+	 */
+	async queryStateMachineCommitment(height: StateMachineHeight): Promise<HexString | undefined> {
+		if (!this.api) throw new Error("API not initialized")
+		const id = {
+			stateId: height.id.stateId,
+			// on-chain StateMachineId encodes consensusStateId as [u8; 4]
+			consensusStateId: toHex(toBytes(height.id.consensusStateId)),
+		}
+		const commitment = await this.api.query.ismp.boundedStateCommitments(id, Number(height.height))
+		if ((commitment as any).isNone) return undefined
+		return (commitment.toJSON() as { stateRoot?: HexString })?.stateRoot
+	}
+
+	/**
 	 * Returns the current timestamp of the chain.
 	 * @returns {Promise<bigint>} The current timestamp.
 	 */

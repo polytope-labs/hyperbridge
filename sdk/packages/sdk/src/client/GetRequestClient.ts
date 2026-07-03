@@ -4,7 +4,7 @@ import { pad } from "viem"
 // @ts-ignore
 import mergeRace from "@async-generator/merge-race"
 
-import type { SubstrateChain } from "@/chain"
+import type { IGetRequestMessage, IProof, SubstrateChain } from "@/chain"
 import { EvmChain } from "@/chains/evm"
 import {
 	type GetRequestWithStatus,
@@ -14,12 +14,18 @@ import {
 	type ResponseCommitmentWithValues,
 	RequestStatus,
 } from "@/types"
-import { COMBINED_STATUS_WEIGHTS, REQUEST_STATUS_WEIGHTS } from "@/utils"
+import {
+	COMBINED_STATUS_WEIGHTS,
+	REQUEST_STATUS_WEIGHTS,
+	getRequestCommitment,
+	parseStateMachineId,
+	waitForChallengePeriod,
+} from "@/utils"
 import { AbortSignalInternal } from "@/utils/exceptions"
 
 import type { Queries } from "./Queries"
 import type { ClientContext } from "."
-import { timeoutStream, waitOrAbort } from "./utils"
+import { timeoutStream, waitOrAbort, withRetry } from "./utils"
 
 /**
  * GET request status tracking — snapshot + streaming flows. Responses travel
@@ -148,6 +154,10 @@ export class GetRequestClient {
 		status = maxBy([status, latestMetadata.status as RequestStatusKey], (item) => REQUEST_STATUS_WEIGHTS[item])
 		if (!status) return
 
+		// Source height Hyperbridge has finalized — captured when we emit SOURCE_FINALIZED
+		// and reused to build the source proof for self-delivery.
+		let sourceFinalizedHeight: bigint | undefined
+
 		while (true) {
 			switch (status) {
 				case RequestStatus.SOURCE: {
@@ -160,6 +170,8 @@ export class GetRequestClient {
 								chain: this.ctx.config.hyperbridge.config.stateMachineId,
 							}),
 					})
+
+					sourceFinalizedHeight = BigInt(sourceUpdate.height)
 
 					yield {
 						status: RequestStatus.SOURCE_FINALIZED,
@@ -175,6 +187,24 @@ export class GetRequestClient {
 				}
 
 				case RequestStatus.SOURCE_FINALIZED: {
+					// Actively deliver the request to Hyperbridge instead of only waiting for an
+					// external relayer. Best-effort: on any failure we fall back to observing, so
+					// a relayer (or a retry once prerequisites are met) can still complete it.
+					if (
+						request.source !== this.ctx.config.hyperbridge.config.stateMachineId &&
+						sourceFinalizedHeight !== undefined
+					) {
+						try {
+							await this.deliverToHyperbridge(request, sourceFinalizedHeight)
+						} catch (error) {
+							this.logger.warn(
+								`Self-delivery to Hyperbridge failed; waiting for a relayer instead: ${
+									error instanceof Error ? error.message : error
+								}`,
+							)
+						}
+					}
+
 					request = await waitOrAbort(this.ctx, {
 						signal,
 						promise: () => this.queries.queryGetRequest(hash),
@@ -202,7 +232,12 @@ export class GetRequestClient {
 				case RequestStatus.HYPERBRIDGE_DELIVERED: {
 					if (request.source === this.ctx.config.hyperbridge.config.stateMachineId) return
 
-					const response = await this.queries.queryResponseByRequestId(hash)
+					// The GetResponse is produced + indexed slightly after HYPERBRIDGE_DELIVERED; wait
+					// for it, since streamFinalized needs its commitment to build the response proof.
+					const response = await waitOrAbort(this.ctx, {
+						signal,
+						promise: () => this.queries.queryResponseByRequestId(hash),
+					})
 					yield await this.streamFinalized(signal, request, 1, response)
 					status = RequestStatus.HYPERBRIDGE_FINALIZED
 					break
@@ -238,6 +273,130 @@ export class GetRequestClient {
 	}
 
 	/**
+	 * Self-delivers a GET request to Hyperbridge — the request→Hyperbridge hop that would
+	 * otherwise require an external relayer.
+	 *
+	 * Mirrors the relayer path (and {@link OrderCanceller}): prove the request commitment on
+	 * the source chain at the Hyperbridge-finalized source height, prove the requested keys on
+	 * the destination chain at the request's height, wait out the source challenge period, then
+	 * submit an unsigned `GetRequest` message. Source and destination may each be EVM or
+	 * substrate — proofs are built via the chain-agnostic {@link IChain} methods.
+	 *
+	 * Idempotent: returns early if Hyperbridge already holds the response receipt. The caller
+	 * wraps this best-effort, so a failure leaves the stream observing as before.
+	 */
+	private async deliverToHyperbridge(request: GetRequestWithStatus, sourceFinalizedHeight: bigint): Promise<void> {
+		const sourceChain = this.ctx.config.source
+		const destChain = this.ctx.config.dest
+		const hyperbridge = this.ctx.config.hyperbridge as SubstrateChain
+
+		const commitment = getRequestCommitment({ ...request, keys: [...request.keys] })
+		// Every network call below is retried: live RPCs (eth_getProof, WS queries, submission)
+		// transiently fail (rate limits, timeouts, dropped sockets) and a single hiccup must not
+		// abandon the delivery.
+		const retry = { maxRetries: 5, backoffMs: 2000 }
+
+		// Idempotency: for a GET, Hyperbridge produces the response as it handles the request,
+		// so an existing response receipt (keyed by the request commitment) means it's already
+		// been delivered and handled — nothing to do.
+		if (await withRetry(this.ctx, () => hyperbridge.queryResponseReceipt(commitment), retry)) return
+
+		this.logger.info(
+			`Delivering GET ${commitment} to Hyperbridge (${request.source}@${sourceFinalizedHeight} → ${request.dest}@${request.height})`,
+		)
+
+		// 1. Source proof: proof of the request commitment on the source chain at the finalized
+		//    height. `queryProof` builds the chain-appropriate commitment proof (EVM or substrate).
+		const sourceProof: IProof = {
+			height: sourceFinalizedHeight,
+			stateMachine: request.source,
+			consensusStateId: sourceChain.config.consensusStateId,
+			proof: await withRetry(
+				this.ctx,
+				() =>
+					sourceChain.queryProof(
+						{ Requests: [commitment] },
+						this.ctx.config.hyperbridge.config.stateMachineId,
+						sourceFinalizedHeight,
+					),
+				retry,
+			),
+		}
+		this.logger.info(`  ✓ built source proof: ${(sourceProof.proof.length - 2) / 2} bytes @ ${request.source}#${sourceFinalizedHeight}`)
+
+		// 2. Response proof: a GET reads request.keys at exactly request.height on request.dest, and
+		//    Hyperbridge enforces `proof.height == request.height`, so it must already hold a state
+		//    commitment for request.dest at that exact height. Require it, then prove the keys there
+		//    via the chain-appropriate state proof.
+		const destCommitment = await withRetry(
+			this.ctx,
+			() =>
+				hyperbridge.queryStateMachineCommitment({
+					id: {
+						stateId: parseStateMachineId(request.dest).stateId,
+						consensusStateId: destChain.config.consensusStateId,
+					},
+					height: request.height,
+				}),
+			retry,
+		)
+		if (!destCommitment) {
+			throw new Error(`Hyperbridge has no state commitment for ${request.dest} at height ${request.height}`)
+		}
+		const responseProof: IProof = {
+			height: request.height,
+			stateMachine: request.dest,
+			consensusStateId: destChain.config.consensusStateId,
+			proof: await withRetry(this.ctx, () => destChain.queryStateProof(request.height, [...request.keys]), retry),
+		}
+		this.logger.info(
+			`  ✓ built response proof: ${(responseProof.proof.length - 2) / 2} bytes (${request.keys.length} key(s) @ ${request.dest}#${request.height})`,
+		)
+
+		// 3. Wait out the source challenge period on Hyperbridge.
+		await withRetry(
+			this.ctx,
+			() =>
+				waitForChallengePeriod(hyperbridge, {
+					height: sourceFinalizedHeight,
+					id: {
+						stateId: parseStateMachineId(request.source).stateId,
+						consensusStateId: sourceChain.config.consensusStateId,
+					},
+				}),
+			retry,
+		)
+
+		// 4. Submit the unsigned GetRequest message.
+		const message: IGetRequestMessage = {
+			kind: "GetRequest",
+			requests: [
+				{
+					source: request.source,
+					dest: request.dest,
+					nonce: request.nonce,
+					from: request.from,
+					timeoutTimestamp: request.timeoutTimestamp,
+					keys: [...request.keys],
+					height: request.height,
+					context: request.context,
+				},
+			],
+			source: sourceProof,
+			response: responseProof,
+			signer: pad("0x"),
+		}
+
+		this.logger.info("  → submitting GetRequest message (source + response proofs) to Hyperbridge…")
+		// Idempotent via the response-receipt check above; retry so a dropped socket / timeout on
+		// submission doesn't strand the request waiting for a relayer that never comes.
+		const result = await withRetry(this.ctx, () => hyperbridge.submitUnsigned(message), retry)
+		this.logger.info(
+			`  ✓ delivered GET ${commitment} in Hyperbridge block #${result.blockNumber} (tx ${result.transactionHash})`,
+		)
+	}
+
+	/**
 	 * Snapshot helper: returns the `HYPERBRIDGE_FINALIZED` event with source-chain
 	 * calldata if prerequisites are met, or `undefined` if we're still waiting
 	 * for a consensus proof.
@@ -252,13 +411,13 @@ export class GetRequestClient {
 		const hyperbridge = this.ctx.config.hyperbridge
 		const { config } = hyperbridge
 
-		// Check for existing finality first. Hyperbridge runs a light client of itself
-		// (pallet-beefy-consensus-proofs), so if its self state-machine update already finalizes the
-		// response, deliver with a plain GetResponse proof — no consensus proof needed.
+		// Has the response's destination chain (a GET returns to its `source`) already finalized
+		// Hyperbridge at >= the delivered height? That's what `handleGetResponses` verifies against, so if
+		// so we can deliver a plain GetResponse proof — no consensus proof needed.
 		const finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: config.stateMachineId,
+			chain: request.source,
 		})
 		if (finality) {
 			const proof = await hyperbridge.queryProof(
@@ -335,14 +494,21 @@ export class GetRequestClient {
 				signer: pad("0x"),
 			})
 
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// the delivered height), not the delivery event. Snapshot: bail if it isn't indexed yet.
+			const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: config.stateMachineId,
+			})
+			if (!hyperbridgeFinality) return undefined
 			return {
 				status: RequestStatus.HYPERBRIDGE_FINALIZED,
 				metadata: {
-					blockHash: hyperbridgeDelivered.metadata.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: hyperbridgeDelivered.metadata.transactionHash,
-					// @ts-ignore
-					timestamp: hyperbridgeDelivered.metadata.timestamp,
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
 					calldata,
 				},
 			}
@@ -370,16 +536,55 @@ export class GetRequestClient {
 		const stateMachineId = this.ctx.config.hyperbridge.config.stateMachineId
 		const neededHeight = BigInt(request.statuses[hyperbridgeDeliveredIndex].metadata.blockNumber)
 
-		// Check for existing finality first (Hyperbridge's self state-machine update).
+		const consensusStateId = this.ctx.config.hyperbridge.config.consensusStateId
+		const encodeGetResponse = (height: bigint, proof: HexString): HexString =>
+			sourceChain.encode({
+				kind: "GetResponse",
+				proof: { stateMachine: stateMachineId, consensusStateId, proof, height },
+				responses: [
+					{
+						get: request,
+						values: request.keys.map((key, index) => ({
+							key,
+							value: (response?.values[index] as HexString) || "0x",
+						})),
+					},
+				],
+				signer: pad("0x"),
+			})
+
+		// Has the response's destination chain (a GET returns to its `source`) already finalized
+		// Hyperbridge at a height >= neededHeight? That's exactly what `handleGetResponses` verifies
+		// against (host.stateMachineCommitment(proof.height)), and Hyperbridge's overlay MMR is
+		// append-only, so any such update proves the response. Read it from the indexer (no per-call
+		// RPC): if present, deliver a plain GetResponse — the destination host already holds the
+		// commitment. Otherwise (EVM source) advance the host's Hyperbridge client with a consensus proof.
 		let finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: stateMachineId,
 			height: Number(neededHeight),
-			chain: stateMachineId,
+			chain: request.source,
 		})
+		if (finality) {
+			const proof = await hyperbridge.queryProof(
+				{ Responses: [response?.commitment as HexString] },
+				request.source,
+				BigInt(finality.height),
+			)
+			return {
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: finality.blockHash,
+					blockNumber: finality.height,
+					transactionHash: finality.transactionHash,
+					timestamp: finality.timestamp,
+					calldata: encodeGetResponse(BigInt(finality.height), proof),
+				},
+			}
+		}
 
-		// No existing finality and the source is EVM: advance its Hyperbridge light client and deliver
-		// in one batch (consensus proof + message proof).
-		if (!finality && sourceChain instanceof EvmChain) {
+		// Not yet finalized on the destination and the source is EVM: advance its Hyperbridge light
+		// client and deliver in one batch (consensus proof + response proof).
+		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
 			const currentEpoch = await sourceChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
@@ -398,7 +603,7 @@ export class GetRequestClient {
 				consensusProofs: consensusResult.proofs,
 				proof: {
 					stateMachine: stateMachineId,
-					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
+					consensusStateId,
 					proof,
 					height: consensusResult.provenHeight,
 				},
@@ -414,23 +619,10 @@ export class GetRequestClient {
 				signer: pad("0x"),
 			})
 
-			return {
-				status: RequestStatus.HYPERBRIDGE_FINALIZED,
-				metadata: {
-					blockHash: request.statuses[hyperbridgeDeliveredIndex].metadata.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: request.statuses[hyperbridgeDeliveredIndex].metadata.transactionHash,
-					// @ts-ignore
-					timestamp: request.statuses[hyperbridgeDeliveredIndex].metadata.timestamp,
-					calldata,
-				},
-			}
-		}
-
-		// Otherwise wait for Hyperbridge's
-		// self-finality then deliver with a plain GetResponse proof.
-		if (!finality) {
-			finality = await waitOrAbort(this.ctx, {
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// neededHeight) — the batch carries that finality to the destination, so the delivery event is
+			// the wrong anchor. Wait for the self-update to be indexed.
+			const hyperbridgeFinality = await waitOrAbort(this.ctx, {
 				signal,
 				promise: () =>
 					this.queries.queryStateMachineUpdateByHeight({
@@ -439,33 +631,35 @@ export class GetRequestClient {
 						chain: stateMachineId,
 					}),
 			})
+
+			return {
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
+					calldata,
+				},
+			}
 		}
+
+		// Non-EVM source: wait for the destination chain to finalize Hyperbridge, then a plain proof.
+		finality = await waitOrAbort(this.ctx, {
+			signal,
+			promise: () =>
+				this.queries.queryStateMachineUpdateByHeight({
+					statemachineId: stateMachineId,
+					height: Number(neededHeight),
+					chain: request.source,
+				}),
+		})
 
 		const proof = await hyperbridge.queryProof(
 			{ Responses: [response?.commitment as HexString] },
 			request.source,
 			BigInt(finality.height),
 		)
-
-		const calldata = sourceChain.encode({
-			kind: "GetResponse",
-			proof: {
-				stateMachine: stateMachineId,
-				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
-				proof,
-				height: BigInt(finality.height),
-			},
-			responses: [
-				{
-					get: request,
-					values: request.keys.map((key, index) => ({
-						key,
-						value: (response?.values[index] as HexString) || "0x",
-					})),
-				},
-			],
-			signer: pad("0x"),
-		})
 
 		return {
 			status: RequestStatus.HYPERBRIDGE_FINALIZED,
@@ -474,7 +668,7 @@ export class GetRequestClient {
 				blockNumber: finality.height,
 				transactionHash: finality.transactionHash,
 				timestamp: finality.timestamp,
-				calldata,
+				calldata: encodeGetResponse(BigInt(finality.height), proof),
 			},
 		}
 	}

@@ -140,6 +140,9 @@ jobs:
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
 
+            - name: Run SDK test - get request
+              run: pnpm --filter="@hyperbridge/sdk" test:get-request
+
             - name: Clean up
               if: always()
               run: |

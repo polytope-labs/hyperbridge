@@ -643,7 +643,7 @@ export class PostRequestClient {
 		const finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: config.stateMachineId,
+			chain: request.dest,
 		})
 		if (finality) {
 			const proof = await hyperbridge.queryProof(
@@ -704,14 +704,21 @@ export class PostRequestClient {
 				signer: pad("0x"),
 			})
 
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// the delivered height), not the delivery event. Snapshot: bail if it isn't indexed yet.
+			const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: config.stateMachineId,
+			})
+			if (!hyperbridgeFinality) return undefined
 			return {
 				status: RequestStatus.HYPERBRIDGE_FINALIZED,
 				metadata: {
-					blockHash: hyperbridgeDelivered.metadata.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: hyperbridgeDelivered.metadata.transactionHash,
-					// @ts-ignore
-					timestamp: hyperbridgeDelivered.metadata.timestamp,
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
 					calldata,
 				},
 			}
@@ -744,7 +751,7 @@ export class PostRequestClient {
 		let finality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: stateMachineId,
 			height: Number(neededHeight),
-			chain: stateMachineId,
+			chain: request.dest,
 		})
 
 		// No existing finality and the destination is EVM: advance its Hyperbridge light client and
@@ -779,21 +786,33 @@ export class PostRequestClient {
 				signer: pad("0x"),
 			})
 
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// neededHeight) — the batch carries that finality to the destination, so the delivery event is
+			// the wrong anchor. Wait for the self-update to be indexed.
+			const hyperbridgeFinality = await waitOrAbort(this.ctx, {
+				signal,
+				promise: () =>
+					this.queries.queryStateMachineUpdateByHeight({
+						statemachineId: stateMachineId,
+						height: Number(neededHeight),
+						chain: stateMachineId,
+					}),
+			})
+
 			return {
 				status: RequestStatus.HYPERBRIDGE_FINALIZED,
 				metadata: {
-					blockHash: request.statuses[hyperbridgeDeliveredIndex].metadata.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: request.statuses[hyperbridgeDeliveredIndex].metadata.transactionHash,
-					// @ts-ignore
-					timestamp: request.statuses[hyperbridgeDeliveredIndex].metadata.timestamp,
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
 					calldata,
 				},
 			}
 		}
 
 		// Otherwise wait for Hyperbridge's
-		// self-finality then deliver with a plain PostRequest proof.
+		// finality on dest chain then deliver with a plain PostRequest proof.
 		if (!finality) {
 			finality = await waitOrAbort(this.ctx, {
 				signal,
@@ -801,7 +820,7 @@ export class PostRequestClient {
 					this.queries.queryStateMachineUpdateByHeight({
 						statemachineId: stateMachineId,
 						height: Number(neededHeight),
-						chain: stateMachineId,
+						chain: request.dest,
 					}),
 			})
 		}

@@ -494,14 +494,21 @@ export class GetRequestClient {
 				signer: pad("0x"),
 			})
 
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// the delivered height), not the delivery event. Snapshot: bail if it isn't indexed yet.
+			const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
+				statemachineId: config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: config.stateMachineId,
+			})
+			if (!hyperbridgeFinality) return undefined
 			return {
 				status: RequestStatus.HYPERBRIDGE_FINALIZED,
 				metadata: {
-					blockHash: hyperbridgeDelivered.metadata.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: hyperbridgeDelivered.metadata.transactionHash,
-					// @ts-ignore
-					timestamp: hyperbridgeDelivered.metadata.timestamp,
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
 					calldata,
 				},
 			}
@@ -530,7 +537,6 @@ export class GetRequestClient {
 		const neededHeight = BigInt(request.statuses[hyperbridgeDeliveredIndex].metadata.blockNumber)
 
 		const consensusStateId = this.ctx.config.hyperbridge.config.consensusStateId
-		const deliveredMeta = request.statuses[hyperbridgeDeliveredIndex].metadata
 		const encodeGetResponse = (height: bigint, proof: HexString): HexString =>
 			sourceChain.encode({
 				kind: "GetResponse",
@@ -613,14 +619,26 @@ export class GetRequestClient {
 				signer: pad("0x"),
 			})
 
+			// HYPERBRIDGE_FINALIZED anchors to Hyperbridge's own state-machine update (its self-finality of
+			// neededHeight) — the batch carries that finality to the destination, so the delivery event is
+			// the wrong anchor. Wait for the self-update to be indexed.
+			const hyperbridgeFinality = await waitOrAbort(this.ctx, {
+				signal,
+				promise: () =>
+					this.queries.queryStateMachineUpdateByHeight({
+						statemachineId: stateMachineId,
+						height: Number(neededHeight),
+						chain: stateMachineId,
+					}),
+			})
+
 			return {
 				status: RequestStatus.HYPERBRIDGE_FINALIZED,
 				metadata: {
-					blockHash: deliveredMeta.blockHash,
-					blockNumber: Number(consensusResult.provenHeight),
-					transactionHash: deliveredMeta.transactionHash,
-					// @ts-ignore
-					timestamp: deliveredMeta.timestamp,
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
 					calldata,
 				},
 			}

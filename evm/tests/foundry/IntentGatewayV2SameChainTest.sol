@@ -1919,14 +1919,15 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
     /// @notice Placing an order with duplicate input tokens must revert.
     /// Regression test for: same-chain partial fills over-release repeated input escrow.
     function testRevert_PlaceOrder_DuplicateInputTokens() public {
-        // Two input legs both using USDC — this previously merged into one escrow bucket
+        // Two input legs both using USDC — this previously merged into one escrow bucket.
+        // Output tokens are distinct so only the input duplicate can trigger the revert.
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1200 * 1e6});
         inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
-        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
 
         PaymentInfo memory output =
             PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
@@ -1964,13 +1965,14 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         });
         gatewayWithFees.initialize(intentParams, new bytes[](0));
 
+        // Output tokens are distinct so only the input duplicate can trigger the revert.
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
         inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 300 * 1e18});
-        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 400 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
 
         PaymentInfo memory output =
             PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});

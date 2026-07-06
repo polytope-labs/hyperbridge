@@ -15,9 +15,9 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Balance, Balances, Fishermen, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount, TreasuryPalletId,
-	EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Assets, Balance, Balances, Fishermen, Ismp, IsmpParachain, Mmr,
+	ParachainInfo, ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryAccount,
+	TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -296,6 +296,29 @@ impl pallet_bandwidth::Config for Runtime {
 }
 
 parameter_types! {
+	pub const HftDecimals: u8 = 12;
+}
+
+pub struct HftNativeAssetId;
+
+impl Get<H256> for HftNativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+impl pallet_hyper_fungible_token::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = HftNativeAssetId;
+	type CreateOrigin = EnsureRoot<AccountId>;
+	type Decimals = HftDecimals;
+	type EvmToSubstrate = ();
+	type WeightInfo = ();
+}
+
+parameter_types! {
 	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
 	pub const IntentsPhantomOrderBidWindow: u32 = 25;
 }
@@ -353,6 +376,8 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
 				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
+			pallet_hyper_fungible_token::PALLET_ID =>
+				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
@@ -379,16 +404,21 @@ impl IsmpModule for ProxyModule {
 			}
 		}
 
-		let source = match &timeout {
-			Request::Post(post) => &post.source,
-			Request::Get(get) => &get.source,
+		let (from, source) = match &timeout {
+			Request::Post(post) => (&post.from, post.source.clone()),
+			Request::Get(get) => (&get.from, get.source.clone()),
 		};
 
-		if *source != HostStateMachine::get() {
+		if source != HostStateMachine::get() {
 			return Ok(Weight::from_parts(0, 0));
 		}
 
-		Ok(Weight::from_parts(300_000_000, 0))
+		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
+		match pallet_id {
+			pallet_hyper_fungible_token::PALLET_ID =>
+				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_timeout(timeout),
+			_ => Ok(Weight::from_parts(300_000_000, 0)),
+		}
 	}
 }
 

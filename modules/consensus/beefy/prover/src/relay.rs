@@ -85,19 +85,29 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 /// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
 const BEEFY_WHITELISTED_PARATHREADS: &'static [u32] = &[3367];
 
+/// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
+const BEEFY_WHITELISTED_PARATHREADS_PASEO: &'static [u32] = &[4009];
+
 /// Fetch all parachain headers committed by BEEFY at provided height
 pub async fn paras_parachains<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	at: Option<HashFor<T>>,
 ) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
+	// Select the whitelisted parathreads based on the relay chain
+	let whitelisted_parathreads = if rpc.system_chain().await?.to_lowercase().contains("paseo") {
+		BEEFY_WHITELISTED_PARATHREADS_PASEO
+	} else {
+		BEEFY_WHITELISTED_PARATHREADS
+	};
+
 	let ids = rpc
 		.state_get_storage(PARAS_PARACHAINS.as_slice(), at)
 		.await?
 		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
 		.transpose()?
-		.ok_or_else(|| anyhow!("No beefy authorities found!"))?
+		.unwrap_or_default()
 		.into_iter()
-		.chain(BEEFY_WHITELISTED_PARATHREADS.into_iter().cloned())
+		.chain(whitelisted_parathreads.into_iter().cloned())
 		.collect::<BTreeSet<_>>();
 
 	let mut heads = vec![];

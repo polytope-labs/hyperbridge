@@ -155,9 +155,9 @@ export class IntentFiller {
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have the Circle Paymaster configured.
-			// Chains with Circle Paymaster pay gas in USDC instead.
-			// Paymaster permit is handled per-order inside buildCirclePaymasterData.
+			// that do NOT have any paymaster (Circle or Simplex) configured.
+			// Chains with a paymaster pay gas in stablecoins instead.
+			// Paymaster authorization is handled per-order inside buildPaymasterAndData.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
 				if (hasPaymaster(chain, this.configService)) {

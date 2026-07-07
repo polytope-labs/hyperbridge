@@ -20,17 +20,32 @@ export interface PaymasterOptions {
 	walletClient: WalletClient
 	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> }
 	configService: FillerConfigService
-	/** Override for the Circle paymaster verification gas limit (default 200k). */
+	/**
+	 * Override for the Circle paymaster verification gas limit (default 200k).
+	 * Ignored when the Simplex paymaster is selected — its limits are mode-specific
+	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
+	 */
 	paymasterVerificationGasLimit?: bigint
+	/**
+	 * Skips EIP-2612 permit detection and uses approve mode for the Simplex paymaster.
+	 * Delegation UserOps rely on fixed, measured gas limits; executing a permit during
+	 * paymaster validation adds tens of thousands of verification gas and would
+	 * invalidate them.
+	 */
+	forceApproveMode?: boolean
 }
 
 export interface PaymasterDataResult {
 	/** Packed paymasterAndData bytes, or "0x" when no paymaster is available. */
 	paymasterAndData: HexString
 	/** Which paymaster was selected. */
-	type: "circle" | "none"
+	type: "circle" | "simplex" | "none"
 	/** Paymaster contract address (undefined when type is "none"). */
 	address?: HexString
+	/** Token the paymaster will charge (undefined when type is "none"). */
+	token?: HexString
+	/** Why no paymaster was selected (set only when type is "none"), for caller logging. */
+	reason?: string
 }
 
 // ── Authorization amount constants ──────────────────────────────────
@@ -44,6 +59,10 @@ export const THRESHOLD_USD = 2n
 
 /** Verification gas limit for Circle Paymaster (recommended by Circle docs). */
 export const VERIFICATION_GAS_LIMIT_CIRCLE = 200_000n
+/** Simplex paymaster verification gas when executing an EIP-2612 permit during validation. */
+export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
+/** Simplex paymaster verification gas when relying on an existing approval. */
+export const VERIFICATION_GAS_LIMIT_APPROVE = 150_000n
 /** Post-operation gas limit. */
 export const POST_OP_GAS_LIMIT = 100_000n
 

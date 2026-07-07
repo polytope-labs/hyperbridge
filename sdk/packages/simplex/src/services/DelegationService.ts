@@ -19,10 +19,10 @@ const DELEGATION_TX_GAS_FLOOR = 650_000n
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
  * This enables the filler to participate in solver selection mode.
  *
- * When the Circle Paymaster is configured and the filler holds USDC, delegation is
- * performed via a no-op UserOp sent through the bundler — the paymaster pays gas in
- * USDC, so the solver never needs native tokens. Falls back to a direct type-0x04 tx
- * if the bundler path is unavailable.
+ * When a paymaster (Circle or Simplex) is configured and the filler holds stablecoins,
+ * delegation is performed via a no-op UserOp sent through the bundler — the paymaster
+ * pays gas in stablecoins, so the solver never needs native tokens. Falls back to a
+ * direct type-0x04 tx if the bundler path is unavailable.
  */
 export class DelegationService {
 	private logger = getLogger("delegation-service")
@@ -188,6 +188,7 @@ export class DelegationService {
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
 				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
+				forceApproveMode: true,
 			})
 
 			if (result) {

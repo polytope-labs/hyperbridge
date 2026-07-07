@@ -175,6 +175,8 @@ export interface ChainConfigData {
 		UniswapV4StateView?: `0x${string}`
 		/** Circle Paymaster contract address (USDC-based ERC-4337 paymaster) */
 		CirclePaymaster?: `0x${string}`
+		/** SimplexPaymaster contract address (ERC-4337 paymaster accepting USDC/USDT via Chainlink pricing) */
+		SimplexPaymaster?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string

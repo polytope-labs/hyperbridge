@@ -1894,8 +1894,10 @@ async function setUpMainnetFxBsc() {
 	const bscMainnetId = "EVM-56"
 	const chains = [bscMainnetId]
 
+	// Alchemy serves bundler RPC methods on the regular RPC endpoint, so when no
+	// Pimlico key is configured the RPC URL doubles as the bundler URL.
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 56, rpcUrls: [process.env.BSC_MAINNET!], bundlerUrl: bundlerUrl(56) },
+		{ chainId: 56, rpcUrls: [process.env.BSC_MAINNET!], bundlerUrl: bundlerUrl(56) ?? process.env.BSC_MAINNET },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use anyhow::anyhow;
+use codec::Encode;
 use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
@@ -7,11 +8,11 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, Message, Proof, RequestMessage},
+	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{PostRequest, Request},
 };
 use sp_core::{H160, U256};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
@@ -251,7 +252,100 @@ pub async fn translate_events_to_messages(
 		}
 	}
 
+	// GetResponses coming back from Hyperbridge to an EVM source. Their values
+	// are already carried in the events, so we only need the membership proof
+	// before running them through the same profitability gate as requests.
+	let (response_messages, response_queries) = build_get_response_messages(
+		&source,
+		&sink,
+		&events,
+		counterparty_timestamp,
+		state_machine_height,
+	)
+	.await?;
+
+	if !response_messages.is_empty() {
+		let profitability = return_successful_queries(
+			sink.clone(),
+			response_messages.clone(),
+			response_queries,
+			config.minimum_profit_percentage,
+			coprocessor,
+			&client_map,
+			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude,
+		)
+		.await?;
+
+		unprofitable.extend(profitability.retriable_messages);
+
+		for (msg, keep) in response_messages.into_iter().zip(profitability.queries) {
+			if keep.is_some() {
+				messages.push(msg);
+			}
+		}
+	}
+
 	Ok((messages, unprofitable))
+}
+
+/// Build a delivery message for every GetResponse in `events` whose reader is
+/// `sink`. The response values ride in the events; we fetch the membership
+/// proof from Hyperbridge and carry it together with the responses in the
+/// message proof so the EVM sink can encode `handleGetResponses` without any
+/// further lookups.
+async fn build_get_response_messages(
+	source: &Arc<dyn IsmpProvider>,
+	sink: &Arc<dyn IsmpProvider>,
+	events: &[IsmpEvent],
+	counterparty_timestamp: Duration,
+	state_machine_height: StateMachineHeight,
+) -> Result<(Vec<Message>, Vec<Query>), anyhow::Error> {
+	let sink_state_machine = sink.state_machine_id().state_id;
+	let mut messages = vec![];
+	let mut queries = vec![];
+
+	for event in events {
+		let IsmpEvent::GetResponse(res) = event else { continue };
+		if res.get.source != sink_state_machine {
+			continue;
+		}
+
+		if res.get.timeout_timestamp != 0 &&
+			res.get.timeout_timestamp <= counterparty_timestamp.as_secs()
+		{
+			tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get response with nonce {}", res.get.nonce);
+			continue;
+		}
+
+		let request_commitment = hash_request::<Hasher>(&Request::Get(res.get.clone()));
+		let response_commitment = hash_response::<Hasher>(res);
+
+		let mmr_proof = source
+			.query_responses_proof(
+				state_machine_height.height,
+				vec![response_commitment],
+				sink_state_machine,
+			)
+			.await?;
+
+		queries.push(Query {
+			source_chain: res.get.source,
+			dest_chain: res.get.dest,
+			nonce: res.get.nonce,
+			commitment: request_commitment,
+		});
+		messages.push(Message::Response(ResponseMessage {
+			requests: vec![res.get.clone()],
+			proof: Proof {
+				height: state_machine_height,
+				proof: (mmr_proof, vec![res.clone()]).encode(),
+			},
+			signer: sink.address(),
+		}));
+	}
+
+	Ok((messages, queries))
 }
 
 /// Return true for Request events designated for the counterparty.
@@ -278,6 +372,12 @@ pub fn filter_events(
 			}
 			post.dest == counterparty && is_allowed_module(config, &post.from)
 		},
+		// A GetResponse is delivered back to the chain that made the request, and
+		// only EVM sources can verify the mmr membership proof it rides on.
+		IsmpEvent::GetResponse(res) =>
+			res.get.source == counterparty &&
+				counterparty.is_evm() &&
+				is_allowed_module(config, &res.get.from),
 		_ => false,
 	}
 }
@@ -367,10 +467,11 @@ pub async fn return_successful_queries(
 						};
 
 						let fee_metadata = match msg {
-							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?,
-							// `Message::Response` carries GetResponses, which never accrue
-							// relayer fees (state-coprocessor writes `fee: Default::default()`).
-							Message::Response(_) => U256::zero(),
+							// A GetResponse is gated on the fee attached to its origin GetRequest,
+							// which the EVM host pays the relayer when it dispatches the response.
+							// `query.commitment` is the request commitment for both message kinds.
+							Message::Request(_) | Message::Response(_) =>
+								og_source.query_request_fee_metadata(query.commitment).await?,
 							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
 						};
 

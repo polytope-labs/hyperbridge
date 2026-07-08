@@ -186,7 +186,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 })
 
 describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
-	it.only("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
+	it("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
 			basePublicClient,

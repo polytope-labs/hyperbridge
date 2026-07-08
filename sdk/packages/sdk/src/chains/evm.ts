@@ -746,16 +746,23 @@ export class EvmChain implements IChain {
 	async quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint> {
 		const totalFee = (await this.quote(request)) + fee
 		const feeToken = await this.getFeeTokenWithDecimals()
-		return this.getAmountsIn(totalFee, feeToken.address, request.source)
+		// Quote against the router the host actually swaps through on dispatch,
+		// which may price differently than the canonical Uniswap V2 router.
+		const hostRouter = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "uniswapV2Router",
+		})
+		return this.getAmountsIn(totalFee, feeToken.address, request.source, hostRouter)
 	}
 
 	/**
 	 * Given a desired output amount of a token, returns how much native is needed as input.
-	 * Uses the chain's Uniswap V2 router: WETH → tokenOut path.
+	 * Uses the chain's Uniswap V2 router (or `router` when provided): WETH → tokenOut path.
 	 */
-	async getAmountsIn(amountOut: bigint, tokenOutForQuote: HexString, chain?: string): Promise<bigint> {
+	async getAmountsIn(amountOut: bigint, tokenOutForQuote: HexString, chain?: string, router?: HexString): Promise<bigint> {
 		const chainId = chain ?? `EVM-${this.params.chainId}`
-		const v2Router = this.configService.getUniswapRouterV2Address(chainId)
+		const v2Router = router ?? this.configService.getUniswapRouterV2Address(chainId)
 		const WETH = this.configService.getWrappedNativeAssetWithDecimals(chainId).asset
 		const v2AmountIn = await this.publicClient.simulateContract({
 			address: v2Router,

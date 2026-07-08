@@ -1,0 +1,25 @@
+[package]
+name = "arc-primitives"
+version = "0.1.0"
+edition = "2021"
+description = "Primitive types for Arc consensus verifier"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
+hex-literal = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+geth-primitives = { workspace = true, default-features = false }
+ismp = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "primitive-types/std",
+    "serde",
+    "geth-primitives/std",
+    "ismp/std",
+]

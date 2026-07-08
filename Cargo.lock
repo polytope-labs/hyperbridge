@@ -1049,12 +1049,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-primitives"
+version = "0.1.0"
+dependencies = [
+ "geth-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+]
+
+[[package]]
+name = "arc-prover"
+version = "0.1.0"
+dependencies = [
+ "alloy-eips",
+ "alloy-provider",
+ "anyhow",
+ "arc-primitives",
+ "arc-verifier",
+ "base64 0.22.1",
+ "ethabi",
+ "geth-primitives",
+ "hex",
+ "ismp",
+ "log",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "arc-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-rlp",
+ "arc-primitives",
+ "curve25519-dalek",
+ "evm-state-machine",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8278,6 +8332,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-arbitrum",
+ "ismp-arc",
  "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
@@ -10450,6 +10505,24 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "scale-info",
+]
+
+[[package]]
+name = "ismp-arc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-primitives",
+ "arc-verifier",
+ "evm-state-machine",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk",
  "scale-info",
 ]
 
@@ -28092,6 +28165,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-arc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-primitives",
+ "arc-prover",
+ "arc-verifier",
+ "async-trait",
+ "geth-primitives",
+ "ismp",
+ "ismp-arc",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
+]
+
+[[package]]
 name = "tesseract-beefy"
 version = "0.1.0"
 dependencies = [
@@ -28207,6 +28301,7 @@ dependencies = [
  "serde",
  "substrate-state-machine",
  "subxt 0.42.1",
+ "tesseract-arc",
  "tesseract-beefy",
  "tesseract-bsc",
  "tesseract-evm",

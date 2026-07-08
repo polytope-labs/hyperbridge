@@ -1,23 +1,23 @@
-import { encodeFunctionData, concat, parseEventLogs } from "viem"
-import type { Hex } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type {
-	Order,
-	HexString,
-	PackedUserOperation,
-	FillOptions,
-	SelectOptions,
-	FillerBid,
-	SelectBidResult,
-	TokenInfo,
-	ERC7821Call,
 	Bid,
+	ERC7821Call,
+	FillOptions,
+	FillerBid,
+	HexString,
+	Order,
+	PackedUserOperation,
+	SelectBidResult,
+	SelectOptions,
+	TokenInfo,
 } from "@/types"
+import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
+import { concat, encodeFunctionData, parseEventLogs } from "viem"
+import type { Hex } from "viem"
+import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
-import { CryptoUtils } from "./CryptoUtils"
 
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
@@ -109,7 +109,7 @@ export class BidImpl implements Bid {
 			? { privateKey: this.sessionPrivateKey }
 			: await this.ctx.sessionKeyStorage.getSessionKeyByAddress(sessionKeyAddress)
 		if (!sessionKeyData) {
-			throw new Error("SessionKey not found for commitment: " + commitment)
+			throw new Error(`SessionKey not found for commitment: ${commitment}`)
 		}
 
 		const signature = await CryptoUtils.signSolverSelection(
@@ -180,8 +180,8 @@ export class BidImpl implements Bid {
 	/**
 	 * Signs the `SelectSolver` message with the session key, appends it to the
 	 * solver's existing UserOp signature, and submits the UserOperation to the
-	 * bundler. For same-chain orders, waits for the receipt and reads
-	 * `OrderFilled` / `PartialFill` logs to determine fill status.
+	 * bundler. Waits for the receipt and reads `OrderFilled` / `PartialFill`
+	 * logs to determine fill status.
 	 *
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
 	 *   the solver address, transaction hash, and fill status.
@@ -230,35 +230,33 @@ export class BidImpl implements Bid {
 			)
 			txnHash = receipt.receipt.transactionHash
 
-			if (this.order.source === this.order.destination) {
-				try {
-					const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-						hash: txnHash,
-						confirmations: 1,
-					})
-					const events = parseEventLogs({
-						abi: IntentGatewayV2ABI,
-						logs: chainReceipt.logs,
-						eventName: ["OrderFilled", "PartialFill"],
-					})
+			try {
+				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
+					hash: txnHash,
+					confirmations: 1,
+				})
+				const events = parseEventLogs({
+					abi: IntentGatewayV2ABI,
+					logs: chainReceipt.logs,
+					eventName: ["OrderFilled", "PartialFill"],
+				})
 
-					const matched = events.find((e) => {
-						if (e.eventName === "OrderFilled")
-							return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-						if (e.eventName === "PartialFill")
-							return e.args.commitment.toLowerCase() === commitment.toLowerCase()
-						return false
-					})
+				const matched = events.find((e) => {
+					if (e.eventName === "OrderFilled")
+						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+					if (e.eventName === "PartialFill")
+						return e.args.commitment.toLowerCase() === commitment.toLowerCase()
+					return false
+				})
 
-					if (matched?.eventName === "OrderFilled") {
-						fillStatus = "full"
-					} else if (matched?.eventName === "PartialFill") {
-						fillStatus = "partial"
-						filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
-					}
-				} catch {
-					throw new Error("Failed to determine fill status from logs")
+				if (matched?.eventName === "OrderFilled") {
+					fillStatus = "full"
+				} else if (matched?.eventName === "PartialFill") {
+					fillStatus = "partial"
+					filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
 				}
+			} catch {
+				throw new Error("Failed to determine fill status from logs")
 			}
 		} catch (err) {
 			throw new Error(`Failed to execute bid: ${err instanceof Error ? err.message : String(err)}`)

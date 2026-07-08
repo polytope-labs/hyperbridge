@@ -64,6 +64,14 @@ abstract contract IntentsBase is EIP712 {
         hex"0000000000000000000000000000000000000000000000000000000000000002";
 
     /**
+     * @dev Big-endian encoding of storage slot 11 (the `_partialFills` mapping slot).
+     * Used to construct storage proof keys for cross-chain partial-fill cancel verification.
+     * Asserted against the compiled storage layout in the test suite to catch layout drift.
+     */
+    bytes32 constant PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES =
+        hex"000000000000000000000000000000000000000000000000000000000000000b";
+
+    /**
      * @dev Discriminator for cross-chain request types dispatched via Hyperbridge.
      * Encoded as the first byte of the request body in onAccept.
      */
@@ -91,7 +99,13 @@ abstract contract IntentsBase is EIP712 {
         /**
          * @dev Upgrade the gateway implementation behind its ERC-1967 proxy.
          */
-        UpgradeContract
+        UpgradeContract,
+        /**
+         * @dev Release a proportional slice of escrowed tokens to the solver after a
+         * cross-chain partial fill, without finalizing the order. The completing fill
+         * uses `RedeemEscrow` (which finalizes and forwards accumulated fees).
+         */
+        RedeemEscrowPartial
     }
 
     /**
@@ -243,11 +257,13 @@ abstract contract IntentsBase is EIP712 {
     event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
-     * @dev Emitted when escrowed tokens are released to the solver after a successful fill.
+     * @dev Emitted when escrowed tokens are released to the solver after a successful (full or
+     * partial) fill. For cross-chain partial fills this is the only source-chain signal of release.
      * @param commitment The order commitment hash.
+     * @param solver The recipient of the released escrow.
      * @param tokens The tokens and amounts released.
      */
-    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowReleased(bytes32 indexed commitment, address solver, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when escrowed tokens are refunded to the original user after cancellation.
@@ -336,6 +352,46 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
+     * @dev Computes the storage slot hash for `_partialFills[commitment][token]` on a remote
+     * chain. `_partialFills` is a nested mapping at slot 12, so the key is derived as
+     * keccak256(token . keccak256(commitment . 12)) — the standard Solidity nested-mapping layout.
+     * Used to construct GET storage-proof keys for cross-chain partial-fill cancel verification.
+     * @param commitment The order commitment hash.
+     * @param token The output token (bytes32-encoded address) whose fill progress is being proven.
+     * @return The ABI-encoded storage slot hash for the nested mapping entry.
+     */
+    function _calculatePartialFillSlotHash(bytes32 commitment, bytes32 token) internal pure returns (bytes memory) {
+        bytes32 innerSlot = keccak256(abi.encodePacked(commitment, PARTIAL_FILLS_SLOT_BIG_ENDIAN_BYTES));
+        return abi.encodePacked(keccak256(abi.encodePacked(token, innerSlot)));
+    }
+
+    /**
+     * @dev Computes the cumulative escrow released for an input token given how much of its
+     * paired output has been filled. Defined as a single monotonic function so that the sum of
+     * per-fill release deltas exactly equals `escrowTotal` once the output is fully filled, with
+     * all integer-division rounding dust deterministically landing in the completing fill.
+     *
+     * Released(filled) = filled >= totalRequired ? escrowTotal : escrowTotal * filled / totalRequired
+     *
+     * This same function is used on the destination chain to size each `RedeemEscrow(Partial)`
+     * message and on the source chain to size cancel refunds, guaranteeing that
+     * (sum of redeems) + (cancel refund) == escrowTotal regardless of message arrival order.
+     *
+     * @param escrowTotal The full escrowed input amount for this token (order.inputs[i].amount).
+     * @param filled The cumulative amount of the paired output filled so far.
+     * @param totalRequired The total output amount required (order.output.assets[i].amount).
+     * @return The cumulative escrow that should have been released to solvers at this fill level.
+     */
+    function _cumulativeReleased(uint256 escrowTotal, uint256 filled, uint256 totalRequired)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (totalRequired == 0 || filled >= totalRequired) return escrowTotal;
+        return (escrowTotal * filled) / totalRequired;
+    }
+
+    /**
      * @dev Releases escrowed tokens to a beneficiary. Iterates over the withdrawal request's
      * token list, decrements the escrow balance for each, and transfers tokens out.
      *
@@ -372,18 +428,21 @@ abstract contract IntentsBase is EIP712 {
             }
         }
 
+        // Fees and the filled-marker are only settled on finalization; the release/refund event is
+        // emitted for every withdrawal (including non-finalizing partial redeems and cancel refunds)
+        // so escrow movement is always observable.
         if (finalize) {
             uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
             if (fees > 0) {
                 delete _orders[body.commitment][TRANSACTION_FEES];
                 IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
             }
+        }
 
-            if (isRefund) {
-                emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
-            } else {
-                emit EscrowReleased({commitment: body.commitment, tokens: body.tokens});
-            }
+        if (isRefund) {
+            emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
+        } else {
+            emit EscrowReleased({commitment: body.commitment, solver: beneficiary, tokens: body.tokens});
         }
     }
 

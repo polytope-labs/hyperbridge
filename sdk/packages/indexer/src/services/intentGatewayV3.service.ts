@@ -210,6 +210,7 @@ export class IntentGatewayV3Service {
 			)
 
 			await this.flushPendingStatuses(order.id!)
+			await this.backfillEarlyFills(order.id!)
 
 			logger.info("Now awarding points for the OrderV3 Placed Event")
 
@@ -393,64 +394,35 @@ export class IntentGatewayV3Service {
 		orderPlaced.status = status === OrderStatus.PLACED ? orderPlaced.status : status
 		await orderPlaced.save()
 
-		// Award points for order filling - using USD value directly
+		// Once-per-order accounting on completion. Filler volume/points are NOT awarded
+		// here: with partial fills an order can be completed by several solvers, so the
+		// filler is credited per fill slice in awardFillRewards instead.
 		if (status === OrderStatus.FILLED && filler) {
-			// Get output assets from the new entity relationships
-			const outputAssets: TokenInfo[] = []
-			for (let index = 0; index < 100; index++) {
-				const assetId = `${commitment}-output-${index}`
-				const asset = await IOrderV3OutputAsset.get(assetId)
-				if (!asset) break
-				outputAssets.push({
-					token: asset.token as Hex,
-					amount: asset.amount,
-				})
-			}
+			const orderValue = new Decimal(orderPlaced.inputUSD.toString())
+			const pointsToAward = orderValue.floor().toNumber()
 
-			if (outputAssets.length > 0) {
-				// Volume
-				let outputUSD = await this.getOutputValuesUSD(outputAssets)
+			// User - convert to 20 bytes for UserActivityV2 ID, referrer is already 32 bytes
+			const userAddress20 = bytes32ToBytes20(orderPlaced.user)
+			let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
+			user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
+				.plus(new Decimal(orderPlaced.inputUSD.toString()))
+				.toString()
+			user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
+			await user.save()
 
-				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
-
-				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
-				const pointsToAward = orderValue.floor().toNumber()
-
-				// Rewards
+			// Referrer
+			if (user.referrer) {
+				const referrerPointsToAward = Math.floor(pointsToAward / 2)
 				await PointsService.awardPoints(
-					filler,
-					decodeChain(orderPlaced.destChain),
-					BigInt(pointsToAward),
-					ProtocolParticipantType.FILLER,
-					PointsActivityType.ORDER_FILLED_POINTS,
+					user.referrer,
+					decodeChain(orderPlaced.sourceChain),
+					BigInt(referrerPointsToAward),
+					ProtocolParticipantType.REFERRER,
+					PointsActivityType.ORDER_REFERRED_POINTS,
 					transactionHash,
 					`Points awarded for filling orderV3 ${commitment} with value ${orderPlaced.inputUSD} USD`,
 					timestamp,
 				)
-
-				// User - convert to 20 bytes for UserActivityV2 ID, referrer is already 32 bytes
-				const userAddress20 = bytes32ToBytes20(orderPlaced.user)
-				let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
-				user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
-					.plus(new Decimal(orderPlaced.inputUSD.toString()))
-					.toString()
-				user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
-				await user.save()
-
-				// Referrer
-				if (user.referrer) {
-					const referrerPointsToAward = Math.floor(pointsToAward / 2)
-					await PointsService.awardPoints(
-						user.referrer,
-						decodeChain(orderPlaced.sourceChain),
-						BigInt(referrerPointsToAward),
-						ProtocolParticipantType.REFERRER,
-						PointsActivityType.ORDER_REFERRED_POINTS,
-						transactionHash,
-						`Points awarded for filling orderV3 ${commitment} with value ${orderPlaced.inputUSD} USD`,
-						timestamp,
-					)
-				}
 			}
 		}
 
@@ -501,6 +473,132 @@ export class IntentGatewayV3Service {
 		}
 	}
 
+	/**
+	 * Credits a solver for one fill slice, valued from that fill's own event outputs.
+	 * With partial fills an order can be filled by several solvers, so per-order
+	 * crediting would attribute other solvers' slices to the completing filler.
+	 */
+	private static async awardFillRewards(
+		commitment: string,
+		filler: string,
+		outputs: TokenInfo[],
+		transactionHash: string,
+		timestamp: bigint,
+	): Promise<void> {
+		const provided = outputs.filter((output) => output.amount > 0n)
+		if (provided.length === 0) return
+
+		const outputUSD = await this.getOutputValuesUSD(provided)
+		const sliceUSD = new Decimal(outputUSD.total)
+		if (sliceUSD.lte(0)) return
+
+		await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
+
+		await this.awardFillPoints(commitment, filler, sliceUSD, transactionHash, timestamp)
+	}
+
+	/**
+	 * Points for one fill slice. A no-op while the order row is missing (a destination
+	 * fill can index before the source-chain OrderPlaced) — {@link backfillEarlyFills}
+	 * replays it when the order is created.
+	 */
+	private static async awardFillPoints(
+		commitment: string,
+		filler: string,
+		sliceUSD: Decimal,
+		transactionHash: string,
+		timestamp: bigint,
+	): Promise<void> {
+		const orderPlaced = await OrderV3Placed.get(commitment)
+		if (!orderPlaced) return
+
+		const pointsToAward = sliceUSD.floor().toNumber()
+		if (pointsToAward <= 0) return
+
+		await PointsService.awardPoints(
+			filler,
+			decodeChain(orderPlaced.destChain),
+			BigInt(pointsToAward),
+			ProtocolParticipantType.FILLER,
+			PointsActivityType.ORDER_FILLED_POINTS,
+			transactionHash,
+			`Points awarded for filling orderV3 ${commitment} slice worth ${sliceUSD.toString()} USD`,
+			timestamp,
+		)
+	}
+
+	/**
+	 * Replays fills that were indexed before the order was placed (the destination
+	 * chain can run ahead of the source chain). Such fills were recorded linked by
+	 * commitment, but the cumulative `filled` accounting and the filler's points were
+	 * skipped — the order's asset rows and dest chain did not exist yet. Volume was
+	 * already credited at event time so it is not replayed. Exactly-once holds because
+	 * any fill found here was recorded while the order row was absent (its points were
+	 * certainly skipped), and fills recorded after creation are credited inline.
+	 */
+	private static async backfillEarlyFills(commitment: string): Promise<void> {
+		const [partialFills, fills] = await Promise.all([
+			IOrderV3PartialFill.getByOrderId(commitment, { limit: 100 }),
+			IOrderV3Fill.getByOrderId(commitment, { limit: 100 }),
+		])
+		if (partialFills.length === 0 && fills.length === 0) return
+
+		const earlyFills = [
+			...partialFills.map((fill) => ({ fill, isPartial: true })),
+			...fills.map((fill) => ({ fill, isPartial: false })),
+		]
+
+		for (const { fill, isPartial } of earlyFills) {
+			const outputs: TokenInfo[] = []
+			for (let index = 0; ; index++) {
+				const assetId = `${fill.id}-output-${index}`
+				const asset = isPartial
+					? await IOrderV3PartialFillOutputAsset.get(assetId)
+					: await IOrderV3FillOutputAsset.get(assetId)
+				if (!asset) break
+				outputs.push({ token: asset.token as Hex, amount: asset.amount })
+			}
+
+			const provided = outputs.filter((output) => output.amount > 0n)
+			if (provided.length === 0) continue
+
+			await this.accumulateFilled(commitment, outputs)
+
+			const outputUSD = await this.getOutputValuesUSD(provided)
+			const sliceUSD = new Decimal(outputUSD.total)
+			if (sliceUSD.lte(0)) continue
+			await this.awardFillPoints(commitment, fill.filler, sliceUSD, fill.transactionHash, fill.timestamp)
+
+			logger.info(
+				`OrderV3 ${commitment}: backfilled early ${isPartial ? "partial fill" : "fill"} ${fill.id} on order placement`,
+			)
+		}
+	}
+
+	/**
+	 * Accumulates a fill's output amounts into the order's per-output `filled` totals.
+	 * The order is placed on the source chain while fills land on the destination, so
+	 * the output-asset rows may not exist yet when a fill is indexed — progress for
+	 * such fills is still recoverable from the fill entities themselves.
+	 */
+	private static async accumulateFilled(commitment: string, outputs: TokenInfo[]): Promise<void> {
+		for (let index = 0; index < outputs.length; index++) {
+			const output = outputs[index]
+			if (output.amount === 0n) continue
+
+			const asset = await IOrderV3OutputAsset.get(`${commitment}-output-${index}`)
+			if (!asset || asset.token.toLowerCase() !== output.token.toLowerCase()) {
+				logger.warn(
+					`OrderV3 ${commitment} output asset ${index} missing or token mismatch, skipping fill accumulation`,
+				)
+				continue
+			}
+
+			asset.filled = (asset.filled ?? 0n) + output.amount
+			await asset.save()
+		}
+	}
+
 	static async recordPartialFill(
 		commitment: string,
 		filler: string,
@@ -527,19 +625,23 @@ export class IntentGatewayV3Service {
 
 		const partialFillId = `${transactionHash}.${logIndex}`
 
-		let partialFill = await IOrderV3PartialFill.get(partialFillId)
-		if (!partialFill) {
-			partialFill = await IOrderV3PartialFill.create({
-				id: partialFillId,
-				orderId: commitment,
-				chain: chainId,
-				filler,
-				timestamp,
-				blockNumber: blockNumber.toString(),
-				transactionHash,
-				createdAt: timestampToDate(timestamp),
-			})
+		// The partial-fill record doubles as the idempotency marker for the cumulative
+		// accounting and rewards below, so a replayed event must not double-count.
+		if (await IOrderV3PartialFill.get(partialFillId)) {
+			logger.info(`OrderV3 PartialFill ${partialFillId} already recorded, skipping`)
+			return
 		}
+
+		const partialFill = await IOrderV3PartialFill.create({
+			id: partialFillId,
+			orderId: commitment,
+			chain: chainId,
+			filler,
+			timestamp,
+			blockNumber: blockNumber.toString(),
+			transactionHash,
+			createdAt: timestampToDate(timestamp),
+		})
 
 		await partialFill.save()
 
@@ -589,6 +691,9 @@ export class IntentGatewayV3Service {
 			}),
 		)
 
+		await this.accumulateFilled(commitment, outputs)
+		await this.awardFillRewards(commitment, filler, outputs, transactionHash, timestamp)
+
 		logger.info(
 			`OrderV3 PartialFill recorded: ${stringify({
 				commitment,
@@ -623,19 +728,23 @@ export class IntentGatewayV3Service {
 
 		const fillId = `${transactionHash}.${logIndex}`
 
-		let fill = await IOrderV3Fill.get(fillId)
-		if (!fill) {
-			fill = await IOrderV3Fill.create({
-				id: fillId,
-				orderId: commitment,
-				chain: chainId,
-				filler,
-				timestamp,
-				blockNumber: blockNumber.toString(),
-				transactionHash,
-				createdAt: timestampToDate(timestamp),
-			})
+		// The fill record doubles as the idempotency marker for the cumulative
+		// accounting and rewards below, so a replayed event must not double-count.
+		if (await IOrderV3Fill.get(fillId)) {
+			logger.info(`OrderV3 Fill ${fillId} already recorded, skipping`)
+			return
 		}
+
+		const fill = await IOrderV3Fill.create({
+			id: fillId,
+			orderId: commitment,
+			chain: chainId,
+			filler,
+			timestamp,
+			blockNumber: blockNumber.toString(),
+			transactionHash,
+			createdAt: timestampToDate(timestamp),
+		})
 		await fill.save()
 
 		await Promise.all(
@@ -672,6 +781,9 @@ export class IntentGatewayV3Service {
 			}),
 		)
 
+		await this.accumulateFilled(commitment, outputs)
+		await this.awardFillRewards(commitment, filler, outputs, transactionHash, timestamp)
+
 		logger.info(
 			`OrderV3 Fill recorded: ${stringify({
 				commitment,
@@ -683,6 +795,7 @@ export class IntentGatewayV3Service {
 
 	static async recordEscrowRelease(
 		commitment: string,
+		solver: string | undefined,
 		tokens: TokenInfo[],
 		logsData: {
 			transactionHash: string
@@ -694,36 +807,82 @@ export class IntentGatewayV3Service {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 		const releaseId = `${transactionHash}.${logIndex}`
 
-		let release = await IOrderV3EscrowRelease.get(releaseId)
-		if (!release) {
-			release = await IOrderV3EscrowRelease.create({
-				id: releaseId,
-				orderId: commitment,
-				chain: chainId,
-				timestamp,
-				blockNumber: blockNumber.toString(),
-				transactionHash,
-				createdAt: timestampToDate(timestamp),
-			})
+		// The release record doubles as the idempotency marker for the cumulative
+		// accounting below, so a replayed event must not double-count.
+		if (await IOrderV3EscrowRelease.get(releaseId)) {
+			logger.info(`OrderV3 EscrowRelease ${releaseId} already recorded, skipping`)
+			return
 		}
+
+		const release = await IOrderV3EscrowRelease.create({
+			id: releaseId,
+			orderId: commitment,
+			chain: chainId,
+			solver,
+			timestamp,
+			blockNumber: blockNumber.toString(),
+			transactionHash,
+			createdAt: timestampToDate(timestamp),
+		})
 		await release.save()
 
 		await Promise.all(
 			tokens.map(async (token, index) => {
 				const tokenId = `${releaseId}-token-${index}`
-				let tokenEntity = await IOrderV3EscrowReleaseToken.get(tokenId)
-				if (!tokenEntity) {
-					tokenEntity = await IOrderV3EscrowReleaseToken.create({
-						id: tokenId,
-						releaseId,
-						token: token.token,
-						amount: token.amount,
-						index,
-					})
-				}
+				const tokenEntity = await IOrderV3EscrowReleaseToken.create({
+					id: tokenId,
+					releaseId,
+					token: token.token,
+					amount: token.amount,
+					index,
+				})
 				await tokenEntity.save()
 			}),
 		)
+
+		// EscrowReleased fires for every redeem — including non-finalizing partial
+		// redeems — so the order is REDEEMED only once every escrowed input has been
+		// fully released. The contract's release formula sends integer-division dust
+		// to the completing fill, so cumulative releases sum to exactly the escrowed
+		// amount. Release events fire on the source chain (same chain as OrderPlaced),
+		// so the input-asset rows exist by the time a release is indexed.
+		const inputAssets: IOrderV3InputAsset[] = []
+		for (let index = 0; ; index++) {
+			const asset = await IOrderV3InputAsset.get(`${commitment}-input-${index}`)
+			if (!asset) break
+			inputAssets.push(asset)
+		}
+
+		if (inputAssets.length === 0) {
+			logger.warn(`OrderV3 ${commitment} has no input assets yet, skipping release accumulation`)
+			return
+		}
+
+		for (let index = 0; index < tokens.length; index++) {
+			const token = tokens[index]
+			if (token.amount === 0n) continue
+
+			const asset = inputAssets[index]
+			if (!asset || asset.token.toLowerCase() !== token.token.toLowerCase()) {
+				logger.warn(
+					`OrderV3 ${commitment} input asset ${index} missing or token mismatch, skipping release accumulation`,
+				)
+				continue
+			}
+
+			asset.released = (asset.released ?? 0n) + token.amount
+			await asset.save()
+		}
+
+		const fullyReleased = inputAssets.every((asset) => (asset.released ?? 0n) >= asset.amount)
+		if (fullyReleased) {
+			await this.updateOrderStatus(
+				commitment,
+				OrderStatus.REDEEMED,
+				{ transactionHash, blockNumber, timestamp },
+				solver,
+			)
+		}
 	}
 
 	static async recordEscrowRefund(

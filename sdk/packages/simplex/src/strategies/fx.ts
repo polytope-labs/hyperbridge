@@ -9,6 +9,7 @@ import {
 	TokenInfo,
 	IntentsCoprocessor,
 	ADDRESS_ZERO,
+	cumulativeReleased,
 } from "@hyperbridge/sdk"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -306,6 +307,12 @@ export class FXFiller implements FillerStrategy {
 	 *
 	 * Note: we may intentionally overfill relative to the user's requested
 	 * outputs if the price policy makes that attractive. This is how we stay competitive.
+	 *
+	 * Cross-chain orders may already be partially filled by other solvers; each leg is
+	 * sized against its unfilled remainder. The contract forwards the fee pot to the
+	 * completing solver only, so a completing fill is priced on fee profit as before,
+	 * while a non-completing slice books no fees and is only worth doing when its FX
+	 * margin covers the execution cost.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		if (this.halted) {
@@ -353,17 +360,31 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
+			const isCrossChain = sourceChain !== destChain
+			const alreadyFilled = isCrossChain
+				? await this.contractService.getPartialFills(order)
+				: order.output.assets.map(() => 0n)
+
+			if (isCrossChain && order.output.assets.every((asset, i) => alreadyFilled[i] >= asset.amount)) {
+				this.logger.info({ orderId: order.id }, "Order already fully filled, skipping")
+				return 0
+			}
+
 			// Compute bid and ask prices at the capped order size once, then pick per leg.
 			// - askPrice: used when filler sells exotic (stable->exotic). Lower rate = fewer exotic sent.
 			// - bidPrice: used when filler buys exotic (exotic->stable). Higher rate = fewer USD paid out.
 			const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
 			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
+			// One entry per order leg, in leg order. The contract requires `options.outputs`
+			// to align 1:1 with `order.output.assets` by index and token, so legs the filler
+			// won't provide (insufficient balance, exhausted budget, already filled) are
+			// recorded with a zero amount rather than dropped.
 			const fillerOutputs: TokenInfo[] = []
-			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
-			// (insufficient balance, exhausted budget), so `fillerOutputs[k]` is the k-th
-			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
-			// original input/pair via this array rather than by position.
 			const fillerOutputLegs: number[] = []
+			const skipLeg = (token: HexString, legIndex: number) => {
+				fillerOutputs.push({ token, amount: 0n })
+				fillerOutputLegs.push(legIndex)
+			}
 			let remainingUsd = cappedOrderUsd
 
 			const fundingCalls: ERC7821Call[] = []
@@ -398,6 +419,15 @@ export class FXFiller implements FillerStrategy {
 				const output = order.output.assets[i]
 				const pair = pairs[i]
 
+				const remaining = output.amount > alreadyFilled[i] ? output.amount - alreadyFilled[i] : 0n
+				if (remaining === 0n) {
+					skipLeg(output.token, i)
+					continue
+				}
+
+				// The escrow share our fill can still earn on this leg
+				const remainingInput = input.amount - cumulativeReleased(input.amount, alreadyFilled[i], output.amount)
+
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
 					sourceChain,
@@ -415,7 +445,7 @@ export class FXFiller implements FillerStrategy {
 				const askPrice = venuePrice?.ask ?? policyAskPrice
 
 				const legResult = this.computeLegPolicyOutput(
-					input.amount,
+					remainingInput,
 					pair.inputIsStable,
 					stableDecimals,
 					exoticTokenDecimals,
@@ -424,6 +454,7 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (!legResult) {
+					skipLeg(output.token, i)
 					continue
 				}
 
@@ -468,10 +499,14 @@ export class FXFiller implements FillerStrategy {
 				}
 				const usableWallet = balance > reserve ? balance - reserve : 0n
 
-				const walletContribution = policyMaxOutput < usableWallet ? policyMaxOutput : usableWallet
+				// Overfilling a started leg buys no competitiveness: escrow release is
+				// capped at the total required, so fund no more than the remainder.
+				const legTarget = alreadyFilled[i] > 0n && policyMaxOutput > remaining ? remaining : policyMaxOutput
+
+				const walletContribution = legTarget < usableWallet ? legTarget : usableWallet
 
 				let credited = 0n
-				let needed = policyMaxOutput - walletContribution
+				let needed = legTarget - walletContribution
 				for (const venue of this.fundingVenues) {
 					if (needed <= 0n) break
 					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
@@ -484,7 +519,7 @@ export class FXFiller implements FillerStrategy {
 
 				const effectiveBalance = walletContribution + credited
 
-				const finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
+				const finalOutputAmount = effectiveBalance > legTarget ? legTarget : effectiveBalance
 
 				if (finalOutputAmount === 0n) {
 					this.logger.info(
@@ -495,31 +530,19 @@ export class FXFiller implements FillerStrategy {
 						},
 						"Skipping leg: no available balance for required output token",
 					)
+					skipLeg(output.token, i)
 					continue
 				}
 
-				if (policyMaxOutput < output.amount) {
+				if (policyMaxOutput < remaining) {
 					this.logger.info(
 						{
 							orderId: order.id,
 							token: output.token,
 							policyOutput: policyMaxOutput.toString(),
-							userRequested: output.amount.toString(),
+							unfilledRemainder: remaining.toString(),
 						},
-						"Skipping order: filler price yields less than user's requested amount",
-					)
-					return 0
-				}
-
-				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
-					this.logger.info(
-						{
-							orderId: order.id,
-							token: output.token,
-							fillerBalance: balance.toString(),
-							userRequested: output.amount.toString(),
-						},
-						"Skipping cross-chain order: insufficient balance for full fill",
+						"Skipping order: filler price yields less than the unfilled remainder",
 					)
 					return 0
 				}
@@ -532,13 +555,9 @@ export class FXFiller implements FillerStrategy {
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)
-
-				if (remainingUsd.lte(0)) {
-					break
-				}
 			}
 
-			if (fillerOutputs.length === 0) {
+			if (fillerOutputs.every((o) => o.amount === 0n)) {
 				this.logger.info(
 					{
 						orderId: order.id,
@@ -551,6 +570,12 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
+			// `fillerOutputs` is per-leg aligned, so index i is leg i.
+			const willComplete = order.output.assets.every((asset, i) => {
+				const legRemaining = asset.amount > alreadyFilled[i] ? asset.amount - alreadyFilled[i] : 0n
+				return fillerOutputs[i].amount >= legRemaining
+			})
+
 			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
 
 			if (order.id) {
@@ -561,18 +586,24 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Realized FX margin, report-only — never rejects an order. A single fill is half a
+			// Realized FX margin. Report-only for completing fills; for a non-completing slice
+			// it is the only bookable profit and gates the fill below. A single fill is half a
 			// round-trip, so the open leg is marked at the opposite side of the spread:
 			// - sells exotic (stable→exotic): value the exotic given at bid (rebuy cost).
 			// - buys exotic (exotic→stable): value the exotic received at ask (resale value).
-			// Positive by construction when bid ≥ ask. `fillerOutputs[i]` is the i-th *surviving*
-			// leg; realign to its original input/pair via `fillerOutputLegs`.
+			// Positive by construction when bid ≥ ask. Each leg only receives the
+			// input-escrow slice its fill releases, not the full input.
 			let fxMarginUsd = new Decimal(0)
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
 				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
 				const pair = pairs[legIndex]
+				const totalRequired = order.output.assets[legIndex].amount
+
+				const released =
+					cumulativeReleased(input.amount, alreadyFilled[legIndex] + output.amount, totalRequired) -
+					cumulativeReleased(input.amount, alreadyFilled[legIndex], totalRequired)
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -591,12 +622,12 @@ export class FXFiller implements FillerStrategy {
 
 				if (pair.inputIsStable) {
 					// Sells exotic: receives stable, gives exotic valued at bid (rebuy cost).
-					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
+					const inputUsd = new Decimal(formatUnits(released, stableDecimals))
 					const outputExotic = new Decimal(formatUnits(output.amount, exoticDecimalsLeg))
 					fxMarginUsd = fxMarginUsd.plus(inputUsd.minus(outputExotic.div(bidPrice)))
 				} else {
 					// Buys exotic: gives stable, receives exotic valued at ask (resale value).
-					const inputExotic = new Decimal(formatUnits(input.amount, exoticDecimalsLeg))
+					const inputExotic = new Decimal(formatUnits(released, exoticDecimalsLeg))
 					const outputUsd = new Decimal(formatUnits(output.amount, stableDecimals))
 					fxMarginUsd = fxMarginUsd.plus(inputExotic.div(askPrice).minus(outputUsd))
 				}
@@ -607,22 +638,30 @@ export class FXFiller implements FillerStrategy {
 			this.recordOrderOutcome(false, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
-			if (order.fees < totalCostInSourceFeeToken) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						orderFees: formatUnits(order.fees, feeTokenDecimals),
-						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
-					},
-					"Skipping order: attached fees do not cover estimated execution cost",
-				)
-				return 0
+
+			// The fee pot is forwarded to the solver whose fill completes the order. A completing
+			// fill is gated on fee profit only (fxMarginUsd stays report-only there); a
+			// non-completing slice books no fees and must clear execution costs from its FX margin.
+			let feeProfit = 0n
+			let totalProfit: number
+			if (willComplete) {
+				if (order.fees < totalCostInSourceFeeToken) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							orderFees: formatUnits(order.fees, feeTokenDecimals),
+							estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						},
+						"Skipping order: attached fees do not cover estimated execution cost",
+					)
+					return 0
+				}
+				feeProfit = order.fees - totalCostInSourceFeeToken
+				totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
+			} else {
+				const costUsd = parseFloat(formatUnits(totalCostInSourceFeeToken, feeTokenDecimals))
+				totalProfit = fxMarginUsd.toNumber() - costUsd
 			}
-			const feeProfit = order.fees - totalCostInSourceFeeToken
-			// FX bids are gated on fee profit only. fxMarginUsd is a theoretical mark-to-model
-			// value (open leg priced at the opposite curve) and is reported separately, never summed in.
-			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -639,6 +678,7 @@ export class FXFiller implements FillerStrategy {
 					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
 					fxMarginUsd: fxMarginUsd.toString(),
+					willComplete,
 					totalProfit,
 					profitable: totalProfit > 0,
 				},

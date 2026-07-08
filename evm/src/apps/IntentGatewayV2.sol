@@ -161,10 +161,14 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
+        // Inputs and outputs pair 1:1 by index; reject mismatched orders that could never be filled.
+        if (order.inputs.length != order.output.assets.length) revert InvalidInput();
 
-        // Reject duplicate output tokens 
+        // Reject duplicate output tokens
         uint256 outputsLen_ = order.output.assets.length;
         for (uint256 i; i < outputsLen_;) {
+            // A zero-amount output would strand its paired input escrow
+            if (order.output.assets[i].amount == 0) revert InvalidInput();
             bytes32 token = order.output.assets[i].token;
             assembly ("memory-safe") {
                 if tload(token) {

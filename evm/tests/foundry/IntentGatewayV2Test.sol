@@ -2881,20 +2881,23 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create GET response with empty value (order not filled)
-        bytes memory context = abi.encode(
-            WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
-        );
+        // Partial-fill-aware cancel context: per-token _partialFills proof. An empty proof value
+        // decodes to filled=0, so the full escrow is refundable.
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = outputAssets[0].amount;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
 
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
         StorageValue[] memory values = new StorageValue[](1);
-        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
+        values[0] = StorageValue({key: keys[0], value: new bytes(0)}); // Empty value = not filled
 
         GetRequest memory getRequest = GetRequest({
             source: host.host(),
             dest: order.destination,
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
-            keys: new bytes[](0),
+            keys: keys,
             height: 0,
             timeoutTimestamp: 0,
             context: context
@@ -3213,12 +3216,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             session: address(0),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: new TokenInfo[](2),
-            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](2), call: ""})
         });
 
         order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
         order.inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
+        // Two distinct outputs to satisfy the 1:1 input/output pairing invariant.
         order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+        order.output.assets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 2000 * 1e6});
 
         vm.startPrank(user);
         usdc.approve(address(customGateway), usdcAmount);
@@ -3546,6 +3551,564 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    // ============================================
+    // Cross-chain partial fill tests
+    // ============================================
+
+    /// @dev Minimal big-endian RLP encoding of a uint, matching what an Ethereum storage proof
+    /// returns for a slot value (`RLP(slotValueTrimmed)`). Returns empty bytes for 0 (absent slot).
+    function _rlpEncodeUint(uint256 x) internal pure returns (bytes memory) {
+        if (x == 0) return bytes("");
+        bytes32 be = bytes32(x);
+        uint256 firstNonZero = 0;
+        while (firstNonZero < 32 && be[firstNonZero] == 0) firstNonZero++;
+        uint256 len = 32 - firstNonZero;
+        bytes memory trimmed = new bytes(len);
+        for (uint256 i; i < len; i++) {
+            trimmed[i] = be[firstNonZero + i];
+        }
+        if (len == 1 && uint8(trimmed[0]) < 0x80) return trimmed;
+        return abi.encodePacked(bytes1(uint8(0x80 + len)), trimmed);
+    }
+
+    /// @dev Recomputes the `_partialFills[commitment][token]` storage slot independently of the
+    /// contract, to guard against storage-layout drift (slot 11).
+    function _partialFillSlot(bytes32 commitment, bytes32 token) internal pure returns (bytes32) {
+        bytes32 inner = keccak256(abi.encodePacked(commitment, bytes32(uint256(11))));
+        return keccak256(abi.encodePacked(token, inner));
+    }
+
+    /// @dev Builds a single-input/single-output cross-chain order (USDC -> DAI) with the given
+    /// source/destination and amounts. `user`/`nonce` are left as the literals the caller expects.
+    function _xchainOrder(bytes memory source, bytes memory destination, uint256 inputAmount, uint256 outputAmount)
+        internal
+        view
+        returns (Order memory order)
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+        order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: source,
+            destination: destination,
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+    }
+
+    /// @dev Replays a RedeemEscrow / RedeemEscrowPartial message arriving on the source chain.
+    function _replayRedeem(IntentsBase.RequestKind kind, bytes32 commitment, TokenInfo[] memory tokens, address solver)
+        internal
+    {
+        bytes memory body = bytes.concat(
+            bytes1(uint8(kind)),
+            abi.encode(
+                WithdrawalRequest({commitment: commitment, tokens: tokens, beneficiary: bytes32(uint256(uint160(solver)))})
+            )
+        );
+        PostRequest memory request = PostRequest({
+            source: bytes("DEST_CHAIN"),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    /// @dev Drives onGetResponse for a single-token partial-fill-aware cancel with the given proven
+    /// fill amount on the destination.
+    function _replayCancel(bytes32 commitment, uint256 inputAmount, uint256 totalOutput, uint256 provenFilled)
+        internal
+    {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = totalOutput;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
+
+        // request.keys[i] is the _partialFills slot key for output i; the value carries the same key.
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(provenFilled)});
+
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: keys,
+            height: 0,
+            timeoutTimestamp: 0,
+            context: context
+        });
+        IncomingGetResponse memory incoming =
+            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: address(0)});
+        vm.prank(address(host));
+        intentGateway.onGetResponse(incoming);
+    }
+
+    /// @dev Destination-side: a partial fill pays the beneficiary pro-rata, records cumulative
+    /// progress, clears `_filled`, and dispatches a proportional escrow release (asserted via the
+    /// PartialFill event's `inputs`). A second solver then completes the order.
+    function testCrossChainPartialFill_ReleasesProportionalEscrowAndCompletes() public {
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC escrowed on the source chain
+        uint256 outputAmount = 1000 * 1e18; // 1000 DAI requested on this (destination) chain
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), inputAmount, outputAmount);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        // Solver A fills 40%.
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        TokenInfo[] memory expOutA = new TokenInfo[](1);
+        expOutA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        TokenInfo[] memory expInA = new TokenInfo[](1);
+        expInA[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+
+        uint256 userDaiBefore = dai.balanceOf(user);
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.PartialFill(commitment, filler, expOutA, expInA);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outA}));
+        vm.stopPrank();
+
+        assertEq(dai.balanceOf(user) - userDaiBefore, 400 * 1e18, "beneficiary gets 40% output");
+        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "cumulative fill recorded");
+        assertEq(intentGateway._filled(commitment), address(0), "filled cleared so next solver can continue");
+
+        // Solver B completes the remaining 60%.
+        address solverB = makeAddr("solverB");
+        deal(address(dai), solverB, 10000 * 1e18);
+        TokenInfo[] memory outB = new TokenInfo[](1);
+        outB[0] = TokenInfo({token: daiToken, amount: 600 * 1e18});
+        TokenInfo[] memory expOutB = new TokenInfo[](1);
+        expOutB[0] = TokenInfo({token: daiToken, amount: 600 * 1e18});
+        TokenInfo[] memory expInB = new TokenInfo[](1);
+        expInB[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+
+        vm.startPrank(solverB);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.OrderFilled(commitment, solverB, expOutB, expInB);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outB}));
+        vm.stopPrank();
+
+        assertEq(dai.balanceOf(user) - userDaiBefore, 1000 * 1e18, "beneficiary fully paid");
+        assertEq(intentGateway._partialFills(commitment, daiToken), 1000 * 1e18, "order fully filled");
+        assertEq(intentGateway._filled(commitment), solverB, "completing solver recorded");
+    }
+
+    /// @dev Source-side: a RedeemEscrowPartial releases only its slice without finalizing (no
+    /// `_filled`, fees retained); the completing RedeemEscrow finalizes and forwards the fee pot.
+    function testCrossChainPartialRedeem_DoesNotFinalizeUntilComplete() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 5 * 1e18; // fees are paid in the fee token (DAI)
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+        order.fees = feeAmount;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        dai.approve(address(intentGateway), feeAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // Partial redeem of 40% of the escrow. The source emits EscrowReleased for the slice even
+        // though it does not finalize, so partial releases are observable.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        vm.expectEmit(true, false, false, true);
+        emit IntentsBase.EscrowReleased(commitment, solver, slice);
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver received partial slice");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 600 * 1e6, "escrow reduced, not drained");
+        assertEq(intentGateway._filled(commitment), address(0), "partial redeem does not finalize");
+        assertEq(dai.balanceOf(solver), 0, "fees not forwarded on partial redeem");
+
+        // Completing redeem of the remaining 60% finalizes and forwards the fee pot.
+        TokenInfo[] memory rest = new TokenInfo[](1);
+        rest[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrow, commitment, rest, solver);
+
+        assertEq(usdc.balanceOf(solver), 1000 * 1e6, "solver received full escrow");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow drained");
+        assertEq(intentGateway._filled(commitment), solver, "completing redeem finalizes");
+        assertEq(dai.balanceOf(solver), feeAmount, "completing solver takes the fee pot");
+    }
+
+    /// @dev Cancel after a partial fill refunds only the proven-unredeemed fraction, never the raw
+    /// remaining escrow, so an already-redeemed slice plus the refund sum to the full escrow.
+    function testCrossChainCancel_RefundsUnfilledFractionOnly() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // A 40% partial fill was already redeemed on the source chain.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        // User cancels with a proof showing 40% of the output filled on the destination.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded only the unfilled 60%");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully accounted for");
+        assertEq(intentGateway._filled(commitment), user, "cancel finalizes for idempotency");
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "solver keeps its redeemed slice");
+    }
+
+    /// @dev Cancel can reach onGetResponse even for an order fully filled on the destination, when
+    /// the completing RedeemEscrow is still in flight to the source (source _filled is still 0). The
+    /// proof then shows full fill: refund is 0 and the fee pot must be withheld for the completing solver.
+    function testCrossChainCancel_FullyFilledRaceRefundsNothingAndWithholdsFees() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 5 * 1e18;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+        order.fees = feeAmount;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        dai.approve(address(intentGateway), feeAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // Fully filled on the destination, completing RedeemEscrow still in flight. User cancels;
+        // the proof shows 100% filled.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        uint256 userDaiBefore = dai.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 1000 * 1e18);
+
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 0, "nothing refunded for a fully-filled order");
+        assertEq(dai.balanceOf(user) - userDaiBefore, 0, "fees withheld for the completing solver");
+        assertEq(intentGateway._orders(commitment, address(usdc)), inputAmount, "escrow intact for in-flight redeem");
+        address txFeeKey = address(uint160(uint256(keccak256("txFees"))));
+        assertEq(intentGateway._orders(commitment, txFeeKey), feeAmount, "fee pot intact");
+        assertEq(intentGateway._filled(commitment), user, "cancel still records idempotency");
+
+        // The in-flight completing redeem lands: the solver receives the full escrow and the fee pot.
+        address solver = makeAddr("xchainSolver");
+        TokenInfo[] memory full = new TokenInfo[](1);
+        full[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrow, commitment, full, solver);
+
+        assertEq(usdc.balanceOf(solver), inputAmount, "completing solver redeems full escrow");
+        assertEq(dai.balanceOf(solver), feeAmount, "completing solver receives the fee pot");
+    }
+
+    /// @dev A RedeemEscrowPartial that arrives AFTER the user has cancelled still succeeds: the
+    /// cancel refunded only the unfilled fraction, leaving exactly enough escrow for the in-flight slice.
+    function testCrossChainCancel_InFlightRedeemAfterCancelStaysConsistent() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        address solver = makeAddr("xchainSolver");
+
+        // User cancels first; proof shows 40% filled before the deadline, redeem still in flight.
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 400 * 1e18);
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "user refunded unfilled 60%");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 400 * 1e6, "escrow reserved for in-flight redeem");
+
+        // The in-flight 40% redeem now lands and is fully covered.
+        TokenInfo[] memory slice = new TokenInfo[](1);
+        slice[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+        _replayRedeem(IntentsBase.RequestKind.RedeemEscrowPartial, commitment, slice, solver);
+
+        assertEq(usdc.balanceOf(solver), 400 * 1e6, "in-flight redeem paid in full");
+        assertEq(intentGateway._orders(commitment, address(usdc)), 0, "escrow fully settled");
+    }
+
+    /// @dev A second cancel response for the same commitment is rejected (idempotency).
+    function testCrossChainCancel_DoubleCancelBlocked() public {
+        uint256 inputAmount = 1000 * 1e6;
+        Order memory order = _xchainOrder(host.host(), bytes("DEST_CHAIN"), inputAmount, 1000 * 1e18);
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        _replayCancel(commitment, inputAmount, 1000 * 1e18, 0);
+        assertEq(intentGateway._filled(commitment), user, "first cancel finalized");
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        uint256[] memory totalRequired = new uint256[](1);
+        totalRequired[0] = 1000 * 1e18;
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: keys[0], value: _rlpEncodeUint(0)});
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: keys,
+            height: 0,
+            timeoutTimestamp: 0,
+            context: context
+        });
+        IncomingGetResponse memory incoming =
+            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: address(0)});
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.Filled.selector);
+        intentGateway.onGetResponse(incoming);
+    }
+
+    /// @dev Cross-chain orders carrying output calldata cannot be partially filled.
+    function testCrossChainPartialFill_CalldataRevertsPartialFillNotAllowed() public {
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000 * 1e6, 1000 * 1e18);
+        // Attach a (harmless) output call so the order requires single-fill completion.
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.balanceOf.selector, user)});
+        order.output.call = abi.encode(calls);
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        TokenInfo[] memory partialOut = new TokenInfo[](1);
+        partialOut[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentsBase.PartialFillNotAllowed.selector);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: partialOut}));
+        vm.stopPrank();
+    }
+
+    /// @dev Multi-token cancel: the host returns proof values sorted by storage key, NOT in
+    /// request-key order. Each value must be matched to its input by key, otherwise fill amounts
+    /// pair with the wrong escrow. Here the two values are supplied in reversed order.
+    function testCrossChainCancel_MultiTokenMatchesValuesByKey() public {
+        // input0 USDC funds output0 DAI; input1 DAI funds output1 USDC.
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 500 * 1e6});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 1000 * 1e6);
+        dai.approve(address(intentGateway), 500 * 1e18);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        uint256[] memory totalRequired = new uint256[](2);
+        totalRequired[0] = 1000 * 1e18; // output0 DAI
+        totalRequired[1] = 500 * 1e6; // output1 USDC
+        bytes memory context = abi.encode(commitment, bytes32(uint256(uint160(user))), inputs, totalRequired);
+
+        // request.keys aligned with inputs: keys[0] -> output0 (DAI), keys[1] -> output1 (USDC).
+        bytes[] memory keys = new bytes[](2);
+        keys[0] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(dai))))));
+        keys[1] = abi.encodePacked(_partialFillSlot(commitment, bytes32(uint256(uint160(address(usdc))))));
+
+        // Values returned in REVERSED order (key-sorted by the host): output0 DAI 40% filled,
+        // output1 USDC 60% filled.
+        StorageValue[] memory values = new StorageValue[](2);
+        values[0] = StorageValue({key: keys[1], value: _rlpEncodeUint(300 * 1e6)}); // output1 filled
+        values[1] = StorageValue({key: keys[0], value: _rlpEncodeUint(400 * 1e18)}); // output0 filled
+
+        GetRequest memory getRequest = GetRequest({
+            source: host.host(),
+            dest: bytes("DEST_CHAIN"),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            keys: keys,
+            height: 0,
+            timeoutTimestamp: 0,
+            context: context
+        });
+
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        uint256 userDaiBefore = dai.balanceOf(user);
+        vm.prank(address(host));
+        intentGateway.onGetResponse(
+            IncomingGetResponse({response: GetResponse({request: getRequest, values: values}), relayer: address(0)})
+        );
+
+        // input0 USDC: 40% of output0 redeemed -> refund 60% = 600 USDC.
+        // input1 DAI:  60% of output1 redeemed -> refund 40% = 200 DAI.
+        assertEq(usdc.balanceOf(user) - userUsdcBefore, 600 * 1e6, "USDC refund matched output0 fill by key");
+        assertEq(dai.balanceOf(user) - userDaiBefore, 200 * 1e18, "DAI refund matched output1 fill by key");
+    }
+
+    /// @dev External helper so the test can use calldata slicing to strip the RequestKind prefix.
+    function decodeWithdrawalBody(bytes calldata body) external pure returns (uint8 kind, WithdrawalRequest memory wr) {
+        kind = uint8(body[0]);
+        wr = abi.decode(body[1:], (WithdrawalRequest));
+    }
+
+    /// @dev Destination-side cancel after a partial fill must refund only the unredeemed fraction
+    /// of escrow (read from local `_partialFills`), not the full `order.inputs`.
+    function testCrossChainCancelFromDest_RefundsUnredeemedFractionOnly() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), inputAmount, outputAmount);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        // Solver fills 40% on this (destination) chain.
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 400 * 1e18});
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outA}));
+        vm.stopPrank();
+        assertEq(intentGateway._partialFills(commitment, daiToken), 400 * 1e18, "40% recorded");
+
+        // User cancels from the destination; capture the dispatched RefundEscrow.
+        vm.recordLogs();
+        vm.prank(user);
+        intentGateway.cancelOrder(order, CancelOptions({relayerFee: 0, height: 0}));
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 postTopic = keccak256("PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)");
+        bytes memory body;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == postTopic) {
+                (,,,,, bytes memory b,) =
+                    abi.decode(logs[i].data, (string, string, bytes, uint256, uint256, bytes, uint256));
+                body = b;
+            }
+        }
+        assertGt(body.length, 0, "RefundEscrow dispatched");
+
+        (uint8 kind, WithdrawalRequest memory wr) = this.decodeWithdrawalBody(body);
+        assertEq(kind, uint8(IntentsBase.RequestKind.RefundEscrow), "refund escrow kind");
+        assertEq(wr.tokens.length, 1, "one input");
+        // 40% of output filled -> 40% of USDC escrow redeemed -> refund the unredeemed 60% = 600 USDC.
+        assertEq(wr.tokens[0].amount, 600 * 1e6, "refunds only the unredeemed 60%");
+        assertEq(wr.beneficiary, bytes32(uint256(uint160(user))), "refund to user");
+        assertEq(intentGateway._filled(commitment), user, "order frozen on destination");
+    }
+
+    /// @dev placeOrder rejects a zero-amount output, which would otherwise strand its paired escrow.
+    function testPlaceOrder_RevertsOnZeroAmountOutput() public {
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 0});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @dev Guards the `_partialFills` storage slot (12) used to build cross-chain cancel proofs.
+    function testPartialFillsStorageSlotIsTwelve() public {
+        Order memory order = _xchainOrder(bytes("SOURCE_CHAIN"), host.host(), 1000 * 1e6, 1000 * 1e18);
+        bytes32 commitment = keccak256(abi.encode(order));
+        bytes32 daiToken = bytes32(uint256(uint160(address(dai))));
+
+        TokenInfo[] memory outA = new TokenInfo[](1);
+        outA[0] = TokenInfo({token: daiToken, amount: 250 * 1e18});
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outA}));
+        vm.stopPrank();
+
+        uint256 viaGetter = intentGateway._partialFills(commitment, daiToken);
+        bytes32 raw = vm.load(address(intentGateway), _partialFillSlot(commitment, daiToken));
+        assertEq(viaGetter, 250 * 1e18, "partial fill recorded via getter");
+        assertEq(uint256(raw), viaGetter, "slot-12 derivation matches public getter");
+    }
+
+    /// @dev placeOrder rejects orders whose input/output array lengths differ, since the 1:1
+    /// index pairing is required for fills and cancels.
+    function testPlaceOrder_RevertsOnInputOutputLengthMismatch() public {
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), type(uint256).max);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
     }
 
     // ============================================================

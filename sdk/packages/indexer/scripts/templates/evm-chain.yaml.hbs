@@ -66,7 +66,12 @@ dataSources:
           handler: handleEscrowReleasedEventV3
           filter:
             topics:
-              - 'EscrowReleased(bytes32,(bytes32,uint256)[])'
+              - 'EscrowReleased(bytes32,address,(bytes32,uint256)[])'
+        # Pre-partial-fills EscrowReleased (no solver). Its signature is no longer in the
+        # ABI and subql-cli rejects raw topic hashes, so the handler has no topic filter
+        # and matches the legacy topic0 itself.
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEventV3Legacy
         - kind: ethereum/LogHandler
           handler: handleEscrowRefundedEventV3
           filter:

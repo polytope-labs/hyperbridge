@@ -735,7 +735,7 @@ export class IntentFiller {
 	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
-				this.logger.info({ commitment }, "Retracting bid after on-chain OrderFilled")
+				this.logger.info({ commitment }, "Retracting bid after on-chain fill")
 
 				const coprocessor = await this.hyperbridge!
 				const result = await coprocessor.retractBid(commitment)

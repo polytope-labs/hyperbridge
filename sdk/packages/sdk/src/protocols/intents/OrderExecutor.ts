@@ -222,11 +222,14 @@ export class OrderExecutor {
 	 * terminates or continues polling for the remaining amount. Feeding back
 	 * `undefined` (no bid executed this round) causes it to keep polling.
 	 *
-	 * **Same-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
+	 * Both same-chain and cross-chain orders follow the same shape, since cross-chain
+	 * fills now support partial fills and emit their fill events on the destination:
+	 *   `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
 	 *   → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
 	 *
-	 * **Cross-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
-	 *   (terminates — settlement is confirmed async via Hyperbridge)
+	 * The only difference is that cross-chain escrow settlement (release/refund on the
+	 * source chain) is confirmed asynchronously via Hyperbridge, out of band from this
+	 * fill-progress lifecycle.
 	 */
 	async *executeOrder(
 		options: ExecuteIntentOrderOptions,

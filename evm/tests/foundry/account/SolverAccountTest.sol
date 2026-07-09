@@ -151,7 +151,80 @@ contract SolverAccountTest is Test {
     // validateUserOp - Intent Solver Selection Tests (New Logic)
     // ============================================
 
-    function test_ValidateUserOp_IntentSelection_Success() public {
+    function test_ValidateUserOp_IntentSelection_PlainUserOpHash_Success() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        // Create session signature (EIP-712 signature by session key)
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+
+        // Solver signs the plain userOpHash — order binding is carried by the nonce key
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, userOpHash);
+        bytes memory solverSignature = abi.encodePacked(r, s, v);
+
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: uint256(uint192(uint256(testCommitment))) << 64,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_ValidateUserOp_IntentSelection_PlainUserOpHash_WrongNonceKey_Fails() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+
+        // Valid solver signature over the plain userOpHash...
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, userOpHash);
+        bytes memory solverSignature = abi.encodePacked(r, s, v);
+
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        // ...but the userOp's nonce key is not the commitment: the signed userOp is
+        // not bound to the order being selected, so validation must fail.
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev The pre-upgrade composite format must keep validating while in-flight
+    ///      bids drain (no nonce-key requirement).
+    function test_ValidateUserOp_IntentSelection_LegacyFormat_Success() public {
         bytes32 userOpHash = keccak256("test_userop");
 
         // Create session signature (EIP-712 signature by session key)

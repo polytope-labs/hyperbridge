@@ -304,6 +304,16 @@ export class UserOpSender {
 		}
 
 		// SolverAccount._rawSignatureValidation expects ECDSA.recover(userOpHash, sig) == account.
+		// The v0.8 userOpHash is the EIP-712 digest of the operation, so signing the typed
+		// data yields the same signature while keeping the payload visible to the signing
+		// backend (e.g. Turnkey's policy engine) instead of an opaque 32-byte digest.
+		if (this.signer.mode === "turnkey") {
+			userOp.signature = await this.signer.signTypedData(
+				CryptoUtils.packedUserOpTypedData(userOp, p.entryPoint, BigInt(p.chainId)),
+				p.chainId,
+			)
+			return userOp
+		}
 		const userOpHash = CryptoUtils.computeUserOpHash(userOp, p.entryPoint, BigInt(p.chainId))
 		const { r, s, yParity } = await this.signer.signRawHash(userOpHash as HexString)
 		const v = yParity === 0 ? 27 : 28

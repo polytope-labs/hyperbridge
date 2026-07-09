@@ -68,6 +68,24 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @notice Validates a user operation before execution
      * @dev Implements ERC-4337 validation logic with two modes:
      *
+     * 1. Standard ECDSA (65-byte signature): validated by the Account base contract
+     *    against the plain userOpHash.
+     * 2. Intent solver selection (162-byte signature): abi.encodePacked(commitment,
+     *    solverSignature, sessionSignature). The solver signs the plain userOpHash;
+     *    the order binding is enforced through the userOp nonce key, which must equal
+     *    the lower 192 bits of the order commitment. Since the EntryPoint v0.8
+     *    userOpHash covers the nonce (and the callData carrying the order itself), the
+     *    solver's signature transitively commits to the order, while remaining a
+     *    transparent EIP-712 `PackedUserOperation` payload for signing infrastructure.
+     *    The nonce-key check prevents pairing a solver-signed userOp with a different
+     *    order's commitment and selection, which would pass validation and revert at
+     *    execution, burning the solver's EntryPoint deposit.
+     *
+     *    For migration, the previous format — solverSignature over the EIP-191 digest
+     *    of keccak256(abi.encodePacked(userOpHash, commitment, sessionKey)) — is still
+     *    accepted, without the nonce-key requirement. This fallback will be removed
+     *    once in-flight bids drain.
+     *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
      * @param missingAccountFunds The amount of funds missing in the account to pay for gas
@@ -93,7 +111,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         bytes calldata solverSignature = op.signature[32:97];
         bytes calldata sessionSignature = op.signature[97:162];
 
-        // Call IntentGatewayV2.select to recover the sessionKey
+        // Call IntentGatewayV2.select to recover the sessionKey. This also stages the
+        // transient-storage selection that fillOrder enforces at execution.
         SelectOptions memory selectOptions =
             SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
         bytes memory selectCalldata = abi.encodeWithSelector(SELECT_SELECTOR, selectOptions);
@@ -101,9 +120,19 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
         if (!success || returnData.length < 32) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        address sessionKey = abi.decode(returnData, (address));
+        // Preferred format: solver signature over the plain userOpHash, order binding
+        // via the nonce key.
+        if (_rawSignatureValidation(userOpHash, solverSignature)) {
+            if (uint192(op.nonce >> 64) != uint192(uint256(commitment))) {
+                return ERC4337Utils.SIG_VALIDATION_FAILED;
+            }
+            _payPrefund(missingAccountFunds);
+            return ERC4337Utils.SIG_VALIDATION_SUCCESS;
+        }
 
-        // Recover the solver's account from the solver signature over (userOpHash, commitment, sessionKey)
+        // Legacy format: solver signature over the EIP-191 digest of
+        // (userOpHash, commitment, sessionKey).
+        address sessionKey = abi.decode(returnData, (address));
         bytes32 messageHash = keccak256(abi.encodePacked(userOpHash, commitment, sessionKey));
         bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
 

@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 
@@ -45,19 +47,19 @@ contract MockToken is ERC20 {
     }
 }
 
-/// @dev Exposes _fetchDetails for direct testing of paymasterData parsing.
+/// @dev Exposes internal hooks for direct testing of paymasterData parsing and prefunding.
 contract SimplexPaymasterHarness is SimplexPaymaster {
-    constructor(
-        AggregatorV3Interface _nativeOracle,
-        uint256 _markupBps,
-        address _treasury,
-        address _owner
-    ) SimplexPaymaster(_nativeOracle, _markupBps, _treasury, _owner) {}
-
     function fetchDetails(
         PackedUserOperation calldata userOp
     ) external view returns (uint256 validationData, IERC20 token, uint256 tokenPrice) {
         return _fetchDetails(userOp, bytes32(0));
+    }
+
+    function validate(
+        PackedUserOperation calldata userOp,
+        uint256 maxCost
+    ) external returns (bytes memory context, uint256 validationData) {
+        return _validatePaymasterUserOp(userOp, bytes32(0), maxCost);
     }
 }
 
@@ -71,6 +73,7 @@ contract SimplexPaymasterTest is Test {
 
     address owner = makeAddr("owner");
     address treasury = makeAddr("treasury");
+    address sender = address(0xBEEF);
 
     MockOracle nativeOracle;
     MockOracle usdcOracle;
@@ -86,12 +89,7 @@ contract SimplexPaymasterTest is Test {
         usdc6 = new MockToken("USDC6", 6);
         usdc18 = new MockToken("USDC18", 18);
 
-        paymaster = new SimplexPaymasterHarness(
-            AggregatorV3Interface(address(nativeOracle)),
-            0, // no markup for the base pricing assertions
-            treasury,
-            owner
-        );
+        paymaster = _deployPaymaster(0); // no markup for the base pricing assertions
 
         vm.startPrank(owner);
         paymaster.registerToken(address(usdc6), AggregatorV3Interface(address(usdcOracle)));
@@ -227,6 +225,106 @@ contract SimplexPaymasterTest is Test {
         paymaster.fetchDetails(op);
     }
 
+    // ── Prefund ──────────────────────────────────────────────────────
+
+    function testPrefundTransfersTokensFromSender() public {
+        _fundAndApprove(1_000e6);
+
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            abi.encodePacked(uint8(1), address(usdc6))
+        );
+        // 0.001 native at $600 costs about 0.62 USDC with the postOp cushion.
+        (, uint256 validationData) = paymaster.validate(op, 1e15);
+        assertEq(validationData, 0);
+        assertGt(usdc6.balanceOf(address(paymaster)), 0);
+    }
+
+    // ── Initialization ───────────────────────────────────────────────
+
+    function testInitializeOnlyOnce() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        paymaster.initialize(AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
+    }
+
+    function testImplementationCannotBeInitialized() public {
+        SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize(AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
+    }
+
+    // ── Upgrades ─────────────────────────────────────────────────────
+
+    function testScheduleUpgradeOnlyOwner() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.expectRevert();
+        paymaster.scheduleUpgrade(newImpl);
+    }
+
+    function testUpgradeWithoutScheduleReverts() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, newImpl));
+        paymaster.upgradeToAndCall(newImpl, "");
+    }
+
+    function testUpgradeBeforeDelayReverts() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.startPrank(owner);
+        paymaster.scheduleUpgrade(newImpl);
+
+        uint256 executableAfter = paymaster.pendingUpgradeAfter();
+        vm.warp(executableAfter - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(SimplexPaymaster.UpgradeDelayNotElapsed.selector, executableAfter)
+        );
+        paymaster.upgradeToAndCall(newImpl, "");
+        vm.stopPrank();
+    }
+
+    function testUpgradeToDifferentImplReverts() public {
+        address scheduled = address(new SimplexPaymasterHarness());
+        address other = address(new SimplexPaymasterHarness());
+        vm.startPrank(owner);
+        paymaster.scheduleUpgrade(scheduled);
+        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
+
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, other));
+        paymaster.upgradeToAndCall(other, "");
+        vm.stopPrank();
+    }
+
+    function testUpgradeAfterDelayPreservesState() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.startPrank(owner);
+        paymaster.setMarkup(200);
+        paymaster.scheduleUpgrade(newImpl);
+        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
+        paymaster.upgradeToAndCall(newImpl, "");
+        vm.stopPrank();
+
+        // Refresh the feeds so pricing assertions do not hit the staleness guard after the warp.
+        nativeOracle.setAnswer(NATIVE_USD);
+        usdcOracle.setAnswer(TOKEN_USD);
+
+        assertEq(paymaster.owner(), owner);
+        assertEq(paymaster.markupBps(), 200);
+        assertEq(paymaster.getRegisteredTokens().length, 2);
+        assertEq(paymaster.getTokenPrice(address(usdc6)), (6e8 * 10_200) / 10_000);
+        assertEq(paymaster.pendingImplementation(), address(0));
+    }
+
+    function testCancelUpgrade() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.startPrank(owner);
+        paymaster.scheduleUpgrade(newImpl);
+        paymaster.cancelUpgrade();
+        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
+
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, newImpl));
+        paymaster.upgradeToAndCall(newImpl, "");
+        vm.stopPrank();
+    }
+
     // ── Admin ────────────────────────────────────────────────────────
 
     function testMarkupCapEnforced() public {
@@ -234,8 +332,13 @@ contract SimplexPaymasterTest is Test {
         vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidMarkup.selector, uint256(5_001)));
         paymaster.setMarkup(5_001);
 
+        SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
+        bytes memory initData = abi.encodeCall(
+            SimplexPaymaster.initialize,
+            (AggregatorV3Interface(address(nativeOracle)), uint256(5_001), treasury, owner)
+        );
         vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidMarkup.selector, uint256(5_001)));
-        new SimplexPaymasterHarness(AggregatorV3Interface(address(nativeOracle)), 5_001, treasury, owner);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
     function testAdminFunctionsOnlyOwner() public {
@@ -249,6 +352,18 @@ contract SimplexPaymasterTest is Test {
         paymaster.withdrawTokenToTreasury(IERC20(address(usdc6)), 1);
     }
 
+    function testTwoStepOwnershipTransfer() public {
+        address newOwner = makeAddr("newOwner");
+        vm.prank(owner);
+        paymaster.transferOwnership(newOwner);
+        assertEq(paymaster.owner(), owner);
+        assertEq(paymaster.pendingOwner(), newOwner);
+
+        vm.prank(newOwner);
+        paymaster.acceptOwnership();
+        assertEq(paymaster.owner(), newOwner);
+    }
+
     function testWithdrawTokenToTreasury() public {
         deal(address(usdc6), address(paymaster), 1_000_000);
         vm.prank(owner);
@@ -258,9 +373,26 @@ contract SimplexPaymasterTest is Test {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    function _deployPaymaster(uint256 markupBps) internal returns (SimplexPaymasterHarness) {
+        SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
+        bytes memory initData = abi.encodeCall(
+            SimplexPaymaster.initialize,
+            (AggregatorV3Interface(address(nativeOracle)), markupBps, treasury, owner)
+        );
+        return SimplexPaymasterHarness(address(new ERC1967Proxy(address(implementation), initData)));
+    }
+
+    function _fundAndApprove(uint256 amount) internal {
+        deal(address(usdc6), sender, amount);
+        vm.prank(sender);
+        usdc6.approve(address(paymaster), amount);
+    }
+
     /// @dev paymasterAndData = paymaster(20) || verificationGasLimit(16) || postOpGasLimit(16) || data
+    ///      gasFees = maxPriorityFeePerGas(16) || maxFeePerGas(16), both 1 gwei
     function _userOpWithPaymasterData(bytes memory data) internal view returns (PackedUserOperation memory op) {
-        op.sender = address(0xBEEF);
+        op.sender = sender;
+        op.gasFees = bytes32((uint256(1 gwei) << 128) | uint256(1 gwei));
         op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(150_000), uint128(100_000), data);
     }
 }

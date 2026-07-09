@@ -8,6 +8,9 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 /// @notice Minimal Chainlink AggregatorV3 interface — no external dependency needed.
 interface AggregatorV3Interface {
@@ -23,7 +26,7 @@ interface AggregatorV3Interface {
 /// @author Polytope Labs
 /// @notice Fully onchain, permissionless ERC-4337 v0.8 paymaster that accepts
 ///         ERC-20 stablecoins (USDC, USDT, or any token with a Chainlink feed)
-///         for gas payment.
+///         for gas payment. Deployed behind an ERC1967Proxy (UUPS).
 ///
 /// Modes (byte 0 of paymasterData):
 ///   0x00  PERMIT  — EIP-2612 permit signature included; the permit is executed
@@ -42,7 +45,18 @@ interface AggregatorV3Interface {
 /// Price conversion uses two Chainlink feeds: token/USD and nativeAsset/USD.
 /// The markup surplus accumulates in the contract and is withdrawable to the
 /// treasury; unused gas is refunded to the sender by PaymasterERC20._postOp.
-contract SimplexPaymaster is PaymasterERC20, Ownable {
+///
+/// @dev Security model. Solvers grant this contract ERC-20 allowances, so a
+///      compromise must never translate into large withdrawals from their
+///      accounts. Three independent layers bound the damage:
+///      1. Clients keep allowances and permit amounts small (a few dollars),
+///         so the contract can never pull more than the residual allowance.
+///      2. Upgrades are timelocked: `scheduleUpgrade` announces the new
+///         implementation onchain and `upgradeToAndCall` only succeeds after
+///         `UPGRADE_DELAY`, giving solvers time to revoke allowances if a
+///         malicious upgrade is scheduled. The owner is expected to be a
+///         multisig.
+contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Ownable2Step {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
 
@@ -56,14 +70,17 @@ contract SimplexPaymaster is PaymasterERC20, Ownable {
     /// @dev Hard cap on the owner-configurable markup (50%).
     uint256 public constant MAX_MARKUP_BPS = 5_000;
 
-    /// @dev Maximum oracle staleness. Chainlink heartbeats vary per chain
-    ///      (BSC stablecoins ~27s, Base/Arbitrum stablecoins up to 24h), so this
-    ///      defaults to 24 hours and is owner-configurable per deployment.
-    uint256 public maxOracleAge = 86400;
+    /// @dev Delay between scheduling an upgrade and executing it.
+    uint256 public constant UPGRADE_DELAY = 48 hours;
 
     /// @notice Native asset / USD oracle (BNB/USD on BSC, ETH/USD on Ethereum, etc.)
-    AggregatorV3Interface public immutable nativeOracle;
-    uint8 public immutable nativeOracleDecimals;
+    AggregatorV3Interface public nativeOracle;
+    uint8 public nativeOracleDecimals;
+
+    /// @notice Maximum oracle staleness. Chainlink heartbeats vary per chain
+    ///         (BSC stablecoins ~27s, Base/Arbitrum stablecoins up to 24h), so this
+    ///         defaults to 24 hours and is owner-configurable per deployment.
+    uint256 public maxOracleAge;
 
     /// @notice Markup in basis points (100 = 1%). Applied on top of the oracle price.
     uint256 public markupBps;
@@ -76,11 +93,19 @@ contract SimplexPaymaster is PaymasterERC20, Ownable {
     /// @notice Set of registered token addresses (for enumeration).
     address[] public registeredTokens;
 
+    /// @notice Implementation scheduled for upgrade, executable after {pendingUpgradeAfter}.
+    address public pendingImplementation;
+    uint256 public pendingUpgradeAfter;
+
+    uint256[50] private __gap;
+
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
     event MarkupUpdated(uint256 oldBps, uint256 newBps);
     event TreasuryUpdated(address oldTreasury, address newTreasury);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
+    event UpgradeScheduled(address indexed implementation, uint256 executableAfter);
+    event UpgradeCancelled(address indexed implementation);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -91,25 +116,63 @@ contract SimplexPaymaster is PaymasterERC20, Ownable {
     error InvalidPaymasterData(uint256 length);
     error PermitFailed(address token);
     error ZeroAddress();
+    error UpgradeNotScheduled(address implementation);
+    error UpgradeDelayNotElapsed(uint256 executableAfter);
 
-    /// @param _nativeOracle  Chainlink native/USD feed (e.g. BNB/USD on BSC)
-    /// @param _markupBps     Initial markup in basis points (e.g. 200 = 2%)
-    /// @param _treasury      Address that receives markup surplus
-    /// @param _owner         Owner for admin functions
-    constructor(
-        AggregatorV3Interface _nativeOracle,
-        uint256 _markupBps,
-        address _treasury,
-        address _owner
-    ) Ownable(_owner) {
-        if (address(_nativeOracle) == address(0)) revert ZeroAddress();
-        if (_treasury == address(0)) revert ZeroAddress();
-        if (_markupBps > MAX_MARKUP_BPS) revert InvalidMarkup(_markupBps);
+    constructor() Ownable(msg.sender) {
+        _disableInitializers();
+    }
 
-        nativeOracle = _nativeOracle;
-        nativeOracleDecimals = _nativeOracle.decimals();
-        markupBps = _markupBps;
-        treasury = _treasury;
+    /// @param nativeOracle_  Chainlink native/USD feed (e.g. BNB/USD on BSC)
+    /// @param markupBps_     Initial markup in basis points (e.g. 200 = 2%)
+    /// @param treasury_      Address that receives markup surplus
+    /// @param owner_         Owner for admin functions (expected to be a multisig)
+    function initialize(
+        AggregatorV3Interface nativeOracle_,
+        uint256 markupBps_,
+        address treasury_,
+        address owner_
+    ) external initializer {
+        if (address(nativeOracle_) == address(0)) revert ZeroAddress();
+        if (treasury_ == address(0)) revert ZeroAddress();
+        if (owner_ == address(0)) revert ZeroAddress();
+        if (markupBps_ > MAX_MARKUP_BPS) revert InvalidMarkup(markupBps_);
+
+        nativeOracle = nativeOracle_;
+        nativeOracleDecimals = nativeOracle_.decimals();
+        markupBps = markupBps_;
+        treasury = treasury_;
+        maxOracleAge = 86400;
+        _transferOwnership(owner_);
+    }
+
+    // ── Upgrades ─────────────────────────────────────────────────────
+
+    /// @notice Announce an upgrade. Executable via upgradeToAndCall after UPGRADE_DELAY.
+    function scheduleUpgrade(address newImplementation) external onlyOwner {
+        if (newImplementation == address(0)) revert ZeroAddress();
+        pendingImplementation = newImplementation;
+        pendingUpgradeAfter = block.timestamp + UPGRADE_DELAY;
+        emit UpgradeScheduled(newImplementation, pendingUpgradeAfter);
+    }
+
+    /// @notice Cancel a scheduled upgrade.
+    function cancelUpgrade() external onlyOwner {
+        address implementation = pendingImplementation;
+        if (implementation == address(0)) revert UpgradeNotScheduled(address(0));
+        delete pendingImplementation;
+        delete pendingUpgradeAfter;
+        emit UpgradeCancelled(implementation);
+    }
+
+    /// @dev Only the scheduled implementation, only after the delay has elapsed.
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+        if (newImplementation == address(0) || newImplementation != pendingImplementation) {
+            revert UpgradeNotScheduled(newImplementation);
+        }
+        if (block.timestamp < pendingUpgradeAfter) revert UpgradeDelayNotElapsed(pendingUpgradeAfter);
+        delete pendingImplementation;
+        delete pendingUpgradeAfter;
     }
 
     // ── Admin ────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+export * from "./server/AdminServer"
 export * from "./BidStorageService"
 export * from "./CacheService"
 export * from "./ChainClientManager"

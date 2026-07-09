@@ -9,7 +9,7 @@ use ismp::{
 	},
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{PostRequest, Request},
+	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -252,36 +252,59 @@ pub async fn translate_events_to_messages(
 		}
 	}
 
-	// GetResponses coming back from Hyperbridge to an EVM source. Their values
-	// are already carried in the events, so we only need the membership proof
-	// before running them through the same profitability gate as requests.
-	let (response_messages, response_queries) = build_get_response_messages(
-		&source,
-		&sink,
-		&events,
-		counterparty_timestamp,
-		state_machine_height,
-	)
-	.await?;
-
-	if !response_messages.is_empty() {
-		let profitability = return_successful_queries(
-			sink.clone(),
-			response_messages.clone(),
-			response_queries,
-			config.minimum_profit_percentage,
-			coprocessor,
-			&client_map,
-			config.deliver_failed.unwrap_or_default(),
-			consensus_prelude,
+	// GetResponses only ever originate on the coprocessor and come back to the
+	// chain that made the request. Their values already ride in the events, so
+	// we gate each one for profitability and then batch the survivors into
+	// chunked `handleGetResponses` calls the same way post requests are batched.
+	if source.state_machine_id().state_id == coprocessor {
+		let (response_messages, response_queries, responses) = build_get_response_candidates(
+			&source,
+			&sink,
+			&events,
+			counterparty_timestamp,
+			state_machine_height,
 		)
 		.await?;
 
-		unprofitable.extend(profitability.retriable_messages);
+		if !response_messages.is_empty() {
+			let profitability = return_successful_queries(
+				sink.clone(),
+				response_messages,
+				response_queries,
+				config.minimum_profit_percentage,
+				coprocessor,
+				&client_map,
+				config.deliver_failed.unwrap_or_default(),
+				consensus_prelude,
+			)
+			.await?;
 
-		for (msg, keep) in response_messages.into_iter().zip(profitability.queries) {
-			if keep.is_some() {
-				messages.push(msg);
+			unprofitable.extend(profitability.retriable_messages);
+
+			let profitable = responses
+				.into_iter()
+				.zip(profitability.queries)
+				.filter_map(|(res, query)| if query.is_some() { Some(res) } else { None })
+				.collect::<Vec<_>>();
+
+			for chunk in profitable.chunks(chunk_size(sink.state_machine_id().state_id)) {
+				let commitments =
+					chunk.iter().map(|res| hash_response::<Hasher>(res)).collect::<Vec<_>>();
+				let proof = source
+					.query_responses_proof(
+						state_machine_height.height,
+						commitments,
+						sink.state_machine_id().state_id,
+					)
+					.await?;
+				messages.push(Message::Response(ResponseMessage {
+					requests: chunk.iter().map(|res| res.get.clone()).collect(),
+					proof: Proof {
+						height: state_machine_height,
+						proof: (proof, chunk.to_vec()).encode(),
+					},
+					signer: sink.address(),
+				}));
 			}
 		}
 	}
@@ -289,21 +312,25 @@ pub async fn translate_events_to_messages(
 	Ok((messages, unprofitable))
 }
 
-/// Build a delivery message for every GetResponse in `events` whose reader is
-/// `sink`. The response values ride in the events; we fetch the membership
-/// proof from Hyperbridge and carry it together with the responses in the
-/// message proof so the EVM sink can encode `handleGetResponses` without any
-/// further lookups.
-async fn build_get_response_messages(
+/// Build one delivery candidate per GetResponse in `events` whose reader is
+/// `sink`, used to gate profitability before the survivors are batched. The
+/// response values ride in the events, so we only fetch the membership proof.
+/// Substrate sinks can't verify the mmr proof, so they are skipped.
+async fn build_get_response_candidates(
 	source: &Arc<dyn IsmpProvider>,
 	sink: &Arc<dyn IsmpProvider>,
 	events: &[IsmpEvent],
 	counterparty_timestamp: Duration,
 	state_machine_height: StateMachineHeight,
-) -> Result<(Vec<Message>, Vec<Query>), anyhow::Error> {
+) -> Result<(Vec<Message>, Vec<Query>, Vec<GetResponse>), anyhow::Error> {
 	let sink_state_machine = sink.state_machine_id().state_id;
+	if !sink_state_machine.is_evm() {
+		return Ok(Default::default());
+	}
+
 	let mut messages = vec![];
 	let mut queries = vec![];
+	let mut responses = vec![];
 
 	for event in events {
 		let IsmpEvent::GetResponse(res) = event else { continue };
@@ -343,9 +370,10 @@ async fn build_get_response_messages(
 			},
 			signer: sink.address(),
 		}));
+		responses.push(res.clone());
 	}
 
-	Ok((messages, queries))
+	Ok((messages, queries, responses))
 }
 
 /// Return true for Request events designated for the counterparty.
@@ -372,12 +400,8 @@ pub fn filter_events(
 			}
 			post.dest == counterparty && is_allowed_module(config, &post.from)
 		},
-		// A GetResponse is delivered back to the chain that made the request, and
-		// only EVM sources can verify the mmr membership proof it rides on.
-		IsmpEvent::GetResponse(res) =>
-			res.get.source == counterparty &&
-				counterparty.is_evm() &&
-				is_allowed_module(config, &res.get.from),
+		// GetResponses only originate on the coprocessor.
+		IsmpEvent::GetResponse(_) => true,
 		_ => false,
 	}
 }

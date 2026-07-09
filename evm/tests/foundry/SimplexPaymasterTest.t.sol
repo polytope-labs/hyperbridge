@@ -6,9 +6,24 @@ import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-E
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
+
+contract MockHost {
+    bytes public hyperbridgeId;
+
+    constructor(bytes memory _hyperbridgeId) {
+        hyperbridgeId = _hyperbridgeId;
+    }
+
+    function hyperbridge() external view returns (bytes memory) {
+        return hyperbridgeId;
+    }
+}
 
 contract MockOracle {
     int256 public answer;
@@ -75,6 +90,9 @@ contract SimplexPaymasterTest is Test {
     address treasury = makeAddr("treasury");
     address sender = address(0xBEEF);
 
+    bytes constant HYPERBRIDGE_ID = bytes("POLKADOT-3367");
+
+    MockHost hyperbridgeHost;
     MockOracle nativeOracle;
     MockOracle usdcOracle;
     MockToken usdc6; // 6-decimal USDC (Base-style)
@@ -84,6 +102,7 @@ contract SimplexPaymasterTest is Test {
     function setUp() public {
         vm.warp(1_700_000_000);
 
+        hyperbridgeHost = new MockHost(HYPERBRIDGE_ID);
         nativeOracle = new MockOracle(NATIVE_USD, 8);
         usdcOracle = new MockOracle(TOKEN_USD, 8);
         usdc6 = new MockToken("USDC6", 6);
@@ -243,86 +262,62 @@ contract SimplexPaymasterTest is Test {
 
     function testInitializeOnlyOnce() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        paymaster.initialize(AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
+        paymaster.initialize(address(hyperbridgeHost), AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
     }
 
     function testImplementationCannotBeInitialized() public {
         SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        implementation.initialize(AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
+        implementation.initialize(address(hyperbridgeHost), AggregatorV3Interface(address(nativeOracle)), 0, treasury, owner);
     }
 
-    // ── Upgrades ─────────────────────────────────────────────────────
+    function testInitializeRejectsNonContractHost() public {
+        SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
+        bytes memory initData = abi.encodeCall(
+            SimplexPaymaster.initialize,
+            (makeAddr("eoa"), AggregatorV3Interface(address(nativeOracle)), uint256(0), treasury, owner)
+        );
+        vm.expectRevert(SimplexPaymaster.InvalidHost.selector);
+        new ERC1967Proxy(address(implementation), initData);
+    }
 
-    function testScheduleUpgradeOnlyOwner() public {
+    // ── Governance upgrades ──────────────────────────────────────────
+
+    function testOnAcceptOnlyHost() public {
         address newImpl = address(new SimplexPaymasterHarness());
-        vm.expectRevert();
-        paymaster.scheduleUpgrade(newImpl);
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.onAccept(_upgradeRequest(HYPERBRIDGE_ID, newImpl));
     }
 
-    function testUpgradeWithoutScheduleReverts() public {
+    function testOnAcceptRejectsNonHyperbridgeSource() public {
+        address newImpl = address(new SimplexPaymasterHarness());
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.onAccept(_upgradeRequest(bytes("EVM-1"), newImpl));
+    }
+
+    function testOwnerCannotUpgrade() public {
         address newImpl = address(new SimplexPaymasterHarness());
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, newImpl));
-        paymaster.upgradeToAndCall(newImpl, "");
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.onAccept(_upgradeRequest(HYPERBRIDGE_ID, newImpl));
     }
 
-    function testUpgradeBeforeDelayReverts() public {
+    function testGovernanceUpgradePreservesState() public {
         address newImpl = address(new SimplexPaymasterHarness());
-        vm.startPrank(owner);
-        paymaster.scheduleUpgrade(newImpl);
-
-        uint256 executableAfter = paymaster.pendingUpgradeAfter();
-        vm.warp(executableAfter - 1);
-        vm.expectRevert(
-            abi.encodeWithSelector(SimplexPaymaster.UpgradeDelayNotElapsed.selector, executableAfter)
-        );
-        paymaster.upgradeToAndCall(newImpl, "");
-        vm.stopPrank();
-    }
-
-    function testUpgradeToDifferentImplReverts() public {
-        address scheduled = address(new SimplexPaymasterHarness());
-        address other = address(new SimplexPaymasterHarness());
-        vm.startPrank(owner);
-        paymaster.scheduleUpgrade(scheduled);
-        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
-
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, other));
-        paymaster.upgradeToAndCall(other, "");
-        vm.stopPrank();
-    }
-
-    function testUpgradeAfterDelayPreservesState() public {
-        address newImpl = address(new SimplexPaymasterHarness());
-        vm.startPrank(owner);
+        vm.prank(owner);
         paymaster.setMarkup(200);
-        paymaster.scheduleUpgrade(newImpl);
-        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
-        paymaster.upgradeToAndCall(newImpl, "");
-        vm.stopPrank();
 
-        // Refresh the feeds so pricing assertions do not hit the staleness guard after the warp.
-        nativeOracle.setAnswer(NATIVE_USD);
-        usdcOracle.setAnswer(TOKEN_USD);
+        vm.prank(address(hyperbridgeHost));
+        paymaster.onAccept(_upgradeRequest(HYPERBRIDGE_ID, newImpl));
+
+        bytes32 implSlot = vm.load(address(paymaster), ERC1967Utils.IMPLEMENTATION_SLOT);
+        assertEq(address(uint160(uint256(implSlot))), newImpl);
 
         assertEq(paymaster.owner(), owner);
         assertEq(paymaster.markupBps(), 200);
         assertEq(paymaster.getRegisteredTokens().length, 2);
         assertEq(paymaster.getTokenPrice(address(usdc6)), (6e8 * 10_200) / 10_000);
-        assertEq(paymaster.pendingImplementation(), address(0));
-    }
-
-    function testCancelUpgrade() public {
-        address newImpl = address(new SimplexPaymasterHarness());
-        vm.startPrank(owner);
-        paymaster.scheduleUpgrade(newImpl);
-        paymaster.cancelUpgrade();
-        vm.warp(block.timestamp + paymaster.UPGRADE_DELAY());
-
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UpgradeNotScheduled.selector, newImpl));
-        paymaster.upgradeToAndCall(newImpl, "");
-        vm.stopPrank();
     }
 
     // ── Admin ────────────────────────────────────────────────────────
@@ -335,7 +330,7 @@ contract SimplexPaymasterTest is Test {
         SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
         bytes memory initData = abi.encodeCall(
             SimplexPaymaster.initialize,
-            (AggregatorV3Interface(address(nativeOracle)), uint256(5_001), treasury, owner)
+            (address(hyperbridgeHost), AggregatorV3Interface(address(nativeOracle)), uint256(5_001), treasury, owner)
         );
         vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidMarkup.selector, uint256(5_001)));
         new ERC1967Proxy(address(implementation), initData);
@@ -377,9 +372,17 @@ contract SimplexPaymasterTest is Test {
         SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
         bytes memory initData = abi.encodeCall(
             SimplexPaymaster.initialize,
-            (AggregatorV3Interface(address(nativeOracle)), markupBps, treasury, owner)
+            (address(hyperbridgeHost), AggregatorV3Interface(address(nativeOracle)), markupBps, treasury, owner)
         );
         return SimplexPaymasterHarness(address(new ERC1967Proxy(address(implementation), initData)));
+    }
+
+    function _upgradeRequest(bytes memory source, address newImpl) internal pure returns (IncomingPostRequest memory req) {
+        req.request.source = source;
+        req.request.body = bytes.concat(
+            bytes1(uint8(SimplexPaymaster.RequestKind.UpgradeContract)),
+            abi.encode(newImpl, bytes(""))
+        );
     }
 
     function _fundAndApprove(uint256 amount) internal {

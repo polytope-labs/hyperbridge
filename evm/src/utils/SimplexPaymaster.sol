@@ -10,7 +10,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
 /// @notice Minimal Chainlink AggregatorV3 interface — no external dependency needed.
 interface AggregatorV3Interface {
@@ -26,7 +29,8 @@ interface AggregatorV3Interface {
 /// @author Polytope Labs
 /// @notice Fully onchain, permissionless ERC-4337 v0.8 paymaster that accepts
 ///         ERC-20 stablecoins (USDC, USDT, or any token with a Chainlink feed)
-///         for gas payment. Deployed behind an ERC1967Proxy (UUPS).
+///         for gas payment. Deployed behind an ERC1967Proxy, upgradeable only
+///         through Hyperbridge governance.
 ///
 /// Modes (byte 0 of paymasterData):
 ///   0x00  PERMIT  — EIP-2612 permit signature included; the permit is executed
@@ -51,14 +55,19 @@ interface AggregatorV3Interface {
 ///      accounts. Three independent layers bound the damage:
 ///      1. Clients keep allowances and permit amounts small (a few dollars),
 ///         so the contract can never pull more than the residual allowance.
-///      2. Upgrades are timelocked: `scheduleUpgrade` announces the new
-///         implementation onchain and `upgradeToAndCall` only succeeds after
-///         `UPGRADE_DELAY`, giving solvers time to revoke allowances if a
-///         malicious upgrade is scheduled. The owner is expected to be a
-///         multisig.
-contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Ownable2Step {
+///      2. Upgrades are only possible through Hyperbridge governance: onAccept
+///         accepts an UpgradeContract request authenticated as originating from
+///         Hyperbridge itself. The owner has no upgrade path — a compromised
+///         owner key can tweak fees (capped) and withdraw the contract's own
+///         surplus, but can never reach solver allowances.
+contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2Step {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
+
+    enum RequestKind {
+        /// @dev Points the ERC-1967 proxy at a new implementation, optionally calling it.
+        UpgradeContract
+    }
 
     struct TokenConfig {
         AggregatorV3Interface tokenOracle; // token/USD feed
@@ -70,8 +79,9 @@ contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Own
     /// @dev Hard cap on the owner-configurable markup (50%).
     uint256 public constant MAX_MARKUP_BPS = 5_000;
 
-    /// @dev Delay between scheduling an upgrade and executing it.
-    uint256 public constant UPGRADE_DELAY = 48 hours;
+    /// @notice The local Hyperbridge host; the only address allowed to deliver
+    ///         governance requests.
+    address private _hostAddr;
 
     /// @notice Native asset / USD oracle (BNB/USD on BSC, ETH/USD on Ethereum, etc.)
     AggregatorV3Interface public nativeOracle;
@@ -93,10 +103,6 @@ contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Own
     /// @notice Set of registered token addresses (for enumeration).
     address[] public registeredTokens;
 
-    /// @notice Implementation scheduled for upgrade, executable after {pendingUpgradeAfter}.
-    address public pendingImplementation;
-    uint256 public pendingUpgradeAfter;
-
     uint256[50] private __gap;
 
     event TokenRegistered(address indexed token, address indexed oracle);
@@ -104,8 +110,6 @@ contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Own
     event MarkupUpdated(uint256 oldBps, uint256 newBps);
     event TreasuryUpdated(address oldTreasury, address newTreasury);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
-    event UpgradeScheduled(address indexed implementation, uint256 executableAfter);
-    event UpgradeCancelled(address indexed implementation);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -116,28 +120,31 @@ contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Own
     error InvalidPaymasterData(uint256 length);
     error PermitFailed(address token);
     error ZeroAddress();
-    error UpgradeNotScheduled(address implementation);
-    error UpgradeDelayNotElapsed(uint256 executableAfter);
+    error InvalidHost();
 
     constructor() Ownable(msg.sender) {
         _disableInitializers();
     }
 
+    /// @param host_          Local Hyperbridge host, sole deliverer of governance requests
     /// @param nativeOracle_  Chainlink native/USD feed (e.g. BNB/USD on BSC)
     /// @param markupBps_     Initial markup in basis points (e.g. 200 = 2%)
     /// @param treasury_      Address that receives markup surplus
     /// @param owner_         Owner for admin functions (expected to be a multisig)
     function initialize(
+        address host_,
         AggregatorV3Interface nativeOracle_,
         uint256 markupBps_,
         address treasury_,
         address owner_
     ) external initializer {
+        if (host_ == address(0) || host_.code.length == 0) revert InvalidHost();
         if (address(nativeOracle_) == address(0)) revert ZeroAddress();
         if (treasury_ == address(0)) revert ZeroAddress();
         if (owner_ == address(0)) revert ZeroAddress();
         if (markupBps_ > MAX_MARKUP_BPS) revert InvalidMarkup(markupBps_);
 
+        _hostAddr = host_;
         nativeOracle = nativeOracle_;
         nativeOracleDecimals = nativeOracle_.decimals();
         markupBps = markupBps_;
@@ -146,33 +153,25 @@ contract SimplexPaymaster is Initializable, UUPSUpgradeable, PaymasterERC20, Own
         _transferOwnership(owner_);
     }
 
-    // ── Upgrades ─────────────────────────────────────────────────────
+    // ── Governance ───────────────────────────────────────────────────
 
-    /// @notice Announce an upgrade. Executable via upgradeToAndCall after UPGRADE_DELAY.
-    function scheduleUpgrade(address newImplementation) external onlyOwner {
-        if (newImplementation == address(0)) revert ZeroAddress();
-        pendingImplementation = newImplementation;
-        pendingUpgradeAfter = block.timestamp + UPGRADE_DELAY;
-        emit UpgradeScheduled(newImplementation, pendingUpgradeAfter);
+    function host() public view override returns (address) {
+        return _hostAddr;
     }
 
-    /// @notice Cancel a scheduled upgrade.
-    function cancelUpgrade() external onlyOwner {
-        address implementation = pendingImplementation;
-        if (implementation == address(0)) revert UpgradeNotScheduled(address(0));
-        delete pendingImplementation;
-        delete pendingUpgradeAfter;
-        emit UpgradeCancelled(implementation);
-    }
-
-    /// @dev Only the scheduled implementation, only after the delay has elapsed.
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
-        if (newImplementation == address(0) || newImplementation != pendingImplementation) {
-            revert UpgradeNotScheduled(newImplementation);
+    /// @dev Handles governance requests delivered by the local host. The first
+    ///      byte of the request body encodes the `RequestKind`; only requests
+    ///      originating from Hyperbridge itself are accepted.
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
+        if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) {
+            revert UnauthorizedCall();
         }
-        if (block.timestamp < pendingUpgradeAfter) revert UpgradeDelayNotElapsed(pendingUpgradeAfter);
-        delete pendingImplementation;
-        delete pendingUpgradeAfter;
+
+        RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
+        if (kind == RequestKind.UpgradeContract) {
+            (address newImpl, bytes memory initData) = abi.decode(incoming.request.body[1:], (address, bytes));
+            ERC1967Utils.upgradeToAndCall(newImpl, initData);
+        }
     }
 
     // ── Admin ────────────────────────────────────────────────────────

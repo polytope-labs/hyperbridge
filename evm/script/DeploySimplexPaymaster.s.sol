@@ -19,7 +19,7 @@ contract DeployScript is BaseScript {
         SimplexPaymaster implementation = new SimplexPaymaster{salt: salt}();
         bytes memory initData = abi.encodeCall(
             SimplexPaymaster.initialize,
-            (AggregatorV3Interface(nativeOracleAddr), markupBps, treasury, admin)
+            (HOST_ADDRESS, AggregatorV3Interface(nativeOracleAddr), markupBps, treasury, admin)
         );
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
         SimplexPaymaster paymaster = SimplexPaymaster(address(proxy));
@@ -55,8 +55,5 @@ contract DeployScript is BaseScript {
         console.log("=== IMPORTANT: Post-deployment steps ===");
         console.log("1. Fund the EntryPoint deposit for the paymaster:");
         console.log("   cast send <ENTRY_POINT> \"depositTo(address)\" ", address(paymaster), " --value 0.01ether");
-        console.log("2. Transfer ownership to the multisig (two-step):");
-        console.log("   cast send", address(paymaster), "\"transferOwnership(address)\" <MULTISIG>");
-        console.log("   then accept from the multisig: acceptOwnership()");
     }
 }

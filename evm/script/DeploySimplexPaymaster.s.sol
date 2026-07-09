@@ -24,10 +24,16 @@ contract DeployScript is BaseScript {
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
         SimplexPaymaster paymaster = SimplexPaymaster(address(proxy));
 
+        // Stablecoin feeds on Ethereum and Base run a 24h heartbeat; a buffer over
+        // the 24h default avoids transient StaleOraclePrice reverts on late pushes.
+        uint256 maxOracleAge = vm.envOr("MAX_ORACLE_AGE", uint256(90_000));
+        paymaster.setMaxOracleAge(maxOracleAge);
+
         console.log("SimplexPaymaster implementation deployed at:", address(implementation));
         console.log("SimplexPaymaster proxy deployed at:", address(paymaster));
         console.log("  nativeOracle:", nativeOracleAddr);
         console.log("  markupBps:", markupBps);
+        console.log("  maxOracleAge:", maxOracleAge);
         console.log("  treasury:", treasury);
         console.log("  owner:", admin);
 

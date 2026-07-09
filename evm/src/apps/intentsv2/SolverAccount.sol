@@ -66,24 +66,16 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
     /**
      * @notice Validates a user operation before execution
-     * @dev Implements ERC-4337 validation logic with two modes:
+     * @dev Two modes, discriminated by signature length:
      *
-     * 1. Standard ECDSA (65-byte signature): validated by the Account base contract
-     *    against the plain userOpHash.
-     * 2. Intent solver selection (162-byte signature): abi.encodePacked(commitment,
-     *    solverSignature, sessionSignature). The solver signs the plain userOpHash;
-     *    the binding to the order and its session key is enforced through the userOp
-     *    nonce key, which must equal the lower 192 bits of
-     *    keccak256(abi.encodePacked(commitment, sessionKey)). Since the EntryPoint
-     *    v0.8 userOpHash covers the nonce (and the callData carrying the order
-     *    itself), the solver's signature transitively commits to both, while remaining
-     *    a transparent EIP-712 `PackedUserOperation` payload for signing
-     *    infrastructure. The nonce-key check rejects — during validation, before the
-     *    solver's deposit pays any gas — attempts to pair a solver-signed userOp with
-     *    a different order's commitment, or with a session signature from a key other
-     *    than the one the solver bid against; either would otherwise validate and then
-     *    revert at execution, burning the solver's EntryPoint deposit and consuming
-     *    the bid's nonce.
+     * 1. Standard ECDSA (65 bytes): validated by the Account base contract against
+     *    the plain userOpHash.
+     * 2. Intent solver selection (162 bytes): abi.encodePacked(commitment,
+     *    solverSignature, sessionSignature). The solver signs the plain userOpHash,
+     *    and the userOp's nonce key must equal the lower 192 bits of
+     *    keccak256(abi.encodePacked(commitment, sessionKey)) — binding the operation
+     *    to the order and the session key it was bid against, so neither can be
+     *    swapped after signing.
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)

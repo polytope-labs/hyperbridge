@@ -26,8 +26,8 @@ print_usage() {
     echo ""
     echo "Arguments:"
     echo "  script          Script name (e.g., DeployHostUpdates.s.sol or DeployHostUpdates)"
-    echo "  chains          'testnet', 'mainnet', or comma-separated chain names"
-    echo "                  (e.g., testnet, mainnet, sepolia,base-sepolia,arbitrum-sepolia)"
+    echo "  chains          Comma-separated chain names matching foundry.toml [rpc_endpoints]"
+    echo "                  (e.g., sepolia,base-sepolia,arbitrum-sepolia)"
     echo ""
     echo "Options:"
     echo "  -m, --mode MODE        Deployment mode: simulate, full, resume, or verify (default: simulate)"
@@ -44,14 +44,11 @@ print_usage() {
     echo "  # Simulate deployment (dry run)"
     echo "  $0 DeployHostUpdates sepolia,base-sepolia"
     echo ""
-    echo "  # Deploy to all testnets (sources .env.testnet)"
-    echo "  $0 --mode full --network testnet DeployHostUpdates testnet"
-    echo ""
-    echo "  # Deploy to all mainnets (sources .env.mainnet)"
-    echo "  $0 --mode full --network mainnet DeployIsmp mainnet"
-    echo ""
-    echo "  # Deploy to specific testnet chains"
+    echo "  # Deploy to testnet chains (sources .env.testnet)"
     echo "  $0 --mode full --network testnet DeployHostUpdates sepolia,base-sepolia"
+    echo ""
+    echo "  # Deploy to mainnet chains (sources .env.mainnet)"
+    echo "  $0 --mode full --network mainnet DeployIsmp ethereum,base,arbitrum"
     echo ""
     echo "  # Deploy to specific chains"
     echo "  $0 --mode full DeployHostUpdates sepolia,base-sepolia,arbitrum-sepolia"
@@ -121,13 +118,14 @@ fi
 SCRIPT_NAME=$1
 CHAINS=$2
 
-# Auto-detect network from chains parameter if --network not provided
-if [ -z "$NETWORK_FLAG" ]; then
-    if [ "$CHAINS" = "testnet" ]; then
-        NETWORK_FLAG="testnet"
-    elif [ "$CHAINS" = "mainnet" ]; then
-        NETWORK_FLAG="mainnet"
-    fi
+# The 'testnet'/'mainnet' chain-list shortcuts were removed — the hardcoded
+# lists drifted from the chains that actually have config sections. Chains are
+# always explicit; -n/--network only selects the .env and config file.
+if [[ "$CHAINS" =~ ^(testnet|mainnet)$ ]]; then
+    echo -e "${RED}Error: '$CHAINS' is no longer a valid chains value.${NC}"
+    echo "Pass explicit chain names (comma-separated) and select the network with -n, e.g.:"
+    echo "  $0 -m full -n $CHAINS <Script> chain1,chain2"
+    exit 1
 fi
 
 # Source .env file based on network flag
@@ -153,17 +151,6 @@ elif [ "$NETWORK_FLAG" = "mainnet" ]; then
     if [ -z "$CONFIG_FILE" ] && [ -z "$CONFIG" ]; then
         export CONFIG=config.mainnet.toml
     fi
-fi
-
-# Expand "testnet" or "mainnet" to actual chain lists
-if [ "$CHAINS" = "testnet" ]; then
-    CHAINS="sepolia,optimism-sepolia,arbitrum-sepolia,base-sepolia,polygon-amoy,bsc-testnet,polkadot-testnet,pharos-testnet"
-    echo -e "${GREEN}Deploying to all testnet chains: ${YELLOW}${CHAINS}${NC}"
-    echo ""
-elif [ "$CHAINS" = "mainnet" ]; then
-    CHAINS="ethereum,optimism,arbitrum,base,bsc,gnosis,soneium,polygon,unichain"
-    echo -e "${GREEN}Deploying to all mainnet chains: ${YELLOW}${CHAINS}${NC}"
-    echo ""
 fi
 
 # Validate and normalize script name

@@ -87,5 +87,16 @@ export interface SigningAccount extends SdkSigningAccount {
 	 * MPC adapter must JSON.stringify before delegating to MpcVaultService.signTypedData.
 	 */
 	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	/**
+	 * Signs an EIP-7702 authorization tuple natively when the signing backend supports
+	 * a structured encoding for it (e.g. Turnkey's PAYLOAD_ENCODING_EIP7702_AUTHORIZATION).
+	 * Preferred over `signRawHash(authHash)` because the backend sees the tuple instead
+	 * of an opaque digest. Absent on backends without structured 7702 support.
+	 */
+	signAuthorization?: (auth: {
+		chainId: number
+		contractAddress: HexString
+		nonce: number
+	}) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	sendEip7702DelegationTransaction: (args: Eip7702DelegationTxArgs) => Promise<HexString>
 }

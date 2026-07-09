@@ -72,19 +72,18 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      *    against the plain userOpHash.
      * 2. Intent solver selection (162-byte signature): abi.encodePacked(commitment,
      *    solverSignature, sessionSignature). The solver signs the plain userOpHash;
-     *    the order binding is enforced through the userOp nonce key, which must equal
-     *    the lower 192 bits of the order commitment. Since the EntryPoint v0.8
-     *    userOpHash covers the nonce (and the callData carrying the order itself), the
-     *    solver's signature transitively commits to the order, while remaining a
-     *    transparent EIP-712 `PackedUserOperation` payload for signing infrastructure.
-     *    The nonce-key check prevents pairing a solver-signed userOp with a different
-     *    order's commitment and selection, which would pass validation and revert at
-     *    execution, burning the solver's EntryPoint deposit.
-     *
-     *    For migration, the previous format — solverSignature over the EIP-191 digest
-     *    of keccak256(abi.encodePacked(userOpHash, commitment, sessionKey)) — is still
-     *    accepted, without the nonce-key requirement. This fallback will be removed
-     *    once in-flight bids drain.
+     *    the binding to the order and its session key is enforced through the userOp
+     *    nonce key, which must equal the lower 192 bits of
+     *    keccak256(abi.encodePacked(commitment, sessionKey)). Since the EntryPoint
+     *    v0.8 userOpHash covers the nonce (and the callData carrying the order
+     *    itself), the solver's signature transitively commits to both, while remaining
+     *    a transparent EIP-712 `PackedUserOperation` payload for signing
+     *    infrastructure. The nonce-key check rejects — during validation, before the
+     *    solver's deposit pays any gas — attempts to pair a solver-signed userOp with
+     *    a different order's commitment, or with a session signature from a key other
+     *    than the one the solver bid against; either would otherwise validate and then
+     *    revert at execution, burning the solver's EntryPoint deposit and consuming
+     *    the bid's nonce.
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -120,23 +119,10 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
         if (!success || returnData.length < 32) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Preferred format: solver signature over the plain userOpHash, order binding
-        // via the nonce key.
-        if (_rawSignatureValidation(userOpHash, solverSignature)) {
-            if (uint192(op.nonce >> 64) != uint192(uint256(commitment))) {
-                return ERC4337Utils.SIG_VALIDATION_FAILED;
-            }
-            _payPrefund(missingAccountFunds);
-            return ERC4337Utils.SIG_VALIDATION_SUCCESS;
-        }
-
-        // Legacy format: solver signature over the EIP-191 digest of
-        // (userOpHash, commitment, sessionKey).
         address sessionKey = abi.decode(returnData, (address));
-        bytes32 messageHash = keccak256(abi.encodePacked(userOpHash, commitment, sessionKey));
-        bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
-
-        if (!_rawSignatureValidation(ethSignedMessageHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        uint192 userOpNonce = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey))));
+        if (uint192(op.nonce >> 64) != userOpNonce) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (!_rawSignatureValidation(userOpHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);

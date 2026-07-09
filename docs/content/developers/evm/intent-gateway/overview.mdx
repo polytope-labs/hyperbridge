@@ -125,7 +125,7 @@ The user places an order with `order.session` set to the session key's public ad
 </Step>
 <Step>
 ### Auction
-Solvers observe the `OrderPlaced` event and compete by posting UserOperations to hyperbridge that specify the output amounts they'll provide. A bid is bound to its order structurally: the UserOperation's ERC-4337 nonce key (the upper 192 bits of the nonce) must equal the lower 192 bits of the order commitment, and its calldata carries the `fillOrder` call for that order. The solver then signs the operation as EntryPoint v0.8 EIP-712 typed data (domain `ERC4337`/`1`, type `PackedUserOperation`) — the digest of which *is* the `userOpHash` — so the signed payload remains fully inspectable by the solver's signing infrastructure (hardware wallets, MPC or TEE policy engines) rather than an opaque digest.
+Solvers observe the `OrderPlaced` event and compete by posting UserOperations to hyperbridge that specify the output amounts they'll provide. A bid is bound to its order structurally: the UserOperation's ERC-4337 nonce key (the upper 192 bits of the nonce) must equal the lower 192 bits of `keccak256(commitment ‖ session)` — binding both the order and the session key the solver is bidding against — and its calldata carries the `fillOrder` call for that order. The solver then signs the operation as EntryPoint v0.8 EIP-712 typed data (domain `ERC4337`/`1`, type `PackedUserOperation`) — the digest of which *is* the `userOpHash` — so the signed payload remains fully inspectable by the solver's signing infrastructure (hardware wallets, MPC or TEE policy engines) rather than an opaque digest.
 </Step>
 <Step>
 ### Bid selection
@@ -140,7 +140,7 @@ The session signature is appended to the solver's `UserOperation` as `abi.encode
 </Step>
 <Step>
 ### On-chain Execution
-During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches the order commitment — rejecting attempts to pair a solver's signed bid with a different order's selection. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
+During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches `keccak256(commitment ‖ recovered session key)` — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
 </Step>
 </Steps>
 

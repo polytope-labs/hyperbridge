@@ -1,6 +1,7 @@
 import { formatUnits, encodeFunctionData, formatEther } from "viem"
 import {
 	ADDRESS_ZERO,
+	CryptoUtils,
 	HexString,
 	bytes32ToBytes20,
 	retryPromise,
@@ -200,7 +201,7 @@ export class ContractInteractionService {
 				address: this.configService.getEntryPointAddress(order.destination)!,
 				abi: ENTRYPOINT_ABI,
 				functionName: "getNonce",
-				args: [this.solverAccountAddress, BigInt(orderCommitment(order)) & ((1n << 192n) - 1n)],
+				args: [this.solverAccountAddress, CryptoUtils.bidNonceKey(orderCommitment(order), order.session)],
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -658,7 +659,7 @@ export class ContractInteractionService {
 				address: entryPointAddress,
 				abi: ENTRYPOINT_ABI,
 				functionName: "getNonce",
-				args: [solverAccountAddress, BigInt(commitment) & ((1n << 192n) - 1n)],
+				args: [solverAccountAddress, CryptoUtils.bidNonceKey(commitment, order.session)],
 			}) as bigint
 		} catch {
 			// Nonce defaults to 0 for phantom bids — the bid is never executed on-chain

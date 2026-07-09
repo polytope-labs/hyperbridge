@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { hashTypedData } from "viem"
+import { hashTypedData, keccak256, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { HexString, PackedUserOperation } from "@/types"
@@ -39,5 +39,15 @@ describe("packedUserOpTypedData", () => {
 			hash: CryptoUtils.computeUserOpHash(userOp, ENTRY_POINT, CHAIN_ID),
 		})
 		expect(typedSignature).toBe(rawSignature)
+	})
+
+	// Pinned against the same vector asserted in SolverAccountTest.sol —
+	// guards TS/Solidity drift in the bid nonce-key derivation.
+	it("bidNonceKey matches the SolverAccount derivation vector", () => {
+		const commitment = keccak256(toHex("test_order_commitment"))
+		const session = "0x00000000000000000000000000000000000000AA" as HexString
+		expect(CryptoUtils.bidNonceKey(commitment, session).toString(16)).toBe(
+			"31c77a0860bd1b3f77fde0d2d875914d69220cf6b18ad191",
+		)
 	})
 })

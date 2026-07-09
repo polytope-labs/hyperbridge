@@ -142,6 +142,22 @@ export class CryptoUtils {
 	}
 
 	/**
+	 * Derives the ERC-4337 nonce key that binds a bid UserOperation to its
+	 * order and session key: the lower 192 bits of
+	 * `keccak256(commitment ‖ sessionKey)`. `SolverAccount` rejects bid
+	 * operations whose nonce key differs — this is what lets the solver sign
+	 * the plain userOpHash while staying committed to the order and to the
+	 * session key it bid against.
+	 *
+	 * @param commitment - The order commitment (`order.id`).
+	 * @param sessionKey - The order's session key address (`order.session`).
+	 * @returns The 192-bit nonce key as a bigint (pass to `EntryPoint.getNonce`).
+	 */
+	static bidNonceKey(commitment: HexString, sessionKey: HexString): bigint {
+		return BigInt(keccak256(encodePacked(["bytes32", "address"], [commitment, sessionKey]))) & ((1n << 192n) - 1n)
+	}
+
+	/**
 	 * Builds the EIP-712 typed-data payload whose digest is the EntryPoint v0.8
 	 * `userOpHash` (i.e. `hashTypedData(packedUserOpTypedData(...)) ===
 	 * computeUserOpHash(...)`). Signing this typed data is bit-identical to

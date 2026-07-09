@@ -7,8 +7,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
@@ -29,8 +27,8 @@ interface AggregatorV3Interface {
 /// @author Polytope Labs
 /// @notice Fully onchain, permissionless ERC-4337 v0.8 paymaster that accepts
 ///         ERC-20 stablecoins (USDC, USDT, or any token with a Chainlink feed)
-///         for gas payment. Deployed behind an ERC1967Proxy, upgradeable only
-///         through Hyperbridge governance.
+///         for gas payment. Deployed behind an ERC1967Proxy and administered
+///         exclusively through Hyperbridge governance.
 ///
 /// Modes (byte 0 of paymasterData):
 ///   0x00  PERMIT  — EIP-2612 permit signature included; the permit is executed
@@ -52,21 +50,39 @@ interface AggregatorV3Interface {
 ///
 /// @dev Security model. Solvers grant this contract ERC-20 allowances, so a
 ///      compromise must never translate into large withdrawals from their
-///      accounts. Three independent layers bound the damage:
-///      1. Clients keep allowances and permit amounts small (a few dollars),
-///         so the contract can never pull more than the residual allowance.
-///      2. Upgrades are only possible through Hyperbridge governance: onAccept
-///         accepts an UpgradeContract request authenticated as originating from
-///         Hyperbridge itself. The owner has no upgrade path — a compromised
-///         owner key can tweak fees (capped) and withdraw the contract's own
-///         surplus, but can never reach solver allowances.
-contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2Step {
+///      accounts. There is no privileged key: every administrative action —
+///      upgrades, parameter changes, token registry, withdrawals — is an
+///      onAccept request authenticated as originating from Hyperbridge
+///      governance and delivered by the local host. Clients additionally keep
+///      allowances and permit amounts small (a few dollars), bounding exposure
+///      to the residual allowance even against a malicious oracle.
+contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
 
     enum RequestKind {
         /// @dev Points the ERC-1967 proxy at a new implementation, optionally calling it.
-        UpgradeContract
+        UpgradeContract,
+        /// @dev Replaces the pricing and treasury parameters.
+        UpdateParams,
+        /// @dev Registers or updates a supported ERC-20 token and its token/USD feed.
+        RegisterToken,
+        /// @dev Deactivates a token (stops new UserOps from using it).
+        DeactivateToken,
+        /// @dev Sweeps accumulated ERC-20 surplus or the EntryPoint deposit to the treasury.
+        WithdrawAssets
+    }
+
+    struct Params {
+        /// @notice Native asset / USD oracle (BNB/USD on BSC, ETH/USD on Ethereum, etc.)
+        AggregatorV3Interface nativeOracle;
+        /// @notice Markup in basis points (100 = 1%). Applied on top of the oracle price.
+        uint256 markupBps;
+        /// @notice Receives markup surplus and EntryPoint deposit withdrawals.
+        address treasury;
+        /// @notice Maximum oracle staleness. Chainlink heartbeats vary per chain
+        ///         (BSC stablecoins ~27s, Base/Ethereum stablecoins up to 24h).
+        uint256 maxOracleAge;
     }
 
     struct TokenConfig {
@@ -76,26 +92,20 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
         bool active; // kill-switch per token
     }
 
-    /// @dev Hard cap on the owner-configurable markup (50%).
+    /// @dev Hard cap on the governance-configurable markup (50%).
     uint256 public constant MAX_MARKUP_BPS = 5_000;
+
+    /// @dev Hard ceiling on the governance-configurable oracle staleness bound.
+    uint256 public constant MAX_ORACLE_AGE = 7 days;
 
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
     address private _hostAddr;
 
-    /// @notice Native asset / USD oracle (BNB/USD on BSC, ETH/USD on Ethereum, etc.)
     AggregatorV3Interface public nativeOracle;
     uint8 public nativeOracleDecimals;
-
-    /// @notice Maximum oracle staleness. Chainlink heartbeats vary per chain
-    ///         (BSC stablecoins ~27s, Base/Arbitrum stablecoins up to 24h), so this
-    ///         defaults to 24 hours and is owner-configurable per deployment.
     uint256 public maxOracleAge;
-
-    /// @notice Markup in basis points (100 = 1%). Applied on top of the oracle price.
     uint256 public markupBps;
-
-    /// @notice Receives accumulated markup surplus and EntryPoint deposit withdrawals.
     address public treasury;
 
     mapping(address => TokenConfig) public tokenConfigs;
@@ -107,8 +117,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
-    event MarkupUpdated(uint256 oldBps, uint256 newBps);
-    event TreasuryUpdated(address oldTreasury, address newTreasury);
+    event ParamsUpdated(Params previous, Params current);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
 
     error TokenNotRegistered(address token);
@@ -116,41 +125,37 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
     error StaleOraclePrice(address oracle, uint256 updatedAt);
     error InvalidOraclePrice(address oracle, int256 price);
     error InvalidMarkup(uint256 bps);
+    error InvalidOracleAge(uint256 age);
     error InvalidMode(uint8 mode);
     error InvalidPaymasterData(uint256 length);
     error PermitFailed(address token);
     error ZeroAddress();
     error InvalidHost();
+    error LengthMismatch();
 
-    constructor() Ownable(msg.sender) {
+    constructor() {
         _disableInitializers();
     }
 
-    /// @param host_          Local Hyperbridge host, sole deliverer of governance requests
-    /// @param nativeOracle_  Chainlink native/USD feed (e.g. BNB/USD on BSC)
-    /// @param markupBps_     Initial markup in basis points (e.g. 200 = 2%)
-    /// @param treasury_      Address that receives markup surplus
-    /// @param owner_         Owner for admin functions (expected to be a multisig)
+    /// @param host_    Local Hyperbridge host, sole deliverer of governance requests
+    /// @param params_  Initial pricing and treasury parameters
+    /// @param tokens_  Initially supported ERC-20 tokens
+    /// @param oracles_ token/USD feed for each entry in tokens_
     function initialize(
         address host_,
-        AggregatorV3Interface nativeOracle_,
-        uint256 markupBps_,
-        address treasury_,
-        address owner_
+        Params memory params_,
+        address[] memory tokens_,
+        AggregatorV3Interface[] memory oracles_
     ) external initializer {
         if (host_ == address(0) || host_.code.length == 0) revert InvalidHost();
-        if (address(nativeOracle_) == address(0)) revert ZeroAddress();
-        if (treasury_ == address(0)) revert ZeroAddress();
-        if (owner_ == address(0)) revert ZeroAddress();
-        if (markupBps_ > MAX_MARKUP_BPS) revert InvalidMarkup(markupBps_);
+        if (tokens_.length != oracles_.length) revert LengthMismatch();
 
         _hostAddr = host_;
-        nativeOracle = nativeOracle_;
-        nativeOracleDecimals = nativeOracle_.decimals();
-        markupBps = markupBps_;
-        treasury = treasury_;
-        maxOracleAge = 86400;
-        _transferOwnership(owner_);
+        _setParams(params_);
+
+        for (uint256 i = 0; i < tokens_.length; i++) {
+            _registerToken(tokens_[i], oracles_[i]);
+        }
     }
 
     // ── Governance ───────────────────────────────────────────────────
@@ -168,16 +173,47 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
         }
 
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
+        bytes calldata payload = incoming.request.body[1:];
+
         if (kind == RequestKind.UpgradeContract) {
-            (address newImpl, bytes memory initData) = abi.decode(incoming.request.body[1:], (address, bytes));
+            (address newImpl, bytes memory initData) = abi.decode(payload, (address, bytes));
             ERC1967Utils.upgradeToAndCall(newImpl, initData);
+        } else if (kind == RequestKind.UpdateParams) {
+            _setParams(abi.decode(payload, (Params)));
+        } else if (kind == RequestKind.RegisterToken) {
+            (address token, address oracle) = abi.decode(payload, (address, address));
+            _registerToken(token, AggregatorV3Interface(oracle));
+        } else if (kind == RequestKind.DeactivateToken) {
+            _deactivateToken(abi.decode(payload, (address)));
+        } else if (kind == RequestKind.WithdrawAssets) {
+            (address token, uint256 amount) = abi.decode(payload, (address, uint256));
+            _withdrawAssets(token, amount);
         }
     }
 
-    // ── Admin ────────────────────────────────────────────────────────
+    /// @dev Validates and applies pricing/treasury parameters, re-caching the
+    ///      native oracle decimals.
+    function _setParams(Params memory p) internal {
+        if (address(p.nativeOracle) == address(0)) revert ZeroAddress();
+        if (p.treasury == address(0)) revert ZeroAddress();
+        if (p.markupBps > MAX_MARKUP_BPS) revert InvalidMarkup(p.markupBps);
+        if (p.maxOracleAge == 0 || p.maxOracleAge > MAX_ORACLE_AGE) revert InvalidOracleAge(p.maxOracleAge);
 
-    /// @notice Register or update a supported ERC-20 token with its token/USD feed.
-    function registerToken(address token, AggregatorV3Interface oracle) external onlyOwner {
+        emit ParamsUpdated(
+            Params({nativeOracle: nativeOracle, markupBps: markupBps, treasury: treasury, maxOracleAge: maxOracleAge}),
+            p
+        );
+
+        nativeOracle = p.nativeOracle;
+        nativeOracleDecimals = p.nativeOracle.decimals();
+        markupBps = p.markupBps;
+        treasury = p.treasury;
+        maxOracleAge = p.maxOracleAge;
+    }
+
+    /// @dev Registers or updates a supported ERC-20 token with its token/USD feed.
+    ///      Re-registering is also the recovery path for a misbehaving oracle.
+    function _registerToken(address token, AggregatorV3Interface oracle) internal {
         if (token == address(0) || address(oracle) == address(0)) revert ZeroAddress();
 
         bool isNew = !tokenConfigs[token].active && address(tokenConfigs[token].tokenOracle) == address(0);
@@ -196,38 +232,25 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
         emit TokenRegistered(token, address(oracle));
     }
 
-    /// @notice Deactivate a token (stops new UserOps from using it).
-    function deactivateToken(address token) external onlyOwner {
+    function _deactivateToken(address token) internal {
         tokenConfigs[token].active = false;
         emit TokenDeactivated(token);
     }
 
-    function setMarkup(uint256 _markupBps) external onlyOwner {
-        if (_markupBps > MAX_MARKUP_BPS) revert InvalidMarkup(_markupBps);
-        uint256 old = markupBps;
-        markupBps = _markupBps;
-        emit MarkupUpdated(old, _markupBps);
+    /// @dev Sweeps assets to the treasury: ERC-20 surplus, or the EntryPoint
+    ///      deposit when `token` is the zero address.
+    function _withdrawAssets(address token, uint256 amount) internal {
+        if (token == address(0)) {
+            entryPoint().withdrawTo(payable(treasury), amount);
+        } else {
+            IERC20(token).safeTransfer(treasury, amount);
+        }
     }
 
-    function setTreasury(address _treasury) external onlyOwner {
-        if (_treasury == address(0)) revert ZeroAddress();
-        address old = treasury;
-        treasury = _treasury;
-        emit TreasuryUpdated(old, _treasury);
-    }
-
-    function setMaxOracleAge(uint256 _maxOracleAge) external onlyOwner {
-        maxOracleAge = _maxOracleAge;
-    }
-
-    /// @notice Withdraw accumulated ERC-20 tokens (markup surplus) to the treasury.
-    function withdrawTokenToTreasury(IERC20 token, uint256 amount) external onlyOwner {
-        token.safeTransfer(treasury, amount);
-    }
-
-    /// @notice Withdraw native gas token from the EntryPoint deposit to the treasury.
-    function withdrawEntryPointDeposit(uint256 amount) external onlyOwner {
-        withdraw(payable(treasury), amount);
+    /// @dev Withdrawals only happen through governance (see {_withdrawAssets});
+    ///      the inherited public withdraw and stake entry points are disabled.
+    function _authorizeWithdraw() internal pure override {
+        revert UnauthorizedCall();
     }
 
     // ── PaymasterERC20 hooks ─────────────────────────────────────────
@@ -354,10 +377,5 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20, Ownable2St
     /// @notice List all registered tokens.
     function getRegisteredTokens() external view returns (address[] memory) {
         return registeredTokens;
-    }
-
-    /// @dev Only the owner can withdraw the EntryPoint deposit or stake.
-    function _authorizeWithdraw() internal view override {
-        _checkOwner();
     }
 }

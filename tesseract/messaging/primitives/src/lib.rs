@@ -386,6 +386,18 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
+	/// Query a membership proof for a batch of GetResponse commitments. Mirrors
+	/// [`IsmpProvider::query_requests_proof`] but over the response mmr leaves.
+	/// Only the coprocessor commits GetResponses, so other backends return an error.
+	async fn query_responses_proof(
+		&self,
+		_at: u64,
+		_commitments: Vec<H256>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		Err(anyhow!("query_responses_proof is not supported on {}", self.name()))
+	}
+
 	/// Query state proof for some keys, return scaled encoded proof
 	async fn query_state_proof(
 		&self,

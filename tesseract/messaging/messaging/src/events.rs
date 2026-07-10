@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use anyhow::anyhow;
+use codec::Encode;
 use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
@@ -7,11 +8,11 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, Message, Proof, RequestMessage},
-	router::{PostRequest, Request},
+	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
+	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
@@ -251,10 +252,166 @@ pub async fn translate_events_to_messages(
 		}
 	}
 
+	// GetResponses only ever originate on the coprocessor and come back to the
+	// chain that made the request. Their values already ride in the events, so
+	// we gate each one for profitability and then batch the survivors into
+	// chunked `handleGetResponses` calls the same way post requests are batched.
+	if source.state_machine_id().state_id == coprocessor {
+		let (response_messages, response_queries, responses) = build_get_response_candidates(
+			&source,
+			&sink,
+			&events,
+			&config,
+			counterparty_timestamp,
+			state_machine_height,
+		)
+		.await?;
+
+		if !response_messages.is_empty() {
+			let profitability = return_successful_queries(
+				sink.clone(),
+				response_messages,
+				response_queries,
+				config.minimum_profit_percentage,
+				coprocessor,
+				&client_map,
+				config.deliver_failed.unwrap_or_default(),
+				consensus_prelude,
+			)
+			.await?;
+
+			unprofitable.extend(profitability.retriable_messages);
+
+			let profitable = responses
+				.into_iter()
+				.zip(profitability.queries)
+				.filter_map(|(res, query)| if query.is_some() { Some(res) } else { None })
+				.collect::<Vec<_>>();
+
+			for chunk in profitable.chunks(chunk_size(sink.state_machine_id().state_id)) {
+				let commitments =
+					chunk.iter().map(|res| hash_response::<Hasher>(res)).collect::<Vec<_>>();
+				let proof = source
+					.query_responses_proof(
+						state_machine_height.height,
+						commitments,
+						sink.state_machine_id().state_id,
+					)
+					.await?;
+				messages.push(Message::Response(ResponseMessage {
+					requests: chunk.iter().map(|res| res.get.clone()).collect(),
+					proof: Proof {
+						height: state_machine_height,
+						proof: (proof, chunk.to_vec()).encode(),
+					},
+					signer: sink.address(),
+				}));
+			}
+		}
+	}
+
 	Ok((messages, unprofitable))
 }
 
-/// Return true for Request events designated for the counterparty.
+/// Build one delivery candidate per GetResponse in `events` whose reader is
+/// `sink`, used to gate profitability before the survivors are batched. The
+/// response values ride in the events, so we only fetch the membership proof.
+/// Substrate sinks can't verify the mmr proof, so they are skipped.
+///
+/// Proofs are fetched concurrently in `source.max_concurrent_queries()`-sized
+/// chunks, the same way the post request candidates above are built — a block
+/// carrying N responses would otherwise cost N sequential round-trips to the
+/// coprocessor on the critical path of every outbound update.
+async fn build_get_response_candidates(
+	source: &Arc<dyn IsmpProvider>,
+	sink: &Arc<dyn IsmpProvider>,
+	events: &[IsmpEvent],
+	config: &RelayerConfig,
+	counterparty_timestamp: Duration,
+	state_machine_height: StateMachineHeight,
+) -> Result<(Vec<Message>, Vec<Query>, Vec<GetResponse>), anyhow::Error> {
+	let sink_state_machine = sink.state_machine_id().state_id;
+	if !sink_state_machine.is_evm() {
+		return Ok(Default::default());
+	}
+
+	let candidates = events
+		.iter()
+		.filter_map(|event| {
+			let IsmpEvent::GetResponse(res) = event else { return None };
+			if res.get.source != sink_state_machine {
+				return None;
+			}
+
+			if res.get.timeout_timestamp != 0 &&
+				res.get.timeout_timestamp <= counterparty_timestamp.as_secs()
+			{
+				tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get response with nonce {}", res.get.nonce);
+				return None;
+			}
+
+			if !is_allowed_module(config, &res.get.from) {
+				tracing::trace!(
+					target: crate::LOG_TARGET, "Get response for module {}, filtered by module filter",
+					hex::encode(&res.get.from),
+				);
+				return None;
+			}
+
+			Some(res)
+		})
+		.collect::<Vec<_>>();
+
+	let mut messages = vec![];
+	let mut queries = vec![];
+	let mut responses = vec![];
+
+	for chunk in candidates.chunks(source.max_concurrent_queries()) {
+		let proofs = chunk
+			.iter()
+			.map(|res| {
+				let source = source.clone();
+				let response_commitment = hash_response::<Hasher>(res);
+				async move {
+					source
+						.query_responses_proof(
+							state_machine_height.height,
+							vec![response_commitment],
+							sink_state_machine,
+						)
+						.await
+				}
+			})
+			.collect::<FuturesOrdered<_>>()
+			.collect::<Result<Vec<_>, _>>()
+			.await?;
+
+		for (res, mmr_proof) in chunk.iter().zip(proofs) {
+			// The `Query` describes the origin GetRequest, not the response: its commitment
+			// is the request commitment, which is what the EVM host keys both the fee
+			// metadata and the response receipt on.
+			queries.push(Query {
+				source_chain: res.get.source,
+				dest_chain: res.get.dest,
+				nonce: res.get.nonce,
+				commitment: hash_request::<Hasher>(&Request::Get(res.get.clone())),
+			});
+			messages.push(Message::Response(ResponseMessage {
+				requests: vec![res.get.clone()],
+				proof: Proof {
+					height: state_machine_height,
+					proof: (mmr_proof, vec![(*res).clone()]).encode(),
+				},
+				signer: sink.address(),
+			}));
+			responses.push((*res).clone());
+		}
+	}
+
+	Ok((messages, queries, responses))
+}
+
+/// Return true for Request and GetResponse events designated for the counterparty.
 ///
 /// Events are gated by `module_filter` via `is_allowed_module`, so operators
 /// can scope which modules they deliver. With no `module_filter` configured,
@@ -278,6 +435,10 @@ pub fn filter_events(
 			}
 			post.dest == counterparty && is_allowed_module(config, &post.from)
 		},
+		// GetResponses only originate on the coprocessor and are delivered back to the
+		// chain that made the request, so `get.source` is their destination.
+		IsmpEvent::GetResponse(res) =>
+			res.get.source == counterparty && is_allowed_module(config, &res.get.from),
 		_ => false,
 	}
 }
@@ -367,10 +528,11 @@ pub async fn return_successful_queries(
 						};
 
 						let fee_metadata = match msg {
-							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?,
-							// `Message::Response` carries GetResponses, which never accrue
-							// relayer fees (state-coprocessor writes `fee: Default::default()`).
-							Message::Response(_) => U256::zero(),
+							// A GetResponse is gated on the fee attached to its origin GetRequest,
+							// which the EVM host pays the relayer when it dispatches the response.
+							// `query.commitment` is the request commitment for both message kinds.
+							Message::Request(_) | Message::Response(_) =>
+								og_source.query_request_fee_metadata(query.commitment).await?,
 							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
 						};
 

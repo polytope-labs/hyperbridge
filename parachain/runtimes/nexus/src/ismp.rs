@@ -296,7 +296,7 @@ impl pallet_bandwidth::Config for Runtime {
 }
 
 parameter_types! {
-	pub const HftDecimals: u8 = 12;
+	pub const HftDecimals: u8 = 18;
 }
 
 pub struct HftNativeAssetId;

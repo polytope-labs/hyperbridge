@@ -14,11 +14,12 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, Config, VALIDATOR_BIT_SET_SIZE},
-	verify_bsc_header,
+	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE},
+	verify_bsc_header, VerificationResult,
 };
 use codec::{Decode, Encode};
 use futures::{stream, StreamExt};
+use geth_primitives::CodecHeader;
 use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
 use bsc_prover::UpdateParams;
@@ -30,6 +31,11 @@ use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
 use ssz_rs::{Bitvector, Deserialize};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
+
+/// Maximum number of consensus messages bundled into a single transaction while
+/// the light client is catching up. Batching amortizes the per-transaction
+/// overhead instead of submitting each sync/enactment update on its own.
+const MAX_CONSENSUS_MESSAGES_PER_TX: usize = 8;
 
 #[async_trait::async_trait]
 impl<C: Config> IsmpHost for BscPosHost<C> {
@@ -99,11 +105,6 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						return Some((Ok(None), (interval, prev_consensus_state)));
 					}
 
-					let current_epoch = max(
-						compute_epoch(consensus_state.finalized_height, epoch_length),
-						consensus_state.current_epoch,
-					);
-
 					let attested_header = if let Ok(header) = client.prover.latest_header().await {
 						header
 					} else {
@@ -116,287 +117,68 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						));
 					};
 
-					let attested_epoch =
-						compute_epoch(attested_header.number.low_u64(), epoch_length);
-					// Send a block that would enact authority set rotation
-					if consensus_state.next_validators.is_some() {
-						let rotation_block =
-							consensus_state.next_validators.as_ref().expect("Valid").rotation_block;
-						let enactment_epoch = compute_epoch(rotation_block, epoch_length);
-
-						log::trace!(
-							target: crate::LOG_TARGET, "Enacting Authority Set Rotation for {:?} on {}",
-							client.state_machine,
-							counterparty.state_machine_id().state_id
-						);
-
-						let epoch_block_number = enactment_epoch * epoch_length;
-						let rotation_block = get_rotation_block(
-							epoch_block_number,
-							consensus_state.current_validators.len() as u64,
+					// While catching up, batch up to `MAX_CONSENSUS_MESSAGES_PER_TX` chained
+					// updates into a single transaction instead of submitting them one by one.
+					// A sync update only *stages* the next validator set on-chain; an enactment
+					// update must then promote it before the following epoch can be synced. We
+					// therefore advance a local copy of the consensus state after each update so
+					// every subsequent update is generated against the state the previous one will
+					// produce on-chain, keeping the whole batch valid when applied in order.
+					let mut working_state = consensus_state.clone();
+					let mut batch: Vec<ConsensusMessage> = Vec::new();
+					let mut batch_error = None;
+					while batch.len() < MAX_CONSENSUS_MESSAGES_PER_TX {
+						match next_consensus_update(
+							&client,
+							&counterparty,
+							&working_state,
+							&attested_header,
 							epoch_length,
-						);
-						let mut block = rotation_block;
-						// Authority set rotation is valid between rotation_block and
-						// epoch_block+epoch_length
-						while block <= (epoch_block_number + epoch_length - 1) {
-							let header = if let Ok(header) = client.prover.fetch_header(block).await
-							{
-								header
-							} else {
-								return Some((
-									Err(anyhow!(
-										"Not a fatal error: Error fetching {} header for {block}",
-										client.state_machine
-									)),
-									(interval, None),
-								));
-							};
-							// If header does not exist we have to wait until it does
-							let header = if let Some(header) = header {
-								header
-							} else {
-								// If header does not exist yet wait before continuing
-								tokio::time::sleep(Duration::from_secs(3)).await;
-								continue;
-							};
-
-							match client
-								.prover
-								.fetch_bsc_update::<KeccakHasher>(UpdateParams {
-									attested_header: header,
-									validator_size: consensus_state.current_validators.len() as u64,
-									epoch: enactment_epoch,
+						)
+						.await
+						{
+							Ok(Some((message, update, verification))) => {
+								apply_update_locally(
+									&mut working_state,
+									&update,
+									&verification,
 									epoch_length,
-									fetch_val_set_change: false,
-								})
-								.await
-							{
-								Ok(Some(update)) => {
-									// We try to validate before seubmiting to be sure enactment has
-									// taken place, we know the minimum block at which rotation
-									// should occur but sometimes It happens further in the future
-
-									let next_validators =
-										consensus_state.next_validators.clone().unwrap_or_default();
-
-									let extra_data =
-										parse_extra::<KeccakHasher, C>(&update.attested_header)
-											.expect(
-											"Infallible, was parsed before update was generated",
-										);
-
-									let validators_bit_set =
-										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
-											extra_data
-												.vote_address_set
-												.to_le_bytes()
-												.to_vec()
-												.as_slice(),
-										)
-										.expect(
-											"Infallible, was parsed before update was generated",
-										);
-
-									if validators_bit_set.iter().as_bitslice().count_ones() <
-										(2 * next_validators.validators.len() / 3)
-									{
-										log::trace!(
-											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
-										);
-										block += 1;
-										continue;
-									}
-									let res = verify_bsc_header::<KeccakHasher, C>(
-										&next_validators.validators,
-										update.clone(),
-										epoch_length,
-									);
-									if update.source_header.number.low_u64() <=
-										consensus_state.finalized_height ||
-										res.is_err()
-									{
-										block += 1;
-										continue;
-									}
-
-									return Some((
-										Ok(Some(ConsensusMessage {
-											consensus_proof: update.encode(),
-											consensus_state_id: client.consensus_state_id,
-											signer: H160::random().0.to_vec(),
-										})),
-										(interval, Some(consensus_state)),
-									));
-								},
-								Ok(None) => block += 1,
-								Err(_) =>
-									return Some((
-										Err(anyhow!(
-											"Not a fatal error: Error fetching authority enactment update for {}",
-											client.state_machine
-										)),
-										(interval, None),
-									)),
-							}
+								);
+								batch.push(message);
+							},
+							// No further catch-up update is due right now.
+							Ok(None) => break,
+							Err(err) => {
+								batch_error = Some(err);
+								break;
+							},
 						}
-						log::trace!(target: crate::LOG_TARGET, "No valid update found to enact authority set change");
-						return Some((Ok(None), (interval, None)));
-					}
-					// Try to sync the client first
-					if attested_epoch > current_epoch && consensus_state.next_validators.is_none() {
-						log::info!(
-							target: crate::LOG_TARGET, "Syncing {} on {}",
-							client.state_machine,
-							counterparty.state_machine_id().state_id
-						);
-						let next_epoch = current_epoch + 1;
-
-						let epoch_block_number = next_epoch * epoch_length;
-						// Find a block that finalizes the epoch change block, Validators are
-						// rotated (validator_size / 2) blocks after the epoch boundary
-						let mut block = epoch_block_number + 2;
-						let rotation_block = get_rotation_block(
-							epoch_block_number,
-							consensus_state.current_validators.len() as u64,
-							epoch_length,
-						) - 1;
-
-						while block <= rotation_block + epoch_length / 2 {
-							let header = if let Ok(header) = client.prover.fetch_header(block).await
-							{
-								header
-							} else {
-								return Some((
-									Err(anyhow!(
-										"Not a fatal error: Error fetching {} header for {block}",
-										client.state_machine
-									)),
-									(interval, None),
-								));
-							};
-							let header = if let Some(header) = header {
-								header
-							} else {
-								// If header does not exist yet wait before continuing
-								tokio::time::sleep(Duration::from_secs(3)).await;
-								continue;
-							};
-
-							match client
-								.prover
-								.fetch_bsc_update::<KeccakHasher>(UpdateParams {
-									attested_header: header,
-									validator_size: consensus_state.current_validators.len() as u64,
-									epoch: next_epoch,
-									epoch_length,
-									fetch_val_set_change: true,
-								})
-								.await
-							{
-								Ok(Some(update)) => {
-									// check number of participants
-									let extra_data =
-										parse_extra::<KeccakHasher, C>(&update.attested_header)
-											.expect(
-											"Infallible, was parsed before update was generated",
-										);
-
-									let validators_bit_set =
-										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
-											extra_data
-												.vote_address_set
-												.to_le_bytes()
-												.to_vec()
-												.as_slice(),
-										)
-										.expect(
-											"Infallible, was parsed before update was generated",
-										);
-
-									if validators_bit_set.iter().as_bitslice().count_ones() <
-										(2 * consensus_state.current_validators.len() / 3)
-									{
-										log::trace!(
-											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
-										);
-										block += 1;
-										continue;
-									}
-
-									if update.source_header.number.low_u64() <=
-										consensus_state.finalized_height
-									{
-										block += 1;
-										continue;
-									}
-
-									if let Err(err) = verify_bsc_header::<KeccakHasher, C>(
-										&consensus_state.current_validators,
-										update.clone(),
-										epoch_length,
-									) {
-										// If we are still looking for the next sync block and we
-										// find an update not signed by the current validator set We
-										// cannot rotate validator set safely
-										return Some((
-											Err(anyhow!(
-												"Fatal error: No valid sync update found for  {}: {err:?}",
-												client.state_machine
-											)),
-											(interval, None),
-										));
-									}
-
-									// If we have an epoch ancestry or the source header that was
-									// finalized is the epoch block
-									if !update.epoch_header_ancestry.is_empty() ||
-										update.source_header.number.low_u64() ==
-											epoch_block_number
-									{
-										return Some((
-											Ok(Some(ConsensusMessage {
-												consensus_proof: update.encode(),
-												consensus_state_id: client.consensus_state_id,
-												signer: H160::random().0.to_vec(),
-											})),
-											(interval, Some(consensus_state)),
-										));
-									}
-
-									block += 1;
-								},
-								Ok(None) => {
-									block += 1;
-									continue;
-								},
-								Err(err) =>
-									return Some((
-										Err(anyhow!(
-											"Not a fatal error: Error fetching sync update for {} \n {err:?}",
-											client.state_machine
-										)),
-										(interval, None),
-									)),
-							}
-						}
-
-						log::trace!(target: crate::LOG_TARGET, "No valid sync update found for {next_epoch}");
-						return Some((Ok(None), (interval, None)));
 					}
 
+					// Submit whatever we managed to collect; a mid-batch error only surfaces when
+					// we couldn't make any progress at all.
+					if !batch.is_empty() {
+						return Some((Ok(Some(batch)), (interval, Some(consensus_state))));
+					}
+					if let Some(err) = batch_error {
+						return Some((Err(err), (interval, None)));
+					}
+
+					// Not syncing — fall through to the steady-state single finality update.
 					interval.tick().await;
 
-					let mut consensus_state = None;
+					let mut consensus_state_ret = None;
 
 					let lambda = || async {
 						let (update, cs_state) =
 							consensus_notification(&client, counterparty).await?;
-						consensus_state = cs_state;
-						let result = update.map(|update| ConsensusMessage {
-							consensus_proof: update.encode(),
-							consensus_state_id: client.consensus_state_id,
-							signer: H160::random().0.to_vec(),
+						consensus_state_ret = cs_state;
+						let result = update.map(|update| {
+							vec![ConsensusMessage {
+								consensus_proof: update.encode(),
+								consensus_state_id: client.consensus_state_id,
+								signer: H160::random().0.to_vec(),
+							}]
 						});
 
 						Ok(result)
@@ -405,14 +187,14 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 					let result = lambda().await;
 					// If the result is an error, we want to reset the consensus state maintained by
 					// the stream so it can try to yield an update the next time its polled
-					let ret = if result.is_err() { None } else { consensus_state };
+					let ret = if result.is_err() { None } else { consensus_state_ret };
 					Some((result, (interval, ret)))
 				}
 			})
 			.filter_map(|res| async move {
 				match res {
-					Ok(Some(update)) => Some(Ok(update)),
-					Ok(None) => None,
+					Ok(Some(updates)) if !updates.is_empty() => Some(Ok(updates)),
+					Ok(_) => None,
 					Err(err) => Some(Err(err)),
 				}
 			});
@@ -421,15 +203,15 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 		let provider = self.provider();
 		while let Some(item) = stream.next().await {
 			match item {
-				Ok(consensus_message) => {
+				Ok(consensus_messages) => {
 					log::info!(
 						target: "tesseract",
-						"🛰️ Transmitting consensus message from {} to {}",
-						provider.name(), counterparty.name()
+						"🛰️ Transmitting {} consensus message(s) from {} to {}",
+						consensus_messages.len(), provider.name(), counterparty.name()
 					);
 					let res = counterparty
 						.submit(
-							vec![Message::Consensus(consensus_message)],
+							consensus_messages.into_iter().map(Message::Consensus).collect(),
 							counterparty.state_machine_id().state_id,
 						)
 						.await;
@@ -468,4 +250,287 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
 		self.provider.clone()
 	}
+}
+
+/// Compute the next catch-up consensus update for the given `consensus_state`.
+///
+/// Returns the ready-to-submit [`ConsensusMessage`] alongside the decoded update and its
+/// [`VerificationResult`] so the caller can apply the state transition locally and chain further
+/// updates into the same batch. Returns `Ok(None)` when no sync or authority-set enactment update
+/// is currently due (i.e. the client is not behind), so the caller can fall through to the
+/// steady-state notification path.
+async fn next_consensus_update<C: Config>(
+	client: &BscPosHost<C>,
+	counterparty: &Arc<dyn IsmpProvider>,
+	consensus_state: &ConsensusState,
+	attested_header: &CodecHeader,
+	epoch_length: u64,
+) -> Result<Option<(ConsensusMessage, BscClientUpdate, VerificationResult)>, anyhow::Error> {
+	let current_epoch = max(
+		compute_epoch(consensus_state.finalized_height, epoch_length),
+		consensus_state.current_epoch,
+	);
+
+	let attested_epoch = compute_epoch(attested_header.number.low_u64(), epoch_length);
+	// Send a block that would enact authority set rotation
+	if consensus_state.next_validators.is_some() {
+		let rotation_block =
+			consensus_state.next_validators.as_ref().expect("Valid").rotation_block;
+		let enactment_epoch = compute_epoch(rotation_block, epoch_length);
+
+		log::trace!(
+			target: crate::LOG_TARGET, "Enacting Authority Set Rotation for {:?} on {}",
+			client.state_machine,
+			counterparty.state_machine_id().state_id
+		);
+
+		let epoch_block_number = enactment_epoch * epoch_length;
+		let rotation_block = get_rotation_block(
+			epoch_block_number,
+			consensus_state.current_validators.len() as u64,
+			epoch_length,
+		);
+		let mut block = rotation_block;
+		// Authority set rotation is valid between rotation_block and
+		// epoch_block+epoch_length
+		while block <= (epoch_block_number + epoch_length - 1) {
+			let header = if let Ok(header) = client.prover.fetch_header(block).await {
+				header
+			} else {
+				return Err(anyhow!(
+					"Not a fatal error: Error fetching {} header for {block}",
+					client.state_machine
+				));
+			};
+			// If header does not exist we have to wait until it does
+			let header = if let Some(header) = header {
+				header
+			} else {
+				// If header does not exist yet wait before continuing
+				tokio::time::sleep(Duration::from_secs(3)).await;
+				continue;
+			};
+
+			match client
+				.prover
+				.fetch_bsc_update::<KeccakHasher>(UpdateParams {
+					attested_header: header,
+					validator_size: consensus_state.current_validators.len() as u64,
+					epoch: enactment_epoch,
+					epoch_length,
+					fetch_val_set_change: false,
+				})
+				.await
+			{
+				Ok(Some(update)) => {
+					// We try to validate before submitting to be sure enactment has
+					// taken place, we know the minimum block at which rotation
+					// should occur but sometimes It happens further in the future
+
+					let next_validators =
+						consensus_state.next_validators.clone().unwrap_or_default();
+
+					let extra_data = parse_extra::<KeccakHasher, C>(&update.attested_header)
+						.expect("Infallible, was parsed before update was generated");
+
+					let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+						extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+					)
+					.expect("Infallible, was parsed before update was generated");
+
+					if validators_bit_set.iter().as_bitslice().count_ones() <
+						(2 * next_validators.validators.len() / 3)
+					{
+						log::trace!(
+							target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
+						);
+						block += 1;
+						continue;
+					}
+					let res = verify_bsc_header::<KeccakHasher, C>(
+						&next_validators.validators,
+						update.clone(),
+						epoch_length,
+					);
+					if update.source_header.number.low_u64() <= consensus_state.finalized_height {
+						block += 1;
+						continue;
+					}
+					let verification = match res {
+						Ok(verification) => verification,
+						Err(_) => {
+							block += 1;
+							continue;
+						},
+					};
+
+					let message = ConsensusMessage {
+						consensus_proof: update.encode(),
+						consensus_state_id: client.consensus_state_id,
+						signer: H160::random().0.to_vec(),
+					};
+					return Ok(Some((message, update, verification)));
+				},
+				Ok(None) => block += 1,
+				Err(_) =>
+					return Err(anyhow!(
+						"Not a fatal error: Error fetching authority enactment update for {}",
+						client.state_machine
+					)),
+			}
+		}
+		log::trace!(target: crate::LOG_TARGET, "No valid update found to enact authority set change");
+		return Ok(None);
+	}
+	// Try to sync the client first
+	if attested_epoch > current_epoch && consensus_state.next_validators.is_none() {
+		log::info!(
+			target: crate::LOG_TARGET, "Syncing {} on {}",
+			client.state_machine,
+			counterparty.state_machine_id().state_id
+		);
+		let next_epoch = current_epoch + 1;
+
+		let epoch_block_number = next_epoch * epoch_length;
+		// Find a block that finalizes the epoch change block, Validators are
+		// rotated (validator_size / 2) blocks after the epoch boundary
+		let mut block = epoch_block_number + 2;
+		let rotation_block = get_rotation_block(
+			epoch_block_number,
+			consensus_state.current_validators.len() as u64,
+			epoch_length,
+		) - 1;
+
+		while block <= rotation_block + epoch_length / 2 {
+			let header = if let Ok(header) = client.prover.fetch_header(block).await {
+				header
+			} else {
+				return Err(anyhow!(
+					"Not a fatal error: Error fetching {} header for {block}",
+					client.state_machine
+				));
+			};
+			let header = if let Some(header) = header {
+				header
+			} else {
+				// If header does not exist yet wait before continuing
+				tokio::time::sleep(Duration::from_secs(3)).await;
+				continue;
+			};
+
+			match client
+				.prover
+				.fetch_bsc_update::<KeccakHasher>(UpdateParams {
+					attested_header: header,
+					validator_size: consensus_state.current_validators.len() as u64,
+					epoch: next_epoch,
+					epoch_length,
+					fetch_val_set_change: true,
+				})
+				.await
+			{
+				Ok(Some(update)) => {
+					// check number of participants
+					let extra_data = parse_extra::<KeccakHasher, C>(&update.attested_header)
+						.expect("Infallible, was parsed before update was generated");
+
+					let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+						extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+					)
+					.expect("Infallible, was parsed before update was generated");
+
+					if validators_bit_set.iter().as_bitslice().count_ones() <
+						(2 * consensus_state.current_validators.len() / 3)
+					{
+						log::trace!(
+							target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
+						);
+						block += 1;
+						continue;
+					}
+
+					if update.source_header.number.low_u64() <= consensus_state.finalized_height {
+						block += 1;
+						continue;
+					}
+
+					let verification = match verify_bsc_header::<KeccakHasher, C>(
+						&consensus_state.current_validators,
+						update.clone(),
+						epoch_length,
+					) {
+						Ok(verification) => verification,
+						// If we are still looking for the next sync block and we
+						// find an update not signed by the current validator set We
+						// cannot rotate validator set safely
+						Err(err) =>
+							return Err(anyhow!(
+								"Fatal error: No valid sync update found for  {}: {err:?}",
+								client.state_machine
+							)),
+					};
+
+					// If we have an epoch ancestry or the source header that was
+					// finalized is the epoch block
+					if !update.epoch_header_ancestry.is_empty() ||
+						update.source_header.number.low_u64() == epoch_block_number
+					{
+						let message = ConsensusMessage {
+							consensus_proof: update.encode(),
+							consensus_state_id: client.consensus_state_id,
+							signer: H160::random().0.to_vec(),
+						};
+						return Ok(Some((message, update, verification)));
+					}
+
+					block += 1;
+				},
+				Ok(None) => {
+					block += 1;
+					continue;
+				},
+				Err(err) =>
+					return Err(anyhow!(
+						"Not a fatal error: Error fetching sync update for {} \n {err:?}",
+						client.state_machine
+					)),
+			}
+		}
+
+		log::trace!(target: crate::LOG_TARGET, "No valid sync update found for {next_epoch}");
+		return Ok(None);
+	}
+
+	Ok(None)
+}
+
+/// Apply a verified BSC update to a local copy of the consensus state, mirroring the on-chain
+/// `verify_consensus` state transition. This lets us chain several updates into a single batched
+/// transaction: each subsequent update is generated against the state the previous update will
+/// produce on-chain, so the whole batch remains valid when the counterparty applies it in order.
+fn apply_update_locally(
+	consensus_state: &mut ConsensusState,
+	update: &BscClientUpdate,
+	verification: &VerificationResult,
+	epoch_length: u64,
+) {
+	// Promote a pending validator set exactly as the on-chain client does: only when the update's
+	// attested header lands in the epoch where the set is scheduled to activate and has reached the
+	// recorded rotation block.
+	if let Some(next_validators) = consensus_state.next_validators.clone() {
+		let attested_number = update.attested_header.number.low_u64();
+		let attested_epoch = compute_epoch(attested_number, epoch_length);
+		let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
+		if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
+			consensus_state.current_validators = next_validators.validators;
+			consensus_state.next_validators = None;
+			consensus_state.current_epoch = attested_epoch;
+		}
+	}
+
+	consensus_state.finalized_hash = verification.hash;
+	if let Some(next_validators) = verification.next_validators.clone() {
+		consensus_state.next_validators = Some(next_validators);
+	}
+	consensus_state.finalized_height = verification.finalized_header.number.low_u64();
 }

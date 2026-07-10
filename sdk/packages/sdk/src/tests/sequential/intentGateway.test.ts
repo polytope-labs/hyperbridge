@@ -11,6 +11,7 @@ import {
 	UNISWAP_INTENT_QUOTE_CHAIN,
 } from "@/protocols/intents/quote/uniswapV4"
 import { ChainConfigService } from "@/configs/ChainConfigService"
+import { bytes20ToBytes32 } from "@/utils"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,12 @@ describe.skip("IntentGateway cross-chain estimate tests", () => {
 			await runCrossChainEstimate(src, dest)
 		}, 1_000_000)
 	}
+})
+
+describe("IntentGateway BSC => Base cross-chain estimate (simplex repro)", () => {
+	it("estimates fillOrder without falling back to default gas values", async () => {
+		await runCrossChainEstimate("bsc", "base")
+	}, 300_000)
 })
 
 // Skipped: IntentGateway contracts not redeployed in the testnet redeployment.
@@ -206,7 +213,13 @@ const CHAINS: Record<string, ChainDef> = {
 }
 
 function bundlerUrl(chainId: number): string | undefined {
-	const apiKey = process.env.BUNDLER_API_KEY
+	let apiKey = process.env.BUNDLER_API_KEY
+	if (!apiKey && process.env.BUNDLER_URL) {
+		try {
+			const url = new URL(process.env.BUNDLER_URL)
+			apiKey = url.searchParams.get("apikey") ?? url.searchParams.get("apiKey") ?? undefined
+		} catch {}
+	}
 	return apiKey ? `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}` : undefined
 }
 
@@ -226,8 +239,8 @@ function buildOrder(
 	outputToken: HexString,
 	amount: bigint,
 ): Order {
-	const inputs: TokenInfo[] = [{ token: inputToken, amount }]
-	const outputAssets: TokenInfo[] = [{ token: outputToken, amount }]
+	const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(inputToken), amount }]
+	const outputAssets: TokenInfo[] = [{ token: bytes20ToBytes32(outputToken), amount }]
 
 	return {
 		user: BENEFICIARY,
@@ -243,6 +256,11 @@ function buildOrder(
 	}
 }
 
+/**
+ * Estimates a cross-chain fill and fails if GasEstimator fell back to its
+ * default gas values. estimateFillOrder swallows simulation reverts and only
+ * emits a console.warn, so the warning is the observable failure signal.
+ */
 async function runCrossChainEstimate(srcKey: string, destKey: string) {
 	const src = CHAINS[srcKey]
 	const dest = CHAINS[destKey]
@@ -261,12 +279,29 @@ async function runCrossChainEstimate(srcKey: string, destKey: string) {
 		100n,
 	)
 
-	const estimate = await intentGateway.estimateFillOrder({ order })
+	const warnings: string[] = []
+	const originalWarn = console.warn
+	console.warn = (...args: unknown[]) => {
+		warnings.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "))
+		originalWarn(...args)
+	}
+
+	let estimate
+	try {
+		estimate = await intentGateway.estimateFillOrder({ order })
+	} finally {
+		console.warn = originalWarn
+	}
 
 	console.log(`${srcKey} => ${destKey}`)
+	console.log("callGasLimit:", estimate.callGasLimit)
+	console.log("relayerFee:", estimate.fillOptions.relayerFee)
+	console.log("nativeDispatchFee:", estimate.fillOptions.nativeDispatchFee)
 	console.log("Estimated cost (totalGasCostWei):", estimate.totalGasCostWei)
 	console.log("Estimated fee (totalGasInFeeToken):", estimate.totalGasInFeeToken)
 
+	const fallbackWarning = warnings.find((w) => w.includes("gas estimation failed"))
+	assert.equal(fallbackWarning, undefined, `estimateFillOrder fell back to default gas values: ${fallbackWarning}`)
 	assert(estimate.totalGasCostWei > 0n)
 	assert(estimate.totalGasInFeeToken > 0n)
 }

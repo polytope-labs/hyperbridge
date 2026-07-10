@@ -1,6 +1,6 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { Turnkey } from "@turnkey/sdk-server"
-import { createAccount } from "@turnkey/viem"
+import { createAccount, signAuthorization } from "@turnkey/viem"
 import { parseSignature } from "viem"
 import type { TurnkeySignerConfig, SigningAccount } from "../types"
 
@@ -38,6 +38,21 @@ export async function createTurnkeySigningAccount(config: TurnkeySignerConfig): 
 				s: sig.s as HexString,
 				yParity,
 			}
+		},
+		// Sign the authorization tuple through Turnkey's structured 7702 encoding so the
+		// policy engine sees (chainId, delegate, nonce) instead of an opaque digest.
+		signAuthorization: async (auth) => {
+			const signed = await signAuthorization(
+				turnkey.apiClient(),
+				{ contractAddress: auth.contractAddress, chainId: auth.chainId, nonce: auth.nonce },
+				config.organizationId,
+				config.signWith,
+			)
+			const yParity = signed.yParity ?? (signed.v !== undefined ? Number(signed.v - 27n) : undefined)
+			if (yParity !== 0 && yParity !== 1) {
+				throw new Error("Failed to derive yParity from Turnkey authorization signature")
+			}
+			return { r: signed.r as HexString, s: signed.s as HexString, yParity }
 		},
 		sendEip7702DelegationTransaction: async (args) =>
 			(await args.walletClient.sendTransaction({

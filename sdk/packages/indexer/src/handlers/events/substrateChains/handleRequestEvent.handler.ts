@@ -6,7 +6,7 @@ import { bytesToHex, hexToBytes, toHex } from "viem"
 import { RequestService } from "@/services/request.service"
 import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { formatChain, getHostStateMachine, isHyperbridge, isSubstrateChain } from "@/utils/substrate.helpers"
-import { ENV_CONFIG } from "@/constants"
+import { ENV_CONFIG, ISMP_PREFIX } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
@@ -50,17 +50,14 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 		params: [[{ commitment: commitment.toString() }]],
 	}
 
-	const response = await fetchWithRetry(
-		replaceWebsocketWithHttp(ENV_CONFIG[sourceId]),
-		{
-			method: "POST",
-			headers: {
-				accept: "application/json",
-				"content-type": "application/json",
-			},
-			body: stringify(method),
-		}
-	)
+	const response = await fetchWithRetry(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
+		method: "POST",
+		headers: {
+			accept: "application/json",
+			"content-type": "application/json",
+		},
+		body: stringify(method),
+	})
 	const data = await response.json()
 
 	if (data.result.length === 0) {
@@ -77,7 +74,7 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 	}
 
 	const { body, from, to, nonce, timeoutTimestamp } = postRequest
-	const prefix = toHex(":child_storage:default:ISMP")
+	const prefix = toHex(ISMP_PREFIX)
 	const key = bytesToHex(
 		new Uint8Array([
 			...new TextEncoder().encode("RequestCommitments"),
@@ -85,22 +82,19 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 		]),
 	)
 
-	const metadataResponse = await fetchWithRetry(
-		replaceWebsocketWithHttp(ENV_CONFIG[sourceId]),
-		{
-			method: "POST",
-			headers: {
-				accept: "application/json",
-				"content-type": "application/json",
-			},
-			body: stringify({
-				id: 1,
-				jsonrpc: "2.0",
-				method: "childstate_getStorage",
-				params: [prefix, key],
-			}),
-		}
-	)
+	const metadataResponse = await fetchWithRetry(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
+		method: "POST",
+		headers: {
+			accept: "application/json",
+			"content-type": "application/json",
+		},
+		body: stringify({
+			id: 1,
+			jsonrpc: "2.0",
+			method: "childstate_getStorage",
+			params: [prefix, key],
+		}),
+	})
 	const storageValue = (await metadataResponse.json()).result as `0x${string}` | undefined
 
 	let fee = BigInt(0)

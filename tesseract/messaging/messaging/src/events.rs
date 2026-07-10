@@ -261,6 +261,7 @@ pub async fn translate_events_to_messages(
 			&source,
 			&sink,
 			&events,
+			&config,
 			counterparty_timestamp,
 			state_machine_height,
 		)
@@ -316,10 +317,16 @@ pub async fn translate_events_to_messages(
 /// `sink`, used to gate profitability before the survivors are batched. The
 /// response values ride in the events, so we only fetch the membership proof.
 /// Substrate sinks can't verify the mmr proof, so they are skipped.
+///
+/// Proofs are fetched concurrently in `source.max_concurrent_queries()`-sized
+/// chunks, the same way the post request candidates above are built — a block
+/// carrying N responses would otherwise cost N sequential round-trips to the
+/// coprocessor on the critical path of every outbound update.
 async fn build_get_response_candidates(
 	source: &Arc<dyn IsmpProvider>,
 	sink: &Arc<dyn IsmpProvider>,
 	events: &[IsmpEvent],
+	config: &RelayerConfig,
 	counterparty_timestamp: Duration,
 	state_machine_height: StateMachineHeight,
 ) -> Result<(Vec<Message>, Vec<Query>, Vec<GetResponse>), anyhow::Error> {
@@ -328,55 +335,83 @@ async fn build_get_response_candidates(
 		return Ok(Default::default());
 	}
 
+	let candidates = events
+		.iter()
+		.filter_map(|event| {
+			let IsmpEvent::GetResponse(res) = event else { return None };
+			if res.get.source != sink_state_machine {
+				return None;
+			}
+
+			if res.get.timeout_timestamp != 0 &&
+				res.get.timeout_timestamp <= counterparty_timestamp.as_secs()
+			{
+				tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get response with nonce {}", res.get.nonce);
+				return None;
+			}
+
+			if !is_allowed_module(config, &res.get.from) {
+				tracing::trace!(
+					target: crate::LOG_TARGET, "Get response for module {}, filtered by module filter",
+					hex::encode(&res.get.from),
+				);
+				return None;
+			}
+
+			Some(res)
+		})
+		.collect::<Vec<_>>();
+
 	let mut messages = vec![];
 	let mut queries = vec![];
 	let mut responses = vec![];
 
-	for event in events {
-		let IsmpEvent::GetResponse(res) = event else { continue };
-		if res.get.source != sink_state_machine {
-			continue;
-		}
-
-		if res.get.timeout_timestamp != 0 &&
-			res.get.timeout_timestamp <= counterparty_timestamp.as_secs()
-		{
-			tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get response with nonce {}", res.get.nonce);
-			continue;
-		}
-
-		let request_commitment = hash_request::<Hasher>(&Request::Get(res.get.clone()));
-		let response_commitment = hash_response::<Hasher>(res);
-
-		let mmr_proof = source
-			.query_responses_proof(
-				state_machine_height.height,
-				vec![response_commitment],
-				sink_state_machine,
-			)
+	for chunk in candidates.chunks(source.max_concurrent_queries()) {
+		let proofs = chunk
+			.iter()
+			.map(|res| {
+				let source = source.clone();
+				let response_commitment = hash_response::<Hasher>(res);
+				async move {
+					source
+						.query_responses_proof(
+							state_machine_height.height,
+							vec![response_commitment],
+							sink_state_machine,
+						)
+						.await
+				}
+			})
+			.collect::<FuturesOrdered<_>>()
+			.collect::<Result<Vec<_>, _>>()
 			.await?;
 
-		queries.push(Query {
-			source_chain: res.get.source,
-			dest_chain: res.get.dest,
-			nonce: res.get.nonce,
-			commitment: request_commitment,
-		});
-		messages.push(Message::Response(ResponseMessage {
-			requests: vec![res.get.clone()],
-			proof: Proof {
-				height: state_machine_height,
-				proof: (mmr_proof, vec![res.clone()]).encode(),
-			},
-			signer: sink.address(),
-		}));
-		responses.push(res.clone());
+		for (res, mmr_proof) in chunk.iter().zip(proofs) {
+			// The `Query` describes the origin GetRequest, not the response: its commitment
+			// is the request commitment, which is what the EVM host keys both the fee
+			// metadata and the response receipt on.
+			queries.push(Query {
+				source_chain: res.get.source,
+				dest_chain: res.get.dest,
+				nonce: res.get.nonce,
+				commitment: hash_request::<Hasher>(&Request::Get(res.get.clone())),
+			});
+			messages.push(Message::Response(ResponseMessage {
+				requests: vec![res.get.clone()],
+				proof: Proof {
+					height: state_machine_height,
+					proof: (mmr_proof, vec![(*res).clone()]).encode(),
+				},
+				signer: sink.address(),
+			}));
+			responses.push((*res).clone());
+		}
 	}
 
 	Ok((messages, queries, responses))
 }
 
-/// Return true for Request events designated for the counterparty.
+/// Return true for Request and GetResponse events designated for the counterparty.
 ///
 /// Events are gated by `module_filter` via `is_allowed_module`, so operators
 /// can scope which modules they deliver. With no `module_filter` configured,
@@ -400,8 +435,10 @@ pub fn filter_events(
 			}
 			post.dest == counterparty && is_allowed_module(config, &post.from)
 		},
-		// GetResponses only originate on the coprocessor.
-		IsmpEvent::GetResponse(_) => true,
+		// GetResponses only originate on the coprocessor and are delivered back to the
+		// chain that made the request, so `get.source` is their destination.
+		IsmpEvent::GetResponse(res) =>
+			res.get.source == counterparty && is_allowed_module(config, &res.get.from),
 		_ => false,
 	}
 }

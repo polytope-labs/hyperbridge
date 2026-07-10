@@ -22,7 +22,7 @@ use ismp::{
 	router::{GetResponse, Request},
 };
 use ismp_abi::{
-	evm_host::{NewEpoch, PostRequestHandled},
+	evm_host::{GetRequestHandled, NewEpoch, PostRequestHandled},
 	handler::handler_v2::{
 		GetResponseLeaf, GetResponseMessage, HandlerV2Instance, PostRequestLeaf,
 		PostRequestMessage, Proof, StateMachineHeight,
@@ -100,14 +100,23 @@ fn build_get_response_message(msg: &ResponseMessage) -> anyhow::Result<GetRespon
 	Ok(GetResponseMessage { proof, responses })
 }
 
-/// Extract post-request handled commitments from a receipt's logs.
+/// Extract handled-message commitments from a receipt's logs.
+///
+/// `PostRequestHandled` carries the post request's commitment, `GetRequestHandled` the
+/// commitment of the GetRequest that a delivered GetResponse answers. Both are needed:
+/// `EvmHost.dispatchIncoming` swallows a reverting module callback rather than reverting
+/// the tx, so a mined transaction may not have delivered anything. The presence of the
+/// event is what tells the two apart.
 fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 	receipt
 		.inner
 		.logs()
 		.iter()
 		.filter_map(|log| {
-			PostRequestHandled::decode_log(&log.inner)
+			if let Ok(ev) = PostRequestHandled::decode_log(&log.inner) {
+				return Some(H256::from_slice(ev.commitment.as_slice()));
+			}
+			GetRequestHandled::decode_log(&log.inner)
 				.map(|ev| H256::from_slice(ev.commitment.as_slice()))
 				.ok()
 		})
@@ -633,7 +642,7 @@ pub async fn submit_messages(
 /// Wait for a transaction to be mined and verify it succeeded.
 ///
 /// Returns `Some((commitments, new_epochs))` on success — `commitments`
-/// from `PostRequestHandled` logs, `new_epochs` from
+/// from `PostRequestHandled` and `GetRequestHandled` logs, `new_epochs` from
 /// every `EvmHost::NewEpoch(set_id, relayer)` log that names this
 /// client as the relayer (empty when no such logs are present, multiple
 /// entries when a single tx batched multiple consensus messages). Each
@@ -696,8 +705,10 @@ fn build_tx_receipts(
 						});
 					}
 				},
-			// `Message::Response` carries only GetRequests being responded to post-#840.
-			// GetResponse delivery is on-chain via dispatch; no relayer receipt to record here.
+			// `Message::Response` deliveries are excluded on purpose: `EvmHost.dispatchIncoming`
+			// pays the relayer the origin GetRequest's fee inline, on this chain, in feeToken.
+			// There is nothing to accumulate or claim on Hyperbridge, so emitting a receipt
+			// here would enqueue a claim for a fee that was already settled.
 			_ => {},
 		}
 	}

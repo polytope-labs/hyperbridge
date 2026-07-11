@@ -66,7 +66,16 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
     /**
      * @notice Validates a user operation before execution
-     * @dev Implements ERC-4337 validation logic with two modes:
+     * @dev Two modes, discriminated by signature length:
+     *
+     * 1. Standard ECDSA (65 bytes): validated by the Account base contract against
+     *    the plain userOpHash.
+     * 2. Intent solver selection (162 bytes): abi.encodePacked(commitment,
+     *    solverSignature, sessionSignature). The solver signs the plain userOpHash,
+     *    and the userOp's nonce key must equal the lower 192 bits of
+     *    keccak256(abi.encodePacked(commitment, sessionKey)) — binding the operation
+     *    to the order and the session key it was bid against, so neither can be
+     *    swapped after signing.
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -93,7 +102,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         bytes calldata solverSignature = op.signature[32:97];
         bytes calldata sessionSignature = op.signature[97:162];
 
-        // Call IntentGatewayV2.select to recover the sessionKey
+        // Call IntentGatewayV2.select to recover the sessionKey. This also stages the
+        // transient-storage selection that fillOrder enforces at execution.
         SelectOptions memory selectOptions =
             SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
         bytes memory selectCalldata = abi.encodeWithSelector(SELECT_SELECTOR, selectOptions);
@@ -102,12 +112,9 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         if (!success || returnData.length < 32) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         address sessionKey = abi.decode(returnData, (address));
-
-        // Recover the solver's account from the solver signature over (userOpHash, commitment, sessionKey)
-        bytes32 messageHash = keccak256(abi.encodePacked(userOpHash, commitment, sessionKey));
-        bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
-
-        if (!_rawSignatureValidation(ethSignedMessageHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        uint192 userOpNonce = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey))));
+        if (uint192(op.nonce >> 64) != userOpNonce) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (!_rawSignatureValidation(userOpHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);

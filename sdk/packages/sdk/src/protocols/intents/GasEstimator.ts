@@ -383,12 +383,13 @@ export class GasEstimator {
 			to: this.ctx.source.configService.getIntentGatewayAddress(sourceChainId),
 		}
 
+		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
+
 		let protocolFeeInNativeToken = await this.ctx.dest
 			.quoteNative(postRequest, postRequestFeeInDestFeeToken)
 			.catch(() => 0n)
 
 		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
-		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
 
 		return { postRequestFee: postRequestFeeInDestFeeToken, protocolFee: protocolFeeInNativeToken }
 	}

@@ -290,6 +290,27 @@ where
 		}
 	}
 
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		commitments: Vec<H256>,
+		counterparty: StateMachine,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		if commitments.is_empty() {
+			Err(anyhow!("No commitments provided"))?
+		}
+		match counterparty {
+			s if s.is_evm() => {
+				let keys = ProofKeys::Responses(commitments);
+				let params = rpc_params![at, keys];
+				let response: pallet_ismp_rpc::Proof =
+					self.rpc_client.request("mmr_queryProof", params).await?;
+				Ok(response.proof)
+			},
+			s => Err(anyhow::anyhow!("query_responses_proof is unsupported for {s:?}")),
+		}
+	}
+
 	async fn query_state_proof(
 		&self,
 		at: u64,

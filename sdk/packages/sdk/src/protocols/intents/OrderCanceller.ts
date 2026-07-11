@@ -1,4 +1,5 @@
 import { encodeFunctionData, concatHex, parseEventLogs, pad } from "viem"
+import { LogLevels, createConsola } from "consola"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import EVM_HOST from "@/abis/evmHost"
 import {
@@ -44,6 +45,11 @@ import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToF
  * generator can be re-entered after a crash without re-submitting transactions.
  */
 export class OrderCanceller {
+	private readonly logger = createConsola({
+		level: LogLevels.info,
+		formatOptions: { columns: 80, colors: true, compact: true, date: false },
+	}).withTag("[OrderCanceller]")
+
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
 	 *   chain clients, config service, and cancellation storage.
@@ -542,10 +548,12 @@ export class OrderCanceller {
 
 	/**
 	 * Submits an unsigned GET request message to Hyperbridge and waits until
-	 * the request receipt is confirmed on-chain.
+	 * the GET response receipt is confirmed on-chain.
 	 *
-	 * If the initial submission fails, the method waits 30 seconds and then
-	 * retries querying for the receipt up to 10 times with 5-second back-off.
+	 * GET handling on Hyperbridge creates a response receipt keyed by the
+	 * request commitment. That receipt is the durable delivery signal, so a
+	 * duplicate unsigned submission is considered successful only if the
+	 * response receipt can be observed.
 	 *
 	 * @param hyperbridge - Hyperbridge Substrate chain client.
 	 * @param commitment - The GET request commitment hash used to poll for the receipt.
@@ -556,26 +564,50 @@ export class OrderCanceller {
 		commitment: HexString,
 		message: IGetRequestMessage,
 	) {
-		let storageValue = await hyperbridge.queryRequestReceipt(commitment)
+		this.logger.info(`Checking GET response receipt before Hyperbridge delivery (${commitment})`)
+		if (await this.queryDeliveredReceipt(hyperbridge, commitment)) {
+			this.logger.info(`GET ${commitment} already delivered to Hyperbridge; skipping unsigned submission`)
+			return
+		}
 
-		if (!storageValue) {
-			try {
-				await hyperbridge.submitUnsigned(message)
-			} catch {
-				// Submission failed, wait and retry
-			}
-
+		try {
+			this.logger.info(`Submitting unsigned GET ${commitment} to Hyperbridge`)
+			await hyperbridge.submitUnsigned(message)
+			this.logger.info(`Unsigned GET ${commitment} submitted; waiting for Hyperbridge response receipt`)
 			await sleep(30000)
-
-			storageValue = await retryPromise(
-				async () => {
-					const value = await hyperbridge.queryRequestReceipt(commitment)
-					if (!value) throw new Error("Receipt not found")
-					return value
-				},
-				{ maxRetries: 10, backoffMs: 5000, logMessage: "Checking for receipt" },
+		} catch (error) {
+			this.logger.warn(
+				`Unsigned GET submit failed for ${commitment}; polling response receipt before failing: ${String(error)}`,
 			)
 		}
+
+		try {
+			await this.pollDeliveredReceipt(hyperbridge, commitment)
+			this.logger.info(`Confirmed Hyperbridge GET delivery for ${commitment}`)
+		} catch (error) {
+			const message = `Failed to deliver GET request to Hyperbridge; no response receipt found for ${commitment}: ${String(error)}`
+			this.logger.error(message)
+			throw new Error(message)
+		}
+	}
+
+	private async queryDeliveredReceipt(
+		hyperbridge: SubstrateChain,
+		commitment: HexString,
+	): Promise<HexString | undefined> {
+		return hyperbridge.queryResponseReceipt(commitment)
+	}
+
+	private async pollDeliveredReceipt(hyperbridge: SubstrateChain, commitment: HexString): Promise<HexString> {
+		this.logger.info(`Polling Hyperbridge GET response receipt for ${commitment}`)
+		return retryPromise(
+			async () => {
+				const value = await this.queryDeliveredReceipt(hyperbridge, commitment)
+				if (!value) throw new Error(`GET response receipt not found for ${commitment}`)
+				return value
+			},
+			{ maxRetries: 10, backoffMs: 5000, logMessage: `Checking GET response receipt ${commitment}` },
+		)
 	}
 
 	/**

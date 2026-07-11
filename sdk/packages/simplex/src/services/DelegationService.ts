@@ -67,8 +67,18 @@ export class DelegationService {
 			blockTag: "latest",
 		})
 		const authorizationNonce = viaBundler ? currentNonce : currentNonce + 1
-		const authHash = this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce))
-		const { r, s, yParity } = await this.signer.signRawHash(authHash)
+
+		// Prefer the backend's structured 7702 signing (Turnkey) so the authorization
+		// tuple stays inspectable by signing policies; fall back to raw digest signing.
+		const { r, s, yParity } = this.signer.signAuthorization
+			? await this.signer.signAuthorization({
+					chainId,
+					contractAddress,
+					nonce: Number(authorizationNonce),
+				})
+			: await this.signer.signRawHash(
+					this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce)),
+				)
 
 		return {
 			chainId,

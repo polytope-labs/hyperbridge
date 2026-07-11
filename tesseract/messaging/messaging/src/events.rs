@@ -12,7 +12,7 @@ use ismp::{
 	router::{GetResponse, PostRequest, Request},
 };
 use sp_core::{H160, U256};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
@@ -262,7 +262,6 @@ pub async fn translate_events_to_messages(
 			&sink,
 			&events,
 			&config,
-			counterparty_timestamp,
 			state_machine_height,
 		)
 		.await?;
@@ -327,7 +326,6 @@ async fn build_get_response_candidates(
 	sink: &Arc<dyn IsmpProvider>,
 	events: &[IsmpEvent],
 	config: &RelayerConfig,
-	counterparty_timestamp: Duration,
 	state_machine_height: StateMachineHeight,
 ) -> Result<(Vec<Message>, Vec<Query>, Vec<GetResponse>), anyhow::Error> {
 	let sink_state_machine = sink.state_machine_id().state_id;
@@ -343,12 +341,10 @@ async fn build_get_response_candidates(
 				return None;
 			}
 
-			if res.get.timeout_timestamp != 0 &&
-				res.get.timeout_timestamp <= counterparty_timestamp.as_secs()
-			{
-				tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get response with nonce {}", res.get.nonce);
-				return None;
-			}
+			// No timeout check: GetRequest timeouts are enforced on Hyperbridge when the
+			// response is produced, and `HandlerV2.handleGetResponses` accepts responses
+			// regardless of the request's timeout for the same reason. A response that
+			// exists is always deliverable.
 
 			if !is_allowed_module(config, &res.get.from) {
 				tracing::trace!(

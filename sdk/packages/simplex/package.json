@@ -66,6 +66,7 @@
 		"@bufbuild/protobuf": "^2.2.3",
 		"@circle-fin/adapter-viem-v2": "1.4.0",
 		"@circle-fin/bridge-kit": "1.5.0",
+		"@clack/prompts": "^1.5.1",
 		"@grpc/grpc-js": "^1.12.5",
 		"@hyperbridge/sdk": "workspace:*",
 		"@polkadot/api": "latest",

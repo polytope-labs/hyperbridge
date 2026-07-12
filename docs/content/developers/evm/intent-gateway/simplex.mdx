@@ -504,6 +504,14 @@ The practical guidance is to configure **at least two organisationally independe
 
 ## Setup
 
+The fastest way to produce a working `config.toml` is the interactive wizard:
+
+```bash
+simplex init
+```
+
+It asks only for the minimum needed to run (chains, RPCs, bundler, signer, strategy), explains what each value is for as it asks, derives sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validates every RPC against `eth_chainId` before writing the file. Re-running it against an existing config offers to start the filler as-is, update individual values, or start fresh. Prefer a file-first workflow? Use the reference below.
+
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">
 ```yaml lineNumbers

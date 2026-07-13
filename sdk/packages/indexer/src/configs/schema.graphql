@@ -2664,3 +2664,80 @@ type VaultSnapshot @entity @compositeIndexes(fields: [["chain", "vault"]]) {
 	"""
 	snapshotTime: Date! @index
 }
+
+"""
+Cumulative raw token volume through IntentGatewayV3, per chain, token and volume type.
+Raw amounts are kept so USD values can also be computed off-indexer with any price source.
+"""
+type IntentGatewayTokenVolume @entity {
+	"""
+	Composite identifier: {chain}-{tokenAddress}-{volumeType}
+	"""
+	id: ID!
+
+	"""
+	Host state machine that emitted the event
+	"""
+	chain: String! @index
+
+	"""
+	EVM address of the token, as a lowercase 0x-prefixed hex string
+	"""
+	tokenAddress: String! @index
+
+	"""
+	Token symbol
+	"""
+	tokenSymbol: String! @index
+
+	"""
+	Token decimals
+	"""
+	decimals: Int!
+
+	"""
+	PLACED (order inputs on the source chain) or FILLED (order outputs on the destination chain)
+	"""
+	volumeType: String! @index
+
+	"""
+	Cumulative token amount in the token's smallest unit
+	"""
+	amount: BigInt!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+}
+
+"""
+Cumulative IntentGatewayV3 volume per chain and volume type, denominated in USD.
+FX tokens (e.g. cNGN) are priced via the latest PhantomOrderPriceSnapshot exchange rate.
+"""
+type CumulativeIntentGatewayVolumeUSD @entity {
+	"""
+	Composite identifier: {chain}-{volumeType}
+	"""
+	id: ID!
+
+	"""
+	Host state machine
+	"""
+	chain: String! @index
+
+	"""
+	PLACED (order inputs on the source chain) or FILLED (order outputs on the destination chain)
+	"""
+	volumeType: String! @index
+
+	"""
+	Cumulative volume in USD, scaled by 1e18 (18-decimal fixed-point integer)
+	"""
+	volumeUSD: BigInt!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+}

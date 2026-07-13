@@ -33,10 +33,14 @@ import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3Escrow
 import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
+import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
+import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
+import { PhantomOrderPriceSnapshot } from "@/configs/src/types/models/PhantomOrderPriceSnapshot"
 import { timestampToDate } from "@/utils/date.helpers"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 import { PointsService } from "./points.service"
-import { VolumeService } from "./volume.service"
+import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
@@ -47,6 +51,16 @@ export interface TokenInfo {
 }
 
 const ENTITY_TYPE = "IOrderV3"
+
+export type IntentVolumeType = "PLACED" | "FILLED"
+
+// USDC and USDT share one exchange rate: the USDC TokenPrice row.
+const STABLE_SYMBOLS = ["USDC", "USDT"]
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+// Snapshots are scanned newest-first; a small window is enough to skip rows with no valid bids.
+const SNAPSHOT_SCAN_LIMIT = 10
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -351,6 +365,167 @@ export class IntentGatewayV3Service {
 			total: total.toFixed(18),
 			values: valuesUSD.map((value) => value.amountValueInUSD),
 		}
+	}
+
+	/**
+	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
+	 * chain-token, plus a per-chain USD rollup priced via TokenPrice for stables and the
+	 * latest PhantomOrderPriceSnapshot exchange rate for FX tokens.
+	 */
+	static async recordOrderVolume(
+		volumeType: IntentVolumeType,
+		tokens: { token: string; amount: bigint }[],
+		timestamp: bigint,
+	): Promise<void> {
+		const chain = getHostStateMachine(chainId)
+		let usdDelta = new Decimal(0)
+
+		for (const { token, amount } of tokens) {
+			const tokenAddress = bytes32ToBytes20(token).toLowerCase()
+			const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
+
+			const id = `${chain}-${tokenAddress}-${volumeType}`
+			let tokenVolume = await IntentGatewayTokenVolume.get(id)
+			if (!tokenVolume) {
+				tokenVolume = IntentGatewayTokenVolume.create({
+					id,
+					chain,
+					tokenAddress,
+					tokenSymbol: symbol,
+					decimals,
+					volumeType,
+					amount,
+					lastUpdatedAt: timestamp,
+				})
+			} else {
+				tokenVolume.amount = tokenVolume.amount + amount
+				tokenVolume.lastUpdatedAt = timestamp
+			}
+			await tokenVolume.save()
+
+			const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+			if (price) {
+				const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price.toFixed(18))
+				usdDelta = usdDelta.plus(amountValueInUSD)
+			} else {
+				logger.warn(
+					`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
+				)
+			}
+		}
+
+		if (usdDelta.isZero()) return
+
+		const cumulativeId = `${chain}-${volumeType}`
+		const scaled = toScaledUsd(usdDelta.toFixed(18))
+		let cumulative = await CumulativeIntentGatewayVolumeUSD.get(cumulativeId)
+		if (!cumulative) {
+			cumulative = CumulativeIntentGatewayVolumeUSD.create({
+				id: cumulativeId,
+				chain,
+				volumeType,
+				volumeUSD: scaled,
+				lastUpdatedAt: timestamp,
+			})
+		} else {
+			cumulative.volumeUSD = cumulative.volumeUSD + scaled
+			cumulative.lastUpdatedAt = timestamp
+		}
+		await cumulative.save()
+	}
+
+	private static async getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number }> {
+		if (tokenAddress === ZERO_ADDRESS) {
+			return { symbol: "ETH", decimals: 18 }
+		}
+
+		try {
+			const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
+			const symbol = await tokenContract.symbol()
+			const decimals = await tokenContract.decimals()
+			return { symbol, decimals }
+		} catch (error) {
+			logger.warn(
+				`[IntentGatewayV3Service.getTokenMetadata] Failed to get metadata for token ${tokenAddress}: ${stringify(
+					{ error: error as unknown as Error },
+				)}`,
+			)
+			return { symbol: "UNKNOWN", decimals: 18 }
+		}
+	}
+
+	private static async getTokenUsdPriceWithFx(
+		tokenAddress: string,
+		symbol: string,
+		decimals: number,
+	): Promise<Decimal | null> {
+		if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) {
+			return this.getStableUsdPrice()
+		}
+
+		const fxPrice = await this.getFxPriceFromSnapshots(tokenAddress, decimals)
+		if (fxPrice) return fxPrice
+
+		const price = await TokenPriceService.getPrice(symbol)
+		return price > 0 ? new Decimal(price) : null
+	}
+
+	private static async getStableUsdPrice(): Promise<Decimal | null> {
+		const price = await TokenPriceService.getPrice("USDC")
+		return price > 0 ? new Decimal(price) : null
+	}
+
+	/**
+	 * Price an FX token from the latest PhantomOrderPriceSnapshot quoting it against a
+	 * stablecoin, in either direction. The snapshot rate is medianPrice / standardAmount
+	 * adjusted for decimals; the stable leg is converted to USD via the USDC TokenPrice row.
+	 */
+	private static async getFxPriceFromSnapshots(tokenAddress: string, decimals: number): Promise<Decimal | null> {
+		const [asInput, asOutput] = await Promise.all([
+			PhantomOrderPriceSnapshot.getByFields([["tokenA", "=", tokenAddress]], {
+				limit: SNAPSHOT_SCAN_LIMIT,
+				orderBy: "blockNumber",
+				orderDirection: "DESC",
+			}),
+			PhantomOrderPriceSnapshot.getByFields([["tokenB", "=", tokenAddress]], {
+				limit: SNAPSHOT_SCAN_LIMIT,
+				orderBy: "blockNumber",
+				orderDirection: "DESC",
+			}),
+		])
+
+		const snapshot = [...asInput, ...asOutput]
+			.filter((s) => s.medianPrice && s.medianPrice > 0n && s.standardAmount > 0n)
+			.sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1))[0]
+		if (!snapshot) return null
+
+		const tokenIsInput = snapshot.tokenA === tokenAddress
+		const quoteAddress = tokenIsInput ? snapshot.tokenB : snapshot.tokenA
+		const quote = await this.getTokenMetadata(quoteAddress)
+		if (!STABLE_SYMBOLS.includes(quote.symbol.toUpperCase())) {
+			logger.warn(
+				`[IntentGatewayV3Service.getFxPriceFromSnapshots] Latest snapshot for ${tokenAddress} quotes against non-stable ${quote.symbol}; cannot derive USD price`,
+			)
+			return null
+		}
+
+		const stableUsd = await this.getStableUsdPrice()
+		if (!stableUsd) return null
+
+		const median = new Decimal(snapshot.medianPrice!.toString())
+		const standard = new Decimal(snapshot.standardAmount.toString())
+
+		// tokenIsInput: medianPrice is tokenB units received per standardAmount of this token,
+		// so its price in stable units is median/standard; otherwise the reciprocal.
+		const rate = tokenIsInput
+			? median
+					.div(new Decimal(10).pow(quote.decimals))
+					.div(standard.div(new Decimal(10).pow(decimals)))
+			: standard
+					.div(new Decimal(10).pow(quote.decimals))
+					.div(median.div(new Decimal(10).pow(decimals)))
+
+		return rate.mul(stableUsd)
 	}
 
 	static async updateOrderStatus(

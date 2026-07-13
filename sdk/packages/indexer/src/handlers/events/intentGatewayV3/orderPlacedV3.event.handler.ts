@@ -97,6 +97,8 @@ export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Prom
 	)
 
 	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.PLACED, txMeta)
+
+	await IntentGatewayV3Service.recordOrderVolume("PLACED", order.inputs, timestamp)
 })
 
 /**

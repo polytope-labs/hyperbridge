@@ -315,7 +315,35 @@ impl pallet_hyper_fungible_token::Config for Runtime {
 	type CreateOrigin = EnsureRoot<AccountId>;
 	type Decimals = HftDecimals;
 	type EvmToSubstrate = ();
-	type WeightInfo = ();
+	type WeightInfo = crate::weights::pallet_hyper_fungible_token::WeightInfo<Runtime>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = HftBenchmarkHelper;
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct HftBenchmarkHelper;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_hyper_fungible_token::types::BenchmarkHelper<Runtime> for HftBenchmarkHelper {
+	fn create_asset(decimals: u8, who: &AccountId, amount: u128) -> H256 {
+		use frame_support::traits::fungibles::{metadata::Mutate as MutateMetadata, Create, Mutate};
+
+		let asset_id: H256 = sp_io::hashing::keccak_256(b"HFT_BENCHMARK_ASSET").into();
+		<Assets as Create<AccountId>>::create(asset_id, who.clone(), true, 1)
+			.expect("benchmark asset can be created");
+		<Assets as MutateMetadata<AccountId>>::set(
+			asset_id,
+			who,
+			b"HFT".to_vec(),
+			b"HFT".to_vec(),
+			decimals,
+		)
+		.expect("benchmark asset metadata can be set");
+		<Assets as Mutate<AccountId>>::mint_into(asset_id, who, amount)
+			.expect("benchmark asset can be minted");
+
+		asset_id
+	}
 }
 
 parameter_types! {

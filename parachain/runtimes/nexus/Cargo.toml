@@ -184,6 +184,7 @@ runtime-benchmarks = [
     "pallet-messaging-incentives/runtime-benchmarks",
     "pallet-beefy-consensus-proofs/runtime-benchmarks",
     "pallet-call-decompressor/runtime-benchmarks",
+    "pallet-hyper-fungible-token/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

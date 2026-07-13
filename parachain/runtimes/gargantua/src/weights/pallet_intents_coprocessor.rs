@@ -196,4 +196,41 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	fn add_paymaster_deployment() -> Weight {
+		// Single storage write, mirrors `add_deployment` without the peer-notification loop.
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 2000))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+	fn upgrade_paymaster() -> Weight {
+		// Estimated from the `upgrade_gateway` dispatch profile (address read + cross-chain dispatch).
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
+	fn update_paymaster_params() -> Weight {
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
+	fn register_paymaster_token() -> Weight {
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
+	fn deactivate_paymaster_token() -> Weight {
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
+	fn withdraw_paymaster_assets() -> Weight {
+		Weight::from_parts(69_752_000, 0)
+			.saturating_add(Weight::from_parts(0, 4165))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
 }

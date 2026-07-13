@@ -38,7 +38,7 @@ use ismp::{
 };
 use pallet_ismp::LatestStateMachineHeight;
 use polkadot_sdk::*;
-use primitive_types::{H160, H256};
+use primitive_types::{H160, H256, U256};
 use sp_core::Get;
 use sp_io::offchain_index;
 use sp_runtime::{
@@ -48,8 +48,9 @@ use sp_runtime::{
 pub use weights::WeightInfo;
 
 use types::{
-	Bid, GatewayInfo, IntentGatewayParams, PhantomOrderConfiguration, PhantomOrderInfo,
-	PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo, MAX_PHANTOM_TOKEN_PAIRS,
+	Bid, GatewayInfo, IntentGatewayParams, PaymasterParams, PhantomOrderConfiguration,
+	PhantomOrderInfo, PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo,
+	MAX_PHANTOM_TOKEN_PAIRS,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -143,6 +144,11 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
+	/// Storage for SimplexPaymaster proxy addresses per state machine
+	#[pallet::storage]
+	pub type Paymasters<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, H160, OptionQuery>;
+
 	/// The phantom orders active for the current interval, one entry per configured token
 	/// pair. Keeping them all here lets `place_bid` enforce the bid rules for every pair
 	/// rather than only the last one generated. Replaced as a whole each cycle.
@@ -214,6 +220,18 @@ pub mod pallet {
 		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
 		/// A gateway implementation upgrade was initiated
 		GatewayUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
+		/// A SimplexPaymaster deployment address was registered
+		PaymasterDeploymentAdded { state_machine: StateMachine, paymaster: H160 },
+		/// A paymaster implementation upgrade was initiated
+		PaymasterUpgradeInitiated { state_machine: StateMachine, new_impl: H160 },
+		/// Paymaster parameters update was initiated
+		PaymasterParamsUpdateInitiated { state_machine: StateMachine, params: PaymasterParams },
+		/// A paymaster token registration was initiated
+		PaymasterTokenRegistered { state_machine: StateMachine, token: H160, oracle: H160 },
+		/// A paymaster token deactivation was initiated
+		PaymasterTokenDeactivated { state_machine: StateMachine, token: H160 },
+		/// A paymaster asset withdrawal was initiated
+		PaymasterWithdrawalInitiated { state_machine: StateMachine, token: H160, amount: U256 },
 	}
 
 	#[pallet::error]
@@ -226,6 +244,8 @@ pub mod pallet {
 		InsufficientBalance,
 		/// Gateway not found for the specified state machine
 		GatewayNotFound,
+		/// Paymaster not found for the specified state machine
+		PaymasterNotFound,
 		/// Invalid user operation data
 		InvalidUserOp,
 		/// Failed to dispatch cross-chain request
@@ -633,6 +653,139 @@ pub mod pallet {
 			Self::dispatch(state_machine, gateway_info.gateway, body)?;
 
 			Self::deposit_event(Event::GatewayUpgradeInitiated { state_machine, new_impl });
+
+			Ok(())
+		}
+
+		/// Register a SimplexPaymaster deployment address for a state machine so
+		/// subsequent paymaster governance actions can target it. The contract itself
+		/// is configured atomically at deploy time; this only records where it lives.
+		#[pallet::call_index(10)]
+		#[pallet::weight(T::WeightInfo::add_paymaster_deployment())]
+		pub fn add_paymaster_deployment(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			paymaster: H160,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			Paymasters::<T>::insert(state_machine, paymaster);
+
+			Self::deposit_event(Event::PaymasterDeploymentAdded { state_machine, paymaster });
+
+			Ok(())
+		}
+
+		/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy via
+		/// cross-chain governance. Authorized on the paymaster by `source == hyperbridge`.
+		#[pallet::call_index(11)]
+		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
+		pub fn upgrade_paymaster(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			new_impl: H160,
+			init_data: Vec<u8>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			let request = RequestKind::PaymasterUpgrade { new_impl, init_data };
+			Self::dispatch(state_machine, paymaster, request.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterUpgradeInitiated { state_machine, new_impl });
+
+			Ok(())
+		}
+
+		/// Replace the SimplexPaymaster pricing and treasury parameters wholesale.
+		#[pallet::call_index(12)]
+		#[pallet::weight(T::WeightInfo::update_paymaster_params())]
+		pub fn update_paymaster_params(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			params: PaymasterParams,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			let request = RequestKind::PaymasterUpdateParams(params.clone());
+			Self::dispatch(state_machine, paymaster, request.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterParamsUpdateInitiated { state_machine, params });
+
+			Ok(())
+		}
+
+		/// Register or update a supported token and its token/USD feed on the paymaster.
+		#[pallet::call_index(13)]
+		#[pallet::weight(T::WeightInfo::register_paymaster_token())]
+		pub fn register_paymaster_token(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			token: H160,
+			oracle: H160,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			let request = RequestKind::PaymasterRegisterToken { token, oracle };
+			Self::dispatch(state_machine, paymaster, request.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterTokenRegistered { state_machine, token, oracle });
+
+			Ok(())
+		}
+
+		/// Deactivate a token on the paymaster (kill-switch for a misbehaving feed).
+		#[pallet::call_index(14)]
+		#[pallet::weight(T::WeightInfo::deactivate_paymaster_token())]
+		pub fn deactivate_paymaster_token(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			token: H160,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			let request = RequestKind::PaymasterDeactivateToken { token };
+			Self::dispatch(state_machine, paymaster, request.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterTokenDeactivated { state_machine, token });
+
+			Ok(())
+		}
+
+		/// Sweep paymaster assets to its treasury: an ERC-20 surplus balance, or the
+		/// EntryPoint deposit when `token` is the zero address.
+		#[pallet::call_index(15)]
+		#[pallet::weight(T::WeightInfo::withdraw_paymaster_assets())]
+		pub fn withdraw_paymaster_assets(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			token: H160,
+			amount: U256,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			let request = RequestKind::PaymasterWithdrawAssets { token, amount };
+			Self::dispatch(state_machine, paymaster, request.encode_body())?;
+
+			Self::deposit_event(Event::PaymasterWithdrawalInitiated {
+				state_machine,
+				token,
+				amount,
+			});
 
 			Ok(())
 		}

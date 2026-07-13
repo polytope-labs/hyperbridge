@@ -183,4 +183,34 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
         // Minimum execution time: 8_226_000 picoseconds.
         Weight::from_parts(8_446_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
     }
+    fn add_paymaster_deployment() -> Weight {
+        // Single storage write, mirrors `add_deployment` without the peer-notification loop.
+        Weight::from_parts(30_000_000, 2000).saturating_add(T::DbWeight::get().writes(1_u64))
+    }
+    fn upgrade_paymaster() -> Weight {
+        // Estimated from the `upgrade_gateway` dispatch profile (address read + cross-chain dispatch).
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
+    fn update_paymaster_params() -> Weight {
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
+    fn register_paymaster_token() -> Weight {
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
+    fn deactivate_paymaster_token() -> Weight {
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
+    fn withdraw_paymaster_assets() -> Weight {
+        Weight::from_parts(72_557_000, 4331)
+            .saturating_add(T::DbWeight::get().reads(7_u64))
+            .saturating_add(T::DbWeight::get().writes(4_u64))
+    }
 }

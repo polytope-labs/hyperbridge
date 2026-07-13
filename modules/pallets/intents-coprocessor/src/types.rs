@@ -52,6 +52,21 @@ pub struct IntentGatewayParams {
 	pub price_oracle: H160,
 }
 
+/// Pricing and treasury parameters for a SimplexPaymaster instance. Mirrors the
+/// `Params` struct in `SimplexPaymaster.sol`; the contract replaces these wholesale
+/// on `UpdateParams` (no merge semantics).
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PaymasterParams {
+	/// Native asset / USD Chainlink feed
+	pub native_oracle: H160,
+	/// Markup in basis points applied on top of the oracle price (10000 = 100%)
+	pub markup_bps: U256,
+	/// Receives markup surplus and EntryPoint deposit withdrawals
+	pub treasury: H160,
+	/// Maximum Chainlink oracle staleness, in seconds
+	pub max_oracle_age: U256,
+}
+
 /// Destination fee configuration for a specific chain
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct DestinationFee {
@@ -247,6 +262,35 @@ pub enum RequestKind {
 		/// Optional migration calldata run atomically against the proxy on upgrade
 		init_data: Vec<u8>,
 	},
+	/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy
+	PaymasterUpgrade {
+		/// The new implementation contract address
+		new_impl: H160,
+		/// Optional migration calldata run atomically against the proxy on upgrade
+		init_data: Vec<u8>,
+	},
+	/// Replace the SimplexPaymaster pricing and treasury parameters
+	PaymasterUpdateParams(PaymasterParams),
+	/// Register or update a supported token and its token/USD feed on the paymaster
+	PaymasterRegisterToken {
+		/// The ERC-20 token to support
+		token: H160,
+		/// The token/USD Chainlink feed
+		oracle: H160,
+	},
+	/// Deactivate a token on the paymaster (kill-switch)
+	PaymasterDeactivateToken {
+		/// The ERC-20 token to deactivate
+		token: H160,
+	},
+	/// Sweep paymaster assets to its treasury (ERC-20 surplus, or the EntryPoint
+	/// deposit when `token` is the zero address)
+	PaymasterWithdrawAssets {
+		/// The ERC-20 token to sweep, or the zero address for the native deposit
+		token: H160,
+		/// The amount to withdraw
+		amount: U256,
+	},
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -327,6 +371,14 @@ pub(crate) mod sol_types {
 		struct TokenDecimalsUpdate {
 			bytes sourceChain;
 			TokenDecimal[] tokens;
+		}
+
+		/// Solidity representation of SimplexPaymaster.Params
+		struct PaymasterParams {
+			address nativeOracle;
+			uint256 markupBps;
+			address treasury;
+			uint256 maxOracleAge;
 		}
 	}
 }
@@ -420,6 +472,18 @@ impl From<TokenDecimal> for sol_types::TokenDecimal {
 	}
 }
 
+impl From<PaymasterParams> for sol_types::PaymasterParams {
+	fn from(params: PaymasterParams) -> Self {
+		use alloy_primitives::{Address, U256 as AlloyU256};
+		sol_types::PaymasterParams {
+			nativeOracle: Address::from_slice(&params.native_oracle.0),
+			markupBps: AlloyU256::from_limbs(params.markup_bps.0),
+			treasury: Address::from_slice(&params.treasury.0),
+			maxOracleAge: AlloyU256::from_limbs(params.max_oracle_age.0),
+		}
+	}
+}
+
 /// Mirrors the `RequestKind` enum in `IntentsBase.sol`.
 #[repr(u8)]
 enum IntentGatewayRequestKind {
@@ -435,6 +499,18 @@ enum IntentGatewayRequestKind {
 #[repr(u8)]
 enum VWAPOracleRequestKind {
 	UpdateTokenDecimals = 0,
+}
+
+/// Mirrors the `RequestKind` enum in `SimplexPaymaster.sol`. Note the
+/// discriminators differ from `IntentGatewayRequestKind` (e.g. UpgradeContract
+/// is 0 here, 5 there), so this must not be conflated with it.
+#[repr(u8)]
+enum SimplexPaymasterRequestKind {
+	UpgradeContract = 0,
+	UpdateParams = 1,
+	RegisterToken = 2,
+	DeactivateToken = 3,
+	WithdrawAssets = 4,
 }
 
 impl RequestKind {
@@ -506,6 +582,47 @@ impl RequestKind {
 				body.extend_from_slice(&payload.abi_encode_params());
 				body
 			},
+			RequestKind::PaymasterUpgrade { new_impl, init_data } => {
+				use alloy_primitives::{Address, Bytes};
+				// Matches `abi.decode(payload, (address, bytes))` in `SimplexPaymaster.onAccept`.
+				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
+
+				let mut body = vec![SimplexPaymasterRequestKind::UpgradeContract as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			RequestKind::PaymasterUpdateParams(params) => {
+				let params_sol: sol_types::PaymasterParams = params.clone().into();
+
+				let mut body = vec![SimplexPaymasterRequestKind::UpdateParams as u8];
+				// Single struct: `abi_encode` is tuple-wrapped, matching `abi.decode(payload, (Params))`.
+				body.extend_from_slice(&params_sol.abi_encode());
+				body
+			},
+			RequestKind::PaymasterRegisterToken { token, oracle } => {
+				use alloy_primitives::Address;
+				let payload = (Address::from_slice(&token.0), Address::from_slice(&oracle.0));
+
+				let mut body = vec![SimplexPaymasterRequestKind::RegisterToken as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
+			RequestKind::PaymasterDeactivateToken { token } => {
+				use alloy_primitives::Address;
+
+				let mut body = vec![SimplexPaymasterRequestKind::DeactivateToken as u8];
+				// Single value: matches `abi.decode(payload, (address))`.
+				body.extend_from_slice(&Address::from_slice(&token.0).abi_encode());
+				body
+			},
+			RequestKind::PaymasterWithdrawAssets { token, amount } => {
+				use alloy_primitives::{Address, U256 as AlloyU256};
+				let payload = (Address::from_slice(&token.0), AlloyU256::from_limbs(amount.0));
+
+				let mut body = vec![SimplexPaymasterRequestKind::WithdrawAssets as u8];
+				body.extend_from_slice(&payload.abi_encode_params());
+				body
+			},
 		}
 	}
 }
@@ -556,5 +673,78 @@ mod request_kind_tests {
 			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
 		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
 		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
+	}
+
+	// SimplexPaymaster discriminators differ from IntentGateway's; pin each one.
+	#[test]
+	fn paymaster_upgrade_matches_solidity_two_param_abi() {
+		let new_impl = H160::repeat_byte(0x22);
+		let init_data = vec![0x01, 0x02];
+		let body =
+			RequestKind::PaymasterUpgrade { new_impl, init_data: init_data.clone() }.encode_body();
+
+		assert_eq!(body[0], 0, "SimplexPaymaster.RequestKind.UpgradeContract == 0");
+		let (decoded_impl, decoded_data) =
+			<(Address, Bytes)>::abi_decode_params(&body[1..]).expect("decodes as (address, bytes)");
+		assert_eq!(decoded_impl.as_slice(), &new_impl.0);
+		assert_eq!(decoded_data.as_ref(), init_data.as_slice());
+	}
+
+	#[test]
+	fn paymaster_update_params_matches_solidity_struct_abi() {
+		use alloy_primitives::U256 as AlloyU256;
+		let params = PaymasterParams {
+			native_oracle: H160::repeat_byte(0x33),
+			markup_bps: U256::from(200),
+			treasury: H160::repeat_byte(0x44),
+			max_oracle_age: U256::from(90_000),
+		};
+		let body = RequestKind::PaymasterUpdateParams(params.clone()).encode_body();
+
+		assert_eq!(body[0], 1, "SimplexPaymaster.RequestKind.UpdateParams == 1");
+		// Decodes as a single tuple-wrapped struct, matching `abi.decode(payload, (Params))`.
+		let decoded =
+			sol_types::PaymasterParams::abi_decode(&body[1..]).expect("decodes as Params");
+		assert_eq!(decoded.nativeOracle.as_slice(), &params.native_oracle.0);
+		assert_eq!(decoded.markupBps, AlloyU256::from(200));
+		assert_eq!(decoded.treasury.as_slice(), &params.treasury.0);
+		assert_eq!(decoded.maxOracleAge, AlloyU256::from(90_000));
+	}
+
+	#[test]
+	fn paymaster_register_token_matches_solidity_two_address_abi() {
+		let token = H160::repeat_byte(0x55);
+		let oracle = H160::repeat_byte(0x66);
+		let body = RequestKind::PaymasterRegisterToken { token, oracle }.encode_body();
+
+		assert_eq!(body[0], 2, "SimplexPaymaster.RequestKind.RegisterToken == 2");
+		let (dt, dor) =
+			<(Address, Address)>::abi_decode_params(&body[1..]).expect("(address, address)");
+		assert_eq!(dt.as_slice(), &token.0);
+		assert_eq!(dor.as_slice(), &oracle.0);
+	}
+
+	#[test]
+	fn paymaster_deactivate_token_matches_solidity_single_address_abi() {
+		let token = H160::repeat_byte(0x77);
+		let body = RequestKind::PaymasterDeactivateToken { token }.encode_body();
+
+		assert_eq!(body[0], 3, "SimplexPaymaster.RequestKind.DeactivateToken == 3");
+		let decoded = Address::abi_decode(&body[1..]).expect("decodes as address");
+		assert_eq!(decoded.as_slice(), &token.0);
+	}
+
+	#[test]
+	fn paymaster_withdraw_assets_matches_solidity_address_uint_abi() {
+		use alloy_primitives::U256 as AlloyU256;
+		let token = H160::repeat_byte(0x88);
+		let amount = U256::from(1_000_000u64);
+		let body = RequestKind::PaymasterWithdrawAssets { token, amount }.encode_body();
+
+		assert_eq!(body[0], 4, "SimplexPaymaster.RequestKind.WithdrawAssets == 4");
+		let (dt, da) =
+			<(Address, AlloyU256)>::abi_decode_params(&body[1..]).expect("(address, uint256)");
+		assert_eq!(dt.as_slice(), &token.0);
+		assert_eq!(da, AlloyU256::from(1_000_000u64));
 	}
 }

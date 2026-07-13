@@ -233,6 +233,34 @@ contract SimplexPaymasterTest is Test {
         paymaster.fetchDetails(op);
     }
 
+    // ── Permit-mode validation guards ────────────────────────────────
+
+    /// Permit mode (0x00) must reject an unregistered token before the permit
+    /// call, so the validation-phase external call can never target an
+    /// attacker-chosen address.
+    function testPermitModeUnregisteredTokenRejectedBeforePermit() public {
+        address rogue = makeAddr("rogue");
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permitData(rogue));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.TokenNotRegistered.selector, rogue));
+        paymaster.validate(op, 1e15);
+    }
+
+    /// Permit mode must also reject a deactivated token before the permit call.
+    function testPermitModeDeactivatedTokenRejectedBeforePermit() public {
+        _govern(SimplexPaymaster.RequestKind.DeactivateToken, abi.encode(address(usdc6)));
+
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permitData(address(usdc6)));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.TokenNotActive.selector, address(usdc6)));
+        paymaster.validate(op, 1e15);
+    }
+
+    /// A permit-mode header shorter than mode+token reverts as malformed.
+    function testPermitModeShortDataReverts() public {
+        PackedUserOperation memory op = _userOpWithPaymasterData(abi.encodePacked(uint8(0), uint8(0xAB)));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(2)));
+        paymaster.validate(op, 1e15);
+    }
+
     // ── Prefund ──────────────────────────────────────────────────────
 
     function testPrefundTransfersTokensFromSender() public {
@@ -452,6 +480,21 @@ contract SimplexPaymasterTest is Test {
         deal(address(usdc6), sender, amount);
         vm.prank(sender);
         usdc6.approve(address(paymaster), amount);
+    }
+
+    /// @dev A well-formed 150-byte permit-mode payload (mode 0x00) for `token`.
+    ///      Signature fields are zero — the registration guard fires before the
+    ///      permit is ever executed, so no valid signature is needed.
+    function _permitData(address token) internal pure returns (bytes memory) {
+        return abi.encodePacked(
+            uint8(0),
+            token,
+            uint256(0), // permitAmount
+            uint256(0), // deadline
+            uint8(0), // v
+            bytes32(0), // r
+            bytes32(0) // s
+        );
     }
 
     /// @dev paymasterAndData = paymaster(20) || verificationGasLimit(16) || postOpGasLimit(16) || data

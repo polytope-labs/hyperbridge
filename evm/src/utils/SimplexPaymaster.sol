@@ -257,6 +257,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev Executes the EIP-2612 permit (mode 0x00) before the base
     ///      implementation runs _fetchDetails and prefunds via transferFrom.
+    ///      The token is validated as registered and active *before* the permit
+    ///      runs, so the validation-phase external call only ever targets a
+    ///      governance-approved token rather than an attacker-chosen address.
     function _validatePaymasterUserOp(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash,
@@ -265,6 +268,11 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         bytes calldata data = userOp.paymasterData();
         if (data.length == 0) revert InvalidPaymasterData(0);
         if (uint8(data[0]) == 0x00) {
+            if (data.length < 21) revert InvalidPaymasterData(data.length);
+            address tokenAddr = address(bytes20(data[1:21]));
+            TokenConfig memory cfg = tokenConfigs[tokenAddr];
+            if (address(cfg.tokenOracle) == address(0)) revert TokenNotRegistered(tokenAddr);
+            if (!cfg.active) revert TokenNotActive(tokenAddr);
             _executePermit(userOp);
         }
 

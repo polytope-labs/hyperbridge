@@ -13133,6 +13133,7 @@ dependencies = [
  "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
+ "pallet-hyper-fungible-token",
  "pallet-intents-coprocessor",
  "pallet-ismp",
  "pallet-ismp-demo",

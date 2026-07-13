@@ -35,6 +35,7 @@ pub mod pallet_call_decompressor;
 pub mod pallet_collator_selection;
 pub mod pallet_collective;
 pub mod pallet_conviction_voting;
+pub mod pallet_hyper_fungible_token;
 pub mod pallet_intents_coprocessor;
 pub mod pallet_ismp;
 pub mod pallet_message_queue;

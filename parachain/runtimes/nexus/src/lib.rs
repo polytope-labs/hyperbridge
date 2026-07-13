@@ -1144,6 +1144,8 @@ mod runtime {
 	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(97)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
+	#[runtime::pallet_index(98)]
+	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1190,6 +1192,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }
 

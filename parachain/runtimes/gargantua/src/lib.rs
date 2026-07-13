@@ -1040,6 +1040,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }
 

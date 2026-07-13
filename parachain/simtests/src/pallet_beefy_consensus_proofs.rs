@@ -438,7 +438,7 @@ async fn previous_beefy_anchor(
 async fn build_live_naive_proof() -> Result<(ConsensusState, ConsensusMessage), anyhow::Error> {
 	let max_rpc_payload_size = 15 * 1024 * 1024;
 	let relay_ws_url =
-		env::var("RELAY_WS_URL").unwrap_or_else(|_| "wss://paseo.dotters.network".to_string());
+		env::var("RELAY_WS_URL").unwrap_or_else(|_| "wss://pas-rpc.stakeworld.io".to_string());
 	let para_ws_url = env::var("PARA_WS_URL")
 		.unwrap_or_else(|_| "wss://gargantua.rpc.polytope.technology".to_string());
 

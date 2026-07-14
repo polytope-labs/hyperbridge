@@ -24,6 +24,11 @@ pub fn compute_epoch_at_slot<C: Config>(slot: u64) -> u64 {
 
 /// Return the fork version at the given ``epoch``.
 pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
+	#[cfg(feature = "glamsterdam")]
+	if epoch >= C::GLOAS_FORK_EPOCH {
+		return C::GLOAS_FORK_VERSION;
+	}
+
 	if epoch >= C::FULU_FORK_EPOCH {
 		C::FULU_FORK_VERSION
 	} else if epoch >= C::ELECTRA_FORK_EPOCH {

@@ -28,6 +28,7 @@ std = [
     "bls/std",
     "ark-ec/std",
 ]
+glamsterdam = ["sync-committee-primitives/glamsterdam"]
 
 [dev-dependencies]
 hex = "0.4.3"

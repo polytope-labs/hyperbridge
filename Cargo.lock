@@ -27617,6 +27617,9 @@ dependencies = [
 name = "sync-committee-primitives"
 version = "0.1.1"
 dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
  "anyhow",
  "bls-utils",
  "hex",

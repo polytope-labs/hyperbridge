@@ -53,6 +53,11 @@ std = [
     "primitive-types/std",
 ]
 
+glamsterdam = [
+    "sync-committee-primitives/glamsterdam",
+    "sync-committee-verifier/glamsterdam",
+]
+
 disable-panic-handler = [
     "sp-io/disable_panic_handler",
     "sp-io/disable_oom",

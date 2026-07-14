@@ -20,6 +20,10 @@ bls-utils = { workspace = true, default-features = false }
 
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
+alloy-primitives = { workspace = true, optional = true }
+alloy-rlp = { workspace = true, optional = true }
+alloy-rlp-derive = { workspace = true, optional = true }
+
 
 [features]
 default = ["std"]
@@ -33,5 +37,10 @@ std = [
     "serde",
     "serde-hex-utils/std",
     "bls-utils/std",
+    "alloy-primitives?/std",
+    "alloy-primitives?/serde",
+    "alloy-rlp?/std",
 ]
 nofulu = []
+# Gloas (EIP-7732) consensus types and the execution header path that replaces the payload proof.
+glamsterdam = ["dep:alloy-primitives", "dep:alloy-rlp", "dep:alloy-rlp-derive"]

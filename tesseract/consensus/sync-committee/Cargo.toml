@@ -48,3 +48,9 @@ anyhow = "1.0.75"
 
 [features]
 testing = []
+glamsterdam = [
+    "sync-committee-prover/glamsterdam",
+    "sync-committee-verifier/glamsterdam",
+    "sync-committee-primitives/glamsterdam",
+    "ismp-sync-committee/glamsterdam",
+]

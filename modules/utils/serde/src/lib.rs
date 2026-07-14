@@ -184,6 +184,38 @@ pub mod seq_of_hex {
 	}
 }
 
+/// Hex encoded integer serializer and deserializer, for the `0x1a138` form. The execution rpc uses
+/// this for every integer, and the beacon api uses it for a handful of fields, so [`as_string`],
+/// which expects a decimal string, cannot read them.
+pub mod as_hex_quantity {
+	use super::*;
+	use alloc::{format, string::String};
+	use serde::de::{Deserialize, Deserializer, Error};
+
+	/// Serialize an integer into a hex quantity
+	pub fn serialize<S, T>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+		T: Copy + Into<u64>,
+	{
+		let value: u64 = (*data).into();
+		serializer.collect_str(&format!("{HEX_ENCODING_PREFIX}{value:x}"))
+	}
+
+	/// Deserialize an integer from a hex quantity
+	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+	where
+		D: Deserializer<'de>,
+		T: TryFrom<u64>,
+	{
+		let raw = String::deserialize(deserializer)?;
+		let digits = raw.strip_prefix(HEX_ENCODING_PREFIX).unwrap_or(&raw);
+		let value = u64::from_str_radix(digits, 16).map_err(Error::custom)?;
+
+		T::try_from(value).map_err(|_| Error::custom("hex quantity is out of range"))
+	}
+}
+
 /// String serializer and deserializer
 pub mod as_string {
 	use alloc::{
@@ -313,6 +345,61 @@ pub mod seq_of_str {
 	{
 		let data = deserializer.deserialize_seq(Visitor(PhantomData))?;
 		T::try_from(data).map_err(|_| serde::de::Error::custom("failure to parse collection"))
+	}
+}
+
+/// Sequence of sequences of strings, as the beacon api returns the gloas ptc window.
+pub mod seq_of_seq_of_str {
+	use super::*;
+	use alloc::{format, string::String, vec::Vec};
+	use core::{fmt, str::FromStr};
+	use serde::{
+		de::{Deserialize, Deserializer, Error},
+		ser::SerializeSeq,
+	};
+
+	/// Serialize a sequence of sequences into sequences of strings
+	pub fn serialize<S, T, I, U>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+		T: AsRef<[I]>,
+		I: AsRef<[U]>,
+		U: fmt::Display,
+	{
+		let mut seq = serializer.serialize_seq(None)?;
+		for inner in data.as_ref().iter() {
+			let rendered = inner.as_ref().iter().map(|elem| format!("{elem}")).collect::<Vec<_>>();
+			seq.serialize_element(&rendered)?;
+		}
+		seq.end()
+	}
+
+	/// Deserialize a sequence of sequences from sequences of strings
+	pub fn deserialize<'de, D, T, I, U>(deserializer: D) -> Result<T, D::Error>
+	where
+		D: Deserializer<'de>,
+		T: TryFrom<Vec<I>>,
+		I: TryFrom<Vec<U>>,
+		U: FromStr,
+	{
+		let raw = Vec::<Vec<String>>::deserialize(deserializer)?;
+
+		let mut outer = Vec::with_capacity(raw.len());
+		for row in raw {
+			let mut inner = Vec::with_capacity(row.len());
+			for elem in row {
+				let parsed = U::from_str(&elem).map_err(|_| {
+					Error::custom("failure to parse element of sequence from string")
+				})?;
+				inner.push(parsed);
+			}
+			outer.push(
+				I::try_from(inner)
+					.map_err(|_| Error::custom("failure to parse inner collection"))?,
+			);
+		}
+
+		T::try_from(outer).map_err(|_| Error::custom("failure to parse collection"))
 	}
 }
 

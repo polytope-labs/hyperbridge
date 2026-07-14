@@ -11,6 +11,10 @@ pub mod deneb;
 pub mod domains;
 pub mod electra;
 pub mod error;
+#[cfg(feature = "glamsterdam")]
+pub mod execution_header;
+#[cfg(feature = "glamsterdam")]
+pub mod gloas;
 mod ssz;
 pub mod types;
 pub mod util;

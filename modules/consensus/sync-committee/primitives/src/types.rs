@@ -15,7 +15,13 @@ pub struct ExecutionPayloadProof {
 	/// the block number of the execution header.
 	pub block_number: u64,
 	/// merkle mutli proof for the state_root & block_number in the [`ExecutionPayload`].
+	#[cfg(not(feature = "glamsterdam"))]
 	pub multi_proof: Vec<Node>,
+	/// The rlp encoded execution block header. Gloas leaves only the execution block hash in the
+	/// beacon state, so the three fields above are recovered from this preimage rather than from
+	/// an ssz multi proof, and the verifier is what decides whether they are honest.
+	#[cfg(feature = "glamsterdam")]
+	pub execution_header: Vec<u8>,
 	/// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
 	pub execution_payload_branch: Vec<Node>,
 	/// timestamp

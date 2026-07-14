@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use bsc_verifier::{
+	ensure_finalized_epoch_consistent,
 	primitives::{compute_epoch, parse_extra, Testnet, VALIDATOR_BIT_SET_SIZE},
 	verify_bsc_header,
 };
@@ -176,6 +177,13 @@ async fn verify_bsc_pos_headers() {
 
 		let next = result.next_validators.expect("sync update must carry next validator set");
 		finalized_height = update.source_header.number.low_u64();
+
+		// The sync update crossed into `next_epoch` and staged the next validator set, so the
+		// on-chain invariant must hold: finalized epoch is at most one ahead of `current_epoch`
+		// *because* a rotation is now staged.
+		ensure_finalized_epoch_consistent(finalized_height, current_epoch, true, EPOCH_LENGTH)
+			.expect("post-sync state must satisfy the finalized-epoch invariant");
+
 		println!(
 			"Sync accepted at block {block}: new {}-validator set staged, rotation at {}",
 			next.validators.len(),
@@ -264,6 +272,19 @@ async fn verify_bsc_pos_headers() {
 					(source_header={}, target_header={})",
 					update.source_header.number, update.target_header.number,
 				);
+
+				// Rotation is now enacted: `current_epoch` advances to `next_epoch`, the pending
+				// set is promoted, and the finalized header sits in `next_epoch`. With the staged
+				// set consumed (no longer pending), the invariant must still hold — the finalized
+				// epoch now equals the new `current_epoch`.
+				ensure_finalized_epoch_consistent(
+					update.source_header.number.low_u64(),
+					next_epoch,
+					false,
+					EPOCH_LENGTH,
+				)
+				.expect("post-enactment state must satisfy the finalized-epoch invariant");
+
 				println!(
 					"VALIDATOR SET ROTATED SUCCESSFULLY at block {block} \
 					(source_header={})",

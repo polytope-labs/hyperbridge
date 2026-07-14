@@ -18,6 +18,7 @@ import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
@@ -49,6 +50,16 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     bytes4 private constant SELECT_SELECTOR = IIntentGatewayV2.select.selector;
 
     /**
+     * @notice Cached fillOrder function selector
+     */
+    bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
+
+    /**
+     * @notice Cached ERC-7821 execute function selector
+     */
+    bytes4 private constant EXECUTE_SELECTOR = ERC7821.execute.selector;
+
+    /**
      * @notice Address of the Intent Gateway V2 contract that authorizes voucher-based transactions
      * @dev This is set during deployment via constructor
      */
@@ -69,7 +80,12 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @dev Two modes, discriminated by signature length:
      *
      * 1. Standard ECDSA (65 bytes): validated by the Account base contract against
-     *    the plain userOpHash.
+     *    the plain userOpHash. Refused if the calldata contains a fillOrder call to
+     *    the IntentGateway: bids are public and embed a valid 65-byte solver signature
+     *    over the userOpHash, so anyone could strip the commitment and session
+     *    signature from a bid and submit the op on this path. Without a select()
+     *    staged during validation the fill reverts, but the bid's nonce would be
+     *    consumed and the solver griefed of the gas fees.
      * 2. Intent solver selection (162 bytes): abi.encodePacked(commitment,
      *    solverSignature, sessionSignature). The solver signs the plain userOpHash,
      *    and the userOp's nonce key must equal the lower 192 bits of
@@ -91,6 +107,7 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         returns (uint256)
     {
         if (op.signature.length == ECDSA_SIGNATURE_LENGTH) {
+            if (_containsFillOrder(op.callData)) return ERC4337Utils.SIG_VALIDATION_FAILED;
             return super.validateUserOp(op, userOpHash, missingAccountFunds);
         }
 
@@ -120,6 +137,29 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         _payPrefund(missingAccountFunds);
 
         return ERC4337Utils.SIG_VALIDATION_SUCCESS;
+    }
+
+    /**
+     * @notice Scans userOp calldata for a call to IntentGatewayV2.fillOrder
+     * @dev The calldata is covered by the solver's signature over the userOpHash, so a
+     *      replayed bid cannot be reshaped to hide the call — the scan only needs to
+     *      recognize the bid's ERC-7821 execute(mode, executionData) batch. abi.decode
+     *      reverts on malformed calldata, rejecting the op during validation just as
+     *      execution would.
+     * @param callData The userOp calldata to scan
+     * @return bool True if the calldata contains a fillOrder call to the IntentGateway
+     */
+    function _containsFillOrder(bytes calldata callData) private view returns (bool) {
+        if (callData.length < 4 || bytes4(callData[0:4]) != EXECUTE_SELECTOR) return false;
+
+        (, bytes memory executionData) = abi.decode(callData[4:], (bytes32, bytes));
+        Execution[] memory calls = abi.decode(executionData, (Execution[]));
+
+        for (uint256 i = 0; i < calls.length; i++) {
+            bool hasFillOrder = calls[i].target == INTENT_GATEWAY_V2 && bytes4(calls[i].callData) == FILL_ORDER_SELECTOR;
+            if (hasFillOrder) return true;
+        }
+        return false;
     }
 
     /**

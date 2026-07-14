@@ -238,7 +238,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * @param commitment The keccak256 hash of the ABI-encoded order.
      */
     function _cancelFromDest(Order calldata order, CancelOptions calldata options, bytes32 commitment) internal {
-        if (order.deadline >= block.number) {
+        if (order.deadline >= _blockNumber()) {
             if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
         }
 

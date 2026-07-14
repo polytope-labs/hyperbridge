@@ -55,5 +55,10 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		filler,
 	)
 
-	await IntentGatewayV3Service.recordOrderVolume("FILLED", mappedOutputs, timestamp)
+	// Volume metrics are best-effort: a failure here must not fail the handler and stall indexing.
+	try {
+		await IntentGatewayV3Service.recordOrderVolume("FILLED", mappedOutputs, timestamp)
+	} catch (e: any) {
+		logger.error(`Failed to record FILLED volume for order ${commitment}: ${e.message}`)
+	}
 })

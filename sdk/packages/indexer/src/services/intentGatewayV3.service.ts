@@ -503,7 +503,20 @@ export class IntentGatewayV3Service {
 
 		const tokenIsInput = snapshot.tokenA === tokenAddress
 		const quoteAddress = tokenIsInput ? snapshot.tokenB : snapshot.tokenA
-		const quote = await this.getTokenMetadata(quoteAddress)
+
+		// Snapshots are not chain-scoped, so the quote token may not exist on this chain and the
+		// metadata call can revert. That must not fail the handler — fall back to CoinGecko instead.
+		let quote: { symbol: string; decimals: number }
+		try {
+			quote = await this.getTokenMetadata(quoteAddress)
+		} catch (error) {
+			logger.warn(
+				`[IntentGatewayV3Service.getFxPriceFromSnapshots] Failed to read quote token ${quoteAddress} metadata for snapshot ${snapshot.id}: ${stringify(
+					{ error: error as unknown as Error },
+				)}`,
+			)
+			return null
+		}
 		if (!STABLE_SYMBOLS.includes(quote.symbol.toUpperCase())) {
 			logger.warn(
 				`[IntentGatewayV3Service.getFxPriceFromSnapshots] Latest snapshot for ${tokenAddress} quotes against non-stable ${quote.symbol}; cannot derive USD price`,

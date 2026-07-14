@@ -98,7 +98,12 @@ export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Prom
 
 	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.PLACED, txMeta)
 
-	await IntentGatewayV3Service.recordOrderVolume("PLACED", order.inputs, timestamp)
+	// Volume metrics are best-effort: a failure here must not fail the handler and stall indexing.
+	try {
+		await IntentGatewayV3Service.recordOrderVolume("PLACED", order.inputs, timestamp)
+	} catch (e: any) {
+		logger.error(`Failed to record PLACED volume for order ${commitment}: ${e.message}`)
+	}
 })
 
 /**

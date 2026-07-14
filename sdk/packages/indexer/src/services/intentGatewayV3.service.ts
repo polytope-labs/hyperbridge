@@ -378,42 +378,53 @@ export class IntentGatewayV3Service {
 		timestamp: bigint,
 	): Promise<void> {
 		const chain = getHostStateMachine(chainId)
-		let usdDelta = new Decimal(0)
 
+		const amountByToken = new Map<string, bigint>()
 		for (const { token, amount } of tokens) {
 			const tokenAddress = bytes32ToBytes20(token).toLowerCase()
-			const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
-
-			const id = `${chain}-${tokenAddress}-${volumeType}`
-			let tokenVolume = await IntentGatewayTokenVolume.get(id)
-			if (!tokenVolume) {
-				tokenVolume = IntentGatewayTokenVolume.create({
-					id,
-					chain,
-					tokenAddress,
-					tokenSymbol: symbol,
-					decimals,
-					volumeType,
-					amount,
-					lastUpdatedAt: timestamp,
-				})
-			} else {
-				tokenVolume.amount = tokenVolume.amount + amount
-				tokenVolume.lastUpdatedAt = timestamp
-			}
-			await tokenVolume.save()
-
-			const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
-			if (price) {
-				const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price.toFixed(18))
-				usdDelta = usdDelta.plus(amountValueInUSD)
-			} else {
-				logger.warn(
-					`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
-				)
-			}
+			amountByToken.set(tokenAddress, (amountByToken.get(tokenAddress) ?? 0n) + amount)
 		}
 
+		const values = await Promise.all(
+			Array.from(amountByToken, async ([tokenAddress, amount]) => {
+				const id = `${chain}-${tokenAddress}-${volumeType}`
+				let tokenVolume = await IntentGatewayTokenVolume.get(id)
+				let symbol: string
+				let decimals: number
+
+				if (tokenVolume) {
+					symbol = tokenVolume.tokenSymbol
+					decimals = tokenVolume.decimals
+					tokenVolume.amount = tokenVolume.amount + amount
+					tokenVolume.lastUpdatedAt = timestamp
+				} else {
+					;({ symbol, decimals } = await this.getTokenMetadata(tokenAddress))
+					tokenVolume = IntentGatewayTokenVolume.create({
+						id,
+						chain,
+						tokenAddress,
+						tokenSymbol: symbol,
+						decimals,
+						volumeType,
+						amount,
+						lastUpdatedAt: timestamp,
+					})
+				}
+				await tokenVolume.save()
+
+				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				if (!price) {
+					logger.warn(
+						`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
+					)
+					return new Decimal(0)
+				}
+
+				return new Decimal(PriceHelper.getAmountValueInUSD(amount, decimals, price.toFixed(18)).amountValueInUSD)
+			}),
+		)
+
+		const usdDelta = values.reduce((acc, curr) => acc.plus(curr), new Decimal(0))
 		if (usdDelta.isZero()) return
 
 		const cumulativeId = `${chain}-${volumeType}`
@@ -439,19 +450,10 @@ export class IntentGatewayV3Service {
 			return { symbol: "ETH", decimals: 18 }
 		}
 
-		try {
-			const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
-			const symbol = await tokenContract.symbol()
-			const decimals = await tokenContract.decimals()
-			return { symbol, decimals }
-		} catch (error) {
-			logger.warn(
-				`[IntentGatewayV3Service.getTokenMetadata] Failed to get metadata for token ${tokenAddress}: ${stringify(
-					{ error: error as unknown as Error },
-				)}`,
-			)
-			return { symbol: "UNKNOWN", decimals: 18 }
-		}
+		const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
+		const symbol = await tokenContract.symbol()
+		const decimals = await tokenContract.decimals()
+		return { symbol, decimals }
 	}
 
 	private static async getTokenUsdPriceWithFx(

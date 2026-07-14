@@ -147,6 +147,28 @@ impl<
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
+
+		// Invariant: `finalized_height` must never run ahead of the validator set the client
+		// holds. `current_validators` sign for `current_epoch` and remain valid into the first
+		// half of `current_epoch + 1`, but the client may only *rely* on that overlap once the
+		// next set has been staged (`next_validators`) so the rotation can subsequently be
+		// enacted. An update that finalizes a header in a new epoch without staging that rotation
+		// leaves `current_epoch`/`current_validators` a full epoch behind `finalized_height`; the
+		// relayer derives its sync target from `max(epoch(finalized_height), current_epoch)`, so it
+		// would skip the un-staged epoch forever and the client would be permanently stuck (also a
+		// griefing vector). Reject such updates: the finalized height may only cross an epoch
+		// boundary via a validator-set-staging (sync) update, and by at most one epoch.
+		let finalized_epoch = compute_epoch(consensus_state.finalized_height, epoch_length);
+		let max_finalized_epoch =
+			consensus_state.current_epoch + consensus_state.next_validators.is_some() as u64;
+		if finalized_epoch > max_finalized_epoch {
+			Err(Error::StaleValidatorSet {
+				finalized_epoch,
+				current_epoch: consensus_state.current_epoch,
+				next_validators_staged: consensus_state.next_validators.is_some(),
+			})?
+		}
+
 		state_machine_map.insert(
 			StateMachineId {
 				state_id: StateMachine::Evm(consensus_state.chain_id),

@@ -46,6 +46,10 @@ where
 		if let Some(block_cost) = StateMachinesCostPerBlock::<T>::get(state_machine_id) {
 			let reward = Self::calculate_reward(&state_machine_id, block_cost)?;
 
+			if reward.is_zero() {
+				return Ok(());
+			}
+
 			T::Currency::transfer(
 				&T::TreasuryAccount::get().into_account_truncating(),
 				&relayer_account,

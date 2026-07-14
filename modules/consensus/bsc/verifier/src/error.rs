@@ -86,6 +86,25 @@ pub enum Error {
 		/// Epoch derived from the source header number.
 		source_epoch: u64,
 	},
+	/// An update would advance `finalized_height` into an epoch beyond the one the
+	/// client holds validators for, without a staged rotation. Accepting it would
+	/// strand the client: `current_epoch`/`current_validators` would lag a full
+	/// epoch behind `finalized_height`, and the relayer (which targets
+	/// `max(epoch(finalized_height), current_epoch)`) could never sync the skipped
+	/// epoch. The finalized height may only cross an epoch boundary via a
+	/// validator-set-staging (sync) update.
+	#[error(
+		"Update would strand the client: finalized epoch {finalized_epoch} exceeds current \
+		 epoch {current_epoch} (next validators staged: {next_validators_staged})"
+	)]
+	StaleValidatorSet {
+		/// Epoch derived from the update's finalized (source) header.
+		finalized_epoch: u64,
+		/// The client's current validator-set epoch.
+		current_epoch: u64,
+		/// Whether a next validator set was staged for rotation.
+		next_validators_staged: bool,
+	},
 	/// Fraud-proof header pair didn't satisfy "same height, different hash".
 	#[error("Invalid fraud proof")]
 	InvalidFraudProof,

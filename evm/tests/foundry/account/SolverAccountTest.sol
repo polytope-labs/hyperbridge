@@ -16,6 +16,7 @@ import {
     Deployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -147,6 +148,72 @@ contract SolverAccountTest is Test {
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
     }
 
+    /// @dev The fast path must refuse fillOrder calldata: bids are public and embed a
+    ///      valid 65-byte solver signature over the userOpHash, so anyone could strip
+    ///      the commitment and session signature from a bid and submit the op with it.
+    ///      The fill would revert (no selection staged during validation), but the
+    ///      bid's nonce would be consumed and the solver griefed of the gas fees.
+    function test_ValidateUserOp_StandardECDSA_FillOrderCalldata_Fails() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_StandardECDSA_NonFillOrderBatch_Success() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        // approve + a non-fillOrder gateway call — neither disables the fast path
+        Execution[] memory calls = new Execution[](2);
+        calls[0] = Execution({
+            target: address(0xBEEF),
+            value: 0,
+            callData: abi.encodeWithSignature("approve(address,uint256)", address(intentGateway), 1 ether)
+        });
+        calls[1] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSelector(intentGateway.cancelOrder.selector)
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    /// @dev The fillOrder selector on a target other than the IntentGateway is harmless.
+    function test_ValidateUserOp_StandardECDSA_FillOrderSelectorWrongTarget_Success() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(0xBEEF),
+            value: 0,
+            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+        });
+
+        PackedUserOperation memory op = _standardOp(_executeCalldata(calls), _signUserOpHash(userOpHash));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
     // ============================================
     // validateUserOp - Intent Solver Selection Tests (New Logic)
     // ============================================
@@ -168,6 +235,45 @@ contract SolverAccountTest is Test {
             nonce: _bidNonce(testCommitment, sessionKey),
             initCode: "",
             callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
+        vm.mockCall(address(intentGateway), selectCalldata, abi.encode(sessionKey));
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+    }
+
+    /// @dev fillOrder calldata is the normal payload for a selected bid — it must only
+    ///      be refused on the fast path, not here.
+    function test_ValidateUserOp_IntentSelection_FillOrderCalldata_Success() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({
+            target: address(intentGateway),
+            value: 0,
+            callData: abi.encodeWithSelector(intentGateway.fillOrder.selector)
+        });
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: _bidNonce(testCommitment, sessionKey),
+            initCode: "",
+            callData: _executeCalldata(calls),
             accountGasLimits: bytes32(0),
             preVerificationGas: 0,
             gasFees: bytes32(0),
@@ -587,6 +693,31 @@ contract SolverAccountTest is Test {
     // ============================================
     // Helper Functions
     // ============================================
+
+    /// @notice ERC-7821 execute(mode, executionData) calldata for a batch of calls
+    function _executeCalldata(Execution[] memory calls) internal view returns (bytes memory) {
+        bytes32 mode = bytes32(uint256(0x01) << 248); // CALLTYPE_BATCH, EXECTYPE_DEFAULT
+        return abi.encodeWithSelector(solverAccount.execute.selector, mode, abi.encode(calls));
+    }
+
+    /// @notice A standard-mode (65-byte ECDSA) userOp with the given calldata
+    function _standardOp(bytes memory callData, bytes memory signature)
+        internal
+        view
+        returns (PackedUserOperation memory)
+    {
+        return PackedUserOperation({
+            sender: address(solverAccount),
+            nonce: 0,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+    }
 
     /// @notice Creates an EIP-712 signature by session key for IntentGateway.select
     function _createSessionKeySignature(bytes32 commitment, address solverAddr) internal view returns (bytes memory) {

@@ -15,10 +15,10 @@ pnpm cli run -c filler-config.toml
 
 ## Admin server
 
-`simplex run` always serves a local UI and JSON API for updating FX price curves in memory, without restarting the filler. It binds to `127.0.0.1:8686` by default; pass `--admin-port <[host:]port>` to override:
+Pass `--admin-port <[host:]port>` to serve a local UI and JSON API for updating FX price curves in memory, without restarting the filler. The server is off by default; a bare port binds to `127.0.0.1`:
 
 ```bash
-simplex run -c filler-config.toml --admin-port 9000
+simplex run -c filler-config.toml --admin-port 8686
 ```
 
 Open `http://127.0.0.1:8686/` to edit the bid/ask curves, or use the API directly:

@@ -437,6 +437,29 @@ contract SimplexPaymasterTest is Test {
         assertEq(usdc6.balanceOf(treasury), 1_000_000);
     }
 
+    // ── postOp gas limit cap ─────────────────────────────────────────
+
+    function testPostOpGasLimitAboveCapReverts() public {
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            abi.encodePacked(uint8(1), address(usdc6)),
+            uint128(100_001)
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(100_001), uint256(100_000))
+        );
+        paymaster.validate(op, 1e15);
+    }
+
+    function testPostOpGasLimitAtCapAccepted() public {
+        _fundAndApprove(1_000e6);
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            abi.encodePacked(uint8(1), address(usdc6)),
+            uint128(100_000)
+        );
+        (, uint256 validationData) = paymaster.validate(op, 1e15);
+        assertEq(validationData, 0);
+    }
+
     // ── Fee recycling ────────────────────────────────────────────────
 
     function testSwapAndDepositFullBalance() public {
@@ -688,8 +711,15 @@ contract SimplexPaymasterTest is Test {
     /// @dev paymasterAndData = paymaster(20) || verificationGasLimit(16) || postOpGasLimit(16) || data
     ///      gasFees = maxPriorityFeePerGas(16) || maxFeePerGas(16), both 1 gwei
     function _userOpWithPaymasterData(bytes memory data) internal view returns (PackedUserOperation memory op) {
+        return _userOpWithPaymasterData(data, 100_000);
+    }
+
+    function _userOpWithPaymasterData(
+        bytes memory data,
+        uint128 postOpGasLimit
+    ) internal view returns (PackedUserOperation memory op) {
         op.sender = sender;
         op.gasFees = bytes32((uint256(1 gwei) << 128) | uint256(1 gwei));
-        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(150_000), uint128(100_000), data);
+        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(150_000), postOpGasLimit, data);
     }
 }

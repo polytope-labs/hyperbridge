@@ -111,6 +111,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev Hard cap on the governance-configurable swap slippage (10%).
     uint256 public constant MAX_SWAP_SLIPPAGE_BPS = 1_000;
 
+    /// @dev Caps the caller-supplied postOp gas limit. Unbounded, the EntryPoint's
+    ///      unused-gas penalty is drained from this contract's deposit to a
+    ///      caller-chosen beneficiary; the cap keeps that penalty under the
+    ///      `_postOpCost` cushion the user already pays.
+    uint256 public constant MAX_POST_OP_GAS_LIMIT = 100_000;
+
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
     address private _hostAddr;
@@ -147,6 +153,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error InvalidRouter(address router);
     error InvalidMode(uint8 mode);
     error InvalidPaymasterData(uint256 length);
+    error InvalidPostOpGasLimit(uint256 supplied, uint256 maximum);
     error PermitFailed(address token);
     error ZeroAddress();
     error InvalidHost();
@@ -349,6 +356,11 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         bytes32 userOpHash,
         uint256 maxCost
     ) internal override returns (bytes memory context, uint256 validationData) {
+        uint256 postOpGasLimit = userOp.paymasterPostOpGasLimit();
+        if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT) {
+            revert InvalidPostOpGasLimit(postOpGasLimit, MAX_POST_OP_GAS_LIMIT);
+        }
+
         bytes calldata data = userOp.paymasterData();
         if (data.length == 0) revert InvalidPaymasterData(0);
         if (uint8(data[0]) == 0x00) {

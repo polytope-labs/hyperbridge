@@ -287,7 +287,7 @@ program
 	)
 	.option(
 		"--admin-port <[host:]port>",
-		"Bind address for the admin server (inflight price curve updates: UI + RPC). Unauthenticated; defaults to 127.0.0.1:8686",
+		"Enable the admin server (inflight price curve updates: UI + RPC) on the given address. Unauthenticated; e.g. 8686, 127.0.0.1:8686",
 	)
 	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string; adminPort?: string }) => {
 		try {
@@ -602,11 +602,12 @@ program
 				}
 			}
 
-			// Start the admin server for inflight price curve updates. Always on;
-			// --admin-port overrides the default bind of 127.0.0.1:8686.
-			let adminHost = "127.0.0.1"
-			let adminPort = DEFAULT_ADMIN_PORT
+			// The admin server for inflight price curve updates is opt-in;
+			// it only starts when --admin-port is passed.
+			let adminServer: AdminServer | undefined
 			if (options.adminPort) {
+				let adminHost = "127.0.0.1"
+				let adminPort = DEFAULT_ADMIN_PORT
 				const [host, portStr] = options.adminPort.includes(":")
 					? (options.adminPort.split(":").slice(-2) as [string, string])
 					: [adminHost, options.adminPort]
@@ -620,36 +621,36 @@ program
 					adminHost = host
 					adminPort = parsed
 				}
-			}
-			if (adminStrategies.length === 0) {
-				logger.warn("No FX strategies are configured; the admin server has nothing editable")
-			}
-			// Resolve exotic token symbols (display-only) best-effort from the first
-			// configured chain; a failed read just leaves the strategy unlabelled.
-			await Promise.all(
-				adminStrategies.map(async (adminStrategy) => {
-					const token1 = adminTokenMaps.get(adminStrategy.index) ?? {}
-					const [chain, address] = Object.entries(token1)[0] ?? []
-					if (!chain || !address) return
-					try {
-						adminStrategy.exotic = (await chainClientManager.getPublicClient(chain).readContract({
-							address,
-							abi: ERC20_ABI,
-							functionName: "symbol",
-							args: [],
-						})) as string
-					} catch (err) {
-						logger.warn({ err, chain, address }, "Could not resolve exotic token symbol for admin UI")
-					}
-				}),
-			)
-			const adminServer = new AdminServer(adminStrategies)
-			try {
-				await adminServer.start(adminPort, adminHost)
-			} catch (err) {
-				// The filler is the primary workload; a bind failure (e.g. port in use)
-				// costs the admin UI, not the process.
-				logger.error({ err, bind: `${adminHost}:${adminPort}` }, "Admin server failed to start")
+				if (adminStrategies.length === 0) {
+					logger.warn("No FX strategies are configured; the admin server has nothing editable")
+				}
+				// Resolve exotic token symbols (display-only) best-effort from the first
+				// configured chain; a failed read just leaves the strategy unlabelled.
+				await Promise.all(
+					adminStrategies.map(async (adminStrategy) => {
+						const token1 = adminTokenMaps.get(adminStrategy.index) ?? {}
+						const [chain, address] = Object.entries(token1)[0] ?? []
+						if (!chain || !address) return
+						try {
+							adminStrategy.exotic = (await chainClientManager.getPublicClient(chain).readContract({
+								address,
+								abi: ERC20_ABI,
+								functionName: "symbol",
+								args: [],
+							})) as string
+						} catch (err) {
+							logger.warn({ err, chain, address }, "Could not resolve exotic token symbol for admin UI")
+						}
+					}),
+				)
+				adminServer = new AdminServer(adminStrategies)
+				try {
+					await adminServer.start(adminPort, adminHost)
+				} catch (err) {
+					// The filler is the primary workload; a bind failure (e.g. port in use)
+					// costs the admin UI, not the process.
+					logger.error({ err, bind: `${adminHost}:${adminPort}` }, "Admin server failed to start")
+				}
 			}
 
 			// Start the filler
@@ -680,7 +681,7 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
-				adminServer.stop()
+				adminServer?.stop()
 				vaultVenue?.stopSweeping()
 				await intentFiller.stop()
 				// Exit all vault positions back to the underlying asset (best-effort).

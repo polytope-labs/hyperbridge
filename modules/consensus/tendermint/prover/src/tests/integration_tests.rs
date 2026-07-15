@@ -208,6 +208,24 @@ mod tests {
 		}
 	}
 
+	// Unlike the other integration tests this one asserts, so a regression fails the run
+	// rather than only surfacing in the trace log.
+	#[tokio::test]
+	#[ignore]
+	async fn test_polygon_address_poison_rejected_at_decode() {
+		let _ = tracing_subscriber::fmt::try_init();
+		match timeout(
+			Duration::from_secs(600),
+			address_poison_rejected_inner(&get_polygon_rpc_url()),
+		)
+		.await
+		{
+			Ok(Ok(())) => trace!("Address poison rejected at the SCALE decode boundary"),
+			Ok(Err(e)) => panic!("address poison test failed: {e}"),
+			Err(_) => panic!("address poison test timed out"),
+		}
+	}
+
 	// #[tokio::test]
 	// #[ignore]
 	// async fn sei_evm_state_proof() -> anyhow::Result<()> {
@@ -592,6 +610,72 @@ mod tests {
 		}
 
 		trace!("Successfully completed {} validator set transitions", VALIDATOR_SET_TRANSITIONS);
+		Ok(())
+	}
+
+	/// Rebuilds the address poisoning attack against the SCALE decode boundary with live
+	/// Heimdall data. A genuine set survives encode, decode and convert, while the same
+	/// set with every address swapped for a constant is rejected once `to_validator`
+	/// recomputes the address from the public key. This covers the path the pallet takes
+	/// on attacker bytes, which the header verification tests never reach.
+	async fn address_poison_rejected_inner(
+		rpc_url: &str,
+	) -> Result<(), Box<dyn std::error::Error>> {
+		use codec::Decode;
+		use tendermint_primitives::{CodecConsensusProof, CodecTrustedState};
+
+		let client = HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])?;
+		ensure_healthy(&client).await?;
+		let chain_id = client.chain_id().await?;
+		let latest_height = client.latest_height().await?;
+
+		let trusted_height = latest_height.saturating_sub(50);
+		let trusted_header = client.signed_header(trusted_height).await?;
+		let trusted_validators = client.validators(trusted_height).await?;
+		let trusted_next_validators = client.next_validators(trusted_height).await?;
+
+		let trusted_state = TrustedState::new(
+			chain_id,
+			trusted_height,
+			trusted_header.header.time.unix_timestamp() as u64,
+			trusted_header.header.hash_with::<SpIoSha256>().as_bytes().try_into()?,
+			trusted_validators,
+			trusted_next_validators,
+			trusted_header.header.next_validators_hash.as_bytes().try_into()?,
+			7200,
+			VerificationOptions::default(),
+		);
+
+		let honest = CodecTrustedState::from(&trusted_state).encode();
+		TrustedState::try_from(CodecTrustedState::decode(&mut &honest[..])?)
+			.map_err(|e| format!("honest trusted state should convert: {e}"))?;
+
+		let mut poisoned = CodecTrustedState::from(&trusted_state);
+		for validator in poisoned.validators.iter_mut() {
+			validator.address = vec![0x42u8; 20];
+		}
+		let poisoned = poisoned.encode();
+		if TrustedState::try_from(CodecTrustedState::decode(&mut &poisoned[..])?).is_ok() {
+			return Err("poisoned validator addresses were accepted at the decode boundary".into());
+		}
+
+		// The proof's next validator set is the set the attack actually targets, so assert
+		// the same guard covers it whenever the proved update carries one.
+		let proof = prove_header_update(&client, &trusted_state, latest_height).await?;
+		let mut poisoned_proof = CodecConsensusProof::from(&proof);
+		if let Some(next_validators) = poisoned_proof.next_validators.as_mut() {
+			for validator in next_validators.iter_mut() {
+				validator.address = vec![0x42u8; 20];
+			}
+			let bytes = poisoned_proof.encode();
+			if CodecConsensusProof::decode(&mut &bytes[..])?.to_consensus_proof().is_ok() {
+				return Err("poisoned next validators were accepted at the decode boundary".into());
+			}
+			trace!("Poisoned next validator set rejected at the SCALE decode boundary");
+		} else {
+			trace!("Proved update carried no next validator set; skipped the proof variant");
+		}
+
 		Ok(())
 	}
 

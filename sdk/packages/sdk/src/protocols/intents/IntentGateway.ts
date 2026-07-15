@@ -39,6 +39,7 @@ import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
+	PhantomSnapshotIntentQuoteStrategy,
 	UniswapV4IntentQuoteStrategy,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
@@ -50,8 +51,8 @@ import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/
  *
  * `IntentGateway` orchestrates the complete lifecycle of an intent-based
  * cross-chain swap:
- * - **Quoting** — prices the order's input/output amounts via the configured
- *   quote strategies (currently Uniswap V4) before order construction.
+ * - **Quoting** — prices the order's input/output amounts via Phantom order
+ *   snapshots by default, with Uniswap V4 available as an explicit strategy.
  * - **Order placement** — encodes and yields `placeOrder` calldata; caller
  *   signs and submits the transaction.
  * - **Order execution** — polls the Hyperbridge coprocessor for solver bids,
@@ -145,6 +146,10 @@ export class IntentGateway {
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
 		this.quoteStrategies = {
+			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
+				dest.configService,
+				() => this.requireIndexer().queryClient,
+			),
 			uniswap_v4: new UniswapV4IntentQuoteStrategy(dest.configService),
 		}
 	}
@@ -203,11 +208,12 @@ export class IntentGateway {
 	/**
 	 * Quotes an intent between this gateway's source and destination chains.
 	 *
-	 * `strategy` defaults to `uniswap_v4`, currently the only supported
-	 * strategy. Provide exactly one of `amountIn` or `amountOut`.
+	 * Uses the latest directional Phantom order price snapshot from the attached
+	 * indexer by default. Pass `strategy: "uniswap_v4"` only when explicitly
+	 * requesting a Uniswap quote. Provide exactly one of `amountIn` or `amountOut`.
 	 *
-	 * The Uniswap quote strategy always prices against the configured Base
-	 * pool, regardless of this gateway's destination chain. Returned
+	 * Both built-in strategies resolve their canonical market on Base,
+	 * regardless of this gateway's destination chain. Returned
 	 * `amountIn`/`amountOut` already account for the gateway's protocol fee
 	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order
 	 * inputs; apply only your own slippage tolerance before placing the order.
@@ -215,18 +221,17 @@ export class IntentGateway {
 	 * @param params - Token pair, amount, and optional strategy/pool overrides.
 	 * @returns The quoted amounts plus strategy-specific metadata.
 	 * @throws {UnsupportedIntentQuoteStrategyError} For unknown strategies.
-	 * @throws {UnsupportedIntentQuotePairError} When no pool is configured for the pair.
+	 * @throws {UnsupportedIntentQuotePairError} When the selected strategy does not support the pair.
+	 * @throws {PhantomSnapshotUnavailableError} When an eligible cNGN pair has no snapshot.
 	 */
 	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult> {
-		const strategy = params.strategy ?? "uniswap_v4"
+		const source = { stateMachineId: this.source.config.stateMachineId, client: this.source.client }
+		const destination = { stateMachineId: this.dest.config.stateMachineId, client: this.dest.client }
+		const strategy = params.strategy ?? "phantom_snapshot"
 		const handler = this.quoteStrategies[strategy]
 		if (!handler) throw new UnsupportedIntentQuoteStrategyError(strategy)
 
-		return handler.quote(
-			{ ...params, strategy },
-			{ stateMachineId: this.source.config.stateMachineId, client: this.source.client },
-			{ stateMachineId: this.dest.config.stateMachineId, client: this.dest.client },
-		)
+		return handler.quote({ ...params, strategy }, source, destination)
 	}
 
 	/**
@@ -719,10 +724,7 @@ export class IntentGateway {
 	 * const order = await gateway.queryOrder("0x...")
 	 * ```
 	 */
-	withQueryClient(
-		queryClient: IndexerQueryClient,
-		options: { pollInterval?: number; tracing?: boolean } = {},
-	): this {
+	withQueryClient(queryClient: IndexerQueryClient, options: { pollInterval?: number; tracing?: boolean } = {}): this {
 		const logger = createConsola({
 			level: LogLevels[options.tracing ? "trace" : "info"],
 			formatOptions: { columns: 80, colors: true, compact: true, date: false },
@@ -737,7 +739,9 @@ export class IntentGateway {
 
 	private requireIndexer(): NonNullable<IntentGateway["indexer"]> {
 		if (!this.indexer) {
-			throw new Error("IntentGateway: call withQueryClient(queryClient) before using indexer-backed methods")
+			throw new Error(
+				"IntentGateway: call withQueryClient(queryClient) before using indexer-backed methods or Phantom quotes",
+			)
 		}
 		return this.indexer
 	}

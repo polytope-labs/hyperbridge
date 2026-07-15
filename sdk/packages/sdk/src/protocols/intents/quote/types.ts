@@ -1,14 +1,14 @@
 import type { PublicClient } from "viem"
 import type { HexString } from "@/types"
 
-export type IntentQuoteStrategy = "uniswap_v4"
+export type IntentQuoteStrategy = "uniswap_v4" | "phantom_snapshot"
 export type IntentQuoteTradeType = "EXACT_INPUT" | "EXACT_OUTPUT"
 
 /**
  * Token metadata required by intent quote strategies.
  */
 export interface IntentQuoteToken {
-	/** Token contract address on the user/source side. */
+	/** Token contract address on its order-side chain (source for input, destination for output). */
 	address: HexString
 	/** Token decimals for raw amount formatting by the caller. */
 	decimals: number
@@ -45,8 +45,9 @@ export interface UniswapV4IntentQuoteOptions {
  * Parameters for `IntentGateway.quoteIntent`. The source and destination
  * chains come from the gateway instance itself.
  *
- * `strategy` defaults to `uniswap_v4`, which is currently the only supported
- * strategy. Provide exactly one of `amountIn` or `amountOut`.
+ * Quotes default to `phantom_snapshot`. Pass `strategy: "uniswap_v4"` only to
+ * explicitly request a Uniswap quote. Provide exactly one of `amountIn` or
+ * `amountOut`.
  */
 export interface QuoteIntentParams {
 	strategy?: IntentQuoteStrategy
@@ -76,6 +77,25 @@ export interface UniswapV4IntentQuoteMetadata {
 	protocolFeeBps: bigint
 }
 
+export interface PhantomSnapshotIntentQuoteMetadata {
+	/** Canonical chain whose directional Phantom pair addresses identify the feed. */
+	quoteChain: string
+	/** Phantom order whose bids produced this snapshot. */
+	commitment: HexString
+	tokenA: HexString
+	tokenB: HexString
+	/** Benchmark input and liquidity-weighted median output, both in raw token units. */
+	standardAmount: bigint
+	medianPrice: bigint
+	lowestPrice?: bigint
+	highestPrice?: bigint
+	blockNumber: bigint
+	snapshotTime: Date
+	bidCount: number
+	/** Source gateway protocol fee already reflected in the returned quote amounts. */
+	protocolFeeBps: bigint
+}
+
 /**
  * Quote data partners need before constructing an IntentGateway V2 order.
  *
@@ -84,13 +104,23 @@ export interface UniswapV4IntentQuoteMetadata {
  * further fee adjustment is required before placing the order; apply only your
  * own slippage tolerance.
  */
-export interface QuoteIntentResult {
+export interface UniswapV4QuoteIntentResult {
 	strategy: "uniswap_v4"
 	tradeType: IntentQuoteTradeType
 	amountIn: bigint
 	amountOut: bigint
 	quoteMetadata: UniswapV4IntentQuoteMetadata
 }
+
+export interface PhantomSnapshotQuoteIntentResult {
+	strategy: "phantom_snapshot"
+	tradeType: IntentQuoteTradeType
+	amountIn: bigint
+	amountOut: bigint
+	quoteMetadata: PhantomSnapshotIntentQuoteMetadata
+}
+
+export type QuoteIntentResult = UniswapV4QuoteIntentResult | PhantomSnapshotQuoteIntentResult
 
 export interface IntentQuoteStrategyHandler {
 	quote(
@@ -113,12 +143,27 @@ export class UnsupportedIntentQuotePairError extends Error {
 		destination: string
 		tokenIn: IntentQuoteToken
 		tokenOut: IntentQuoteToken
+		quoteSource?: string
 	}) {
 		super(
-			`No Uniswap v4 pool config found for ${params.tokenIn.symbol ?? params.tokenIn.address} -> ${
+			`No ${params.quoteSource ?? "Uniswap v4 pool config"} found for ${params.tokenIn.symbol ?? params.tokenIn.address} -> ${
 				params.tokenOut.symbol ?? params.tokenOut.address
 			} on ${params.source} -> ${params.destination}`,
 		)
 		this.name = "UnsupportedIntentQuotePairError"
+	}
+}
+
+export class PhantomSnapshotUnavailableError extends Error {
+	constructor(tokenA: HexString, tokenB: HexString) {
+		super(`No Phantom order price snapshot found for ${tokenA} -> ${tokenB}`)
+		this.name = "PhantomSnapshotUnavailableError"
+	}
+}
+
+export class InvalidPhantomSnapshotError extends Error {
+	constructor(commitment: HexString, reason: string) {
+		super(`Invalid Phantom order price snapshot ${commitment}: ${reason}`)
+		this.name = "InvalidPhantomSnapshotError"
 	}
 }

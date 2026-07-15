@@ -1,6 +1,13 @@
-import { createPublicClient, decodeFunctionResult, encodeFunctionData, getAddress, http, type PublicClient, zeroAddress } from "viem"
+import {
+	createPublicClient,
+	decodeFunctionResult,
+	encodeFunctionData,
+	getAddress,
+	http,
+	type PublicClient,
+	zeroAddress,
+} from "viem"
 import { base } from "viem/chains"
-import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import type { ChainConfigService } from "@/configs/ChainConfigService"
 import { Chains, type ConfiguredAssetSymbol, type UniswapV4PoolConfigData } from "@/configs/chain"
@@ -14,11 +21,10 @@ import {
 	UnsupportedIntentQuotePairError,
 	type UniswapV4PoolKey,
 } from "./types"
+import { deductProtocolFee, grossUpForProtocolFee, readProtocolFeeBps, validateQuoteParams } from "./shared"
+export { deductProtocolFee, grossUpForProtocolFee } from "./shared"
 
-type GatewayParamsObject = { protocolFeeBps?: bigint | number | string }
-type GatewayParams = GatewayParamsObject | readonly unknown[]
 export const UNISWAP_INTENT_QUOTE_CHAIN = Chains.BASE_MAINNET
-const BPS_DENOMINATOR = 10_000n
 
 interface ResolvedPoolConfig {
 	poolKey: UniswapV4PoolKey
@@ -41,9 +47,9 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		source: IntentQuoteChainContext,
 		destination: IntentQuoteChainContext,
 	): Promise<QuoteIntentResult> {
-		this.validateQuoteParams(params)
+		validateQuoteParams(params)
 
-		const protocolFeeBps = await this.readProtocolFeeBps(source.client, source.stateMachineId)
+		const protocolFeeBps = await readProtocolFeeBps(this.chainConfigService, source)
 		const quoteClient = this.resolveQuoteClient(source, destination)
 		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, UNISWAP_INTENT_QUOTE_CHAIN)
 
@@ -52,10 +58,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 			: this.quoteExactOutput({ params, client: quoteClient, protocolFeeBps, poolConfig })
 	}
 
-	private resolveQuoteClient(
-		source: IntentQuoteChainContext,
-		destination: IntentQuoteChainContext,
-	): PublicClient {
+	private resolveQuoteClient(source: IntentQuoteChainContext, destination: IntentQuoteChainContext): PublicClient {
 		if (source.stateMachineId === UNISWAP_INTENT_QUOTE_CHAIN) return source.client
 		if (destination.stateMachineId === UNISWAP_INTENT_QUOTE_CHAIN) return destination.client
 		if (this.baseQuoteClient) return this.baseQuoteClient
@@ -71,44 +74,15 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		return baseQuoteClient
 	}
 
-	private validateQuoteParams(params: QuoteIntentParams): void {
-		const hasAmountIn = params.amountIn !== undefined
-		const hasAmountOut = params.amountOut !== undefined
-		if (hasAmountIn === hasAmountOut) throw new Error("Provide exactly one of amountIn or amountOut")
-		if (hasAmountIn && params.amountIn! <= 0n) throw new Error("amountIn must be greater than zero")
-		if (hasAmountOut && params.amountOut! <= 0n) throw new Error("amountOut must be greater than zero")
-		if (params.tokenIn.address.toLowerCase() === params.tokenOut.address.toLowerCase()) {
-			throw new Error("tokenIn and tokenOut cannot be the same")
-		}
-	}
-
-	private async readProtocolFeeBps(client: PublicClient, chain: string): Promise<bigint> {
-		const gatewayAddress = this.chainConfigService.getIntentGatewayAddress(chain)
-		if (!gatewayAddress || gatewayAddress === "0x" || gatewayAddress === zeroAddress) {
-			throw new Error(`IntentGatewayV2 is not configured for chain ${chain}`)
-		}
-
-		const gatewayParams = (await client.readContract({
-			address: gatewayAddress,
-			abi: IntentGatewayV2.ABI,
-			functionName: "params",
-		})) as GatewayParams
-
-		if (isGatewayParamsTuple(gatewayParams)) return BigInt(gatewayParams[4] as bigint | number | string)
-		return BigInt(gatewayParams.protocolFeeBps ?? 0)
-	}
-
 	private resolvePoolConfig(params: QuoteIntentParams, source: string, destination: string): ResolvedPoolConfig {
 		const override = params.uniswapV4?.poolKey
 		if (override) {
 			const poolKey = normalizePoolKey(override)
 			const tokenInForQuote = getAddress(override.currencyIn ?? params.tokenIn.address) as HexString
 			if (tokenInForQuote !== poolKey.currency0 && tokenInForQuote !== poolKey.currency1) {
-					throw new Error(
-						`Input currency ${tokenInForQuote} is not part of the override pool ` +
-							`(${poolKey.currency0}, ${poolKey.currency1}). For cross-chain quotes pass ` +
-							`uniswapV4.poolKey.currencyIn with the Base-side input currency address.`,
-					)
+				throw new Error(
+					`Input currency ${tokenInForQuote} is not part of the override pool (${poolKey.currency0}, ${poolKey.currency1}). For cross-chain quotes pass uniswapV4.poolKey.currencyIn with the Base-side input currency address.`,
+				)
 			}
 
 			return {
@@ -129,10 +103,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		})
 	}
 
-	private resolveConfiguredPool(
-		params: QuoteIntentParams,
-		chain: string,
-	): ResolvedPoolConfig | null {
+	private resolveConfiguredPool(params: QuoteIntentParams, chain: string): ResolvedPoolConfig | null {
 		for (const pool of this.chainConfigService.getUniswapV4PoolConfigs(chain)) {
 			const resolvedPool = this.resolveConfiguredPoolTokens(chain, pool)
 			if (!resolvedPool) continue
@@ -190,7 +161,8 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		protocolFeeBps: bigint
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
-		const amountIn = args.params.amountIn!
+		const amountIn = args.params.amountIn
+		if (amountIn === undefined) throw new Error("amountIn is required for an exact-input quote")
 		// The gateway deducts its protocol fee from order inputs, so only the
 		// reduced amount reaches the swap. Quote against that net amount.
 		const swapAmountIn = deductProtocolFee(amountIn, args.protocolFeeBps)
@@ -216,7 +188,8 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		protocolFeeBps: bigint
 		poolConfig: ResolvedPoolConfig
 	}): Promise<QuoteIntentResult> {
-		const amountOut = args.params.amountOut!
+		const amountOut = args.params.amountOut
+		if (amountOut === undefined) throw new Error("amountOut is required for an exact-output quote")
 		// The quoter returns the swap input needed for `amountOut`; that is the
 		// net amount after the gateway's protocol fee, so gross it back up to the
 		// order input the caller must supply.
@@ -333,32 +306,4 @@ function matchPoolToken(
 
 function getZeroForOne(tokenIn: HexString, poolKey: UniswapV4PoolKey): boolean {
 	return getAddress(tokenIn).toLowerCase() === getAddress(poolKey.currency0).toLowerCase()
-}
-
-function isGatewayParamsTuple(value: GatewayParams): value is readonly unknown[] {
-	return Array.isArray(value)
-}
-
-/**
- * Net order input after the gateway deducts its protocol fee. Mirrors the
- * on-chain math in `IntentGatewayV2` (fee floored, then subtracted).
- */
-export function deductProtocolFee(amount: bigint, protocolFeeBps: bigint): bigint {
-	if (protocolFeeBps <= 0n) return amount
-	const fee = (amount * protocolFeeBps) / BPS_DENOMINATOR
-	return amount - fee
-}
-
-/**
- * Gross order input required so that, after the gateway's protocol fee is
- * deducted, at least `netAmount` remains for the swap. Rounded up so the net
- * never falls short.
- */
-export function grossUpForProtocolFee(netAmount: bigint, protocolFeeBps: bigint): bigint {
-	if (protocolFeeBps <= 0n) return netAmount
-	return divCeil(netAmount * BPS_DENOMINATOR, BPS_DENOMINATOR - protocolFeeBps)
-}
-
-function divCeil(numerator: bigint, denominator: bigint): bigint {
-	return (numerator + denominator - 1n) / denominator
 }

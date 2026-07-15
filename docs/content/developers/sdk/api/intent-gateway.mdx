@@ -171,12 +171,18 @@ while (true) {
 
 ### quoteIntent(params)
 
-Quotes an intent using the SDK's intent quote strategies. The only supported strategy today is `uniswap_v4`, which always prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain. The method is strategy-shaped so future quote sources can be added without changing partner integrations.
+Quotes an intent from the latest directional Phantom order price snapshot by default. No `strategy` option is needed for Phantom quotes. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote, which prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain.
+
+Phantom-backed quotes require an attached Hyperbridge indexer client. There is no automatic Uniswap fallback.
 
 Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
 
 ```typescript lineNumbers
-const gateway = await IntentGateway.create(source, dest)
+import { createQueryClient, IntentGateway } from "@hyperbridge/sdk";
+
+const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
+  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
+);
 
 const quote = await gateway.quoteIntent({
   tokenIn: {
@@ -190,15 +196,21 @@ const quote = await gateway.quoteIntent({
     symbol: "cNGN",
   },
   amountIn: 100_000_000n,
-})
+});
 
-console.log(quote.amountIn, quote.amountOut)
+console.log(quote.amountIn, quote.amountOut);
+if (quote.strategy === "phantom_snapshot") {
+  console.log(quote.quoteMetadata.medianPrice);
+}
 ```
 
-For pools not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
+The Phantom feed supports USDC → cNGN, cNGN → USDC, USDT → cNGN, and cNGN → USDT. The SDK queries the newest snapshot for the exact direction and scales its liquidity-weighted `medianPrice` from the snapshot's `standardAmount`. Reverse quotes use a separately measured reverse snapshot rather than an inverted forward price.
+
+For non-Phantom pairs whose pools are not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
 
 ```typescript lineNumbers
 const quote = await gateway.quoteIntent({
+  strategy: "uniswap_v4",
   tokenIn,
   tokenOut,
   amountOut: 50_000_000n,
@@ -212,19 +224,21 @@ const quote = await gateway.quoteIntent({
       quoterAddress: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
     },
   },
-})
+});
 ```
 
-When passing an explicit PoolKey for cross-chain quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn.address`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
+When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn.address`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
 
-The result includes `amountIn`, `amountOut`, and quote metadata with the quote chain, V4 PoolKey, quoter address, and the IntentGateway protocol fee on the source chain (`protocolFeeBps`).
+The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Phantom metadata contains the snapshot commitment, block number/time, directional token addresses, `standardAmount`, median/low/high prices, contributing bid count, and source-chain protocol fee. Uniswap metadata contains the V4 PoolKey, quoter, quote chain, and protocol fee.
 
 `amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is what you can expect after the fee; exact-output quotes return the gross `amountIn` you must supply so that, after the fee, enough remains to produce the requested `amountOut`. Use these amounts directly as the order's `inputs` and `output.assets` — no further fee adjustment is required. Apply only your own slippage tolerance:
 
 ```typescript lineNumbers
 // `amountOut` already nets the gateway fee; add your slippage tolerance.
-const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n
+const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n;
 ```
+
+For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `floor(netInput × medianPrice / standardAmount)`. For an exact-output quote, it computes `ceil(amountOut × standardAmount / medianPrice)` and grosses that input up for the gateway fee. A missing indexer, missing snapshot, or invalid snapshot throws an explicit error; the SDK does not silently switch price sources.
 
 ---
 

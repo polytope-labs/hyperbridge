@@ -182,8 +182,88 @@ commitment = keccak256(abi.encode(order))  // with reduced inputs, filled user/s
 
 The SDK populates `order.id` with this commitment after the `OrderPlaced` event is parsed.
 
+## Quote cNGN Orders
 
-### Graffiti
+Before constructing a USDC/cNGN or USDT/cNGN order, attach the Hyperbridge indexer and call `quoteIntent()`. Phantom snapshots are the default quote source, so no strategy option is needed. These pairs are priced from the latest directional `PhantomOrderPriceSnapshot`, which aggregates valid solver bids into a liquidity-weighted median.
+
+The supported directions are:
+
+- USDC → cNGN
+- cNGN → USDC
+- USDT → cNGN
+- cNGN → USDT
+
+```typescript lineNumbers title="quote-cngn.ts" icon="typescript"
+import { createQueryClient, IntentGateway, type Order } from "@hyperbridge/sdk";
+import { parseUnits, zeroAddress, zeroHash } from "viem";
+
+const queryClient = createQueryClient({
+  url: "https://nexus.indexer.polytope.technology",
+});
+
+const intentGateway = (
+  await IntentGateway.create(sourceChain, destChain, coprocessor)
+).withQueryClient(queryClient);
+
+const quote = await intentGateway.quoteIntent({
+  tokenIn: {
+    address: USDC_SOURCE,
+    decimals: 6,
+    symbol: "USDC",
+  },
+  tokenOut: {
+    address: CNGN_DESTINATION,
+    decimals: 6,
+    symbol: "cNGN",
+  },
+  amountIn: parseUnits("100", 6),
+});
+
+// The gateway protocol fee is already reflected in quote.amountOut.
+const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+
+const order: Order = {
+  // user/source/nonce/session are populated by the SDK during placement
+  user: zeroHash,
+  source: sourceChain.config.stateMachineId,
+  destination: destChain.config.stateMachineId,
+  deadline,
+  nonce: 0n,
+  fees: 0n,
+  session: zeroAddress,
+  predispatch: { assets: [], call: "0x" },
+  inputs: [{ token: USDC_SOURCE, amount: quote.amountIn }],
+  output: {
+    beneficiary,
+    assets: [{ token: CNGN_DESTINATION, amount: minAmountOut }],
+    call: "0x",
+  },
+};
+```
+
+### How the snapshot becomes a quote
+
+Each snapshot records `standardAmount` of the input token and the liquidity-weighted median solver output as `medianPrice`. The SDK reads the newest snapshot for the exact direction on the canonical Base market and computes:
+
+```
+rate = medianPrice / standardAmount
+
+exact input:
+  netInput = amountIn − floor(amountIn × protocolFeeBps / 10_000)
+  amountOut = floor(netInput × medianPrice / standardAmount)
+
+exact output:
+  netInput = ceil(amountOut × standardAmount / medianPrice)
+  amountIn = netInput grossed up for the protocol fee
+```
+
+The reverse direction uses its own snapshot; the SDK never inverts the forward price because solver spreads and available liquidity can differ by direction. `quoteMetadata` includes the snapshot commitment, block number, timestamp, bid count, median/range, standard amount, and applied protocol fee for auditing or freshness checks.
+
+If the indexer was not attached, or no valid directional snapshot exists, `quoteIntent()` throws. It never silently falls back to Uniswap; callers must explicitly request another quote strategy.
+
+---
+
+## Graffiti
 
 Every `placeOrder` call accepts an optional `graffiti` field — a `bytes32` tag that identifies the frontend or integration that originated the order. It is passed as calldata and enables on-chain attribution of orderflow to specific integrators for revenue sharing.
 

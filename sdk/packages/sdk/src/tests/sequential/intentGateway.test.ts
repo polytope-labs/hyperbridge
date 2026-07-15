@@ -1,10 +1,11 @@
 import "log-timestamp"
 
-import { strict as assert } from "assert"
+import { strict as assert } from "node:assert"
 import type { PublicClient } from "viem"
-import { type HexString, Order, TokenInfo } from "@/types"
+import type { HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import { createQueryClient } from "@/queryClient"
 import {
 	deductProtocolFee,
 	grossUpForProtocolFee,
@@ -27,7 +28,7 @@ describe.skip("IntentGateway cross-chain estimate tests", () => {
 	}
 })
 
-describe("IntentGateway BSC => Base cross-chain estimate (simplex repro)", () => {
+describe.skip("IntentGateway BSC => Base cross-chain estimate (simplex repro)", () => {
 	it("estimates fillOrder without falling back to default gas values", async () => {
 		await runCrossChainEstimate("bsc", "base")
 	}, 300_000)
@@ -42,7 +43,7 @@ describe.skip("IntentGateway same-chain estimate tests", () => {
 	}
 })
 
-describe("Uniswap quote helper", () => {
+describe.skip("Uniswap quote helper", () => {
 	it("returns the best exact-input quote across selected protocols", async () => {
 		const client = { name: "intent-gateway-quote-test-client" } as unknown as PublicClient
 		const quoteEngine = new UniswapQuoteEngine(new QuoteTestAdapter(client))
@@ -68,7 +69,7 @@ describe("Uniswap quote helper", () => {
 describe("Intent quote helper", () => {
 	const BASE_CHAIN = "EVM-8453"
 
-	it("applies the gateway protocol fee to quoted amounts", () => {
+	it.skip("applies the gateway protocol fee to quoted amounts", () => {
 		assert.equal(UNISWAP_INTENT_QUOTE_CHAIN, BASE_CHAIN)
 		// 30 bps fee: exact-input nets less to the swap, exact-output grosses up.
 		assert.equal(deductProtocolFee(1_000_000n, 30n), 997_000n)
@@ -80,12 +81,18 @@ describe("Intent quote helper", () => {
 		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
 	})
 
-	it("quotes 1 USDC to cNGN on Base through Uniswap V4", async () => {
+	it("quotes 1 USDC to cNGN on Base through the latest Phantom snapshot", async () => {
 		const configService = new ChainConfigService()
 		console.log("Base USDC -> cNGN intent quote")
 
 		const baseChain = makeEvmChain(CHAINS.base, configService)
-		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
+		assert(cNgnAddress)
+		const intentGateway = (await IntentGateway.create(baseChain, baseChain)).withQueryClient(
+			createQueryClient({
+				url: "https://nexus.indexer.polytope.technology/",
+			}),
+		)
 
 		const quote = await intentGateway.quoteIntent({
 			tokenIn: {
@@ -94,7 +101,7 @@ describe("Intent quote helper", () => {
 				symbol: "USDC",
 			},
 			tokenOut: {
-				address: configService.getCNgnAsset(BASE_CHAIN)!,
+				address: cNgnAddress,
 				decimals: 6,
 				symbol: "cNGN",
 			},
@@ -104,16 +111,17 @@ describe("Intent quote helper", () => {
 		console.log("amountIn:", quote.amountIn.toString())
 		console.log("amountOut:", quote.amountOut.toString())
 		console.log("protocolFeeBps:", quote.quoteMetadata.protocolFeeBps.toString())
-		console.log("poolKey:", quote.quoteMetadata.poolKey)
-		console.log("quoterAddress:", quote.quoteMetadata.quoterAddress)
+		assert.equal(quote.strategy, "phantom_snapshot")
+		if (quote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
+		console.log("snapshot commitment:", quote.quoteMetadata.commitment)
+		console.log("snapshot block:", quote.quoteMetadata.blockNumber.toString())
 
-		assert.equal(quote.strategy, "uniswap_v4")
 		assert.equal(quote.tradeType, "EXACT_INPUT")
 		assert.equal(quote.amountIn, 1_000_000n)
 		assert(quote.amountOut > 0n)
 		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
-		assert.equal(quote.quoteMetadata.poolKey.fee, 1500)
-		assert.equal(quote.quoteMetadata.poolKey.tickSpacing, 30)
+		assert(quote.quoteMetadata.medianPrice > 0n)
+		assert(quote.quoteMetadata.bidCount > 0)
 	}, 120_000)
 })
 

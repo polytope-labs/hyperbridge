@@ -11,7 +11,7 @@ use sync_committee_primitives::{
 	execution_header::{execution_block_hash, ExecutionHeader},
 	util::compute_epoch_at_slot,
 };
-use sync_committee_verifier::verify_sync_committee_attestation;
+use sync_committee_verifier::{error::Error, verify_sync_committee_attestation};
 
 fn setup_prover() -> SyncCommitteeProver<
 	GlamsterdamDevnet,
@@ -83,19 +83,17 @@ async fn execution_header_recovers_the_execution_state_root() {
 	assert_eq!(decoded.timestamp, proof.timestamp);
 }
 
-/// The one that runs the code that actually ships. The two tests above check the pieces in
-/// isolation; this drives a real Gloas update through `verify_sync_committee_attestation`, which
-/// is where the block hash branch and the keccak preimage check run on chain.
-///
-/// It bootstraps a trusted state from a finalized checkpoint a few epochs back, then verifies the
+/// Bootstrap a trusted state from a finalized checkpoint a few epochs back and produce the real
 /// update that advances to the current finalized checkpoint. The older checkpoint is looked up via
 /// the state endpoint, which tolerates skipped slots, and its block is fetched by root, which does
-/// not 404, so the test is one shot rather than polling for a fresh finalization.
-#[tokio::test]
-#[ignore]
-async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
-	let prover = setup_prover();
-
+/// not 404, so this is one shot rather than polling for a fresh finalization.
+async fn bootstrap_trusted_state_and_update(
+	prover: &SyncCommitteeProver<
+		GlamsterdamDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>,
+) -> anyhow::Result<(VerifierState, VerifierStateUpdate)> {
 	let block_id = |root: Root| format!("0x{}", hex::encode(root.0));
 
 	let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
@@ -127,10 +125,61 @@ async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
 			anyhow::anyhow!("no update produced between the two finalized checkpoints")
 		})?;
 
+	Ok((trusted_state, update))
+}
+
+/// The one that runs the code that actually ships. The two tests above check the pieces in
+/// isolation; this drives a real Gloas update through `verify_sync_committee_attestation`, which
+/// is where the block hash branch and the keccak preimage check run on chain.
+#[tokio::test]
+#[ignore]
+async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
+	let prover = setup_prover();
+	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
+
 	let new_state =
 		verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, update.clone())
 			.map_err(|e| anyhow::anyhow!("verifier rejected a valid gloas update: {e:?}"))?;
 
 	assert_eq!(new_state.finalized_header, update.finalized_header);
+	Ok(())
+}
+
+/// The security of the whole approach rests on two checks: keccak binds the execution header to the
+/// block hash the sync committee signed, and the header's fields must match what the update claims.
+/// This tampers with a real, otherwise valid update to make sure each check actually rejects.
+#[tokio::test]
+#[ignore]
+async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
+	let prover = setup_prover();
+	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
+
+	// Flipping a byte of the header changes its keccak, so it no longer matches the block hash the
+	// branch proves against.
+	let mut tampered_header = update.clone();
+	tampered_header.execution_payload.execution_header[0] ^= 0xff;
+	assert!(
+		matches!(
+			verify_sync_committee_attestation::<GlamsterdamDevnet>(
+				trusted_state.clone(),
+				tampered_header,
+			),
+			Err(Error::InvalidMerkleBranch(_))
+		),
+		"a header whose keccak does not match the block hash must be rejected",
+	);
+
+	// Leaving the header intact but lying about the state root passes the branch, then fails the
+	// header-matches-update cross check.
+	let mut tampered_root = update.clone();
+	tampered_root.execution_payload.state_root = Default::default();
+	assert!(
+		matches!(
+			verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, tampered_root),
+			Err(Error::InvalidUpdate(_))
+		),
+		"a state root that disagrees with the header must be rejected",
+	);
+
 	Ok(())
 }

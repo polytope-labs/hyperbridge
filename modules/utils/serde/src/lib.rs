@@ -700,4 +700,54 @@ mod test {
 
 		assert_eq!(state_machine_updated, deserialized);
 	}
+
+	// Consensus clients behind a gloas devnet endpoint render the same integer in different ways,
+	// so the deserializers below have to read every form we have seen from a real node.
+	#[derive(Deserialize, Debug, PartialEq, Eq)]
+	struct Quantity {
+		#[serde(with = "super::as_hex_quantity")]
+		value: u8,
+	}
+
+	#[test]
+	fn as_hex_quantity_reads_hex_decimal_and_integer() {
+		let hex: Quantity = serde_json::from_str(r#"{"value":"0x2a"}"#).unwrap();
+		let decimal: Quantity = serde_json::from_str(r#"{"value":"42"}"#).unwrap();
+		let integer: Quantity = serde_json::from_str(r#"{"value":42}"#).unwrap();
+
+		assert_eq!(hex.value, 42);
+		assert_eq!(decimal.value, 42);
+		assert_eq!(integer.value, 42);
+	}
+
+	#[test]
+	fn as_hex_quantity_rejects_out_of_range() {
+		// 256 does not fit in a u8, whichever way it is written.
+		assert!(serde_json::from_str::<Quantity>(r#"{"value":"0x100"}"#).is_err());
+		assert!(serde_json::from_str::<Quantity>(r#"{"value":256}"#).is_err());
+	}
+
+	#[derive(Deserialize, Debug, PartialEq, Eq)]
+	struct PtcWindow {
+		#[serde(with = "super::seq_of_seq_of_str")]
+		rows: Vec<Vec<u64>>,
+	}
+
+	#[test]
+	fn ptc_window_reads_every_client_shape() {
+		// bare rows of quoted strings
+		let strings: PtcWindow = serde_json::from_str(r#"{"rows":[["1","2"],["3"]]}"#).unwrap();
+		// bare rows of unquoted integers
+		let integers: PtcWindow = serde_json::from_str(r#"{"rows":[[1,2],[3]]}"#).unwrap();
+		// rows wrapped in an object under a named field
+		let wrapped: PtcWindow = serde_json::from_str(
+			r#"{"rows":[{"validator_indices":["1","2"]},{"validator_indices":[3]}]}"#,
+		)
+		.unwrap();
+
+		let expected = PtcWindow { rows: vec![vec![1, 2], vec![3]] };
+		assert_eq!(strings, expected);
+		assert_eq!(integers, expected);
+		assert_eq!(wrapped, expected);
+	}
 }

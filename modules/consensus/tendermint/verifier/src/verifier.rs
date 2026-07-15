@@ -219,13 +219,11 @@ fn convert_timestamp(timestamp: u64) -> Result<Time, VerificationError> {
 fn ensure_unique_addresses(
 	validators: &[cometbft::validator::Info],
 ) -> Result<(), VerificationError> {
-	let mut seen = BTreeSet::new();
-	for validator in validators {
-		if !seen.insert(validator.address) {
-			return Err(VerificationError::ValidatorSetError(
-				"duplicate validator address in set".to_string(),
-			));
-		}
+	let unique = validators.iter().map(|v| v.address).collect::<BTreeSet<_>>();
+	if unique.len() != validators.len() {
+		return Err(VerificationError::ValidatorSetError(
+			"duplicate validator address in set".to_string(),
+		));
 	}
 	Ok(())
 }

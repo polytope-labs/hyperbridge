@@ -42,7 +42,7 @@ pub fn verify_header_update(
 		next_validators_hash,
 	};
 
-	let validators = extract_validators(&trusted_state, &consensus_proof)?;
+	let (validators, used_next_validators) = extract_validators(&trusted_state, &consensus_proof)?;
 	let next_validators = consensus_proof
 		.next_validators
 		.as_ref()
@@ -70,7 +70,7 @@ pub fn verify_header_update(
 
 	match result {
 		Verdict::Success => {
-			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof)?;
+			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof, used_next_validators)?;
 			Ok(updated_state)
 		},
 		Verdict::NotEnoughTrust(tally) =>
@@ -87,7 +87,7 @@ pub fn verify_misbehaviour_header(
 ) -> Result<UpdatedTrustedState, VerificationError> {
 	consensus_proof.validate().map_err(|e| VerificationError::Invalid(e))?;
 
-	let validators = extract_validators(&trusted_state, &consensus_proof)?;
+	let (validators, used_next_validators) = extract_validators(&trusted_state, &consensus_proof)?;
 	let next_validators = consensus_proof
 		.next_validators
 		.as_ref()
@@ -133,7 +133,7 @@ pub fn verify_misbehaviour_header(
 
 	match result {
 		Verdict::Success => {
-			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof)?;
+			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof, used_next_validators)?;
 			Ok(updated_state)
 		},
 		Verdict::NotEnoughTrust(tally) =>
@@ -143,12 +143,13 @@ pub fn verify_misbehaviour_header(
 }
 
 /// Validates which validator set the signed header references and check next_validators_hash
-/// rotation. Returns the correct ValidatorSet for the header and validates next_validators if
+/// rotation. Returns the correct ValidatorSet for the header, a boolean indicating if
+/// next_validators was used (validator rotation occurred), and validates next_validators if
 /// rotation is signaled.
 fn extract_validators<'a>(
 	trusted_state: &'a TrustedState,
 	consensus_proof: &'a ConsensusProof,
-) -> Result<ValidatorSet, VerificationError> {
+) -> Result<(ValidatorSet, bool), VerificationError> {
 	let header = &consensus_proof.signed_header.header;
 	let current_set = ValidatorSet::new(trusted_state.validators.clone(), None);
 	let next_set = ValidatorSet::new(trusted_state.next_validators.clone(), None);
@@ -158,10 +159,11 @@ fn extract_validators<'a>(
 		validate_validator_set_hash(&current_set, header.validators_hash, false);
 	let next_hash_result = validate_validator_set_hash(&next_set, header.validators_hash, true);
 
-	let validators = if current_hash_result.is_ok() {
-		current_set
+	// this indicates a rotation, checking if next validator was used
+	let (validators, used_next_validators) = if current_hash_result.is_ok() {
+		(current_set, false)
 	} else if next_hash_result.is_ok() {
-		next_set
+		(next_set, true)
 	} else {
 		return Err(VerificationError::Invalid(format!(
 			"Unknown validator set hash: {:?}",
@@ -191,7 +193,7 @@ fn extract_validators<'a>(
 		}
 	}
 
-	Ok(validators)
+	Ok((validators, used_next_validators))
 }
 
 // Helper functions for type conversion
@@ -217,11 +219,15 @@ fn convert_timestamp(timestamp: u64) -> Result<Time, VerificationError> {
 fn create_updated_trusted_state(
 	old_trusted_state: &TrustedState,
 	consensus_proof: &ConsensusProof,
+	used_next_validators: bool,
 ) -> Result<UpdatedTrustedState, VerificationError> {
 	let header = &consensus_proof.signed_header.header;
 
-	// Promote next_validators to validators
-	let validators = old_trusted_state.next_validators.clone();
+	let validators = if used_next_validators {
+		old_trusted_state.next_validators.clone()
+	} else {
+		old_trusted_state.validators.clone()
+	};
 
 	// Use new next_validators if present, else keep old
 	let next_validators = consensus_proof

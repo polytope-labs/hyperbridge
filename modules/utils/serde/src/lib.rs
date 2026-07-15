@@ -184,13 +184,14 @@ pub mod seq_of_hex {
 	}
 }
 
-/// Hex encoded integer serializer and deserializer, for the `0x1a138` form. The execution rpc uses
-/// this for every integer, and the beacon api uses it for a handful of fields, so [`as_string`],
-/// which expects a decimal string, cannot read them.
+/// Integer that may arrive as a hex quantity (`0x1a138`) or a plain decimal string. The execution
+/// rpc always uses the `0x` form, and the beacon api is inconsistent for a few gloas fields:
+/// different consensus clients behind the same endpoint serve `builder.version` as either `"0x00"`
+/// or `"0"`. The `0x` prefix decides the radix, which reads both without ambiguity.
 pub mod as_hex_quantity {
 	use super::*;
-	use alloc::{format, string::String};
-	use serde::de::{Deserialize, Deserializer, Error};
+	use alloc::format;
+	use serde::de::{Deserializer, Error};
 
 	/// Serialize an integer into a hex quantity
 	pub fn serialize<S, T>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -202,17 +203,35 @@ pub mod as_hex_quantity {
 		serializer.collect_str(&format!("{HEX_ENCODING_PREFIX}{value:x}"))
 	}
 
-	/// Deserialize an integer from a hex quantity
+	/// Deserialize an integer from a hex quantity, a decimal string, or a bare integer
 	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 	where
 		D: Deserializer<'de>,
 		T: TryFrom<u64>,
 	{
-		let raw = String::deserialize(deserializer)?;
-		let digits = raw.strip_prefix(HEX_ENCODING_PREFIX).unwrap_or(&raw);
-		let value = u64::from_str_radix(digits, 16).map_err(Error::custom)?;
+		struct QuantityVisitor;
 
-		T::try_from(value).map_err(|_| Error::custom("hex quantity is out of range"))
+		impl serde::de::Visitor<'_> for QuantityVisitor {
+			type Value = u64;
+
+			fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+				f.write_str("a hex quantity, a decimal string, or an integer")
+			}
+
+			fn visit_str<E: Error>(self, v: &str) -> Result<u64, E> {
+				match v.strip_prefix(HEX_ENCODING_PREFIX) {
+					Some(digits) => u64::from_str_radix(digits, 16).map_err(Error::custom),
+					None => v.parse::<u64>().map_err(Error::custom),
+				}
+			}
+
+			fn visit_u64<E: Error>(self, v: u64) -> Result<u64, E> {
+				Ok(v)
+			}
+		}
+
+		let value = deserializer.deserialize_any(QuantityVisitor)?;
+		T::try_from(value).map_err(|_| Error::custom("quantity is out of range"))
 	}
 }
 
@@ -374,6 +393,82 @@ pub mod seq_of_seq_of_str {
 		seq.end()
 	}
 
+	/// A single scalar, rendered to a string. Clients disagree on whether validator indices are
+	/// quoted (`"6418"`) or bare JSON integers (`6418`), so accept both.
+	struct Cell(String);
+
+	impl<'de> Deserialize<'de> for Cell {
+		fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+			struct CellVisitor;
+
+			impl<'de> serde::de::Visitor<'de> for CellVisitor {
+				type Value = String;
+
+				fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+					f.write_str("a string or an integer")
+				}
+
+				fn visit_str<E: Error>(self, v: &str) -> Result<String, E> {
+					Ok(v.into())
+				}
+
+				fn visit_u64<E: Error>(self, v: u64) -> Result<String, E> {
+					Ok(v.to_string())
+				}
+
+				fn visit_i64<E: Error>(self, v: i64) -> Result<String, E> {
+					Ok(v.to_string())
+				}
+			}
+
+			deserializer.deserialize_any(CellVisitor).map(Cell)
+		}
+	}
+
+	/// A single inner sequence. Consensus clients also disagree on how to render the gloas
+	/// `ptc_window` rows: some serve each as a bare list, others wrap it in an object with a single
+	/// field. Both carry the same data, so we accept either.
+	struct Row(Vec<String>);
+
+	impl<'de> Deserialize<'de> for Row {
+		fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+			struct RowVisitor;
+
+			impl<'de> serde::de::Visitor<'de> for RowVisitor {
+				type Value = Vec<String>;
+
+				fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+					f.write_str("a sequence, or an object wrapping one")
+				}
+
+				fn visit_seq<S: serde::de::SeqAccess<'de>>(
+					self,
+					mut seq: S,
+				) -> Result<Self::Value, S::Error> {
+					let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+					while let Some(Cell(elem)) = seq.next_element::<Cell>()? {
+						out.push(elem);
+					}
+					Ok(out)
+				}
+
+				fn visit_map<M: serde::de::MapAccess<'de>>(
+					self,
+					mut map: M,
+				) -> Result<Self::Value, M::Error> {
+					let mut row = None;
+					while let Some(_key) = map.next_key::<alloc::string::String>()? {
+						row = Some(map.next_value::<Vec<Cell>>()?);
+					}
+					row.map(|cells| cells.into_iter().map(|Cell(s)| s).collect())
+						.ok_or_else(|| Error::custom("empty ptc window row object"))
+				}
+			}
+
+			deserializer.deserialize_any(RowVisitor).map(Row)
+		}
+	}
+
 	/// Deserialize a sequence of sequences from sequences of strings
 	pub fn deserialize<'de, D, T, I, U>(deserializer: D) -> Result<T, D::Error>
 	where
@@ -382,10 +477,10 @@ pub mod seq_of_seq_of_str {
 		I: TryFrom<Vec<U>>,
 		U: FromStr,
 	{
-		let raw = Vec::<Vec<String>>::deserialize(deserializer)?;
+		let raw = Vec::<Row>::deserialize(deserializer)?;
 
 		let mut outer = Vec::with_capacity(raw.len());
-		for row in raw {
+		for Row(row) in raw {
 			let mut inner = Vec::with_capacity(row.len());
 			for elem in row {
 				let parsed = U::from_str(&elem).map_err(|_| {

@@ -9,7 +9,9 @@ use sync_committee_primitives::{
 		devnet::GlamsterdamDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	},
 	execution_header::{execution_block_hash, ExecutionHeader},
+	util::compute_epoch_at_slot,
 };
+use sync_committee_verifier::verify_sync_committee_attestation;
 
 fn setup_prover() -> SyncCommitteeProver<
 	GlamsterdamDevnet,
@@ -79,4 +81,56 @@ async fn execution_header_recovers_the_execution_state_root() {
 	assert_eq!(decoded.state_root.as_slice(), proof.state_root.as_bytes());
 	assert_eq!(decoded.number, proof.block_number);
 	assert_eq!(decoded.timestamp, proof.timestamp);
+}
+
+/// The one that runs the code that actually ships. The two tests above check the pieces in
+/// isolation; this drives a real Gloas update through `verify_sync_committee_attestation`, which
+/// is where the block hash branch and the keccak preimage check run on chain.
+///
+/// It bootstraps a trusted state from a finalized checkpoint a few epochs back, then verifies the
+/// update that advances to the current finalized checkpoint. The older checkpoint is looked up via
+/// the state endpoint, which tolerates skipped slots, and its block is fetched by root, which does
+/// not 404, so the test is one shot rather than polling for a fresh finalization.
+#[tokio::test]
+#[ignore]
+async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
+	let prover = setup_prover();
+
+	let block_id = |root: Root| format!("0x{}", hex::encode(root.0));
+
+	let current = prover.fetch_finalized_checkpoint(None).await?.finalized;
+	let current_header = prover.fetch_header(&block_id(current.root)).await?;
+
+	// A few epochs back, comfortably inside the same sync committee period.
+	let trusted_slot = current_header.slot.saturating_sub(3 * GlamsterdamDevnet::SLOTS_PER_EPOCH);
+	let trusted = prover
+		.fetch_finalized_checkpoint(Some(&trusted_slot.to_string()))
+		.await?
+		.finalized;
+	let trusted_header = prover.fetch_header(&block_id(trusted.root)).await?;
+	let trusted_state_state = prover.fetch_beacon_state(&trusted_header.slot.to_string()).await?;
+
+	let trusted_state = VerifierState {
+		finalized_header: trusted_header.clone(),
+		latest_finalized_epoch: compute_epoch_at_slot::<GlamsterdamDevnet>(trusted_header.slot),
+		current_sync_committee: trusted_state_state.current_sync_committee,
+		next_sync_committee: trusted_state_state.next_sync_committee,
+		state_period: compute_sync_committee_period_at_slot::<GlamsterdamDevnet>(
+			trusted_header.slot,
+		),
+	};
+
+	let update = prover
+		.fetch_light_client_update(trusted_state.clone(), current, None)
+		.await?
+		.ok_or_else(|| {
+			anyhow::anyhow!("no update produced between the two finalized checkpoints")
+		})?;
+
+	let new_state =
+		verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, update.clone())
+			.map_err(|e| anyhow::anyhow!("verifier rejected a valid gloas update: {e:?}"))?;
+
+	assert_eq!(new_state.finalized_header, update.finalized_header);
+	Ok(())
 }

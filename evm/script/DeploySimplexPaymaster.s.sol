@@ -18,6 +18,12 @@ contract DeployScript is BaseScript {
         // Stablecoin feeds on Ethereum and Base run a 24h heartbeat; a buffer over
         // 24h avoids transient StaleOraclePrice reverts on late pushes.
         uint256 maxOracleAge = vm.envOr("MAX_ORACLE_AGE", uint256(90_000));
+        // Must implement swapExactTokensForETH (the host's wrapper routers don't).
+        // Absent key = swapping disabled.
+        address swapRouter = config.exists("PAYMASTER_SWAP_ROUTER")
+            ? config.get("PAYMASTER_SWAP_ROUTER").toAddress()
+            : address(0);
+        uint256 swapSlippageBps = vm.envOr("SWAP_SLIPPAGE_BPS", uint256(200)); // default 2%
 
         bool hasUsdt = config.exists("USDT_TOKEN") && config.exists("USDT_ORACLE");
         uint256 tokenCount = hasUsdt ? 2 : 1;
@@ -39,14 +45,16 @@ contract DeployScript is BaseScript {
                     nativeOracle: AggregatorV3Interface(nativeOracleAddr),
                     markupBps: markupBps,
                     treasury: treasury,
-                    maxOracleAge: maxOracleAge
+                    maxOracleAge: maxOracleAge,
+                    uniswapV2Router: swapRouter,
+                    swapSlippageBps: swapSlippageBps
                 }),
                 tokens,
                 oracles
             )
         );
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(implementation), initData);
-        SimplexPaymaster paymaster = SimplexPaymaster(address(proxy));
+        SimplexPaymaster paymaster = SimplexPaymaster(payable(address(proxy)));
 
         console.log("SimplexPaymaster implementation deployed at:", address(implementation));
         console.log("SimplexPaymaster proxy deployed at:", address(paymaster));
@@ -55,6 +63,8 @@ contract DeployScript is BaseScript {
         console.log("  markupBps:", markupBps);
         console.log("  maxOracleAge:", maxOracleAge);
         console.log("  treasury:", treasury);
+        console.log("  uniswapV2Router:", swapRouter);
+        console.log("  swapSlippageBps:", swapSlippageBps);
         console.log("  Registered USDC:", tokens[0], "oracle:", address(oracles[0]));
         if (hasUsdt) {
             console.log("  Registered USDT:", tokens[1], "oracle:", address(oracles[1]));

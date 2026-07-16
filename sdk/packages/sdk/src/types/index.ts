@@ -1086,6 +1086,36 @@ export interface OrderResponse {
 	}
 }
 
+export interface PhantomOrderPriceSnapshot {
+	commitment: HexString
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+	blockNumber: bigint
+	medianPrice: bigint
+	lowestPrice?: bigint
+	highestPrice?: bigint
+	bidCount: number
+	snapshotTime: Date
+}
+
+export interface PhantomOrderPriceSnapshotsResponse {
+	phantomOrderPriceSnapshots: {
+		nodes: Array<{
+			commitment: string
+			tokenA: string
+			tokenB: string
+			standardAmount: string
+			blockNumber: string
+			medianPrice: string | null
+			lowestPrice: string | null
+			highestPrice: string | null
+			bidCount: number
+			snapshotTime: string
+		}>
+	}
+}
+
 export interface TokenPrice {
 	symbol: string
 	address?: string

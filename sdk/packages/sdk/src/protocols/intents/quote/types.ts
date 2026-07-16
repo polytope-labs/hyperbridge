@@ -1,20 +1,8 @@
 import type { PublicClient } from "viem"
 import type { HexString } from "@/types"
 
-export type IntentQuoteStrategy = "uniswap_v4"
+export type IntentQuoteStrategy = "uniswap_v4" | "phantom_snapshot"
 export type IntentQuoteTradeType = "EXACT_INPUT" | "EXACT_OUTPUT"
-
-/**
- * Token metadata required by intent quote strategies.
- */
-export interface IntentQuoteToken {
-	/** Token contract address on the user/source side. */
-	address: HexString
-	/** Token decimals for raw amount formatting by the caller. */
-	decimals: number
-	/** Optional token symbol used only to match SDK-configured destination pools. */
-	symbol?: string
-}
 
 /**
  * Full Uniswap V4 PoolKey. V4 pools cannot be discovered from a token pair alone.
@@ -33,7 +21,7 @@ export interface UniswapV4IntentQuoteOptions {
 		quoterAddress?: HexString
 		/**
 		 * Destination-side address of the input currency. Defaults to
-		 * `tokenIn.address`, which only works for same-chain quotes; pass this
+		 * `tokenIn`, which only works for same-chain quotes; pass this
 		 * explicitly when source and destination chains differ. Must equal
 		 * `currency0` or `currency1`.
 		 */
@@ -45,13 +33,17 @@ export interface UniswapV4IntentQuoteOptions {
  * Parameters for `IntentGateway.quoteIntent`. The source and destination
  * chains come from the gateway instance itself.
  *
- * `strategy` defaults to `uniswap_v4`, which is currently the only supported
- * strategy. Provide exactly one of `amountIn` or `amountOut`.
+ * Quotes default to `phantom_snapshot`. Pass `strategy: "uniswap_v4"` only to
+ * explicitly request a Uniswap quote. `tokenIn` and `tokenOut` are token
+ * addresses; the SDK resolves configured token metadata internally. Provide
+ * exactly one of `amountIn` or `amountOut`.
  */
 export interface QuoteIntentParams {
 	strategy?: IntentQuoteStrategy
-	tokenIn: IntentQuoteToken
-	tokenOut: IntentQuoteToken
+	/** Token address on the source chain. */
+	tokenIn: HexString
+	/** Token address on the destination chain. */
+	tokenOut: HexString
 	amountIn?: bigint
 	amountOut?: bigint
 	uniswapV4?: UniswapV4IntentQuoteOptions
@@ -76,21 +68,49 @@ export interface UniswapV4IntentQuoteMetadata {
 	protocolFeeBps: bigint
 }
 
+export interface PhantomSnapshotIntentQuoteMetadata {
+	/** Canonical chain whose directional Phantom pair addresses identify the feed. */
+	quoteChain: string
+	/** Phantom order whose bids produced this snapshot. */
+	commitment: HexString
+	tokenA: HexString
+	tokenB: HexString
+	/** Benchmark input and liquidity-weighted median output, both in raw token units. */
+	standardAmount: bigint
+	medianPrice: bigint
+	lowestPrice?: bigint
+	highestPrice?: bigint
+	blockNumber: bigint
+	snapshotTime: Date
+	bidCount: number
+	/** Source gateway protocol fee already reflected in the returned quote amounts. */
+	protocolFeeBps: bigint
+}
+
 /**
  * Quote data partners need before constructing an IntentGateway V2 order.
  *
  * `amountIn` and `amountOut` already account for the IntentGateway protocol
  * fee that the gateway deducts from order inputs (see `quoteMetadata`). No
- * further fee adjustment is required before placing the order; apply only your
- * own slippage tolerance.
+ * further fee or slippage adjustment is required before placing the order.
  */
-export interface QuoteIntentResult {
+export interface UniswapV4QuoteIntentResult {
 	strategy: "uniswap_v4"
 	tradeType: IntentQuoteTradeType
 	amountIn: bigint
 	amountOut: bigint
 	quoteMetadata: UniswapV4IntentQuoteMetadata
 }
+
+export interface PhantomSnapshotQuoteIntentResult {
+	strategy: "phantom_snapshot"
+	tradeType: IntentQuoteTradeType
+	amountIn: bigint
+	amountOut: bigint
+	quoteMetadata: PhantomSnapshotIntentQuoteMetadata
+}
+
+export type QuoteIntentResult = UniswapV4QuoteIntentResult | PhantomSnapshotQuoteIntentResult
 
 export interface IntentQuoteStrategyHandler {
 	quote(
@@ -111,14 +131,27 @@ export class UnsupportedIntentQuotePairError extends Error {
 	constructor(params: {
 		source: string
 		destination: string
-		tokenIn: IntentQuoteToken
-		tokenOut: IntentQuoteToken
+		tokenIn: HexString
+		tokenOut: HexString
+		quoteSource?: string
 	}) {
 		super(
-			`No Uniswap v4 pool config found for ${params.tokenIn.symbol ?? params.tokenIn.address} -> ${
-				params.tokenOut.symbol ?? params.tokenOut.address
-			} on ${params.source} -> ${params.destination}`,
+			`No ${params.quoteSource ?? "Uniswap v4 pool config"} found for ${params.tokenIn} -> ${params.tokenOut} on ${params.source} -> ${params.destination}`,
 		)
 		this.name = "UnsupportedIntentQuotePairError"
+	}
+}
+
+export class PhantomSnapshotUnavailableError extends Error {
+	constructor(tokenA: HexString, tokenB: HexString) {
+		super(`No Phantom order price snapshot found for ${tokenA} -> ${tokenB}`)
+		this.name = "PhantomSnapshotUnavailableError"
+	}
+}
+
+export class InvalidPhantomSnapshotError extends Error {
+	constructor(commitment: HexString, reason: string) {
+		super(`Invalid Phantom order price snapshot ${commitment}: ${reason}`)
+		this.name = "InvalidPhantomSnapshotError"
 	}
 }

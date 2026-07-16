@@ -18,13 +18,14 @@ use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
 	host::StateMachine,
-	messaging::{hash_request, Message},
-	router::Request,
+	messaging::{hash_request, Message, ResponseMessage},
+	router::{GetResponse, Request},
 };
 use ismp_abi::{
-	evm_host::{NewEpoch, PostRequestHandled},
+	evm_host::{GetRequestHandled, NewEpoch, PostRequestHandled},
 	handler::handler_v2::{
-		HandlerV2Instance, PostRequestLeaf, PostRequestMessage, Proof, StateMachineHeight,
+		GetResponseLeaf, GetResponseMessage, HandlerV2Instance, PostRequestLeaf,
+		PostRequestMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
@@ -82,14 +83,40 @@ fn build_solidity_proof(
 	})
 }
 
-/// Extract post-request handled commitments from a receipt's logs.
+/// Build the `handleGetResponses` message from a response message.
+fn build_get_response_message(msg: &ResponseMessage) -> anyhow::Result<GetResponseMessage> {
+	let (mmr_bytes, responses) = <(Vec<u8>, Vec<GetResponse>)>::decode(&mut &*msg.proof.proof)?;
+	let (mmr_proof, leaf_indices) = decode_mmr_proof(&mmr_bytes)?;
+	let mut responses: Vec<GetResponseLeaf> = responses
+		.into_iter()
+		.zip(&leaf_indices)
+		.map(|(response, &leaf_index)| GetResponseLeaf {
+			response: response.into(),
+			index: AlloyU256::from(leaf_index),
+		})
+		.collect();
+	responses.sort_by_key(|leaf| leaf.index);
+	let proof = build_solidity_proof(&mmr_proof, &msg.proof.height)?;
+	Ok(GetResponseMessage { proof, responses })
+}
+
+/// Extract handled-message commitments from a receipt's logs.
+///
+/// `PostRequestHandled` carries the post request's commitment, `GetRequestHandled` the
+/// commitment of the GetRequest that a delivered GetResponse answers. Both are needed:
+/// `EvmHost.dispatchIncoming` swallows a reverting module callback rather than reverting
+/// the tx, so a mined transaction may not have delivered anything. The presence of the
+/// event is what tells the two apart.
 fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 	receipt
 		.inner
 		.logs()
 		.iter()
 		.filter_map(|log| {
-			PostRequestHandled::decode_log(&log.inner)
+			if let Ok(ev) = PostRequestHandled::decode_log(&log.inner) {
+				return Some(H256::from_slice(ev.commitment.as_slice()));
+			}
+			GetRequestHandled::decode_log(&log.inner)
 				.map(|ev| H256::from_slice(ev.commitment.as_slice()))
 				.ok()
 		})
@@ -287,8 +314,12 @@ pub async fn generate_contract_calls(
 				(call.calldata().clone(), gas_with_buffer(gas))
 			},
 
-			Message::Response(_) =>
-				return Err(anyhow!("Response messages not supported by relayer")),
+			Message::Response(msg) => {
+				let message = build_get_response_message(msg)?;
+				let call = contract.handleGetResponses(ismp_host, message);
+				let gas = call.estimate_gas().await.unwrap_or_else(|_| chain_gas_limit / 4);
+				(call.calldata().clone(), gas_with_buffer(gas))
+			},
 
 			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
 
@@ -341,8 +372,10 @@ async fn build_batch_inner_calls(
 					.clone()
 			},
 
-			Message::Response(_) =>
-				return Err(anyhow!("Response messages are not supported by batchCall")),
+			Message::Response(msg) => {
+				let message = build_get_response_message(msg)?;
+				contract.handleGetResponses(ismp_host, message).calldata().clone()
+			},
 
 			Message::Timeout(_) =>
 				return Err(anyhow!("Timeout messages are not supported by batchCall")),
@@ -609,7 +642,7 @@ pub async fn submit_messages(
 /// Wait for a transaction to be mined and verify it succeeded.
 ///
 /// Returns `Some((commitments, new_epochs))` on success — `commitments`
-/// from `PostRequestHandled` logs, `new_epochs` from
+/// from `PostRequestHandled` and `GetRequestHandled` logs, `new_epochs` from
 /// every `EvmHost::NewEpoch(set_id, relayer)` log that names this
 /// client as the relayer (empty when no such logs are present, multiple
 /// entries when a single tx batched multiple consensus messages). Each
@@ -672,8 +705,10 @@ fn build_tx_receipts(
 						});
 					}
 				},
-			// `Message::Response` carries only GetRequests being responded to post-#840.
-			// GetResponse delivery is on-chain via dispatch; no relayer receipt to record here.
+			// `Message::Response` deliveries are excluded on purpose: `EvmHost.dispatchIncoming`
+			// pays the relayer the origin GetRequest's fee inline, on this chain, in feeToken.
+			// There is nothing to accumulate or claim on Hyperbridge, so emitting a receipt
+			// here would enqueue a claim for a fee that was already settled.
 			_ => {},
 		}
 	}

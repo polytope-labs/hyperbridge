@@ -46,7 +46,7 @@
 			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
 					"description": "USDC \u2192 stataUSDC (Aave v3 Ethereum)",
@@ -85,7 +85,7 @@
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0xaf88d065e77c8cc2239327c5edb3a432268e5831": {
 					"description": "USDC (native Circle) \u2192 stataUSDCn (Aave v3 Arbitrum)",
@@ -124,7 +124,7 @@
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0x0b2c639c533813f4aa9d7837caf62653d097ff85": {
 					"description": "USDC (native Circle) \u2192 stataUSDCn (Aave v3 Optimism)",
@@ -158,7 +158,7 @@
 			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
 					"description": "USDC \u2192 stataUSDC (Aave v3 Base; no USDT market on Base)",
@@ -198,7 +198,7 @@
 			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": {
 					"description": "USDC (Binance-pegged) \u2192 staticAUSDC (Aave v3 BNB Chain)",
@@ -269,7 +269,7 @@
 			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": "0x975e80B476cB1d4Cd06c292ce36898f2bE4159ea",
+			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": {
 					"description": "USDC (native Circle) \u2192 stataUSDCn (Aave v3 Polygon)",

@@ -25,11 +25,14 @@ use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
-	consensus::StateMachineId,
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
+	events::{Event as IsmpEvent, StateMachineUpdated},
 	host::{IsmpHost, StateMachine},
-	messaging::{ConsensusMessage, Message},
+	messaging::{ConsensusMessage, Message, MessageWithWeight},
 };
+use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_relayer::withdrawal::Signature;
+use polkadot_sdk::sp_runtime::Weight;
 
 use crate::{
 	runtime::{new_test_ext, Assets, Ismp, RuntimeOrigin, Test, *},
@@ -104,6 +107,113 @@ fn test_incentivize_relayer() {
 
 		assert_eq!(Balances::balance(&relayer_account), UNIT + 4200);
 		assert_eq!(Assets::balance(ReputationAssetId::get(), &relayer_account), 4200);
+	})
+}
+
+fn commitment() -> StateCommitment {
+	StateCommitment { timestamp: 0, overlay_root: Some(H256::random()), state_root: H256::random() }
+}
+
+// A relayer is paid once for advancing a state machine across a span of heights. When the latest
+// height is rolled back and later resubmitted, the reward should still only cover the new blocks.
+// The `LastRewardedHeight` watermark keeps each payout scoped to the span that has not been paid.
+#[test]
+fn reward_covers_only_unpaid_heights_after_rollback() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		const BLOCK_COST: u128 = 100;
+		let host = Ismp::default();
+		let state_machine_id = setup_state_machine();
+		let treasury_account: AccountId32 = PalletId(*b"treasury").into_account_truncating();
+
+		pallet_consensus_incentives::Pallet::<Test>::update_cost_per_block(
+			RuntimeOrigin::root(),
+			state_machine_id,
+			BLOCK_COST,
+		)
+		.unwrap();
+
+		let (consensus_message, relayer_account) = setup_host_and_message(&host);
+		let message = MessageWithWeight { message: consensus_message, weight: Weight::zero() };
+		let updated = |height: u64| {
+			vec![IsmpEvent::StateMachineUpdated(StateMachineUpdated {
+				state_machine_id,
+				latest_height: height,
+			})]
+		};
+
+		// The chain has already advanced to 1025 and every block up to it has been rewarded once.
+		host.store_state_machine_commitment(
+			StateMachineHeight { id: state_machine_id, height: 1024 },
+			commitment(),
+		)
+		.unwrap();
+		host.store_latest_commitment_height(StateMachineHeight {
+			id: state_machine_id,
+			height: 1024,
+		})
+		.unwrap();
+		host.store_state_machine_commitment(
+			StateMachineHeight { id: state_machine_id, height: 1025 },
+			commitment(),
+		)
+		.unwrap();
+		host.store_latest_commitment_height(StateMachineHeight {
+			id: state_machine_id,
+			height: 1025,
+		})
+		.unwrap();
+
+		let treasury_before_first = Balances::balance(&treasury_account);
+		<pallet_consensus_incentives::Pallet<Test> as FeeHandler>::on_executed(
+			vec![message.clone()],
+			updated(1025),
+		)
+		.unwrap();
+
+		assert_eq!(Balances::balance(&treasury_account), treasury_before_first - BLOCK_COST);
+		assert_eq!(
+			pallet_consensus_incentives::LastRewardedHeight::<Test>::get(state_machine_id),
+			Some(1025)
+		);
+
+		// The previous-height pointer references an older height whose commitment is no longer
+		// retained in the bounded map.
+		pallet_ismp::PreviousStateMachineHeight::<Test>::insert(state_machine_id, 1);
+
+		// Deleting the latest commitment rolls the latest height back to that previous pointer.
+		host.delete_state_commitment(StateMachineHeight { id: state_machine_id, height: 1025 })
+			.unwrap();
+		assert_eq!(host.latest_commitment_height(state_machine_id).unwrap(), 1);
+
+		// The next honest consensus update advances to 1030, carrying the stale pointer forward as
+		// the new previous height.
+		host.store_state_machine_commitment(
+			StateMachineHeight { id: state_machine_id, height: 1030 },
+			commitment(),
+		)
+		.unwrap();
+		host.store_latest_commitment_height(StateMachineHeight {
+			id: state_machine_id,
+			height: 1030,
+		})
+		.unwrap();
+		assert_eq!(host.previous_commitment_height(state_machine_id), Some(1));
+
+		let treasury_before_second = Balances::balance(&treasury_account);
+		<pallet_consensus_incentives::Pallet<Test> as FeeHandler>::on_executed(
+			vec![message],
+			updated(1030),
+		)
+		.unwrap();
+
+		// The real advance is 1025 -> 1030, so only the 5 new blocks are paid rather than the full
+		// span back to the previous pointer.
+		assert_eq!(Balances::balance(&treasury_account), treasury_before_second - 5 * BLOCK_COST);
+		assert_eq!(
+			pallet_consensus_incentives::LastRewardedHeight::<Test>::get(state_machine_id),
+			Some(1030)
+		);
 	})
 }
 

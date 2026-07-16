@@ -1,9 +1,9 @@
-import type { HexString, TokenInfo, Order } from "@/types"
-import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, SelectBidResult } from "@/types"
-import { sleep, DEFAULT_POLL_INTERVAL, normalizeStateMachineId } from "@/utils"
-import type { IntentGatewayContext } from "./types"
-import { BidManager } from "./BidManager"
+import type { HexString, Order, TokenInfo } from "@/types"
+import type { ExecuteIntentOrderOptions, FillerBid, IntentOrderStatusUpdate, SelectBidResult } from "@/types"
+import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId, sleep } from "@/utils"
+import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
+import type { IntentGatewayContext } from "./types"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
 
@@ -14,7 +14,8 @@ const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${comm
  * Hyperbridge coprocessor for solver bids, selects the best bid, submits
  * the corresponding ERC-4337 UserOperation via the bundler, and tracks
  * partial fills until the order is fully satisfied or its on-chain block
- * deadline is reached.
+ * deadline is reached. Cross-chain fills are confirmed from the destination
+ * chain `OrderFilled` log returned by the executed bid.
  *
  * Execution is structured as two racing async generators combined via
  * `mergeRace`: an `executionStream` that polls for bids and submits
@@ -110,7 +111,12 @@ export class OrderExecutor {
 	}): Promise<FillerBid[]> {
 		const { commitment, solver, solverLockStartTime } = params
 
-		const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
+		const intentsCoprocessor = this.ctx.intentsCoprocessor
+		if (!intentsCoprocessor) {
+			throw new Error("IntentsCoprocessor required for order execution")
+		}
+
+		const fetchedBids = await intentsCoprocessor.getBidsForOrder(commitment)
 
 		if (solver) {
 			const { address, timeoutMs } = solver
@@ -226,7 +232,7 @@ export class OrderExecutor {
 	 *   → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
 	 *
 	 * **Cross-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
-	 *   (terminates — settlement is confirmed async via Hyperbridge)
+	 *   → `FILLED`
 	 */
 	async *executeOrder(
 		options: ExecuteIntentOrderOptions,
@@ -422,7 +428,13 @@ export class OrderExecutor {
 					transactionHash: result.txnHash,
 				}
 
-				const fill = this.processFillResult(result, commitment, targetAssets, totalFilledAssets, remainingAssets)
+				const fill = this.processFillResult(
+					result,
+					commitment,
+					targetAssets,
+					totalFilledAssets,
+					remainingAssets,
+				)
 				totalFilledAssets = fill.totalFilledAssets
 				remainingAssets = fill.remainingAssets
 

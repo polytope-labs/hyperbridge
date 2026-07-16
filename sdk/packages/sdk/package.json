@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "2.3.1",
+	"version": "2.4.2",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -26,7 +26,9 @@
 	},
 	"typesVersions": {
 		"*": {
-			"intents-helpers": ["./dist/node/intents-helpers.d.ts"]
+			"intents-helpers": [
+				"./dist/node/intents-helpers.d.ts"
+			]
 		}
 	},
 	"files": [

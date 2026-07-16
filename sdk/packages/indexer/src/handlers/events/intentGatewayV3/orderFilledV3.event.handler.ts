@@ -23,13 +23,15 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		})} by ${stringify({ filler })}, outputs: ${stringify(outputs)}, inputs: ${stringify(inputs)}`,
 	)
 
+	const mappedOutputs = outputs.map((token) => ({
+		token: token.token as Hex,
+		amount: BigInt(token.amount.toString()),
+	}))
+
 	await IntentGatewayV3Service.recordFill(
 		commitment,
 		filler,
-		outputs.map((token) => ({
-			token: token.token as Hex,
-			amount: BigInt(token.amount.toString()),
-		})),
+		mappedOutputs,
 		inputs.map((token) => ({
 			token: token.token as Hex,
 			amount: BigInt(token.amount.toString()),
@@ -52,4 +54,11 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		},
 		filler,
 	)
+
+	// Volume metrics are best-effort: a failure here must not fail the handler and stall indexing.
+	try {
+		await IntentGatewayV3Service.recordOrderVolume("FILLED", mappedOutputs, timestamp)
+	} catch (e: any) {
+		logger.error(`Failed to record FILLED volume for order ${commitment}: ${e.message}`)
+	}
 })

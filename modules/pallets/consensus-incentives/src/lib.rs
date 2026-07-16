@@ -78,6 +78,13 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
+	/// The highest height a relayer has already been paid for, per state machine. Rewards only
+	/// ever cover the span above this watermark, so a height that is revisited after a rollback
+	/// is not paid for twice.
+	#[pallet::storage]
+	pub type LastRewardedHeight<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Reward transfer

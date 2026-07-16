@@ -31,6 +31,8 @@ import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
+import { AdminServer, type AdminStrategy } from "@/services/server/AdminServer"
+import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
 
@@ -201,6 +203,8 @@ const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
 	}, // Arbitrum (~0.25s blocks, L2)
 }
 
+const DEFAULT_ADMIN_PORT = 8686
+
 interface QueueConfig {
 	maxRechecks: number
 	recheckDelayMs: number
@@ -284,7 +288,11 @@ program
 		"-p, --port <[host:]port>",
 		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
 	)
-	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string }) => {
+	.option(
+		"--admin-port <[host:]port>",
+		"Enable the admin server (inflight price curve updates: UI + RPC) on the given address. Unauthenticated; e.g. 8686, 127.0.0.1:8686",
+	)
+	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string; adminPort?: string }) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
@@ -416,7 +424,11 @@ program
 
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
-			const strategies = config.strategies.map((strategyConfig) => {
+			// Editable price curves for the admin server, collected at construction so the
+			// server mutates the exact policy instances the strategies price with.
+			const adminStrategies: AdminStrategy[] = []
+			const adminTokenMaps = new Map<number, Record<string, HexString>>()
+			const strategies = config.strategies.map((strategyConfig, strategyIndex) => {
 				switch (strategyConfig.type) {
 					case "stable": {
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
@@ -442,6 +454,12 @@ program
 						const askPricePolicy = strategyConfig.askPriceCurve?.length
 							? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
 							: undefined
+						adminStrategies.push({
+							index: strategyIndex,
+							bid: bidPricePolicy,
+							ask: askPricePolicy,
+						})
+						adminTokenMaps.set(strategyIndex, strategyConfig.token1)
 						const mergedFxPolicies = {
 							...DEFAULT_CONFIRMATION_POLICIES,
 							...(strategyConfig.confirmationPolicies ?? {}),
@@ -587,6 +605,57 @@ program
 				}
 			}
 
+			// The admin server for inflight price curve updates is opt-in;
+			// it only starts when --admin-port is passed.
+			let adminServer: AdminServer | undefined
+			if (options.adminPort) {
+				let adminHost = "127.0.0.1"
+				let adminPort = DEFAULT_ADMIN_PORT
+				const [host, portStr] = options.adminPort.includes(":")
+					? (options.adminPort.split(":").slice(-2) as [string, string])
+					: [adminHost, options.adminPort]
+				const parsed = parseInt(portStr, 10)
+				if (isNaN(parsed) || parsed < 1 || parsed > 65535) {
+					logger.warn(
+						{ bind: options.adminPort },
+						`Invalid admin address, using default 127.0.0.1:${DEFAULT_ADMIN_PORT}`,
+					)
+				} else {
+					adminHost = host
+					adminPort = parsed
+				}
+				if (adminStrategies.length === 0) {
+					logger.warn("No FX strategies are configured; the admin server has nothing editable")
+				}
+				// Resolve exotic token symbols (display-only) best-effort from the first
+				// configured chain; a failed read just leaves the strategy unlabelled.
+				await Promise.all(
+					adminStrategies.map(async (adminStrategy) => {
+						const token1 = adminTokenMaps.get(adminStrategy.index) ?? {}
+						const [chain, address] = Object.entries(token1)[0] ?? []
+						if (!chain || !address) return
+						try {
+							adminStrategy.exotic = (await chainClientManager.getPublicClient(chain).readContract({
+								address,
+								abi: ERC20_ABI,
+								functionName: "symbol",
+								args: [],
+							})) as string
+						} catch (err) {
+							logger.warn({ err, chain, address }, "Could not resolve exotic token symbol for admin UI")
+						}
+					}),
+				)
+				adminServer = new AdminServer(adminStrategies)
+				try {
+					await adminServer.start(adminPort, adminHost)
+				} catch (err) {
+					// The filler is the primary workload; a bind failure (e.g. port in use)
+					// costs the admin UI, not the process.
+					logger.error({ err, bind: `${adminHost}:${adminPort}` }, "Admin server failed to start")
+				}
+			}
+
 			// Start the filler
 			intentFiller.start()
 
@@ -615,6 +684,7 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
+				adminServer?.stop()
 				vaultVenue?.stopSweeping()
 				await intentFiller.stop()
 				// Exit all vault positions back to the underlying asset (best-effort).

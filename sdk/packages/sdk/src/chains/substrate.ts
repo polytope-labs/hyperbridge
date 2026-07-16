@@ -27,6 +27,7 @@ import {
 } from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
+import { ISMP_PREFIX } from "@/configs/constants"
 
 /**
  * HTTP RPC Client for making JSON-RPC calls over HTTP
@@ -175,7 +176,7 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<HexString | undefined>} The commitment data if found, undefined otherwise.
 	 */
 	async queryRequestCommitment(commitment: HexString): Promise<HexString | undefined> {
-		const prefix = toHex(":child_storage:default:ISMP")
+		const prefix = toHex(ISMP_PREFIX)
 		const key = this.requestCommitmentKey(commitment)
 
 		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])
@@ -189,7 +190,7 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<HexString | undefined>} The relayer address responsible for delivering the request.
 	 */
 	async queryRequestReceipt(commitment: HexString): Promise<HexString | undefined> {
-		const prefix = toHex(":child_storage:default:ISMP")
+		const prefix = toHex(ISMP_PREFIX)
 		const key = this.requestReceiptKey(commitment)
 
 		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])
@@ -220,7 +221,7 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<HexString | undefined>} The receipt data if present, otherwise undefined.
 	 */
 	async queryResponseReceipt(commitment: HexString): Promise<HexString | undefined> {
-		const prefix = toHex(":child_storage:default:ISMP")
+		const prefix = toHex(ISMP_PREFIX)
 		const key = this.responseReceiptKey(commitment)
 
 		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])

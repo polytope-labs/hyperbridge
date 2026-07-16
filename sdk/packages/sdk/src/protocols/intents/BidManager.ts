@@ -1,4 +1,4 @@
-import { decodeFunctionData, concat, keccak256 } from "viem"
+import { decodeFunctionData, concat } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
 import type {
@@ -47,9 +47,12 @@ export class BidManager {
 	 * Constructs a signed `PackedUserOperation` that a solver can submit to the
 	 * Hyperbridge coprocessor as a bid to fill an order.
 	 *
-	 * The solver's signature covers a hash that binds the UserOperation to the
-	 * order commitment and the session key address, so the IntentGatewayV2
-	 * contract can verify the solver's intent on-chain.
+	 * The solver signs the operation as EntryPoint v0.8 EIP-712 typed data,
+	 * whose digest is the plain userOpHash. The binding to the order lives in
+	 * the operation itself: the 4337 nonce key must be the lower 192 bits of
+	 * the order commitment (`SolverAccount` enforces this during validation),
+	 * and the callData carries the order. This keeps the signed payload fully
+	 * transparent to signing infrastructure instead of an opaque digest.
 	 *
 	 * @param options - Parameters describing the solver account, gas limits, fee
 	 *   market values, and pre-built `callData` for the fill operation.
@@ -91,11 +94,19 @@ export class BidManager {
 			signature: "0x" as HexString,
 		}
 
-		const userOpHash = CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
-		const sessionKey = order.session
-
-		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as HexString]))
-		const solverSignature = await solverSigner.signMessage(messageHash, Number(chainId))
+		// SolverAccount validates this signature against the plain userOpHash and
+		// requires the nonce key to bind the order commitment and session key.
+		const nonceKey = BigInt(nonce) >> 64n
+		const expectedKey = CryptoUtils.bidNonceKey(order.id as HexString, order.session as HexString)
+		if (nonceKey !== expectedKey) {
+			console.warn(
+				`[BidManager] bid nonce key does not bind the order commitment and session key; on-chain validation will fail (order=${order.id})`,
+			)
+		}
+		const solverSignature = await solverSigner.signTypedData(
+			CryptoUtils.packedUserOpTypedData(userOp, entryPointAddress, chainId),
+			Number(chainId),
+		)
 
 		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString
 

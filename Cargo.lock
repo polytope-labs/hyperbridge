@@ -9291,7 +9291,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.9.1"
+version = "1.9.2"
 dependencies = [
  "clap",
  "futures",
@@ -13133,6 +13133,7 @@ dependencies = [
  "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
+ "pallet-hyper-fungible-token",
  "pallet-intents-coprocessor",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -28026,7 +28027,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "2.4.7"
+version = "2.4.9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28508,8 +28509,6 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "sha3 0.10.8",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-verifier",
@@ -28541,7 +28540,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-prover"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "anyhow",
  "clap",

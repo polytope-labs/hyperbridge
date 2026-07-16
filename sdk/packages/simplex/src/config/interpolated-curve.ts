@@ -155,18 +155,23 @@ export class FillerPricePolicy {
 	private points: { amount: Decimal; price: Decimal }[]
 
 	constructor(config: PriceCurveConfig) {
+		this.points = FillerPricePolicy.parsePoints(config)
+	}
+
+	/** Validates and normalizes curve points; throws without side effects on invalid input. */
+	private static parsePoints(config: PriceCurveConfig): { amount: Decimal; price: Decimal }[] {
 		if (!config.points || config.points.length < 1) {
 			throw new Error("Filler price policy: must have at least 1 point to define a curve")
 		}
 
-		this.points = config.points
+		const points = config.points
 			.map((p) => ({
 				amount: new Decimal(p.amount),
 				price: new Decimal(p.price),
 			}))
 			.sort((a, b) => a.amount.comparedTo(b.amount))
 
-		for (const point of this.points) {
+		for (const point of points) {
 			if (!point.amount.isFinite() || point.amount.isNegative()) {
 				throw new Error("Filler price policy: invalid amount")
 			}
@@ -174,11 +179,27 @@ export class FillerPricePolicy {
 				throw new Error("Filler price policy: price must be a positive number")
 			}
 		}
+
+		return points
+	}
+
+	/**
+	 * Replaces the curve points in place, so every holder of this policy prices
+	 * with the new curve from the next `getPrice` call. Validates the full point
+	 * set before applying; throws on invalid input leaving the curve unchanged.
+	 */
+	replacePoints(config: PriceCurveConfig): void {
+		this.points = FillerPricePolicy.parsePoints(config)
 	}
 
 	/** Replaces all curve points with a single flat price. */
 	updatePrice(newPrice: Decimal): void {
-		this.points = [{ amount: new Decimal(0), price: newPrice }]
+		this.replacePoints({ points: [{ amount: "0", price: newPrice.toString() }] })
+	}
+
+	/** Current curve points, sorted by amount. */
+	getPoints(): PriceCurvePoint[] {
+		return this.points.map((p) => ({ amount: p.amount.toString(), price: p.price.toString() }))
 	}
 
 	getPrice(orderValueUsd: Decimal): Decimal {

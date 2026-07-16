@@ -43,6 +43,29 @@ pub struct UpdateConsensusState {
 	pub challenge_periods: BTreeMap<StateMachine, u64>,
 }
 
+/// Bookkeeping for the per-chain FIFO queue of retained state commitment
+/// heights. `head..tail` are the live indices in
+/// [`StateCommitmentQueue`](crate::pallet::StateCommitmentQueue).
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Default,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	codec::MaxEncodedLen,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+)]
+pub struct CommitmentQueueState {
+	/// Queue index of the oldest live entry. Evictions advance this.
+	pub head: u64,
+	/// Queue index the next insertion will use. Insertions advance this.
+	pub tail: u64,
+}
+
 /// Holds a commitment to either a request or response
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,

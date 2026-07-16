@@ -22,8 +22,8 @@ use crate::{
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
-	KnownStateMachineHeights, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
-	UnbondingPeriod, RELAYER_FEE_ACCOUNT,
+	LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight, UnbondingPeriod,
+	RELAYER_FEE_ACCOUNT,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -192,11 +192,19 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		// The height's entry in the state commitment queue is deliberately left
+		// behind; locating it would mean scanning the queue, which is the per-insert
+		// cost the queue exists to avoid. Usually its eviction is a no-op, but when
+		// the vetoed height is the latest the reset below re-opens it for honest
+		// resubmission, and the resubmitted height gets a *second* queue entry. The
+		// stale entry then evicts the live commitment when it reaches the head —
+		// one insertion before the live entry would have, since the resubmission
+		// lands directly behind its stale twin. So a veto costs that height one
+		// insertion of retention and permanently burns one queue slot. Both are
+		// negligible against the configured caps; making it exact would need a
+		// height -> index map on the insert path.
 		BoundedStateCommitments::<T>::remove(height.id, height.height);
 		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
-		KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
-			heights.remove(&height.height);
-		});
 
 		// technically any state commitment can be vetoed,
 		// safety check that it's the latest before resetting it.

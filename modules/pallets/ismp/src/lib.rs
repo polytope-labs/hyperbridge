@@ -27,6 +27,7 @@ pub mod events;
 pub mod fee_handler;
 pub mod host;
 mod impls;
+pub mod migrations;
 pub mod offchain;
 mod utils;
 pub mod weights;
@@ -85,13 +86,14 @@ pub mod pallet {
 		errors::HandlingError,
 		fee_handler::FeeHandler,
 	};
+	use alloc::collections::BTreeMap;
 	use codec::{Codec, Encode};
 	use core::fmt::Debug;
 	use frame_support::{
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
-		BoundedBTreeSet, PalletId,
+		PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
 	use ismp::{
@@ -120,14 +122,20 @@ pub mod pallet {
 	/// [`PalletId`] where relayer fees will be collected
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
-	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
+	/// Default number of state commitments retained per chain in
+	/// [`BoundedStateCommitments`]. Chains can be given a different retention
+	/// depth via [`StateMachineCommitmentCap`], sized to their finality
+	/// cadence: a chain that finalizes every few seconds needs a much larger
+	/// cap than one that finalizes every few minutes to cover the same
+	/// wall-clock window.
 	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 1024;
 
-	frame_support::parameter_types! {
-		/// Type-level `Get<u32>` mirror of [`MAX_STATE_MACHINE_COMMITMENTS`], used as
-		/// the bound for the per-chain [`KnownStateMachineHeights`] pointer set.
-		pub const MaxStateMachineCommitments: u32 = MAX_STATE_MACHINE_COMMITMENTS;
-	}
+	/// Upper bound on evictions performed by a single
+	/// [`Pallet::insert_bounded_state_commitment`] call. At steady state each
+	/// insertion evicts exactly one entry; the headroom lets the queue drain
+	/// gradually after a per-chain cap is lowered without unbounded work in
+	/// one call.
+	pub const MAX_COMMITMENT_EVICTIONS_PER_INSERT: u32 = 4;
 
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config {
@@ -282,7 +290,8 @@ pub mod pallet {
 
 	/// Bounded map of state machine commitments. Keyed by
 	/// `(StateMachineId, height)` so we can cap entries per chain at
-	/// [`MAX_STATE_MACHINE_COMMITMENTS`]. Writes go here; the legacy
+	/// [`StateMachineCommitmentCap`] (default
+	/// [`MAX_STATE_MACHINE_COMMITMENTS`]). Writes go here; the legacy
 	/// [`StateCommitments`] map is drained gradually.
 	#[pallet::storage]
 	pub type BoundedStateCommitments<T: Config> = StorageDoubleMap<
@@ -309,21 +318,39 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Per-chain sorted pointer set of heights currently held in
-	/// [`BoundedStateCommitments`] and [`BoundedStateMachineUpdateTime`].
-	/// `BoundedStateCommitments` uses `Blake2_128Concat` for its inner key, so
-	/// `iter_key_prefix(chain).next()` yields hash order rather than numeric
-	/// order and cannot identify the oldest height. Iterating this set does,
-	/// because `BTreeSet` is sorted. Every write to the bounded maps for a
-	/// given chain must keep this set in sync.
+	/// Per-chain FIFO queue of heights retained in [`BoundedStateCommitments`]
+	/// and [`BoundedStateMachineUpdateTime`], keyed by a monotonically
+	/// increasing insertion index. Insertion order matches height order because
+	/// consensus updates only ever advance a state machine, so evicting at the
+	/// head removes the oldest height. Entries whose height was vetoed via
+	/// `delete_state_commitment` are left in place and become harmless no-ops
+	/// when their index is evicted.
+	///
+	/// Each insertion touches O(1) small storage items, so the per-chain cap
+	/// can grow without adding I/O or PoV weight to the insert path.
 	#[pallet::storage]
-	pub type KnownStateMachineHeights<T: Config> = StorageMap<
+	pub type StateCommitmentQueue<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		StateMachineId,
-		BoundedBTreeSet<u64, MaxStateMachineCommitments>,
-		ValueQuery,
+		Twox64Concat,
+		u64,
+		u64,
+		OptionQuery,
 	>;
+
+	/// Head/tail indices for [`StateCommitmentQueue`], per chain.
+	#[pallet::storage]
+	pub type CommitmentQueueStates<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, CommitmentQueueState, ValueQuery>;
+
+	/// Per-chain override for the number of state commitments retained. Chains
+	/// with faster finality emit state machine updates more frequently and
+	/// need a deeper queue to retain the same wall-clock window of provable
+	/// heights. Falls back to [`MAX_STATE_MACHINE_COMMITMENTS`] when unset.
+	#[pallet::storage]
+	pub type StateMachineCommitmentCap<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, u32, OptionQuery>;
 
 	/// State of the multi-block drain of the legacy [`StateCommitments`] map.
 	/// See [`super::LegacyDrainState`].
@@ -719,6 +746,33 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Set the number of state commitments retained per chain, overriding
+		/// [`MAX_STATE_MACHINE_COMMITMENTS`]. Size each cap to the chain's
+		/// finality cadence: `desired retention window / finality interval`.
+		/// Raising a cap simply pauses eviction until the queue grows into it;
+		/// lowering one drains the excess gradually, bounded by
+		/// [`MAX_COMMITMENT_EVICTIONS_PER_INSERT`] per subsequent insertion.
+		///
+		/// The dispatch origin for this call must be `T::AdminOrigin`.
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(commitment_caps.len() as u64))]
+		#[pallet::call_index(5)]
+		pub fn update_commitment_caps(
+			origin: OriginFor<T>,
+			commitment_caps: BTreeMap<StateMachineId, u32>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			ensure!(
+				commitment_caps.values().all(|cap| *cap > 0),
+				Error::<T>::InvalidCommitmentCap
+			);
+			for (id, cap) in commitment_caps {
+				StateMachineCommitmentCap::<T>::insert(id, cap);
+			}
+
+			Ok(())
+		}
 	}
 
 	/// Pallet Events
@@ -811,6 +865,8 @@ pub mod pallet {
 		ChallengePeriodUpdateFailed,
 		/// Error charging fee
 		ErrorChargingFee,
+		/// A state machine commitment cap must be non-zero
+		InvalidCommitmentCap,
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
@@ -942,31 +998,48 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Number of state commitments retained for `id`: the
+		/// [`StateMachineCommitmentCap`] override if set, otherwise
+		/// [`MAX_STATE_MACHINE_COMMITMENTS`].
+		pub fn state_machine_commitment_cap(id: StateMachineId) -> u32 {
+			StateMachineCommitmentCap::<T>::get(id).unwrap_or(MAX_STATE_MACHINE_COMMITMENTS)
+		}
+
 		/// Insert a state commitment into the bounded map. ISMP does not allow
-		/// duplicate state updates so we don't have an overwrite path. Evicts the
-		/// oldest entry for `chain` first if the per-chain cap has been reached,
-		/// using [`KnownStateMachineHeights`] as both the cap counter (via `len`)
-		/// and the sorted pointer for eviction.
+		/// duplicate state updates so we don't have an overwrite path.
+		///
+		/// Appends the height to the per-chain [`StateCommitmentQueue`] and, once
+		/// the chain's cap is exceeded, evicts oldest-first from the queue head.
+		/// Evictions are limited to [`MAX_COMMITMENT_EVICTIONS_PER_INSERT`] per
+		/// call so a lowered cap drains over many insertions rather than in one.
 		pub fn insert_bounded_state_commitment(
 			height: StateMachineHeight,
 			commitment: StateCommitment,
 		) {
-			KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
-				if heights.len() as u32 >= MAX_STATE_MACHINE_COMMITMENTS {
-					if let Some(&oldest) = heights.iter().next() {
-						heights.remove(&oldest);
-						BoundedStateCommitments::<T>::remove(height.id, oldest);
-						BoundedStateMachineUpdateTime::<T>::remove(height.id, oldest);
-					}
+			let cap = Self::state_machine_commitment_cap(height.id).max(1) as u64;
+			let mut state = CommitmentQueueStates::<T>::get(height.id);
+
+			StateCommitmentQueue::<T>::insert(height.id, state.tail, height.height);
+			state.tail += 1;
+
+			let excess = (state.tail - state.head)
+				.saturating_sub(cap)
+				.min(MAX_COMMITMENT_EVICTIONS_PER_INSERT as u64);
+			for _ in 0..excess {
+				if let Some(old) = StateCommitmentQueue::<T>::take(height.id, state.head) {
+					BoundedStateCommitments::<T>::remove(height.id, old);
+					BoundedStateMachineUpdateTime::<T>::remove(height.id, old);
 				}
-				let _ = heights.try_insert(height.height);
-			});
+				state.head += 1;
+			}
+
+			CommitmentQueueStates::<T>::insert(height.id, state);
 			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
 		}
 
 		/// Insert a state machine update time into the bounded map. Shares the
-		/// [`KnownStateMachineHeights`] pointer with [`BoundedStateCommitments`]
-		/// since both maps track the same heights per chain.
+		/// [`StateCommitmentQueue`] with [`BoundedStateCommitments`] since both
+		/// maps track the same heights per chain.
 		pub fn insert_bounded_update_time(height: StateMachineHeight, timestamp: u64) {
 			BoundedStateMachineUpdateTime::<T>::insert(height.id, height.height, timestamp);
 		}

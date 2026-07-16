@@ -28,6 +28,7 @@ tesseract-evm = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-parachain = { workspace = true }
 tesseract-pharos = { workspace = true }
+tesseract-arc = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }

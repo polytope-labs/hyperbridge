@@ -182,7 +182,7 @@ commitment = keccak256(abi.encode(order))  // with reduced inputs, filled user/s
 
 The SDK populates `order.id` with this commitment after the `OrderPlaced` event is parsed.
 
-## Quote cNGN Orders
+## Quoting Orders
 
 Before constructing a USDC/cNGN or USDT/cNGN order, attach the Hyperbridge indexer and call `quoteIntent()`. Phantom snapshots are the default quote source, so no strategy option is needed. These pairs are priced from the latest directional `PhantomOrderPriceSnapshot`, which aggregates valid solver bids into a liquidity-weighted median.
 

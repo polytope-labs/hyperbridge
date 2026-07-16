@@ -11,6 +11,7 @@ import {
 	grossUpForProtocolFee,
 	UNISWAP_INTENT_QUOTE_CHAIN,
 } from "@/protocols/intents/quote/uniswapV4"
+import { PhantomSnapshotIntentQuoteStrategy } from "@/protocols/intents/quote"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
@@ -81,21 +82,18 @@ describe("Intent quote helper", () => {
 		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
 	})
 
-	it("quotes 1 USDC to cNGN on Base through the latest Phantom snapshot", async () => {
+	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
 		const configService = new ChainConfigService()
-		console.log("Base USDC -> cNGN intent quote")
+		console.log("USDT -> cNGN intent quote through Base USDC snapshot")
 
 		const baseChain = makeEvmChain(CHAINS.base, configService)
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
 		assert(cNgnAddress)
-		const intentGateway = (await IntentGateway.create(baseChain, baseChain)).withQueryClient(
-			createQueryClient({
-				url: "https://nexus.indexer.polytope.technology/",
-			}),
-		)
+		const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology/" })
+		const intentGateway = (await IntentGateway.create(baseChain, baseChain)).withQueryClient(queryClient)
 
 		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
+			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
 			tokenOut: cNgnAddress,
 			amountIn: 1_000_000n,
 		})
@@ -114,6 +112,25 @@ describe("Intent quote helper", () => {
 		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
 		assert(quote.quoteMetadata.medianPrice > 0n)
 		assert(quote.quoteMetadata.bidCount > 0)
+
+		const bscUsdtQuote = await new PhantomSnapshotIntentQuoteStrategy(configService, () => queryClient).quote(
+			{
+				tokenIn: configService.getUsdtAsset(CHAINS.bsc.id),
+				tokenOut: cNgnAddress,
+				amountIn: 1_000_000n,
+			},
+			{
+				stateMachineId: CHAINS.bsc.id,
+				client: {
+					readContract: async () => [0n, 0n, 0n, 0n, 5n],
+				} as unknown as PublicClient,
+			},
+			{ stateMachineId: BASE_CHAIN, client: baseChain.client },
+		)
+		assert.equal(bscUsdtQuote.strategy, "phantom_snapshot")
+		if (bscUsdtQuote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
+		assert.equal(bscUsdtQuote.quoteMetadata.tokenA, configService.getUsdcAsset(BASE_CHAIN))
+		assert.equal(bscUsdtQuote.quoteMetadata.tokenB.toLowerCase(), cNgnAddress.toLowerCase())
 	}, 120_000)
 })
 

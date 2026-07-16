@@ -1,5 +1,5 @@
 import type { ChainConfigService } from "@/configs/ChainConfigService"
-import { Chains } from "@/configs/chain"
+import { Chains, type ConfiguredAssetSymbol } from "@/configs/chain"
 import { _queryLatestPhantomOrderPriceSnapshot } from "@/queryClient"
 import type { HexString, IndexerQueryClient, PhantomOrderPriceSnapshot } from "@/types"
 import {
@@ -16,11 +16,28 @@ import { deductProtocolFee, divCeil, grossUpForProtocolFee, readProtocolFeeBps, 
 
 export const PHANTOM_INTENT_QUOTE_CHAIN = Chains.BASE_MAINNET
 
-type PhantomQuoteSymbol = "USDC" | "USDT" | "cNGN"
 interface ResolvedPhantomPair {
 	tokenA: HexString
 	tokenB: HexString
 }
+
+interface ResolvedBaseSnapshotToken {
+	symbol: ConfiguredAssetSymbol
+	address: HexString
+}
+
+/**
+ * Maps order-side configured assets to the canonical Base asset used by the
+ * Phantom snapshot feed. Add new source assets here as snapshot coverage grows.
+ */
+const BASE_SNAPSHOT_ASSET_BY_ORDER_ASSET: Partial<Record<ConfiguredAssetSymbol, ConfiguredAssetSymbol>> = {
+	USDC: "USDC",
+	USDT: "USDC",
+	cNGN: "cNGN",
+}
+
+/** Directional Base snapshot pairs currently indexed by Phantom. */
+const SUPPORTED_BASE_SNAPSHOT_PAIRS = new Set(["USDC:cNGN", "cNGN:USDC"])
 
 export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHandler {
 	constructor(
@@ -34,7 +51,7 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 		destination: IntentQuoteChainContext,
 	): Promise<QuoteIntentResult> {
 		validateQuoteParams(params)
-		const pair = this.resolvePair(params, source.stateMachineId, destination.stateMachineId)
+		const pair = this.resolveBaseSnapshotPair(params, source.stateMachineId, destination.stateMachineId)
 		if (!pair) {
 			throw new UnsupportedIntentQuotePairError({
 				source: source.stateMachineId,
@@ -56,34 +73,27 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 		])
 		if (!snapshot) throw new PhantomSnapshotUnavailableError(pair.tokenA, pair.tokenB)
 		this.validateSnapshot(snapshot)
-
-		if (params.amountIn !== undefined) return this.quoteExactInput(params.amountIn, protocolFeeBps, snapshot)
-		if (params.amountOut !== undefined) return this.quoteExactOutput(params.amountOut, protocolFeeBps, snapshot)
-		throw new Error("Quote amount is missing after validation")
+		return this.quoteSnapshot(params, protocolFeeBps, snapshot)
 	}
 
-	private quoteExactInput(
-		amountIn: bigint,
+	private quoteSnapshot(
+		params: QuoteIntentParams,
 		protocolFeeBps: bigint,
 		snapshot: PhantomOrderPriceSnapshot,
 	): PhantomSnapshotQuoteIntentResult {
-		const netAmountIn = deductProtocolFee(amountIn, protocolFeeBps)
-		const amountOut = (netAmountIn * snapshot.medianPrice) / snapshot.standardAmount
-		if (amountOut <= 0n) {
-			throw new InvalidPhantomSnapshotError(snapshot.commitment, "quote rounds down to zero output")
+		if (params.amountIn !== undefined) {
+			const netAmountIn = deductProtocolFee(params.amountIn, protocolFeeBps)
+			const amountOut = (netAmountIn * snapshot.medianPrice) / snapshot.standardAmount
+			if (amountOut <= 0n) {
+				throw new InvalidPhantomSnapshotError(snapshot.commitment, "quote rounds down to zero output")
+			}
+			return this.buildResult("EXACT_INPUT", params.amountIn, amountOut, protocolFeeBps, snapshot)
 		}
 
-		return this.buildResult("EXACT_INPUT", amountIn, amountOut, protocolFeeBps, snapshot)
-	}
-
-	private quoteExactOutput(
-		amountOut: bigint,
-		protocolFeeBps: bigint,
-		snapshot: PhantomOrderPriceSnapshot,
-	): PhantomSnapshotQuoteIntentResult {
-		const netAmountIn = divCeil(amountOut * snapshot.standardAmount, snapshot.medianPrice)
+		if (params.amountOut === undefined) throw new Error("Quote amount is missing after validation")
+		const netAmountIn = divCeil(params.amountOut * snapshot.standardAmount, snapshot.medianPrice)
 		const amountIn = grossUpForProtocolFee(netAmountIn, protocolFeeBps)
-		return this.buildResult("EXACT_OUTPUT", amountIn, amountOut, protocolFeeBps, snapshot)
+		return this.buildResult("EXACT_OUTPUT", amountIn, params.amountOut, protocolFeeBps, snapshot)
 	}
 
 	private buildResult(
@@ -130,38 +140,33 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 		}
 	}
 
-	private resolvePair(
+	private resolveBaseSnapshotPair(
 		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
 		sourceStateMachineId: string,
 		destinationStateMachineId: string,
 	): ResolvedPhantomPair | undefined {
-		const tokenInSymbol = this.resolveSymbol(params.tokenIn, sourceStateMachineId)
-		const tokenOutSymbol = this.resolveSymbol(params.tokenOut, destinationStateMachineId)
-		if (!tokenInSymbol || !tokenOutSymbol || !isSupportedPair(tokenInSymbol, tokenOutSymbol)) return
+		const tokenIn = this.resolveBaseSnapshotToken(sourceStateMachineId, params.tokenIn)
+		const tokenOut = this.resolveBaseSnapshotToken(destinationStateMachineId, params.tokenOut)
+		if (!tokenIn || !tokenOut || !isSupportedSnapshotPair(tokenIn.symbol, tokenOut.symbol)) return
 
-		const tokenA = this.chainConfigService.getAssetAddress(PHANTOM_INTENT_QUOTE_CHAIN, tokenInSymbol)
-		const tokenB = this.chainConfigService.getAssetAddress(PHANTOM_INTENT_QUOTE_CHAIN, tokenOutSymbol)
-		if (!isConfiguredAddress(tokenA) || !isConfiguredAddress(tokenB)) return
-
-		return { tokenA, tokenB }
+		return { tokenA: tokenIn.address, tokenB: tokenOut.address }
 	}
 
-	private resolveSymbol(token: HexString, chain: string): PhantomQuoteSymbol | undefined {
-		for (const symbol of ["USDC", "USDT", "cNGN"] as const) {
-			const configuredAddress = this.chainConfigService.getAssetAddress(chain, symbol)
-			if (isConfiguredAddress(configuredAddress) && configuredAddress.toLowerCase() === token.toLowerCase()) {
-				return symbol
-			}
-		}
-		return undefined
+	private resolveBaseSnapshotToken(chain: string, tokenAddress: HexString): ResolvedBaseSnapshotToken | undefined {
+		const orderAsset = this.chainConfigService.getAssetMetadataByAddress(chain, tokenAddress)?.symbol
+		if (!orderAsset) return
+
+		const snapshotAsset = BASE_SNAPSHOT_ASSET_BY_ORDER_ASSET[orderAsset]
+		if (!snapshotAsset) return
+		const address = this.chainConfigService.getAssetAddress(PHANTOM_INTENT_QUOTE_CHAIN, snapshotAsset)
+		if (!isConfiguredAddress(address)) return
+
+		return { symbol: snapshotAsset, address }
 	}
 }
 
-function isSupportedPair(tokenIn: PhantomQuoteSymbol, tokenOut: PhantomQuoteSymbol): boolean {
-	return (
-		(tokenIn === "cNGN" && (tokenOut === "USDC" || tokenOut === "USDT")) ||
-		(tokenOut === "cNGN" && (tokenIn === "USDC" || tokenIn === "USDT"))
-	)
+function isSupportedSnapshotPair(tokenA: ConfiguredAssetSymbol, tokenB: ConfiguredAssetSymbol): boolean {
+	return SUPPORTED_BASE_SNAPSHOT_PAIRS.has(`${tokenA}:${tokenB}`)
 }
 
 function isConfiguredAddress(address?: HexString): address is HexString {

@@ -196,7 +196,7 @@ if (quote.strategy === "phantom_snapshot") {
 }
 ```
 
-The Phantom feed supports USDC → cNGN, cNGN → USDC, USDT → cNGN, and cNGN → USDT. The SDK queries the newest snapshot for the exact direction and scales its liquidity-weighted `medianPrice` from the snapshot's `standardAmount`. Reverse quotes use a separately measured reverse snapshot rather than an inverted forward price.
+The Phantom feed currently supports USDC → cNGN, cNGN → USDC, USDT → cNGN, and cNGN → USDT. Regardless of the order's source or destination chain, snapshots exist only for the canonical Base USDC/cNGN market: the SDK resolves USDC and USDT to Base USDC, and cNGN to Base cNGN, before querying the exact direction.
 
 For non-Phantom pairs whose pools are not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
 

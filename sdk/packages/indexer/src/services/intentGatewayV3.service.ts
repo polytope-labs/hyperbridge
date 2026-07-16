@@ -42,7 +42,6 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
-import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
@@ -54,7 +53,7 @@ const ENTITY_TYPE = "IOrderV3"
 
 export type IntentVolumeType = "PLACED" | "FILLED"
 
-// USDC and USDT share one exchange rate: the USDC TokenPrice row.
+// USDC and USDT are assumed to be worth exactly $1.
 const STABLE_SYMBOLS = ["USDC", "USDT"]
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -343,17 +342,10 @@ export class IntentGatewayV3Service {
 		const valuesUSD = await Promise.all(
 			tokens.map(async (token) => {
 				const tokenAddress = bytes32ToBytes20(token.token)
-				let decimals = 18
-				let symbol = "eth"
+				const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
 
-				if (tokenAddress != "0x0000000000000000000000000000000000000000") {
-					const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
-					decimals = await tokenContract.decimals()
-					symbol = await tokenContract.symbol()
-				}
-
-				const price = await TokenPriceService.getPrice(symbol)
-				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price)
+				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price ? price.toFixed(18) : "0")
 			}),
 		)
 
@@ -369,7 +361,7 @@ export class IntentGatewayV3Service {
 
 	/**
 	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
-	 * chain-token, plus a per-chain USD rollup priced via TokenPrice for stables and the
+	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and via the
 	 * latest PhantomOrderPriceSnapshot exchange rate for FX tokens.
 	 */
 	static async recordOrderVolume(
@@ -462,25 +454,16 @@ export class IntentGatewayV3Service {
 		decimals: number,
 	): Promise<Decimal | null> {
 		if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) {
-			return this.getStableUsdPrice()
+			return new Decimal(1)
 		}
 
-		const fxPrice = await this.getFxPriceFromSnapshots(tokenAddress, decimals)
-		if (fxPrice) return fxPrice
-
-		const price = await TokenPriceService.getPrice(symbol)
-		return price > 0 ? new Decimal(price) : null
-	}
-
-	private static async getStableUsdPrice(): Promise<Decimal | null> {
-		const price = await TokenPriceService.getPrice("USDC")
-		return price > 0 ? new Decimal(price) : null
+		return this.getFxPriceFromSnapshots(tokenAddress, decimals)
 	}
 
 	/**
 	 * Price an FX token from the latest PhantomOrderPriceSnapshot quoting it against a
 	 * stablecoin, in either direction. The snapshot rate is medianPrice / standardAmount
-	 * adjusted for decimals; the stable leg is converted to USD via the USDC TokenPrice row.
+	 * adjusted for decimals; the stable leg is assumed to be worth $1.
 	 */
 	private static async getFxPriceFromSnapshots(tokenAddress: string, decimals: number): Promise<Decimal | null> {
 		const [asInput, asOutput] = await Promise.all([
@@ -505,7 +488,7 @@ export class IntentGatewayV3Service {
 		const quoteAddress = tokenIsInput ? snapshot.tokenB : snapshot.tokenA
 
 		// Snapshots are not chain-scoped, so the quote token may not exist on this chain and the
-		// metadata call can revert. That must not fail the handler — fall back to CoinGecko instead.
+		// metadata call can revert. That must not fail the handler.
 		let quote: { symbol: string; decimals: number }
 		try {
 			quote = await this.getTokenMetadata(quoteAddress)
@@ -524,9 +507,6 @@ export class IntentGatewayV3Service {
 			return null
 		}
 
-		const stableUsd = await this.getStableUsdPrice()
-		if (!stableUsd) return null
-
 		const median = new Decimal(snapshot.medianPrice!.toString())
 		const standard = new Decimal(snapshot.standardAmount.toString())
 
@@ -540,7 +520,7 @@ export class IntentGatewayV3Service {
 					.div(new Decimal(10).pow(quote.decimals))
 					.div(median.div(new Decimal(10).pow(decimals)))
 
-		return rate.mul(stableUsd)
+		return rate
 	}
 
 	static async updateOrderStatus(

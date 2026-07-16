@@ -14,13 +14,6 @@ export const SIMPLEX_PAYMASTER_ABI = [
 		type: "function",
 	},
 	{
-		inputs: [],
-		name: "uniswapV2Router",
-		outputs: [{ name: "", type: "address" }],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
 		inputs: [
 			{ name: "token", type: "address" },
 			{ name: "amountIn", type: "uint256" },

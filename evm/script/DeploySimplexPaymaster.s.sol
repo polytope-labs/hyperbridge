@@ -18,11 +18,6 @@ contract DeployScript is BaseScript {
         // Stablecoin feeds on Ethereum and Base run a 24h heartbeat; a buffer over
         // 24h avoids transient StaleOraclePrice reverts on late pushes.
         uint256 maxOracleAge = vm.envOr("MAX_ORACLE_AGE", uint256(90_000));
-        // Must implement swapExactTokensForETH (the host's wrapper routers don't).
-        // Absent key = swapping disabled.
-        address swapRouter = config.exists("PAYMASTER_SWAP_ROUTER")
-            ? config.get("PAYMASTER_SWAP_ROUTER").toAddress()
-            : address(0);
         uint256 swapSlippageBps = vm.envOr("SWAP_SLIPPAGE_BPS", uint256(200)); // default 2%
 
         bool hasUsdt = config.exists("USDT_TOKEN") && config.exists("USDT_ORACLE");
@@ -46,7 +41,6 @@ contract DeployScript is BaseScript {
                     markupBps: markupBps,
                     treasury: treasury,
                     maxOracleAge: maxOracleAge,
-                    uniswapV2Router: swapRouter,
                     swapSlippageBps: swapSlippageBps
                 }),
                 tokens,
@@ -63,7 +57,6 @@ contract DeployScript is BaseScript {
         console.log("  markupBps:", markupBps);
         console.log("  maxOracleAge:", maxOracleAge);
         console.log("  treasury:", treasury);
-        console.log("  uniswapV2Router:", swapRouter);
         console.log("  swapSlippageBps:", swapSlippageBps);
         console.log("  Registered USDC:", tokens[0], "oracle:", address(oracles[0]));
         if (hasUsdt) {

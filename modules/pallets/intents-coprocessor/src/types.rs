@@ -65,9 +65,6 @@ pub struct PaymasterParams {
 	pub treasury: H160,
 	/// Maximum Chainlink oracle staleness, in seconds
 	pub max_oracle_age: U256,
-	/// V2-compatible router used to swap accrued fees into the EntryPoint
-	/// deposit; zero address disables swapping
-	pub uniswap_v2_router: H160,
 	/// Slippage tolerance in basis points for fee-recycling swaps
 	pub swap_slippage_bps: U256,
 }
@@ -384,7 +381,6 @@ pub(crate) mod sol_types {
 			uint256 markupBps;
 			address treasury;
 			uint256 maxOracleAge;
-			address uniswapV2Router;
 			uint256 swapSlippageBps;
 		}
 	}
@@ -487,7 +483,6 @@ impl From<PaymasterParams> for sol_types::PaymasterParams {
 			markupBps: AlloyU256::from_limbs(params.markup_bps.0),
 			treasury: Address::from_slice(&params.treasury.0),
 			maxOracleAge: AlloyU256::from_limbs(params.max_oracle_age.0),
-			uniswapV2Router: Address::from_slice(&params.uniswap_v2_router.0),
 			swapSlippageBps: AlloyU256::from_limbs(params.swap_slippage_bps.0),
 		}
 	}
@@ -707,7 +702,6 @@ mod request_kind_tests {
 			markup_bps: U256::from(200),
 			treasury: H160::repeat_byte(0x44),
 			max_oracle_age: U256::from(90_000),
-			uniswap_v2_router: H160::repeat_byte(0x55),
 			swap_slippage_bps: U256::from(300),
 		};
 		let body = RequestKind::PaymasterUpdateParams(params.clone()).encode_body();
@@ -720,7 +714,6 @@ mod request_kind_tests {
 		assert_eq!(decoded.markupBps, AlloyU256::from(200));
 		assert_eq!(decoded.treasury.as_slice(), &params.treasury.0);
 		assert_eq!(decoded.maxOracleAge, AlloyU256::from(90_000));
-		assert_eq!(decoded.uniswapV2Router.as_slice(), &params.uniswap_v2_router.0);
 		assert_eq!(decoded.swapSlippageBps, AlloyU256::from(300));
 	}
 

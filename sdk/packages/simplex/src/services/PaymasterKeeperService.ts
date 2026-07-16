@@ -1,4 +1,4 @@
-import { erc20Abi, formatEther, formatUnits, zeroAddress } from "viem"
+import { erc20Abi, formatEther, formatUnits } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
@@ -90,19 +90,13 @@ export class PaymasterKeeperService {
 		const keeper = this.signer.account.address as HexString
 
 		let treasury: HexString
-		let router: HexString
 		let tokens: readonly HexString[]
 		try {
-			;[treasury, router, tokens] = await Promise.all([
+			;[treasury, tokens] = await Promise.all([
 				publicClient.readContract({
 					address: paymaster,
 					abi: SIMPLEX_PAYMASTER_ABI,
 					functionName: "treasury",
-				}) as Promise<HexString>,
-				publicClient.readContract({
-					address: paymaster,
-					abi: SIMPLEX_PAYMASTER_ABI,
-					functionName: "uniswapV2Router",
 				}) as Promise<HexString>,
 				publicClient.readContract({
 					address: paymaster,
@@ -122,11 +116,9 @@ export class PaymasterKeeperService {
 			this.logger.warn({ chain, paymaster, treasury, keeper }, "Signer is not the paymaster treasury, skipping")
 			return
 		}
-		if (router.toLowerCase() === zeroAddress) {
-			this.logger.debug({ chain, paymaster }, "Swap router unset, skipping")
-			return
-		}
 
+		// The router lives on the host; swapAndDeposit reverts (caught per token)
+		// if the host has none configured for this chain.
 		for (const token of tokens) {
 			try {
 				await this.recycleToken(chain, paymaster, token)

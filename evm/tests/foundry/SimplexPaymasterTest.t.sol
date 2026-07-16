@@ -15,6 +15,7 @@ import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPa
 
 contract MockHost {
     bytes public hyperbridgeId;
+    address public uniswapV2Router;
 
     constructor(bytes memory _hyperbridgeId) {
         hyperbridgeId = _hyperbridgeId;
@@ -22,6 +23,10 @@ contract MockHost {
 
     function hyperbridge() external view returns (bytes memory) {
         return hyperbridgeId;
+    }
+
+    function setUniswapV2Router(address router) external {
+        uniswapV2Router = router;
     }
 }
 
@@ -159,6 +164,7 @@ contract SimplexPaymasterTest is Test {
 
         router = new MockV2Router(address(0xE7E7));
         vm.deal(address(router), 100 ether);
+        hyperbridgeHost.setUniswapV2Router(address(router));
 
         // The paymaster deposits to the canonical v0.8 EntryPoint address.
         vm.etch(address(ERC4337Utils.ENTRYPOINT_V08), address(new MockEntryPoint()).code);
@@ -511,10 +517,7 @@ contract SimplexPaymasterTest is Test {
     }
 
     function testSwapAndDepositRouterUnsetReverts() public {
-        _govern(
-            SimplexPaymaster.RequestKind.UpdateParams,
-            _paramsPayloadFull(address(nativeOracle), 0, treasury, 86_400, address(0), 200)
-        );
+        hyperbridgeHost.setUniswapV2Router(address(0));
 
         vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidRouter.selector, address(0)));
         vm.prank(treasury);
@@ -560,18 +563,7 @@ contract SimplexPaymasterTest is Test {
             _request(
                 HYPERBRIDGE_ID,
                 SimplexPaymaster.RequestKind.UpdateParams,
-                _paramsPayloadFull(address(nativeOracle), 0, treasury, 86_400, address(router), 1_001)
-            )
-        );
-
-        address codeless = makeAddr("codeless");
-        vm.prank(address(hyperbridgeHost));
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidRouter.selector, codeless));
-        paymaster.onAccept(
-            _request(
-                HYPERBRIDGE_ID,
-                SimplexPaymaster.RequestKind.UpdateParams,
-                _paramsPayloadFull(address(nativeOracle), 0, treasury, 86_400, codeless, 200)
+                _paramsPayloadFull(address(nativeOracle), 0, treasury, 86_400, 1_001)
             )
         );
     }
@@ -613,7 +605,6 @@ contract SimplexPaymasterTest is Test {
             markupBps: markupBps,
             treasury: treasury,
             maxOracleAge: 86_400,
-            uniswapV2Router: address(router),
             swapSlippageBps: 200
         });
         tokens = new address[](2);
@@ -655,8 +646,8 @@ contract SimplexPaymasterTest is Test {
         uint256 markupBps,
         address treasury_,
         uint256 maxOracleAge
-    ) internal view returns (bytes memory) {
-        return _paramsPayloadFull(oracle, markupBps, treasury_, maxOracleAge, address(router), 200);
+    ) internal pure returns (bytes memory) {
+        return _paramsPayloadFull(oracle, markupBps, treasury_, maxOracleAge, 200);
     }
 
     function _paramsPayloadFull(
@@ -664,7 +655,6 @@ contract SimplexPaymasterTest is Test {
         uint256 markupBps,
         address treasury_,
         uint256 maxOracleAge,
-        address router_,
         uint256 swapSlippageBps
     ) internal pure returns (bytes memory) {
         return abi.encode(
@@ -673,7 +663,6 @@ contract SimplexPaymasterTest is Test {
                 markupBps: markupBps,
                 treasury: treasury_,
                 maxOracleAge: maxOracleAge,
-                uniswapV2Router: router_,
                 swapSlippageBps: swapSlippageBps
             })
         );

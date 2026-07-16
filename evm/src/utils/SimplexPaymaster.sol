@@ -84,12 +84,6 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         /// @notice Maximum oracle staleness. Chainlink heartbeats vary per chain
         ///         (BSC stablecoins ~27s, Base/Ethereum stablecoins up to 24h).
         uint256 maxOracleAge;
-        /// @notice V2-compatible router used by {swapAndDeposit} to recycle
-        ///         accrued stablecoins into the EntryPoint deposit. Must
-        ///         implement `swapExactTokensForETH` and `WETH()` (the host's
-        ///         configured wrapper routers only sell ETH and won't work).
-        ///         Zero address disables swapping.
-        address uniswapV2Router;
         /// @notice Slippage tolerance in basis points applied to the
         ///         oracle-derived expected output in {swapAndDeposit}.
         uint256 swapSlippageBps;
@@ -132,10 +126,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @notice Set of registered token addresses (for enumeration).
     address[] public registeredTokens;
 
-    address public uniswapV2Router;
     uint256 public swapSlippageBps;
 
-    uint256[48] private __gap;
+    uint256[49] private __gap;
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
@@ -224,9 +217,6 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         if (p.treasury == address(0)) revert ZeroAddress();
         if (p.markupBps > MAX_MARKUP_BPS) revert InvalidMarkup(p.markupBps);
         if (p.maxOracleAge == 0 || p.maxOracleAge > MAX_ORACLE_AGE) revert InvalidOracleAge(p.maxOracleAge);
-        if (p.uniswapV2Router != address(0) && p.uniswapV2Router.code.length == 0) {
-            revert InvalidRouter(p.uniswapV2Router);
-        }
         if (p.swapSlippageBps > MAX_SWAP_SLIPPAGE_BPS) revert InvalidSlippage(p.swapSlippageBps);
 
         emit ParamsUpdated(
@@ -235,7 +225,6 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
                 markupBps: markupBps,
                 treasury: treasury,
                 maxOracleAge: maxOracleAge,
-                uniswapV2Router: uniswapV2Router,
                 swapSlippageBps: swapSlippageBps
             }),
             p
@@ -246,7 +235,6 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         markupBps = p.markupBps;
         treasury = p.treasury;
         maxOracleAge = p.maxOracleAge;
-        uniswapV2Router = p.uniswapV2Router;
         swapSlippageBps = p.swapSlippageBps;
     }
 
@@ -294,10 +282,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     // ── Fee recycling ────────────────────────────────────────────────
 
-    /// @notice Swaps accrued stablecoins to the native asset through the
-    ///         configured V2-style router and deposits the contract's entire
-    ///         native balance into the EntryPoint, so collected fees keep the
-    ///         paymaster funded without a governance round-trip.
+    /// @notice Swaps accrued stablecoins to the native asset through the host's
+    ///         V2-style router and deposits the contract's entire native balance
+    ///         into the EntryPoint, so collected fees keep the paymaster funded
+    ///         without a governance round-trip.
     /// @param token    A registered token; deactivated tokens remain recyclable.
     /// @param amountIn Token amount to swap; 0 (or more than the balance)
     ///                 swaps the full balance.
@@ -310,7 +298,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      execute mid-bundle.
     function swapAndDeposit(address token, uint256 amountIn) external {
         if (msg.sender != treasury) revert UnauthorizedCall();
-        address router = uniswapV2Router;
+        address router = IDispatcher(host()).uniswapV2Router();
         if (router == address(0)) revert InvalidRouter(router);
         TokenConfig memory cfg = tokenConfigs[token];
         if (address(cfg.tokenOracle) == address(0)) revert TokenNotRegistered(token);

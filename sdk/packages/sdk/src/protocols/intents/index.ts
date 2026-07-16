@@ -8,7 +8,6 @@ export {
 } from "./quote"
 export type {
 	IntentQuoteStrategy,
-	IntentQuoteToken,
 	IntentQuoteTradeType,
 	QuoteIntentParams,
 	QuoteIntentResult,

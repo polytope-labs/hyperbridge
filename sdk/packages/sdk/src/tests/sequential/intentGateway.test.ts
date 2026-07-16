@@ -95,16 +95,8 @@ describe("Intent quote helper", () => {
 		)
 
 		const quote = await intentGateway.quoteIntent({
-			tokenIn: {
-				address: configService.getUsdcAsset(BASE_CHAIN),
-				decimals: 6,
-				symbol: "USDC",
-			},
-			tokenOut: {
-				address: cNgnAddress,
-				decimals: 6,
-				symbol: "cNGN",
-			},
+			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
+			tokenOut: cNgnAddress,
 			amountIn: 1_000_000n,
 		})
 

@@ -15,7 +15,6 @@ import type { HexString } from "@/types"
 import {
 	type IntentQuoteChainContext,
 	type IntentQuoteStrategyHandler,
-	type IntentQuoteToken,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	UnsupportedIntentQuotePairError,
@@ -51,7 +50,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 
 		const protocolFeeBps = await readProtocolFeeBps(this.chainConfigService, source)
 		const quoteClient = this.resolveQuoteClient(source, destination)
-		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, UNISWAP_INTENT_QUOTE_CHAIN)
+		const poolConfig = this.resolvePoolConfig(params, source.stateMachineId, destination.stateMachineId)
 
 		return params.amountIn !== undefined
 			? this.quoteExactInput({ params, client: quoteClient, protocolFeeBps, poolConfig })
@@ -78,7 +77,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		const override = params.uniswapV4?.poolKey
 		if (override) {
 			const poolKey = normalizePoolKey(override)
-			const tokenInForQuote = getAddress(override.currencyIn ?? params.tokenIn.address) as HexString
+			const tokenInForQuote = getAddress(override.currencyIn ?? params.tokenIn) as HexString
 			if (tokenInForQuote !== poolKey.currency0 && tokenInForQuote !== poolKey.currency1) {
 				throw new Error(
 					`Input currency ${tokenInForQuote} is not part of the override pool (${poolKey.currency0}, ${poolKey.currency1}). For cross-chain quotes pass uniswapV4.poolKey.currencyIn with the Base-side input currency address.`,
@@ -87,12 +86,12 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 
 			return {
 				poolKey,
-				quoterAddress: this.resolveQuoterAddress(destination, override.quoterAddress),
+				quoterAddress: this.resolveQuoterAddress(UNISWAP_INTENT_QUOTE_CHAIN, override.quoterAddress),
 				tokenInForQuote,
 			}
 		}
 
-		const poolConfig = this.resolveConfiguredPool(params, destination)
+		const poolConfig = this.resolveConfiguredPool(params, source, destination, UNISWAP_INTENT_QUOTE_CHAIN)
 		if (poolConfig) return poolConfig
 
 		throw new UnsupportedIntentQuotePairError({
@@ -103,13 +102,18 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		})
 	}
 
-	private resolveConfiguredPool(params: QuoteIntentParams, chain: string): ResolvedPoolConfig | null {
-		for (const pool of this.chainConfigService.getUniswapV4PoolConfigs(chain)) {
-			const resolvedPool = this.resolveConfiguredPoolTokens(chain, pool)
+	private resolveConfiguredPool(
+		params: QuoteIntentParams,
+		sourceChain: string,
+		destinationChain: string,
+		quoteChain: string,
+	): ResolvedPoolConfig | null {
+		for (const pool of this.chainConfigService.getUniswapV4PoolConfigs(quoteChain)) {
+			const resolvedPool = this.resolveConfiguredPoolTokens(quoteChain, pool)
 			if (!resolvedPool) continue
 
-			const tokenInForQuote = matchPoolToken(params.tokenIn, resolvedPool)
-			const tokenOutForQuote = matchPoolToken(params.tokenOut, resolvedPool)
+			const tokenInForQuote = this.matchPoolToken(params.tokenIn, sourceChain, resolvedPool)
+			const tokenOutForQuote = this.matchPoolToken(params.tokenOut, destinationChain, resolvedPool)
 			if (!tokenInForQuote || !tokenOutForQuote || tokenInForQuote.symbol === tokenOutForQuote.symbol) continue
 
 			const { currency0, currency1 } = sortCurrencies(resolvedPool[0].address, resolvedPool[1].address)
@@ -121,7 +125,7 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 					tickSpacing: pool.tickSpacing,
 					hooks: getAddress(pool.hooks ?? zeroAddress) as HexString,
 				},
-				quoterAddress: this.resolveQuoterAddress(chain),
+				quoterAddress: this.resolveQuoterAddress(quoteChain),
 				tokenInForQuote: tokenInForQuote.address,
 			}
 		}
@@ -153,6 +157,21 @@ export class UniswapV4IntentQuoteStrategy implements IntentQuoteStrategyHandler 
 		const address = this.chainConfigService.getAssetAddress(chain, symbol)
 		if (!address || address === "0x") return null
 		return { symbol, address: getAddress(address) as HexString }
+	}
+
+	private matchPoolToken(
+		tokenAddress: HexString,
+		orderChain: string,
+		poolTokens: readonly [ResolvedConfiguredPoolToken, ResolvedConfiguredPoolToken],
+	): ResolvedConfiguredPoolToken | null {
+		const addressMatch = poolTokens.find(
+			(poolToken) => poolToken.address.toLowerCase() === tokenAddress.toLowerCase(),
+		)
+		if (addressMatch) return addressMatch
+
+		const metadata = this.chainConfigService.getAssetMetadataByAddress(orderChain, tokenAddress)
+		if (!metadata) return null
+		return poolTokens.find((poolToken) => poolToken.symbol === metadata.symbol) ?? null
 	}
 
 	private async quoteExactInput(args: {
@@ -289,19 +308,6 @@ function sortCurrencies(tokenIn: HexString, tokenOut: HexString): Pick<UniswapV4
 	return BigInt(input) < BigInt(output)
 		? { currency0: input as HexString, currency1: output as HexString }
 		: { currency0: output as HexString, currency1: input as HexString }
-}
-
-function matchPoolToken(
-	token: IntentQuoteToken,
-	poolTokens: readonly [ResolvedConfiguredPoolToken, ResolvedConfiguredPoolToken],
-): ResolvedConfiguredPoolToken | null {
-	const tokenAddress = token.address.toLowerCase()
-	const addressMatch = poolTokens.find((poolToken) => poolToken.address.toLowerCase() === tokenAddress)
-	if (addressMatch) return addressMatch
-
-	const tokenSymbol = token.symbol?.toUpperCase()
-	if (!tokenSymbol) return null
-	return poolTokens.find((poolToken) => poolToken.symbol.toUpperCase() === tokenSymbol) ?? null
 }
 
 function getZeroForOne(tokenIn: HexString, poolKey: UniswapV4PoolKey): boolean {

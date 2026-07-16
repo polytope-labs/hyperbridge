@@ -206,16 +206,8 @@ const intentGateway = (
 ).withQueryClient(queryClient);
 
 const quote = await intentGateway.quoteIntent({
-  tokenIn: {
-    address: USDC_SOURCE,
-    decimals: 6,
-    symbol: "USDC",
-  },
-  tokenOut: {
-    address: CNGN_DESTINATION,
-    decimals: 6,
-    symbol: "cNGN",
-  },
+  tokenIn: USDC_SOURCE,
+  tokenOut: CNGN_DESTINATION,
   amountIn: parseUnits("100", 6),
 });
 

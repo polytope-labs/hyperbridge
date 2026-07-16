@@ -2,7 +2,7 @@ import type { ChainConfig, HexString } from "@/types"
 import {
 	chainConfigs,
 	getConfigByStateMachineId,
-	Chains,
+	type Chains,
 	hyperbridgeAddress,
 	type ConfiguredAssetSymbol,
 	type UniswapV4PoolConfigData,
@@ -58,6 +58,29 @@ export class ChainConfigService {
 
 	getAssetAddress(chain: string, symbol: ConfiguredAssetSymbol): HexString | undefined {
 		return this.getConfig(chain)?.assets?.[symbol] as HexString | undefined
+	}
+
+	/**
+	 * Resolves configured token metadata from an address on a specific chain.
+	 * This is used by SDK helpers that accept token addresses rather than caller-
+	 * supplied symbols or decimals.
+	 */
+	getAssetMetadataByAddress(
+		chain: string,
+		address: HexString,
+	): { symbol: ConfiguredAssetSymbol; address: HexString; decimals?: number } | undefined {
+		const config = this.getConfig(chain)
+		if (!config?.assets) return
+
+		const normalizedAddress = address.toLowerCase()
+		for (const [symbol, configuredAddress] of Object.entries(config.assets)) {
+			if (configuredAddress.toLowerCase() !== normalizedAddress) continue
+			return {
+				symbol: symbol as ConfiguredAssetSymbol,
+				address: configuredAddress as HexString,
+				decimals: config.tokenDecimals?.[symbol as keyof typeof config.tokenDecimals],
+			}
+		}
 	}
 
 	getUsdtAsset(chain: string): HexString {

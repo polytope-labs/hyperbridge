@@ -171,7 +171,7 @@ while (true) {
 
 ### quoteIntent(params)
 
-Quotes an intent from the latest directional Phantom order price snapshot by default. No `strategy` option is needed for Phantom quotes. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote, which prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain.
+Quotes an intent from the latest directional Phantom order price snapshot by default. Pass token addresses directly—no token metadata is required. No `strategy` option is needed for Phantom quotes. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote, which prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain.
 
 Phantom-backed quotes require an attached Hyperbridge indexer client. There is no automatic Uniswap fallback.
 
@@ -185,16 +185,8 @@ const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
 );
 
 const quote = await gateway.quoteIntent({
-  tokenIn: {
-    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    decimals: 6,
-    symbol: "USDC",
-  },
-  tokenOut: {
-    address: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
-    decimals: 6,
-    symbol: "cNGN",
-  },
+  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
   amountIn: 100_000_000n,
 });
 
@@ -227,7 +219,7 @@ const quote = await gateway.quoteIntent({
 });
 ```
 
-When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn.address`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
+When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
 
 The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Phantom metadata contains the snapshot commitment, block number/time, directional token addresses, `standardAmount`, median/low/high prices, contributing bid count, and source-chain protocol fee. Uniswap metadata contains the V4 PoolKey, quoter, quote chain, and protocol fee.
 

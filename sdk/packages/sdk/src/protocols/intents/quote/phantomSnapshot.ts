@@ -7,7 +7,6 @@ import {
 	PhantomSnapshotUnavailableError,
 	type IntentQuoteChainContext,
 	type IntentQuoteStrategyHandler,
-	type IntentQuoteToken,
 	type PhantomSnapshotQuoteIntentResult,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
@@ -147,13 +146,10 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 		return { tokenA, tokenB }
 	}
 
-	private resolveSymbol(token: IntentQuoteToken, chain: string): PhantomQuoteSymbol | undefined {
+	private resolveSymbol(token: HexString, chain: string): PhantomQuoteSymbol | undefined {
 		for (const symbol of ["USDC", "USDT", "cNGN"] as const) {
 			const configuredAddress = this.chainConfigService.getAssetAddress(chain, symbol)
-			if (
-				isConfiguredAddress(configuredAddress) &&
-				configuredAddress.toLowerCase() === token.address.toLowerCase()
-			) {
+			if (isConfiguredAddress(configuredAddress) && configuredAddress.toLowerCase() === token.toLowerCase()) {
 				return symbol
 			}
 		}

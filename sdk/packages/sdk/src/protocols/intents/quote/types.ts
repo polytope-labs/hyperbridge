@@ -5,18 +5,6 @@ export type IntentQuoteStrategy = "uniswap_v4" | "phantom_snapshot"
 export type IntentQuoteTradeType = "EXACT_INPUT" | "EXACT_OUTPUT"
 
 /**
- * Token metadata required by intent quote strategies.
- */
-export interface IntentQuoteToken {
-	/** Token contract address on its order-side chain (source for input, destination for output). */
-	address: HexString
-	/** Token decimals for raw amount formatting by the caller. */
-	decimals: number
-	/** Optional token symbol used only to match SDK-configured destination pools. */
-	symbol?: string
-}
-
-/**
  * Full Uniswap V4 PoolKey. V4 pools cannot be discovered from a token pair alone.
  */
 export interface UniswapV4PoolKey {
@@ -33,7 +21,7 @@ export interface UniswapV4IntentQuoteOptions {
 		quoterAddress?: HexString
 		/**
 		 * Destination-side address of the input currency. Defaults to
-		 * `tokenIn.address`, which only works for same-chain quotes; pass this
+		 * `tokenIn`, which only works for same-chain quotes; pass this
 		 * explicitly when source and destination chains differ. Must equal
 		 * `currency0` or `currency1`.
 		 */
@@ -46,13 +34,16 @@ export interface UniswapV4IntentQuoteOptions {
  * chains come from the gateway instance itself.
  *
  * Quotes default to `phantom_snapshot`. Pass `strategy: "uniswap_v4"` only to
- * explicitly request a Uniswap quote. Provide exactly one of `amountIn` or
- * `amountOut`.
+ * explicitly request a Uniswap quote. `tokenIn` and `tokenOut` are token
+ * addresses; the SDK resolves configured token metadata internally. Provide
+ * exactly one of `amountIn` or `amountOut`.
  */
 export interface QuoteIntentParams {
 	strategy?: IntentQuoteStrategy
-	tokenIn: IntentQuoteToken
-	tokenOut: IntentQuoteToken
+	/** Token address on the source chain. */
+	tokenIn: HexString
+	/** Token address on the destination chain. */
+	tokenOut: HexString
 	amountIn?: bigint
 	amountOut?: bigint
 	uniswapV4?: UniswapV4IntentQuoteOptions
@@ -141,14 +132,12 @@ export class UnsupportedIntentQuotePairError extends Error {
 	constructor(params: {
 		source: string
 		destination: string
-		tokenIn: IntentQuoteToken
-		tokenOut: IntentQuoteToken
+		tokenIn: HexString
+		tokenOut: HexString
 		quoteSource?: string
 	}) {
 		super(
-			`No ${params.quoteSource ?? "Uniswap v4 pool config"} found for ${params.tokenIn.symbol ?? params.tokenIn.address} -> ${
-				params.tokenOut.symbol ?? params.tokenOut.address
-			} on ${params.source} -> ${params.destination}`,
+			`No ${params.quoteSource ?? "Uniswap v4 pool config"} found for ${params.tokenIn} -> ${params.tokenOut} on ${params.source} -> ${params.destination}`,
 		)
 		this.name = "UnsupportedIntentQuotePairError"
 	}

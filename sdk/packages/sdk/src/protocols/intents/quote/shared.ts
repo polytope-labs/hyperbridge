@@ -13,7 +13,7 @@ export function validateQuoteParams(params: QuoteIntentParams): void {
 	if (hasAmountIn === hasAmountOut) throw new Error("Provide exactly one of amountIn or amountOut")
 	if (params.amountIn !== undefined && params.amountIn <= 0n) throw new Error("amountIn must be greater than zero")
 	if (params.amountOut !== undefined && params.amountOut <= 0n) throw new Error("amountOut must be greater than zero")
-	if (params.tokenIn.address.toLowerCase() === params.tokenOut.address.toLowerCase()) {
+	if (params.tokenIn.toLowerCase() === params.tokenOut.toLowerCase()) {
 		throw new Error("tokenIn and tokenOut cannot be the same")
 	}
 }

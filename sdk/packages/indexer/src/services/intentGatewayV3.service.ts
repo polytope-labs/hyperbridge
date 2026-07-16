@@ -38,6 +38,7 @@ import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/Cum
 import { PhantomOrderPriceSnapshot } from "@/configs/src/types/models/PhantomOrderPriceSnapshot"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { BASE_CNGN } from "@/addresses/fx-tokens.addresses"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -55,6 +56,10 @@ export type IntentVolumeType = "PLACED" | "FILLED"
 
 // USDC and USDT are assumed to be worth exactly $1.
 const STABLE_SYMBOLS = ["USDC", "USDT"]
+
+// Phantom pairs are registered against the cNGN/USDC pool on Base, so snapshot
+// prices are denominated in Base USDC: a $1 stable with 6 decimals.
+const SNAPSHOT_QUOTE_DECIMALS = 6
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
@@ -457,13 +462,20 @@ export class IntentGatewayV3Service {
 			return new Decimal(1)
 		}
 
-		return this.getFxPriceFromSnapshots(tokenAddress, decimals)
+		// Snapshots reference Base token addresses, so cNGN on any chain is priced
+		// via its Base representation.
+		if (symbol.toUpperCase() === "CNGN") {
+			return this.getFxPriceFromSnapshots(BASE_CNGN.address, BASE_CNGN.decimals)
+		}
+
+		return this.getFxPriceFromSnapshots(tokenAddress.toLowerCase(), decimals)
 	}
 
 	/**
-	 * Price an FX token from the latest PhantomOrderPriceSnapshot quoting it against a
-	 * stablecoin, in either direction. The snapshot rate is medianPrice / standardAmount
-	 * adjusted for decimals; the stable leg is assumed to be worth $1.
+	 * Price an FX token from the latest PhantomOrderPriceSnapshot referencing it as either
+	 * leg of the pair. The snapshot rate is medianPrice / standardAmount adjusted for
+	 * decimals; the quote leg is assumed to be a $1 stable with SNAPSHOT_QUOTE_DECIMALS.
+	 * Snapshot addresses live on Base, so tokenAddress must be the Base representation.
 	 */
 	private static async getFxPriceFromSnapshots(tokenAddress: string, decimals: number): Promise<Decimal | null> {
 		const [asInput, asOutput] = await Promise.all([
@@ -484,28 +496,7 @@ export class IntentGatewayV3Service {
 			.sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1))[0]
 		if (!snapshot) return null
 
-		const tokenIsInput = snapshot.tokenA === tokenAddress
-		const quoteAddress = tokenIsInput ? snapshot.tokenB : snapshot.tokenA
-
-		// Snapshots are not chain-scoped, so the quote token may not exist on this chain and the
-		// metadata call can revert. That must not fail the handler.
-		let quote: { symbol: string; decimals: number }
-		try {
-			quote = await this.getTokenMetadata(quoteAddress)
-		} catch (error) {
-			logger.warn(
-				`[IntentGatewayV3Service.getFxPriceFromSnapshots] Failed to read quote token ${quoteAddress} metadata for snapshot ${snapshot.id}: ${stringify(
-					{ error: error as unknown as Error },
-				)}`,
-			)
-			return null
-		}
-		if (!STABLE_SYMBOLS.includes(quote.symbol.toUpperCase())) {
-			logger.warn(
-				`[IntentGatewayV3Service.getFxPriceFromSnapshots] Latest snapshot for ${tokenAddress} quotes against non-stable ${quote.symbol}; cannot derive USD price`,
-			)
-			return null
-		}
+		const tokenIsInput = snapshot.tokenA.toLowerCase() === tokenAddress
 
 		const median = new Decimal(snapshot.medianPrice!.toString())
 		const standard = new Decimal(snapshot.standardAmount.toString())
@@ -514,10 +505,10 @@ export class IntentGatewayV3Service {
 		// so its price in stable units is median/standard; otherwise the reciprocal.
 		const rate = tokenIsInput
 			? median
-					.div(new Decimal(10).pow(quote.decimals))
+					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
 					.div(standard.div(new Decimal(10).pow(decimals)))
 			: standard
-					.div(new Decimal(10).pow(quote.decimals))
+					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
 					.div(median.div(new Decimal(10).pow(decimals)))
 
 		return rate

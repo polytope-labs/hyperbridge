@@ -1582,6 +1582,114 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
+    /// @dev On Arbitrum the gateway must read the L2 block number from the ArbSys precompile;
+    /// the `block.number` opcode there returns the (much smaller) L1 block number, which would
+    /// keep expired orders fillable forever.
+    function testFillOrderExpiredOnArbitrumUsesArbSys() public {
+        uint256 inputAmount = 1000 * 1e6;
+        // A deadline denominated in Arbitrum L2 blocks, far above both the current
+        // fork's block.number and any L1 block number.
+        uint256 l2Deadline = 400_000_000;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: host.host(),
+            deadline: l2Deadline,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Pretend we're on Arbitrum One: ArbSys reports an L2 block number past the deadline
+        // while block.number (~L1 height on Arbitrum) remains far below it.
+        vm.chainId(42161);
+        vm.etch(address(100), hex"fe"); // Arbitrum precompiles expose 0xfe as their code
+        vm.mockCall(
+            address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(l2Deadline + 1)
+        );
+        assertLt(block.number, l2Deadline);
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        vm.expectRevert(IntentsBase.Expired.selector);
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        vm.stopPrank();
+    }
+
+    /// @dev Counterpart to the expiry test: an L2-denominated deadline still in the future
+    /// (per ArbSys) is fillable on Arbitrum.
+    function testFillOrderNotExpiredOnArbitrumUsesArbSys() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 l2Deadline = 400_000_000;
+
+        // Pretend we're on Arbitrum One for the entire order lifecycle — the host derives
+        // its state machine id from block.chainid, so it must be consistent between
+        // placeOrder and fillOrder.
+        vm.chainId(42161);
+        vm.etch(address(100), hex"fe");
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(l2Deadline));
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: host.host(),
+            deadline: l2Deadline,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        vm.stopPrank();
+
+        assertEq(intentGateway._filled(keccak256(abi.encode(order))), filler);
+    }
+
     function testFillOrderAlreadyFilled() public {
         uint256 inputAmount = 1000 * 1e6;
 

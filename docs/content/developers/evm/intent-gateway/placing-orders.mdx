@@ -182,8 +182,55 @@ commitment = keccak256(abi.encode(order))  // with reduced inputs, filled user/s
 
 The SDK populates `order.id` with this commitment after the `OrderPlaced` event is parsed.
 
+## Quoting Orders
 
-### Graffiti
+Before constructing a USDC/cNGN or USDT/cNGN order, attach the Hyperbridge indexer and call `quoteIntent()`. Phantom snapshots are the default quote source, so no strategy option is needed. Regardless of the order's source or destination chain, snapshots are indexed and read from the canonical Base USDC/cNGN market: USDC and USDT resolve to Base USDC, while cNGN resolves to Base cNGN.
+
+The supported directions are:
+
+- USDC → cNGN
+- cNGN → USDC
+- USDT → cNGN
+- cNGN → USDT
+
+```typescript lineNumbers title="quote-cngn.ts" icon="typescript"
+import { createQueryClient, IntentGateway, type Order } from "@hyperbridge/sdk";
+import { parseUnits, zeroAddress, zeroHash } from "viem";
+
+const queryClient = createQueryClient({
+  url: "https://nexus.indexer.polytope.technology",
+});
+
+const intentGateway = (
+  await IntentGateway.create(sourceChain, destChain, coprocessor)
+).withQueryClient(queryClient);
+
+const quote = await intentGateway.quoteIntent({
+  tokenIn: USDC_SOURCE,
+  tokenOut: CNGN_DESTINATION,
+  amountIn: parseUnits("100", 6),
+});
+
+const order: Order = {
+  // user/source/nonce/session are populated by the SDK during placement
+  user: zeroHash,
+  source: sourceChain.config.stateMachineId,
+  destination: destChain.config.stateMachineId,
+  deadline,
+  nonce: 0n,
+  fees: 0n,
+  session: zeroAddress,
+  predispatch: { assets: [], call: "0x" },
+  inputs: [{ token: USDC_SOURCE, amount: quote.amountIn }],
+  output: {
+    beneficiary,
+    assets: [{ token: CNGN_DESTINATION, amount: quote.amountOut }],
+    call: "0x",
+  },
+};
+```
+
+## Graffiti
 
 Every `placeOrder` call accepts an optional `graffiti` field — a `bytes32` tag that identifies the frontend or integration that originated the order. It is passed as calldata and enables on-chain attribution of orderflow to specific integrators for revenue sharing.
 

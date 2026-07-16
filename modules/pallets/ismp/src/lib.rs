@@ -128,7 +128,7 @@ pub mod pallet {
 	/// cadence: a chain that finalizes every few seconds needs a much larger
 	/// cap than one that finalizes every few minutes to cover the same
 	/// wall-clock window.
-	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 1024;
+	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 10_240;
 
 	/// Upper bound on evictions performed by a single
 	/// [`Pallet::insert_bounded_state_commitment`] call. At steady state each

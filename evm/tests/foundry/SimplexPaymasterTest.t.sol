@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -15,6 +15,7 @@ import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPa
 
 contract MockHost {
     bytes public hyperbridgeId;
+    address public uniswapV2Router;
 
     constructor(bytes memory _hyperbridgeId) {
         hyperbridgeId = _hyperbridgeId;
@@ -22,6 +23,10 @@ contract MockHost {
 
     function hyperbridge() external view returns (bytes memory) {
         return hyperbridgeId;
+    }
+
+    function setUniswapV2Router(address router) external {
+        uniswapV2Router = router;
     }
 }
 
@@ -62,6 +67,54 @@ contract MockToken is ERC20 {
     }
 }
 
+/// @dev V2-style router paying out a preset amount of native for any token input.
+contract MockV2Router {
+    address private immutable _weth;
+    uint256 public nextAmountOut;
+
+    constructor(address weth_) {
+        _weth = weth_;
+    }
+
+    function WETH() external view returns (address) {
+        return _weth;
+    }
+
+    function setNextAmountOut(uint256 amountOut) external {
+        nextAmountOut = amountOut;
+    }
+
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256
+    ) external returns (uint256[] memory amounts) {
+        require(path.length == 2 && path[1] == _weth, "INVALID_PATH");
+        ERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+
+        uint256 amountOut = nextAmountOut;
+        require(amountOut >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        (bool sent, ) = to.call{value: amountOut}("");
+        require(sent, "ETH_TRANSFER_FAILED");
+
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = amountOut;
+    }
+
+    receive() external payable {}
+}
+
+contract MockEntryPoint {
+    mapping(address => uint256) public balanceOf;
+
+    function depositTo(address account) external payable {
+        balanceOf[account] += msg.value;
+    }
+}
+
 /// @dev Exposes internal hooks for direct testing of paymasterData parsing and prefunding.
 contract SimplexPaymasterHarness is SimplexPaymaster {
     function fetchDetails(
@@ -96,6 +149,8 @@ contract SimplexPaymasterTest is Test {
     MockOracle usdcOracle;
     MockToken usdc6; // 6-decimal USDC (Base-style)
     MockToken usdc18; // 18-decimal USDC (BSC-style)
+    MockV2Router router;
+    MockEntryPoint entryPoint;
     SimplexPaymasterHarness paymaster;
 
     function setUp() public {
@@ -106,6 +161,14 @@ contract SimplexPaymasterTest is Test {
         usdcOracle = new MockOracle(TOKEN_USD, 8);
         usdc6 = new MockToken("USDC6", 6);
         usdc18 = new MockToken("USDC18", 18);
+
+        router = new MockV2Router(address(0xE7E7));
+        vm.deal(address(router), 100 ether);
+        hyperbridgeHost.setUniswapV2Router(address(router));
+
+        // The paymaster deposits to the canonical v0.8 EntryPoint address.
+        vm.etch(address(ERC4337Utils.ENTRYPOINT_V08), address(new MockEntryPoint()).code);
+        entryPoint = MockEntryPoint(address(ERC4337Utils.ENTRYPOINT_V08));
 
         paymaster = _deployPaymaster(0); // no markup for the base pricing assertions
     }
@@ -380,6 +443,131 @@ contract SimplexPaymasterTest is Test {
         assertEq(usdc6.balanceOf(treasury), 1_000_000);
     }
 
+    // ── postOp gas limit cap ─────────────────────────────────────────
+
+    function testPostOpGasLimitAboveCapReverts() public {
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            abi.encodePacked(uint8(1), address(usdc6)),
+            uint128(100_001)
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(100_001), uint256(100_000))
+        );
+        paymaster.validate(op, 1e15);
+    }
+
+    function testPostOpGasLimitAtCapAccepted() public {
+        _fundAndApprove(1_000e6);
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            abi.encodePacked(uint8(1), address(usdc6)),
+            uint128(100_000)
+        );
+        (, uint256 validationData) = paymaster.validate(op, 1e15);
+        assertEq(validationData, 0);
+    }
+
+    // ── Fee recycling ────────────────────────────────────────────────
+
+    function testSwapAndDepositFullBalance() public {
+        // $600 of the $1 token at $600 native = 1 native; 200 bps slippage → min 0.98.
+        deal(address(usdc6), address(paymaster), 600e6);
+        router.setNextAmountOut(1 ether);
+
+        vm.expectEmit(true, false, false, true, address(paymaster));
+        emit SimplexPaymaster.FeesRecycled(address(usdc6), 600e6, 1 ether, 1 ether);
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 0);
+
+        assertEq(usdc6.balanceOf(address(paymaster)), 0);
+        assertEq(usdc6.balanceOf(address(router)), 600e6);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 1 ether);
+    }
+
+    function testSwapAndDepositPartialAndClamped() public {
+        deal(address(usdc6), address(paymaster), 600e6);
+        router.setNextAmountOut(0.5 ether);
+
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 300e6);
+        assertEq(usdc6.balanceOf(address(paymaster)), 300e6);
+
+        // More than the remaining balance clamps to the balance.
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 1_000e6);
+        assertEq(usdc6.balanceOf(address(paymaster)), 0);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 1 ether);
+    }
+
+    function testSwapAndDepositSweepsStrayNative() public {
+        deal(address(usdc6), address(paymaster), 600e6);
+        vm.deal(address(paymaster), 0.5 ether);
+        router.setNextAmountOut(1 ether);
+
+        vm.expectEmit(true, false, false, true, address(paymaster));
+        emit SimplexPaymaster.FeesRecycled(address(usdc6), 600e6, 1 ether, 1.5 ether);
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 0);
+
+        assertEq(entryPoint.balanceOf(address(paymaster)), 1.5 ether);
+    }
+
+    function testSwapAndDepositRejectsNonTreasury() public {
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.swapAndDeposit(address(usdc6), 0);
+    }
+
+    function testSwapAndDepositRouterUnsetReverts() public {
+        hyperbridgeHost.setUniswapV2Router(address(0));
+
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidRouter.selector, address(0)));
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 0);
+    }
+
+    function testSwapAndDepositUnregisteredTokenReverts() public {
+        address unknown = makeAddr("unknown");
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.TokenNotRegistered.selector, unknown));
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(unknown, 0);
+    }
+
+    function testSwapAndDepositAllowsDeactivatedToken() public {
+        _govern(SimplexPaymaster.RequestKind.DeactivateToken, abi.encode(address(usdc6)));
+        deal(address(usdc6), address(paymaster), 600e6);
+        router.setNextAmountOut(1 ether);
+
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 0);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 1 ether);
+    }
+
+    function testSwapAndDepositEnforcesOracleSlippageBound() public {
+        deal(address(usdc6), address(paymaster), 600e6);
+
+        // $300 in expects 0.5 native; 200 bps tolerance → 0.49 minimum, which passes...
+        router.setNextAmountOut(0.49 ether);
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 300e6);
+
+        // ...one wei below it reverts.
+        router.setNextAmountOut(0.49 ether - 1);
+        vm.expectRevert("INSUFFICIENT_OUTPUT_AMOUNT");
+        vm.prank(treasury);
+        paymaster.swapAndDeposit(address(usdc6), 300e6);
+    }
+
+    function testSwapParamsValidation() public {
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidSlippage.selector, uint256(1_001)));
+        paymaster.onAccept(
+            _request(
+                HYPERBRIDGE_ID,
+                SimplexPaymaster.RequestKind.UpdateParams,
+                _paramsPayloadFull(address(nativeOracle), 0, treasury, 86_400, 1_001)
+            )
+        );
+    }
+
     function testInheritedWithdrawEntryPointsDisabled() public {
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
         paymaster.withdraw(payable(treasury), 0);
@@ -416,7 +604,8 @@ contract SimplexPaymasterTest is Test {
             nativeOracle: AggregatorV3Interface(address(nativeOracle)),
             markupBps: markupBps,
             treasury: treasury,
-            maxOracleAge: 86_400
+            maxOracleAge: 86_400,
+            swapSlippageBps: 200
         });
         tokens = new address[](2);
         tokens[0] = address(usdc6);
@@ -434,7 +623,7 @@ contract SimplexPaymasterTest is Test {
             SimplexPaymaster.initialize,
             (address(hyperbridgeHost), params, tokens, oracles)
         );
-        return SimplexPaymasterHarness(address(new ERC1967Proxy(address(implementation), initData)));
+        return SimplexPaymasterHarness(payable(address(new ERC1967Proxy(address(implementation), initData))));
     }
 
     function _request(
@@ -458,12 +647,23 @@ contract SimplexPaymasterTest is Test {
         address treasury_,
         uint256 maxOracleAge
     ) internal pure returns (bytes memory) {
+        return _paramsPayloadFull(oracle, markupBps, treasury_, maxOracleAge, 200);
+    }
+
+    function _paramsPayloadFull(
+        address oracle,
+        uint256 markupBps,
+        address treasury_,
+        uint256 maxOracleAge,
+        uint256 swapSlippageBps
+    ) internal pure returns (bytes memory) {
         return abi.encode(
             SimplexPaymaster.Params({
                 nativeOracle: AggregatorV3Interface(oracle),
                 markupBps: markupBps,
                 treasury: treasury_,
-                maxOracleAge: maxOracleAge
+                maxOracleAge: maxOracleAge,
+                swapSlippageBps: swapSlippageBps
             })
         );
     }
@@ -500,8 +700,15 @@ contract SimplexPaymasterTest is Test {
     /// @dev paymasterAndData = paymaster(20) || verificationGasLimit(16) || postOpGasLimit(16) || data
     ///      gasFees = maxPriorityFeePerGas(16) || maxFeePerGas(16), both 1 gwei
     function _userOpWithPaymasterData(bytes memory data) internal view returns (PackedUserOperation memory op) {
+        return _userOpWithPaymasterData(data, 100_000);
+    }
+
+    function _userOpWithPaymasterData(
+        bytes memory data,
+        uint128 postOpGasLimit
+    ) internal view returns (PackedUserOperation memory op) {
         op.sender = sender;
         op.gasFees = bytes32((uint256(1 gwei) << 128) | uint256(1 gwei));
-        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(150_000), uint128(100_000), data);
+        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(150_000), postOpGasLimit, data);
     }
 }

@@ -664,6 +664,7 @@ fn sample_paymaster_params() -> types::PaymasterParams {
 		markup_bps: U256::from(200),
 		treasury: H160::repeat_byte(0x02),
 		max_oracle_age: U256::from(90_000),
+		swap_slippage_bps: U256::from(200),
 	}
 }
 

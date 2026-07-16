@@ -12,6 +12,7 @@ import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.s
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 /// @notice Minimal Chainlink AggregatorV3 interface — no external dependency needed.
 interface AggregatorV3Interface {
@@ -83,6 +84,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         /// @notice Maximum oracle staleness. Chainlink heartbeats vary per chain
         ///         (BSC stablecoins ~27s, Base/Ethereum stablecoins up to 24h).
         uint256 maxOracleAge;
+        /// @notice Slippage tolerance in basis points applied to the
+        ///         oracle-derived expected output in {swapAndDeposit}.
+        uint256 swapSlippageBps;
     }
 
     struct TokenConfig {
@@ -97,6 +101,15 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev Hard ceiling on the governance-configurable oracle staleness bound.
     uint256 public constant MAX_ORACLE_AGE = 7 days;
+
+    /// @dev Hard cap on the governance-configurable swap slippage (10%).
+    uint256 public constant MAX_SWAP_SLIPPAGE_BPS = 1_000;
+
+    /// @dev Caps the caller-supplied postOp gas limit. Unbounded, the EntryPoint's
+    ///      unused-gas penalty is drained from this contract's deposit to a
+    ///      caller-chosen beneficiary; the cap keeps that penalty under the
+    ///      `_postOpCost` cushion the user already pays.
+    uint256 public constant MAX_POST_OP_GAS_LIMIT = 100_000;
 
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
@@ -113,12 +126,15 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @notice Set of registered token addresses (for enumeration).
     address[] public registeredTokens;
 
-    uint256[50] private __gap;
+    uint256 public swapSlippageBps;
+
+    uint256[49] private __gap;
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
     event ParamsUpdated(Params previous, Params current);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
+    event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -126,8 +142,11 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error InvalidOraclePrice(address oracle, int256 price);
     error InvalidMarkup(uint256 bps);
     error InvalidOracleAge(uint256 age);
+    error InvalidSlippage(uint256 bps);
+    error InvalidRouter(address router);
     error InvalidMode(uint8 mode);
     error InvalidPaymasterData(uint256 length);
+    error InvalidPostOpGasLimit(uint256 supplied, uint256 maximum);
     error PermitFailed(address token);
     error ZeroAddress();
     error InvalidHost();
@@ -198,9 +217,16 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         if (p.treasury == address(0)) revert ZeroAddress();
         if (p.markupBps > MAX_MARKUP_BPS) revert InvalidMarkup(p.markupBps);
         if (p.maxOracleAge == 0 || p.maxOracleAge > MAX_ORACLE_AGE) revert InvalidOracleAge(p.maxOracleAge);
+        if (p.swapSlippageBps > MAX_SWAP_SLIPPAGE_BPS) revert InvalidSlippage(p.swapSlippageBps);
 
         emit ParamsUpdated(
-            Params({nativeOracle: nativeOracle, markupBps: markupBps, treasury: treasury, maxOracleAge: maxOracleAge}),
+            Params({
+                nativeOracle: nativeOracle,
+                markupBps: markupBps,
+                treasury: treasury,
+                maxOracleAge: maxOracleAge,
+                swapSlippageBps: swapSlippageBps
+            }),
             p
         );
 
@@ -209,6 +235,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         markupBps = p.markupBps;
         treasury = p.treasury;
         maxOracleAge = p.maxOracleAge;
+        swapSlippageBps = p.swapSlippageBps;
     }
 
     /// @dev Registers or updates a supported ERC-20 token with its token/USD feed.
@@ -253,6 +280,58 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         revert UnauthorizedCall();
     }
 
+    // ── Fee recycling ────────────────────────────────────────────────
+
+    /// @notice Swaps accrued stablecoins to the native asset through the host's
+    ///         V2-style router and deposits the contract's entire native balance
+    ///         into the EntryPoint, so collected fees keep the paymaster funded
+    ///         without a governance round-trip.
+    /// @param token    A registered token; deactivated tokens remain recyclable.
+    /// @param amountIn Token amount to swap; 0 (or more than the balance)
+    ///                 swaps the full balance.
+    /// @dev The minimum output is derived onchain from the Chainlink oracles
+    ///      (markup-free price minus `swapSlippageBps`), so the caller cannot
+    ///      influence the execution price. Still treasury-gated: were this
+    ///      permissionless, a UserOp's calldata could invoke it mid-bundle and
+    ///      swap away other ops' pending prefunds, breaking their postOp
+    ///      refunds. The treasury sends ordinary transactions, which can never
+    ///      execute mid-bundle.
+    function swapAndDeposit(address token, uint256 amountIn) external {
+        if (msg.sender != treasury) revert UnauthorizedCall();
+        address router = IDispatcher(host()).uniswapV2Router();
+        if (router == address(0)) revert InvalidRouter(router);
+        TokenConfig memory cfg = tokenConfigs[token];
+        if (address(cfg.tokenOracle) == address(0)) revert TokenNotRegistered(token);
+
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (amountIn == 0 || amountIn > balance) amountIn = balance;
+
+        uint256 nativeUsd = _getOraclePrice(nativeOracle, nativeOracleDecimals);
+        uint256 tokenUsd = _getOraclePrice(cfg.tokenOracle, cfg.tokenOracleDecimals);
+        uint256 expectedWei = (amountIn * tokenUsd * 1e18) / (nativeUsd * (10 ** cfg.tokenDecimals));
+        uint256 amountOutMin = (expectedWei * (10_000 - swapSlippageBps)) / 10_000;
+
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = IUniswapV2Router02(router).WETH();
+
+        IERC20(token).forceApprove(router, amountIn);
+        uint256[] memory amounts = IUniswapV2Router02(router).swapExactTokensForETH(
+            amountIn,
+            amountOutMin,
+            path,
+            address(this),
+            block.timestamp
+        );
+
+        uint256 deposited = address(this).balance;
+        entryPoint().depositTo{value: deposited}(address(this));
+        emit FeesRecycled(token, amountIn, amounts[1], deposited);
+    }
+
+    /// @dev Accepts the router's native output in {swapAndDeposit}.
+    receive() external payable {}
+
     // ── PaymasterERC20 hooks ─────────────────────────────────────────
 
     /// @dev Executes the EIP-2612 permit (mode 0x00) before the base
@@ -265,6 +344,11 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         bytes32 userOpHash,
         uint256 maxCost
     ) internal override returns (bytes memory context, uint256 validationData) {
+        uint256 postOpGasLimit = userOp.paymasterPostOpGasLimit();
+        if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT) {
+            revert InvalidPostOpGasLimit(postOpGasLimit, MAX_POST_OP_GAS_LIMIT);
+        }
+
         bytes calldata data = userOp.paymasterData();
         if (data.length == 0) revert InvalidPaymasterData(0);
         if (uint8(data[0]) == 0x00) {

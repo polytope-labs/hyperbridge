@@ -65,6 +65,8 @@ pub struct PaymasterParams {
 	pub treasury: H160,
 	/// Maximum Chainlink oracle staleness, in seconds
 	pub max_oracle_age: U256,
+	/// Slippage tolerance in basis points for fee-recycling swaps
+	pub swap_slippage_bps: U256,
 }
 
 /// Destination fee configuration for a specific chain
@@ -379,6 +381,7 @@ pub(crate) mod sol_types {
 			uint256 markupBps;
 			address treasury;
 			uint256 maxOracleAge;
+			uint256 swapSlippageBps;
 		}
 	}
 }
@@ -480,6 +483,7 @@ impl From<PaymasterParams> for sol_types::PaymasterParams {
 			markupBps: AlloyU256::from_limbs(params.markup_bps.0),
 			treasury: Address::from_slice(&params.treasury.0),
 			maxOracleAge: AlloyU256::from_limbs(params.max_oracle_age.0),
+			swapSlippageBps: AlloyU256::from_limbs(params.swap_slippage_bps.0),
 		}
 	}
 }
@@ -698,6 +702,7 @@ mod request_kind_tests {
 			markup_bps: U256::from(200),
 			treasury: H160::repeat_byte(0x44),
 			max_oracle_age: U256::from(90_000),
+			swap_slippage_bps: U256::from(300),
 		};
 		let body = RequestKind::PaymasterUpdateParams(params.clone()).encode_body();
 
@@ -709,6 +714,7 @@ mod request_kind_tests {
 		assert_eq!(decoded.markupBps, AlloyU256::from(200));
 		assert_eq!(decoded.treasury.as_slice(), &params.treasury.0);
 		assert_eq!(decoded.maxOracleAge, AlloyU256::from(90_000));
+		assert_eq!(decoded.swapSlippageBps, AlloyU256::from(300));
 	}
 
 	#[test]

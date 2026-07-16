@@ -360,7 +360,7 @@ export class GasEstimator {
 		destChainId: string,
 		order: Order,
 	): Promise<{ postRequestFee: bigint; protocolFee: bigint }> {
-		const postRequestGas = 1_000_000n
+		const postRequestGas = 400_000n
 
 		const [postRequestFeeInSourceFeeToken, nonce] = await Promise.all([
 			convertGasToFeeToken(this.ctx, postRequestGas, "source", sourceChainId),

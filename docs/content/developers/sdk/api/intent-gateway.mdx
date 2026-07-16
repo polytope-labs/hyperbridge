@@ -223,12 +223,7 @@ When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `curr
 
 The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Phantom metadata contains the snapshot commitment, block number/time, directional token addresses, `standardAmount`, median/low/high prices, contributing bid count, and source-chain protocol fee. Uniswap metadata contains the V4 PoolKey, quoter, quote chain, and protocol fee.
 
-`amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is what you can expect after the fee; exact-output quotes return the gross `amountIn` you must supply so that, after the fee, enough remains to produce the requested `amountOut`. Use these amounts directly as the order's `inputs` and `output.assets` — no further fee adjustment is required. Apply only your own slippage tolerance:
-
-```typescript lineNumbers
-// `amountOut` already nets the gateway fee; add your slippage tolerance.
-const minAmountOut = (quote.amountOut * (10_000n - SLIPPAGE_BPS)) / 10_000n;
-```
+`amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is the snapshot-priced output; exact-output quotes return the gross `amountIn` required to produce the requested `amountOut`. Use the returned amounts directly as the order's `inputs` and `output.assets`—no further fee or slippage adjustment is required.
 
 For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `floor(netInput × medianPrice / standardAmount)`. For an exact-output quote, it computes `ceil(amountOut × standardAmount / medianPrice)` and grosses that input up for the gateway fee. A missing indexer, missing snapshot, or invalid snapshot throws an explicit error; the SDK does not silently switch price sources.
 

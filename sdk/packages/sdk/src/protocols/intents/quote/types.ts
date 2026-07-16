@@ -92,8 +92,7 @@ export interface PhantomSnapshotIntentQuoteMetadata {
  *
  * `amountIn` and `amountOut` already account for the IntentGateway protocol
  * fee that the gateway deducts from order inputs (see `quoteMetadata`). No
- * further fee adjustment is required before placing the order; apply only your
- * own slippage tolerance.
+ * further fee or slippage adjustment is required before placing the order.
  */
 export interface UniswapV4QuoteIntentResult {
 	strategy: "uniswap_v4"

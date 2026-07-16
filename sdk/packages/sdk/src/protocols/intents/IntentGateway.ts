@@ -216,7 +216,7 @@ export class IntentGateway {
 	 * regardless of this gateway's destination chain. Returned
 	 * `amountIn`/`amountOut` already account for the gateway's protocol fee
 	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order
-	 * inputs; apply only your own slippage tolerance before placing the order.
+	 * inputs; use the returned amounts directly when placing the order.
 	 *
 	 * @param params - Token pair, amount, and optional strategy/pool overrides.
 	 * @returns The quoted amounts plus strategy-specific metadata.

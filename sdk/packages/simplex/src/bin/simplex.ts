@@ -33,6 +33,7 @@ import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
+import { BalanceProvider } from "@/services/BalanceProvider"
 import { AdminServer, type AdminStrategy } from "@/services/server/AdminServer"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
@@ -367,6 +368,22 @@ program
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 			await intentFiller.initialize()
 
+			// Shared balance snapshots for Prometheus gauges and the UI API
+			const token1: Record<string, string> = {}
+			for (const s of config.strategies) {
+				if (s.type === "hyperfx" && s.token1) {
+					Object.assign(token1, s.token1)
+				}
+			}
+			const balanceProvider = new BalanceProvider({
+				chainClientManager,
+				configService,
+				fillerAddress: runtimeSigner.account.address,
+				token1,
+				hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
+				substratePrivateKey: config.simplex.substratePrivateKey,
+			})
+
 			// Start optional Prometheus metrics server
 			let metrics: MetricsService | undefined
 			if (options.port) {
@@ -377,23 +394,10 @@ program
 				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
 					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
-					// Collect exotic token addresses from FX strategies
-					const token1: Record<string, string> = {}
-					for (const s of config.strategies) {
-						if (s.type === "hyperfx" && s.token1) {
-							Object.assign(token1, s.token1)
-						}
-					}
 					metrics = new MetricsService({
 						monitor: intentFiller.monitor,
 						bidStorage: bidStorageService,
-						chainClientManager,
-						configService,
-						fillerAddress: runtimeSigner.account.address,
-						chains: resolvedChains.map((c) => c.chainId),
-						token1,
-						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
-						substratePrivateKey: config.simplex.substratePrivateKey,
+						balances: balanceProvider,
 						dataDir: options.dataDir,
 					})
 					metrics.start(metricsPort, metricsHost)
@@ -457,6 +461,8 @@ program
 			// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
 			vaultVenue?.startSweeping()
 
+			balanceProvider.start()
+
 			const watchOnlyChains = watchOnlyConfig
 				? Object.entries(watchOnlyConfig)
 						.filter(([, value]) => value === true)
@@ -479,6 +485,7 @@ program
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
 				metrics?.stop()
+				balanceProvider.stop()
 				adminServer?.stop()
 				vaultVenue?.stopSweeping()
 				await intentFiller.stop()

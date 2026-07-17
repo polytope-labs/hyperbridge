@@ -22,8 +22,10 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 
 The filler serves a local web UI at `127.0.0.1:8686` by default:
 
-- setup wizard (when no config exists)
+- setup wizard (when no config exists) — private key, MPCVault or Turnkey signer, static curves or Uniswap V4 pool pricing
 - status, pause/resume (persists across restarts), graceful stop, balances per chain
+- live activity feed (orders detected/filled/skipped, bids, rebalances) streamed over SSE
+- operations: manual vault sweep/redeem, runtime allowlist editing, log level switch, rebalancing trigger view, masked config view
 - inflight FX price curve updates without a restart, persisted back to the config file
 - overfill-protection self-halts surfaced with an operator reset
 

@@ -2240,11 +2240,12 @@ type PhantomOrder @entity {
 
 """
 The price snapshot for a phantom order, written once its bid window closes (signalled by the
-PhantomBidWindowExhausted event). It collects all live bids via intents_getBidsForOrder, simulates
-each filler's user operation against the real IntentGatewayV2 code with the phantom escrow injected
-via state override, and records the output amount distribution across the bids that pass simulation.
-A snapshot is only written when at least one valid bid exists and an EVM RPC endpoint is configured
-for the phantom order's destination chain.
+PhantomBidWindowExhausted event). It collects all live bids via intents_getBidsForOrder and keeps
+only those from our own solvers: a bid counts when its user operation carries a solver signature
+over this order's userOpHash that recovers to the sender, and that sender is EIP-7702-delegated to
+the chain's SolverAccount. It then records the output amount distribution across the surviving bids,
+weighting each by the solver's liquidity. A snapshot is only written when at least one bid passes
+verification and an EVM RPC endpoint is configured for the phantom order's destination chain.
 """
 type PhantomOrderPriceSnapshot @entity {
 	"""
@@ -2300,7 +2301,7 @@ type PhantomOrderPriceSnapshot @entity {
 	highestPrice: BigInt @index
 
 	"""
-	Number of valid bids that contributed to this snapshot (passed simulation).
+	Number of verified bids that contributed to this snapshot.
 	"""
 	bidCount: Int!
 

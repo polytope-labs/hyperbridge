@@ -1,13 +1,14 @@
 import { Interface, defaultAbiCoder } from "@ethersproject/abi"
-import { FILL_ORDER_ABI, type FillData, type HexString } from "@hyperbridge/sdk/intents-helpers"
+import { ethers } from "ethers"
+import { FILL_ORDER_ABI, type FillData, type HexString, type RecoverBidSigner } from "@hyperbridge/sdk/intents-helpers"
 
-// VM2-safe decoding of a phantom bid's ERC-7821 calldata for the SubQuery substrate sandbox.
+// VM2-safe decoding and signature recovery for a phantom bid, for the SubQuery substrate sandbox.
 //
-// The SDK's extractFillData uses viem, whose @noble/hashes byte handling guards with
-// `instanceof Uint8Array`. That throws "Uint8Array expected" inside the VM2 sandbox because the
+// The SDK's extractFillData/recoverBidSignerViem use viem, whose @noble/hashes byte handling guards
+// with `instanceof Uint8Array`. That throws "Uint8Array expected" inside the VM2 sandbox because the
 // global Uint8Array is proxied across realms — it breaks both decodeFunctionData and
 // decodeAbiParameters. ethers v5's ABI coder uses js-sha3 keccak and duck-typed byte checks
-// (isBytesLike), so it works in the sandbox. This is injected into aggregatePhantomBids so the SDK
+// (isBytesLike), so it works in the sandbox. These are injected into aggregatePhantomBids so the SDK
 // itself stays on the plain viem helpers (used by simplex/tests in Node, where viem is fine).
 const executeIface = new Interface(["function execute(bytes32 mode, bytes executionData)"])
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,4 +44,42 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 		return null
 	}
 	return null
+}
+
+// The EIP-712 payload whose digest is the EntryPoint v0.8 userOpHash. Mirrors the SDK's
+// CryptoUtils.packedUserOpTypedData — the two must stay in step or every bid fails verification.
+const USER_OP_TYPES = {
+	PackedUserOperation: [
+		{ name: "sender", type: "address" },
+		{ name: "nonce", type: "uint256" },
+		{ name: "initCode", type: "bytes" },
+		{ name: "callData", type: "bytes" },
+		{ name: "accountGasLimits", type: "bytes32" },
+		{ name: "preVerificationGas", type: "uint256" },
+		{ name: "gasFees", type: "bytes32" },
+		{ name: "paymasterAndData", type: "bytes" },
+	],
+}
+
+/** Drop-in for the SDK's recoverBidSignerViem that hashes and recovers with ethers (VM2-safe). */
+export const recoverBidSignerVm2: RecoverBidSigner = async (userOp, entryPoint, chainId, solverSignature) => {
+	try {
+		const userOpHash = ethers.utils._TypedDataEncoder.hash(
+			{ name: "ERC4337", version: "1", chainId: chainId.toString(), verifyingContract: entryPoint },
+			USER_OP_TYPES,
+			{
+				sender: userOp.sender,
+				nonce: userOp.nonce.toString(),
+				initCode: userOp.initCode,
+				callData: userOp.callData,
+				accountGasLimits: userOp.accountGasLimits,
+				preVerificationGas: userOp.preVerificationGas.toString(),
+				gasFees: userOp.gasFees,
+				paymasterAndData: userOp.paymasterAndData,
+			},
+		)
+		return ethers.utils.recoverAddress(userOpHash, solverSignature) as HexString
+	} catch {
+		return null
+	}
 }

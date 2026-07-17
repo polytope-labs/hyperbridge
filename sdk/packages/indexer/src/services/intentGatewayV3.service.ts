@@ -33,12 +33,16 @@ import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3Escrow
 import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
 import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
+import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
+import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
+import { PhantomOrderPriceSnapshot } from "@/configs/src/types/models/PhantomOrderPriceSnapshot"
 import { timestampToDate } from "@/utils/date.helpers"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { BASE_CNGN } from "@/addresses/fx-tokens.addresses"
 
 import { PointsService } from "./points.service"
-import { VolumeService } from "./volume.service"
+import { VolumeService, toScaledUsd } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
-import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 export interface TokenInfo {
@@ -47,6 +51,20 @@ export interface TokenInfo {
 }
 
 const ENTITY_TYPE = "IOrderV3"
+
+export type IntentVolumeType = "PLACED" | "FILLED"
+
+// USDC and USDT are assumed to be worth exactly $1.
+const STABLE_SYMBOLS = ["USDC", "USDT"]
+
+// Phantom pairs are registered against the cNGN/USDC pool on Base, so snapshot
+// prices are denominated in Base USDC: a $1 stable with 6 decimals.
+const SNAPSHOT_QUOTE_DECIMALS = 6
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+// Snapshots are scanned newest-first; a small window is enough to skip rows with no valid bids.
+const SNAPSHOT_SCAN_LIMIT = 10
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -329,17 +347,10 @@ export class IntentGatewayV3Service {
 		const valuesUSD = await Promise.all(
 			tokens.map(async (token) => {
 				const tokenAddress = bytes32ToBytes20(token.token)
-				let decimals = 18
-				let symbol = "eth"
+				const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
 
-				if (tokenAddress != "0x0000000000000000000000000000000000000000") {
-					const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
-					decimals = await tokenContract.decimals()
-					symbol = await tokenContract.symbol()
-				}
-
-				const price = await TokenPriceService.getPrice(symbol)
-				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price)
+				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price ? price.toFixed(18) : "0")
 			}),
 		)
 
@@ -351,6 +362,156 @@ export class IntentGatewayV3Service {
 			total: total.toFixed(18),
 			values: valuesUSD.map((value) => value.amountValueInUSD),
 		}
+	}
+
+	/**
+	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
+	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and via the
+	 * latest PhantomOrderPriceSnapshot exchange rate for FX tokens.
+	 */
+	static async recordOrderVolume(
+		volumeType: IntentVolumeType,
+		tokens: { token: string; amount: bigint }[],
+		timestamp: bigint,
+	): Promise<void> {
+		const chain = getHostStateMachine(chainId)
+
+		const amountByToken = new Map<string, bigint>()
+		for (const { token, amount } of tokens) {
+			const tokenAddress = bytes32ToBytes20(token).toLowerCase()
+			amountByToken.set(tokenAddress, (amountByToken.get(tokenAddress) ?? 0n) + amount)
+		}
+
+		const values = await Promise.all(
+			Array.from(amountByToken, async ([tokenAddress, amount]) => {
+				const id = `${chain}-${tokenAddress}-${volumeType}`
+				let tokenVolume = await IntentGatewayTokenVolume.get(id)
+				let symbol: string
+				let decimals: number
+
+				if (tokenVolume) {
+					symbol = tokenVolume.tokenSymbol
+					decimals = tokenVolume.decimals
+					tokenVolume.amount = tokenVolume.amount + amount
+					tokenVolume.lastUpdatedAt = timestamp
+				} else {
+					;({ symbol, decimals } = await this.getTokenMetadata(tokenAddress))
+					tokenVolume = IntentGatewayTokenVolume.create({
+						id,
+						chain,
+						tokenAddress,
+						tokenSymbol: symbol,
+						decimals,
+						volumeType,
+						amount,
+						lastUpdatedAt: timestamp,
+					})
+				}
+				await tokenVolume.save()
+
+				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				if (!price) {
+					logger.warn(
+						`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
+					)
+					return new Decimal(0)
+				}
+
+				return new Decimal(PriceHelper.getAmountValueInUSD(amount, decimals, price.toFixed(18)).amountValueInUSD)
+			}),
+		)
+
+		const usdDelta = values.reduce((acc, curr) => acc.plus(curr), new Decimal(0))
+		if (usdDelta.isZero()) return
+
+		const cumulativeId = `${chain}-${volumeType}`
+		const scaled = toScaledUsd(usdDelta.toFixed(18))
+		let cumulative = await CumulativeIntentGatewayVolumeUSD.get(cumulativeId)
+		if (!cumulative) {
+			cumulative = CumulativeIntentGatewayVolumeUSD.create({
+				id: cumulativeId,
+				chain,
+				volumeType,
+				volumeUSD: scaled,
+				lastUpdatedAt: timestamp,
+			})
+		} else {
+			cumulative.volumeUSD = cumulative.volumeUSD + scaled
+			cumulative.lastUpdatedAt = timestamp
+		}
+		await cumulative.save()
+	}
+
+	private static async getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number }> {
+		if (tokenAddress === ZERO_ADDRESS) {
+			return { symbol: "ETH", decimals: 18 }
+		}
+
+		const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
+		const symbol = await tokenContract.symbol()
+		const decimals = await tokenContract.decimals()
+		return { symbol, decimals }
+	}
+
+	private static async getTokenUsdPriceWithFx(
+		tokenAddress: string,
+		symbol: string,
+		decimals: number,
+	): Promise<Decimal | null> {
+		if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) {
+			return new Decimal(1)
+		}
+
+		// Snapshots reference Base token addresses, so cNGN on any chain is priced
+		// via its Base representation.
+		if (symbol.toUpperCase() === "CNGN") {
+			return this.getFxPriceFromSnapshots(BASE_CNGN.address, BASE_CNGN.decimals)
+		}
+
+		return this.getFxPriceFromSnapshots(tokenAddress.toLowerCase(), decimals)
+	}
+
+	/**
+	 * Price an FX token from the latest PhantomOrderPriceSnapshot referencing it as either
+	 * leg of the pair. The snapshot rate is medianPrice / standardAmount adjusted for
+	 * decimals; the quote leg is assumed to be a $1 stable with SNAPSHOT_QUOTE_DECIMALS.
+	 * Snapshot addresses live on Base, so tokenAddress must be the Base representation.
+	 */
+	private static async getFxPriceFromSnapshots(tokenAddress: string, decimals: number): Promise<Decimal | null> {
+		const [asInput, asOutput] = await Promise.all([
+			PhantomOrderPriceSnapshot.getByFields([["tokenA", "=", tokenAddress]], {
+				limit: SNAPSHOT_SCAN_LIMIT,
+				orderBy: "blockNumber",
+				orderDirection: "DESC",
+			}),
+			PhantomOrderPriceSnapshot.getByFields([["tokenB", "=", tokenAddress]], {
+				limit: SNAPSHOT_SCAN_LIMIT,
+				orderBy: "blockNumber",
+				orderDirection: "DESC",
+			}),
+		])
+
+		const snapshot = [...asInput, ...asOutput]
+			.filter((s) => s.medianPrice && s.medianPrice > 0n && s.standardAmount > 0n)
+			.sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1))[0]
+		if (!snapshot) return null
+
+		const tokenIsInput = snapshot.tokenA.toLowerCase() === tokenAddress
+
+		const median = new Decimal(snapshot.medianPrice!.toString())
+		const standard = new Decimal(snapshot.standardAmount.toString())
+
+		// tokenIsInput: medianPrice is tokenB units received per standardAmount of this token,
+		// so its price in stable units is median/standard; otherwise the reciprocal.
+		const rate = tokenIsInput
+			? median
+					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
+					.div(standard.div(new Decimal(10).pow(decimals)))
+			: standard
+					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
+					.div(median.div(new Decimal(10).pow(decimals)))
+
+		return rate
 	}
 
 	static async updateOrderStatus(

@@ -34,6 +34,15 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 
 /**
+ * @dev Minimal interface for the ArbSys precompile available on Arbitrum chains
+ * at address(100). Exposes the L2 block number, since the `block.number` opcode
+ * on Arbitrum returns the (approximate) L1 block number instead.
+ */
+interface IArbSys {
+    function arbBlockNumber() external view returns (uint256);
+}
+
+/**
  * @title IntentsBase
  * @author Polytope Labs (hello@polytope.technology)
  *
@@ -62,6 +71,18 @@ abstract contract IntentsBase is EIP712 {
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
         hex"0000000000000000000000000000000000000000000000000000000000000002";
+
+    /**
+     * @dev The ArbSys precompile address on Arbitrum chains.
+     */
+    address internal constant ARB_SYS = address(100);
+
+    /**
+     * @dev Chain ids for Arbitrum One, Arbitrum Nova, and Arbitrum Sepolia.
+     */
+    uint256 internal constant ARBITRUM_ONE = 42161;
+    uint256 internal constant ARBITRUM_NOVA = 42170;
+    uint256 internal constant ARBITRUM_SEPOLIA = 421614;
 
     /**
      * @dev Discriminator for cross-chain request types dispatched via Hyperbridge.
@@ -310,6 +331,22 @@ abstract contract IntentsBase is EIP712 {
      */
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return _domainSeparatorV4();
+    }
+
+    /**
+     * @dev Returns the current block number of the host chain. Order deadlines are
+     * denominated in the block heights Hyperbridge tracks for each state machine —
+     * for Arbitrum chains that is the L2 block number, but the `block.number` opcode
+     * there returns the approximate L1 block number, so the ArbSys precompile is
+     * queried instead. The chain id check keeps the bytecode identical across all
+     * chains, preserving the deterministic CREATE2 deployment addresses.
+     * @return The chain-appropriate current block number.
+     */
+    function _blockNumber() internal view returns (uint256) {
+        if (block.chainid == ARBITRUM_ONE || block.chainid == ARBITRUM_NOVA || block.chainid == ARBITRUM_SEPOLIA) {
+            return IArbSys(ARB_SYS).arbBlockNumber();
+        }
+        return block.number;
     }
 
     /**

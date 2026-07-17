@@ -237,6 +237,34 @@ query OrderStatus($commitment: String!) {
   }
 }`
 
+export const LATEST_PHANTOM_ORDER_PRICE_SNAPSHOT = `
+query LatestPhantomOrderPriceSnapshot($tokenA: String!, $tokenB: String!) {
+  phantomOrderPriceSnapshots(
+    filter: {
+      and: [
+        { tokenA: { equalTo: $tokenA } }
+        { tokenB: { equalTo: $tokenB } }
+        { medianPrice: { isNull: false } }
+      ]
+    }
+    orderBy: BLOCK_NUMBER_DESC
+    first: 1
+  ) {
+    nodes {
+      commitment
+      tokenA
+      tokenB
+      standardAmount
+      blockNumber
+      medianPrice
+      lowestPrice
+      highestPrice
+      bidCount
+      snapshotTime
+    }
+  }
+}`
+
 export const TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS = `
 query TokenGatewayAssetTeleportedStatus($commitment: String!) {
   tokenGatewayAssetTeleportedV2s(

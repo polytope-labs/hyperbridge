@@ -121,7 +121,11 @@ pub mod pallet {
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
 	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
-	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 1024;
+	///
+	/// One commitment is stored per consensus update, so this bounds a time window
+	/// rather than a block range: `MAX_STATE_MACHINE_COMMITMENTS * consensus_update_frequency`.
+	/// Sized to hold roughly a week of BSC updates at the 60s relayer cadence.
+	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 10_240;
 
 	frame_support::parameter_types! {
 		/// Type-level `Get<u32>` mirror of [`MAX_STATE_MACHINE_COMMITMENTS`], used as

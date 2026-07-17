@@ -6,6 +6,7 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
+	ensure_finalized_epoch_consistent,
 	primitives::{compute_epoch, parse_extra, BscClientUpdate},
 	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
@@ -147,6 +148,18 @@ impl<
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
+
+		// Reject any update that would leave `finalized_height` running ahead of the validator set
+		// the client holds — this would permanently strand the client (see
+		// `ensure_finalized_epoch_consistent`). The finalized height may only cross an epoch
+		// boundary via a validator-set-staging (sync) update.
+		ensure_finalized_epoch_consistent(
+			consensus_state.finalized_height,
+			consensus_state.current_epoch,
+			consensus_state.next_validators.is_some(),
+			epoch_length,
+		)?;
+
 		state_machine_map.insert(
 			StateMachineId {
 				state_id: StateMachine::Evm(consensus_state.chain_id),

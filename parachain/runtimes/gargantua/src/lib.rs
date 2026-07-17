@@ -251,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_700,
+	spec_version: 7_800,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1040,6 +1040,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }
 

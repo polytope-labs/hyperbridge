@@ -411,7 +411,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
-        if (order.deadline < block.number) revert Expired();
+        if (order.deadline < _blockNumber()) revert Expired();
         bytes32 commitment = keccak256(abi.encode(order));
 
         address hostAddr = host();

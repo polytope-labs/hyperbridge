@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_800,
+	spec_version: 8_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1144,6 +1144,8 @@ mod runtime {
 	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(97)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
+	#[runtime::pallet_index(98)]
+	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1190,6 +1192,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }
 

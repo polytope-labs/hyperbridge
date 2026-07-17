@@ -4,10 +4,11 @@ import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
+import { existsSync } from "fs"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { bootFiller, type FillerRuntime } from "@/core/bootstrap"
 import { getLogger } from "@/services/Logger"
-import { AdminServer } from "@/services/server/AdminServer"
+import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -26,7 +27,7 @@ const __dirname = dirname(__filename)
 const packageJsonPath = resolve(__dirname, "../../package.json")
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
 
-const DEFAULT_ADMIN_PORT = 8686
+const DEFAULT_UI_PORT = 8686
 
 /** Parses a `[host:]port` spec; returns undefined when the port is invalid. */
 function parseBind(spec: string, defaultHost: string): { host: string; port: number } | undefined {
@@ -34,6 +35,26 @@ function parseBind(spec: string, defaultHost: string): { host: string; port: num
 	const port = parseInt(portStr, 10)
 	if (isNaN(port) || port < 1 || port > 65535) return undefined
 	return { host, port }
+}
+
+/** The built SPA lives in dist/ui; resolve it for both the bundled bin and tsx dev runs. */
+function resolveUiDistDir(): string | undefined {
+	const candidates = [resolve(__dirname, "../ui"), resolve(__dirname, "../../dist/ui")]
+	return candidates.find((dir) => existsSync(dir))
+}
+
+function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
+	return {
+		strategies: runtime.adminStrategies,
+		filler: runtime.intentFiller,
+		balances: runtime.balanceProvider,
+		version: packageJson.version,
+		startedAt: runtime.startedAt,
+		configPath: runtime.configPath,
+		chains: runtime.resolvedChains.map((c) => c.chainId),
+		strategyTypes: runtime.config.strategies.map((s) => s.type),
+		dataDir: runtime.dataDir,
+	}
 }
 
 const program = new Command()
@@ -63,10 +84,11 @@ program
 		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
 	)
 	.option(
-		"--admin-port <[host:]port>",
-		"Enable the admin server (inflight price curve updates: UI + RPC) on the given address. Unauthenticated; e.g. 8686, 127.0.0.1:8686",
+		"--ui [<[host:]port>]",
+		`Bind address for the local web UI (status, pause/resume, price curves). Unauthenticated; default ${`127.0.0.1:${DEFAULT_UI_PORT}`}`,
 	)
-	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string; adminPort?: string }) => {
+	.option("--no-ui", "Disable the local web UI")
+	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string; ui?: string | boolean }) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
@@ -94,37 +116,37 @@ program
 
 			const logger = getLogger("cli")
 
-			// The admin server for inflight price curve updates is opt-in;
-			// it only starts when --admin-port is passed.
-			let adminServer: AdminServer | undefined
-			if (options.adminPort) {
-				const adminBind = parseBind(options.adminPort, "127.0.0.1")
-				if (!adminBind) {
-					logger.warn(
-						{ bind: options.adminPort },
-						`Invalid admin address, using default 127.0.0.1:${DEFAULT_ADMIN_PORT}`,
-					)
+			// Local web UI (status, pause/resume, inflight price curve updates).
+			// On by default at 127.0.0.1; disable with --no-ui.
+			let uiServer: UiServer | undefined
+			if (options.ui !== false) {
+				let uiBind = { host: "127.0.0.1", port: DEFAULT_UI_PORT }
+				if (typeof options.ui === "string") {
+					const parsed = parseBind(options.ui, "127.0.0.1")
+					if (!parsed) {
+						logger.warn({ bind: options.ui }, `Invalid UI address, using default 127.0.0.1:${DEFAULT_UI_PORT}`)
+					} else {
+						uiBind = parsed
+					}
 				}
-				const { host: adminHost, port: adminPort } = adminBind ?? {
-					host: "127.0.0.1",
-					port: DEFAULT_ADMIN_PORT,
-				}
-				if (runtime.adminStrategies.length === 0) {
-					logger.warn("No FX strategies are configured; the admin server has nothing editable")
-				}
-				adminServer = new AdminServer(runtime.adminStrategies)
+				uiServer = new UiServer({
+					mode: "operator",
+					uiDistDir: resolveUiDistDir(),
+					operator: operatorContextFrom(runtime),
+				})
 				try {
-					await adminServer.start(adminPort, adminHost)
+					await uiServer.start(uiBind.port, uiBind.host)
 				} catch (err) {
 					// The filler is the primary workload; a bind failure (e.g. port in use)
-					// costs the admin UI, not the process.
-					logger.error({ err, bind: `${adminHost}:${adminPort}` }, "Admin server failed to start")
+					// costs the UI, not the process.
+					logger.error({ err, bind: `${uiBind.host}:${uiBind.port}` }, "UI server failed to start")
+					uiServer = undefined
 				}
 			}
 
 			// Handle graceful shutdown
 			const shutdown = async (signal: string) => {
-				adminServer?.stop()
+				uiServer?.stop()
 				await runtime.shutdown(signal)
 				process.exit(0)
 			}

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "fs"
 import { resolve } from "path"
 import { parse } from "toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { withTimeout } from "@/core/timeout"
 import { fetchChainId } from "@/services/FillerConfigService"
 import { guard } from "./prompt-utils"
 import { newWizardState, type Prefill } from "./state"
@@ -109,14 +110,4 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	spin.stop(`Resolved ${chainIds.filter((id) => id !== null).length}/${chainIds.length} chains`)
 
 	return { config, chainIds }
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-	return Promise.race([
-		promise,
-		new Promise<never>((_, reject) => {
-			const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)
-			timer.unref?.()
-		}),
-	])
 }

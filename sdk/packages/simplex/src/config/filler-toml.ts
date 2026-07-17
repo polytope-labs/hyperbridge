@@ -400,16 +400,14 @@ export function validateConfig(config: FillerTomlConfig): void {
 				}
 			}
 
-			if (bidLen > 0) {
-				for (const point of strategy.bidPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
-					}
+			for (const point of strategy.bidPriceCurve ?? []) {
+				if (point.amount === undefined || point.price === undefined) {
+					throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
 				}
-				for (const point of strategy.askPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
-					}
+			}
+			for (const point of strategy.askPriceCurve ?? []) {
+				if (point.amount === undefined || point.price === undefined) {
+					throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
 				}
 			}
 

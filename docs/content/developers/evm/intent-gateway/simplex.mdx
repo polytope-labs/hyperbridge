@@ -504,13 +504,14 @@ The practical guidance is to configure **at least two organisationally independe
 
 ## Setup
 
-The fastest way to produce a working `config.toml` is the interactive wizard:
+The fastest way to produce a working `config.toml` is one of the interactive wizards:
 
 ```bash
-simplex init
+simplex          # browser wizard: opens automatically when no config exists
+simplex init     # the same flow in the terminal
 ```
 
-It asks only for the minimum needed to run (chains, RPCs, bundler, signer, strategy), explains what each value is for as it asks, derives sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validates every RPC against `eth_chainId` before writing the file. Re-running it against an existing config offers to start the filler as-is, update individual values, or start fresh. Prefer a file-first workflow? Use the reference below.
+Both ask only for the minimum needed to run (chains, RPCs, bundler, signer, Hyperbridge account, strategy), explain what each value is for as they ask, derive sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validate every endpoint live before writing the file. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the filler — no restart. A local web UI (status, pause/resume, balances, inflight price-curve edits) stays available at `127.0.0.1:8686` while the filler runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference below.
 
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">

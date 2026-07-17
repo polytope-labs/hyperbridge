@@ -40,6 +40,7 @@ export class IntentFiller {
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStorageService
 	private retractionQueue: pQueue
+	private paused = false
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
@@ -202,6 +203,41 @@ export class IntentFiller {
 	}
 
 	/**
+	 * Stops analysing and filling new orders while keeping the event monitor
+	 * alive; in-flight fills complete. Orders arriving while paused are dropped,
+	 * not queued — resuming does not replay them.
+	 */
+	public pause(): void {
+		if (this.paused) return
+		this.paused = true
+		this.globalQueue.pause()
+		this.logger.warn("Filler paused — monitoring continues, new orders are not analysed or filled")
+	}
+
+	public resume(): void {
+		if (!this.paused) return
+		this.paused = false
+		this.globalQueue.start()
+		this.logger.info("Filler resumed")
+	}
+
+	public isPaused(): boolean {
+		return this.paused
+	}
+
+	/** Takes effect immediately: evaluateOrder reads the map on every order. */
+	public setWatchOnly(chainId: number, value: boolean): void {
+		if (this.config.watchOnly === undefined) {
+			this.config.watchOnly = {}
+		}
+		this.config.watchOnly[chainId] = value
+	}
+
+	public getWatchOnly(): Record<number, boolean> {
+		return this.config.watchOnly ?? {}
+	}
+
+	/**
 	 * Start periodic rebalancing checks.
 	 * Checks every 5 minutes for triggers and executes rebalancing if needed.
 	 */
@@ -303,6 +339,14 @@ export class IntentFiller {
 			this.logger.info("Periodic retraction sweep stopped")
 		}
 
+		// A paused queue never resolves onIdle; drop anything still pending
+		// (matching pause semantics) and unblock the drain below.
+		if (this.paused) {
+			this.globalQueue.clear()
+			this.globalQueue.start()
+			this.paused = false
+		}
+
 		// Wait for all queues to complete
 		const promises: Promise<void>[] = []
 		this.chainQueues.forEach((queue) => {
@@ -380,6 +424,10 @@ export class IntentFiller {
 	}
 
 	private handleNewOrder(order: Order, transactionHash: string): void {
+		if (this.paused) {
+			this.logger.debug({ orderId: order.id }, "Filler is paused — dropping new order")
+			return
+		}
 		// Use the global queue for the initial analysis
 		// This can happen in parallel for PublicClient orders
 		this.globalQueue.add(async () => {

@@ -5,6 +5,7 @@ import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { IntentFiller } from "@/core/filler"
+import { loadRuntimeState } from "@/core/runtime-state"
 import { StableFiller } from "@/strategies/stable"
 import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
@@ -457,6 +458,11 @@ program
 
 			// Start the filler
 			intentFiller.start()
+
+			// An operator-initiated pause survives restarts
+			if (loadRuntimeState(options.dataDir).paused) {
+				intentFiller.pause()
+			}
 
 			// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
 			vaultVenue?.startSweeping()

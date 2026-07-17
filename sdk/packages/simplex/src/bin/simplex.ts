@@ -50,6 +50,12 @@ function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
 		strategies: runtime.adminStrategies,
 		filler: runtime.intentFiller,
 		balances: runtime.balanceProvider,
+		haltControls: runtime.haltControls,
+		config: runtime.config,
+		stop: async () => {
+			await runtime.shutdown("UI")
+			process.exit(0)
+		},
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,

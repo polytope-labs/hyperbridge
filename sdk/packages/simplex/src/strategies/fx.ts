@@ -771,6 +771,18 @@ export class FXFiller implements FillerStrategy {
 		}
 	}
 
+	public isHalted(): boolean {
+		return this.halted
+	}
+
+	/** Operator acknowledgement after investigating a self-halt; resumes filling. */
+	public resetHalt(): void {
+		if (!this.halted) return
+		this.halted = false
+		this.consecutiveClamps = 0
+		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
+	}
+
 	private computeLegPolicyOutput(
 		inputAmount: bigint,
 		inputIsStable: boolean,

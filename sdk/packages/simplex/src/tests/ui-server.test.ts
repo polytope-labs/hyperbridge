@@ -1,11 +1,14 @@
-import { UiServer, type OperatorContext, type PauseControl } from "@/services/server/UiServer"
+import { UiServer, type HaltControl, type OperatorContext, type PauseControl } from "@/services/server/UiServer"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
+import type { FillerTomlConfig } from "@/config/filler-toml"
 import { loadRuntimeState } from "@/core/runtime-state"
-import { describe, it, expect, afterEach } from "vitest"
-import { mkdtempSync, writeFileSync, mkdirSync } from "fs"
+import { SignerType } from "@/services/wallet"
+import { describe, it, expect, afterEach, vi } from "vitest"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
 import { tmpdir } from "os"
 import { join } from "path"
+import { parse } from "toml"
 import Decimal from "decimal.js"
 
 /** fetch() normalizes `..` out of URLs, so traversal tests need a raw socket. */
@@ -53,6 +56,79 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 		getWatchOnly() {
 			return { 56: true }
 		},
+	}
+}
+
+function fakeHaltControl(index: number, halted = false): HaltControl & { halted: boolean } {
+	return {
+		index,
+		halted,
+		isHalted() {
+			return this.halted
+		},
+		resetHalt() {
+			this.halted = false
+		},
+	}
+}
+
+/** strategies[] indices line up with the AdminStrategy indices used in the tests. */
+function fakeConfig(): FillerTomlConfig {
+	return {
+		simplex: {
+			signer: { type: SignerType.PrivateKey, key: "0xab" },
+			maxConcurrentOrders: 5,
+			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
+			substratePrivateKey: "seed",
+			hyperbridgeWsUrl: "wss://example",
+		},
+		strategies: [
+			{
+				type: "stable",
+				bpsCurve: [
+					{ amount: "100", value: 100 },
+					{ amount: "100000", value: 10 },
+				],
+			},
+			{
+				type: "hyperfx",
+				maxOrderUsd: 5000,
+				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
+				bidPriceCurve: BID_POINTS,
+				askPriceCurve: ASK_POINTS,
+			},
+			{
+				type: "hyperfx",
+				maxOrderUsd: 5000,
+				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
+			},
+			{
+				type: "hyperfx",
+				maxOrderUsd: 5000,
+				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
+				askPriceCurve: ASK_POINTS,
+			},
+		],
+		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
+	}
+}
+
+function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext {
+	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
+	return {
+		strategies: [],
+		filler: fakePauseControl(),
+		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
+		haltControls: [],
+		config: fakeConfig(),
+		stop: vi.fn().mockResolvedValue(undefined),
+		version: "0.0.0-test",
+		startedAt: Date.now(),
+		configPath: join(dataDir, "filler-config.toml"),
+		chains: [8453, 56],
+		strategyTypes: ["hyperfx"],
+		dataDir,
+		...overrides,
 	}
 }
 
@@ -110,8 +186,7 @@ describe("UiServer (operator mode)", () => {
 		const ask = new FillerPricePolicy({ points: ASK_POINTS })
 		const askOnly = new FillerPricePolicy({ points: ASK_POINTS })
 		const filler = fakePauseControl()
-		const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
-		const operator: OperatorContext = {
+		const operator = baseOperator({
 			strategies: [
 				{ index: 1, exotic: "cNGN", bid, ask },
 				{ index: 2 }, // venue-priced: no editable curves
@@ -119,17 +194,19 @@ describe("UiServer (operator mode)", () => {
 			],
 			filler,
 			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
-			version: "0.0.0-test",
-			startedAt: Date.now(),
-			configPath: "/tmp/filler-config.toml",
-			chains: [8453, 56],
-			strategyTypes: ["hyperfx"],
-			dataDir,
 			...overrides,
-		}
+		})
 		server = new UiServer({ mode: "operator", operator })
 		const port = await server.start(0)
-		return { base: `http://127.0.0.1:${port}`, bid, ask, askOnly, filler, dataDir }
+		return {
+			base: `http://127.0.0.1:${port}`,
+			bid,
+			ask,
+			askOnly,
+			filler,
+			dataDir: operator.dataDir!,
+			operator,
+		}
 	}
 
 	async function put(base: string, path: string, body: unknown, headers: Record<string, string> = CSRF) {
@@ -178,8 +255,8 @@ describe("UiServer (operator mode)", () => {
 		})
 	})
 
-	it("applies a curve update to the live policy instance and returns the new state", async () => {
-		const { base, bid, ask } = await startServer()
+	it("applies a curve update to the live policy instance and persists it to the config", async () => {
+		const { base, bid, ask, operator } = await startServer()
 		const newAsk = [
 			{ amount: "0", price: "1540" },
 			{ amount: "1000", price: "1535" },
@@ -192,9 +269,18 @@ describe("UiServer (operator mode)", () => {
 			pricingMode: "static",
 			bid: BID_POINTS,
 			ask: newAsk,
+			persisted: true,
 		})
 		expect(ask.getPoints()).toEqual(newAsk)
 		expect(bid.getPoints()).toEqual(BID_POINTS)
+
+		// restarts keep the change: the config file now carries the new curve
+		expect(existsSync(operator.configPath)).toBe(true)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const fx = written.strategies[1]
+		if (fx.type !== "hyperfx") throw new Error("expected hyperfx at index 1")
+		expect(fx.askPriceCurve).toEqual(newAsk)
+		expect(fx.bidPriceCurve).toEqual(BID_POINTS)
 	})
 
 	it("rejects malformed bodies with 400", async () => {
@@ -257,27 +343,34 @@ describe("UiServer (operator mode)", () => {
 		expect(await res.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
 	})
 
+	it("surfaces halted strategies in status and resets them", async () => {
+		const halt = fakeHaltControl(1, true)
+		const { base } = await startServer({ haltControls: [halt] })
+
+		const status = await (await fetch(`${base}/api/status`)).json()
+		expect(status.halted).toEqual([1])
+
+		const res = await fetch(`${base}/api/reset-halt`, { method: "POST", headers: CSRF })
+		expect(await res.json()).toEqual({ halted: [] })
+		expect(halt.halted).toBe(false)
+		expect((await (await fetch(`${base}/api/status`)).json()).halted).toEqual([])
+	})
+
+	it("stop drains the runtime via the operator callback", async () => {
+		const { base, operator } = await startServer()
+		const res = await fetch(`${base}/api/stop`, { method: "POST", headers: CSRF })
+		expect(res.status).toBe(202)
+		expect(await res.json()).toEqual({ stopping: true })
+		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
+	})
+
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
 		mkdirSync(join(uiDistDir, "assets"))
 		writeFileSync(join(uiDistDir, "assets", "app.js"), "console.log(1)")
 
-		const filler = fakePauseControl()
-		server = new UiServer({
-			mode: "operator",
-			uiDistDir,
-			operator: {
-				strategies: [],
-				filler,
-				balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
-				version: "0",
-				startedAt: Date.now(),
-				configPath: "x",
-				chains: [],
-				strategyTypes: [],
-			},
-		})
+		server = new UiServer({ mode: "operator", uiDistDir, operator: baseOperator() })
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
@@ -336,17 +429,7 @@ describe("UiServer (init mode)", () => {
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
-		const filler = fakePauseControl()
-		server.enterOperatorMode({
-			strategies: [],
-			filler,
-			balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
-			version: "0",
-			startedAt: Date.now(),
-			configPath: "/tmp/x.toml",
-			chains: [1],
-			strategyTypes: ["stable"],
-		})
+		server.enterOperatorMode(baseOperator({ chains: [1], strategyTypes: ["stable"] }))
 
 		const status = await (await fetch(`${base}/api/status`)).json()
 		expect(status.mode).toBe("operator")

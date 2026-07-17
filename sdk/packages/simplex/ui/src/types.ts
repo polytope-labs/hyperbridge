@@ -91,6 +91,7 @@ export interface StatusOperator {
 	version: string
 	uptimeSec: number
 	paused: boolean
+	halted: number[]
 	watchOnly: Record<string, boolean>
 	chains: number[]
 	strategies: Array<{ index: number; exotic?: string }>

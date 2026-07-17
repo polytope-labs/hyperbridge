@@ -44,6 +44,41 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 		}
 	}
 
+	const resetHalt = async () => {
+		setError(undefined)
+		try {
+			await api.post("/api/reset-halt")
+			refresh()
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		}
+	}
+
+	const [stopped, setStopped] = useState(false)
+	const stopFiller = async () => {
+		if (!window.confirm("Stop the filler? In-flight fills drain, vault positions may unwind, and the process exits.")) {
+			return
+		}
+		try {
+			await api.post("/api/stop")
+			setStopped(true)
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		}
+	}
+
+	if (stopped) {
+		return (
+			<div className="card">
+				<h2>Filler stopping</h2>
+				<p className="hint">
+					In-flight fills are draining and the process will exit. Restart it with `simplex run` — a persisted
+					pause state is honored on the next boot.
+				</p>
+			</div>
+		)
+	}
+
 	return (
 		<div>
 			<div className="spread">
@@ -62,14 +97,32 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<div className="card">
 				<div className="spread">
 					<h2>Fill control</h2>
-					<button type="button" className="primary" onClick={togglePause}>
-						{status.paused ? "Resume filling" : "Pause filling"}
-					</button>
+					<div className="row">
+						<button type="button" className="primary" onClick={togglePause}>
+							{status.paused ? "Resume filling" : "Pause filling"}
+						</button>
+						<button type="button" onClick={stopFiller}>
+							Stop filler
+						</button>
+					</div>
 				</div>
 				<p className="hint">
 					Pause keeps monitoring orders but stops analysing and filling new ones; in-flight fills complete. Orders
-					arriving while paused are dropped, not queued. The paused state survives restarts.
+					arriving while paused are dropped, not queued. The paused state survives restarts. Stop drains in-flight
+					fills and exits the process.
 				</p>
+				{status.halted.length > 0 && (
+					<div>
+						<p className="error">
+							Overfill protection halted strategy {status.halted.map((i) => `#${i}`).join(", ")}: consecutive
+							venue-priced clamps suggest a stale or manipulated price source. Investigate the venue before
+							resuming.
+						</p>
+						<button type="button" onClick={resetHalt}>
+							Reset halt & resume
+						</button>
+					</div>
+				)}
 				{Object.entries(status.watchOnly).some(([, v]) => v) && (
 					<p className="hint">
 						Watch-only chains:{" "}
@@ -119,8 +172,8 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<div className="card">
 				<h2>Price curves</h2>
 				<p className="hint">
-					Edits apply to the running strategies immediately and are lost on restart; the config file is re-read on
-					boot.
+					Edits apply to the running strategies immediately and are persisted to the config file (which is
+					regenerated with standard comments).
 				</p>
 				{strategies.length === 0 && <p className="hint">No FX strategies configured.</p>}
 				{strategies.map((strategy) => (
@@ -162,11 +215,11 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 		setMessage(undefined)
 		setError(undefined)
 		try {
-			await api.put(`/api/strategies/${strategy.index}/curves`, {
+			const res = await api.put<{ persisted: boolean }>(`/api/strategies/${strategy.index}/curves`, {
 				...(strategy.bid ? { bidPriceCurve: toPricePoints(bid) } : {}),
 				...(strategy.ask ? { askPriceCurve: toPricePoints(ask) } : {}),
 			})
-			setMessage("Applied — in memory only, lost on restart")
+			setMessage(res.persisted ? "Applied & saved to config" : "Applied in memory — config file could not be written")
 			onApplied()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err))

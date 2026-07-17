@@ -23,8 +23,9 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 The filler serves a local web UI at `127.0.0.1:8686` by default:
 
 - setup wizard (when no config exists)
-- status, pause/resume (persists across restarts), balances per chain
-- inflight FX price curve updates without a restart
+- status, pause/resume (persists across restarts), graceful stop, balances per chain
+- inflight FX price curve updates without a restart, persisted back to the config file
+- overfill-protection self-halts surfaced with an operator reset
 
 Flags:
 
@@ -43,8 +44,9 @@ curl -X PUT http://127.0.0.1:8686/api/strategies/0/curves \
     -d '{"askPriceCurve": [{"amount": "0", "price": "1550"}]}'
 ```
 
-Curve changes apply immediately but are lost on restart; the TOML config is re-read on
-boot. Venue-priced strategies and disabled sides (one-sided LP) are not editable. The
+Curve changes apply immediately and are written back to the config file (regenerated
+with standard comments) so restarts keep them. Venue-priced strategies and disabled
+sides (one-sided LP) are not editable. The
 server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
 hygiene), and the setup wizard only ever binds loopback. Only bind another interface
 (e.g. `--ui 0.0.0.0:8686` in docker) on a trusted network.

@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { chmodSync, writeFileSync } from "node:fs"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
+import { emitFillerToml } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger } from "../Logger"
@@ -33,10 +35,22 @@ export interface PauseControl {
 	getWatchOnly(): Record<number, boolean>
 }
 
+/** Self-halt visibility/reset for one FX strategy (overfill protection). */
+export interface HaltControl {
+	index: number
+	isHalted(): boolean
+	resetHalt(): void
+}
+
 export interface OperatorContext {
 	strategies: AdminStrategy[]
 	filler: PauseControl
 	balances: Pick<BalanceProvider, "getSnapshot">
+	haltControls: HaltControl[]
+	/** The running config; curve edits are persisted back into it at configPath. */
+	config: FillerTomlConfig
+	/** Drains the filler and exits the process (the UI's graceful Stop). */
+	stop(): Promise<void>
 	version: string
 	startedAt: number
 	configPath: string
@@ -204,6 +218,23 @@ export class UiServer {
 			return sendJson(res, 200, this.operator!.balances.getSnapshot())
 		}
 
+		if (path === "/api/reset-halt") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			for (const control of this.operator!.haltControls) control.resetHalt()
+			return sendJson(res, 200, { halted: [] })
+		}
+
+		if (path === "/api/stop") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			this.logger.warn("Graceful stop requested from the UI")
+			sendJson(res, 202, { stopping: true })
+			// Let the response flush before draining the filler and exiting.
+			setTimeout(() => void this.operator!.stop(), 100)
+			return
+		}
+
 		if (path.startsWith("/api/")) {
 			return sendJson(res, 404, { error: "Not found" })
 		}
@@ -235,6 +266,7 @@ export class UiServer {
 			version: op.version,
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
+			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
 			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),
@@ -289,11 +321,36 @@ export class UiServer {
 			side.policy.replacePoints({ points: side.points })
 			this.logger.info(
 				{ strategy: index, side: side.label, previous, next: side.policy.getPoints() },
-				"Price curve updated in memory (lost on restart)",
+				"Price curve updated on the running strategy",
 			)
 		}
 
-		sendJson(res, 200, serializeStrategy(strategy))
+		const persisted = this.persistCurveUpdate(index, update)
+		sendJson(res, 200, { ...serializeStrategy(strategy), persisted })
+	}
+
+	/**
+	 * Writes the updated curves back into the config file so restarts keep them.
+	 * The file is regenerated from the parsed config: hand-written comments are
+	 * replaced by the generated ones, values are preserved.
+	 */
+	private persistCurveUpdate(
+		index: number,
+		update: { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] },
+	): boolean {
+		const op = this.operator!
+		const strategy = op.config.strategies[index]
+		if (!strategy || strategy.type !== "hyperfx") return false
+		if (update.bidPriceCurve) strategy.bidPriceCurve = update.bidPriceCurve
+		if (update.askPriceCurve) strategy.askPriceCurve = update.askPriceCurve
+		try {
+			writeFileSync(op.configPath, emitFillerToml(op.config), { mode: 0o600 })
+			chmodSync(op.configPath, 0o600)
+			return true
+		} catch (err) {
+			this.logger.warn({ err, configPath: op.configPath }, "Curve applied in memory but could not be persisted")
+			return false
+		}
 	}
 }
 

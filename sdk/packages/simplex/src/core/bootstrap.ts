@@ -29,7 +29,7 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import { BalanceProvider } from "@/services/BalanceProvider"
-import type { AdminStrategy } from "@/services/server/UiServer"
+import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
@@ -51,6 +51,8 @@ export interface FillerRuntime {
 	vaultVenue?: VaultFundingPlanner
 	/** Live FillerPricePolicy handles shared with the FX strategies, exotic labels pre-resolved. */
 	adminStrategies: AdminStrategy[]
+	/** Self-halt visibility/reset per FX strategy (overfill protection). */
+	haltControls: HaltControl[]
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
 	watchOnly?: Record<number, boolean>
@@ -288,6 +290,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		}
 	})
 
+	const haltControls: HaltControl[] = strategies.flatMap((strategy, index) =>
+		strategy instanceof FXFiller
+			? [{ index, isHalted: () => strategy.isHalted(), resetHalt: () => strategy.resetHalt() }]
+			: [],
+	)
+
 	// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 	for (const strategy of strategies) {
 		if (strategy instanceof FXFiller || strategy instanceof StableFiller) {
@@ -437,6 +445,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		metrics,
 		vaultVenue,
 		adminStrategies,
+		haltControls,
 		resolvedChains,
 		fillerAddress: runtimeSigner.account.address as HexString,
 		watchOnly: watchOnlyConfig,

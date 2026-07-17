@@ -1,0 +1,2 @@
+onlyBuiltDependencies:
+  - '@openzeppelin/community-contracts@https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed'

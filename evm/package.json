@@ -28,10 +28,5 @@
     },
     "devDependencies": {
         "forge-std": "github:foundry-rs/forge-std#v1.16.1"
-    },
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "@openzeppelin/community-contracts"
-        ]
     }
 }

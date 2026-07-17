@@ -35,7 +35,7 @@ export interface SetupDefaults {
 
 export interface SignerConfig {
 	type: "privateKey" | "mpcVault" | "turnkey"
-	[key: string]: string
+	[key: string]: string | undefined
 }
 
 export interface StrategyConfig {
@@ -47,6 +47,12 @@ export interface StrategyConfig {
 	bidPriceCurve?: PricePoint[]
 	askPriceCurve?: PricePoint[]
 	spreadBps?: number
+	vault?: {
+		uniswapV4?: {
+			positions?: Array<{ chain: string; tokenId: string; referencePrice?: string; maxDeviationBps?: number }>
+			side?: "bid" | "ask"
+		}
+	}
 }
 
 export interface ChainEntry {
@@ -119,4 +125,49 @@ export interface AdminStrategyDto {
 	pricingMode: "static" | "venue"
 	bid?: PricePoint[]
 	ask?: PricePoint[]
+}
+
+export interface ActivityEventDto {
+	id: number
+	ts: number
+	type: "detected" | "filled" | "executed" | "skipped" | "rebalance"
+	orderId: string | null
+	chainId: number | null
+	strategy: string | null
+	success: boolean | null
+	reason: string | null
+	volumeUsd: number | null
+	profitUsd: number | null
+	txHash: string | null
+}
+
+export interface BidDto {
+	id: number
+	commitment: string
+	extrinsicHash: string | null
+	success: boolean
+	error: string | null
+	createdAt: string
+	retracted: boolean
+}
+
+export interface BidStatsDto {
+	total: number
+	successful: number
+	failed: number
+	retracted: number
+	pendingRetraction: number
+}
+
+export interface RebalancingDto {
+	configured: boolean
+	triggerPercentage?: number
+	baseBalances?: { USDC?: Record<string, string>; USDT?: Record<string, string> }
+	triggers?: unknown
+}
+
+export interface ConfigDto {
+	configPath: string
+	toml: string
+	logLevel: string
 }

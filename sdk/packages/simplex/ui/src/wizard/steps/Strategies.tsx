@@ -128,13 +128,158 @@ export function StepStrategies({ state, setState }: StepProps) {
 							</label>
 						))}
 
-						<p className="hint">
-							Prices are exotic tokens per USD. Disabling one side is one-sided LP: bid-only keeps buying exotic
-							(accumulates it), ask-only keeps selling it (accumulates stablecoins). Pool-based pricing from
-							Uniswap V4 positions is configurable in the config file.
-						</p>
+						<p className="hint">Price source for the exotic token:</p>
+						<div className="steps">
+							{(
+								[
+									["curves", "Static bid/ask curves"],
+									["uniswapV4", "Uniswap V4 positions"],
+								] as const
+							).map(([mode, label]) => (
+								<button
+									key={mode}
+									type="button"
+									className={`step ${state.fxPricing === mode ? "active" : ""}`}
+									style={{ cursor: "pointer" }}
+									onClick={() => setState((s) => ({ ...s, fxPricing: mode }))}
+								>
+									{label}
+								</button>
+							))}
+						</div>
 
-						<div className="spread">
+						{state.fxPricing === "uniswapV4" && (
+							<div>
+								<p className="hint">
+									The pool acts as the price oracle and doubles as fill liquidity (withdrawn atomically when
+									the wallet is short). Add at least one position; the optional price guard rejects fills when
+									the live pool quote drifts from a reference price — set both guard fields or neither.
+								</p>
+								{state.fxPositions.map((position, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: positional rows
+									<div className="row" key={index} style={{ marginBottom: "0.5rem" }}>
+										<select
+											value={position.chain}
+											onChange={(e) =>
+												setState((s) => ({
+													...s,
+													fxPositions: s.fxPositions.map((p, i) =>
+														i === index ? { ...p, chain: e.target.value } : p,
+													),
+												}))
+											}
+										>
+											{chains.map((c) => (
+												<option key={c.meta.stateMachineId} value={c.meta.stateMachineId}>
+													{c.meta.label}
+												</option>
+											))}
+										</select>
+										<input
+											type="text"
+											placeholder="position token id"
+											style={{ maxWidth: "10rem" }}
+											value={position.tokenId}
+											onChange={(e) =>
+												setState((s) => ({
+													...s,
+													fxPositions: s.fxPositions.map((p, i) =>
+														i === index ? { ...p, tokenId: e.target.value } : p,
+													),
+												}))
+											}
+										/>
+										<input
+											type="text"
+											placeholder="reference price (opt)"
+											style={{ maxWidth: "10rem" }}
+											value={position.referencePrice}
+											onChange={(e) =>
+												setState((s) => ({
+													...s,
+													fxPositions: s.fxPositions.map((p, i) =>
+														i === index ? { ...p, referencePrice: e.target.value } : p,
+													),
+												}))
+											}
+										/>
+										<input
+											type="text"
+											placeholder="max deviation bps (opt)"
+											style={{ maxWidth: "10rem" }}
+											value={position.maxDeviationBps}
+											onChange={(e) =>
+												setState((s) => ({
+													...s,
+													fxPositions: s.fxPositions.map((p, i) =>
+														i === index ? { ...p, maxDeviationBps: e.target.value } : p,
+													),
+												}))
+											}
+										/>
+										<button
+											type="button"
+											onClick={() =>
+												setState((s) => ({ ...s, fxPositions: s.fxPositions.filter((_, i) => i !== index) }))
+											}
+										>
+											✕
+										</button>
+									</div>
+								))}
+								<div className="row">
+									<button
+										type="button"
+										onClick={() =>
+											setState((s) => ({
+												...s,
+												fxPositions: [
+													...s.fxPositions,
+													{
+														chain: chains[0]?.meta.stateMachineId ?? "",
+														tokenId: "",
+														referencePrice: "",
+														maxDeviationBps: "",
+													},
+												],
+											}))
+										}
+									>
+										+ Add position
+									</button>
+									<label className="field" style={{ maxWidth: "16rem", margin: 0 }}>
+										<span>Direction</span>
+										<select
+											value={state.fxSide}
+											onChange={(e) =>
+												setState((s) => ({ ...s, fxSide: e.target.value as "" | "ask" | "bid" }))
+											}
+										>
+											<option value="">both directions</option>
+											<option value="ask">ask only — sell exotic, accumulate stables</option>
+											<option value="bid">bid only — buy exotic, accumulate exotic</option>
+										</select>
+									</label>
+									<label className="field" style={{ maxWidth: "10rem", margin: 0 }}>
+										<span>Spread (bps, optional)</span>
+										<input
+											type="text"
+											value={state.fxSpreadBps}
+											onChange={(e) => setState((s) => ({ ...s, fxSpreadBps: e.target.value }))}
+										/>
+									</label>
+								</div>
+							</div>
+						)}
+
+						{state.fxPricing === "curves" && (
+							<p className="hint">
+								Prices are exotic tokens per USD. Disabling one side is one-sided LP: bid-only keeps buying
+								exotic (accumulates it), ask-only keeps selling it (accumulates stablecoins).
+							</p>
+						)}
+
+						<div className="spread" style={state.fxPricing !== "curves" ? { display: "none" } : undefined}>
 							<h2 style={{ fontSize: "0.95rem" }}>Bid curve — price when buying exotic from users</h2>
 							<label className="row">
 								<input
@@ -145,7 +290,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 								enabled
 							</label>
 						</div>
-						{state.fxBidEnabled && (
+						{state.fxPricing === "curves" && state.fxBidEnabled && (
 							<CurveEditor
 								points={state.fxBid}
 								onChange={(points) => setState((s) => ({ ...s, fxBid: points }))}
@@ -154,7 +299,10 @@ export function StepStrategies({ state, setState }: StepProps) {
 							/>
 						)}
 
-						<div className="spread" style={{ marginTop: "0.8rem" }}>
+						<div
+							className="spread"
+							style={{ marginTop: "0.8rem", ...(state.fxPricing !== "curves" ? { display: "none" } : {}) }}
+						>
 							<h2 style={{ fontSize: "0.95rem" }}>Ask curve — price when selling exotic to users</h2>
 							<label className="row">
 								<input
@@ -165,7 +313,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 								enabled
 							</label>
 						</div>
-						{state.fxAskEnabled && (
+						{state.fxPricing === "curves" && state.fxAskEnabled && (
 							<CurveEditor
 								points={state.fxAsk}
 								onChange={(points) => setState((s) => ({ ...s, fxAsk: points }))}
@@ -173,7 +321,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 								valueLabel="Exotic per USD"
 							/>
 						)}
-						{!state.fxBidEnabled && !state.fxAskEnabled && (
+						{state.fxPricing === "curves" && !state.fxBidEnabled && !state.fxAskEnabled && (
 							<p className="error">Enable at least one direction.</p>
 						)}
 					</div>

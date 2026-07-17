@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react"
 import { api } from "../api"
 import { CurveEditor, type EditorPoint } from "../components/CurveEditor"
 import type { AdminStrategyDto, BalanceSnapshot, PricePoint, StatusOperator } from "../types"
+import { Activity } from "./Activity"
+import { Operations } from "./Operations"
+
+type Tab = "overview" | "activity" | "operations"
 
 function formatUptime(seconds: number): string {
 	const h = Math.floor(seconds / 3600)
@@ -11,6 +15,7 @@ function formatUptime(seconds: number): string {
 
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
+	const [tab, setTab] = useState<Tab>("overview")
 	const [balances, setBalances] = useState<BalanceSnapshot>()
 	const [strategies, setStrategies] = useState<AdminStrategyDto[]>([])
 	const [error, setError] = useState<string>()
@@ -94,7 +99,24 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				{status.strategyTypes.join(", ")}
 			</p>
 
-			<div className="card">
+			<div className="steps">
+				{(["overview", "activity", "operations"] as const).map((t) => (
+					<button
+						key={t}
+						type="button"
+						className={`step ${tab === t ? "active" : ""}`}
+						style={{ cursor: "pointer" }}
+						onClick={() => setTab(t)}
+					>
+						{t}
+					</button>
+				))}
+			</div>
+
+			{tab === "activity" && <Activity />}
+			{tab === "operations" && <Operations />}
+
+			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<div className="spread">
 					<h2>Fill control</h2>
 					<div className="row">
@@ -134,7 +156,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				)}
 			</div>
 
-			<div className="card">
+			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<h2>Balances</h2>
 				{!balances?.updatedAt && <p className="hint">First refresh lands within a minute of startup…</p>}
 				{balances && balances.chains.length > 0 && (
@@ -169,7 +191,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				)}
 			</div>
 
-			<div className="card">
+			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<h2>Price curves</h2>
 				<p className="hint">
 					Edits apply to the running strategies immediately and are persisted to the config file (which is

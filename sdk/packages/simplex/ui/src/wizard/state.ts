@@ -25,10 +25,22 @@ export interface VaultDraft {
 	redeemOnShutdown: boolean
 }
 
+export type SignerType = "privateKey" | "mpcVault" | "turnkey"
+
+export interface V4PositionDraft {
+	chain: string
+	tokenId: string
+	referencePrice: string
+	maxDeviationBps: string
+}
+
 export interface WizardState {
 	network: Network
+	signerType: SignerType
 	signerKey: string
 	signerAddress?: string
+	mpcVault: { apiToken: string; vaultUuid: string; accountAddress: string; callbackClientSignerPublicKey: string; grpcTarget: string }
+	turnkey: { organizationId: string; apiPublicKey: string; apiPrivateKey: string; signWith: string }
 	substrateKey: string
 	substrateAddress?: string
 	generatedMnemonic?: string
@@ -42,11 +54,14 @@ export interface WizardState {
 	stableBps: EditorPoint[]
 	fxEnabled: boolean
 	fxMaxOrderUsd: string
+	fxPricing: "curves" | "uniswapV4"
 	fxBidEnabled: boolean
 	fxAskEnabled: boolean
 	fxBid: EditorPoint[]
 	fxAsk: EditorPoint[]
 	fxSpreadBps: string
+	fxPositions: V4PositionDraft[]
+	fxSide: "" | "ask" | "bid"
 	rebalancingEnabled: boolean
 	rebalancingTrigger: string
 	rebalancingUsdc: Record<string, string>
@@ -63,7 +78,10 @@ export interface WizardState {
 export function initialState(defaults: SetupDefaults): WizardState {
 	return {
 		network: "mainnet",
+		signerType: "privateKey",
 		signerKey: "",
+		mpcVault: { apiToken: "", vaultUuid: "", accountAddress: "", callbackClientSignerPublicKey: "", grpcTarget: "" },
+		turnkey: { organizationId: "", apiPublicKey: "", apiPrivateKey: "", signWith: "" },
 		substrateKey: "",
 		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
 		alchemyKey: "",
@@ -82,11 +100,14 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		stableBps: defaults.stableBpsCurve.map((p) => ({ amount: p.amount, value: String(p.value) })),
 		fxEnabled: false,
 		fxMaxOrderUsd: "5000",
+		fxPricing: "curves",
 		fxBidEnabled: true,
 		fxAskEnabled: true,
 		fxBid: [{ amount: "100", value: "" }],
 		fxAsk: [{ amount: "100", value: "" }],
 		fxSpreadBps: "",
+		fxPositions: [],
+		fxSide: "",
 		rebalancingEnabled: false,
 		rebalancingTrigger: "0.5",
 		rebalancingUsdc: {},
@@ -161,13 +182,29 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		const token1 = Object.fromEntries(
 			chains.filter((c) => c.token1.trim()).map((c) => [c.meta.stateMachineId, c.token1.trim()]),
 		)
+		const usingPool = state.fxPricing === "uniswapV4"
 		strategies.push({
 			type: "hyperfx",
 			maxOrderUsd: Number(state.fxMaxOrderUsd),
 			token1,
-			...(state.fxBidEnabled ? { bidPriceCurve: toPriceCurve(state.fxBid) } : {}),
-			...(state.fxAskEnabled ? { askPriceCurve: toPriceCurve(state.fxAsk) } : {}),
+			...(!usingPool && state.fxBidEnabled ? { bidPriceCurve: toPriceCurve(state.fxBid) } : {}),
+			...(!usingPool && state.fxAskEnabled ? { askPriceCurve: toPriceCurve(state.fxAsk) } : {}),
 			...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
+			...(usingPool
+				? {
+						vault: {
+							uniswapV4: {
+								positions: state.fxPositions.map((p) => ({
+									chain: p.chain,
+									tokenId: p.tokenId.trim(),
+									...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
+									...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
+								})),
+								...(state.fxSide ? { side: state.fxSide } : {}),
+							},
+						},
+					}
+				: {}),
 			...(confirmationPolicies ? { confirmationPolicies } : {}),
 		})
 	}
@@ -183,9 +220,29 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		.map((s) => s.trim())
 		.filter(Boolean)
 
+	const signer =
+		state.signerType === "privateKey"
+			? { type: "privateKey" as const, key: state.signerKey.trim() }
+			: state.signerType === "mpcVault"
+				? {
+						type: "mpcVault" as const,
+						apiToken: state.mpcVault.apiToken.trim(),
+						vaultUuid: state.mpcVault.vaultUuid.trim(),
+						accountAddress: state.mpcVault.accountAddress.trim(),
+						callbackClientSignerPublicKey: state.mpcVault.callbackClientSignerPublicKey.trim(),
+						...(state.mpcVault.grpcTarget.trim() ? { grpcTarget: state.mpcVault.grpcTarget.trim() } : {}),
+					}
+				: {
+						type: "turnkey" as const,
+						organizationId: state.turnkey.organizationId.trim(),
+						apiPublicKey: state.turnkey.apiPublicKey.trim(),
+						apiPrivateKey: state.turnkey.apiPrivateKey.trim(),
+						signWith: state.turnkey.signWith.trim(),
+					}
+
 	return {
 		simplex: {
-			signer: { type: "privateKey", key: state.signerKey.trim() },
+			signer,
 			maxConcurrentOrders: Number(state.maxConcurrentOrders) || defaults.maxConcurrentOrders,
 			queue: {
 				maxRechecks: Number(state.maxRechecks) || defaults.queue.maxRechecks,

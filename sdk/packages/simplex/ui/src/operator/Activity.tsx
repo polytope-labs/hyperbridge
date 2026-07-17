@@ -1,0 +1,154 @@
+import { useCallback, useEffect, useState } from "react"
+import { api } from "../api"
+import type { ActivityEventDto, BidDto, BidStatsDto } from "../types"
+
+const TYPE_BADGE: Record<ActivityEventDto["type"], string> = {
+	detected: "",
+	filled: "ok",
+	executed: "",
+	skipped: "warn",
+	rebalance: "",
+}
+
+function describe(event: ActivityEventDto): string {
+	switch (event.type) {
+		case "detected":
+			return "order detected"
+		case "filled":
+			return `filled${event.volumeUsd ? ` $${event.volumeUsd.toLocaleString()}` : ""}${
+				event.profitUsd ? ` (+$${event.profitUsd.toFixed(2)})` : ""
+			}`
+		case "executed":
+			return event.success ? `executed via ${event.strategy ?? "?"}` : `execution failed: ${event.reason ?? "?"}`
+		case "skipped":
+			return `skipped — ${event.reason ?? "?"}`
+		case "rebalance":
+			return `rebalance — ${event.reason ?? (event.success ? "ok" : "failed")}`
+	}
+}
+
+export function Activity() {
+	const [events, setEvents] = useState<ActivityEventDto[]>([])
+	const [bids, setBids] = useState<BidDto[]>([])
+	const [stats, setStats] = useState<BidStatsDto | null>(null)
+	const [live, setLive] = useState(false)
+	const [error, setError] = useState<string>()
+
+	const load = useCallback(async () => {
+		try {
+			const [orderFeed, bidFeed] = await Promise.all([
+				api.get<{ events: ActivityEventDto[] }>("/api/activity/orders?limit=100"),
+				api.get<{ bids: BidDto[]; stats: BidStatsDto | null }>("/api/activity/bids?limit=50"),
+			])
+			setEvents(orderFeed.events)
+			setBids(bidFeed.bids)
+			setStats(bidFeed.stats)
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		}
+	}, [])
+
+	useEffect(() => {
+		load()
+	}, [load])
+
+	// Live tail: new activity rows arrive over SSE and are prepended.
+	useEffect(() => {
+		const source = new EventSource("/api/events")
+		source.onopen = () => setLive(true)
+		source.onerror = () => setLive(false)
+		source.onmessage = (message) => {
+			const event = JSON.parse(message.data) as ActivityEventDto
+			setEvents((current) => [event, ...current].slice(0, 200))
+		}
+		return () => source.close()
+	}, [])
+
+	const loadOlder = async () => {
+		const oldest = events[events.length - 1]
+		if (!oldest) return
+		const older = await api.get<{ events: ActivityEventDto[] }>(
+			`/api/activity/orders?limit=100&before=${oldest.id}`,
+		)
+		setEvents((current) => [...current, ...older.events])
+	}
+
+	return (
+		<div>
+			<div className="card">
+				<div className="spread">
+					<h2>Order activity</h2>
+					<span className={`badge ${live ? "ok" : "warn"}`}>{live ? "live" : "reconnecting…"}</span>
+				</div>
+				{events.length === 0 && <p className="hint">No activity yet — events appear as orders are detected.</p>}
+				{events.length > 0 && (
+					<table>
+						<thead>
+							<tr>
+								<th>Time</th>
+								<th>Order</th>
+								<th>Event</th>
+							</tr>
+						</thead>
+						<tbody>
+							{events.map((event) => (
+								<tr key={event.id}>
+									<td>{new Date(event.ts).toLocaleTimeString()}</td>
+									<td className="mono">{event.orderId ? `${event.orderId.slice(0, 10)}…` : "—"}</td>
+									<td>
+										<span className={`badge ${TYPE_BADGE[event.type]}`}>{describe(event)}</span>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				)}
+				{events.length >= 100 && (
+					<button type="button" style={{ marginTop: "0.6rem" }} onClick={loadOlder}>
+						Load older
+					</button>
+				)}
+			</div>
+
+			<div className="card">
+				<h2>Bids</h2>
+				{stats && (
+					<p className="hint">
+						{stats.total} total · {stats.successful} successful · {stats.failed} failed · {stats.retracted}{" "}
+						retracted · {stats.pendingRetraction} pending retraction
+					</p>
+				)}
+				{bids.length === 0 && <p className="hint">No bids recorded.</p>}
+				{bids.length > 0 && (
+					<table>
+						<thead>
+							<tr>
+								<th>Created</th>
+								<th>Commitment</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{bids.map((bid) => (
+								<tr key={bid.id}>
+									<td>{bid.createdAt}</td>
+									<td className="mono">{bid.commitment.slice(0, 14)}…</td>
+									<td>
+										{bid.retracted ? (
+											<span className="badge">retracted</span>
+										) : bid.success ? (
+											<span className="badge ok">successful</span>
+										) : (
+											<span className="badge err">{bid.error ?? "failed"}</span>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				)}
+			</div>
+			{error && <p className="error">{error}</p>}
+		</div>
+	)
+}

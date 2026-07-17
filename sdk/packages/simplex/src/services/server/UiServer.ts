@@ -4,11 +4,15 @@ import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-c
 import type { FillerTomlConfig } from "@/config/filler-toml"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
+import { isAddress } from "viem"
+import type { AllowlistConfig } from "@/services/FillerConfigService"
+import type { ActivityLogService, ActivityEvent } from "../ActivityLogService"
 import type { BalanceProvider } from "../BalanceProvider"
-import { getLogger } from "../Logger"
+import type { BidStorageService } from "../BidStorageService"
+import { configureLogger, getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost } from "./http-util"
 import { serveStatic } from "./static"
-import { handleSetupRequest, type SetupDeps } from "./setup-api"
+import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
 
 /**
  * An FX strategy's editable price curves. The policies are the same instances
@@ -47,10 +51,16 @@ export interface OperatorContext {
 	filler: PauseControl
 	balances: Pick<BalanceProvider, "getSnapshot">
 	haltControls: HaltControl[]
-	/** The running config; curve edits are persisted back into it at configPath. */
+	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	config: FillerTomlConfig
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
+	activity: Pick<ActivityLogService, "getRecent" | "on" | "off">
+	bids?: Pick<BidStorageService, "getRecentBids" | "getStats">
+	vault?: { sweepNow(): Promise<void>; redeemAll(): Promise<void> }
+	rebalancing?: { checkTriggers(): Promise<unknown> }
+	/** Applies a new allowlist to the running filler (persistence handled by the server). */
+	applyAllowlist(allowlist: AllowlistConfig | undefined): void
 	version: string
 	startedAt: number
 	configPath: string
@@ -92,6 +102,8 @@ export class UiServer {
 	private uiDistDir?: string
 	private startState: StartState = "idle"
 	private startError?: string
+	private sseClients = new Set<ServerResponse>()
+	private activityListener?: (event: ActivityEvent) => void
 
 	constructor(opts: { mode: UiMode; uiDistDir?: string; setup?: SetupContext; operator?: OperatorContext }) {
 		this.mode = opts.mode
@@ -99,6 +111,7 @@ export class UiServer {
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
 		if (this.mode === "operator") this.startState = "running"
+		if (this.operator) this.subscribeActivity()
 		this.server = createServer((req, res) => {
 			this.handle(req, res).catch((err) => {
 				this.logger.error({ err }, "Unhandled UI request error")
@@ -134,6 +147,12 @@ export class UiServer {
 	}
 
 	stop(): void {
+		if (this.activityListener && this.operator) {
+			this.operator.activity.off("event", this.activityListener)
+			this.activityListener = undefined
+		}
+		for (const client of this.sseClients) client.end()
+		this.sseClients.clear()
 		this.server.close()
 	}
 
@@ -143,7 +162,20 @@ export class UiServer {
 		this.mode = "operator"
 		this.startState = "running"
 		this.startError = undefined
+		this.subscribeActivity()
 		this.logger.info("Setup complete — UI now in operator mode")
+	}
+
+	/** Re-broadcasts activity rows to every open SSE connection. */
+	private subscribeActivity(): void {
+		if (this.activityListener || !this.operator) return
+		this.activityListener = (event: ActivityEvent) => {
+			const frame = `data: ${JSON.stringify(event)}\n\n`
+			for (const client of this.sseClients) {
+				client.write(frame)
+			}
+		}
+		this.operator.activity.on("event", this.activityListener)
 	}
 
 	/** Reported by /api/setup/start-status while save-and-start boots the filler. */
@@ -216,6 +248,97 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 			return sendJson(res, 200, this.operator!.balances.getSnapshot())
+		}
+
+		if (path === "/api/activity/orders") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const limit = Number(params.get("limit") ?? 100)
+			const before = params.get("before") ? Number(params.get("before")) : undefined
+			return sendJson(res, 200, { events: this.operator!.activity.getRecent(limit, before) })
+		}
+
+		if (path === "/api/activity/bids") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const bids = this.operator!.bids
+			if (!bids) return sendJson(res, 200, { bids: [], stats: null })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			return sendJson(res, 200, {
+				bids: bids.getRecentBids(Number(params.get("limit") ?? 100)),
+				stats: bids.getStats(),
+			})
+		}
+
+		if (path === "/api/events") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			res.writeHead(200, {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-store",
+				Connection: "keep-alive",
+			})
+			res.write(":ok\n\n")
+			this.sseClients.add(res)
+			req.on("close", () => this.sseClients.delete(res))
+			return
+		}
+
+		if (path === "/api/config") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const op = this.operator!
+			return sendJson(res, 200, {
+				configPath: op.configPath,
+				toml: maskToml(op.config),
+				logLevel: op.config.simplex.logging ?? "info",
+			})
+		}
+
+		if (path === "/api/log-level") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleLogLevel(req, res)
+		}
+
+		if (path === "/api/allowlist") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleAllowlist(req, res)
+		}
+
+		if (path === "/api/vault/sweep" || path === "/api/vault/redeem") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			const vault = this.operator!.vault
+			if (!vault) return sendJson(res, 409, { error: "No vault configured" })
+			try {
+				if (path === "/api/vault/sweep") await vault.sweepNow()
+				else await vault.redeemAll()
+				return sendJson(res, 200, { ok: true })
+			} catch (err) {
+				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+			}
+		}
+
+		if (path === "/api/rebalancing") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const op = this.operator!
+			if (!op.rebalancing || !op.config.rebalancing) {
+				return sendJson(res, 200, { configured: false })
+			}
+			try {
+				return sendJson(res, 200, {
+					configured: true,
+					triggerPercentage: op.config.rebalancing.triggerPercentage,
+					baseBalances: op.config.rebalancing.baseBalances,
+					triggers: await op.rebalancing.checkTriggers(),
+				})
+			} catch (err) {
+				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+			}
 		}
 
 		if (path === "/api/reset-halt") {
@@ -343,14 +466,69 @@ export class UiServer {
 		if (!strategy || strategy.type !== "hyperfx") return false
 		if (update.bidPriceCurve) strategy.bidPriceCurve = update.bidPriceCurve
 		if (update.askPriceCurve) strategy.askPriceCurve = update.askPriceCurve
+		return this.persistConfig()
+	}
+
+	/** Regenerates the config file from the (mutated) running config. */
+	private persistConfig(): boolean {
+		const op = this.operator!
 		try {
 			writeFileSync(op.configPath, emitFillerToml(op.config), { mode: 0o600 })
 			chmodSync(op.configPath, 0o600)
 			return true
 		} catch (err) {
-			this.logger.warn({ err, configPath: op.configPath }, "Curve applied in memory but could not be persisted")
+			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")
 			return false
 		}
+	}
+
+	private async handleLogLevel(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: { level?: string }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		const level = body.level
+		if (!level || !["trace", "debug", "info", "warn", "error"].includes(level)) {
+			return sendJson(res, 400, { error: "level must be one of trace, debug, info, warn, error" })
+		}
+		configureLogger(level as LogLevel)
+		this.operator!.config.simplex.logging = level
+		const persisted = this.persistConfig()
+		this.logger.warn({ level }, "Log level changed from the UI")
+		return sendJson(res, 200, { level, persisted })
+	}
+
+	private async handleAllowlist(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: { users?: string[] }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!Array.isArray(body.users)) {
+			return sendJson(res, 400, { error: "Provide users as an array (empty to accept all users)" })
+		}
+		const users = body.users.map((u) => String(u).trim()).filter(Boolean)
+		const invalid = users.find((u) => !isAddress(u))
+		if (invalid) {
+			return sendJson(res, 400, { error: `Invalid address: ${invalid}` })
+		}
+
+		const op = this.operator!
+		// An empty list means "no allowlist" (accept everyone) — a present-but-empty
+		// allowlist would reject every order.
+		const bySource = op.config.allowlist?.bySource
+		const allowlist: AllowlistConfig | undefined =
+			users.length > 0 || (bySource && Object.keys(bySource).length > 0)
+				? { ...(users.length > 0 ? { users } : {}), ...(bySource ? { bySource } : {}) }
+				: undefined
+		op.applyAllowlist(allowlist)
+		op.config.allowlist = allowlist
+		const persisted = this.persistConfig()
+		this.logger.warn({ userCount: users.length }, "Allowlist updated from the UI")
+		return sendJson(res, 200, { users, persisted })
 	}
 }
 

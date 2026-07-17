@@ -329,6 +329,36 @@ export class BidStorageService {
 	}
 
 	/**
+	 * Newest bids first, for the operator activity feed.
+	 */
+	getRecentBids(limit = 100): StoredBid[] {
+		const stmt = this.db.prepare(`
+			SELECT
+				id,
+				commitment,
+				extrinsic_hash as extrinsicHash,
+				block_hash as blockHash,
+				success,
+				error,
+				created_at as createdAt,
+				retracted,
+				retracted_at as retractedAt,
+				retract_extrinsic_hash as retractExtrinsicHash
+			FROM bids
+			ORDER BY id DESC
+			LIMIT ?
+		`)
+
+		const rows = stmt.all(Math.min(Math.max(limit, 1), 500)) as any[]
+
+		return rows.map((row) => ({
+			...row,
+			success: Boolean(row.success),
+			retracted: Boolean(row.retracted),
+		}))
+	}
+
+	/**
 	 * Closes the database connection
 	 */
 	close(): void {

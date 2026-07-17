@@ -1,4 +1,5 @@
 import { UiServer, type HaltControl, type OperatorContext, type PauseControl } from "@/services/server/UiServer"
+import { ActivityLogService } from "@/services/ActivityLogService"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
 import { loadRuntimeState } from "@/core/runtime-state"
@@ -122,6 +123,8 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
+		activity: new ActivityLogService(dataDir),
+		applyAllowlist: vi.fn(),
 		version: "0.0.0-test",
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
@@ -362,6 +365,131 @@ describe("UiServer (operator mode)", () => {
 		expect(res.status).toBe(202)
 		expect(await res.json()).toEqual({ stopping: true })
 		await vi.waitFor(() => expect(operator.stop).toHaveBeenCalledTimes(1))
+	})
+
+	it("serves the order activity feed with paging", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.activity as ActivityLogService
+		activity.record({ type: "detected", orderId: "order-1" })
+		activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+
+		const res = await (await fetch(`${base}/api/activity/orders?limit=2`)).json()
+		expect(res.events).toHaveLength(2)
+		expect(res.events[0].type).toBe("filled")
+		expect(res.events[1].reason).toBe("No profitable strategy")
+
+		const older = await (
+			await fetch(`${base}/api/activity/orders?limit=10&before=${res.events[1].id}`)
+		).json()
+		expect(older.events).toHaveLength(1)
+		expect(older.events[0].type).toBe("detected")
+	})
+
+	it("streams live activity over SSE", async () => {
+		const { base, operator } = await startServer()
+		const activity = operator.activity as ActivityLogService
+
+		const controller = new AbortController()
+		const response = await fetch(`${base}/api/events`, { signal: controller.signal })
+		expect(response.headers.get("content-type")).toContain("text/event-stream")
+		const reader = response.body!.getReader()
+
+		activity.record({ type: "detected", orderId: "live-order" })
+
+		let received = ""
+		while (!received.includes("live-order")) {
+			const { value, done } = await reader.read()
+			if (done) break
+			received += new TextDecoder().decode(value)
+		}
+		controller.abort()
+
+		const dataLine = received.split("\n").find((line) => line.startsWith("data: "))
+		expect(dataLine).toBeDefined()
+		expect(JSON.parse(dataLine!.slice(6)).orderId).toBe("live-order")
+	})
+
+	it("changes the log level and persists it", async () => {
+		const { base, operator } = await startServer()
+		const res = await fetch(`${base}/api/log-level`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ level: "warn" }),
+		})
+		expect(await res.json()).toEqual({ level: "warn", persisted: true })
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.simplex.logging).toBe("warn")
+
+		const bad = await fetch(`${base}/api/log-level`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ level: "loud" }),
+		})
+		expect(bad.status).toBe(400)
+	})
+
+	it("updates the allowlist at runtime and persists it", async () => {
+		const { base, operator } = await startServer()
+		const user = "0x1111111111111111111111111111111111111111"
+
+		const res = await fetch(`${base}/api/allowlist`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ users: [user] }),
+		})
+		expect(await res.json()).toEqual({ users: [user], persisted: true })
+		expect(operator.applyAllowlist).toHaveBeenCalledWith({ users: [user] })
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.allowlist?.users).toEqual([user])
+
+		// empty list removes the allowlist entirely (accept everyone)
+		await fetch(`${base}/api/allowlist`, { method: "PUT", headers: CSRF, body: JSON.stringify({ users: [] }) })
+		expect(operator.applyAllowlist).toHaveBeenLastCalledWith(undefined)
+
+		const bad = await fetch(`${base}/api/allowlist`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ users: ["nope"] }),
+		})
+		expect(bad.status).toBe(400)
+	})
+
+	it("exposes vault controls only when a vault is configured", async () => {
+		const none = await startServer()
+		expect((await fetch(`${none.base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(409)
+		server?.stop()
+
+		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const redeemAll = vi.fn().mockResolvedValue(undefined)
+		const { base } = await startServer({ vault: { sweepNow, redeemAll } })
+		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
+		expect(sweepNow).toHaveBeenCalledTimes(1)
+		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
+		expect(redeemAll).toHaveBeenCalledTimes(1)
+	})
+
+	it("reports rebalancing configuration and triggers", async () => {
+		const unconfigured = await startServer()
+		expect(await (await fetch(`${unconfigured.base}/api/rebalancing`)).json()).toEqual({ configured: false })
+		server?.stop()
+
+		const config = fakeConfig()
+		config.rebalancing = { triggerPercentage: 0.5, baseBalances: { USDC: { "8453": "10000" } } }
+		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
+		const { base } = await startServer({ config, rebalancing: { checkTriggers } })
+		const res = await (await fetch(`${base}/api/rebalancing`)).json()
+		expect(res.configured).toBe(true)
+		expect(res.triggerPercentage).toBe(0.5)
+		expect(res.triggers).toEqual({ triggeredChains: [] })
+	})
+
+	it("serves the masked running config", async () => {
+		const { base } = await startServer()
+		const res = await (await fetch(`${base}/api/config`)).json()
+		expect(res.toml).toContain("[simplex.signer]")
+		expect(res.toml).not.toContain('key = "0xab"')
+		expect(res.logLevel).toBe("info")
 	})
 
 	it("serves static SPA files with an index.html fallback", async () => {

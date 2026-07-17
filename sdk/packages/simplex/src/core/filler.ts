@@ -280,11 +280,20 @@ export class IntentFiller {
 					},
 					"Portfolio rebalancing completed",
 				)
+				this.monitor.emit("rebalanceExecuted", {
+					transferCount: result.transfers.length,
+					executedCount: result.executedTransfers.length,
+					success: result.success,
+				})
 			} else if (result.transfers.length === 0) {
 				this.logger.debug("No rebalancing needed")
 			}
 		} catch (error) {
 			this.logger.error({ error }, "Portfolio rebalancing failed")
+			this.monitor.emit("rebalanceExecuted", {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			})
 		}
 	}
 

@@ -280,7 +280,7 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 }
 
 /** Display-only TOML with every secret masked; the round-trip gate runs on the real config. */
-function maskToml(config: FillerTomlConfig, chainLabels?: string[]): string {
+export function maskToml(config: FillerTomlConfig, chainLabels?: string[]): string {
 	const masked: FillerTomlConfig = JSON.parse(JSON.stringify(config))
 	const signer = masked.simplex.signer as Record<string, string> | undefined
 	if (signer) {

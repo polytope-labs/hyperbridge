@@ -29,6 +29,7 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import { BalanceProvider } from "@/services/BalanceProvider"
+import { ActivityLogService } from "@/services/ActivityLogService"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
@@ -53,6 +54,10 @@ export interface FillerRuntime {
 	adminStrategies: AdminStrategy[]
 	/** Self-halt visibility/reset per FX strategy (overfill protection). */
 	haltControls: HaltControl[]
+	activityLog: ActivityLogService
+	bidStorage: BidStorageService
+	configService: FillerConfigService
+	rebalancingService?: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
 	watchOnly?: Record<number, boolean>
@@ -347,6 +352,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	await intentFiller.initialize()
 
+	// Persistent order-activity feed for the operator UI
+	const activityLog = new ActivityLogService(options.dataDir)
+	activityLog.attach(intentFiller.monitor)
+
 	// Resolve exotic token symbols (display-only) best-effort from the first
 	// configured chain; a failed read just leaves the strategy unlabelled.
 	await Promise.all(
@@ -437,6 +446,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()
+		activityLog.close()
 	}
 
 	return {
@@ -446,6 +456,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		vaultVenue,
 		adminStrategies,
 		haltControls,
+		activityLog,
+		bidStorage: bidStorageService,
+		configService,
+		rebalancingService,
 		resolvedChains,
 		fillerAddress: runtimeSigner.account.address as HexString,
 		watchOnly: watchOnlyConfig,

@@ -56,6 +56,18 @@ function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
 			await runtime.shutdown("UI")
 			process.exit(0)
 		},
+		activity: runtime.activityLog,
+		bids: runtime.bidStorage,
+		vault: runtime.vaultVenue
+			? {
+					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
+					redeemAll: () => runtime.vaultVenue!.redeemAll(),
+				}
+			: undefined,
+		rebalancing: runtime.rebalancingService
+			? { checkTriggers: () => runtime.rebalancingService!.checkRebalanceTriggers() }
+			: undefined,
+		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,

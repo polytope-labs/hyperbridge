@@ -5,7 +5,7 @@ import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
-import { buildPaymasterAndData, getUsdcBalanceStatus, hasPaymaster } from "./paymaster"
+import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -44,9 +44,16 @@ export interface SponsoredUserOpRequest {
 	 * Override for the Circle paymaster verification gas limit (default 200k).
 	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
 	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
-	 * accepts the op (e.g. re-delegation).
+	 * accepts the op (e.g. re-delegation). Ignored when the Simplex paymaster is
+	 * selected; its limits are mode-specific.
 	 */
 	paymasterVerificationGasLimit?: bigint
+	/**
+	 * Forces the Simplex paymaster into approve mode. Delegation ops pass fixed,
+	 * measured gas limits that a permit executed during paymaster validation
+	 * would exceed.
+	 */
+	forceApproveMode?: boolean
 }
 
 // Generous fallbacks used only when bundler gas estimation fails. The paymaster
@@ -58,8 +65,8 @@ const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
 
 /**
- * Submits self-initiated, Circle-Paymaster-sponsored UserOperations through the
- * bundler, so the solver pays gas in USDC rather than native token. Shared by the
+ * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
+ * so the solver pays gas in stablecoins rather than native token. Shared by the
  * delegation setup and the vault sweep/redeem paths.
  *
  * Submission contract (so callers can safely fall back to a native tx without
@@ -90,7 +97,15 @@ export class UserOpSender {
 	}
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
-		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, paymasterVerificationGasLimit } = req
+		const {
+			chain,
+			callData,
+			eip7702Auth,
+			nonceKey = 0n,
+			gas,
+			paymasterVerificationGasLimit,
+			forceApproveMode,
+		} = req
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -103,22 +118,6 @@ export class UserOpSender {
 		const solverAccount = this.signer.account.address as HexString
 		const chainId = this.configService.getChainId(chain)
 
-		// The paymaster sponsors gas in USDC; without enough USDC it can't pay.
-		const usdcDecimals = this.configService.getUsdcDecimals(chain)
-		const usdc = await getUsdcBalanceStatus(
-			publicClient,
-			solverAccount,
-			this.configService.getUsdcAsset(chain),
-			usdcDecimals,
-		)
-		if (!usdc.sufficient) {
-			this.logger.warn(
-				{ chain, solverAccount, usdcBalance: usdc.balance.toString(), required: usdc.required.toString() },
-				"Insufficient USDC to sponsor UserOp via paymaster; caller should fall back to native",
-			)
-			return null
-		}
-
 		const pm = await buildPaymasterAndData({
 			chain,
 			solverAccount,
@@ -127,11 +126,16 @@ export class UserOpSender {
 			signer: this.signer,
 			configService: this.configService,
 			paymasterVerificationGasLimit,
+			forceApproveMode,
 		})
 		if (pm.type === "none") {
-			this.logger.warn({ chain }, "Paymaster data unavailable; caller should fall back to native")
+			this.logger.warn(
+				{ chain, solverAccount, reason: pm.reason },
+				"No paymaster can sponsor this UserOp; caller should fall back to native",
+			)
 			return null
 		}
+		this.logger.info({ chain, paymaster: pm.address, type: pm.type, token: pm.token }, "Paymaster selected")
 		const paymasterAndData = pm.paymasterAndData
 
 		const { maxFeePerGas, maxPriorityFeePerGas } = await this.getGasPrice(bundlerUrl, publicClient, chainId)

@@ -252,6 +252,10 @@ export class FillerConfigService {
 		return this.chainConfigService.getCirclePaymasterAddress(chain)
 	}
 
+	getSimplexPaymasterAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getSimplexPaymasterAddress(chain)
+	}
+
 	getUsdtDecimals(chain: string): number {
 		return this.chainConfigService.getUsdtDecimals(chain)
 	}

@@ -93,6 +93,8 @@ abstract contract BaseScript is Script, Config {
 
     /// @notice Abstract deploy function to be implemented by child contracts
     /// @dev This function should contain all deployment logic
-    /// @dev Will be called within a broadcast context (vm.startBroadcast/stopBroadcast)
+    /// @dev Called with a broadcast already started. It must end with the broadcast
+    ///      stopped (vm.stopBroadcast) — an open broadcast makes the multi-chain
+    ///      path revert on the next vm.createSelectFork.
     function deploy() internal virtual;
 }

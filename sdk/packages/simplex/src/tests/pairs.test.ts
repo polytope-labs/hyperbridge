@@ -1,0 +1,316 @@
+import { describe, it, expect } from "vitest"
+import { Decimal } from "decimal.js"
+import { parseUnits } from "viem"
+import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import { AssetRegistry, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
+import { validatePairConfigs } from "@/config/pairs"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FillerPricePolicy } from "@/config/interpolated-curve"
+
+// Pure unit tests for the asset registry, [[pairs]] validation, and the
+// pairs-driven FX engine's leg math (via quotePhantomFill, mocked services).
+
+const CHAIN = "EVM-56"
+const OTHER_CHAIN = "EVM-8453"
+const USDC = "0x1111111111111111111111111111111111111111" as HexString
+const USDT = "0x4444444444444444444444444444444444444444" as HexString
+const CNGN = "0x2222222222222222222222222222222222222222" as HexString
+const ZARP = "0x5555555555555555555555555555555555555555" as HexString
+const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
+
+const resolver: BuiltinAssetResolver = {
+	getUsdcAsset: (chain: string) => {
+		if (chain === OTHER_CHAIN) throw new Error("not configured")
+		return USDC
+	},
+	getUsdtAsset: () => USDT,
+	getDaiAsset: () => {
+		throw new Error("not configured")
+	},
+	getCNgnAsset: () => undefined,
+}
+
+describe("AssetRegistry", () => {
+	it("resolves built-in symbols per chain, case-insensitively", () => {
+		const registry = new AssetRegistry(resolver)
+		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
+		expect(registry.getAddress("usdc", CHAIN)).toBe(USDC)
+		expect(registry.getAddress("USDT", CHAIN)).toBe(USDT)
+		// Resolver throws / returns undefined → absent, not an error.
+		expect(registry.getAddress("USDC", OTHER_CHAIN)).toBeNull()
+		expect(registry.getAddress("DAI", CHAIN)).toBeNull()
+		expect(registry.getAddress("CNGN", CHAIN)).toBeNull()
+	})
+
+	it("user [assets] entries extend and override built-ins per chain", () => {
+		const registry = new AssetRegistry(resolver, {
+			CNGN: { [CHAIN]: CNGN },
+			USDC: { [OTHER_CHAIN]: ZARP },
+		})
+		expect(registry.getAddress("CNGN", CHAIN)).toBe(CNGN)
+		expect(registry.getAddress("cNGN", CHAIN)).toBe(CNGN)
+		expect(registry.getAddress("CNGN", OTHER_CHAIN)).toBeNull()
+		// User address fills the chain the built-in resolver can't serve…
+		expect(registry.getAddress("USDC", OTHER_CHAIN)).toBe(ZARP)
+		// …while other chains still resolve from the built-in registry.
+		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
+	})
+
+	it("ships curated assets with zero user configuration", () => {
+		const registry = new AssetRegistry(resolver)
+		// Addresses verified on-chain before inclusion in KNOWN_ASSETS.
+		expect(registry.getAddress("ZARP", "EVM-137")).toBe("0xb755506531786C8aC63B756BaB1ac387bACB0C04")
+		expect(registry.getAddress("zarp", "EVM-1")).toBe("0xb755506531786C8aC63B756BaB1ac387bACB0C04")
+		expect(registry.getAddress("EURC", "EVM-8453")).toBe("0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42")
+		expect(registry.getAddress("XSGD", "EVM-137")).toBe("0xDC3326e71D45186F113a2F448984CA0e8D201995")
+		// Not deployed there → absent, not an error.
+		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
+	})
+
+	it("rejects malformed definitions", () => {
+		expect(() => validateAssetDefinitions({ FOO: { [CHAIN]: "0xnope" as HexString } })).toThrow(/invalid address/)
+		expect(() => validateAssetDefinitions({ FOO: {} })).toThrow(/at least one chain/)
+		// Case-insensitive duplicate.
+		expect(() =>
+			validateAssetDefinitions({
+				foo: { [CHAIN]: ZARP },
+				FOO: { [CHAIN]: ZARP },
+			}),
+		).toThrow(/twice/)
+	})
+})
+
+describe("validatePairConfigs", () => {
+	const assets = { CNGN: { [CHAIN]: CNGN } }
+	const CURVE = [{ amount: "0", price: "1500" }]
+	const SIZE = "5000"
+
+	it("accepts arbitrary well-formed pairs", () => {
+		expect(() =>
+			validatePairConfigs(
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: CURVE, askPriceCurve: CURVE },
+					{ token0: "USDT", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", bidPriceCurve: CURVE },
+				],
+				assets,
+			),
+		).not.toThrow()
+	})
+
+	it("accepts registry-shipped symbols with no [assets] config at all", () => {
+		expect(() =>
+			validatePairConfigs([
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+				{ token0: "EURC", token1: "XSGD", maxOrderSize: SIZE, bidPriceCurve: CURVE },
+			]),
+		).not.toThrow()
+	})
+
+	it("rejects unknown symbols, self-pairs, and duplicates", () => {
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "WAT", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
+		).toThrow(/unknown symbol/)
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "usdc", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
+		).toThrow(/must differ/)
+		expect(() =>
+			validatePairConfigs(
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "usdc", token1: "cngn", maxOrderSize: SIZE, bidPriceCurve: CURVE },
+				],
+				assets,
+			),
+		).toThrow(/declared twice/)
+	})
+
+	it("requires a positive maxOrderSize", () => {
+		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any])).toThrow(
+			/maxOrderSize' is required/,
+		)
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "0", askPriceCurve: CURVE }]),
+		).toThrow(/positive/)
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "abc", askPriceCurve: CURVE }]),
+		).toThrow(/decimal string/)
+	})
+
+	it("requires a curve unless venue pricing is available", () => {
+		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets)).toThrow(
+			/price curve/,
+		)
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE }], assets, true),
+		).not.toThrow()
+	})
+})
+
+// ---------------------------------------------------------------------------
+// FX engine leg math with pair-local rates and caps, via quotePhantomFill
+// ---------------------------------------------------------------------------
+
+function makeContractService(): any {
+	const cache = new Map<string, unknown>()
+	const decimals: Record<string, number> = {
+		[USDC.toLowerCase()]: 6,
+		[USDT.toLowerCase()]: 6,
+		[CNGN.toLowerCase()]: 18,
+		[ZARP.toLowerCase()]: 18,
+	}
+	return {
+		cacheService: {
+			getPairClassifications: (id: string) => cache.get(`pc:${id}`),
+			setPairClassifications: (id: string, pairs: unknown) => cache.set(`pc:${id}`, pairs),
+			setFillerOutputs: (id: string, outputs: unknown) => cache.set(`fo:${id}`, outputs),
+		},
+		getTokenDecimals: async (token: string) => decimals[token.toLowerCase()] ?? 18,
+	}
+}
+
+const flat = (price: string) => new FillerPricePolicy({ points: [{ amount: "0", price }] })
+
+function makeFiller(pairs: TradingPair[]) {
+	const configService = {
+		...resolver,
+		getMaxOverfillBps: () => 500n,
+		getMaxConsecutiveClamps: () => 3,
+	} as any
+	const registry = new AssetRegistry(configService, {
+		CNGN: { [CHAIN]: CNGN },
+		ZARP: { [CHAIN]: ZARP },
+	})
+	const signer = { account: { address: SOLVER } } as any
+	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
+}
+
+function makeOrder(id: string, input: TokenInfo, output: TokenInfo): Order {
+	return {
+		id,
+		user: bytes20ToBytes32(SOLVER),
+		source: CHAIN,
+		destination: CHAIN,
+		deadline: 0n,
+		nonce: 0n,
+		fees: 0n,
+		session: "0x0000000000000000000000000000000000000000" as HexString,
+		predispatch: { assets: [], call: "0x" as HexString },
+		inputs: [input],
+		output: { beneficiary: bytes20ToBytes32(SOLVER), assets: [output], call: "0x" as HexString },
+	} as unknown as Order
+}
+
+const size = (n: string) => new Decimal(n)
+
+describe("FXFiller pairs engine", () => {
+	it("prices the ask leg at the pair's rate (token1 per token0)", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"ask",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		const outputs = await filler.quotePhantomFill(order)
+		// 1000 USDC × 1500 CNGN/USDC = 1,500,000 CNGN
+		expect(outputs?.[0].amount).toBe(parseUnits("1500000", 18))
+	})
+
+	it("prices the bid leg at the pair's rate", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), bidPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"bid",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: 0n },
+		)
+		const outputs = await filler.quotePhantomFill(order)
+		// 1500 CNGN ÷ 1500 CNGN/USDC = 1 USDC
+		expect(outputs?.[0].amount).toBe(parseUnits("1", 6))
+	})
+
+	it("routes each leg through its own pair's curve", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+			{ token0: "USDT", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1000") },
+		])
+		const usdcLeg = makeOrder(
+			"multi-1",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		const usdtLeg = makeOrder(
+			"multi-2",
+			{ token: bytes20ToBytes32(USDT), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		expect((await filler.quotePhantomFill(usdcLeg))?.[0].amount).toBe(parseUnits("150000", 18))
+		expect((await filler.quotePhantomFill(usdtLeg))?.[0].amount).toBe(parseUnits("100000", 18))
+	})
+
+	it("caps each pair at its own maxOrderSize, in token0 units", async () => {
+		// ZARP-quoted pair: everything is denominated in ZARP — no USD anywhere.
+		const filler = makeFiller([
+			{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("100") },
+		])
+
+		const small = makeOrder(
+			"zarp-small",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		// 1000 ZARP (under the cap) × 100 CNGN/ZARP = 100,000 CNGN
+		expect((await filler.quotePhantomFill(small))?.[0].amount).toBe(parseUnits("100000", 18))
+		// Order sizing is the token0 notional — fed to confirmation curves as-is.
+		const sized = await filler.getOrderUsdValue(small)
+		expect(sized?.inputUsd.eq(new Decimal(1000))).toBe(true)
+
+		const large = makeOrder(
+			"zarp-large",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("200000", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		// 200,000 ZARP → capped at maxOrderSize 100,000 ZARP → 10,000,000 CNGN
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("10000000", 18))
+	})
+
+	it("sizes bid legs through the pair's own curve", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), bidPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"bid-sizing",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("3000000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: 0n },
+		)
+		// 3,000,000 CNGN ÷ 1500 = 2000 USDC notional (under the 5000 cap)
+		const sized = await filler.getOrderUsdValue(order)
+		expect(sized?.inputUsd.eq(new Decimal(2000))).toBe(true)
+		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("2000", 6))
+
+		// 15,000,000 CNGN ÷ 1500 = 10,000 USDC notional → capped at 5000 USDC out.
+		const large = makeOrder(
+			"bid-sizing-large",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("15000000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: 0n },
+		)
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("5000", 6))
+	})
+
+	it("rejects orders whose legs match no configured pair", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"no-pair",
+			{ token: bytes20ToBytes32(USDT), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		expect(await filler.canFill(order)).toBe(false)
+		expect(await filler.quotePhantomFill(order)).toBeNull()
+	})
+})

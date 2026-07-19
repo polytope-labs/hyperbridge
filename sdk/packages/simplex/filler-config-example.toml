@@ -203,35 +203,65 @@ points = [
     { amount = "8000", value = 10 },
 ]
 
-# HyperFX strategy for exotic token swaps (e.g. stablecoin <-> cNGN)
-# Uncomment and configure to enable
-# [[strategies]]
-# type = "hyperfx"
-# maxOrderUsd = 5000
-# # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
-# spreadBps = 50
+# ===== Trading pairs (HyperFX) =====
 #
-# # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
-# # One-sided LP: omit one curve to fill in a single direction. Keep only askPriceCurve to
-# # accumulate stablecoins (sell exotic, e.g. give away cNGN); keep only bidPriceCurve to
-# # accumulate the exotic token (buy exotic).
-# # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
-# bidPriceCurve = [
+# Assets are referenced by symbol from Simplex's built-in registry — no address
+# configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
+# the SDK, testnets included) plus curated mainnet deployments of ZARP, EURC,
+# XSGD and TRYB, all verified on-chain. The registry holds addresses only; the
+# pair curves are the only price source.
+#
+# [[pairs]] declares the markets the FX engine serves — any number of pairs,
+# each priced by its own curves in token1 per 1 token0 and capped per order by
+# maxOrderSize, all denominated in token0 (the curve amount axis, the cap, and
+# the value fed to confirmation policies share that unit). Omit one curve for
+# one-sided LP on that pair (keep only askPriceCurve to sell token1 /
+# accumulate token0; only bidPriceCurve to buy token1). Omit both curves only
+# with [strategies.vault.uniswapV4] pool pricing. Orders whose legs match no
+# pair are rejected.
+#
+# [[pairs]]
+# token0 = "USDC"
+# token1 = "CNGN"
+# maxOrderSize = "5000"       # per-order cap in token0 units (5000 USDC)
+# bidPriceCurve = [           # CNGN per USDC when *buying* CNGN from a user
 #     { amount = "100",  price = "1580" },
 #     { amount = "1000", price = "1575" },
 #     { amount = "5000", price = "1570" },
 # ]
-#
-# # Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg)
-# askPriceCurve = [
+# askPriceCurve = [           # CNGN per USDC when *selling* CNGN to a user
 #     { amount = "100",  price = "1560" },
 #     { amount = "1000", price = "1555" },
 #     { amount = "5000", price = "1550" },
 # ]
 #
-# [strategies.token1]
-# "EVM-56"  = "0xExoticTokenAddressOnBsc"
-# "EVM-137" = "0xExoticTokenAddressOnPolygon"
+# [[pairs]]
+# token0 = "USDT"             # priced independently of the USDC pair
+# token1 = "CNGN"
+# maxOrderSize = "5000"
+# bidPriceCurve = [ { amount = "0", price = "1578" } ]
+# askPriceCurve = [ { amount = "0", price = "1552" } ]
+#
+# [[pairs]]
+# token0 = "ZARP"             # non-USD quote side — shipped by the registry
+# token1 = "CNGN"
+# maxOrderSize = "90000"      # 90,000 ZARP per order
+# bidPriceCurve = [ { amount = "0", price = "86" } ]
+# askPriceCurve = [ { amount = "0", price = "84" } ]
+#
+# [assets] is an OPTIONAL escape hatch: only needed for assets the registry
+# does not ship, or to override a shipped address for your deployment.
+# [assets.BRZ]
+# "EVM-137" = "0xBrzOnPolygon"
+#
+# The hyperfx strategy block carries engine-level settings; [[pairs]] requires
+# exactly one. (The legacy strategy-level token1 + curves + maxOrderUsd form
+# still works — translated into USDC/exotic and USDT/exotic pairs — but is
+# deprecated.)
+# [[strategies]]
+# type = "hyperfx"
+# # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
+# spreadBps = 50
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
@@ -276,6 +306,13 @@ points = [
 # the event monitor fans every `eth_getLogs` batch out to all providers and requires identical
 # results. Any provider failure or divergence fails the batch. URLs must resolve to different
 # hostnames.
+#
+# On Ethereum, Arbitrum, Base, Polygon and BNB Chain, Simplex automatically appends its
+# built-in registry of public endpoints (official gateway, PublicNode, dRPC, 1RPC) to the
+# quorum set — deduplicated by hostname, your URLs first — hardening order detection and
+# cross-chain confirmation counting even with a single configured endpoint. Public endpoints
+# only serve quorum-checked reads; fills, gas estimation and balance reads always use the
+# URLs configured here.
 [[chains]]
 rpcUrls = [""]      # Ethereum Mainnet — add more endpoints to enable quorum
 bundlerUrl = ""     # ERC-4337 bundler (e.g. Pimlico)

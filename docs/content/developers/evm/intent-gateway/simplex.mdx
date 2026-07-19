@@ -43,68 +43,111 @@ The Stable strategy requires pre-positioned stablecoins on each destination chai
 
 ### HyperFX
 
-HyperFX fills swaps between USD-pegged stablecoins (USDC/USDT) and a single configurable exotic token — for example, cNGN (a Nigerian naira stablecoin). It supports both **same-chain** and **cross-chain** orders.
+HyperFX fills swaps across a configurable set of **trading pairs** — for example USDC/cNGN, USDT/cNGN, or ZARP/cNGN — each priced by its own bid/ask curves. Pairs reference assets by symbol from the built-in [asset registry](#the-asset-registry), and an LP can declare any number of them; one FX engine serves them all. Both **same-chain** and **cross-chain** orders are supported.
 
 Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders use the configured **confirmation policy** for HyperFX to determine how many confirmations to wait for before bidding.
 
-Profit comes from two sources: the **bid/ask spread** on the exotic token, and **order fees** minus gas. The filler holds both stablecoins and the exotic token. When a user swaps stable→exotic the filler sells exotic at the ask price; when the user swaps exotic→stable the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
+Profit comes from two sources: the **bid/ask spread** on each pair, and **order fees** minus gas. The filler holds inventory on both sides of its pairs. When a user swaps token0→token1 the filler sells token1 at the pair's ask price; when the user swaps token1→token0 the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
 
-Both curves are expressed in **exotic tokens per USD**. A higher bid means the filler acknowledges fewer stables are owed per exotic received (the filler profits more on the exotic→stable leg). A lower ask means the filler sends fewer exotic tokens per stable received (the filler profits more on the stable→exotic leg).
+Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the filler owes less token0 per token1 received (it profits more buying token1). A lower ask means the filler sends fewer token1 per token0 received (it profits more selling token1).
 
-`maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
+Each pair's **`maxOrderSize`** caps the filler's exposure per order, denominated in that pair's token0. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
 HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 
 On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. A paymaster covers the delegation tx (and subsequent fills) in stablecoins on chains where one is deployed: the Circle Paymaster (USDC) is tried first, then the `SimplexPaymaster` (USDC or USDT), which is live on Ethereum, Arbitrum, Base, Polygon, and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet). On chains without any paymaster, Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
 
 ```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-
-# Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg).
+# Trading pairs — assets are referenced by symbol from Simplex's built-in
+# registry; declare as many pairs as you like, one FX engine serves them all.
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"       # per-order cap, in token0 units (5000 USDC)
+# Bid: CNGN per USDC when *buying* CNGN from a user (CNGN→USDC leg).
 bidPriceCurve = [
     { amount = "100",  price = "1580" },
     { amount = "1000", price = "1575" },
     { amount = "5000", price = "1570" },
 ]
-
-# Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg).
+# Ask: CNGN per USDC when *selling* CNGN to a user (USDC→CNGN leg).
 askPriceCurve = [
     { amount = "100",  price = "1560" },
     { amount = "1000", price = "1555" },
     { amount = "5000", price = "1550" },
 ]
 
-[strategies.token1]
-"EVM-56"  = "0xExoticTokenAddressOnBsc"
-"EVM-137" = "0xExoticTokenAddressOnPolygon"
+[[pairs]]
+token0 = "USDT"
+token1 = "CNGN"
+maxOrderSize = "5000"
+bidPriceCurve = [ { amount = "0", price = "1578" } ]
+askPriceCurve = [ { amount = "0", price = "1552" } ]
+
+# A rand/naira book — no USD asset involved; sized entirely in ZARP:
+[[pairs]]
+token0 = "ZARP"
+token1 = "CNGN"
+maxOrderSize = "90000"      # 90,000 ZARP per order
+bidPriceCurve = [ { amount = "0", price = "86" } ]   # CNGN per ZARP
+askPriceCurve = [ { amount = "0", price = "84" } ]
+
+# Engine-level settings live on the strategy block.
+[[strategies]]
+type = "hyperfx"
 ```
+
+#### The asset registry
+
+Simplex maintains the symbol → contract-address registry, so pairs reference assets purely by symbol — no address configuration. It ships **USDC, USDT, DAI, cNGN** (resolved per chain from the SDK chain registry, testnets included) plus a curated table of stablecoin deployments on the supported mainnets: **ZARP** (South African rand — Ethereum, Polygon, Base), **EURC** (Circle euro — Ethereum, Base), **XSGD** (StraitsX Singapore dollar — Ethereum, Polygon) and **TRYB** (BiLira Turkish lira — Ethereum). Curated addresses are taken from the issuer's official documentation and verified on-chain (`symbol()`/`decimals()`) before inclusion. Symbols are case-insensitive; a pair simply doesn't trade on chains where an asset isn't deployed.
+
+The registry holds addresses only — there are no reference prices anywhere. Every quantity that sizes a pair is denominated in the pair's own `token0`: the curve `amount` axis, the per-order `maxOrderSize` cap, and the order value fed to confirmation policies. The curves are the only price source.
+
+For assets the registry doesn't ship — or to override an address for your deployment — the optional **`[assets]`** table is the escape hatch, a bare symbol → chain → address map:
+
+```toml lineNumbers
+# Only needed for assets the registry does not ship (or overrides):
+[assets.BRZ]
+"EVM-137" = "0xBrzOnPolygon"
+
+[[pairs]]
+token0 = "USDC"
+token1 = "BRZ"
+maxOrderSize = "5000"
+askPriceCurve = [ { amount = "0", price = "5.4" } ]
+```
+
+#### Trading pairs
+
+Each **`[[pairs]]`** entry is one market: `token0`/`token1` symbols, a per-order **`maxOrderSize`** cap in token0 units, and bid/ask curves in **token1 per token0** keyed by token0 notional. Every pair is priced, capped, and sized independently — USDC/cNGN and USDT/cNGN can carry different rates, so a USDT depeg is handled by adjusting one pair's curves (live, via the admin server started with `--admin-port`) instead of being silently absorbed. Orders whose legs match no configured pair are rejected, so the pair list doubles as an allowlist of the markets the LP serves.
+
+Cross-chain confirmation policies are sized with the order's **token0 notional** (each leg converted through its pair's own curve) — for USD-quoted pairs that is a dollar amount; for others it is denominated in the quote asset, so tune the per-chain confirmation curves accordingly.
+
+Declaring `[[pairs]]` requires exactly one `hyperfx` strategy block, which carries the engine-level settings (confirmation policies, venue funding, `spreadBps`). The legacy strategy-level `token1` + `bidPriceCurve`/`askPriceCurve` + `maxOrderUsd` form is still accepted (translated internally into USDC/exotic and USDT/exotic pairs at par) but deprecated — new configs should declare pairs.
 
 #### One-sided LP
 
-With both curves set HyperFX fills in both directions. Omitting one curve restricts the filler to a single direction, so it keeps accumulating one asset while only giving away the other:
+With both curves set a pair fills in both directions. Omitting one curve restricts that pair to a single direction, so the filler keeps accumulating one asset while only giving away the other — and each pair is gated independently:
 
-- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* exotic, filling orders where the user sends stable and receives exotic. It accumulates the stablecoin and gives away the exotic token (for example, take USDC, hand out cNGN).
-- **Bid only** (omit `askPriceCurve`) — the filler only *buys* exotic, filling orders where the user sends exotic and receives stable. It accumulates the exotic token and gives away the stablecoin.
+- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* token1 on that pair, filling orders where the user sends token0 and receives token1. It accumulates token0 and gives away token1 (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the filler only *buys* token1 on that pair, filling orders where the user sends token1 and receives token0.
 
 Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
 
 ```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-
 # Ask curve only — keep accumulating USDC by only selling cNGN
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"
 askPriceCurve = [
     { amount = "100",  price = "1560" },
     { amount = "1000", price = "1555" },
     { amount = "5000", price = "1550" },
 ]
 
-[strategies.token1]
-"EVM-56"  = "0xExoticTokenAddressOnBsc"
-"EVM-137" = "0xExoticTokenAddressOnPolygon"
+[[strategies]]
+type = "hyperfx"
 ```
 
 When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[strategies.vault.uniswapV4]` block instead — `"ask"` to only sell exotic (accumulate stablecoins) or `"bid"` to only buy exotic. Omit `side` to fill both directions. `side` cannot be combined with static curves.
@@ -489,7 +532,17 @@ When two or more URLs are configured, the event monitor fans every `eth_getLogs`
 
 Provider errors, timeouts, and divergent results are all tolerated up to the BFT bound. Beyond it, the batch fails with a `QuorumError` that enumerates each failing URL and the size of the largest agreeing group — the scan cursor does not advance, so the same range is retried on the next tick. Agreement is computed by sorting logs by `(blockNumber, logIndex, transactionHash)` and comparing only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`); provider-added extras such as `blockTimestamp` are deliberately excluded so debug metadata on one node does not manufacture a quorum failure. `getBlockNumber` resolves to the highest block at which `floor(2N/3) + 1` providers have indexed — preventing the scanner from running ahead of BFT-supported state.
 
-A single-entry `rpcUrls` array is legal and keeps the pre-existing single-provider behaviour; the quorum machinery only engages when you list more than one endpoint. **To actually tolerate a faulty or co-opted provider you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning.
+#### Public RPC registry
+
+On the supported mainnets — **Ethereum, Arbitrum, Base, Polygon, and BNB Chain** — Simplex ships a registry of well-known keyless public endpoints (the network's official gateway where one exists, plus PublicNode, dRPC, and 1RPC) and automatically **appends them to your configured endpoints for all quorum-checked reads**. Your endpoints always come first and are never replaced; the merge is deduplicated by hostname, so listing a public endpoint yourself does not double-count it in the quorum.
+
+This means even a single-entry `rpcUrls` array gets BFT protection on those chains: one operator endpoint plus four public ones forms a five-provider quorum (threshold 4) that tolerates a faulty or lying provider. The public endpoints participate **only** in quorum reads — `eth_getLogs`, `eth_blockNumber`, and `eth_getTransactionReceipt` during confirmation counting. Latency-sensitive and write paths (gas estimation, balance reads, transaction submission) stay exclusively on your configured endpoints, which is why premium providers are still required.
+
+Chains outside the registry (testnets, other networks) keep the pre-existing behaviour: the quorum is exactly the endpoints you configure. **To tolerate a faulty provider there you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning.
+
+#### Quorum-checked confirmations
+
+Cross-chain orders wait for source-chain confirmations (per the strategy's confirmation policy) before a bid is submitted. That count is also computed with quorum semantics: every provider is asked for the transaction receipt and its chain head, a BFT threshold of providers must agree on the *inclusion block* — the receipt's `(blockHash, blockNumber)` — and the count is derived from the threshold-th highest head among the agreeing providers. A minority of providers serving a reorged or fabricated inclusion can neither inflate the confirmation count nor vouch for a transaction the honest majority has not seen.
 
 #### Why this matters for cross-chain orders
 
@@ -499,7 +552,7 @@ On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `Or
 Co-opted RPC nodes are not hypothetical. LayerZero has publicly disclosed an incident where an RPC endpoint serving part of their relaying path was compromised — see [LayerZero's post-mortem thread](https://x.com/LayerZero_Core/status/2046081551574983137?s=20). Quorum queries turn that failure mode from "one bad node silently succeeds" into "one bad node fails the batch and halts the scan".
 </Callout>
 
-The practical guidance is to configure **at least two organisationally independent providers** (e.g. Alchemy **and** Infura, not two Alchemy regions) for every chain that can act as a source of a cross-chain order. Three or more is better for chains with large notional flow — each additional independent provider raises the bar for an attacker from "compromise one vendor" to "compromise all of them simultaneously for the duration of the fill window". The cost is a slightly higher RPC bill and the tail latency of the slowest provider in each batch; the benefit is that event-driven bids are only acted on when every independent witness agrees on what the source chain actually emitted.
+The practical guidance is to configure **at least two organisationally independent providers** (e.g. Alchemy **and** Infura, not two Alchemy regions) for every chain that can act as a source of a cross-chain order. The [public RPC registry](#public-rpc-registry) hardens this baseline automatically on the supported mainnets, but public endpoints are best-effort infrastructure — your own premium endpoints anchor the quorum's availability. Each additional independent provider raises the bar for an attacker from "compromise one vendor" to "compromise all of them simultaneously for the duration of the fill window". The cost is a slightly higher RPC bill and the tail latency of the slowest provider in each batch; the benefit is that event-driven bids are only acted on when every independent witness agrees on what the source chain actually emitted.
 
 
 ## Setup
@@ -618,7 +671,7 @@ bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
 
-RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` so the event monitor runs in quorum mode — see [RPC Quorum](#rpc-quorum).
+RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` — on the supported mainnets Simplex additionally merges its [public RPC registry](#public-rpc-registry) into the quorum, but the public endpoints only serve quorum-checked reads, never the latency-sensitive fill path — see [RPC Quorum](#rpc-quorum).
 
 ## Troubleshooting
 

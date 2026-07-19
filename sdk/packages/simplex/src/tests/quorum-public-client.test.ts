@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { parseAbiItem } from "viem"
-import { QuorumPublicClient, QuorumError, quorumThreshold } from "@/services/QuorumPublicClient"
+import {
+	QuorumPublicClient,
+	QuorumError,
+	quorumThreshold,
+	aggregateConfirmations,
+	type ProviderReceiptView,
+} from "@/services/QuorumPublicClient"
 
 /**
  * Integration tests for QuorumPublicClient against a two-RPC quorum on Base mainnet.
@@ -171,4 +177,49 @@ describeIfNetwork("QuorumPublicClient.getBlockNumber — N=2 public + env Base R
 		])
 		await expect(client.getBlockNumber()).rejects.toBeInstanceOf(QuorumError)
 	}, 60_000)
+})
+
+describe("aggregateConfirmations — BFT receipt agreement", () => {
+	const RECEIPT_BLOCK = 100n
+	const HASH_A = "0xaaaa"
+	const HASH_B = "0xbbbb"
+
+	function view(head: bigint, blockHash = HASH_A, blockNumber = RECEIPT_BLOCK): ProviderReceiptView {
+		return { blockHash, blockNumber, head }
+	}
+
+	it("counts confirmations from the threshold-th highest head of the agreeing group", () => {
+		// 5 providers all agree on the receipt; heads diverge. threshold=4 →
+		// the 4th-highest head (115) backs the count: 115 - 100 + 1 = 16.
+		const views = [view(120n), view(118n), view(117n), view(115n), view(110n)]
+		expect(aggregateConfirmations(views, 4)).toBe(16n)
+	})
+
+	it("ignores a minority provider reporting a different inclusion block", () => {
+		// One provider serves a reorged/fabricated receipt. The agreeing four still
+		// form a quorum; the liar's head cannot influence the count.
+		const views = [view(120n), view(118n), view(117n), view(115n), view(999n, HASH_B, 90n)]
+		expect(aggregateConfirmations(views, 4)).toBe(16n)
+	})
+
+	it("returns null when no receipt identity reaches the threshold", () => {
+		const views = [view(120n), view(118n), view(999n, HASH_B), view(998n, HASH_B)]
+		expect(aggregateConfirmations(views, 3)).toBeNull()
+	})
+
+	it("returns null when there are no successful views", () => {
+		expect(aggregateConfirmations([], 1)).toBeNull()
+	})
+
+	it("floors at zero when the quorum head trails the inclusion block", () => {
+		// Providers agree on the receipt but their heads are behind it (possible
+		// mid-reorg or load-balanced lagging replicas). Never negative.
+		const views = [view(99n), view(98n), view(99n)]
+		expect(aggregateConfirmations(views, 3)).toBe(0n)
+	})
+
+	it("single provider degrades to plain confirmation counting", () => {
+		expect(aggregateConfirmations([view(100n)], 1)).toBe(1n)
+		expect(aggregateConfirmations([view(105n)], 1)).toBe(6n)
+	})
 })

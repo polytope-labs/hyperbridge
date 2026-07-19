@@ -34,7 +34,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, legacyExoticPairs } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	ChainConfigService,
@@ -203,14 +203,14 @@ async function buildPhantomFiller(opts: {
 			{ amount: "10000", price: opts.cngnPerUsd },
 		],
 	})
+	const legacy = legacyExoticPairs(configService, { [BASE_STATE_MACHINE]: CNGN_BASE }, 5000, pricePolicy, pricePolicy)
 	const fxStrategy = new FXFiller(
 		signer,
 		configService,
 		chainClientManager,
 		contractService,
-		5000,
-		{ [BASE_STATE_MACHINE]: CNGN_BASE },
-		{ bidPricePolicy: pricePolicy, askPricePolicy: pricePolicy },
+		legacy.pairs,
+		legacy.registry,
 	)
 
 	const filler = new IntentFiller(

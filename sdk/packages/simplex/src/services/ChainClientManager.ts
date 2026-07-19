@@ -12,6 +12,7 @@ import { generatePrivateKey } from "viem/accounts"
 import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
 import { FillerConfigService } from "./FillerConfigService"
+import { QuorumPublicClient } from "./QuorumPublicClient"
 import type { SigningAccount } from "./wallet"
 import { createPrivateKeySigningAccount } from "./wallet/accounts/privatekey"
 
@@ -96,6 +97,7 @@ export class ChainClientManager {
 	private signer: SigningAccount
 	private configService: FillerConfigService
 	private clientFactory: ViemClientFactoryImpl
+	private quorumClients: Map<number, QuorumPublicClient> = new Map()
 
 	constructor(configService: FillerConfigService, signer?: SigningAccount) {
 		this.configService = configService
@@ -107,6 +109,22 @@ export class ChainClientManager {
 		const config = this.configService.getChainConfig(chain)
 		const rpcUrls = this.configService.getRpcUrls(chain)
 		return this.clientFactory.getPublicClient(config, rpcUrls)
+	}
+
+	/**
+	 * Quorum client for consensus-critical reads (event scanning, cross-chain
+	 * confirmation counting). Built from the operator's endpoints plus the public
+	 * RPC registry (`FillerConfigService.getQuorumRpcUrls`) and cached per chain,
+	 * so the event monitor and the confirmation waiter share one provider set.
+	 */
+	getQuorumClient(chain: string): QuorumPublicClient {
+		const config = this.configService.getChainConfig(chain)
+		let client = this.quorumClients.get(config.chainId)
+		if (!client) {
+			client = new QuorumPublicClient(config.chainId, this.configService.getQuorumRpcUrls(chain))
+			this.quorumClients.set(config.chainId, client)
+		}
+		return client
 	}
 
 	getWalletClient(chain: string): WalletClient<Transport, Chain, Account> {

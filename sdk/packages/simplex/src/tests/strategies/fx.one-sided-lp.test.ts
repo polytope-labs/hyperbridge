@@ -1,12 +1,15 @@
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, legacyExoticPairs, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
+import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
+import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 
-// Pure unit tests for one-sided LP on FXFiller. One-sided LP is expressed by omitting
-// a bid/ask price curve: a side without a curve is disabled, so the filler skips orders
-// in that direction. Exercises `canFill` with mocked services so no chain access is needed.
+// Pure unit tests for one-sided LP on FXFiller. One-sided LP is expressed per pair by
+// omitting a bid/ask price curve: a direction without a curve is disabled, so the filler
+// skips orders in that direction. Exercises `canFill` with mocked services so no chain
+// access is needed.
 
 const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
@@ -14,6 +17,15 @@ const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
+
+const configService = {
+	getUsdcAsset: () => STABLE,
+	getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+	getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+	getCNgnAsset: () => undefined,
+	getMaxOverfillBps: () => 500n,
+	getMaxConsecutiveClamps: () => 3,
+} as any
 
 // Mirrors how simplex.ts shares one contractService (and its classification cache)
 // across every strategy. Pass the same instance to two fillers to exercise that.
@@ -34,20 +46,12 @@ function makeFiller(options: {
 	side?: "bid" | "ask"
 	contractService?: any
 }): FXFiller {
-	const configService = {
-		getUsdcAsset: () => STABLE,
-		getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
-		getMaxOverfillBps: () => 500n,
-		getMaxConsecutiveClamps: () => 3,
-	} as any
-
-	const { contractService: provided, ...fillerOptions } = options
+	const { contractService: provided, bidPricePolicy, askPricePolicy, ...fillerOptions } = options
 	const contractService = provided ?? makeContractService()
-
 	const signer = { account: { address: SOLVER } } as any
-	const clientManager = {} as any
 
-	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, fillerOptions)
+	const { pairs, registry } = legacyExoticPairs(configService, { [CHAIN]: EXOTIC }, 5000, bidPricePolicy, askPricePolicy)
+	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, fillerOptions)
 }
 
 function makeOrder(id: string, input: HexString, output: HexString): Order {
@@ -112,6 +116,30 @@ describe("FXFiller one-sided LP", () => {
 
 	it("rejects 'side' combined with static curves", () => {
 		expect(() => makeFiller({ fundingVenues: VENUE, side: "ask", askPricePolicy: FLAT })).toThrow()
+	})
+
+	// One-sidedness is per pair: two pairs on the same engine can face opposite directions.
+	it("gates each pair independently", async () => {
+		const OTHER = "0x4444444444444444444444444444444444444444" as HexString
+		const registry = new AssetRegistry(configService, {
+			CNGN2: { [CHAIN]: EXOTIC },
+			ZARP: { [CHAIN]: OTHER },
+		})
+		const pairs: TradingPair[] = [
+			// ask-only: sells CNGN2 for USDC
+			{ token0: "USDC", token1: "CNGN2", maxOrderSize: new Decimal(5000), askPricePolicy: FLAT },
+			// bid-only: buys ZARP for USDC
+			{ token0: "USDC", token1: "ZARP", maxOrderSize: new Decimal(5000), bidPricePolicy: FLAT },
+		]
+		const signer = { account: { address: SOLVER } } as any
+		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
+
+		// USDC→CNGN2 allowed (ask side), CNGN2→USDC rejected.
+		expect(await filler.canFill(makeOrder("m", STABLE, EXOTIC))).toBe(true)
+		expect(await filler.canFill(makeOrder("n", EXOTIC, STABLE))).toBe(false)
+		// ZARP→USDC allowed (bid side), USDC→ZARP rejected.
+		expect(await filler.canFill(makeOrder("o", OTHER, STABLE))).toBe(true)
+		expect(await filler.canFill(makeOrder("p", STABLE, OTHER))).toBe(false)
 	})
 
 	// Regression: the gate must run even when another strategy already cached the

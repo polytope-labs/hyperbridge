@@ -9,7 +9,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, legacyExoticPairs } from "@/strategies/fx"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -385,10 +385,9 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
+	const legacy = legacyExoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
 	const strategies = [
-		new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
-			bidPricePolicy,
-			askPricePolicy,
+		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
 			confirmationPolicy,
 		}),
 	]

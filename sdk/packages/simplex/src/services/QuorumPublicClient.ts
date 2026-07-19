@@ -7,6 +7,7 @@ import {
 	type Chain,
 	type GetLogsParameters,
 	type GetLogsReturnType,
+	type Hash,
 	type PublicClient,
 } from "viem"
 import { getViemChain } from "@hyperbridge/sdk"
@@ -112,6 +113,58 @@ export class QuorumPublicClient {
 	}
 
 	/**
+	 * Confirmation count for a transaction, counted with BFT-quorum semantics.
+	 *
+	 * Every provider is asked for the transaction receipt and its chain head in
+	 * parallel. At least {@link quorumThreshold} providers must agree on *where*
+	 * the transaction landed — the receipt's `(blockHash, blockNumber)` pair — so
+	 * a minority of providers serving a reorged or fabricated inclusion cannot
+	 * influence the count. The head used for counting is the highest block that
+	 * at least the threshold of *agreeing* providers have indexed, mirroring
+	 * {@link getBlockNumber}. Confirmations follow viem's convention:
+	 * `head - receiptBlock + 1`, floored at 0.
+	 *
+	 * Throws {@link QuorumError} when too few providers return an agreeing
+	 * receipt — including the window where the transaction is not yet mined on a
+	 * quorum of providers.
+	 */
+	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
+		const settled = await Promise.allSettled(
+			this.clients.map(async (client) => {
+				const [receipt, head] = await Promise.all([
+					client.getTransactionReceipt({ hash }),
+					client.getBlockNumber(),
+				])
+				return {
+					blockHash: receipt.blockHash,
+					blockNumber: receipt.blockNumber,
+					head,
+				} satisfies ProviderReceiptView
+			}),
+		)
+
+		const views: ProviderReceiptView[] = []
+		const failures: { idx: number; error: unknown }[] = []
+		for (let idx = 0; idx < settled.length; idx++) {
+			const outcome = settled[idx]
+			if (outcome.status === "fulfilled") {
+				views.push(outcome.value)
+			} else {
+				failures.push({ idx, error: outcome.reason })
+			}
+		}
+
+		const confirmations = aggregateConfirmations(views, this.threshold)
+		if (confirmations === null) {
+			throw new QuorumError(
+				`Quorum not reached for getTransactionConfirmations(${hash}): no receipt agreed on by ` +
+					`${this.threshold}/${this.clients.length} providers. ${this.formatFailures(failures)}`,
+			)
+		}
+		return confirmations
+	}
+
+	/**
 	 * Fetches logs from every provider in parallel and returns the result once a
 	 * quorum — {@link quorumThreshold} providers — agree. Fails with
 	 * {@link QuorumError} otherwise.
@@ -182,6 +235,52 @@ export class QuorumPublicClient {
 		})
 		return `Failures (${failures.length}): ${parts.join("; ")}`
 	}
+}
+
+/** One provider's answer to "where is this transaction, and how far is your head?". */
+export interface ProviderReceiptView {
+	blockHash: string
+	blockNumber: bigint
+	head: bigint
+}
+
+/**
+ * BFT aggregation for {@link QuorumPublicClient.getTransactionConfirmations}.
+ *
+ * Groups provider views by the receipt's `(blockHash, blockNumber)` identity and
+ * requires the largest group to reach `threshold`. The confirmation count is then
+ * derived from the threshold-th highest head *within the agreeing group*: at
+ * least `threshold` providers that agree on the inclusion block have indexed up
+ * to that head, so the count never advances on the say-so of fewer providers
+ * than the quorum bound.
+ *
+ * Returns `null` when no receipt identity reaches the threshold (the caller
+ * turns this into a {@link QuorumError}). Exported for unit testing.
+ */
+export function aggregateConfirmations(views: readonly ProviderReceiptView[], threshold: number): bigint | null {
+	const groups = new Map<string, ProviderReceiptView[]>()
+	for (const view of views) {
+		const key = `${view.blockHash}:${view.blockNumber}`
+		const group = groups.get(key)
+		if (group) {
+			group.push(view)
+		} else {
+			groups.set(key, [view])
+		}
+	}
+
+	let winner: ProviderReceiptView[] | undefined
+	for (const group of groups.values()) {
+		if (!winner || group.length > winner.length) winner = group
+	}
+	if (!winner || winner.length < threshold) return null
+
+	const headsDescending = winner.map((v) => v.head).sort((a, b) => (a > b ? -1 : a < b ? 1 : 0))
+	const quorumHead = headsDescending[threshold - 1]
+	const receiptBlock = winner[0].blockNumber
+
+	const confirmations = quorumHead - receiptBlock + 1n
+	return confirmations > 0n ? confirmations : 0n
 }
 
 /**

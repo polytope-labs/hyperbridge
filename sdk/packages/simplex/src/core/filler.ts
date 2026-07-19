@@ -415,7 +415,11 @@ export class IntentFiller {
 					return
 				}
 
-				const sourceClient = this.chainClientManager.getPublicClient(order.source)
+				// Confirmations are counted with BFT-quorum semantics across the
+				// operator's endpoints plus the public RPC registry, so a single
+				// compromised or reorged provider cannot vouch for inclusion depth
+				// on cross-chain orders.
+				const sourceQuorumClient = this.chainClientManager.getQuorumClient(order.source)
 				// Base layer: stable-only USD value from ContractInteractionService
 				const baseInputUsd = await this.contractService.getInputUsdValue(order)
 
@@ -483,10 +487,14 @@ export class IntentFiller {
 				const abortController = new AbortController()
 				const confirmStartMs = Date.now()
 
+				// Single-provider setups keep the tight 300ms poll; quorum setups
+				// fan every poll out to all providers (including public endpoints),
+				// so poll less aggressively to stay within their rate limits.
+				const confirmationPollMs = sourceQuorumClient.size > 1 ? 1000 : 300
 				const waitForConfirmations = async (): Promise<void> => {
 					let currentConfirmations = await retryPromise(
 						() =>
-							sourceClient.getTransactionConfirmations({
+							sourceQuorumClient.getTransactionConfirmations({
 								hash: transactionHash as HexString,
 							}),
 						{
@@ -503,11 +511,11 @@ export class IntentFiller {
 
 					while (currentConfirmations < requiredConfirmations) {
 						if (abortController.signal.aborted) return
-						await new Promise((resolve) => setTimeout(resolve, 300)) // Wait 300ms
+						await new Promise((resolve) => setTimeout(resolve, confirmationPollMs))
 						if (abortController.signal.aborted) return
 						currentConfirmations = await retryPromise(
 							() =>
-								sourceClient.getTransactionConfirmations({
+								sourceQuorumClient.getTransactionConfirmations({
 									hash: transactionHash as HexString,
 								}),
 							{

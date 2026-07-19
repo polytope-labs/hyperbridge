@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander"
+import { Decimal } from "decimal.js"
 import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
@@ -7,11 +8,13 @@ import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { StableFiller } from "@/strategies/stable"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, legacyExoticPairs, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { AssetRegistry, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -115,28 +118,20 @@ interface VaultTomlConfig {
 interface FxStrategyConfig {
 	type: "hyperfx"
 	/**
-	 * Bid price curve: exotic tokens per 1 USD when the filler *buys* exotic from a user
-	 * (exotic→stable leg). Should have a higher exotic-per-USD rate than the ask curve so
-	 * the filler pays out fewer stablecoins per exotic token received.
+	 * DEPRECATED (legacy single-exotic mode) — declare top-level `[[pairs]]` instead.
 	 *
-	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
-	 * (while keeping the ask) is one-sided LP: the filler stops buying exotic and only
-	 * sells it, accumulating stablecoins.
+	 * Bid price curve: exotic tokens per 1 USD when the filler *buys* exotic from
+	 * a user. Translated internally into USDC/exotic and USDT/exotic pairs.
 	 */
 	bidPriceCurve?: Array<{
 		amount: string
 		price: string
 	}>
 	/**
-	 * Ask price curve: exotic tokens per 1 USD when the filler *sells* exotic to a user
-	 * (stable→exotic leg). Should have a lower exotic-per-USD rate than the bid curve so
-	 * the filler sends fewer exotic tokens per stablecoin received.
+	 * DEPRECATED (legacy single-exotic mode) — declare top-level `[[pairs]]` instead.
 	 *
-	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
-	 * (while keeping the bid) is one-sided LP: the filler stops selling exotic and only
-	 * buys it, accumulating the exotic token.
+	 * Ask price curve: exotic tokens per 1 USD when the filler *sells* exotic to
+	 * a user. Translated internally into USDC/exotic and USDT/exotic pairs.
 	 */
 	askPriceCurve?: Array<{
 		amount: string
@@ -147,10 +142,17 @@ interface FxStrategyConfig {
 	 * Ignored when only static bid/ask curves apply.
 	 */
 	spreadBps?: number
-	/** Maximum USD value per order */
-	maxOrderUsd: number
-	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
-	token1: Record<string, HexString>
+	/**
+	 * DEPRECATED (legacy single-exotic mode) — declare per-pair `maxOrderSize`
+	 * on `[[pairs]]` instead. Maximum USD value per order.
+	 */
+	maxOrderUsd?: number
+	/**
+	 * DEPRECATED (legacy single-exotic mode) — declare top-level `[[pairs]]` and
+	 * `[assets]` instead. Map of chain identifier (e.g. "EVM-97") to exotic token
+	 * contract address; translated internally into USDC/exotic and USDT/exotic pairs.
+	 */
+	token1?: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	/** Optional on-chain liquidity funding for destination-chain outputs */
@@ -229,6 +231,20 @@ interface BinanceConfig {
 }
 
 interface FillerTomlConfig {
+	/**
+	 * Optional asset-registry escape hatch: symbol → { chain → address }. Only
+	 * needed for assets the built-in registry does not ship, or to override a
+	 * shipped address for a deployment. Shipped symbols: USDC, USDT, DAI, CNGN
+	 * (SDK chain registry) + curated ZARP, EURC, XSGD, TRYB.
+	 */
+	assets?: Record<string, AssetDefinition>
+	/**
+	 * Trading pairs for the FX engine. Each pair prices `token1` in units of
+	 * `token0` via its own bid/ask curves; any number of pairs may be declared.
+	 * Requires exactly one `[[strategies]]` entry of type "hyperfx" (which carries
+	 * engine-level settings: maxOrderUsd, confirmation policies, venue funding).
+	 */
+	pairs?: PairConfig[]
 	simplex: {
 		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
@@ -424,6 +440,11 @@ program
 
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
+
+			// Asset symbol registry: built-ins (USDC/USDT/DAI/CNGN) resolved from the
+			// SDK chain registry, extended/overridden by the user's [assets] table.
+			const assetRegistry = new AssetRegistry(configService, config.assets)
+
 			// Editable price curves for the admin server, collected at construction so the
 			// server mutates the exact policy instances the strategies price with.
 			const adminStrategies: AdminStrategy[] = []
@@ -448,18 +469,64 @@ program
 						)
 					}
 					case "hyperfx": {
-						const bidPricePolicy = strategyConfig.bidPriceCurve?.length
-							? new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
-							: undefined
-						const askPricePolicy = strategyConfig.askPriceCurve?.length
-							? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
-							: undefined
-						adminStrategies.push({
-							index: strategyIndex,
-							bid: bidPricePolicy,
-							ask: askPricePolicy,
-						})
-						adminTokenMaps.set(strategyIndex, strategyConfig.token1)
+						// Build the engine's trading pairs: top-level [[pairs]] (each with
+						// its own bid/ask policies), or the legacy single-exotic config
+						// translated into USDC/exotic + USDT/exotic pairs.
+						let tradingPairs: TradingPair[]
+						let strategyRegistry = assetRegistry
+						if (config.pairs?.length) {
+							tradingPairs = config.pairs.map((pair) => ({
+								token0: pair.token0,
+								token1: pair.token1,
+								maxOrderSize: new Decimal(pair.maxOrderSize),
+								bidPricePolicy: pair.bidPriceCurve?.length
+									? new FillerPricePolicy({ points: pair.bidPriceCurve })
+									: undefined,
+								askPricePolicy: pair.askPriceCurve?.length
+									? new FillerPricePolicy({ points: pair.askPriceCurve })
+									: undefined,
+							}))
+							for (const pair of tradingPairs) {
+								if (pair.bidPricePolicy || pair.askPricePolicy) {
+									adminStrategies.push({
+										index: adminStrategies.length,
+										exotic: `${pair.token0}/${pair.token1}`,
+										bid: pair.bidPricePolicy,
+										ask: pair.askPricePolicy,
+									})
+								}
+							}
+						} else {
+							const bidPricePolicy = strategyConfig.bidPriceCurve?.length
+								? new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
+								: undefined
+							const askPricePolicy = strategyConfig.askPriceCurve?.length
+								? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
+								: undefined
+							// Legacy curves are exotic-per-USD; with USD-pegged token0 they are
+							// identical to token1-per-token0, so both pairs share the same
+							// policy instances (admin edits update both, as before).
+							const legacy = legacyExoticPairs(
+								configService,
+								strategyConfig.token1!,
+								strategyConfig.maxOrderUsd!,
+								bidPricePolicy,
+								askPricePolicy,
+							)
+							tradingPairs = legacy.pairs
+							strategyRegistry = legacy.registry
+							logger.warn(
+								{ strategyIndex },
+								"hyperfx 'token1'/'bidPriceCurve'/'askPriceCurve' are deprecated — declare top-level [[pairs]] and [assets] instead",
+							)
+							adminStrategies.push({
+								index: strategyIndex,
+								bid: bidPricePolicy,
+								ask: askPricePolicy,
+							})
+							adminTokenMaps.set(strategyIndex, strategyConfig.token1!)
+						}
+
 						const mergedFxPolicies = {
 							...DEFAULT_CONFIRMATION_POLICIES,
 							...(strategyConfig.confirmationPolicies ?? {}),
@@ -503,11 +570,9 @@ program
 							configService,
 							chainClientManager,
 							contractService,
-							strategyConfig.maxOrderUsd,
-							strategyConfig.token1,
+							tradingPairs,
+							strategyRegistry,
 							{
-								bidPricePolicy,
-								askPricePolicy,
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
 								spreadBps: strategyConfig.spreadBps,
@@ -582,11 +647,19 @@ program
 				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
 					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
-					// Collect exotic token addresses from FX strategies
+					// Collect exotic token addresses from FX strategies (legacy token1
+					// maps) and from top-level pairs via the asset registry.
 					const token1: Record<string, string> = {}
 					for (const s of config.strategies) {
 						if (s.type === "hyperfx" && s.token1) {
 							Object.assign(token1, s.token1)
+						}
+					}
+					for (const pair of config.pairs ?? []) {
+						for (const chain of resolvedChains) {
+							const chainName = `EVM-${chain.chainId}`
+							const address = assetRegistry.getAddress(pair.token1, chainName)
+							if (address) token1[chainName] = address
 						}
 					}
 					metrics = new MetricsService({
@@ -819,6 +892,35 @@ function validateConfig(config: FillerTomlConfig): void {
 		VaultFundingPlanner.validateConfig(config.vault.vaults)
 	}
 
+	// Asset registry and trading pairs (new-style FX configuration)
+	if (config.assets) {
+		validateAssetDefinitions(config.assets)
+	}
+	const usingPairs = (config.pairs?.length ?? 0) > 0
+	if (usingPairs) {
+		const hyperfxStrategies = (config.strategies ?? []).filter(
+			(s): s is FxStrategyConfig => s.type === "hyperfx",
+		)
+		if (hyperfxStrategies.length !== 1) {
+			throw new Error(
+				"[[pairs]] requires exactly one 'hyperfx' strategy to carry engine settings (maxOrderUsd, confirmation policies, venue funding)",
+			)
+		}
+		const fx = hyperfxStrategies[0]
+		if (fx.token1 || fx.bidPriceCurve?.length || fx.askPriceCurve?.length) {
+			throw new Error(
+				"hyperfx: legacy 'token1'/'bidPriceCurve'/'askPriceCurve' cannot be combined with top-level [[pairs]] — move the curves onto the pairs",
+			)
+		}
+		if (fx.maxOrderUsd !== undefined) {
+			throw new Error(
+				"hyperfx: 'maxOrderUsd' does not apply with [[pairs]] — set a per-pair 'maxOrderSize' (in token0 units) instead",
+			)
+		}
+		const hasVenuePricing = (fx.vault?.uniswapV4?.positions?.length ?? 0) > 0
+		validatePairConfigs(config.pairs!, config.assets, hasVenuePricing)
+	}
+
 	// Validate strategies
 	for (const strategy of config.strategies) {
 		if (!strategy.type) {
@@ -871,9 +973,9 @@ function validateConfig(config: FillerTomlConfig): void {
 			const hasAnyCurve = bidLen >= 1 || askLen >= 1
 			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
-			if (!hasAnyCurve && !hasUniswapV4Positions) {
+			if (!usingPairs && !hasAnyCurve && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					"hyperfx: declare top-level [[pairs]] with price curves, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
@@ -932,32 +1034,37 @@ function validateConfig(config: FillerTomlConfig): void {
 				if (!hasUniswapV4Positions) {
 					throw new Error("hyperfx: 'vault.uniswapV4.side' requires [strategies.vault.uniswapV4].positions")
 				}
-				if (hasAnyCurve) {
+				const anyCurves = usingPairs
+					? (config.pairs ?? []).some(
+							(p) => (p.bidPriceCurve?.length ?? 0) > 0 || (p.askPriceCurve?.length ?? 0) > 0,
+						)
+					: hasAnyCurve
+				if (anyCurves) {
 					throw new Error(
-						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit 'bidPriceCurve'/'askPriceCurve' (or drop one curve to do one-sided LP with static pricing)",
+						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit the bid/ask price curves (or drop one curve to do one-sided LP with static pricing)",
 					)
 				}
 			}
 
-			if (bidLen > 0) {
-				for (const point of strategy.bidPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
-					}
+			for (const point of strategy.bidPriceCurve ?? []) {
+				if (point.amount === undefined || point.price === undefined) {
+					throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
 				}
-				for (const point of strategy.askPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
-					}
+			}
+			for (const point of strategy.askPriceCurve ?? []) {
+				if (point.amount === undefined || point.price === undefined) {
+					throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
 				}
 			}
 
-			if (!strategy.maxOrderUsd) {
-				throw new Error("FX strategy must have 'maxOrderUsd'")
+			if (!usingPairs && !strategy.maxOrderUsd) {
+				throw new Error("FX strategy must have 'maxOrderUsd' (legacy mode; with [[pairs]] use per-pair 'maxOrderSize')")
 			}
 
-			if (!strategy.token1 || Object.keys(strategy.token1).length === 0) {
-				throw new Error("FX strategy must have at least one entry in 'token1'")
+			if (!usingPairs && (!strategy.token1 || Object.keys(strategy.token1).length === 0)) {
+				throw new Error(
+					"FX strategy must have at least one entry in 'token1' (or declare top-level [[pairs]] instead)",
+				)
 			}
 
 			if (strategy.confirmationPolicies) {

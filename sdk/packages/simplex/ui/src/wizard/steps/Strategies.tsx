@@ -1,7 +1,13 @@
 import { api } from "../../api"
 import { CurveEditor } from "../../components/CurveEditor"
-import { enabledChains } from "../state"
+import { PillTabs } from "../../components/PillTabs"
+import { enabledChains, patchAt, patchChain, removeAt } from "../state"
 import type { StepProps } from "../Wizard"
+
+const PRICING_TABS = [
+	{ value: "curves", label: "Static bid/ask curves" },
+	{ value: "uniswapV4", label: "Uniswap V4 positions" },
+] as const
 
 export function StepStrategies({ state, setState }: StepProps) {
 	const chains = enabledChains(state)
@@ -14,27 +20,19 @@ export function StepStrategies({ state, setState }: StepProps) {
 				"/api/setup/validate-token",
 				{ rpcUrl: chain.rpcUrls[0].trim(), address: chain.token1.trim() },
 			)
-			setState((s) => ({
-				...s,
-				chains: s.chains.map((c) =>
-					c.meta.chainId === chainId
-						? {
-								...c,
-								tokenSymbol: res.ok ? `${res.symbol} (${res.decimals} decimals)` : undefined,
-								tokenError: res.ok ? undefined : res.error,
-							}
-						: c,
-				),
-			}))
+			setState((s) =>
+				patchChain(s, chainId, {
+					tokenSymbol: res.ok ? `${res.symbol} (${res.decimals} decimals)` : undefined,
+					tokenError: res.ok ? undefined : res.error,
+				}),
+			)
 		} catch (err) {
-			setState((s) => ({
-				...s,
-				chains: s.chains.map((c) =>
-					c.meta.chainId === chainId
-						? { ...c, tokenSymbol: undefined, tokenError: err instanceof Error ? err.message : String(err) }
-						: c,
-				),
-			}))
+			setState((s) =>
+				patchChain(s, chainId, {
+					tokenSymbol: undefined,
+					tokenError: err instanceof Error ? err.message : String(err),
+				}),
+			)
 		}
 	}
 
@@ -109,14 +107,13 @@ export function StepStrategies({ state, setState }: StepProps) {
 										placeholder="0x… (leave empty if the token isn't on this chain)"
 										value={chain.token1}
 										onChange={(e) =>
-											setState((s) => ({
-												...s,
-												chains: s.chains.map((c) =>
-													c.meta.chainId === chain.meta.chainId
-														? { ...c, token1: e.target.value, tokenSymbol: undefined, tokenError: undefined }
-														: c,
-												),
-											}))
+											setState((s) =>
+												patchChain(s, chain.meta.chainId, {
+													token1: e.target.value,
+													tokenSymbol: undefined,
+													tokenError: undefined,
+												}),
+											)
 										}
 									/>
 									<button type="button" disabled={!chain.token1.trim()} onClick={() => verifyToken(chain.meta.chainId)}>
@@ -129,24 +126,11 @@ export function StepStrategies({ state, setState }: StepProps) {
 						))}
 
 						<p className="hint">Price source for the exotic token:</p>
-						<div className="steps">
-							{(
-								[
-									["curves", "Static bid/ask curves"],
-									["uniswapV4", "Uniswap V4 positions"],
-								] as const
-							).map(([mode, label]) => (
-								<button
-									key={mode}
-									type="button"
-									className={`step ${state.fxPricing === mode ? "active" : ""}`}
-									style={{ cursor: "pointer" }}
-									onClick={() => setState((s) => ({ ...s, fxPricing: mode }))}
-								>
-									{label}
-								</button>
-							))}
-						</div>
+						<PillTabs
+							options={PRICING_TABS}
+							value={state.fxPricing}
+							onChange={(fxPricing) => setState((s) => ({ ...s, fxPricing }))}
+						/>
 
 						{state.fxPricing === "uniswapV4" && (
 							<div>
@@ -163,9 +147,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 											onChange={(e) =>
 												setState((s) => ({
 													...s,
-													fxPositions: s.fxPositions.map((p, i) =>
-														i === index ? { ...p, chain: e.target.value } : p,
-													),
+													fxPositions: patchAt(s.fxPositions, index, { chain: e.target.value }),
 												}))
 											}
 										>
@@ -183,9 +165,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 											onChange={(e) =>
 												setState((s) => ({
 													...s,
-													fxPositions: s.fxPositions.map((p, i) =>
-														i === index ? { ...p, tokenId: e.target.value } : p,
-													),
+													fxPositions: patchAt(s.fxPositions, index, { tokenId: e.target.value }),
 												}))
 											}
 										/>
@@ -197,9 +177,7 @@ export function StepStrategies({ state, setState }: StepProps) {
 											onChange={(e) =>
 												setState((s) => ({
 													...s,
-													fxPositions: s.fxPositions.map((p, i) =>
-														i === index ? { ...p, referencePrice: e.target.value } : p,
-													),
+													fxPositions: patchAt(s.fxPositions, index, { referencePrice: e.target.value }),
 												}))
 											}
 										/>
@@ -211,16 +189,14 @@ export function StepStrategies({ state, setState }: StepProps) {
 											onChange={(e) =>
 												setState((s) => ({
 													...s,
-													fxPositions: s.fxPositions.map((p, i) =>
-														i === index ? { ...p, maxDeviationBps: e.target.value } : p,
-													),
+													fxPositions: patchAt(s.fxPositions, index, { maxDeviationBps: e.target.value }),
 												}))
 											}
 										/>
 										<button
 											type="button"
 											onClick={() =>
-												setState((s) => ({ ...s, fxPositions: s.fxPositions.filter((_, i) => i !== index) }))
+												setState((s) => ({ ...s, fxPositions: removeAt(s.fxPositions, index) }))
 											}
 										>
 											✕

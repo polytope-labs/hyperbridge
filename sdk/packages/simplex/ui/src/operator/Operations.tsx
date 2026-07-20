@@ -1,41 +1,23 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import { api } from "../api"
+import { useAction, usePolling } from "../lib/hooks"
 import type { ConfigDto, RebalancingDto } from "../types"
 
 export function Operations() {
 	const [rebalancing, setRebalancing] = useState<RebalancingDto>()
 	const [config, setConfig] = useState<ConfigDto>()
 	const [allowlistInput, setAllowlistInput] = useState("")
-	const [message, setMessage] = useState<string>()
-	const [error, setError] = useState<string>()
+	const { run: act, message, error } = useAction()
 
 	const load = useCallback(async () => {
-		try {
-			const [rebalancingDto, configDto] = await Promise.all([
-				api.get<RebalancingDto>("/api/rebalancing"),
-				api.get<ConfigDto>("/api/config"),
-			])
-			setRebalancing(rebalancingDto)
-			setConfig(configDto)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
+		const [rebalancingDto, configDto] = await Promise.all([
+			api.get<RebalancingDto>("/api/rebalancing"),
+			api.get<ConfigDto>("/api/config"),
+		])
+		setRebalancing(rebalancingDto)
+		setConfig(configDto)
 	}, [])
-
-	useEffect(() => {
-		load()
-	}, [load])
-
-	const act = async (fn: () => Promise<unknown>, done: string) => {
-		setMessage(undefined)
-		setError(undefined)
-		try {
-			await fn()
-			setMessage(done)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
-	}
+	usePolling(useCallback(() => act(load), [act, load]))
 
 	return (
 		<div>

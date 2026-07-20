@@ -1,4 +1,4 @@
-import type { EditorPoint } from "../components/CurveEditor"
+import { toCurvePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, SetupDefaults, StrategyConfig } from "../types"
 
 export interface ChainDraft {
@@ -145,16 +145,19 @@ export function enabledChains(state: WizardState): ChainDraft[] {
 	return state.chains.filter((c) => c.enabled)
 }
 
-function toCurve(points: EditorPoint[]): CurvePoint[] {
-	return points
-		.filter((p) => p.amount.trim() && p.value.trim())
-		.map((p) => ({ amount: p.amount.trim(), value: Number(p.value) }))
+export function patchAt<T>(list: T[], index: number, patch: Partial<T>): T[] {
+	return list.map((item, i) => (i === index ? { ...item, ...patch } : item))
 }
 
-function toPriceCurve(points: EditorPoint[]) {
-	return points
-		.filter((p) => p.amount.trim() && p.value.trim())
-		.map((p) => ({ amount: p.amount.trim(), price: p.value.trim() }))
+export function removeAt<T>(list: T[], index: number): T[] {
+	return list.filter((_, i) => i !== index)
+}
+
+export function patchChain(state: WizardState, chainId: number, patch: Partial<ChainDraft>): WizardState {
+	return {
+		...state,
+		chains: state.chains.map((c) => (c.meta.chainId === chainId ? { ...c, ...patch } : c)),
+	}
 }
 
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
@@ -174,7 +177,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 	if (state.stableEnabled) {
 		strategies.push({
 			type: "stable",
-			bpsCurve: toCurve(state.stableBps),
+			bpsCurve: toCurvePoints(state.stableBps),
 			...(confirmationPolicies ? { confirmationPolicies } : {}),
 		})
 	}
@@ -187,8 +190,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			type: "hyperfx",
 			maxOrderUsd: Number(state.fxMaxOrderUsd),
 			token1,
-			...(!usingPool && state.fxBidEnabled ? { bidPriceCurve: toPriceCurve(state.fxBid) } : {}),
-			...(!usingPool && state.fxAskEnabled ? { askPriceCurve: toPriceCurve(state.fxAsk) } : {}),
+			...(!usingPool && state.fxBidEnabled ? { bidPriceCurve: toPricePoints(state.fxBid) } : {}),
+			...(!usingPool && state.fxAskEnabled ? { askPriceCurve: toPricePoints(state.fxAsk) } : {}),
 			...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
 			...(usingPool
 				? {

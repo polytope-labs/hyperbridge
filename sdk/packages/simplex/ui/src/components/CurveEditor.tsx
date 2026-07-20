@@ -1,8 +1,21 @@
 import { useMemo } from "react"
+import type { CurvePoint, PricePoint } from "../types"
 
 export interface EditorPoint {
 	amount: string
 	value: string
+}
+
+export function fromPricePoints(points: PricePoint[] | undefined): EditorPoint[] {
+	return (points ?? []).map((p) => ({ amount: p.amount, value: p.price }))
+}
+
+export function toPricePoints(points: EditorPoint[]): PricePoint[] {
+	return points.filter((p) => p.amount.trim() && p.value.trim()).map((p) => ({ amount: p.amount.trim(), price: p.value.trim() }))
+}
+
+export function toCurvePoints(points: EditorPoint[]): CurvePoint[] {
+	return points.filter((p) => p.amount.trim() && p.value.trim()).map((p) => ({ amount: p.amount.trim(), value: Number(p.value) }))
 }
 
 /**

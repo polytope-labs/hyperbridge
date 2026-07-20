@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { api } from "../../api"
-import type { ChainDraft } from "../state"
+import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
 interface AlchemyChainRow {
@@ -12,12 +12,7 @@ interface AlchemyChainRow {
 export function StepChains({ state, setState }: StepProps) {
 	const [busy, setBusy] = useState(false)
 
-	const patchChain = (chainId: number, patch: Partial<ChainDraft>) => {
-		setState((s) => ({
-			...s,
-			chains: s.chains.map((c) => (c.meta.chainId === chainId ? { ...c, ...patch } : c)),
-		}))
-	}
+	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
 
 	const applyAlchemyKey = async () => {
 		if (!state.alchemyKey.trim()) return
@@ -51,7 +46,7 @@ export function StepChains({ state, setState }: StepProps) {
 	}
 
 	const verifyChain = async (chain: ChainDraft) => {
-		patchChain(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
+		patch(chain.meta.chainId, { rpcStatus: "checking", rpcError: undefined, bundlerWarning: undefined })
 		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
 		try {
 			const rpc = await api.post<{ ok: boolean; results: Array<{ error?: string }>; error?: string }>(
@@ -60,12 +55,12 @@ export function StepChains({ state, setState }: StepProps) {
 			)
 			if (!rpc.ok) {
 				const firstError = rpc.error ?? rpc.results.find((r) => r.error)?.error ?? "RPC check failed"
-				patchChain(chain.meta.chainId, { rpcStatus: "err", rpcError: firstError })
+				patch(chain.meta.chainId, { rpcStatus: "err", rpcError: firstError })
 				return
 			}
-			patchChain(chain.meta.chainId, { rpcStatus: "ok" })
+			patch(chain.meta.chainId, { rpcStatus: "ok" })
 		} catch (err) {
-			patchChain(chain.meta.chainId, { rpcStatus: "err", rpcError: err instanceof Error ? err.message : String(err) })
+			patch(chain.meta.chainId, { rpcStatus: "err", rpcError: err instanceof Error ? err.message : String(err) })
 			return
 		}
 
@@ -74,7 +69,7 @@ export function StepChains({ state, setState }: StepProps) {
 				url: chain.bundlerUrl.trim(),
 				chainId: chain.meta.chainId,
 			})
-			patchChain(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
+			patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
 		}
 	}
 
@@ -115,7 +110,7 @@ export function StepChains({ state, setState }: StepProps) {
 							<input
 								type="checkbox"
 								checked={chain.enabled}
-								onChange={(e) => patchChain(chain.meta.chainId, { enabled: e.target.checked })}
+								onChange={(e) => patch(chain.meta.chainId, { enabled: e.target.checked })}
 							/>
 							fill on this chain
 						</label>
@@ -137,7 +132,7 @@ export function StepChains({ state, setState }: StepProps) {
 											style={{ flex: 1 }}
 											value={url}
 											onChange={(e) =>
-												patchChain(chain.meta.chainId, {
+												patch(chain.meta.chainId, {
 													rpcUrls: chain.rpcUrls.map((u, i) => (i === index ? e.target.value : u)),
 													rpcStatus: undefined,
 													viaAlchemy: index === 0 ? false : chain.viaAlchemy,
@@ -148,7 +143,7 @@ export function StepChains({ state, setState }: StepProps) {
 											<button
 												type="button"
 												onClick={() =>
-													patchChain(chain.meta.chainId, {
+													patch(chain.meta.chainId, {
 														rpcUrls: chain.rpcUrls.filter((_, i) => i !== index),
 													})
 												}
@@ -162,7 +157,7 @@ export function StepChains({ state, setState }: StepProps) {
 							<div className="row">
 								<button
 									type="button"
-									onClick={() => patchChain(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
+									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
 								>
 									+ quorum RPC
 								</button>
@@ -177,7 +172,7 @@ export function StepChains({ state, setState }: StepProps) {
 								<input
 									type="text"
 									value={chain.bundlerUrl}
-									onChange={(e) => patchChain(chain.meta.chainId, { bundlerUrl: e.target.value })}
+									onChange={(e) => patch(chain.meta.chainId, { bundlerUrl: e.target.value })}
 									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
 								/>
 							</label>
@@ -198,7 +193,7 @@ export function StepChains({ state, setState }: StepProps) {
 									<input
 										type="checkbox"
 										checked={chain.watchOnly}
-										onChange={(e) => patchChain(chain.meta.chainId, { watchOnly: e.target.checked })}
+										onChange={(e) => patch(chain.meta.chainId, { watchOnly: e.target.checked })}
 									/>
 									watch-only (observe orders, never fill)
 								</label>

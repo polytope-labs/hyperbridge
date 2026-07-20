@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { api } from "../../api"
+import { Field } from "../../components/Field"
 import type { StepProps } from "../Wizard"
 
 export function StepSubstrate({ state, setState }: StepProps) {
@@ -81,17 +82,15 @@ export function StepSubstrate({ state, setState }: StepProps) {
 				</div>
 			)}
 
-			<label className="field">
-				<span>Substrate private key (hex seed or mnemonic)</span>
-				<input
-					type="password"
-					value={state.substrateKey}
-					onChange={(e) =>
-						setState((s) => ({ ...s, substrateKey: e.target.value, generatedMnemonic: undefined, balanceCheck: undefined }))
-					}
-					onBlur={deriveFromPasted}
-				/>
-			</label>
+			<Field
+				label="Substrate private key (hex seed or mnemonic)"
+				type="password"
+				value={state.substrateKey}
+				onChange={(substrateKey) =>
+					setState((s) => ({ ...s, substrateKey, generatedMnemonic: undefined, balanceCheck: undefined }))
+				}
+				onBlur={deriveFromPasted}
+			/>
 
 			{state.substrateAddress && (
 				<p className="hint">
@@ -100,14 +99,11 @@ export function StepSubstrate({ state, setState }: StepProps) {
 				</p>
 			)}
 
-			<label className="field">
-				<span>Hyperbridge WebSocket URL (used to submit and track bids)</span>
-				<input
-					type="text"
-					value={state.hyperbridgeWsUrl}
-					onChange={(e) => setState((s) => ({ ...s, hyperbridgeWsUrl: e.target.value }))}
-				/>
-			</label>
+			<Field
+				label="Hyperbridge WebSocket URL (used to submit and track bids)"
+				value={state.hyperbridgeWsUrl}
+				onChange={(hyperbridgeWsUrl) => setState((s) => ({ ...s, hyperbridgeWsUrl }))}
+			/>
 
 			<div className="row">
 				<button type="button" onClick={checkBalance} disabled={busy || !state.substrateKey.trim()}>

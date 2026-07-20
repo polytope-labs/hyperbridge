@@ -1,4 +1,4 @@
-import { enabledChains } from "../state"
+import { enabledChains, patchAt, removeAt } from "../state"
 import type { StepProps } from "../Wizard"
 
 export function StepTreasury({ state, setState }: StepProps) {
@@ -88,7 +88,7 @@ export function StepTreasury({ state, setState }: StepProps) {
 							onChange={(e) =>
 								setState((s) => ({
 									...s,
-									vaults: s.vaults.map((v, i) => (i === index ? { ...v, chain: e.target.value } : v)),
+									vaults: patchAt(s.vaults, index, { chain: e.target.value }),
 								}))
 							}
 						>
@@ -106,7 +106,7 @@ export function StepTreasury({ state, setState }: StepProps) {
 							onChange={(e) =>
 								setState((s) => ({
 									...s,
-									vaults: s.vaults.map((v, i) => (i === index ? { ...v, vault: e.target.value } : v)),
+									vaults: patchAt(s.vaults, index, { vault: e.target.value }),
 								}))
 							}
 						/>
@@ -118,7 +118,7 @@ export function StepTreasury({ state, setState }: StepProps) {
 							onChange={(e) =>
 								setState((s) => ({
 									...s,
-									vaults: s.vaults.map((v, i) => (i === index ? { ...v, threshold: e.target.value } : v)),
+									vaults: patchAt(s.vaults, index, { threshold: e.target.value }),
 								}))
 							}
 						/>
@@ -130,13 +130,13 @@ export function StepTreasury({ state, setState }: StepProps) {
 							onChange={(e) =>
 								setState((s) => ({
 									...s,
-									vaults: s.vaults.map((v, i) => (i === index ? { ...v, minBalance: e.target.value } : v)),
+									vaults: patchAt(s.vaults, index, { minBalance: e.target.value }),
 								}))
 							}
 						/>
 						<button
 							type="button"
-							onClick={() => setState((s) => ({ ...s, vaults: s.vaults.filter((_, i) => i !== index) }))}
+							onClick={() => setState((s) => ({ ...s, vaults: removeAt(s.vaults, index) }))}
 						>
 							✕
 						</button>

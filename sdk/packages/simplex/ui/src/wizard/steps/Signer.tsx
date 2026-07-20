@@ -1,7 +1,30 @@
 import { useState } from "react"
 import { api } from "../../api"
-import { switchNetwork } from "../state"
+import { Field } from "../../components/Field"
+import { PillTabs } from "../../components/PillTabs"
+import { switchNetwork, type SignerType, type WizardState } from "../state"
 import type { StepProps } from "../Wizard"
+
+const SIGNER_TABS = [
+	{ value: "privateKey", label: "Private key" },
+	{ value: "mpcVault", label: "MPCVault" },
+	{ value: "turnkey", label: "Turnkey" },
+] as const
+
+const MPC_FIELDS: ReadonlyArray<{ key: keyof WizardState["mpcVault"]; label: string; type?: "password" }> = [
+	{ key: "apiToken", label: "API token", type: "password" },
+	{ key: "vaultUuid", label: "Vault UUID" },
+	{ key: "accountAddress", label: "Wallet address in the vault (0x…)" },
+	{ key: "callbackClientSignerPublicKey", label: "Callback client-signer public key (ssh-ed25519 …)" },
+	{ key: "grpcTarget", label: "gRPC target (optional, defaults to api.mpcvault.com:443)" },
+]
+
+const TURNKEY_FIELDS: ReadonlyArray<{ key: keyof WizardState["turnkey"]; label: string; type?: "password" }> = [
+	{ key: "organizationId", label: "Organization ID" },
+	{ key: "apiPublicKey", label: "API public key" },
+	{ key: "apiPrivateKey", label: "API private key", type: "password" },
+	{ key: "signWith", label: "Wallet address to sign with (0x…)" },
+]
 
 export function StepSigner({ state, setState, defaults }: StepProps) {
 	const [error, setError] = useState<string>()
@@ -45,38 +68,22 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 					filler. It needs native gas plus stablecoins on every chain you enable. Credentials are written only
 					into the local config file (permissions 600).
 				</p>
-				<div className="steps">
-					{(
-						[
-							["privateKey", "Private key"],
-							["mpcVault", "MPCVault"],
-							["turnkey", "Turnkey"],
-						] as const
-					).map(([type, label]) => (
-						<button
-							key={type}
-							type="button"
-							className={`step ${state.signerType === type ? "active" : ""}`}
-							style={{ cursor: "pointer" }}
-							onClick={() => setState((s) => ({ ...s, signerType: type }))}
-						>
-							{label}
-						</button>
-					))}
-				</div>
+				<PillTabs
+					options={SIGNER_TABS}
+					value={state.signerType}
+					onChange={(signerType: SignerType) => setState((s) => ({ ...s, signerType }))}
+				/>
 
 				{state.signerType === "privateKey" && (
 					<div>
-						<label className="field">
-							<span>EVM private key (0x + 64 hex chars) — simplest; guard the config file</span>
-							<input
-								type="password"
-								value={state.signerKey}
-								onChange={(e) => setState((s) => ({ ...s, signerKey: e.target.value, signerAddress: undefined }))}
-								onBlur={deriveAddress}
-								placeholder="0x…"
-							/>
-						</label>
+						<Field
+							label="EVM private key (0x + 64 hex chars) — simplest; guard the config file"
+							type="password"
+							value={state.signerKey}
+							placeholder="0x…"
+							onChange={(signerKey) => setState((s) => ({ ...s, signerKey, signerAddress: undefined }))}
+							onBlur={deriveAddress}
+						/>
 						{state.signerAddress && (
 							<p className="hint">
 								Filler address: <span className="mono">{state.signerAddress}</span> — confirm this is the wallet
@@ -92,95 +99,30 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 							Institutional MPC custody: needs a vault, an Ed25519 keypair registered in the MPCVault console,
 							and a running client-signer container.
 						</p>
-						<label className="field">
-							<span>API token</span>
-							<input
-								type="password"
-								value={state.mpcVault.apiToken}
-								onChange={(e) => setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, apiToken: e.target.value } }))}
+						{MPC_FIELDS.map((field) => (
+							<Field
+								key={field.key}
+								label={field.label}
+								type={field.type}
+								value={state.mpcVault[field.key]}
+								onChange={(value) => setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, [field.key]: value } }))}
 							/>
-						</label>
-						<label className="field">
-							<span>Vault UUID</span>
-							<input
-								type="text"
-								value={state.mpcVault.vaultUuid}
-								onChange={(e) => setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, vaultUuid: e.target.value } }))}
-							/>
-						</label>
-						<label className="field">
-							<span>Wallet address in the vault (0x…)</span>
-							<input
-								type="text"
-								value={state.mpcVault.accountAddress}
-								onChange={(e) =>
-									setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, accountAddress: e.target.value } }))
-								}
-							/>
-						</label>
-						<label className="field">
-							<span>Callback client-signer public key (ssh-ed25519 …)</span>
-							<input
-								type="text"
-								value={state.mpcVault.callbackClientSignerPublicKey}
-								onChange={(e) =>
-									setState((s) => ({
-										...s,
-										mpcVault: { ...s.mpcVault, callbackClientSignerPublicKey: e.target.value },
-									}))
-								}
-							/>
-						</label>
-						<label className="field">
-							<span>gRPC target (optional, defaults to api.mpcvault.com:443)</span>
-							<input
-								type="text"
-								value={state.mpcVault.grpcTarget}
-								onChange={(e) => setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, grpcTarget: e.target.value } }))}
-							/>
-						</label>
+						))}
 					</div>
 				)}
 
 				{state.signerType === "turnkey" && (
 					<div>
 						<p className="hint">Hosted key management: create the API keypair in the Turnkey dashboard.</p>
-						<label className="field">
-							<span>Organization ID</span>
-							<input
-								type="text"
-								value={state.turnkey.organizationId}
-								onChange={(e) =>
-									setState((s) => ({ ...s, turnkey: { ...s.turnkey, organizationId: e.target.value } }))
-								}
+						{TURNKEY_FIELDS.map((field) => (
+							<Field
+								key={field.key}
+								label={field.label}
+								type={field.type}
+								value={state.turnkey[field.key]}
+								onChange={(value) => setState((s) => ({ ...s, turnkey: { ...s.turnkey, [field.key]: value } }))}
 							/>
-						</label>
-						<label className="field">
-							<span>API public key</span>
-							<input
-								type="text"
-								value={state.turnkey.apiPublicKey}
-								onChange={(e) => setState((s) => ({ ...s, turnkey: { ...s.turnkey, apiPublicKey: e.target.value } }))}
-							/>
-						</label>
-						<label className="field">
-							<span>API private key</span>
-							<input
-								type="password"
-								value={state.turnkey.apiPrivateKey}
-								onChange={(e) =>
-									setState((s) => ({ ...s, turnkey: { ...s.turnkey, apiPrivateKey: e.target.value } }))
-								}
-							/>
-						</label>
-						<label className="field">
-							<span>Wallet address to sign with (0x…)</span>
-							<input
-								type="text"
-								value={state.turnkey.signWith}
-								onChange={(e) => setState((s) => ({ ...s, turnkey: { ...s.turnkey, signWith: e.target.value } }))}
-							/>
-						</label>
+						))}
 					</div>
 				)}
 				{error && <p className="error">{error}</p>}

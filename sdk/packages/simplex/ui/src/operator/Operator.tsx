@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import { api } from "../api"
-import { CurveEditor, type EditorPoint } from "../components/CurveEditor"
-import type { AdminStrategyDto, BalanceSnapshot, PricePoint, StatusOperator } from "../types"
+import { CurveEditor, fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
+import { PillTabs } from "../components/PillTabs"
+import { useAction, usePolling } from "../lib/hooks"
+import type { AdminStrategyDto, BalanceSnapshot, StatusOperator } from "../types"
 import { Activity } from "./Activity"
 import { Operations } from "./Operations"
 
 type Tab = "overview" | "activity" | "operations"
+
+const PAGE_TABS = [
+	{ value: "overview", label: "overview" },
+	{ value: "activity", label: "activity" },
+	{ value: "operations", label: "operations" },
+] as const
 
 function formatUptime(seconds: number): string {
 	const h = Math.floor(seconds / 3600)
@@ -18,7 +26,9 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const [tab, setTab] = useState<Tab>("overview")
 	const [balances, setBalances] = useState<BalanceSnapshot>()
 	const [strategies, setStrategies] = useState<AdminStrategyDto[]>([])
-	const [error, setError] = useState<string>()
+	const [loadError, setLoadError] = useState<string>()
+	const [stopped, setStopped] = useState(false)
+	const { run, error } = useAction()
 
 	const load = useCallback(async () => {
 		try {
@@ -28,48 +38,33 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			])
 			setBalances(balanceSnapshot)
 			setStrategies(strategyList.strategies)
+			setLoadError(undefined)
 		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
+			setLoadError(err instanceof Error ? err.message : String(err))
 		}
 	}, [])
+	usePolling(load, 30_000)
 
-	useEffect(() => {
-		load()
-		const timer = setInterval(load, 30_000)
-		return () => clearInterval(timer)
-	}, [load])
-
-	const togglePause = async () => {
-		setError(undefined)
-		try {
+	const togglePause = () =>
+		run(async () => {
 			await api.post(status.paused ? "/api/resume" : "/api/pause")
 			refresh()
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
-	}
+		})
 
-	const resetHalt = async () => {
-		setError(undefined)
-		try {
+	const resetHalt = () =>
+		run(async () => {
 			await api.post("/api/reset-halt")
 			refresh()
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
-	}
+		})
 
-	const [stopped, setStopped] = useState(false)
-	const stopFiller = async () => {
+	const stopFiller = () => {
 		if (!window.confirm("Stop the filler? In-flight fills drain, vault positions may unwind, and the process exits.")) {
 			return
 		}
-		try {
+		return run(async () => {
 			await api.post("/api/stop")
 			setStopped(true)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		}
+		})
 	}
 
 	if (stopped) {
@@ -99,19 +94,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				{status.strategyTypes.join(", ")}
 			</p>
 
-			<div className="steps">
-				{(["overview", "activity", "operations"] as const).map((t) => (
-					<button
-						key={t}
-						type="button"
-						className={`step ${tab === t ? "active" : ""}`}
-						style={{ cursor: "pointer" }}
-						onClick={() => setTab(t)}
-					>
-						{t}
-					</button>
-				))}
-			</div>
+			<PillTabs options={PAGE_TABS} value={tab} onChange={setTab} />
 
 			{tab === "activity" && <Activity />}
 			{tab === "operations" && <Operations />}
@@ -202,23 +185,16 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					<StrategyCurves key={strategy.index} strategy={strategy} onApplied={load} />
 				))}
 			</div>
-			{error && <p className="error">{error}</p>}
+			{(error ?? loadError) && <p className="error">{error ?? loadError}</p>}
 		</div>
 	)
 }
 
-function toEditor(points: PricePoint[] | undefined): EditorPoint[] {
-	return (points ?? []).map((p) => ({ amount: p.amount, value: p.price }))
-}
-
-function toPricePoints(points: EditorPoint[]): PricePoint[] {
-	return points.filter((p) => p.amount.trim() && p.value.trim()).map((p) => ({ amount: p.amount, price: p.value }))
-}
 
 function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => void }) {
 	const { strategy, onApplied } = props
-	const [bid, setBid] = useState<EditorPoint[]>(() => toEditor(strategy.bid))
-	const [ask, setAsk] = useState<EditorPoint[]>(() => toEditor(strategy.ask))
+	const [bid, setBid] = useState<EditorPoint[]>(() => fromPricePoints(strategy.bid))
+	const [ask, setAsk] = useState<EditorPoint[]>(() => fromPricePoints(strategy.ask))
 	const [message, setMessage] = useState<string>()
 	const [error, setError] = useState<string>()
 

@@ -149,18 +149,40 @@ button:disabled {
 	color: var(--ok);
 	border-color: var(--ok);
 }
-.progress {
-	height: 5px;
+.stepper {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+	margin: 1rem 0 1.5rem;
+}
+.stepper .step {
+	font-size: 0.8rem;
+	padding: 0.25rem 0.7rem;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+	color: var(--muted);
+	white-space: nowrap;
+}
+.stepper .step.active {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+.stepper .step.done {
+	color: var(--ok);
+	border-color: var(--ok);
+}
+.stepper .connector {
+	flex: 1;
+	min-width: 0.6rem;
+	height: 3px;
 	border-radius: 999px;
 	background: var(--border);
-	margin: -0.9rem 0 1.5rem;
-	overflow: hidden;
+	transition: background 0.25s ease;
 }
-.progress-fill {
-	height: 100%;
-	border-radius: 999px;
+.stepper .connector.done {
 	background: var(--accent);
-	transition: width 0.25s ease;
 }
 table {
 	width: 100%;

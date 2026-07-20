@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import type { SetupDefaults } from "../types"
 import { initialState, type WizardState } from "./state"
 import { StepSigner } from "./steps/Signer"
@@ -96,15 +96,15 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 				This wizard asks for the minimum a filler needs to run, explains why each value matters, and writes a
 				commented filler-config.toml before starting. Nothing leaves this machine.
 			</p>
-			<div className="steps">
+			<div className="stepper">
 				{STEPS.map((s, i) => (
-					<span key={s.id} className={`step ${i === stepIndex ? "active" : i < stepIndex ? "done" : ""}`}>
-						{i + 1}. {s.title}
-					</span>
+					<Fragment key={s.id}>
+						{i > 0 && <span className={`connector ${i <= stepIndex ? "done" : ""}`} />}
+						<span className={`step ${i === stepIndex ? "active" : i < stepIndex ? "done" : ""}`}>
+							{i + 1}. {s.title}
+						</span>
+					</Fragment>
 				))}
-			</div>
-			<div className="progress">
-				<div className="progress-fill" style={{ width: `${(stepIndex / (STEPS.length - 1)) * 100}%` }} />
 			</div>
 
 			<StepComponent state={state} setState={setState} defaults={props.defaults} />

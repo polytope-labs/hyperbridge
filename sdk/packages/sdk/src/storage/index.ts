@@ -108,11 +108,25 @@ export function createCancellationStorage(options: CancellationStorageOptions = 
 }
 
 export const STORAGE_KEYS = Object.freeze({
-	destProof: (orderId: string) => `cancel-order:${orderId}:destProof`,
-	getRequest: (orderId: string) => `cancel-order:${orderId}:getRequest`,
-	sourceProof: (orderId: string) => `cancel-order:${orderId}:sourceProof`,
-	postCommitment: (orderId: string) => `cancel-order:${orderId}:postCommitment`,
+	destProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:destProof`,
+	getRequest: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:getRequest`,
+	sourceProof: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:sourceProof`,
+	postCommitment: (orderId: string, source?: string, destination?: string) =>
+		`cancel-order:${cancellationScope(orderId, source, destination)}:postCommitment`,
 })
+
+/**
+ * An order id is not sufficient storage scope when the same id is observed on
+ * more than one chain pair. Keep the legacy unscoped shape when callers do not
+ * provide a pair so existing consumers can migrate incrementally.
+ */
+function cancellationScope(orderId: string, source?: string, destination?: string): string {
+	if (!source || !destination) return orderId
+	return `${orderId}:${encodeURIComponent(source)}:${encodeURIComponent(destination)}`
+}
 
 /**
  * Creates a simple string-based storage for tracking used user operations per commitment.

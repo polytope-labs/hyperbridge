@@ -15,6 +15,7 @@ import {
 	sleep,
 } from "@/utils"
 import { STORAGE_KEYS } from "@/storage"
+import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
 import type { Order, HexString, IGetRequest, IPostRequest, CancelOrderOptions, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
@@ -139,12 +140,19 @@ export class OrderCanceller {
 		indexerClient: IsmpClient,
 		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		const isSameChain = order.source === order.destination
-		if (options.from === "destination" && !isSameChain) {
-			yield* this.cancelOrderFromDest(order, indexerClient)
-			return
+		try {
+			const isSameChain = order.source === order.destination
+			if (options.from === "destination" && !isSameChain) {
+				yield* this.cancelOrderFromDest(order, indexerClient)
+				return
+			}
+			yield* this.cancelOrderFromSource(order, indexerClient)
+		} catch (error) {
+			if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+
+			await this.clearGetRecoveryCache(order)
+			yield { status: "RECOVERY_RESTART_REQUIRED" }
 		}
-		yield* this.cancelOrderFromSource(order, indexerClient)
 	}
 
 	/**
@@ -171,7 +179,7 @@ export class OrderCanceller {
 	 * @throws If the cancel transaction does not contain the expected on-chain event.
 	 */
 	private async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
-		const orderId = order.id!
+		const storageKeys = this.recoveryStorageKeys(order)
 		const isSameChain = order.source === order.destination
 		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(
 			normalizeStateMachineId(order.source),
@@ -216,16 +224,31 @@ export class OrderCanceller {
 		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const sourceConsensusStateId = this.ctx.source.configService.getConsensusStateId(sourceStateMachine)
 
-		let destIProof: IProof | null = await this.ctx.cancellationStorage.getItem(STORAGE_KEYS.destProof(orderId))
+		let destIProof: IProof | null = await this.ctx.cancellationStorage.getItem(storageKeys.destProof)
 		if (!destIProof) {
 			destIProof = yield* this.fetchDestinationProof(order, indexerClient)
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.destProof(orderId), destIProof)
+			await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
 		} else {
-			yield { status: "DESTINATION_FINALIZED" as const, proof: destIProof }
+			let refreshed = false
+			try {
+				await this.assertProofFresh(hyperbridge, destIProof)
+			} catch (error) {
+				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+				await this.ctx.cancellationStorage.removeItem(storageKeys.destProof)
+				destIProof = yield* this.fetchDestinationProof(order, indexerClient)
+				await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
+				refreshed = true
+			}
+
+			if (!refreshed) yield { status: "DESTINATION_FINALIZED" as const, proof: destIProof }
 		}
 
+		// A proof fetched moments ago can still have crossed the retention boundary;
+		// validate every proof immediately before deriving cancel calldata from it.
+		await this.assertProofFresh(hyperbridge, destIProof)
+
 		let getRequest: IGetRequest | null = await this.ctx.cancellationStorage.getItem(
-			STORAGE_KEYS.getRequest(orderId),
+			storageKeys.getRequest,
 		)
 		if (!getRequest) {
 			const quote = await this.quoteCancelFromSource(order)
@@ -252,7 +275,7 @@ export class OrderCanceller {
 			if (!request) throw new Error("GetRequest missing")
 			getRequest = request.args as unknown as IGetRequest
 
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.getRequest(orderId), getRequest)
+			await this.ctx.cancellationStorage.setItem(storageKeys.getRequest, getRequest)
 
 			yield {
 				status: "CANCEL_STARTED" as const,
@@ -276,7 +299,7 @@ export class OrderCanceller {
 
 					const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
 					let sourceIProof: IProof | null = await this.ctx.cancellationStorage.getItem(
-						STORAGE_KEYS.sourceProof(orderId),
+						storageKeys.sourceProof,
 					)
 					if (!sourceIProof) {
 						sourceIProof = await fetchSourceProof(
@@ -286,8 +309,10 @@ export class OrderCanceller {
 							sourceConsensusStateId,
 							sourceHeight,
 						)
-						await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.sourceProof(orderId), sourceIProof)
+						await this.ctx.cancellationStorage.setItem(storageKeys.sourceProof, sourceIProof)
 					}
+
+					await this.assertProofFresh(hyperbridge, sourceIProof)
 
 					await waitForChallengePeriod(hyperbridge, {
 						height: sourceIProof.height,
@@ -296,6 +321,13 @@ export class OrderCanceller {
 							consensusStateId: sourceConsensusStateId,
 						},
 					})
+
+					// Challenge waiting can outlive a retention window. Validate both
+					// inputs again immediately before submitting the proof-bearing message.
+					await Promise.all([
+						this.assertProofFresh(hyperbridge, sourceIProof),
+						this.assertProofFresh(hyperbridge, destIProof),
+					])
 
 					const getRequestMessage: IGetRequestMessage = {
 						kind: "GetRequest",
@@ -321,9 +353,9 @@ export class OrderCanceller {
 						status: "HYPERBRIDGE_FINALIZED" as const,
 						metadata: statusUpdate.metadata,
 					}
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.destProof(orderId))
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.getRequest(orderId))
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.sourceProof(orderId))
+					await this.ctx.cancellationStorage.removeItem(storageKeys.destProof)
+					await this.ctx.cancellationStorage.removeItem(storageKeys.getRequest)
+					await this.ctx.cancellationStorage.removeItem(storageKeys.sourceProof)
 					return
 			}
 		}
@@ -388,13 +420,13 @@ export class OrderCanceller {
 	 * @throws If the cancel transaction does not contain a `PostRequestEvent`.
 	 */
 	private async *cancelOrderFromDest(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
-		const orderId = order.id!
+		const storageKeys = this.recoveryStorageKeys(order)
 
 		const destStateMachine = normalizeStateMachineId(order.destination)
 		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 
 		let commitment: HexString | null = await this.ctx.cancellationStorage.getItem(
-			STORAGE_KEYS.postCommitment(orderId),
+			storageKeys.postCommitment,
 		)
 
 		if (!commitment) {
@@ -429,7 +461,7 @@ export class OrderCanceller {
 			const postArgs = postEvent.args as unknown as IPostRequest
 			commitment = postRequestCommitment(postArgs).commitment
 
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.postCommitment(orderId), commitment)
+			await this.ctx.cancellationStorage.setItem(storageKeys.postCommitment, commitment)
 		}
 
 		const statusStream = indexerClient.postRequestStatusStream(commitment)
@@ -468,7 +500,7 @@ export class OrderCanceller {
 					if (refundEvents.length === 0) {
 						throw new Error("EscrowRefunded event not found in source-chain delivery receipt")
 					}
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.postCommitment(orderId))
+					await this.ctx.cancellationStorage.removeItem(storageKeys.postCommitment)
 					yield {
 						status: "CANCELLATION_COMPLETE" as const,
 						blockNumber: statusUpdate.metadata.blockNumber,
@@ -520,7 +552,7 @@ export class OrderCanceller {
 				const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(
 					this.ctx.dest.config.stateMachineId,
 				)
-				const orderId = order.id!
+				const orderId = this.orderId(order)
 				const slotHash = (await this.ctx.dest.client.readContract({
 					abi: IntentGatewayV2ABI,
 					address: intentGatewayV2Address,
@@ -540,6 +572,7 @@ export class OrderCanceller {
 				yield { status: "DESTINATION_FINALIZED" as const, proof }
 				return proof
 			} catch (e) {
+				if (MissingConsensusUpdateTimeError.isError(e)) throw e
 				lastFailedHeight = latestHeight
 				await sleep(10000)
 			}
@@ -576,6 +609,7 @@ export class OrderCanceller {
 			this.logger.info(`Unsigned GET ${commitment} submitted; waiting for Hyperbridge response receipt`)
 			await sleep(30000)
 		} catch (error) {
+			if (MissingConsensusUpdateTimeError.isError(error)) throw error
 			this.logger.warn(
 				`Unsigned GET submit failed for ${commitment}; polling response receipt before failing: ${String(error)}`,
 			)
@@ -585,10 +619,50 @@ export class OrderCanceller {
 			await this.pollDeliveredReceipt(hyperbridge, commitment)
 			this.logger.info(`Confirmed Hyperbridge GET delivery for ${commitment}`)
 		} catch (error) {
+			if (MissingConsensusUpdateTimeError.isError(error)) throw error
 			const message = `Failed to deliver GET request to Hyperbridge; no response receipt found for ${commitment}: ${String(error)}`
 			this.logger.error(message)
 			throw new Error(message)
 		}
+	}
+
+	/** Verify that Hyperbridge still retains the consensus update for a proof. */
+	private async assertProofFresh(hyperbridge: SubstrateChain, proof: IProof): Promise<void> {
+		await hyperbridge.stateMachineUpdateTime({
+			height: proof.height,
+			id: {
+				stateId: parseStateMachineId(proof.stateMachine).stateId,
+				consensusStateId: proof.consensusStateId,
+			},
+		})
+	}
+
+	/**
+	 * Drops the source-initiated GET recovery checkpoint after Hyperbridge prunes
+	 * a consensus update required by that recovery attempt.
+	 */
+	private async clearGetRecoveryCache(order: Order): Promise<void> {
+		const keys = this.recoveryStorageKeys(order)
+		await Promise.all([
+			this.ctx.cancellationStorage.removeItem(keys.destProof),
+			this.ctx.cancellationStorage.removeItem(keys.sourceProof),
+			this.ctx.cancellationStorage.removeItem(keys.getRequest),
+		])
+	}
+
+	private recoveryStorageKeys(order: Order) {
+		const orderId = this.orderId(order)
+		return {
+			destProof: STORAGE_KEYS.destProof(orderId, order.source, order.destination),
+			getRequest: STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
+			sourceProof: STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
+			postCommitment: STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
+		}
+	}
+
+	private orderId(order: Order): string {
+		if (!order.id) throw new Error("An order id is required to recover cancellation")
+		return order.id
 	}
 
 	private async queryDeliveredReceipt(

@@ -119,8 +119,10 @@ export interface PimlicoGasPriceEstimate {
  * - `HYPERBRIDGE_DELIVERED` – the cancel message has been delivered to Hyperbridge.
  * - `HYPERBRIDGE_FINALIZED` – the cancel message has been finalised on Hyperbridge.
  * - `CANCELLATION_COMPLETE` – the escrow has been refunded; cancellation is done.
+ * - `RECOVERY_RESTART_REQUIRED` – a required consensus update was pruned; start recovery again.
  */
 export type CancelEvent =
+	| { status: "RECOVERY_RESTART_REQUIRED" }
 	| { status: "DESTINATION_FINALIZED"; proof: IProof }
 	| { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
 	| { status: "CANCEL_STARTED"; receipt: TransactionReceipt }

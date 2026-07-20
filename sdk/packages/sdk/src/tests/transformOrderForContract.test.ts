@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest"
+import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
 import { transformOrderForContract } from "@/protocols/intents/utils"
+import { STORAGE_KEYS } from "@/storage"
 import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
 import type { Order, HexString } from "@/types"
 
@@ -112,5 +114,34 @@ describe("transformOrderForContract", () => {
 		}))
 
 		expect(outputs[0].token).toBe(ADDR_32)
+	})
+})
+
+describe("GET cancellation recovery cache", () => {
+	it("clears the source GET checkpoint and its derived proofs without touching POST state", async () => {
+		const order = makeOrder({ id: "0xdeadbeef" })
+		const orderId = order.id ?? ""
+		const keys = {
+			destProof: STORAGE_KEYS.destProof(orderId, order.source, order.destination),
+			sourceProof: STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
+			getRequest: STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
+			postCommitment: STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
+		}
+		const values = new Map(Object.values(keys).map((key) => [key, "cached"]))
+		const cancellationStorage = {
+			removeItem: async (key: string) => void values.delete(key),
+		}
+		const canceller = new OrderCanceller({ cancellationStorage } as never)
+		const clearGetRecoveryCache = (canceller as unknown as {
+			clearGetRecoveryCache(recoveryOrder: Order): Promise<void>
+		}).clearGetRecoveryCache.bind(canceller)
+
+		await clearGetRecoveryCache(order)
+		await clearGetRecoveryCache(order)
+
+		expect(values.has(keys.destProof)).toBe(false)
+		expect(values.has(keys.sourceProof)).toBe(false)
+		expect(values.has(keys.getRequest)).toBe(false)
+		expect(values.has(keys.postCommitment)).toBe(true)
 	})
 })

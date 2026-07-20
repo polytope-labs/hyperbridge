@@ -650,6 +650,12 @@ export class OrderCanceller {
 		])
 	}
 
+	/**
+	 * Returns the pair-scoped storage keys used to resume cancellation recovery
+	 * for an order.
+	 *
+	 * @param order - The order whose source/destination recovery state is stored.
+	 */
 	private recoveryStorageKeys(order: Order) {
 		const orderId = this.orderId(order)
 		return {
@@ -660,11 +666,24 @@ export class OrderCanceller {
 		}
 	}
 
+	/**
+	 * Returns the order identifier required to persist or clear recovery state.
+	 *
+	 * @param order - The order being cancelled.
+	 * @throws If the order has no identifier.
+	 */
 	private orderId(order: Order): string {
 		if (!order.id) throw new Error("An order id is required to recover cancellation")
 		return order.id
 	}
 
+	/**
+	 * Reads the Hyperbridge response receipt for a GET request commitment.
+	 *
+	 * @param hyperbridge - Hyperbridge chain client used to query the receipt.
+	 * @param commitment - Commitment of the GET request.
+	 * @returns The receipt commitment when delivered, otherwise `undefined`.
+	 */
 	private async queryDeliveredReceipt(
 		hyperbridge: SubstrateChain,
 		commitment: HexString,
@@ -672,6 +691,14 @@ export class OrderCanceller {
 		return hyperbridge.queryResponseReceipt(commitment)
 	}
 
+	/**
+	 * Polls Hyperbridge until it records a response receipt for the GET request.
+	 *
+	 * @param hyperbridge - Hyperbridge chain client used to query the receipt.
+	 * @param commitment - Commitment of the GET request.
+	 * @returns The delivered response receipt commitment.
+	 * @throws If no receipt is observed within the configured retry limit.
+	 */
 	private async pollDeliveredReceipt(hyperbridge: SubstrateChain, commitment: HexString): Promise<HexString> {
 		this.logger.info(`Polling Hyperbridge GET response receipt for ${commitment}`)
 		return retryPromise(

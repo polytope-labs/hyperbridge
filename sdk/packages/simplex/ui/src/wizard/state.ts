@@ -89,7 +89,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 			.filter((c) => c.network === "mainnet")
 			.map((meta) => ({
 				meta,
-				enabled: true,
+				enabled: false,
 				rpcUrls: [""],
 				bundlerUrl: "",
 				viaAlchemy: false,
@@ -131,7 +131,7 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 			.filter((c) => c.network === network)
 			.map((meta) => ({
 				meta,
-				enabled: true,
+				enabled: false,
 				rpcUrls: [""],
 				bundlerUrl: "",
 				viaAlchemy: false,

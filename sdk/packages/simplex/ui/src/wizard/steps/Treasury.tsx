@@ -77,7 +77,8 @@ export function StepTreasury({ state, setState }: StepProps) {
 				<h2>ERC-4626 treasury vaults</h2>
 				<p className="hint">
 					Fills can source missing stablecoin balance from a vault position atomically, and idle wallet balance
-					above a threshold is swept in to earn yield (e.g. Aave stataUSDC). The underlying asset is resolved
+					above a threshold is swept in to earn yield (e.g. Aave stataUSDC). Threshold and min balance are
+					USD-denominated: 1 means $1 (stablecoins counted at $1). The underlying asset is resolved
 					on-chain from the vault address.
 				</p>
 				{state.vaults.map((vault, index) => (
@@ -112,7 +113,7 @@ export function StepTreasury({ state, setState }: StepProps) {
 						/>
 						<input
 							type="text"
-							placeholder="sweep threshold"
+							placeholder="sweep threshold (USD)"
 							style={{ maxWidth: "9rem" }}
 							value={vault.threshold}
 							onChange={(e) =>
@@ -124,7 +125,7 @@ export function StepTreasury({ state, setState }: StepProps) {
 						/>
 						<input
 							type="text"
-							placeholder="min balance"
+							placeholder="min balance (USD)"
 							style={{ maxWidth: "9rem" }}
 							value={vault.minBalance}
 							onChange={(e) =>

@@ -65,8 +65,8 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 				<h2>Filler wallet</h2>
 				<p className="hint">
 					This wallet signs every fill and holds your stablecoin float on each chain — it is the identity of your
-					filler. It needs native gas plus stablecoins on every chain you enable. Credentials are written only
-					into the local config file (permissions 600).
+					filler. Holding USDC/USDT is enough: gas is covered by the paymaster. Credentials are written only into
+					the local config file (permissions 600).
 				</p>
 				<PillTabs
 					options={SIGNER_TABS}

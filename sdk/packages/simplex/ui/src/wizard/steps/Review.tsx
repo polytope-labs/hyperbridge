@@ -82,8 +82,8 @@ export function StepReview({ state, defaults }: StepProps) {
 			<div className="card">
 				<h2>Before the filler can fill</h2>
 				<p className="hint">
-					· Fund the filler wallet on every chain: native token for gas plus stablecoins to fill with.
-					<br />· Keep at least 1 USDC per chain for the Circle paymaster (BNB Chain needs native BNB instead).
+					· Fund the filler wallet with stablecoins (USDC/USDT) on every chain — gas is covered by the paymaster,
+					paid in USDC.
 					<br />· Fund the Hyperbridge account with BRIDGE tokens for bid fees (claimed back automatically).
 				</p>
 			</div>

@@ -103,6 +103,9 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					</span>
 				))}
 			</div>
+			<div className="progress">
+				<div className="progress-fill" style={{ width: `${(stepIndex / (STEPS.length - 1)) * 100}%` }} />
+			</div>
 
 			<StepComponent state={state} setState={setState} defaults={props.defaults} />
 

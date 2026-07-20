@@ -44,6 +44,12 @@ pub trait WeightInfo {
 	fn set_phantom_order_config() -> Weight;
 	fn set_phantom_bid_window() -> Weight;
 	fn upgrade_gateway() -> Weight;
+	fn add_paymaster_deployment() -> Weight;
+	fn upgrade_paymaster() -> Weight;
+	fn update_paymaster_params() -> Weight;
+	fn register_paymaster_token() -> Weight;
+	fn deactivate_paymaster_token() -> Weight;
+	fn withdraw_paymaster_assets() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -135,6 +141,53 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
+
+	/// Storage: Paymasters (r:0 w:1)
+	fn add_paymaster_deployment() -> Weight {
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 2000))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn upgrade_paymaster() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn update_paymaster_params() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn register_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn deactivate_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	/// Storage: Paymasters (r:1 w:0), Nonce (r:1 w:1)
+	fn withdraw_paymaster_assets() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3500))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 }
 
 // For backwards compatibility and tests
@@ -164,6 +217,24 @@ impl WeightInfo for () {
 		Weight::from_parts(10_000_000, 0)
 	}
 	fn upgrade_gateway() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn add_paymaster_deployment() -> Weight {
+		Weight::from_parts(30_000_000, 0)
+	}
+	fn upgrade_paymaster() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn update_paymaster_params() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn register_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn deactivate_paymaster_token() -> Weight {
+		Weight::from_parts(70_000_000, 0)
+	}
+	fn withdraw_paymaster_assets() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 	}
 }

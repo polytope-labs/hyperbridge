@@ -225,6 +225,10 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.addresses.CirclePaymaster as HexString | undefined
 	}
 
+	getSimplexPaymasterAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.SimplexPaymaster as HexString | undefined
+	}
+
 	getHyperbridgeAddress(): string {
 		return hyperbridgeAddress
 	}

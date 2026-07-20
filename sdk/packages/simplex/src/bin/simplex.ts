@@ -9,7 +9,15 @@ import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { bootFiller, type FillerRuntime } from "@/core/boot"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
-import { getLogger } from "@/services/Logger"
+import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import {
+	FillerConfigService,
+	type ResolvedChainConfig,
+	resolveChainConfigs,
+} from "@/services/FillerConfigService"
+import { ChainClientManager } from "@/services/ChainClientManager"
+import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
+import { initializeSignerFromToml, type SigningAccount } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 
 // ASCII art header
@@ -224,6 +232,63 @@ program
 		} catch (error) {
 			// Use console.error for initial startup errors since logger might not be configured yet
 			console.error("Failed to start filler:", error)
+			process.exit(1)
+		}
+	})
+
+program
+	.command("paymaster-keeper")
+	.description(
+		"Run the SimplexPaymaster keeper: periodically recycles accrued stablecoins into the EntryPoint deposit via the paymaster's onchain swapAndDeposit",
+	)
+	.requiredOption("-c, --config <path>", "Path to TOML configuration file")
+	.action(async (options: { config: string }) => {
+		try {
+			const configPath = resolve(process.cwd(), options.config)
+			const config = parse(readFileSync(configPath, "utf-8")) as FillerTomlConfig
+
+			// Only [[chains]], [simplex.signer] and the optional [keeper] block are used.
+			if (!config.chains || config.chains.length === 0) {
+				throw new Error("At least one chain must be configured")
+			}
+			if (!config.simplex?.signer) {
+				throw new Error("Signer configuration is required via [simplex.signer]")
+			}
+
+			if (config.simplex.logging) {
+				configureLogger(config.simplex.logging as LogLevel)
+			}
+			const logger = getLogger("cli")
+
+			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+			const configService = new FillerConfigService(resolvedChains, {
+				maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? 1,
+				logging: config.simplex.logging as LogLevel | undefined,
+				entryPointAddress: config.simplex.entryPointAddress,
+			})
+
+			const configuredSigner = await initializeSignerFromToml(config.simplex.signer)
+			const chainClientManager = new ChainClientManager(configService, configuredSigner)
+			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
+
+			const chains = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
+			const keeper = new PaymasterKeeperService(
+				chainClientManager,
+				configService,
+				runtimeSigner,
+				config.keeper,
+			)
+			keeper.start(chains)
+
+			const shutdown = (signal: string) => {
+				logger.warn(`Shutting down paymaster keeper (${signal})...`)
+				keeper.stop()
+				process.exit(0)
+			}
+			process.on("SIGINT", () => shutdown("SIGINT"))
+			process.on("SIGTERM", () => shutdown("SIGTERM"))
+		} catch (error) {
+			console.error("Failed to start paymaster keeper:", error)
 			process.exit(1)
 		}
 	})

@@ -72,6 +72,17 @@ recheckDelayMs = 30000  # 30 seconds
 # Rebalancing configuration
 # Trigger percentage: rebalancing triggers when balance falls to (1 - triggerPercentage) * baseBalance
 # Example: triggerPercentage = 0.5 means trigger when balance <= 50% of base
+# SimplexPaymaster fee-recycling keeper (optional) — used by the
+# `simplex paymaster-keeper` subcommand, not by `run`. The keeper periodically
+# calls the paymaster's onchain swapAndDeposit, which swaps accrued stablecoins
+# to native (oracle-bounded) and deposits them into the EntryPoint. The signer
+# must be the paymaster's treasury. Only [[chains]] and [simplex.signer] are
+# required alongside this block.
+# [keeper]
+# chains = ["EVM-56"]     # default: every configured chain with a SimplexPaymaster
+# intervalMinutes = 30
+# minSwapUsd = 1          # skip tokens whose accrued balance is below this
+
 [rebalancing]
 triggerPercentage = 0.5
 

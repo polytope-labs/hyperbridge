@@ -1,14 +1,24 @@
 // Phantom-order price/liquidity aggregation. Lives in the SDK so the indexer (which persists the
-// result as entities) and the simplex E2E test share one implementation. Bid decoding is injectable
-// (extractFill) because the indexer must decode without viem — viem's @noble/hashes keccak throws
-// "Uint8Array expected" in the SubQuery VM2 sandbox — so it passes a VM2-safe decoder; the default
-// is the viem-based extractFillData, fine for Node consumers (tests, simplex).
-import { decodeFunctionData } from "viem"
+// result as entities) and the simplex E2E test share one implementation. Bid decoding (extractFill)
+// and signature recovery (recoverSigner) are injectable because the indexer must do both without
+// viem — viem's @noble/hashes keccak throws "Uint8Array expected" in the SubQuery VM2 sandbox — so
+// it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
+// simplex).
+import { decodeFunctionData, recoverAddress } from "viem"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
+import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
+import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 
 export type HexString = `0x${string}`
+
+/**
+ * ERC-4337 v0.8 EntryPoint, the contract whose userOpHash a bid's solver signature is taken over.
+ * Canonical across every EVM chain we support, which is why it is a constant here rather than
+ * something callers pass in (chain.ts carries the same address per chain as `EntryPointV08`).
+ */
+export const ENTRY_POINT_V08_ADDRESS = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as const
 
 /** Minimal fetch shape used by the JSON-RPC POSTs below. */
 export type FetchLike = (url: string, init: any) => Promise<{ json(): Promise<any> }>
@@ -153,14 +163,150 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 	return null
 }
 
+// A bid's userOp.signature is `commitment (32) ‖ solverSignature (65)`. SolverAccount.validateUserOp
+// expects 162 bytes on-chain, but the trailing 65-byte session-key signature is only appended at fill
+// time, so a bid is stored and read back in this 97-byte form.
+const BID_COMMITMENT_BYTES = 32
+const SOLVER_SIGNATURE_BYTES = 65
+
+export interface BidSignature {
+	/** The order commitment the solver signature is bound to. */
+	commitment: HexString
+	/** The solver's 65-byte ECDSA signature over the userOpHash. */
+	solverSignature: HexString
+}
+
+/** Splits a bid userOp's signature into its commitment and solver signature; null if malformed. */
+export function splitBidSignature(signature: HexString): BidSignature | null {
+	const raw = signature.replace(/^0x/, "")
+	const commitmentChars = BID_COMMITMENT_BYTES * 2
+	const end = commitmentChars + SOLVER_SIGNATURE_BYTES * 2
+	if (raw.length < end) return null
+
+	return {
+		commitment: `0x${raw.slice(0, commitmentChars)}` as HexString,
+		solverSignature: `0x${raw.slice(commitmentChars, end)}` as HexString,
+	}
+}
+
+/** Recovers the address that produced a bid's solver signature, or null if it cannot be recovered. */
+export type RecoverBidSigner = (
+	userOp: PackedUserOperation,
+	entryPoint: HexString,
+	chainId: bigint,
+	solverSignature: HexString,
+) => Promise<HexString | null>
+
+/**
+ * Default {@link RecoverBidSigner}: recovers over the EntryPoint v0.8 userOpHash, the digest
+ * SolverAccount itself validates against. viem-based, so Node consumers get it for free while the
+ * indexer injects an ethers equivalent (see the note at the top of this file).
+ */
+export const recoverBidSignerViem: RecoverBidSigner = async (userOp, entryPoint, chainId, solverSignature) => {
+	try {
+		const userOpHash = CryptoUtils.computeUserOpHash(userOp, entryPoint, chainId)
+		return (await recoverAddress({ hash: userOpHash, signature: solverSignature })) as HexString
+	} catch {
+		return null
+	}
+}
+
+// An EOA that has delegated with EIP-7702 has code `0xef0100 ‖ delegate`.
+const DELEGATION_INDICATOR_PREFIX = "0xef0100"
+
+/** Whether `account` is an EOA EIP-7702-delegated to `solverAccount` on the given chain. */
+async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> {
+	const response = await rpcCall(evmRpcUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "eth_getCode",
+		params: [account, "latest"],
+	})
+	const code = typeof response.result === "string" ? response.result.toLowerCase() : ""
+	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
+
+	return `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}` === solverAccount.toLowerCase()
+}
+
+/** Chain id out of an EVM state machine id ("EVM-8453" -> 8453n); null for any other format. */
+function evmChainId(chain: string): bigint | null {
+	const [prefix, id] = chain.split("-")
+	if (prefix !== "EVM" || !id || !/^\d+$/.test(id)) return null
+	return BigInt(id)
+}
+
+/**
+ * Whether a bid genuinely came from one of our solvers, and so may influence the snapshot.
+ *
+ * Anyone can submit a bid to the coprocessor, and every accepted quote moves the weighted median the
+ * rest of the protocol prices intents against, so a bid is only counted if it clears both of the
+ * checks SolverAccount would apply on-chain: the userOp carries a solver signature over this order's
+ * userOpHash that recovers to the sender, and the sender is EIP-7702-delegated to the chain's
+ * SolverAccount. Fails closed — a bid that cannot be read or verified is not counted.
+ */
+async function isVerifiedSolverBid(params: {
+	userOp: PackedUserOperation
+	commitment: string
+	chainId: bigint
+	solverAccount: string
+	evmRpcUrl: string
+	recoverSigner: RecoverBidSigner
+	logger?: AggregationLogger
+}): Promise<boolean> {
+	const { userOp, commitment, chainId, solverAccount, evmRpcUrl, recoverSigner, logger } = params
+	const solver = userOp.sender
+
+	const parsed = splitBidSignature(userOp.signature)
+	if (!parsed) {
+		logger?.warn({ solver, commitment }, "Rejecting phantom bid: malformed userOp signature")
+		return false
+	}
+
+	// The signature covers only the userOpHash, so the commitment prefix — which on-chain the nonce
+	// key binds it to — is what ties this solver's signature to the order being priced. Without it a
+	// bid signed for one order could be replayed into another order's snapshot.
+	if (parsed.commitment.toLowerCase() !== commitment.toLowerCase()) {
+		logger?.warn(
+			{ solver, commitment, signedFor: parsed.commitment },
+			"Rejecting phantom bid: signed for another order",
+		)
+		return false
+	}
+
+	// SolverAccount._rawSignatureValidation recovers over the bare userOpHash and requires the signer
+	// to be the account itself, which under EIP-7702 is the sender EOA.
+	const signer = await recoverSigner(userOp, ENTRY_POINT_V08_ADDRESS, chainId, parsed.solverSignature)
+	if (!signer || signer.toLowerCase() !== solver.toLowerCase()) {
+		logger?.warn({ solver, commitment, signer }, "Rejecting phantom bid: signature does not recover to the sender")
+		return false
+	}
+
+	if (!(await isDelegatedToSolverAccount(evmRpcUrl, solver, solverAccount))) {
+		logger?.warn({ solver, commitment, solverAccount }, "Rejecting phantom bid: sender is not a delegated solver")
+		return false
+	}
+
+	return true
+}
+
 export async function fetchBidsForOrder(nodeUrl: string, commitment: string): Promise<RpcBidInfo[]> {
-	const data = await rpcCall(nodeUrl, { id: 1, jsonrpc: "2.0", method: "intents_getBidsForOrder", params: [commitment] })
+	const data = await rpcCall(nodeUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "intents_getBidsForOrder",
+		params: [commitment],
+	})
 	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
 async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise<bigint> {
 	try {
-		const result = await rpcCall(evmRpcUrl, { id: 1, jsonrpc: "2.0", method: "eth_call", params: [{ to, data }, "latest"] })
+		const result = await rpcCall(evmRpcUrl, {
+			id: 1,
+			jsonrpc: "2.0",
+			method: "eth_call",
+			params: [{ to, data }, "latest"],
+		})
 		if (result.error || !result.result || result.result === "0x") return 0n
 		return BigInt(result.result)
 	} catch {
@@ -220,15 +366,18 @@ function toAddress(token: string): HexString {
  * Aggregates every bid for a phantom order into a single price/liquidity snapshot.
  *
  * Fetches the live bids via `intents_getBidsForOrder` and reads each filler's quoted output amount.
- * The liquidity-weighted median weights every quote by the solver's balance of the output token on
- * the destination chain, so a solver that can't actually deliver size carries little or no weight —
- * which is why no fill simulation is needed to filter unfillable quotes. For each bidding solver it
- * also records a full liquidity sweep — every configured yield-vault token on every supported chain
- * (raw ERC-20 + vault positions). Returns `null` when there are no decodable bids.
+ * Only bids that {@link isVerifiedSolverBid} accepts are counted — a bid from anyone who is not one
+ * of our delegated solvers, or whose signature was not produced for this order, is dropped rather
+ * than allowed to move the price. The liquidity-weighted median then weights every surviving quote by
+ * the solver's balance of the output token on the destination chain, so a solver that can't actually
+ * deliver size carries little or no weight — which is why no fill simulation is needed to filter
+ * unfillable quotes. For each bidding solver it also records a full liquidity sweep — every
+ * configured yield-vault token on every supported chain (raw ERC-20 + vault positions). Returns
+ * `null` when no bid survives verification.
  *
- * `extractFill` decodes a bid's ERC-7821 calldata into the fill's order/output; it defaults to the
- * viem-based {@link extractFillData}, but the indexer injects a VM2-safe variant (viem's
- * decodeFunctionData keccak throws in the SubQuery sandbox).
+ * `extractFill` decodes a bid's ERC-7821 calldata into the fill's order/output and `recoverSigner`
+ * recovers its solver signature; both default to the viem implementations, but the indexer injects
+ * VM2-safe variants (viem's keccak throws in the SubQuery sandbox).
  */
 export async function aggregatePhantomBids(params: {
 	nodeUrl: string
@@ -238,14 +387,27 @@ export async function aggregatePhantomBids(params: {
 	gatewayAddress: string
 	commitment: string
 	yieldVaults: YieldVaultMap
+	/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
+	solverAccount: string
 	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
+	recoverSigner?: RecoverBidSigner
 	logger?: AggregationLogger
 }): Promise<PhantomAggregation | null> {
-	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, logger } = params
+	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
 	const extractFill = params.extractFill ?? extractFillData
+	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
 
 	const destUrl = evmRpcUrls[chain]
 	if (!destUrl) return null
+
+	// Both bid checks need these, and neither can be skipped without letting an unverified quote into
+	// the price, so a chain we can't resolve them for produces no snapshot at all. solverAccount is
+	// typed as required but comes from a config lookup that can miss, so it is re-checked here.
+	const chainId = evmChainId(chain)
+	if (!solverAccount || chainId === null) {
+		logger?.warn({ chain, commitment }, "Cannot verify phantom bids: no SolverAccount or chain id for chain")
+		return null
+	}
 
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
@@ -261,6 +423,17 @@ export async function aggregatePhantomBids(params: {
 
 			const fillData = extractFill(decoded.callData as HexString, gatewayAddress)
 			if (!fillData) continue
+
+			const verified = await isVerifiedSolverBid({
+				userOp: decoded,
+				commitment,
+				chainId,
+				solverAccount,
+				evmRpcUrl: destUrl,
+				recoverSigner,
+				logger,
+			})
+			if (!verified) continue
 
 			// Price influence: the solver's liquidity in the output token on the destination chain.
 			const outputTokenAddress = toAddress(fillData.outputToken)
@@ -286,4 +459,3 @@ export async function aggregatePhantomBids(params: {
 		lpBalances,
 	}
 }
-

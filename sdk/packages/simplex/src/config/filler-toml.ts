@@ -4,6 +4,7 @@ import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPla
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
+import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
 
 export interface ChainConfirmationPolicy {
 	/**
@@ -217,6 +218,8 @@ export interface FillerTomlConfig {
 	vault?: VaultTomlConfig
 	/** Restricts order processing to listed user addresses. Omit to accept all users. */
 	allowlist?: AllowlistConfig
+	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
+	keeper?: PaymasterKeeperConfig
 }
 
 export function validateConfig(config: FillerTomlConfig): void {

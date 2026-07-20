@@ -655,3 +655,130 @@ fn set_phantom_bid_window_allows_any_window_when_no_config() {
 		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 1_000_000));
 	});
 }
+
+// ── SimplexPaymaster governance ──────────────────────────────────────
+
+fn sample_paymaster_params() -> types::PaymasterParams {
+	types::PaymasterParams {
+		native_oracle: H160::repeat_byte(0x01),
+		markup_bps: U256::from(200),
+		treasury: H160::repeat_byte(0x02),
+		max_oracle_age: U256::from(90_000),
+		swap_slippage_bps: U256::from(200),
+	}
+}
+
+#[test]
+fn add_paymaster_deployment_works() {
+	new_test_ext().execute_with(|| {
+		let state_machine = StateMachine::Evm(1);
+		let paymaster = H160::repeat_byte(0xAA);
+		assert_ok!(Intents::add_paymaster_deployment(
+			RuntimeOrigin::root(),
+			state_machine,
+			paymaster
+		));
+		assert_eq!(Paymasters::<Test>::get(state_machine), Some(paymaster));
+	});
+}
+
+#[test]
+fn add_paymaster_deployment_requires_governance_origin() {
+	new_test_ext().execute_with(|| {
+		assert!(Intents::add_paymaster_deployment(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			StateMachine::Evm(1),
+			H160::repeat_byte(0xAA),
+		)
+		.is_err());
+	});
+}
+
+#[test]
+fn paymaster_actions_fail_when_not_registered() {
+	new_test_ext().execute_with(|| {
+		let sm = StateMachine::Evm(1);
+		assert_noop!(
+			Intents::upgrade_paymaster(RuntimeOrigin::root(), sm, H160::repeat_byte(0x42), vec![]),
+			Error::<Test>::PaymasterNotFound
+		);
+		assert_noop!(
+			Intents::update_paymaster_params(RuntimeOrigin::root(), sm, sample_paymaster_params()),
+			Error::<Test>::PaymasterNotFound
+		);
+		assert_noop!(
+			Intents::register_paymaster_token(
+				RuntimeOrigin::root(),
+				sm,
+				H160::repeat_byte(0x11),
+				H160::repeat_byte(0x22)
+			),
+			Error::<Test>::PaymasterNotFound
+		);
+		assert_noop!(
+			Intents::deactivate_paymaster_token(RuntimeOrigin::root(), sm, H160::repeat_byte(0x11)),
+			Error::<Test>::PaymasterNotFound
+		);
+		assert_noop!(
+			Intents::withdraw_paymaster_assets(
+				RuntimeOrigin::root(),
+				sm,
+				H160::zero(),
+				U256::from(1)
+			),
+			Error::<Test>::PaymasterNotFound
+		);
+	});
+}
+
+#[test]
+fn paymaster_governance_actions_dispatch() {
+	new_test_ext().execute_with(|| {
+		let sm = StateMachine::Evm(1);
+		let paymaster = H160::repeat_byte(0xAA);
+		assert_ok!(Intents::add_paymaster_deployment(RuntimeOrigin::root(), sm, paymaster));
+
+		assert_ok!(Intents::upgrade_paymaster(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0x42),
+			vec![0xDE, 0xAD],
+		));
+		assert_ok!(Intents::update_paymaster_params(
+			RuntimeOrigin::root(),
+			sm,
+			sample_paymaster_params()
+		));
+		assert_ok!(Intents::register_paymaster_token(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0x11),
+			H160::repeat_byte(0x22)
+		));
+		assert_ok!(Intents::deactivate_paymaster_token(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0x11)
+		));
+		assert_ok!(Intents::withdraw_paymaster_assets(
+			RuntimeOrigin::root(),
+			sm,
+			H160::zero(),
+			U256::from(1_000_000)
+		));
+	});
+}
+
+#[test]
+fn paymaster_actions_require_governance_origin() {
+	new_test_ext().execute_with(|| {
+		let sm = StateMachine::Evm(1);
+		assert!(Intents::upgrade_paymaster(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			sm,
+			H160::repeat_byte(0x42),
+			vec![]
+		)
+		.is_err());
+	});
+}

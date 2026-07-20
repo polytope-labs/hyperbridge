@@ -1,8 +1,7 @@
-import { password, select, text } from "@clack/prompts"
-import { isAddress } from "viem"
+import { select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import { SignerType, validateSignerConfig, type SignerConfig } from "@/services/wallet"
-import { guard, why } from "../prompt-utils"
+import { guard, why, askText, askAddress, askSecret } from "../prompt-utils"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -43,90 +42,34 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 		state.signer = { type: SignerType.PrivateKey, key: key as HexString }
 	} else if (type === SignerType.MpcVault) {
 		const prev = existing?.type === SignerType.MpcVault ? existing : undefined
-		const apiToken = await askSecret("MPCVault API token", prev?.apiToken)
-		const vaultUuid = guard(
-			await text({ message: "Vault UUID", initialValue: prev?.vaultUuid, validate: required("Vault UUID") }),
-		)
-		const accountAddress = guard(
-			await text({
-				message: "Wallet address in the vault (0x...)",
-				initialValue: prev?.accountAddress,
-				validate: (value) => (isAddress((value ?? "").trim()) ? undefined : "Enter a valid EVM address"),
-			}),
-		)
-		const callbackClientSignerPublicKey = guard(
-			await text({
-				message: "Callback client-signer public key (ssh-ed25519 ...)",
-				initialValue: prev?.callbackClientSignerPublicKey,
-				validate: required("Public key"),
-			}),
-		)
 		state.signer = {
 			type: SignerType.MpcVault,
-			apiToken,
-			vaultUuid: vaultUuid.trim(),
-			accountAddress: accountAddress.trim() as HexString,
-			callbackClientSignerPublicKey: callbackClientSignerPublicKey.trim(),
+			apiToken: await askSecret("MPCVault API token", prev?.apiToken),
+			vaultUuid: await askText("Vault UUID", { initial: prev?.vaultUuid, required: "Vault UUID is required" }),
+			accountAddress: (await askAddress("Wallet address in the vault (0x...)", {
+				initial: prev?.accountAddress,
+			})) as HexString,
+			callbackClientSignerPublicKey: await askText("Callback client-signer public key (ssh-ed25519 ...)", {
+				initial: prev?.callbackClientSignerPublicKey,
+				required: "Public key is required",
+			}),
 		}
 	} else {
 		const prev = existing?.type === SignerType.Turnkey ? existing : undefined
-		const organizationId = guard(
-			await text({
-				message: "Turnkey organization ID",
-				initialValue: prev?.organizationId,
-				validate: required("Organization ID"),
-			}),
-		)
-		const apiPublicKey = guard(
-			await text({
-				message: "Turnkey API public key",
-				initialValue: prev?.apiPublicKey,
-				validate: required("API public key"),
-			}),
-		)
-		const apiPrivateKey = await askSecret("Turnkey API private key", prev?.apiPrivateKey)
-		const signWith = guard(
-			await text({
-				message: "Wallet address to sign with (0x...)",
-				initialValue: prev?.signWith,
-				validate: (value) => (isAddress((value ?? "").trim()) ? undefined : "Enter a valid EVM address"),
-			}),
-		)
 		state.signer = {
 			type: SignerType.Turnkey,
-			organizationId: organizationId.trim(),
-			apiPublicKey: apiPublicKey.trim(),
-			apiPrivateKey,
-			signWith: signWith.trim(),
+			organizationId: await askText("Turnkey organization ID", {
+				initial: prev?.organizationId,
+				required: "Organization ID is required",
+			}),
+			apiPublicKey: await askText("Turnkey API public key", {
+				initial: prev?.apiPublicKey,
+				required: "API public key is required",
+			}),
+			apiPrivateKey: await askSecret("Turnkey API private key", prev?.apiPrivateKey),
+			signWith: await askAddress("Wallet address to sign with (0x...)", { initial: prev?.signWith }),
 		}
 	}
 
 	validateSignerConfig(state.signer as SignerConfig)
-}
-
-function required(label: string) {
-	return (value: string | undefined) => ((value ?? "").trim() ? undefined : `${label} is required`)
-}
-
-/** Masked input; when a previous value exists, pressing Enter keeps it. */
-export async function askSecret(
-	message: string,
-	previous?: string,
-	validate?: (value: string) => string | undefined,
-): Promise<string> {
-	for (;;) {
-		const input = guard(
-			await password({
-				message: previous ? `${message} (press Enter to keep the current value)` : message,
-				validate: (value) => {
-					const trimmed = (value ?? "").trim()
-					if (!trimmed) return previous ? undefined : "This value is required"
-					return validate?.(trimmed)
-				},
-			}),
-		)
-		const trimmed = (input ?? "").trim()
-		if (trimmed) return trimmed
-		if (previous) return previous
-	}
 }

@@ -1,5 +1,4 @@
-import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
-import { isAddress } from "viem"
+import { confirm, log, multiselect, note, select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type {
 	FxStrategyConfig,
@@ -8,7 +7,8 @@ import type {
 	ChainConfirmationPolicy,
 } from "@/config/filler-toml"
 import type { UniswapV4PositionToml } from "@/config/filler-toml"
-import { guard, why, parsePointInput } from "../prompt-utils"
+import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
+import { editPoints } from "../points-editor"
 import { WHY } from "../help-text"
 import { DEFAULT_STABLE_BPS_CURVE, TESTNET_CONFIRMATION_POINTS, type Prefill, type WizardState } from "../state"
 
@@ -70,12 +70,8 @@ async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<F
 	const existing = prefill?.config.strategies.find((s): s is FxStrategyConfig => s.type === "hyperfx")
 
 	why(WHY.maxOrderUsd)
-	const maxOrderUsd = guard(
-		await text({
-			message: "Maximum USD value per order",
-			initialValue: existing ? String(existing.maxOrderUsd) : "5000",
-			validate: (value) => (Number((value ?? "").trim()) > 0 ? undefined : "Enter a positive number"),
-		}),
+	const maxOrderUsd = await askNumber("Maximum USD value per order", existing?.maxOrderUsd ?? 5000, (n) =>
+		n > 0 ? undefined : "Enter a positive number",
 	)
 
 	why(WHY.token1)
@@ -91,14 +87,9 @@ async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<F
 				}),
 			)
 			if (!hasToken) continue
-			const address = guard(
-				await text({
-					message: `Exotic token address on ${chain.meta.label}`,
-					initialValue: previous,
-					validate: (value) => (isAddress((value ?? "").trim()) ? undefined : "Enter a valid EVM address"),
-				}),
-			)
-			token1[key] = address.trim() as HexString
+			token1[key] = (await askAddress(`Exotic token address on ${chain.meta.label}`, {
+				initial: previous,
+			})) as HexString
 		}
 		if (Object.keys(token1).length === 0) {
 			log.error("HyperFX needs the exotic token on at least one selected chain.")
@@ -121,11 +112,7 @@ async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<F
 		}),
 	)
 
-	const strategy: FxStrategyConfig = {
-		type: "hyperfx",
-		maxOrderUsd: Number(maxOrderUsd.trim()),
-		token1,
-	}
+	const strategy: FxStrategyConfig = { type: "hyperfx", maxOrderUsd, token1 }
 
 	if (pricingSource === "curves") {
 		const withBid = guard(
@@ -204,13 +191,11 @@ async function askPosition(state: WizardState): Promise<UniswapV4PositionToml> {
 			options: state.chains.map((c) => ({ value: c.meta.stateMachineId, label: c.meta.label })),
 		}),
 	)
-	const tokenId = guard(
-		await text({
-			message: "Position token ID (from the position's URL)",
-			validate: (value) => (/^\d+$/.test((value ?? "").trim()) ? undefined : "Enter a numeric token id"),
-		}),
-	)
-	const position: UniswapV4PositionToml = { chain, tokenId: tokenId.trim() }
+	const tokenId = await askText("Position token ID (from the position's URL)", {
+		required: "Token id is required",
+		validate: (value) => (/^\d+$/.test(value) ? undefined : "Enter a numeric token id"),
+	})
+	const position: UniswapV4PositionToml = { chain, tokenId }
 
 	const withGuardPrice = guard(
 		await confirm({
@@ -219,23 +204,15 @@ async function askPosition(state: WizardState): Promise<UniswapV4PositionToml> {
 		}),
 	)
 	if (withGuardPrice) {
-		const referencePrice = guard(
-			await text({
-				message: "Reference price (exotic tokens per USD)",
-				validate: (value) => (Number((value ?? "").trim()) > 0 ? undefined : "Enter a positive number"),
-			}),
+		position.referencePrice = await askText("Reference price (exotic tokens per USD)", {
+			required: "Reference price is required",
+			validate: (value) => (Number(value) > 0 ? undefined : "Enter a positive number"),
+		})
+		position.maxDeviationBps = await askNumber(
+			"Maximum deviation from the reference (basis points, e.g. 200 = 2%)",
+			200,
+			(parsed) => (parsed > 0 && parsed <= 10_000 ? undefined : "Enter a number between 1 and 10000"),
 		)
-		const maxDeviationBps = guard(
-			await text({
-				message: "Maximum deviation from the reference (basis points, e.g. 200 = 2%)",
-				validate: (value) => {
-					const parsed = Number((value ?? "").trim())
-					return parsed > 0 && parsed <= 10_000 ? undefined : "Enter a number between 1 and 10000"
-				},
-			}),
-		)
-		position.referencePrice = referencePrice.trim()
-		position.maxDeviationBps = Number(maxDeviationBps.trim())
 	}
 	return position
 }
@@ -251,44 +228,4 @@ function applyTestnetConfirmationPolicies(state: WizardState, strategy: Strategy
 		policies[String(chain.meta.chainId)] = { points: TESTNET_CONFIRMATION_POINTS }
 	}
 	strategy.confirmationPolicies = policies
-}
-
-interface EditPointsOptions<P> {
-	prompt: string
-	minPoints: number
-	initial?: P[]
-	toPoint: (pair: { first: string; second: string }) => P
-}
-
-async function editPoints<P>(options: EditPointsOptions<P>): Promise<P[]> {
-	const points: P[] = []
-	if (options.initial?.length) {
-		const keep = guard(
-			await confirm({
-				message: `Keep the ${options.initial.length} existing points and add more?`,
-				initialValue: true,
-			}),
-		)
-		if (keep) points.push(...options.initial)
-	}
-	for (;;) {
-		const input = guard(
-			await text({
-				message: options.prompt,
-				defaultValue: "",
-				validate: (value) => {
-					const trimmed = (value ?? "").trim()
-					if (!trimmed) return undefined
-					return parsePointInput(trimmed) ? undefined : "Expected two comma-separated numbers, e.g. `1000,50`"
-				},
-			}),
-		)
-		const trimmed = (input ?? "").trim()
-		if (!trimmed) {
-			if (points.length >= options.minPoints) return points
-			log.error(`At least ${options.minPoints} point${options.minPoints > 1 ? "s" : ""} required.`)
-			continue
-		}
-		points.push(options.toPoint(parsePointInput(trimmed)!))
-	}
 }

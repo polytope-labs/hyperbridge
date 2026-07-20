@@ -1,8 +1,8 @@
 import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
-import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { DEFAULT_CONFIRMATION_POLICIES, type ChainConfirmationPolicy, type VaultToml } from "@/config/filler-toml"
-import { guard, why, parsePointInput } from "../prompt-utils"
+import { guard, why, askNumber, askAddress } from "../prompt-utils"
+import { editPoints } from "../points-editor"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -88,21 +88,6 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	state.allowlist = config.allowlist
 }
 
-async function askNumber(message: string, initial: number, validate?: (n: number) => string | undefined) {
-	const value = guard(
-		await text({
-			message,
-			initialValue: String(initial),
-			validate: (input) => {
-				const parsed = Number((input ?? "").trim())
-				if (!Number.isFinite(parsed)) return "Enter a number"
-				return validate?.(parsed)
-			},
-		}),
-	)
-	return Number(value.trim())
-}
-
 async function tuneConcurrency(state: WizardState): Promise<void> {
 	why(WHY.concurrency)
 	state.maxConcurrentOrders = await askNumber("Max concurrent orders", state.maxConcurrentOrders, (n) =>
@@ -167,28 +152,11 @@ async function tuneConfirmations(state: WizardState): Promise<void> {
 			)
 			if (!customize) continue
 
-			const points: ChainConfirmationPolicy["points"] = []
-			while (points.length < 2) {
-				const input = guard(
-					await text({
-						message: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
-						defaultValue: "",
-						validate: (value) => {
-							const trimmed = (value ?? "").trim()
-							if (!trimmed) return undefined
-							return parsePointInput(trimmed) ? undefined : "Expected e.g. `1000,2`"
-						},
-					}),
-				)
-				const trimmed = (input ?? "").trim()
-				if (!trimmed) {
-					if (points.length >= 2) break
-					log.error("At least 2 points required.")
-					continue
-				}
-				const pair = parsePointInput(trimmed)!
-				points.push({ amount: pair.first, value: Number(pair.second) })
-			}
+			const points: ChainConfirmationPolicy["points"] = await editPoints({
+				prompt: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
+				minPoints: 2,
+				toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
+			})
 			strategy.confirmationPolicies = { ...(strategy.confirmationPolicies ?? {}), [chainId]: { points } }
 		}
 	}
@@ -246,19 +214,14 @@ async function tuneVault(state: WizardState): Promise<void> {
 				options: state.chains.map((c) => ({ value: c.meta.stateMachineId, label: c.meta.label })),
 			}),
 		)
-		const vault = guard(
-			await text({
-				message: "Vault address (any ERC-4626, e.g. Aave stataUSDC)",
-				validate: (value) => (isAddress((value ?? "").trim()) ? undefined : "Enter a valid EVM address"),
-			}),
-		)
+		const vault = (await askAddress("Vault address (any ERC-4626, e.g. Aave stataUSDC)")) as HexString
 		const sweep = guard(
 			await confirm({
 				message: "Sweep idle wallet balance into the vault? (otherwise it's withdraw-only)",
 				initialValue: true,
 			}),
 		)
-		const entry: VaultToml = { chain, vault: vault.trim() as HexString }
+		const entry: VaultToml = { chain, vault }
 		if (sweep) {
 			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
 				n > 0 ? undefined : "Must be positive",
@@ -281,20 +244,9 @@ async function tuneAllowlist(state: WizardState): Promise<void> {
 	why(WHY.allowlist)
 	const users: string[] = [...(state.allowlist?.users ?? [])]
 	for (;;) {
-		const address = guard(
-			await text({
-				message: "Allowed user address (empty line to finish)",
-				defaultValue: "",
-				validate: (value) => {
-					const trimmed = (value ?? "").trim()
-					if (!trimmed) return undefined
-					return isAddress(trimmed) ? undefined : "Enter a valid EVM address"
-				},
-			}),
-		)
-		const trimmed = (address ?? "").trim()
-		if (!trimmed) break
-		users.push(trimmed)
+		const address = await askAddress("Allowed user address (empty line to finish)", { required: false })
+		if (!address) break
+		users.push(address)
 	}
 	if (users.length === 0) {
 		log.warn("Empty allowlist would reject every order — leaving the allowlist off.")

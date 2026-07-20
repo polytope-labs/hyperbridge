@@ -1,4 +1,4 @@
-import { confirm, log, note, outro, text } from "@clack/prompts"
+import { confirm, log, note, outro } from "@clack/prompts"
 import { spawn } from "child_process"
 import { chmodSync, existsSync, writeFileSync } from "fs"
 import { resolve } from "path"
@@ -8,7 +8,7 @@ import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
 import { emitFillerToml } from "../emit-toml"
-import { guard, maskSecret } from "../prompt-utils"
+import { guard, maskSecret, askText } from "../prompt-utils"
 import { FUNDING_CHECKLIST } from "../help-text"
 import type { WizardState } from "../state"
 
@@ -33,14 +33,11 @@ export async function stepWrite(state: WizardState, outputPath: string): Promise
 	if (existsSync(path)) {
 		const overwrite = guard(await confirm({ message: `${path} exists — overwrite it?`, initialValue: true }))
 		if (!overwrite) {
-			const other = guard(
-				await text({
-					message: "Write to which path instead?",
-					initialValue: "filler-config.new.toml",
-					validate: (value) => ((value ?? "").trim() ? undefined : "Path is required"),
-				}),
-			)
-			path = resolve(process.cwd(), other.trim())
+			const other = await askText("Write to which path instead?", {
+				initial: "filler-config.new.toml",
+				required: "Path is required",
+			})
+			path = resolve(process.cwd(), other)
 		}
 	}
 

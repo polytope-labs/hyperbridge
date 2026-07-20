@@ -1,7 +1,8 @@
-import { confirm, select, text } from "@clack/prompts"
+import { confirm } from "@clack/prompts"
 import { isAlchemyUrl } from "../derive/alchemy"
 import { parsePimlicoUrl, derivePimlicoBundler } from "../derive/pimlico"
-import { guard, why, isValidUrl } from "../prompt-utils"
+import { ProviderDerivation, askDerivedOrCustom } from "../derive-flow"
+import { guard, why, askUrl } from "../prompt-utils"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -22,46 +23,31 @@ export async function stepBundlers(state: WizardState, prefill?: Prefill): Promi
 		}
 	}
 
-	let pimlicoKey: string | undefined
-	let pimlicoConfirmed = false
+	// One Pimlico key serves every chain — offer to derive the rest.
+	const pimlico = new ProviderDerivation({
+		detect: (url) => parsePimlicoUrl(url)?.apiKey ?? null,
+		derive: derivePimlicoBundler,
+		confirmMessage: (remaining) => `Pimlico key detected — derive bundler URLs for ${remaining} from the same key?`,
+	})
 
 	for (const chain of state.chains) {
 		if (chain.bundlerUrl) continue
 
 		const existing = prefillBundlerFor(chain.meta.chainId, prefill)
-		const derived = pimlicoKey && pimlicoConfirmed ? derivePimlicoBundler(pimlicoKey, chain.meta.chainId) : null
+		const derived = pimlico.candidate(chain.meta.chainId)
 
-		let url: string
-		if (derived) {
-			const choice = guard(
-				await select({
-					message: `Bundler for ${chain.meta.label}`,
-					options: [
-						{ value: "derived", label: "Use the derived Pimlico URL", hint: derived },
-						{ value: "custom", label: "Enter a different URL" },
-					],
-				}),
-			)
-			url = choice === "derived" ? derived : guard(await askBundlerUrl(chain.meta.label, existing))
-		} else {
-			url = guard(await askBundlerUrl(chain.meta.label, existing))
-		}
-		chain.bundlerUrl = url.trim()
-
-		// One Pimlico key serves every chain — offer to derive the rest.
-		if (pimlicoKey === undefined) {
-			const parsed = parsePimlicoUrl(url.trim())
-			const remaining = state.chains.filter((c) => !c.bundlerUrl)
-			if (parsed && remaining.length > 0) {
-				pimlicoConfirmed = guard(
-					await confirm({
-						message: `Pimlico key detected — derive bundler URLs for ${remaining.map((c) => c.meta.label).join(", ")} from the same key?`,
-						initialValue: true,
-					}),
+		const url = derived
+			? await askDerivedOrCustom(`Bundler for ${chain.meta.label}`, derived, "Use the derived Pimlico URL", () =>
+					askBundlerUrl(chain.meta.label, existing),
 				)
-				pimlicoKey = parsed.apiKey
-			}
-		}
+			: await askBundlerUrl(chain.meta.label, existing)
+		chain.bundlerUrl = url
+
+		const remaining = state.chains.filter((c) => !c.bundlerUrl)
+		await pimlico.offer(
+			url,
+			remaining.map((c) => c.meta.label),
+		)
 	}
 }
 
@@ -72,16 +58,10 @@ function prefillBundlerFor(chainId: number, prefill?: Prefill): string | undefin
 	return prefill.config.chains[index]?.bundlerUrl || undefined
 }
 
-function askBundlerUrl(label: string, initialValue?: string) {
-	return text({
-		message: `ERC-4337 bundler URL for ${label}`,
+function askBundlerUrl(label: string, initial?: string): Promise<string> {
+	return askUrl(`ERC-4337 bundler URL for ${label}`, {
+		initial,
 		placeholder: "https://api.pimlico.io/v2/<chainId>/rpc?apikey=<your-key>",
-		initialValue,
-		validate: (value) => {
-			const trimmed = (value ?? "").trim()
-			if (!trimmed) return "Bundler URL is required — fills are submitted through it"
-			if (!isValidUrl(trimmed)) return "Enter a valid http(s) URL"
-			return undefined
-		},
+		required: "Bundler URL is required — fills are submitted through it",
 	})
 }

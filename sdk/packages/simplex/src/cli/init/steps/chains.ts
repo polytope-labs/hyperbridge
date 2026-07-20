@@ -1,8 +1,9 @@
-import { confirm, log, multiselect, select, spinner, text } from "@clack/prompts"
+import { confirm, log, multiselect, select, spinner } from "@clack/prompts"
 import { fetchChainId } from "@/services/FillerConfigService"
 import { chainsForNetwork, chainByAlchemySubdomain, type InitChainMeta, type InitNetwork } from "../chains"
 import { parseAlchemyUrl, deriveAlchemyRpc } from "../derive/alchemy"
-import { guard, why, isValidUrl } from "../prompt-utils"
+import { ProviderDerivation, askDerivedOrCustom } from "../derive-flow"
+import { guard, why, askUrl, withTimeout, PROBE_TIMEOUT_MS } from "../prompt-utils"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState, WizardChain } from "../state"
 
@@ -31,7 +32,10 @@ export async function stepChains(state: WizardState, prefill?: Prefill): Promise
 				label: chain.label,
 				hint: chain.note,
 			})),
-			initialValues: prefillIds.size > 0 ? available.filter((c) => prefillIds.has(c.chainId)).map((c) => c.chainId) : available.map((c) => c.chainId),
+			initialValues:
+				prefillIds.size > 0
+					? available.filter((c) => prefillIds.has(c.chainId)).map((c) => c.chainId)
+					: available.map((c) => c.chainId),
 			required: true,
 		}),
 	)
@@ -76,74 +80,59 @@ function prefillRpcFor(chainId: number, prefill?: Prefill): string[] | undefined
 	return prefill.config.chains[index]?.rpcUrls
 }
 
+function askRpcUrl(meta: InitChainMeta, initial?: string): Promise<string> {
+	return askUrl(`RPC URL for ${meta.label}`, {
+		initial,
+		placeholder: meta.alchemySubdomain
+			? `https://${meta.alchemySubdomain}.g.alchemy.com/v2/<your-key>`
+			: "https://...",
+		required: "RPC URL is required",
+		validate: (url) => alchemyMismatch(url, meta),
+	})
+}
+
+/** Catches pasting one chain's Alchemy URL into another chain's field before any network call. */
+function alchemyMismatch(url: string, meta: InitChainMeta): string | undefined {
+	const parsed = parseAlchemyUrl(url)
+	if (!parsed) return undefined
+	const impliedChain = chainByAlchemySubdomain(parsed.subdomain)
+	if (impliedChain && impliedChain.chainId !== meta.chainId) {
+		return `This is an Alchemy ${impliedChain.label} URL, but you're configuring ${meta.label}`
+	}
+	return undefined
+}
+
 async function collectRpcUrls(state: WizardState, prefill?: Prefill): Promise<void> {
 	why(WHY.rpc)
 
-	let derivedKey: string | undefined
-	let deriveConfirmed = false
+	// One Alchemy key serves every chain Alchemy supports — offer to derive the rest.
+	const alchemy = new ProviderDerivation({
+		detect: (url) => parseAlchemyUrl(url)?.apiKey ?? null,
+		derive: deriveAlchemyRpc,
+		confirmMessage: (remaining) => `Alchemy key detected — derive RPC URLs for ${remaining} from the same key?`,
+	})
 
 	for (const chain of state.chains) {
 		const existing = prefillRpcFor(chain.meta.chainId, prefill)
-		const derived = derivedKey ? deriveAlchemyRpc(derivedKey, chain.meta.chainId) : null
+		const derived = alchemy.candidate(chain.meta.chainId)
 
 		let url: string
 		if (existing?.length) {
-			url = guard(
-				await text({
-					message: `RPC URL for ${chain.meta.label}`,
-					initialValue: existing[0],
-					validate: (value) => validateRpcInput(value, chain.meta),
-				}),
+			url = await askRpcUrl(chain.meta, existing[0])
+		} else if (derived) {
+			url = await askDerivedOrCustom(`RPC for ${chain.meta.label}`, derived, "Use the derived Alchemy URL", () =>
+				askRpcUrl(chain.meta),
 			)
-		} else if (derived && deriveConfirmed) {
-			const choice = guard(
-				await select({
-					message: `RPC for ${chain.meta.label}`,
-					options: [
-						{ value: "derived", label: `Use the derived Alchemy URL`, hint: derived },
-						{ value: "custom", label: "Enter a different URL" },
-					],
-				}),
-			)
-			url =
-				choice === "derived"
-					? derived
-					: guard(
-							await text({
-								message: `RPC URL for ${chain.meta.label}`,
-								validate: (value) => validateRpcInput(value, chain.meta),
-							}),
-						)
 		} else {
-			url = guard(
-				await text({
-					message: `RPC URL for ${chain.meta.label}`,
-					placeholder: chain.meta.alchemySubdomain
-						? `https://${chain.meta.alchemySubdomain}.g.alchemy.com/v2/<your-key>`
-						: "https://...",
-					validate: (value) => validateRpcInput(value, chain.meta),
-				}),
-			)
+			url = await askRpcUrl(chain.meta)
 		}
 
-		chain.rpcUrls = [url.trim()]
-
-		// One Alchemy key serves every chain Alchemy supports — offer to derive the rest.
-		if (derivedKey === undefined) {
-			const parsed = parseAlchemyUrl(url.trim())
-			const remaining = state.chains.filter((c) => c.rpcUrls.length === 0 && c.meta.alchemySubdomain)
-			if (parsed && remaining.length > 0) {
-				const useKey = guard(
-					await confirm({
-						message: `Alchemy key detected — derive RPC URLs for ${remaining.map((c) => c.meta.label).join(", ")} from the same key?`,
-						initialValue: true,
-					}),
-				)
-				derivedKey = parsed.apiKey
-				deriveConfirmed = useKey
-				if (!useKey) derivedKey = undefined
-			}
-		}
+		chain.rpcUrls = [url]
+		const remaining = state.chains.filter((c) => c.rpcUrls.length === 0 && c.meta.alchemySubdomain)
+		await alchemy.offer(
+			url,
+			remaining.map((c) => c.meta.label),
+		)
 
 		await maybeAddQuorumUrls(chain)
 	}
@@ -160,55 +149,24 @@ async function maybeAddQuorumUrls(chain: WizardChain): Promise<void> {
 	why(WHY.quorum)
 
 	for (;;) {
-		const url = guard(
-			await text({
-				message: `Additional RPC URL for ${chain.meta.label} (must be a different provider)`,
-				validate: (value) => {
-					const base = validateRpcInput(value ?? "", chain.meta)
-					if (base) return base
-					const hostname = new URL(value!.trim()).hostname.toLowerCase()
-					const clash = chain.rpcUrls.some((u) => new URL(u).hostname.toLowerCase() === hostname)
-					if (clash) return "Quorum URLs must point to different hostnames"
-					return undefined
-				},
-			}),
-		)
-		chain.rpcUrls.push(url.trim())
+		const url = await askUrl(`Additional RPC URL for ${chain.meta.label} (must be a different provider)`, {
+			required: "RPC URL is required",
+			validate: (candidate) => {
+				const mismatch = alchemyMismatch(candidate, chain.meta)
+				if (mismatch) return mismatch
+				const hostname = new URL(candidate).hostname.toLowerCase()
+				const clash = chain.rpcUrls.some((u) => new URL(u).hostname.toLowerCase() === hostname)
+				if (clash) return "Quorum URLs must point to different hostnames"
+				return undefined
+			},
+		})
+		chain.rpcUrls.push(url)
 
 		const more = guard(
 			await confirm({ message: `Add another RPC provider for ${chain.meta.label}?`, initialValue: false }),
 		)
 		if (!more) return
 	}
-}
-
-function validateRpcInput(value: string | undefined, meta: InitChainMeta): string | undefined {
-	const trimmed = (value ?? "").trim()
-	if (!trimmed) return "RPC URL is required"
-	if (!isValidUrl(trimmed)) return "Enter a valid http(s) URL"
-	const parsed = parseAlchemyUrl(trimmed)
-	if (parsed) {
-		const impliedChain = chainByAlchemySubdomain(parsed.subdomain)
-		if (impliedChain && impliedChain.chainId !== meta.chainId) {
-			return `This is an Alchemy ${impliedChain.label} URL, but you're configuring ${meta.label}`
-		}
-	}
-	return undefined
-}
-
-const RPC_TIMEOUT_MS = 10_000
-
-function fetchChainIdWithTimeout(url: string): Promise<number> {
-	return Promise.race([
-		fetchChainId(url),
-		new Promise<never>((_, reject) => {
-			const timer = setTimeout(
-				() => reject(new Error(`timed out after ${RPC_TIMEOUT_MS / 1000}s`)),
-				RPC_TIMEOUT_MS,
-			)
-			timer.unref?.()
-		}),
-	])
 }
 
 /** Confirms every RPC actually serves the chain it was entered for, before anything is written. */
@@ -223,7 +181,9 @@ async function verifyRpcUrls(state: WizardState): Promise<void> {
 
 			let failure: string | undefined
 			try {
-				const chainIds = await Promise.all(chain.rpcUrls.map((url) => fetchChainIdWithTimeout(url)))
+				const chainIds = await Promise.all(
+					chain.rpcUrls.map((url) => withTimeout(fetchChainId(url), PROBE_TIMEOUT_MS, "RPC check")),
+				)
 				const wrong = chainIds.findIndex((id) => id !== chain.meta.chainId)
 				if (wrong !== -1) {
 					failure = `${chain.rpcUrls[wrong]} reports chainId ${chainIds[wrong]}, expected ${chain.meta.chainId} (${chain.meta.label})`
@@ -262,14 +222,7 @@ async function verifyRpcUrls(state: WizardState): Promise<void> {
 				verified = true
 				continue
 			}
-			chain.rpcUrls = []
-			const url = guard(
-				await text({
-					message: `RPC URL for ${chain.meta.label}`,
-					validate: (value) => validateRpcInput(value, chain.meta),
-				}),
-			)
-			chain.rpcUrls = [url.trim()]
+			chain.rpcUrls = [await askRpcUrl(chain.meta)]
 		}
 	}
 

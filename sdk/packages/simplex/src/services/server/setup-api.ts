@@ -10,7 +10,7 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
-import { maskSecret, withTimeout } from "@/cli/init/prompt-utils"
+import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
 	DEFAULT_QUEUE,
@@ -21,7 +21,6 @@ import { getLogger } from "../Logger"
 import { readBody, sendJson } from "./http-util"
 import type { SetupContext, UiServer } from "./UiServer"
 
-const PROBE_TIMEOUT_MS = 10_000
 
 /** Network-facing validators, injectable so tests never hit real providers. */
 export interface SetupDeps {

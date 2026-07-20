@@ -4,7 +4,7 @@ import { resolve } from "path"
 import { parse } from "toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { fetchChainId } from "@/services/FillerConfigService"
-import { guard, withTimeout } from "./prompt-utils"
+import { guard, withTimeout, PROBE_TIMEOUT_MS } from "./prompt-utils"
 import { newWizardState, type Prefill } from "./state"
 import { stepChains } from "./steps/chains"
 import { stepBundlers } from "./steps/bundlers"
@@ -100,7 +100,7 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	const chainIds = await Promise.all(
 		config.chains.map(async (chain) => {
 			try {
-				return await withTimeout(fetchChainId(chain.rpcUrls[0]), 10_000)
+				return await withTimeout(fetchChainId(chain.rpcUrls[0]), PROBE_TIMEOUT_MS)
 			} catch {
 				return null
 			}

@@ -1,8 +1,6 @@
-import { text } from "@clack/prompts"
 import { HYPERBRIDGE_WS_DEFAULTS } from "../chains"
-import { guard, why, isValidUrl } from "../prompt-utils"
+import { why, askSecret, askUrl } from "../prompt-utils"
 import { WHY } from "../help-text"
-import { askSecret } from "./signer"
 import type { Prefill, WizardState } from "../state"
 
 export async function stepHyperbridge(state: WizardState, prefill?: Prefill): Promise<void> {
@@ -13,13 +11,8 @@ export async function stepHyperbridge(state: WizardState, prefill?: Prefill): Pr
 	)
 
 	why(WHY.hyperbridgeWs)
-	const wsUrl = guard(
-		await text({
-			message: "Hyperbridge WebSocket URL",
-			initialValue: prefill?.config.simplex.hyperbridgeWsUrl || HYPERBRIDGE_WS_DEFAULTS[state.network],
-			validate: (value) =>
-				isValidUrl((value ?? "").trim(), ["ws:", "wss:"]) ? undefined : "Enter a valid ws(s):// URL",
-		}),
-	)
-	state.hyperbridgeWsUrl = wsUrl.trim()
+	state.hyperbridgeWsUrl = await askUrl("Hyperbridge WebSocket URL", {
+		initial: prefill?.config.simplex.hyperbridgeWsUrl || HYPERBRIDGE_WS_DEFAULTS[state.network],
+		protocols: ["ws:", "wss:"],
+	})
 }

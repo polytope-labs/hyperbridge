@@ -170,4 +170,5 @@ export interface ConfigDto {
 	configPath: string
 	toml: string
 	logLevel: string
+	vaultConfigured: boolean
 }

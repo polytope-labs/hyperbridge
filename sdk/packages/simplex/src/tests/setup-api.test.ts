@@ -133,10 +133,13 @@ describe("setup API", () => {
 		expect(res).toEqual({ ok: false, error: "No contract deployed at this address" })
 	})
 
-	it("derives the EVM address for a private key", async () => {
+	it("derives the EVM address for a private key, with or without the 0x prefix", async () => {
 		const { base } = await startInitServer()
 		const res = await (await post(base, "derive-evm-address", { privateKey: TEST_KEY })).json()
 		expect(res.address).toBe(TEST_ADDRESS)
+
+		const bare = await (await post(base, "derive-evm-address", { privateKey: TEST_KEY.slice(2) })).json()
+		expect(bare.address).toBe(TEST_ADDRESS)
 
 		const bad = await post(base, "derive-evm-address", { privateKey: "0x123" })
 		expect(bad.status).toBe(400)

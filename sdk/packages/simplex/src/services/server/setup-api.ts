@@ -211,9 +211,10 @@ async function validateToken(body: Record<string, unknown>) {
 }
 
 function deriveEvmAddress(body: Record<string, unknown>, res: ServerResponse): void {
-	const privateKey = String(body.privateKey ?? "").trim()
+	const raw = String(body.privateKey ?? "").trim()
+	const privateKey = raw.startsWith("0x") ? raw : `0x${raw}`
 	if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
-		return sendJson(res, 400, { error: "Expected 0x followed by 64 hex characters" })
+		return sendJson(res, 400, { error: "Expected 64 hex characters (0x prefix optional)" })
 	}
 	return sendJson(res, 200, { address: privateKeyToAccount(privateKey as `0x${string}`).address })
 }

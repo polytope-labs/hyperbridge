@@ -21,7 +21,7 @@ const STEPS: Array<{ id: string; title: string; component: React.ComponentType<S
 		title: "Signer",
 		component: StepSigner,
 		valid: (s) => {
-			if (s.signerType === "privateKey") return /^0x[0-9a-fA-F]{64}$/.test(s.signerKey.trim())
+			if (s.signerType === "privateKey") return /^(0x)?[0-9a-fA-F]{64}$/.test(s.signerKey.trim())
 			if (s.signerType === "mpcVault") {
 				const v = s.mpcVault
 				return Boolean(

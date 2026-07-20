@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { api } from "../api"
+import { CopyHash } from "../components/CopyHash"
 import type { ActivityEventDto, BidDto, BidStatsDto } from "../types"
 
 const TYPE_BADGE: Record<ActivityEventDto["type"], string> = {
@@ -94,7 +95,7 @@ export function Activity() {
 							{events.map((event) => (
 								<tr key={event.id}>
 									<td>{new Date(event.ts).toLocaleTimeString()}</td>
-									<td className="mono">{event.orderId ? `${event.orderId.slice(0, 10)}…` : "—"}</td>
+									<td>{event.orderId ? <CopyHash value={event.orderId} /> : "—"}</td>
 									<td>
 										<span className={`badge ${TYPE_BADGE[event.type]}`}>{describe(event)}</span>
 									</td>
@@ -132,7 +133,9 @@ export function Activity() {
 							{bids.map((bid) => (
 								<tr key={bid.id}>
 									<td>{bid.createdAt}</td>
-									<td className="mono">{bid.commitment.slice(0, 14)}…</td>
+									<td>
+										<CopyHash value={bid.commitment} chars={14} />
+									</td>
 									<td>
 										{bid.retracted ? (
 											<span className="badge">retracted</span>

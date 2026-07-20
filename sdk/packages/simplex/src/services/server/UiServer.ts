@@ -293,6 +293,7 @@ export class UiServer {
 				configPath: op.configPath,
 				toml: maskToml(op.config),
 				logLevel: op.config.simplex.logging ?? "info",
+				vaultConfigured: Boolean(op.vault),
 			})
 		}
 

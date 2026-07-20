@@ -40,18 +40,24 @@ export function Operations() {
 
 			<div className="card">
 				<h2>Vault treasury</h2>
-				<p className="hint">
-					Manual controls for the ERC-4626 treasury (available when a [vault] is configured): sweep idle wallet
-					balance in now, or redeem positions back to the wallet.
-				</p>
-				<div className="row">
-					<button type="button" onClick={() => act(() => api.post("/api/vault/sweep"), "Sweep executed")}>
-						Sweep now
-					</button>
-					<button type="button" onClick={() => act(() => api.post("/api/vault/redeem"), "Positions redeemed")}>
-						Redeem all
-					</button>
-				</div>
+				{config && !config.vaultConfigured ? (
+					<p className="hint">Not configured — add a [vault] section to the config file to enable the treasury.</p>
+				) : (
+					<div>
+						<p className="hint">
+							Manual controls for the ERC-4626 treasury: sweep idle wallet balance in now, or redeem positions
+							back to the wallet.
+						</p>
+						<div className="row">
+							<button type="button" onClick={() => act(() => api.post("/api/vault/sweep"), "Sweep executed")}>
+								Sweep now
+							</button>
+							<button type="button" onClick={() => act(() => api.post("/api/vault/redeem"), "Positions redeemed")}>
+								Redeem all
+							</button>
+						</div>
+					</div>
+				)}
 			</div>
 
 			<div className="card">

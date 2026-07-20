@@ -145,6 +145,12 @@ export function enabledChains(state: WizardState): ChainDraft[] {
 	return state.chains.filter((c) => c.enabled)
 }
 
+/** Users paste keys with and without the 0x prefix; normalize instead of nagging. */
+export function normalizeHexKey(key: string): string {
+	const trimmed = key.trim()
+	return trimmed && !trimmed.startsWith("0x") ? `0x${trimmed}` : trimmed
+}
+
 export function patchAt<T>(list: T[], index: number, patch: Partial<T>): T[] {
 	return list.map((item, i) => (i === index ? { ...item, ...patch } : item))
 }
@@ -225,7 +231,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 
 	const signer =
 		state.signerType === "privateKey"
-			? { type: "privateKey" as const, key: state.signerKey.trim() }
+			? { type: "privateKey" as const, key: normalizeHexKey(state.signerKey) }
 			: state.signerType === "mpcVault"
 				? {
 						type: "mpcVault" as const,

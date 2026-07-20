@@ -2,7 +2,7 @@ import { useState } from "react"
 import { api } from "../../api"
 import { Field } from "../../components/Field"
 import { PillTabs } from "../../components/PillTabs"
-import { switchNetwork, type SignerType, type WizardState } from "../state"
+import { normalizeHexKey, switchNetwork, type SignerType, type WizardState } from "../state"
 import type { StepProps } from "../Wizard"
 
 const SIGNER_TABS = [
@@ -33,7 +33,7 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 		setError(undefined)
 		try {
 			const { address } = await api.post<{ address: string }>("/api/setup/derive-evm-address", {
-				privateKey: state.signerKey.trim(),
+				privateKey: normalizeHexKey(state.signerKey),
 			})
 			setState((s) => ({ ...s, signerAddress: address }))
 		} catch (err) {
@@ -77,7 +77,7 @@ export function StepSigner({ state, setState, defaults }: StepProps) {
 				{state.signerType === "privateKey" && (
 					<div>
 						<Field
-							label="EVM private key (0x + 64 hex chars) — simplest; guard the config file"
+							label="EVM private key (64 hex chars, 0x optional) — simplest; guard the config file"
 							type="password"
 							value={state.signerKey}
 							placeholder="0x…"

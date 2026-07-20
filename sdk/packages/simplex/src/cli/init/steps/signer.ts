@@ -35,11 +35,11 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 
 	if (type === SignerType.PrivateKey) {
 		const key = await askSecret(
-			"EVM private key (0x-prefixed, 64 hex chars)",
+			"EVM private key (64 hex chars, 0x prefix optional)",
 			existing?.type === SignerType.PrivateKey ? existing.key : undefined,
-			(value) => (/^0x[0-9a-fA-F]{64}$/.test(value) ? undefined : "Expected 0x followed by 64 hex characters"),
+			(value) => (/^(0x)?[0-9a-fA-F]{64}$/.test(value) ? undefined : "Expected 64 hex characters (0x prefix optional)"),
 		)
-		state.signer = { type: SignerType.PrivateKey, key: key as HexString }
+		state.signer = { type: SignerType.PrivateKey, key: (key.startsWith("0x") ? key : `0x${key}`) as HexString }
 	} else if (type === SignerType.MpcVault) {
 		const prev = existing?.type === SignerType.MpcVault ? existing : undefined
 		state.signer = {

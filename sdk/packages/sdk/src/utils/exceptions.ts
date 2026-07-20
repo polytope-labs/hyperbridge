@@ -37,7 +37,8 @@ export class MissingConsensusUpdateTimeError extends Error {
 	static isError(error: unknown): error is MissingConsensusUpdateTimeError {
 		return (
 			error instanceof MissingConsensusUpdateTimeError ||
-			(error instanceof Error && error.message.includes("Error fetching Consensus update time"))
+			(error instanceof Error &&
+				error.message.toLowerCase().includes("Error fetching Consensus update time".toLowerCase()))
 		)
 	}
 }

@@ -35,3 +35,13 @@ export function maskSecret(secret: string): string {
 	if (secret.length <= 8) return "****"
 	return `${secret.slice(0, 4)}…${secret.slice(-4)}`
 }
+
+export function withTimeout<T>(promise: Promise<T>, ms: number, label = "operation"): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<never>((_, reject) => {
+			const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+			timer.unref?.()
+		}),
+	])
+}

@@ -3,7 +3,6 @@ import { chmodSync, writeFileSync } from "node:fs"
 import { createPublicClient, http, isAddress } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { validateConfig, DEFAULT_CONFIRMATION_POLICIES, type FillerTomlConfig } from "@/config/filler-toml"
-import { withTimeout } from "@/core/timeout"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
@@ -11,7 +10,7 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
-import { maskSecret } from "@/cli/init/prompt-utils"
+import { maskSecret, withTimeout } from "@/cli/init/prompt-utils"
 import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
 	DEFAULT_QUEUE,

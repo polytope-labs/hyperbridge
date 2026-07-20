@@ -35,15 +35,9 @@ export class MissingConsensusUpdateTimeError extends Error {
 	}
 
 	static isError(error: unknown): error is MissingConsensusUpdateTimeError {
-		if (error instanceof MissingConsensusUpdateTimeError) return true
-
-		const messages: string[] = []
-		let current = error
-		while (current && typeof current === "object" && messages.length < 4) {
-			if ("message" in current && typeof current.message === "string") messages.push(current.message)
-			current = "cause" in current ? current.cause : undefined
-		}
-
-		return messages.some((message) => /error fetching consensus (update time|state)|consensus update time.*(?:missing|not found|prun)/i.test(message))
+		return (
+			error instanceof MissingConsensusUpdateTimeError ||
+			(error instanceof Error && error.message.includes("Error fetching Consensus update time"))
+		)
 	}
 }

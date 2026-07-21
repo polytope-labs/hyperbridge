@@ -375,7 +375,10 @@ Async generator that cancels a placed order and streams status events until canc
 async *cancelOrder(
   order: Order,
   indexerClient: IsmpClient,
-  options?: { from?: "source" | "destination" },
+  options?: {
+    from?: "source" | "destination"
+    maxRecoveryRestarts?: number
+  },
 ): AsyncGenerator<CancelEvent>
 ```
 
@@ -385,7 +388,7 @@ async *cancelOrder(
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to cancel |
 | `indexerClient` | `IsmpClient` | — | Indexer client for streaming ISMP request status |
-| `options` | `{ from?: "source" \| "destination" }` | `{}` | Pass `{ from: "destination" }` to initiate on the destination chain. |
+| `options` | `{ from?: "source" \| "destination"; maxRecoveryRestarts?: number }` | `{}` | Pass `{ from: "destination" }` to initiate on the destination chain. `maxRecoveryRestarts` defaults to `1` and limits source-side retries after a pruned consensus update. |
 
 **Yields:** `CancelEvent`
 
@@ -395,6 +398,9 @@ async *cancelOrder(
 const gen = gateway.cancelOrder(order, indexerClient)
 for await (const event of gen) {
   switch (event.status) {
+    case "RECOVERY_RESTARTED":
+      console.warn(`Recovery restarted (${event.attempt}/${event.maxAttempts}):`, event.reason)
+      break
     case "DESTINATION_FINALIZED":
       console.log("Destination proof ready at height:", event.proof.height)
       break
@@ -740,6 +746,7 @@ type BlockMetadata = {
 }
 
 type CancelEvent =
+  | { status: "RECOVERY_RESTARTED"; attempt: number; maxAttempts: number; reason: string }
   | { status: "DESTINATION_FINALIZED"; proof: IProof }
   | { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
   | { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
@@ -751,6 +758,7 @@ type CancelEvent =
 
 | Status | Fields | Description |
 |--------|--------|-------------|
+| `RECOVERY_RESTARTED` | `attempt`, `maxAttempts`, `reason` | A stale source-side recovery checkpoint was cleared and the SDK will request a new cancel transaction. |
 | `DESTINATION_FINALIZED` | `proof` | State proof from the destination chain is ready |
 | `AWAITING_CANCEL_TRANSACTION` | `data`, `to`, `value` | Caller must sign and submit the cancel transaction |
 | `CANCEL_STARTED` | `receipt` | Cancel transaction confirmed on-chain |

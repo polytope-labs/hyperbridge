@@ -27,6 +27,7 @@ import { type IChain, getStateCommitmentFieldSlot } from "./chain"
 import { _queryRequestInternal } from "./queryClient"
 import { generateRootWithProof } from "./utils"
 import { ChainConfigService } from "./configs/ChainConfigService"
+import { MissingConsensusUpdateTimeError } from "./utils/exceptions"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
@@ -70,7 +71,12 @@ export async function waitForChallengePeriod(chain: IChain, stateMachineHeight: 
 	if (challengePeriod === BigInt(0)) return
 
 	// Get the state machine update time
-	const updateTime = await chain.stateMachineUpdateTime(stateMachineHeight)
+	const updateTime = await retryPromise(() => chain.stateMachineUpdateTime(stateMachineHeight), {
+		maxRetries: 3,
+		backoffMs: 500,
+		logMessage: "Fetching consensus update time while waiting for the challenge period",
+		shouldRetry: (error) => !MissingConsensusUpdateTimeError.isError(error),
+	})
 	// Check current timestamp
 	let currentTimestamp = await chain.timestamp()
 	// Calculate time passed since update
@@ -322,15 +328,17 @@ export const DEFAULT_LOGGER = createConsola({
  * @returns Promise that resolves with the operation result or rejects with the last error
  */
 export async function retryPromise<T>(operation: () => Promise<T>, retryConfig: RetryConfig): Promise<T> {
-	const { logger = DEFAULT_LOGGER, logMessage = "Retry operation failed" } = retryConfig
+	const { logger = DEFAULT_LOGGER, logMessage = "Retry operation failed", shouldRetry } = retryConfig
 
 	let lastError: unknown
 	for (let i = 0; i < retryConfig.maxRetries; i++) {
 		try {
 			return await operation()
 		} catch (error) {
+			if (shouldRetry && !shouldRetry(error)) throw error
 			logger.trace(`Retrying(${i}) > ${logMessage}`)
 			lastError = error
+			if (i === retryConfig.maxRetries - 1) break
 			await new Promise((resolve) => setTimeout(resolve, retryConfig.backoffMs * 2 ** i))
 		}
 	}

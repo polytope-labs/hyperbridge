@@ -14,7 +14,7 @@ import {
 	retryPromise,
 	sleep,
 } from "@/utils"
-import { STORAGE_KEYS } from "@/storage"
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from "@/storage"
 import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
 import type { Order, HexString, IGetRequest, IPostRequest, CancelOrderOptions, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
@@ -46,6 +46,10 @@ import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToF
  * generator can be re-entered after a crash without re-submitting transactions.
  */
 export class OrderCanceller {
+	private static readonly DEFAULT_MAX_RECOVERY_RESTARTS = 1
+	private static readonly PROOF_FRESHNESS_MAX_RETRIES = 3
+	private static readonly PROOF_FRESHNESS_BACKOFF_MS = 500
+
 	private readonly logger = createConsola({
 		level: LogLevels.info,
 		formatOptions: { columns: 80, colors: true, compact: true, date: false },
@@ -85,13 +89,16 @@ export class OrderCanceller {
 	 * @returns The native token dispatch fee in wei.
 	 */
 	private async quoteCancelFromSource(order: Order): Promise<CancelQuote> {
-		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
-
 		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		if (sourceStateMachine === destStateMachine) {
+			return { nativeValue: 0n, relayerFee: 0n }
+		}
+
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(
-			normalizeStateMachineId(order.destination),
+			destStateMachine,
 		)
 		const slotHash = await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
@@ -105,8 +112,8 @@ export class OrderCanceller {
 
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
-			dest: normalizeStateMachineId(order.destination),
-			from: this.ctx.source.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination)),
+			dest: destStateMachine,
+			from: this.ctx.source.configService.getIntentGatewayAddress(destStateMachine),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
 			keys: [key],
@@ -142,20 +149,43 @@ export class OrderCanceller {
 		indexerClient: IsmpClient,
 		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		const isSameChain = order.source === order.destination
+		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		const isSameChain = sourceStateMachine === destStateMachine
 		if (options.from === "destination" && !isSameChain) {
 			yield* this.cancelOrderFromDest(order, indexerClient)
 			return
 		}
 
+		const maxRecoveryRestarts = options.maxRecoveryRestarts ?? OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS
+		if (!Number.isInteger(maxRecoveryRestarts) || maxRecoveryRestarts < 0) {
+			throw new Error("maxRecoveryRestarts must be a non-negative integer")
+		}
+
+		let recoveryRestarts = 0
 		while (true) {
 			try {
 				yield* this.cancelOrderFromSource(order, indexerClient)
 				return
 			} catch (error) {
 				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+				if (recoveryRestarts >= maxRecoveryRestarts) {
+					throw new Error(
+						`Cancellation recovery stopped after ${recoveryRestarts} restart(s): Hyperbridge no longer retains a required consensus update.`,
+					)
+				}
 
+				recoveryRestarts += 1
+				this.logger.warn(
+					`Restarting cancellation recovery (${recoveryRestarts}/${maxRecoveryRestarts}) after a required consensus update was pruned`,
+				)
 				await this.clearGetRecoveryCache(order)
+				yield {
+					status: "RECOVERY_RESTARTED",
+					attempt: recoveryRestarts,
+					maxAttempts: maxRecoveryRestarts,
+					reason: "Hyperbridge pruned a consensus update required for cancellation recovery",
+				}
 			}
 		}
 	}
@@ -184,11 +214,10 @@ export class OrderCanceller {
 	 * @throws If the cancel transaction does not contain the expected on-chain event.
 	 */
 	private async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
-		const storageKeys = this.recoveryStorageKeys(order)
-		const isSameChain = order.source === order.destination
-		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(
-			normalizeStateMachineId(order.source),
-		)
+		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		const isSameChain = sourceStateMachine === destStateMachine
+		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
 
 		if (isSameChain) {
 			const data = encodeFunctionData({
@@ -225,11 +254,15 @@ export class OrderCanceller {
 			return
 		}
 
+		const storageKeys = this.recoveryStorageKeys(order)
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
 		const hyperbridge = indexerClient.hyperbridge as SubstrateChain
-		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const sourceConsensusStateId = this.ctx.source.configService.getConsensusStateId(sourceStateMachine)
 
-		let destIProof: IProof | null = await this.ctx.cancellationStorage.getItem(storageKeys.destProof)
+		let destIProof: IProof | null = await this.getRecoveryItem(
+			storageKeys.destProof,
+			legacyStorageKeys.map((keys) => keys.destProof),
+		)
 		if (!destIProof) {
 			destIProof = yield* this.fetchDestinationProof(order, indexerClient)
 			await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
@@ -239,7 +272,10 @@ export class OrderCanceller {
 				await this.assertProofFresh(hyperbridge, destIProof)
 			} catch (error) {
 				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
-				await this.ctx.cancellationStorage.removeItem(storageKeys.destProof)
+				await this.removeRecoveryItems(
+					storageKeys.destProof,
+					...legacyStorageKeys.map((keys) => keys.destProof),
+				)
 				destIProof = yield* this.fetchDestinationProof(order, indexerClient)
 				await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
 				refreshed = true
@@ -252,8 +288,9 @@ export class OrderCanceller {
 		// validate every proof immediately before deriving cancel calldata from it.
 		await this.assertProofFresh(hyperbridge, destIProof)
 
-		let getRequest: IGetRequest | null = await this.ctx.cancellationStorage.getItem(
+		let getRequest: IGetRequest | null = await this.getRecoveryItem(
 			storageKeys.getRequest,
+			legacyStorageKeys.map((keys) => keys.getRequest),
 		)
 		if (!getRequest) {
 			const quote = await this.quoteCancelFromSource(order)
@@ -303,8 +340,9 @@ export class OrderCanceller {
 					}
 
 					const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
-					let sourceIProof: IProof | null = await this.ctx.cancellationStorage.getItem(
+					let sourceIProof: IProof | null = await this.getRecoveryItem(
 						storageKeys.sourceProof,
+						legacyStorageKeys.map((keys) => keys.sourceProof),
 					)
 					if (!sourceIProof) {
 						sourceIProof = await fetchSourceProof(
@@ -358,9 +396,12 @@ export class OrderCanceller {
 						status: "HYPERBRIDGE_FINALIZED" as const,
 						metadata: statusUpdate.metadata,
 					}
-					await this.ctx.cancellationStorage.removeItem(storageKeys.destProof)
-					await this.ctx.cancellationStorage.removeItem(storageKeys.getRequest)
-					await this.ctx.cancellationStorage.removeItem(storageKeys.sourceProof)
+					await this.removeRecoveryItems(
+						storageKeys.destProof,
+						storageKeys.getRequest,
+						storageKeys.sourceProof,
+						...legacyStorageKeys.flatMap((keys) => [keys.destProof, keys.getRequest, keys.sourceProof]),
+					)
 					return
 			}
 		}
@@ -378,10 +419,11 @@ export class OrderCanceller {
 	 * @returns The native token dispatch fee in wei.
 	 */
 	private async quoteCancelFromDest(order: Order): Promise<CancelQuote> {
-		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
-
-		const destStateMachine = normalizeStateMachineId(order.destination)
 		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		if (sourceStateMachine === destStateMachine) {
+			return { nativeValue: 0n, relayerFee: 0n }
+		}
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
@@ -430,8 +472,10 @@ export class OrderCanceller {
 		const destStateMachine = normalizeStateMachineId(order.destination)
 		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 
-		let commitment: HexString | null = await this.ctx.cancellationStorage.getItem(
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
+		let commitment: HexString | null = await this.getRecoveryItem(
 			storageKeys.postCommitment,
+			legacyStorageKeys.map((keys) => keys.postCommitment),
 		)
 
 		if (!commitment) {
@@ -505,7 +549,10 @@ export class OrderCanceller {
 					if (refundEvents.length === 0) {
 						throw new Error("EscrowRefunded event not found in source-chain delivery receipt")
 					}
-					await this.ctx.cancellationStorage.removeItem(storageKeys.postCommitment)
+					await this.removeRecoveryItems(
+						storageKeys.postCommitment,
+						...legacyStorageKeys.map((keys) => keys.postCommitment),
+					)
 					yield {
 						status: "CANCELLATION_COMPLETE" as const,
 						blockNumber: statusUpdate.metadata.blockNumber,
@@ -633,13 +680,23 @@ export class OrderCanceller {
 
 	/** Verify that Hyperbridge still retains the consensus update for a proof. */
 	private async assertProofFresh(hyperbridge: SubstrateChain, proof: IProof): Promise<void> {
-		await hyperbridge.stateMachineUpdateTime({
-			height: proof.height,
-			id: {
-				stateId: parseStateMachineId(proof.stateMachine).stateId,
-				consensusStateId: proof.consensusStateId,
+		await retryPromise(
+			() =>
+				hyperbridge.stateMachineUpdateTime({
+					height: proof.height,
+					id: {
+						stateId: parseStateMachineId(proof.stateMachine).stateId,
+						consensusStateId: proof.consensusStateId,
+					},
+				}),
+			{
+				maxRetries: OrderCanceller.PROOF_FRESHNESS_MAX_RETRIES,
+				backoffMs: OrderCanceller.PROOF_FRESHNESS_BACKOFF_MS,
+				logger: this.logger,
+				logMessage: `Checking consensus update time for proof at height ${proof.height}`,
+				shouldRetry: (error) => !MissingConsensusUpdateTimeError.isError(error),
 			},
-		})
+		)
 	}
 
 	/**
@@ -648,11 +705,17 @@ export class OrderCanceller {
 	 */
 	private async clearGetRecoveryCache(order: Order): Promise<void> {
 		const keys = this.recoveryStorageKeys(order)
-		await Promise.all([
-			this.ctx.cancellationStorage.removeItem(keys.destProof),
-			this.ctx.cancellationStorage.removeItem(keys.sourceProof),
-			this.ctx.cancellationStorage.removeItem(keys.getRequest),
-		])
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
+		await this.removeRecoveryItems(
+			keys.destProof,
+			keys.sourceProof,
+			keys.getRequest,
+			...legacyStorageKeys.flatMap((legacyKeys) => [
+				legacyKeys.destProof,
+				legacyKeys.sourceProof,
+				legacyKeys.getRequest,
+			]),
+		)
 	}
 
 	/**
@@ -669,6 +732,48 @@ export class OrderCanceller {
 			sourceProof: STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
 			postCommitment: STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
 		}
+	}
+
+	/** Older SDK key shapes, checked once and migrated to the normalized pair-scoped key. */
+	private legacyRecoveryStorageKeys(order: Order) {
+		const orderId = this.orderId(order)
+		return [
+			{
+				destProof: LEGACY_STORAGE_KEYS.destProof(orderId, order.source, order.destination),
+				getRequest: LEGACY_STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
+				sourceProof: LEGACY_STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
+				postCommitment: LEGACY_STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
+			},
+			{
+				destProof: LEGACY_STORAGE_KEYS.destProof(orderId),
+				getRequest: LEGACY_STORAGE_KEYS.getRequest(orderId),
+				sourceProof: LEGACY_STORAGE_KEYS.sourceProof(orderId),
+				postCommitment: LEGACY_STORAGE_KEYS.postCommitment(orderId),
+			},
+		]
+	}
+
+	private async getRecoveryItem<T>(currentKey: string, legacyKeys: string[]): Promise<T | null> {
+		const current = await this.ctx.cancellationStorage.getItem<T>(currentKey)
+		if (current) return current
+
+		for (const legacyKey of new Set(legacyKeys)) {
+			if (legacyKey === currentKey) continue
+			const legacy = await this.ctx.cancellationStorage.getItem<T>(legacyKey)
+			if (!legacy) continue
+
+			await this.ctx.cancellationStorage.setItem(currentKey, legacy)
+			await this.ctx.cancellationStorage.removeItem(legacyKey)
+			return legacy
+		}
+
+		return null
+	}
+
+	private async removeRecoveryItems(...keys: string[]): Promise<void> {
+		await Promise.all(
+			[...new Set(keys)].map((key) => this.ctx.cancellationStorage.removeItem(key)),
+		)
 	}
 
 	/**

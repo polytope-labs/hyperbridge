@@ -1,5 +1,12 @@
 # @hyperbridge/sdk
 
+## 2.5.0
+
+### Minor Changes
+
+- `ORDER_PLACED` now returns the finalized canonical order without changing the order object passed to `execute()` or `placeOrder()`. Store and use `update.order` for the commitment, nonce, and session key; do not read those fields from the submitted object after placement.
+- Cancellation recovery now reports `RECOVERY_RESTARTED` when Hyperbridge has pruned a required consensus update. Use `maxRecoveryRestarts` to control how many automatic recovery attempts are allowed.
+
 ## 1.6.3
 
 ### Patch Changes

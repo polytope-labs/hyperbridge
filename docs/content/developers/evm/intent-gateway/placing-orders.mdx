@@ -170,7 +170,7 @@ The contract accepts the fee in the ERC-20 fee token (pre-approve and leave `msg
 
 ### Session key
 
-The SDK generates a one-time session keypair per order and sets `order.session` to its public address. The session key authorizes exactly one solver to fill the order via an EIP-712 `SelectSolver` signature. This is handled automatically when you use `IntentGateway.execute()` or `IntentGateway.placeOrder()`.
+The SDK generates a one-time session keypair per order. The final `Order` returned in the `ORDER_PLACED` update contains its public address in `order.session`; the order object you passed in is unchanged. The session key authorizes exactly one solver to fill the order via an EIP-712 `SelectSolver` signature.
 
 ### Commitment
 
@@ -180,7 +180,7 @@ After fee deduction and field stamping, the order commitment is:
 commitment = keccak256(abi.encode(order))  // with reduced inputs, filled user/source/nonce
 ```
 
-The SDK populates `order.id` with this commitment after the `OrderPlaced` event is parsed.
+The finalized `Order` returned in the `ORDER_PLACED` update contains this commitment in `order.id`.
 
 ## Quoting Orders
 
@@ -272,7 +272,7 @@ The generator is bidirectional — it pauses at two points to hand control back 
 - A **serialized signed transaction** (raw RLP-encoded bytes) — the SDK will broadcast it and wait for confirmation.
 - A **transaction hash** (exactly 66 characters: `0x` + 64 hex chars) — the SDK will wait for the receipt of an already-submitted transaction.
 
-**Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, receipt }` where `order` is the finalized `Order` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event) and `receipt` is the full viem `TransactionReceipt` of the placement transaction.
+**Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, receipt }` where `order` is a new finalized `Order` rebuilt from `OrderPlaced` (including its canonical `user`, chains, nonce, fees, session, assets, and `id`). The order object passed to `execute()` is unchanged.
 
 **Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `EXPIRED`). During the auction period (`auctionTimeMs`), the generator yields `NEW_BID` each time a new solver bid is discovered — these are informational and do not affect bid selection. Once the auction ends, `BIDS_RECEIVED` is yielded with the full set of collected `Bid` objects, and `executeBest` selects and submits the best one. `FAILED` events are informational — the executor automatically retries by looping back to bid polling. Call `gen.next()` with no arguments to advance after each update.
 
@@ -298,10 +298,10 @@ async function runOrder(order: Order) {
     type: "eip1559",
   })
 
-  // Second yield: ORDER_PLACED — finalized order (nonce, id, inputs set from OrderPlaced event)
+  // Second yield: ORDER_PLACED — save this finalized order for later resume/cancel calls.
   const { value: { order, receipt } } = await gen.next(signedTx)
   console.log("placeOrder tx:", receipt.transactionHash)
-  // store the full order incase you need to cancel it later
+  // Store the full order in case you need to cancel it later.
   console.log("Order commitment:", order.id)
 
   // then stream status updates
@@ -402,6 +402,7 @@ async function runOrder(order: Order) {
   const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
 
   let input: HexString | SelectBidResult | undefined
+  let finalizedOrder: Order | undefined
   while (true) {
     const { value: update, done } = await gen.next(input)
     input = undefined
@@ -413,9 +414,13 @@ async function runOrder(order: Order) {
         input = await walletClient.sendTransaction({ to: update.to, data: update.data, value: update.value })
         break
       }
+      case IntentOrderStatus.ORDER_PLACED:
+        finalizedOrder = update.order
+        break
       case IntentOrderStatus.BIDS_RECEIVED: {
+        if (!finalizedOrder) throw new Error("Order was not finalized")
         // Your selection logic. Here: highest USD output that passes simulation.
-        const sorted = await intentGateway.sortBids(order, update.bids)
+        const sorted = await intentGateway.sortBids(finalizedOrder, update.bids)
         for (const bid of sorted) {
           try {
             await bid.simulate()

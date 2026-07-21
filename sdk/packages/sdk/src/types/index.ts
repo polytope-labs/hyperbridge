@@ -158,6 +158,8 @@ export interface RetryConfig {
 	backoffMs: number
 	logMessage?: string
 	logger?: ConsolaInstance
+	/** Return false to stop retrying and immediately rethrow the error. */
+	shouldRetry?: (error: unknown) => boolean
 }
 
 export interface IsmpRequest {
@@ -1198,6 +1200,8 @@ export interface Order {
 export interface CancelOrderOptions {
 	/** Where to initiate the cancel from. Defaults to `"source"`. */
 	from?: "source" | "destination"
+	/** Maximum automatic restarts after Hyperbridge prunes a required consensus update. Defaults to 1. */
+	maxRecoveryRestarts?: number
 }
 
 export interface FillOptions {

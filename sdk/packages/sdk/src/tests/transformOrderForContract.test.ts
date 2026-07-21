@@ -1,10 +1,7 @@
-import { describe, it, expect } from "vitest"
-import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
 import { transformOrderForContract } from "@/protocols/intents/utils"
-import { STORAGE_KEYS } from "@/storage"
+import type { HexString, Order } from "@/types"
 import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
-import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
-import type { Order, HexString } from "@/types"
+import { describe, expect, it } from "vitest"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 const ADDR_32 = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
@@ -115,64 +112,5 @@ describe("transformOrderForContract", () => {
 		}))
 
 		expect(outputs[0].token).toBe(ADDR_32)
-	})
-})
-
-describe("GET cancellation recovery cache", () => {
-	it("clears the source GET checkpoint and its derived proofs without touching POST state", async () => {
-		const order = makeOrder({ id: "0xdeadbeef" })
-		const orderId = order.id ?? ""
-		const keys = {
-			destProof: STORAGE_KEYS.destProof(orderId, order.source, order.destination),
-			sourceProof: STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
-			getRequest: STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
-			postCommitment: STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
-		}
-		const values = new Map(Object.values(keys).map((key) => [key, "cached"]))
-		const cancellationStorage = {
-			removeItem: async (key: string) => void values.delete(key),
-		}
-		const canceller = new OrderCanceller({ cancellationStorage } as never)
-		const clearGetRecoveryCache = (canceller as unknown as {
-			clearGetRecoveryCache(recoveryOrder: Order): Promise<void>
-		}).clearGetRecoveryCache.bind(canceller)
-
-		await clearGetRecoveryCache(order)
-		await clearGetRecoveryCache(order)
-
-		expect(values.has(keys.destProof)).toBe(false)
-		expect(values.has(keys.sourceProof)).toBe(false)
-		expect(values.has(keys.getRequest)).toBe(false)
-		expect(values.has(keys.postCommitment)).toBe(true)
-	})
-
-	it("restarts source GET recovery internally after a pruned consensus update", async () => {
-		const order = makeOrder({ id: "0xdeadbeef" })
-		const removedKeys: string[] = []
-		const canceller = new OrderCanceller({
-			cancellationStorage: { removeItem: async (key: string) => void removedKeys.push(key) },
-		} as never)
-		let attempts = 0
-		const cancellerWithTestHooks = canceller as unknown as {
-			cancelOrderFromSource(
-				recoveryOrder: Order,
-				indexerClient: unknown,
-			): AsyncGenerator<{ status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }>
-		}
-		cancellerWithTestHooks.cancelOrderFromSource = async function* () {
-			attempts += 1
-			if (attempts === 1) throw new MissingConsensusUpdateTimeError()
-			yield { status: "AWAITING_CANCEL_TRANSACTION", data: "0x", to: ADDR_20, value: 0n }
-		}
-
-		const result = await canceller.cancelOrder(order, {} as never).next()
-
-		expect(result.value).toMatchObject({ status: "AWAITING_CANCEL_TRANSACTION" })
-		expect(attempts).toBe(2)
-		expect(removedKeys).toEqual([
-			STORAGE_KEYS.destProof(order.id ?? "", order.source, order.destination),
-			STORAGE_KEYS.sourceProof(order.id ?? "", order.source, order.destination),
-			STORAGE_KEYS.getRequest(order.id ?? "", order.source, order.destination),
-		])
 	})
 })

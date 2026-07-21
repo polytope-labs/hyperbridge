@@ -95,15 +95,7 @@ pub struct TierConfig {
 /// drains via the gate, `expires_at` is fixed at purchase time and
 /// never extends. Repurchases append a new row instead of stacking.
 #[derive(
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	TypeInfo,
-	MaxEncodedLen,
-	Clone,
-	PartialEq,
-	Eq,
-	Debug,
+	Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub struct Subscription {
 	/// SKU this subscription was bought against; for analytics/events

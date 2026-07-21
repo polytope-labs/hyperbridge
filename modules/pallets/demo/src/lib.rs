@@ -269,9 +269,7 @@ pub mod pallet {
 
 	/// Transfer payload
 	/// This would be encoded to bytes as the request data
-	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, Debug,
-	)]
+	#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, Debug)]
 	pub struct Payload<AccountId, Balance> {
 		/// Destination account
 		pub to: AccountId,

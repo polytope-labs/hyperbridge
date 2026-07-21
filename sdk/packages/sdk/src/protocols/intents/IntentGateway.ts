@@ -452,14 +452,21 @@ export class IntentGateway {
 		const gen = this.execute(order, graffiti, options)
 		try {
 			let input: HexString | SelectBidResult | undefined
+			let finalizedOrder: Order | undefined
 			while (true) {
 				const { value, done } = await gen.next(input)
 				input = undefined
 				if (done) break
 
-				if (value.status === "BIDS_RECEIVED") {
+				if (value.status === "ORDER_PLACED") {
+					finalizedOrder = value.order
 					yield value
-					input = await this.autoSelect(order, value.bids)
+				} else if (value.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) {
+						throw new Error("Received bids before the order was finalized")
+					}
+					yield value
+					input = await this.autoSelect(finalizedOrder, value.bids)
 				} else if (value.status === "AWAITING_PLACE_ORDER") {
 					input = yield value
 				} else {

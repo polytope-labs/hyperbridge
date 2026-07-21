@@ -347,10 +347,9 @@ where
 		let api = self.client.runtime_api();
 		let at = self.client.info().best_hash;
 		api.state_machine_update_time(at, height)
-			.map_err(|error| {
-				runtime_error_into_rpc_error(format!("Error querying Consensus update time: {error:?}"))
-			})?
-			.ok_or_else(|| runtime_error_into_rpc_error("Consensus update time not found"))
+			.ok()
+			.flatten()
+			.ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus update time"))
 	}
 
 	fn query_challenge_period(&self, state_machine_id: StateMachineId) -> RpcResult<u64> {

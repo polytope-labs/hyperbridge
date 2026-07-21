@@ -2239,6 +2239,55 @@ type PhantomOrder @entity {
 }
 
 """
+A bid placed by a filler on an order commitment, recorded from the intents-coprocessor pallet's
+BidPlaced event.
+
+The bid payload is read out of the place_bid extrinsic in the same block, falling back to the node's
+offchain storage via intents_getBidsForOrder — that RPC pins the chain head and the offchain entry
+expires, so it only answers for bids still live on the queried node.
+
+Fillers may re-bid on the same commitment (the pallet unreserves the previous deposit and emits a
+fresh BidPlaced), so one row is written per event rather than per (commitment, filler) — the bid
+history is preserved. The commitment usually belongs to a PhantomOrder, but place_bid accepts any
+commitment, so the field is a plain reference rather than a foreign key.
+"""
+type FillerBid @entity {
+	"""
+	Composite identifier: {commitment}-{filler}-{blockNumber}-{eventIdx}. Unique per BidPlaced event,
+	so a filler's repeat bids on the same commitment are kept as separate rows.
+	"""
+	id: ID!
+
+	"""
+	The order commitment bid on — keccak256(abi.encode(Order)). Matches PhantomOrder.id when the bid
+	targets a phantom order.
+	"""
+	commitment: String! @index
+
+	"""
+	SS58 address of the filler that placed the bid.
+	"""
+	filler: String! @index
+
+	"""
+	The raw bid payload — the SCALE-encoded PackedUserOperation the filler submitted, as hex. Stored
+	undecoded so a bid stays fully re-interpretable as the fill ABI evolves, and because the pallet's
+	own copy expires. Null when neither the extrinsic nor the RPC yielded it.
+	"""
+	bidData: String
+
+	"""
+	Hash of the extrinsic that placed the bid, when the event is attributable to one.
+	"""
+	extrinsicHash: String
+
+	"""
+	Hyperbridge block number the bid was placed at.
+	"""
+	blockNumber: BigInt! @index
+}
+
+"""
 The price snapshot for a phantom order, written once its bid window closes (signalled by the
 PhantomBidWindowExhausted event). It collects all live bids via intents_getBidsForOrder and keeps
 only those from our own solvers: a bid counts when its user operation carries a solver signature

@@ -126,7 +126,9 @@ export class OrderCanceller {
 	 * cancellation is complete.
 	 *
 	 * Delegates to `cancelOrderFromSource` or `cancelOrderFromDest` based on
-	 * the `from` parameter.
+	 * the `from` parameter. If Hyperbridge has pruned consensus data needed for
+	 * source-side GET recovery, clears its stale checkpoint and restarts the
+	 * source-side stream internally.
 	 *
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used to stream ISMP request status
@@ -140,18 +142,21 @@ export class OrderCanceller {
 		indexerClient: IsmpClient,
 		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		try {
-			const isSameChain = order.source === order.destination
-			if (options.from === "destination" && !isSameChain) {
-				yield* this.cancelOrderFromDest(order, indexerClient)
-				return
-			}
-			yield* this.cancelOrderFromSource(order, indexerClient)
-		} catch (error) {
-			if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+		const isSameChain = order.source === order.destination
+		if (options.from === "destination" && !isSameChain) {
+			yield* this.cancelOrderFromDest(order, indexerClient)
+			return
+		}
 
-			await this.clearGetRecoveryCache(order)
-			yield { status: "RECOVERY_RESTART_REQUIRED" }
+		while (true) {
+			try {
+				yield* this.cancelOrderFromSource(order, indexerClient)
+				return
+			} catch (error) {
+				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+
+				await this.clearGetRecoveryCache(order)
+			}
 		}
 	}
 

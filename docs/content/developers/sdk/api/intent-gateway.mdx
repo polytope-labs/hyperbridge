@@ -740,7 +740,6 @@ type BlockMetadata = {
 }
 
 type CancelEvent =
-  | { status: "RECOVERY_RESTART_REQUIRED" }
   | { status: "DESTINATION_FINALIZED"; proof: IProof }
   | { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
   | { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
@@ -754,7 +753,6 @@ type CancelEvent =
 |--------|--------|-------------|
 | `DESTINATION_FINALIZED` | `proof` | State proof from the destination chain is ready |
 | `AWAITING_CANCEL_TRANSACTION` | `data`, `to`, `value` | Caller must sign and submit the cancel transaction |
-| `RECOVERY_RESTART_REQUIRED` | — | A consensus update needed for recovery was pruned; begin recovery again |
 | `CANCEL_STARTED` | `receipt` | Cancel transaction confirmed on-chain |
 | `SOURCE_FINALIZED` | `metadata` | Cancel request finalised on source chain |
 | `HYPERBRIDGE_DELIVERED` | `metadata` | Cancel message delivered to Hyperbridge |

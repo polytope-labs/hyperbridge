@@ -3,6 +3,7 @@ import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
 import { transformOrderForContract } from "@/protocols/intents/utils"
 import { STORAGE_KEYS } from "@/storage"
 import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
+import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
 import type { Order, HexString } from "@/types"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
@@ -143,5 +144,35 @@ describe("GET cancellation recovery cache", () => {
 		expect(values.has(keys.sourceProof)).toBe(false)
 		expect(values.has(keys.getRequest)).toBe(false)
 		expect(values.has(keys.postCommitment)).toBe(true)
+	})
+
+	it("restarts source GET recovery internally after a pruned consensus update", async () => {
+		const order = makeOrder({ id: "0xdeadbeef" })
+		const removedKeys: string[] = []
+		const canceller = new OrderCanceller({
+			cancellationStorage: { removeItem: async (key: string) => void removedKeys.push(key) },
+		} as never)
+		let attempts = 0
+		const cancellerWithTestHooks = canceller as unknown as {
+			cancelOrderFromSource(
+				recoveryOrder: Order,
+				indexerClient: unknown,
+			): AsyncGenerator<{ status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }>
+		}
+		cancellerWithTestHooks.cancelOrderFromSource = async function* () {
+			attempts += 1
+			if (attempts === 1) throw new MissingConsensusUpdateTimeError()
+			yield { status: "AWAITING_CANCEL_TRANSACTION", data: "0x", to: ADDR_20, value: 0n }
+		}
+
+		const result = await canceller.cancelOrder(order, {} as never).next()
+
+		expect(result.value).toMatchObject({ status: "AWAITING_CANCEL_TRANSACTION" })
+		expect(attempts).toBe(2)
+		expect(removedKeys).toEqual([
+			STORAGE_KEYS.destProof(order.id ?? "", order.source, order.destination),
+			STORAGE_KEYS.sourceProof(order.id ?? "", order.source, order.destination),
+			STORAGE_KEYS.getRequest(order.id ?? "", order.source, order.destination),
+		])
 	})
 })

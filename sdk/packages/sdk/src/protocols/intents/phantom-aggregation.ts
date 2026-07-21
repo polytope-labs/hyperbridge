@@ -4,7 +4,7 @@
 // viem — viem's @noble/hashes keccak throws "Uint8Array expected" in the SubQuery VM2 sandbox — so
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
-import { decodeFunctionData, recoverAddress } from "viem"
+import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
@@ -163,6 +163,32 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 	return null
 }
 
+/** Derives the 192-bit bid nonce key binding a bid to an (order, sessionKey) pair. */
+export type BidNonceKeyFn = (commitment: HexString, sessionKey: HexString) => bigint
+
+/** Recomputes an order's commitment from the contract-shaped order decoded out of a bid's calldata. */
+export type OrderCommitmentFn = (order: Record<string, unknown>) => HexString | null
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const FILL_ORDER_INPUT = (FILL_ORDER_ABI as readonly any[]).find(
+	(item) => item?.type === "function" && item?.name === "fillOrder",
+)?.inputs?.[0]
+
+/**
+ * Default (viem) {@link OrderCommitmentFn}. The order comes straight out of `fillOrder`'s ABI
+ * decode, so it is already contract-shaped and re-encoding it reproduces `keccak256(abi.encode(order))`
+ * — the same commitment IntentGatewayV2 computes on-chain. Returns null when it cannot be computed,
+ * which callers treat as unverifiable (fail closed).
+ */
+export function orderCommitmentFromDecoded(order: Record<string, unknown>): HexString | null {
+	try {
+		if (!FILL_ORDER_INPUT) return null
+		return keccak256(encodeAbiParameters([FILL_ORDER_INPUT], [order as never]))
+	} catch {
+		return null
+	}
+}
+
 // A bid's userOp.signature is `commitment (32) ‖ solverSignature (65)`. SolverAccount.validateUserOp
 // expects 162 bytes on-chain, but the trailing 65-byte session-key signature is only appended at fill
 // time, so a bid is stored and read back in this 97-byte form.
@@ -247,13 +273,16 @@ function evmChainId(chain: string): bigint | null {
 async function isVerifiedSolverBid(params: {
 	userOp: PackedUserOperation
 	commitment: string
+	sessionKey: HexString
 	chainId: bigint
 	solverAccount: string
 	evmRpcUrl: string
 	recoverSigner: RecoverBidSigner
+	bidNonceKey: BidNonceKeyFn
 	logger?: AggregationLogger
 }): Promise<boolean> {
-	const { userOp, commitment, chainId, solverAccount, evmRpcUrl, recoverSigner, logger } = params
+	const { userOp, commitment, sessionKey, chainId, solverAccount, evmRpcUrl, recoverSigner, bidNonceKey, logger } =
+		params
 	const solver = userOp.sender
 
 	const parsed = splitBidSignature(userOp.signature)
@@ -262,14 +291,22 @@ async function isVerifiedSolverBid(params: {
 		return false
 	}
 
-	// The signature covers only the userOpHash, so the commitment prefix — which on-chain the nonce
-	// key binds it to — is what ties this solver's signature to the order being priced. Without it a
-	// bid signed for one order could be replayed into another order's snapshot.
+	// Cheap early-out ONLY. The prefix sits inside userOp.signature, which userOpHash excludes, so it
+	// is attacker-mutable and must never be what binds a bid to an order — the nonce key below is.
 	if (parsed.commitment.toLowerCase() !== commitment.toLowerCase()) {
 		logger?.warn(
 			{ solver, commitment, signedFor: parsed.commitment },
 			"Rejecting phantom bid: signed for another order",
 		)
+		return false
+	}
+
+	// The authoritative binding, mirroring SolverAccount.validateUserOp on-chain. The nonce IS
+	// covered by userOpHash, so a solver signature stays valid only for the (order, sessionKey) pair
+	// its nonce key was derived from. `sessionKey` is read from the bid's own calldata, which is also
+	// covered by userOpHash — so every operand here is signed, leaving nothing for a replay to swap.
+	if (BigInt(userOp.nonce) >> 64n !== bidNonceKey(commitment as HexString, sessionKey)) {
+		logger?.warn({ solver, commitment }, "Rejecting phantom bid: nonce does not bind order and session key")
 		return false
 	}
 
@@ -391,11 +428,15 @@ export async function aggregatePhantomBids(params: {
 	solverAccount: string
 	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
 	recoverSigner?: RecoverBidSigner
+	bidNonceKey?: BidNonceKeyFn
+	orderCommitment?: OrderCommitmentFn
 	logger?: AggregationLogger
 }): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
 	const extractFill = params.extractFill ?? extractFillData
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
+	const bidNonceKey = params.bidNonceKey ?? CryptoUtils.bidNonceKey
+	const orderCommitment = params.orderCommitment ?? orderCommitmentFromDecoded
 
 	const destUrl = evmRpcUrls[chain]
 	if (!destUrl) return null
@@ -414,6 +455,9 @@ export async function aggregatePhantomBids(params: {
 
 	const quotes: { price: bigint; weight: bigint }[] = []
 	const lpBalances: LpBalance[] = []
+	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
+	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
+	const countedSolvers = new Set<string>()
 
 	for (const bid of bids) {
 		if (!bid.user_op) continue
@@ -424,16 +468,39 @@ export async function aggregatePhantomBids(params: {
 			const fillData = extractFill(decoded.callData as HexString, gatewayAddress)
 			if (!fillData) continue
 
+			// The quoted price is read out of this order, so it must be the order being priced.
+			const decodedCommitment = orderCommitment(fillData.order)
+			if (!decodedCommitment || decodedCommitment.toLowerCase() !== commitment.toLowerCase()) {
+				logger?.warn({ solver, commitment }, "Rejecting phantom bid: calldata order is not the indexed order")
+				continue
+			}
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const sessionKey = (fillData.order as any)?.session as HexString | undefined
+			if (!sessionKey) {
+				logger?.warn({ solver, commitment }, "Rejecting phantom bid: order carries no session key")
+				continue
+			}
+
 			const verified = await isVerifiedSolverBid({
 				userOp: decoded,
 				commitment,
+				sessionKey,
 				chainId,
 				solverAccount,
 				evmRpcUrl: destUrl,
 				recoverSigner,
+				bidNonceKey,
 				logger,
 			})
 			if (!verified) continue
+
+			const normalizedSolver = solver.toLowerCase()
+			if (countedSolvers.has(normalizedSolver)) {
+				logger?.warn({ solver, commitment }, "Skipping phantom bid: solver already counted for this order")
+				continue
+			}
+			countedSolvers.add(normalizedSolver)
 
 			// Price influence: the solver's liquidity in the output token on the destination chain.
 			const outputTokenAddress = toAddress(fillData.outputToken)

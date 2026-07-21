@@ -157,11 +157,6 @@ export class OrderCanceller {
 			return
 		}
 
-		const maxRecoveryRestarts = options.maxRecoveryRestarts ?? OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS
-		if (!Number.isInteger(maxRecoveryRestarts) || maxRecoveryRestarts < 0) {
-			throw new Error("maxRecoveryRestarts must be a non-negative integer")
-		}
-
 		let recoveryRestarts = 0
 		while (true) {
 			try {
@@ -169,7 +164,7 @@ export class OrderCanceller {
 				return
 			} catch (error) {
 				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
-				if (recoveryRestarts >= maxRecoveryRestarts) {
+				if (recoveryRestarts >= OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS) {
 					throw new Error(
 						`Cancellation recovery stopped after ${recoveryRestarts} restart(s): Hyperbridge no longer retains a required consensus update.`,
 					)
@@ -177,15 +172,9 @@ export class OrderCanceller {
 
 				recoveryRestarts += 1
 				this.logger.warn(
-					`Restarting cancellation recovery (${recoveryRestarts}/${maxRecoveryRestarts}) after a required consensus update was pruned`,
+					`Restarting cancellation recovery (${recoveryRestarts}/${OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS}) after a required consensus update was pruned`,
 				)
 				await this.clearGetRecoveryCache(order)
-				yield {
-					status: "RECOVERY_RESTARTED",
-					attempt: recoveryRestarts,
-					maxAttempts: maxRecoveryRestarts,
-					reason: "Hyperbridge pruned a consensus update required for cancellation recovery",
-				}
 			}
 		}
 	}

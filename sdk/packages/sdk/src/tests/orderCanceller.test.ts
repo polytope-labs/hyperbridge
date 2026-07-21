@@ -85,7 +85,7 @@ describe("OrderCanceller recovery", () => {
 		expect(values.has(keys.postCommitment)).toBe(true)
 	})
 
-	it("reports one bounded recovery restart before continuing", async () => {
+	it("restarts GET recovery internally after a pruned consensus update", async () => {
 		const canceller = new OrderCanceller({ cancellationStorage: { removeItem: async () => undefined } } as never)
 		let attempts = 0
 		const hooks = canceller as unknown as {
@@ -98,24 +98,25 @@ describe("OrderCanceller recovery", () => {
 		}
 
 		const stream = canceller.cancelOrder(makeOrder(), {} as never)
-		expect((await stream.next()).value).toMatchObject({ status: "RECOVERY_RESTARTED", attempt: 1 })
 		expect((await stream.next()).value).toMatchObject({ status: "AWAITING_CANCEL_TRANSACTION" })
 		expect(attempts).toBe(2)
 	})
 
-	it("stops after the configured number of recovery restarts", async () => {
+	it("surfaces an error after the internal retry budget is exhausted", async () => {
 		const canceller = new OrderCanceller({ cancellationStorage: { removeItem: async () => undefined } } as never)
+		let attempts = 0
 		const hooks = canceller as unknown as {
 			cancelOrderFromSource(order: Order, indexerClient: unknown): AsyncGenerator<unknown>
 		}
 		hooks.cancelOrderFromSource = async function* () {
-			yield* []
+			attempts += 1
 			throw new MissingConsensusUpdateTimeError()
 		}
 
-		const stream = canceller.cancelOrder(makeOrder(), {} as never, { maxRecoveryRestarts: 1 })
-		expect((await stream.next()).value).toMatchObject({ status: "RECOVERY_RESTARTED", attempt: 1 })
-		await expect(stream.next()).rejects.toThrow("Cancellation recovery stopped after 1 restart")
+		await expect(canceller.cancelOrder(makeOrder(), {} as never).next()).rejects.toThrow(
+			"Cancellation recovery stopped after 1 restart",
+		)
+		expect(attempts).toBe(2)
 	})
 
 	it("uses the same-chain path without requiring an order ID", async () => {

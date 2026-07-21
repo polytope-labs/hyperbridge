@@ -516,12 +516,15 @@ export async function aggregatePhantomBids(params: {
 
 	if (quotes.length === 0) return null
 
-	const sortedPrices = quotes.map((q) => q.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+	// The snapshot reports a single price: the liquidity-weighted median. lowestPrice and
+	// highestPrice carry that same value rather than the raw min/max of the bid set, so consumers
+	// cannot read an outlier bid as if it were a tradeable bound.
+	const medianPrice = weightedMedian(quotes)
 
 	return {
-		lowestPrice: sortedPrices[0],
-		highestPrice: sortedPrices[sortedPrices.length - 1],
-		medianPrice: weightedMedian(quotes),
+		lowestPrice: medianPrice,
+		highestPrice: medianPrice,
+		medianPrice,
 		bidCount: quotes.length,
 		lpBalances,
 	}

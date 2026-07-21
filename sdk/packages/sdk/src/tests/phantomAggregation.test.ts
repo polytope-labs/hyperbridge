@@ -4,6 +4,7 @@ import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import {
 	aggregatePhantomBids,
 	extractFillData,
+	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
 	setAggregationFetch,
 	splitBidSignature,
@@ -145,16 +146,22 @@ const CHAIN_ID = 8453n
 const SOLVER_ACCOUNT = "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
 const SOLVER_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString
 const IMPOSTOR_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString
-const COMMITMENT = `0x${"11".repeat(32)}` as HexString
+// The real commitment of `phantomOrder()`, i.e. keccak256(abi.encode(order)) — the same value
+// IntentGatewayV2 derives on-chain. It must be the genuine hash, not an arbitrary constant, because
+// a bid is only counted when the order in its calldata hashes to the order being priced.
+const COMMITMENT = orderCommitmentFromDecoded(phantomOrder())!
 const OTHER_COMMITMENT = `0x${"22".repeat(32)}` as HexString
+const SESSION_KEY = phantomOrder().session as HexString
+// A bid's nonce key binds it to (order, sessionKey); the top 192 bits of the nonce carry it.
+const BID_NONCE = CryptoUtils.bidNonceKey(COMMITMENT, SESSION_KEY) << 64n
 const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 const SOLVER_BALANCE = 500_000_000n
 const NODE_URL = "http://node.test"
 
-function unsignedUserOp(sender: HexString): PackedUserOperation {
+function unsignedUserOp(sender: HexString, nonce: bigint = BID_NONCE): PackedUserOperation {
 	return {
 		sender,
-		nonce: 0n,
+		nonce,
 		initCode: "0x",
 		callData: bidCalldata(),
 		accountGasLimits: `0x${"00".repeat(32)}`,
@@ -171,9 +178,10 @@ async function signedBidUserOp(opts: {
 	signingKey: HexString
 	sender?: HexString
 	commitment?: HexString
+	nonce?: bigint
 }): Promise<PackedUserOperation> {
 	const signer = privateKeyToAccount(opts.signingKey)
-	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString))
+	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce)
 	const solverSignature = await signer.signTypedData(
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
@@ -308,6 +316,51 @@ describe("aggregatePhantomBids bid verification", () => {
 		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY, commitment: OTHER_COMMITMENT })
 
 		expect(await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))).toBeNull()
+	})
+
+	// A bid's signature covers the userOpHash, which EXCLUDES userOp.signature — so the 32-byte
+	// commitment prefix is attacker-mutable. Binding must come from the signed nonce key instead,
+	// otherwise a solver's bid for order A can be replayed into order B by rewriting the prefix.
+	it("drops a bid replayed into another order by rewriting the unsigned signature prefix", async () => {
+		// Signed for OTHER_COMMITMENT (so its nonce binds to that order), then the prefix is swapped
+		// to the order being priced. The signature stays valid — only the nonce check catches this.
+		const otherNonce = CryptoUtils.bidNonceKey(OTHER_COMMITMENT, SESSION_KEY) << 64n
+		const victim = await signedBidUserOp({ signingKey: SOLVER_KEY, nonce: otherNonce })
+		const replayed = { ...victim, signature: concat([COMMITMENT, `0x${victim.signature.slice(66)}` as HexString]) }
+
+		expect(await aggregate([replayed as PackedUserOperation], delegatedTo(SOLVER_ACCOUNT))).toBeNull()
+	})
+
+	// Bids are stored per substrate filler, so one solver's bid can be resubmitted under many
+	// fillers. Weight belongs to the EVM solver, so it must only count once.
+	it("counts a solver once even when its bid is duplicated across fillers", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp, userOp, userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result).not.toBeNull()
+		expect(result!.bidCount).toBe(1)
+		expect(result!.lpBalances.map((lp) => lp.solver.toLowerCase())).toEqual([
+			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
+		])
+	})
+
+	it("drops a bid whose calldata order is not the order being priced", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+
+		// Same bid, but aggregated for a different order than the one its calldata describes.
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: OTHER_COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+		})
+
+		expect(result).toBeNull()
 	})
 
 	it("prices only the verified bids when unverified ones are mixed in", async () => {

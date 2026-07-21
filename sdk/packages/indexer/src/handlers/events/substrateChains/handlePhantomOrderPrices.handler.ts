@@ -16,7 +16,7 @@ import {
 } from "@/configs/src/types"
 import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
-import { extractFillDataVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
+import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
 
 // The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
 // Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
@@ -87,6 +87,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			// viem's keccak throws in the VM2 sandbox; inject the indexer's ethers-based equivalents.
 			extractFill: extractFillDataVm2,
 			recoverSigner: recoverBidSignerVm2,
+			bidNonceKey: bidNonceKeyVm2,
+			orderCommitment: orderCommitmentVm2,
 			logger,
 		})
 	} catch (err) {

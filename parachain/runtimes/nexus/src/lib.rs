@@ -176,6 +176,7 @@ pub type Migrations = (
 	pallet_beefy_consensus_proofs::migrations::ClearAcceptedProofHashes<Runtime>,
 	pallet_collator_manager::migrations::MigrateBondsToReserves<Runtime>,
 	pallet_collator_manager::migrations::ReserveUnreservedBonds<Runtime>,
+	pallet_ismp::migrations::SeedCommitmentCaps<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
@@ -238,7 +239,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 7_900,
+	spec_version: 8_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

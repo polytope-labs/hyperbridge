@@ -36,7 +36,13 @@ import {
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
-import { IntentsCoprocessor, type ChainConfig, type FillerConfig, type HexString } from "@hyperbridge/sdk"
+import {
+	ChainConfigService,
+	IntentsCoprocessor,
+	type ChainConfig,
+	type FillerConfig,
+	type HexString,
+} from "@hyperbridge/sdk"
 import {
 	aggregatePhantomBids,
 	fetchBidsForOrder,
@@ -54,15 +60,30 @@ const CNGN_BASE = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString
 const CNGN_BALANCE_SLOT = 201n // cNGN _balances slot on Base (see indexer TOKEN_SLOT_OVERRIDES)
 const ETH0_CONSENSUS_ID = "0x45544830"
 const STANDARD_AMOUNT = 1_000_000n // 1 USDC (6 decimals)
+// The real SolverAccount on Base, already deployed in the fork; solvers delegate to it and the
+// aggregation only counts bids from senders that do.
+const SOLVER_ACCOUNT = new ChainConfigService().getSolverAccountAddress(BASE_STATE_MACHINE)!
 
 // One IntentFiller per solver. Distinct substrate keys (to place independent bids) and EVM keys
 // (distinct solver addresses/liquidity), and distinct FX prices so there is a real range to reduce.
 // //Alice is reserved for the driver's sudo/sealing, so fillers use other dev accounts to avoid
 // nonce contention.
 const FILLERS = [
-	{ suri: "//Bob", evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString, cngnPerUsd: "1500" },
-	{ suri: "//Charlie", evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString, cngnPerUsd: "1510" },
-	{ suri: "//Dave", evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString, cngnPerUsd: "1520" },
+	{
+		suri: "//Bob",
+		evmKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString,
+		cngnPerUsd: "1500",
+	},
+	{
+		suri: "//Charlie",
+		evmKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString,
+		cngnPerUsd: "1510",
+	},
+	{
+		suri: "//Dave",
+		evmKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" as HexString,
+		cngnPerUsd: "1520",
+	},
 ]
 
 // ─── simnode driving (manual seal) ──────────────────────────────────────────────────────────────
@@ -125,18 +146,24 @@ async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
 
-async function fundCngn(holder: HexString, amount: bigint): Promise<void> {
-	const slot = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [holder, CNGN_BALANCE_SLOT]))
+async function anvilRpc(method: string, params: unknown[]): Promise<void> {
 	await fetch(ANVIL_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "anvil_setStorageAt",
-			params: [CNGN_BASE, slot, toHex(amount, { size: 32 })],
-		}),
+		body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
 	})
+}
+
+async function fundCngn(holder: HexString, amount: bigint): Promise<void> {
+	const slot = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [holder, CNGN_BALANCE_SLOT]))
+	await anvilRpc("anvil_setStorageAt", [CNGN_BASE, slot, toHex(amount, { size: 32 })])
+}
+
+// Writes the EIP-7702 delegation indicator our solvers carry in production, pointing at the real
+// SolverAccount already deployed on the forked Base. aggregatePhantomBids only counts a bid whose
+// sender delegates to it, so without this every filler's bid is (correctly) rejected as a stranger's.
+async function delegateToSolverAccount(solver: HexString): Promise<void> {
+	await anvilRpc("anvil_setCode", [solver, `0xef0100${SOLVER_ACCOUNT.slice(2)}`])
 }
 
 // ─── real IntentFiller bootstrap (mirrors createFxOnlyIntentFiller, redirected at simnode + anvil) ─
@@ -163,7 +190,12 @@ async function buildPhantomFiller(opts: {
 
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
-	const contractService = new ContractInteractionService(chainClientManager, configService, signer, new CacheService())
+	const contractService = new ContractInteractionService(
+		chainClientManager,
+		configService,
+		signer,
+		new CacheService(),
+	)
 
 	const pricePolicy = new FillerPricePolicy({
 		points: [
@@ -229,9 +261,12 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomBidWindow(5))
 		await seedStateMachineHeight(api, BASE_CHAIN_ID, 1_000_000n)
 
-		// Each solver needs forked cNGN liquidity — that is what they pay out and what the snapshot records.
+		// Each solver needs forked cNGN liquidity — that is what they pay out and what the snapshot
+		// records — and the delegation that marks its bid as ours rather than a stranger's.
 		for (const f of FILLERS) {
-			await fundCngn(privateKeyToAccount(f.evmKey).address as HexString, 1_000_000_000_000n)
+			const solver = privateKeyToAccount(f.evmKey).address as HexString
+			await fundCngn(solver, 1_000_000_000_000n)
+			await delegateToSolverAccount(solver)
 		}
 
 		for (const f of FILLERS) {
@@ -286,6 +321,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			// Liquidity is swept per configured token per chain. cNGN with no vaults => raw balance
 			// only (the funded amount); proves balances come from the config sweep, not the bid output.
 			yieldVaults: { [BASE_STATE_MACHINE]: { [CNGN_BASE.toLowerCase()]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
 		})
 
 		console.log("\n[phantom-e2e] aggregation snapshot:")

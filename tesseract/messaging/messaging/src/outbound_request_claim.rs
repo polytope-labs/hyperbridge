@@ -36,7 +36,8 @@ use sp_core::Pair;
 use subxt_utils::outbound_requests_claimed_storage_key;
 use tesseract_evm::derive_map_key;
 use tesseract_primitives::{
-	IsmpHost, IsmpProvider, PendingRequestDeliveryClaim, StateProofQueryType,
+	observe_challenge_period, IsmpHost, IsmpProvider, PendingRequestDeliveryClaim,
+	StateProofQueryType,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::time::MissedTickBehavior;
@@ -256,6 +257,10 @@ pub async fn process_claim(
 	}
 
 	let dest_height = committed as u64;
+
+	observe_challenge_period(dest.clone(), hb_provider.clone(), dest_height)
+		.await
+		.context("observe_challenge_period")?;
 
 	let key = receipt_key_for(destination, commitment, dest.ismp_host_contract())?;
 

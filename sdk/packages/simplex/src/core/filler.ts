@@ -43,7 +43,7 @@ export class IntentFiller {
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
-	private phantomUnsubscribe: (() => void) | null = null
+	private stopPhantomPolling: (() => void) | null = null
 	// Last phantom bid commitment per phantom-order series — keyed by chain + the directed token
 	// pair, NOT by chain alone. The pallet generates one phantom order per configured token pair, so
 	// several are live on the same chain at once; a new interval's bid must only retract the previous
@@ -155,9 +155,9 @@ export class IntentFiller {
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have the Circle Paymaster configured.
-			// Chains with Circle Paymaster pay gas in USDC instead.
-			// Paymaster permit is handled per-order inside buildCirclePaymasterData.
+			// that do NOT have any paymaster (Circle or Simplex) configured.
+			// Chains with a paymaster pay gas in stablecoins instead.
+			// Paymaster authorization is handled per-order inside buildPaymasterAndData.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
 				if (hasPaymaster(chain, this.configService)) {
@@ -285,9 +285,9 @@ export class IntentFiller {
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
 
-		if (this.phantomUnsubscribe) {
-			this.phantomUnsubscribe()
-			this.phantomUnsubscribe = null
+		if (this.stopPhantomPolling) {
+			this.stopPhantomPolling()
+			this.stopPhantomPolling = null
 		}
 
 		// Stop rebalancing interval
@@ -755,14 +755,17 @@ export class IntentFiller {
 	private startPhantomBidding(): void {
 		if (!this.hyperbridge) return
 		this.hyperbridge
-			.then(async (coprocessor) => {
-				this.phantomUnsubscribe = await coprocessor.subscribePhantomOrders((event) => {
-					this.globalQueue.add(() => this.handlePhantomOrder(event, coprocessor))
-				})
-				this.logger.info("Phantom order subscription active")
+			.then((coprocessor) => {
+				this.stopPhantomPolling = coprocessor.pollPhantomOrders(
+					(order) => {
+						this.globalQueue.add(() => this.handlePhantomOrder(order, coprocessor))
+					},
+					{ onError: (err) => this.logger.warn({ err }, "Phantom order poll failed, will retry") },
+				)
+				this.logger.info("Phantom order polling active")
 			})
 			.catch((err) => {
-				this.logger.error({ err }, "Failed to start phantom order subscription")
+				this.logger.error({ err }, "Failed to start phantom order polling")
 			})
 	}
 

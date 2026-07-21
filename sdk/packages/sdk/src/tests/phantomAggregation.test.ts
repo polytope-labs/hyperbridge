@@ -1,6 +1,21 @@
-import { encodeFunctionData } from "viem"
+import { concat, encodeFunctionData, toHex } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
 import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
-import { extractFillData, weightedMedian, FILL_ORDER_ABI, type HexString } from "@/protocols/intents/phantom-aggregation"
+import {
+	aggregatePhantomBids,
+	extractFillData,
+	recoverBidSignerViem,
+	setAggregationFetch,
+	splitBidSignature,
+	weightedMedian,
+	ENTRY_POINT_V08_ADDRESS,
+	FILL_ORDER_ABI,
+	type FetchLike,
+	type HexString,
+} from "@/protocols/intents/phantom-aggregation"
+import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
+import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
+import type { PackedUserOperation } from "@/types"
 
 const GATEWAY = "0x2d61624A17f361020679FaA16fbB566C344AaF4B"
 // USDC and USDT addresses left-padded to bytes32, as they appear in an order's token fields.
@@ -120,5 +135,194 @@ describe("weightedMedian", () => {
 		]
 		// Total 10; cumulative: 3 (10), 7 (20) — 7*2>=10 → median is 20.
 		expect(weightedMedian(quotes)).toBe(20n)
+	})
+})
+
+// ─── bid verification ───────────────────────────────────────────────────────────────────────────
+
+const CHAIN = "EVM-8453"
+const CHAIN_ID = 8453n
+const SOLVER_ACCOUNT = "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3"
+const SOLVER_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString
+const IMPOSTOR_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as HexString
+const COMMITMENT = `0x${"11".repeat(32)}` as HexString
+const OTHER_COMMITMENT = `0x${"22".repeat(32)}` as HexString
+const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+const SOLVER_BALANCE = 500_000_000n
+const NODE_URL = "http://node.test"
+
+function unsignedUserOp(sender: HexString): PackedUserOperation {
+	return {
+		sender,
+		nonce: 0n,
+		initCode: "0x",
+		callData: bidCalldata(),
+		accountGasLimits: `0x${"00".repeat(32)}`,
+		preVerificationGas: 50_000n,
+		gasFees: `0x${"00".repeat(32)}`,
+		paymasterAndData: "0x",
+		signature: "0x",
+	}
+}
+
+// Builds a bid userOp the way BidManager does: the solver signs the EntryPoint v0.8 userOpHash and
+// the order commitment is prepended to the signature.
+async function signedBidUserOp(opts: {
+	signingKey: HexString
+	sender?: HexString
+	commitment?: HexString
+}): Promise<PackedUserOperation> {
+	const signer = privateKeyToAccount(opts.signingKey)
+	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString))
+	const solverSignature = await signer.signTypedData(
+		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
+	)
+	return { ...userOp, signature: concat([opts.commitment ?? COMMITMENT, solverSignature]) as HexString }
+}
+
+// Stands in for the Hyperbridge node and the destination chain's RPC: serves the given bids, the
+// given account code, and a fixed ERC-20 balance for any eth_call.
+function mockRpc(bids: PackedUserOperation[], codeFor: (account: string) => string): FetchLike {
+	return async (_url, init) => {
+		const payload = JSON.parse(init.body)
+		const result =
+			payload.method === "intents_getBidsForOrder"
+				? bids.map((userOp) => ({
+						commitment: COMMITMENT,
+						filler: `0x${"ab".repeat(32)}`,
+						user_op: encodeUserOpScale(userOp),
+					}))
+				: payload.method === "eth_getCode"
+					? codeFor(payload.params[0])
+					: toHex(SOLVER_BALANCE, { size: 32 })
+		return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+	}
+}
+
+const delegatedTo = (target: string) => () => `0xef0100${target.slice(2)}`.toLowerCase()
+
+function aggregate(bids: PackedUserOperation[], codeFor: (account: string) => string) {
+	setAggregationFetch(mockRpc(bids, codeFor))
+	return aggregatePhantomBids({
+		nodeUrl: NODE_URL,
+		evmRpcUrls: { [CHAIN]: "http://base.test" },
+		chain: CHAIN,
+		gatewayAddress: GATEWAY,
+		commitment: COMMITMENT,
+		yieldVaults: { [CHAIN]: { [USDT]: [] } },
+		solverAccount: SOLVER_ACCOUNT,
+	})
+}
+
+describe("splitBidSignature", () => {
+	it("splits a bid signature into its commitment and 65-byte solver signature", () => {
+		const solverSignature = `0x${"cd".repeat(65)}` as HexString
+		const result = splitBidSignature(concat([COMMITMENT, solverSignature]) as HexString)
+
+		expect(result).not.toBeNull()
+		expect(result!.commitment).toBe(COMMITMENT)
+		expect(result!.solverSignature).toBe(solverSignature)
+	})
+
+	it("ignores the session signature appended at fill time", () => {
+		const solverSignature = `0x${"cd".repeat(65)}` as HexString
+		const sessionSignature = `0x${"ef".repeat(65)}` as HexString
+		const result = splitBidSignature(concat([COMMITMENT, solverSignature, sessionSignature]) as HexString)
+
+		expect(result!.solverSignature).toBe(solverSignature)
+	})
+
+	it("returns null when the signature is too short to hold both parts", () => {
+		expect(splitBidSignature(`0x${"cd".repeat(65)}` as HexString)).toBeNull()
+		expect(splitBidSignature("0x")).toBeNull()
+	})
+})
+
+describe("recoverBidSignerViem", () => {
+	it("recovers the solver that signed the userOp hash", async () => {
+		const signer = privateKeyToAccount(SOLVER_KEY)
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		const { solverSignature } = splitBidSignature(userOp.signature)!
+
+		const recovered = await recoverBidSignerViem(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID, solverSignature)
+
+		expect(recovered!.toLowerCase()).toBe(signer.address.toLowerCase())
+	})
+
+	it("does not recover the solver once the signed operation is tampered with", async () => {
+		const signer = privateKeyToAccount(SOLVER_KEY)
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		const { solverSignature } = splitBidSignature(userOp.signature)!
+
+		const recovered = await recoverBidSignerViem(
+			{ ...userOp, callData: bidCalldata("0x9999999999999999999999999999999999999999") },
+			ENTRY_POINT_V08_ADDRESS,
+			CHAIN_ID,
+			solverSignature,
+		)
+
+		expect(recovered!.toLowerCase()).not.toBe(signer.address.toLowerCase())
+	})
+
+	it("returns null for a signature it cannot recover from", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		expect(await recoverBidSignerViem(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID, "0xdeadbeef")).toBeNull()
+	})
+})
+
+describe("aggregatePhantomBids bid verification", () => {
+	it("counts a bid whose sender signed it and is delegated to the chain's SolverAccount", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result).not.toBeNull()
+		expect(result!.bidCount).toBe(1)
+		expect(result!.medianPrice).toBe(SOLVER_AMOUNT)
+	})
+
+	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		expect(await aggregate([userOp], () => "0x")).toBeNull()
+	})
+
+	it("drops a bid whose sender is delegated to some other contract", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		expect(await aggregate([userOp], delegatedTo("0x9999999999999999999999999999999999999999"))).toBeNull()
+	})
+
+	it("drops a bid signed by someone other than its sender", async () => {
+		// A delegated solver's address on an operation signed by a key that does not control it.
+		const userOp = await signedBidUserOp({
+			signingKey: IMPOSTOR_KEY,
+			sender: privateKeyToAccount(SOLVER_KEY).address as HexString,
+		})
+
+		expect(await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))).toBeNull()
+	})
+
+	it("drops a bid whose signature is bound to a different order", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY, commitment: OTHER_COMMITMENT })
+
+		expect(await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))).toBeNull()
+	})
+
+	it("prices only the verified bids when unverified ones are mixed in", async () => {
+		const solver = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		const impostor = await signedBidUserOp({ signingKey: IMPOSTOR_KEY })
+		const impostorAddress = privateKeyToAccount(IMPOSTOR_KEY).address.toLowerCase()
+
+		const result = await aggregate([solver, impostor], (account) =>
+			account.toLowerCase() === impostorAddress ? "0x" : delegatedTo(SOLVER_ACCOUNT)(),
+		)
+
+		expect(result!.bidCount).toBe(1)
+		// Liquidity is only swept for solvers whose bid was counted.
+		expect(result!.lpBalances.map((lp) => lp.solver.toLowerCase())).toEqual([
+			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
+		])
 	})
 })

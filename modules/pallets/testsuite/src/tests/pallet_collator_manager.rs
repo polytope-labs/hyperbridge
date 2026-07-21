@@ -68,10 +68,18 @@ fn rotate_controller(
 }
 
 fn set_session_keys(who: <Test as frame_system::Config>::AccountId) {
+	use codec::Encode;
+	use sp_core::proof_of_possession::ProofOfPossessionGenerator;
+
 	System::<Test>::inc_providers(&who);
-	let pair = Pair::from_seed(who.as_ref());
+	let mut pair = Pair::from_seed(who.as_ref());
 	let keys = crate::runtime::SessionKeys { aura: pair.public().into() };
-	assert_ok!(Session::set_keys(RuntimeOrigin::signed(who), keys, vec![]));
+	// 2604: `set_keys` now verifies a proof-of-possession, i.e. that each session
+	// key's secret signed the (SCALE-encoded) owner account. With a single aura
+	// (sr25519) key the proof is just that signature, matching what the runtime's
+	// `SessionKeys::generate` would produce.
+	let proof = who.using_encoded(|owner| pair.generate_proof_of_possession(owner)).encode();
+	assert_ok!(Session::set_keys(RuntimeOrigin::signed(who), keys, proof));
 }
 
 #[test]

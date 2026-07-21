@@ -160,31 +160,31 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "=2512.3.2", default-features = false }
+polkadot-sdk = { version = "=2604.2.0", default-features = false }
 
 rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
 
 # crates that can't be used in polkadot-sdk
-sp-weights = { version = "33.2.0", default-features = false }
-sp-core = { version = "39.0.0", default-features = false }
-frame-benchmarking = { version = "45.0.1", default-features = false }
-sp-io = { version = "44.0.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.25.0", default-features = false }
-substrate-wasm-builder = "31.1.0"
-sc-service = "0.56.0"
-sc-tracing = "44.0.0"
-sp-api-proc-macro = "26.0.0"
-sp-consensus-beefy = { version = "28.0.0" }
+sp-weights = { version = "34.0.0", default-features = false }
+sp-core = { version = "41.0.0", default-features = false }
+frame-benchmarking = { version = "48.0.0", default-features = false }
+sp-io = { version = "46.0.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.28.0", default-features = false }
+substrate-wasm-builder = "33.0.0"
+sc-service = "0.59.0"
+sc-tracing = "46.0.0"
+sp-api-proc-macro = "27.0.0"
+sp-consensus-beefy = { version = "30.0.0" }
 sp-crypto-hashing = "0.1.0"
-xcm-simulator-example = "26.0.0"
+xcm-simulator-example = "29.0.0"
 
 # supporting polkadot-sdk crates
-sc-simnode = { version = "2512.0.0" }
-simnode-runtime-api = { version = "2512.0.0", default-features = false }
+sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "99504dd075f964adaec40a55202fc95122ad0bd2" }
+simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode", rev = "99504dd075f964adaec40a55202fc95122ad0bd2", default-features = false }
 
 # crates.io
 serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
-trie-db = { version = "0.30.0", default-features = false }
+trie-db = { version = "0.31.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 log = { version = "0.4", default-features = false }

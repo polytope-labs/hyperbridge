@@ -558,4 +558,12 @@ impl<T: frame_system::Config> pallet_assets::WeightInfo for WeightInfo<T> {
 	fn set_reserves(_n: u32) -> Weight {
 		Default::default()
 	}
+
+	fn migration_v2_foreign_asset_set_reserve_weight() -> Weight {
+		Default::default()
+	}
+
+	fn get_metadata() -> Weight {
+		Default::default()
+	}
 }

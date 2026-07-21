@@ -36,7 +36,7 @@ pub type MaxSubscriptions = ConstU32<MAX_SUBSCRIPTIONS>;
 	Eq,
 	PartialOrd,
 	Ord,
-	RuntimeDebug,
+	Debug,
 )]
 pub enum TierIndex {
 	/// Entry tier — discriminant `1` on the wire.
@@ -80,7 +80,7 @@ impl From<TierIndex> for u32 {
 	Copy,
 	PartialEq,
 	Eq,
-	RuntimeDebug,
+	Debug,
 )]
 pub struct TierConfig {
 	/// Bytes credited per single-month purchase of this tier. Multi-month
@@ -103,7 +103,7 @@ pub struct TierConfig {
 	Clone,
 	PartialEq,
 	Eq,
-	RuntimeDebug,
+	Debug,
 )]
 pub struct Subscription {
 	/// SKU this subscription was bought against; for analytics/events
@@ -120,7 +120,7 @@ pub struct Subscription {
 
 /// Admin payload for `force_credit` — bundled into a struct because
 /// positional dispatch args beyond two get unreadable fast.
-#[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
+#[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, Debug)]
 pub struct ForceCreditParams {
 	/// Chain whose `(chain, app)` bucket gets the new subscription.
 	pub app_chain: StateMachine,

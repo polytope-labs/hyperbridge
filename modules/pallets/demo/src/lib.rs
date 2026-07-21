@@ -270,7 +270,7 @@ pub mod pallet {
 	/// Transfer payload
 	/// This would be encoded to bytes as the request data
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, Debug,
 	)]
 	pub struct Payload<AccountId, Balance> {
 		/// Destination account
@@ -290,7 +290,7 @@ pub mod pallet {
 		scale_info::TypeInfo,
 		PartialEq,
 		Eq,
-		RuntimeDebug,
+		Debug,
 	)]
 	pub struct GetRequest {
 		/// Destination parachain
@@ -312,7 +312,7 @@ pub mod pallet {
 		scale_info::TypeInfo,
 		PartialEq,
 		Eq,
-		RuntimeDebug,
+		Debug,
 	)]
 	pub struct TransferParams<AccountId, Balance> {
 		/// Destination account
@@ -337,7 +337,7 @@ pub mod pallet {
 		scale_info::TypeInfo,
 		PartialEq,
 		Eq,
-		RuntimeDebug,
+		Debug,
 	)]
 	pub struct EvmParams {
 		/// Destination module

@@ -16,7 +16,7 @@
 //! Watches the transaction pool for `place_bid` extrinsics, exposing them
 //! over RPC before block inclusion for sub-second bid discovery.
 
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use jsonrpsee::{
 	core::{async_trait, RpcResult, SubscriptionResult},
 	proc_macros::rpc,
@@ -295,9 +295,10 @@ where
 pub fn extract_bid<T, Extra>(encoded: &[u8]) -> Option<(H256, Vec<u8>, Vec<u8>)>
 where
 	T: pallet_intents_coprocessor::Config,
-	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>> + Decode,
-	T::AccountId: Encode + From<[u8; 32]>,
-	Extra: Decode,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>>
+		+ DecodeWithMemTracking,
+	T::AccountId: Encode + From<[u8; 32]> + DecodeWithMemTracking,
+	Extra: DecodeWithMemTracking,
 {
 	let xt = sp_runtime::generic::UncheckedExtrinsic::<
 		sp_runtime::MultiAddress<T::AccountId, ()>,
@@ -336,9 +337,10 @@ pub async fn run_bid_watcher<P, Block, T, Extra>(
 	Block: BlockT,
 	P: TransactionPool<Block = Block> + 'static,
 	T: pallet_intents_coprocessor::Config,
-	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>> + Decode,
-	T::AccountId: Encode + From<[u8; 32]>,
-	Extra: Decode + Send + 'static,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>>
+		+ DecodeWithMemTracking,
+	T::AccountId: Encode + From<[u8; 32]> + DecodeWithMemTracking,
+	Extra: DecodeWithMemTracking + Send + 'static,
 {
 	use futures::StreamExt;
 

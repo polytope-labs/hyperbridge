@@ -278,7 +278,6 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type AssetTrap = PalletXcm;
 	type AssetLocker = ();
 	type AssetExchanger = ();
-	type AssetClaims = PalletXcm;
 	type SubscriptionService = ();
 	type PalletInstancesInfo = ();
 	type FeeManager = ();

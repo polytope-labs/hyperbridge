@@ -45,7 +45,7 @@ use polkadot_sdk::{pallet_session::disabling::UpToLimitDisablingStrategy, *};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata, RuntimeDebug, H256};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -895,7 +895,7 @@ parameter_types! {
 	Encode,
 	Decode,
 	DecodeWithMemTracking,
-	RuntimeDebug,
+	Debug,
 	MaxEncodedLen,
 	scale_info::TypeInfo,
 )]
@@ -1283,8 +1283,8 @@ impl_runtime_apis! {
 	}
 
 	impl sp_session::SessionKeys<Block> for Runtime {
-		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-			SessionKeys::generate(seed)
+		fn generate_session_keys(owner: Vec<u8>, seed: Option<Vec<u8>>) -> sp_session::OpaqueGeneratedSessionKeys {
+			SessionKeys::generate(&owner, seed).into()
 		}
 
 		fn decode_session_keys(
@@ -1445,6 +1445,13 @@ impl_runtime_apis! {
 	impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
 		fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {
 			ParachainSystem::collect_collation_info(header)
+		}
+	}
+
+	impl cumulus_primitives_core::KeyToIncludeInRelayProof<Block> for Runtime {
+		fn keys_to_prove() -> cumulus_primitives_core::RelayProofRequest {
+			// This runtime reads no extra relay chain storage, so no keys need proving.
+			Default::default()
 		}
 	}
 

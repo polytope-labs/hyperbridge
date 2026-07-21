@@ -99,7 +99,6 @@ features = [
     "cumulus-primitives-core",
     "cumulus-primitives-parachain-inherent",
     "cumulus-relay-chain-interface",
-    "cumulus-client-consensus-proposer",
     "cumulus-client-collator",
     "pallet-transaction-payment",
 ]

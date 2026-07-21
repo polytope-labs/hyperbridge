@@ -63,6 +63,7 @@ contract DeployScript is BaseScript {
             console.log("  Registered USDT:", tokens[1], "oracle:", address(oracles[1]));
         }
 
+        vm.stopBroadcast();
         config.set("SIMPLEX_PAYMASTER", address(paymaster));
 
         console.log("");

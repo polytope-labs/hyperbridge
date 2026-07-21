@@ -55,7 +55,7 @@ Both curves are expressed in **exotic tokens per USD**. A higher bid means the f
 
 HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 
-On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. Circle Paymaster covers the delegation tx (and subsequent fills) in USDC on chains where it is deployed; on chains without the paymaster (e.g. BSC), Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
+On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. A paymaster covers the delegation tx (and subsequent fills) in stablecoins on chains where one is deployed: the Circle Paymaster (USDC) is tried first, then the `SimplexPaymaster` (USDC or USDT), which is live on Ethereum, Arbitrum, Base, Polygon, and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet). On chains without any paymaster, Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
 
 ```toml lineNumbers
 [[strategies]]
@@ -283,8 +283,8 @@ Create an API keypair in the Turnkey Dashboard under user details. The <code>sig
 
 Solver selection requires each filler's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
 
-- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When the Circle Paymaster is deployed on the chain and the filler holds ≥1 USDC, the paymaster pays gas in USDC (EIP-2612 permit) so the filler never needs native gas for delegation.
-- **Fallback** — if the bundler path fails or the chain has no paymaster (e.g. BSC), Simplex sends a direct type-0x04 delegation tx using the filler's native balance. On these chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT) — and the filler holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin (via EIP-2612 permit, or a small capped approval for tokens without permit support such as BSC stables) so the filler never needs native gas for delegation.
+- **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the filler's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
 
 No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
 
@@ -640,7 +640,7 @@ Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
 ---
 
 ### **HyperFX bid submission fails**
-Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with the Circle Paymaster, make sure the filler's smart account holds ≥1 USDC so the paymaster can cover gas. On chains without the paymaster (e.g. BSC), the filler needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
+Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with a paymaster (Circle or Simplex), make sure the filler's smart account holds at least 1 USDC (or 1 USDT, for the `SimplexPaymaster`) so the paymaster can cover gas. On chains without any paymaster, the filler needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
 
 ---
 

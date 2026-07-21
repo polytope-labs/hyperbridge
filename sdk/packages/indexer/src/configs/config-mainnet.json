@@ -183,6 +183,11 @@
 					"description": "cNGN (Nigerian Naira stablecoin, custom upgradeable layout) \u2014 balances at slot 201, allowed at slot 202",
 					"balanceSlot": 201,
 					"allowanceSlot": 202
+				},
+				"0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": {
+					"description": "USDT (standard OZ layout) \u2014 balances at slot 0, allowed at slot 1",
+					"balanceSlot": 0,
+					"allowanceSlot": 1
 				}
 			}
 		}

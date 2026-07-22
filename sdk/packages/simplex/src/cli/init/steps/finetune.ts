@@ -2,7 +2,7 @@ import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import { DEFAULT_CONFIRMATION_POLICIES, type ChainConfirmationPolicy, type VaultToml } from "@/config/filler-toml"
 import { guard, why, askNumber, askAddress } from "../prompt-utils"
-import { editPoints } from "../points-editor"
+import { editPoints, nonNegativeIntegerValue } from "../points-editor"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -155,6 +155,7 @@ async function tuneConfirmations(state: WizardState): Promise<void> {
 			const points: ChainConfirmationPolicy["points"] = await editPoints({
 				prompt: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
 				minPoints: 2,
+				checkValue: nonNegativeIntegerValue,
 				toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
 			})
 			strategy.confirmationPolicies = { ...(strategy.confirmationPolicies ?? {}), [chainId]: { points } }

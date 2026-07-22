@@ -117,6 +117,15 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push()
 	}
 
+	if (config.keeper) {
+		push("# SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand).")
+		push("[keeper]")
+		for (const [key, value] of Object.entries(config.keeper)) {
+			if (value !== undefined) push(kv(key, value))
+		}
+		push()
+	}
+
 	if (config.vault) {
 		push("# ERC-4626 stablecoin treasury: fills source missing balance from these vaults atomically,")
 		push("# and wallet balance above `threshold` is swept back down to `minBalance` to earn yield.")

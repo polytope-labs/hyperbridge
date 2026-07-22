@@ -46,4 +46,13 @@ describe("derivePimlicoBundler", () => {
 	it("round-trips with parsePimlicoUrl", () => {
 		expect(parsePimlicoUrl(derivePimlicoBundler("k", 56))).toEqual({ chainId: 56, apiKey: "k" })
 	})
+
+	it("round-trips keys containing URL-special characters", () => {
+		for (const apiKey of ["pim+key", "pim%2Bkey", "pim key", "pim=key&x"]) {
+			const derived = derivePimlicoBundler(apiKey, 1)
+			expect(parsePimlicoUrl(derived)).toEqual({ chainId: 1, apiKey })
+			// deriving from the parsed key again must be stable
+			expect(derivePimlicoBundler(parsePimlicoUrl(derived)!.apiKey, 1)).toBe(derived)
+		}
+	})
 })

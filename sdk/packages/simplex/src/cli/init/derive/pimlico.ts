@@ -31,5 +31,7 @@ export function isPimlicoUrl(url: string): boolean {
 }
 
 export function derivePimlicoBundler(apiKey: string, chainId: number): string {
-	return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}`
+	// parsePimlicoUrl URL-decodes the key (searchParams.get); re-encode so keys
+	// containing +/%/space survive the parse -> derive round-trip unchanged.
+	return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${encodeURIComponent(apiKey)}`
 }

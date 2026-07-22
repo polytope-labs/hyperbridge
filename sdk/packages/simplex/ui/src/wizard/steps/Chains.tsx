@@ -40,6 +40,12 @@ export function StepChains({ state, setState }: StepProps) {
 						})
 					: s.chains,
 			}))
+		} catch (err) {
+			setState((s) => ({
+				...s,
+				alchemyStatus: "err",
+				alchemyError: err instanceof Error ? err.message : String(err),
+			}))
 		} finally {
 			setBusy(false)
 		}
@@ -65,11 +71,18 @@ export function StepChains({ state, setState }: StepProps) {
 		}
 
 		if (chain.bundlerUrl.trim()) {
-			const bundler = await api.post<{ ok: boolean; warning?: string }>("/api/setup/validate-bundler", {
-				url: chain.bundlerUrl.trim(),
-				chainId: chain.meta.chainId,
-			})
-			patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
+			try {
+				const bundler = await api.post<{ ok: boolean; warning?: string }>("/api/setup/validate-bundler", {
+					url: chain.bundlerUrl.trim(),
+					chainId: chain.meta.chainId,
+				})
+				patch(chain.meta.chainId, { bundlerWarning: bundler.warning, bundlerOk: !bundler.warning })
+			} catch (err) {
+				patch(chain.meta.chainId, {
+					bundlerWarning: `Bundler check failed: ${err instanceof Error ? err.message : err}`,
+					bundlerOk: false,
+				})
+			}
 		}
 	}
 

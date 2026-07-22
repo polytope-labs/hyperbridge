@@ -35,13 +35,24 @@ export function Activity() {
 	const [live, setLive] = useState(false)
 	const [error, setError] = useState<string>()
 
+	// SSE frames can land while the initial fetch is in flight; every state
+	// update merges by id so neither source overwrites the other.
+	const mergeEvents = (current: ActivityEventDto[], incoming: ActivityEventDto[]): ActivityEventDto[] => {
+		const byId = new Map<number, ActivityEventDto>()
+		for (const event of [...current, ...incoming]) byId.set(event.id, event)
+		// cap high enough that "Load older" pages are never cut, low enough to bound very long sessions
+		return [...byId.values()]
+			.sort((a, b) => b.id - a.id)
+			.slice(0, 1000)
+	}
+
 	const load = useCallback(async () => {
 		try {
 			const [orderFeed, bidFeed] = await Promise.all([
 				api.get<{ events: ActivityEventDto[] }>("/api/activity/orders?limit=100"),
 				api.get<{ bids: BidDto[]; stats: BidStatsDto | null }>("/api/activity/bids?limit=50"),
 			])
-			setEvents(orderFeed.events)
+			setEvents((current) => mergeEvents(current, orderFeed.events))
 			setBids(bidFeed.bids)
 			setStats(bidFeed.stats)
 		} catch (err) {
@@ -60,7 +71,7 @@ export function Activity() {
 		source.onerror = () => setLive(false)
 		source.onmessage = (message) => {
 			const event = JSON.parse(message.data) as ActivityEventDto
-			setEvents((current) => [event, ...current].slice(0, 200))
+			setEvents((current) => mergeEvents(current, [event]))
 		}
 		return () => source.close()
 	}, [])
@@ -71,7 +82,7 @@ export function Activity() {
 		const older = await api.get<{ events: ActivityEventDto[] }>(
 			`/api/activity/orders?limit=100&before=${oldest.id}`,
 		)
-		setEvents((current) => [...current, ...older.events])
+		setEvents((current) => mergeEvents(current, older.events))
 	}
 
 	return (

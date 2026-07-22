@@ -138,6 +138,12 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 				watchOnly: false,
 				token1: "",
 			})),
+		// Everything keyed by the previous network's chain ids must reset with it.
+		vaults: [],
+		fxPositions: [],
+		rebalancingUsdc: {},
+		alchemyStatus: undefined,
+		alchemyError: undefined,
 	}
 }
 

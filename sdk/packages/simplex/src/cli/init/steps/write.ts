@@ -1,6 +1,7 @@
 import { confirm, log, note, outro } from "@clack/prompts"
 import { spawn } from "child_process"
-import { chmodSync, existsSync, writeFileSync } from "fs"
+import { existsSync } from "fs"
+import { writeConfigFileAtomic } from "@/config/write-config"
 import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
@@ -41,8 +42,7 @@ export async function stepWrite(state: WizardState, outputPath: string): Promise
 		}
 	}
 
-	writeFileSync(path, emitted, { mode: 0o600 })
-	chmodSync(path, 0o600)
+	writeConfigFileAtomic(path, emitted)
 	log.success(`Config written to ${path} (permissions 600 — it contains secrets, don't commit it)`)
 
 	note(FUNDING_CHECKLIST, "Before the filler can fill")
@@ -58,25 +58,36 @@ export async function stepWrite(state: WizardState, outputPath: string): Promise
 }
 
 export function assembleConfig(state: WizardState): FillerTomlConfig {
+	// On an update run, overlay the wizard-managed fields onto a copy of the
+	// existing config so sections the wizard never prompts for (binance, keeper,
+	// targetGasUnits, entryPointAddress, watchOnly, …) survive verbatim.
+	const base: Partial<FillerTomlConfig> = state.prefillConfig
+		? JSON.parse(JSON.stringify(state.prefillConfig))
+		: {}
+
 	return {
+		...base,
 		simplex: {
+			...base.simplex,
 			signer: state.signer,
 			maxConcurrentOrders: state.maxConcurrentOrders,
 			queue: state.queue,
 			...(state.logging !== undefined ? { logging: state.logging } : {}),
 			substratePrivateKey: state.substratePrivateKey ?? "",
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl ?? "",
-			...(state.gasFeeBump ? { gasFeeBump: state.gasFeeBump } : {}),
-			...(state.overfillProtection ? { overfillProtection: state.overfillProtection } : {}),
+			...(state.gasFeeBump ? { gasFeeBump: state.gasFeeBump } : { gasFeeBump: undefined }),
+			...(state.overfillProtection
+				? { overfillProtection: state.overfillProtection }
+				: { overfillProtection: undefined }),
 		},
 		strategies: state.strategies,
 		chains: [
 			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
 			...state.passthroughChains,
 		],
-		...(state.rebalancing ? { rebalancing: state.rebalancing } : {}),
-		...(state.vault ? { vault: state.vault } : {}),
-		...(state.allowlist ? { allowlist: state.allowlist } : {}),
+		rebalancing: state.rebalancing,
+		vault: state.vault,
+		allowlist: state.allowlist,
 	}
 }
 

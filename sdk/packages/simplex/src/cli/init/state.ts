@@ -14,6 +14,12 @@ export interface WizardState {
 	chains: WizardChain[]
 	/** Chains from an existing config the wizard doesn't manage; appended to the output unchanged. */
 	passthroughChains: UserProvidedChainConfig[]
+	/**
+	 * The parsed existing config on an update run. assembleConfig overlays the
+	 * wizard-managed fields onto a copy of this, so sections the wizard never
+	 * prompts for (binance, keeper, targetGasUnits, watchOnly, …) survive verbatim.
+	 */
+	prefillConfig?: FillerTomlConfig
 	signer?: SignerConfig
 	substratePrivateKey?: string
 	hyperbridgeWsUrl?: string

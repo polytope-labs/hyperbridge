@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import { chmodSync, writeFileSync } from "node:fs"
+import { writeConfigFileAtomic } from "@/config/write-config"
 import { createPublicClient, http, isAddress } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { validateConfig, DEFAULT_CONFIRMATION_POLICIES, type FillerTomlConfig } from "@/config/filler-toml"
@@ -331,8 +331,7 @@ function saveAndStart(server: UiServer, setup: SetupContext, body: Record<string
 
 	const path = typeof body.path === "string" && body.path.trim() ? body.path.trim() : setup.configPath
 	try {
-		writeFileSync(path, result.toml, { mode: 0o600 })
-		chmodSync(path, 0o600)
+		writeConfigFileAtomic(path, result.toml)
 	} catch (err) {
 		return sendJson(res, 500, { error: `Could not write ${path}: ${err instanceof Error ? err.message : err}` })
 	}

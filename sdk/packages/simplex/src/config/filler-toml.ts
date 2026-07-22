@@ -1,5 +1,6 @@
 import { isAddress } from "viem"
 import { HexString } from "@hyperbridge/sdk"
+import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import type { SignerConfig } from "@/services/wallet"
@@ -305,6 +306,14 @@ export function validateConfig(config: FillerTomlConfig): void {
 				}
 			}
 
+			// The boot path constructs this policy; running it here means every
+			// pre-write gate rejects exactly what the filler would reject.
+			try {
+				void new FillerBpsPolicy({ points: strategy.bpsCurve })
+			} catch (err) {
+				throw new Error(`Stable strategy 'bpsCurve' is invalid: ${err instanceof Error ? err.message : err}`)
+			}
+
 			// Validate user-provided confirmation policies (defaults are always present)
 			for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies ?? {})) {
 				if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
@@ -319,6 +328,7 @@ export function validateConfig(config: FillerTomlConfig): void {
 						)
 					}
 				}
+				validateConfirmationPolicy(chainId, policy)
 			}
 		}
 
@@ -339,6 +349,20 @@ export function validateConfig(config: FillerTomlConfig): void {
 				throw new Error(
 					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
+			}
+
+			// Same policies the boot path constructs — pre-write gates and the
+			// filler agree on validity by construction (price > 0, finite amounts).
+			for (const [label, curve] of [
+				["bidPriceCurve", strategy.bidPriceCurve],
+				["askPriceCurve", strategy.askPriceCurve],
+			] as const) {
+				if (!curve?.length) continue
+				try {
+					void new FillerPricePolicy({ points: curve })
+				} catch (err) {
+					throw new Error(`hyperfx '${label}' is invalid: ${err instanceof Error ? err.message : err}`)
+				}
 			}
 
 			if (strategy.spreadBps !== undefined) {
@@ -436,8 +460,20 @@ export function validateConfig(config: FillerTomlConfig): void {
 							)
 						}
 					}
+					validateConfirmationPolicy(chainId, policy)
 				}
 			}
 		}
+	}
+}
+
+/** Constructs the runtime ConfirmationPolicy so pre-write gates reject exactly what boot rejects. */
+function validateConfirmationPolicy(chainId: string, policy: ChainConfirmationPolicy): void {
+	try {
+		void new ConfirmationPolicy({ [chainId]: policy })
+	} catch (err) {
+		throw new Error(
+			`Confirmation policy for chain ${chainId} is invalid: ${err instanceof Error ? err.message : err}`,
+		)
 	}
 }

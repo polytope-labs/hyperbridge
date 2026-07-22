@@ -43,6 +43,7 @@ export async function runInit(options: InitOptions): Promise<void> {
 	}
 
 	const state = newWizardState()
+	state.prefillConfig = prefill?.config
 	await stepChains(state, prefill)
 	await stepBundlers(state, prefill)
 	await stepSigner(state, prefill)

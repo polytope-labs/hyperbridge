@@ -8,7 +8,7 @@ import type {
 } from "@/config/filler-toml"
 import type { UniswapV4PositionToml } from "@/config/filler-toml"
 import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
-import { editPoints } from "../points-editor"
+import { editPoints, nonNegativeIntegerValue, positiveValue } from "../points-editor"
 import { WHY } from "../help-text"
 import { DEFAULT_STABLE_BPS_CURVE, TESTNET_CONFIRMATION_POINTS, type Prefill, type WizardState } from "../state"
 
@@ -55,6 +55,7 @@ async function buildStableStrategy(state: WizardState, prefill?: Prefill): Promi
 		: await editPoints({
 				prompt: "Curve point as `orderUsd,bps` (e.g. `1000,50`); empty line to finish",
 				minPoints: 2,
+				checkValue: nonNegativeIntegerValue,
 				toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
 			})
 
@@ -125,6 +126,7 @@ async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<F
 			strategy.bidPriceCurve = await editPoints({
 				prompt: "Bid point as `orderUsd,exoticPerUsd` (price when buying exotic); empty line to finish",
 				minPoints: 1,
+				checkValue: positiveValue,
 				initial: existing?.bidPriceCurve,
 				toPoint: ({ first, second }) => ({ amount: first, price: second }),
 			})
@@ -139,6 +141,7 @@ async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<F
 			strategy.askPriceCurve = await editPoints({
 				prompt: "Ask point as `orderUsd,exoticPerUsd` (price when selling exotic); empty line to finish",
 				minPoints: 1,
+				checkValue: positiveValue,
 				initial: existing?.askPriceCurve,
 				toPoint: ({ first, second }) => ({ amount: first, price: second }),
 			})

@@ -93,6 +93,57 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/at least 2 points/)
 	})
 
+	it("rejects curve values the runtime policies reject at boot", () => {
+		// fractional bps — InterpolatedCurve requires integers
+		const fractionalBps = minimalStable()
+		fractionalBps.strategies = [
+			{
+				type: "stable",
+				bpsCurve: [
+					{ amount: "100", value: 1.5 },
+					{ amount: "1000", value: 50 },
+				],
+			},
+		]
+		expect(() => validateConfig(fractionalBps)).toThrow(/bpsCurve.*invalid/i)
+
+		// negative FX prices — FillerPricePolicy rejects them (decimal.js counts 0 as
+		// positive-signed, so 0 passes boot and therefore passes here: parity)
+		for (const price of ["-3", "-0.5"]) {
+			const badPrice = minimalStable()
+			badPrice.strategies = [
+				{
+					type: "hyperfx",
+					maxOrderUsd: 5000,
+					token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
+					bidPriceCurve: [{ amount: "100", price }],
+				},
+			]
+			expect(() => validateConfig(badPrice)).toThrow(/bidPriceCurve.*invalid/i)
+		}
+
+		// negative confirmation counts
+		const badConfirmations = minimalStable()
+		badConfirmations.strategies = [
+			{
+				type: "stable",
+				bpsCurve: [
+					{ amount: "100", value: 100 },
+					{ amount: "1000", value: 50 },
+				],
+				confirmationPolicies: {
+					"1": {
+						points: [
+							{ amount: "100", value: -1 },
+							{ amount: "1000", value: 5 },
+						],
+					},
+				},
+			},
+		]
+		expect(() => validateConfig(badConfirmations)).toThrow(/chain 1 is invalid/i)
+	})
+
 	it("rejects hyperfx without curves or uniswap positions", () => {
 		const config = minimalStable()
 		config.strategies = [

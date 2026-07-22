@@ -165,6 +165,7 @@ const kitchenSink: FillerTomlConfig = {
 		bySource: { "EVM-1": ["0x2222222222222222222222222222222222222222"] },
 	},
 	binance: { apiKey: "bk", apiSecret: "bs", timeout: 5000 },
+	keeper: { chains: ["EVM-8453"], intervalMinutes: 30, minSwapUsd: 25 },
 }
 
 describe("emitFillerToml", () => {

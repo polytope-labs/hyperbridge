@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
-import { chmodSync, writeFileSync } from "node:fs"
+import { writeConfigFileAtomic } from "@/config/write-config"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
 import { emitFillerToml } from "@/cli/init/emit-toml"
@@ -474,8 +474,7 @@ export class UiServer {
 	private persistConfig(): boolean {
 		const op = this.operator!
 		try {
-			writeFileSync(op.configPath, emitFillerToml(op.config), { mode: 0o600 })
-			chmodSync(op.configPath, 0o600)
+			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config))
 			return true
 		} catch (err) {
 			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")

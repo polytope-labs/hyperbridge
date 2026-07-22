@@ -14,7 +14,17 @@ export interface EditPointsOptions<P> {
 	minPoints: number
 	initial?: P[]
 	toPoint: (pair: { first: string; second: string }) => P
+	/** Constraint on the second value (bps/price/confirmations), mirroring the runtime policy. */
+	checkValue?: (value: number) => string | undefined
 }
+
+/** Runtime policies require strictly positive prices. */
+export const positiveValue = (value: number): string | undefined =>
+	value > 0 ? undefined : "Must be a positive number"
+
+/** Bps and confirmation curves require non-negative integers. */
+export const nonNegativeIntegerValue = (value: number): string | undefined =>
+	Number.isInteger(value) && value >= 0 ? undefined : "Must be a non-negative integer"
 
 /** Loop collecting comma-separated point pairs until an empty line, enforcing a minimum count. */
 export async function editPoints<P>(options: EditPointsOptions<P>): Promise<P[]> {
@@ -36,7 +46,10 @@ export async function editPoints<P>(options: EditPointsOptions<P>): Promise<P[]>
 				validate: (value) => {
 					const trimmed = (value ?? "").trim()
 					if (!trimmed) return undefined
-					return parsePointInput(trimmed) ? undefined : "Expected two comma-separated numbers, e.g. `1000,50`"
+					const pair = parsePointInput(trimmed)
+					if (!pair) return "Expected two comma-separated numbers, e.g. `1000,50`"
+					if (Number(pair.first) < 0) return "Amount must be non-negative"
+					return options.checkValue?.(Number(pair.second))
 				},
 			}),
 		)

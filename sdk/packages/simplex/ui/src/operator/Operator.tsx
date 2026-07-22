@@ -32,9 +32,12 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 
 	const load = useCallback(async () => {
 		try {
+			// Status is polled too so runtime changes (overfill self-halt, an
+			// external pause) surface without a manual action.
 			const [balanceSnapshot, strategyList] = await Promise.all([
 				api.get<BalanceSnapshot>("/api/balances"),
 				api.get<{ strategies: AdminStrategyDto[] }>("/api/strategies"),
+				refresh(),
 			])
 			setBalances(balanceSnapshot)
 			setStrategies(strategyList.strategies)
@@ -42,7 +45,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 		} catch (err) {
 			setLoadError(err instanceof Error ? err.message : String(err))
 		}
-	}, [])
+	}, [refresh])
 	usePolling(load, 30_000)
 
 	const togglePause = () =>

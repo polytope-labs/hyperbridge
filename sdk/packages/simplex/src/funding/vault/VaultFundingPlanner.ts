@@ -44,9 +44,41 @@ export class VaultFundingPlanner implements FundingVenue {
 	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
-		private readonly config: VaultOutputFundingConfig,
+		private config: VaultOutputFundingConfig,
 		private readonly userOpSender?: UserOpSender,
 	) {}
+
+	/**
+	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
+	 * with every strategy's funding-venue list, so an in-place swap takes effect
+	 * on the next fill/sweep without re-wiring. Sweeping restarts if it was on.
+	 */
+	async reconfigure(config: VaultOutputFundingConfig): Promise<void> {
+		const solver = this.solver
+		if (!solver) throw new Error("Vault venue is not initialised yet")
+
+		const wasSweeping = this.sweepInterval !== undefined
+		this.stopSweeping()
+
+		const stateByChain = new Map<string, VaultLiquidityState>()
+		for (const [chain, vaults] of Object.entries(config.vaultsByChain)) {
+			const state = new VaultLiquidityState(chain, vaults, solver, this.clientManager)
+			await state.hydrate()
+			stateByChain.set(chain, state)
+		}
+
+		// Swap only after every chain hydrated, so a bad address leaves the old set live.
+		this.config = config
+		this.stateByChain.clear()
+		for (const [chain, state] of stateByChain) {
+			this.stateByChain.set(chain, state)
+			if (!this.mutexByChain.has(chain)) this.mutexByChain.set(chain, new Mutex())
+			if (!this.sweepMutexByChain.has(chain)) this.sweepMutexByChain.set(chain, new Mutex())
+		}
+
+		if (wasSweeping) this.startSweeping()
+		logger.info({ chains: Object.keys(config.vaultsByChain) }, "Vault venue reconfigured")
+	}
 
 	/**
 	 * Validates raw TOML vault entries before constructing the planner.

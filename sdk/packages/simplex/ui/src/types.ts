@@ -186,4 +186,5 @@ export interface ConfigDto {
 	logLevel: string
 	vaultConfigured: boolean
 	allowlistUsers: string[]
+	vaults: Array<{ chain: string; vault: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }>
 }

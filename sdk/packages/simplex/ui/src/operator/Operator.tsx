@@ -100,7 +100,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<PillTabs options={PAGE_TABS} value={tab} onChange={setTab} />
 
 			{tab === "activity" && <Activity />}
-			{tab === "operations" && <Operations />}
+			{tab === "operations" && <Operations chains={status.chains} />}
 
 			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<div className="spread">
@@ -198,6 +198,10 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 	const { strategy, onApplied } = props
 	const [bid, setBid] = useState<EditorPoint[]>(() => fromPricePoints(strategy.bid))
 	const [ask, setAsk] = useState<EditorPoint[]>(() => fromPricePoints(strategy.ask))
+	// One-sided LP: an absent side of a curve-priced strategy can be opened by
+	// submitting a curve for it.
+	const [enableBid, setEnableBid] = useState(false)
+	const [enableAsk, setEnableAsk] = useState(false)
 	const [message, setMessage] = useState<string>()
 	const [error, setError] = useState<string>()
 
@@ -217,10 +221,12 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 		setError(undefined)
 		try {
 			const res = await api.put<{ persisted: boolean }>(`/api/strategies/${strategy.index}/curves`, {
-				...(strategy.bid ? { bidPriceCurve: toPricePoints(bid) } : {}),
-				...(strategy.ask ? { askPriceCurve: toPricePoints(ask) } : {}),
+				...(strategy.bid || enableBid ? { bidPriceCurve: toPricePoints(bid) } : {}),
+				...(strategy.ask || enableAsk ? { askPriceCurve: toPricePoints(ask) } : {}),
 			})
 			setMessage(res.persisted ? "Applied & saved to config" : "Applied in memory — config file could not be written")
+			setEnableBid(false)
+			setEnableAsk(false)
 			onApplied()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err))
@@ -233,19 +239,42 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 				Strategy #{strategy.index} {strategy.exotic && `· ${strategy.exotic}`}
 			</h2>
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
-				{strategy.bid && (
+				{(strategy.bid || enableBid) && (
 					<div>
-						<p className="hint">Bid — filler buys exotic</p>
+						<p className="hint">Bid — filler buys exotic{!strategy.bid && " (enabling this side)"}</p>
 						<CurveEditor points={bid} onChange={setBid} amountLabel="USD" valueLabel="Exotic/USD" />
 					</div>
 				)}
-				{strategy.ask && (
+				{(strategy.ask || enableAsk) && (
 					<div>
-						<p className="hint">Ask — filler sells exotic</p>
+						<p className="hint">Ask — filler sells exotic{!strategy.ask && " (enabling this side)"}</p>
 						<CurveEditor points={ask} onChange={setAsk} amountLabel="USD" valueLabel="Exotic/USD" />
 					</div>
 				)}
 			</div>
+			{!strategy.bid && !enableBid && (
+				<button
+					type="button"
+					onClick={() => {
+						setBid([{ amount: "0", value: "" }])
+						setEnableBid(true)
+					}}
+				>
+					Enable bid side (one-sided LP → both directions)
+				</button>
+			)}
+			{!strategy.ask && !enableAsk && (
+				<button
+					type="button"
+					style={{ marginLeft: "0.5rem" }}
+					onClick={() => {
+						setAsk([{ amount: "0", value: "" }])
+						setEnableAsk(true)
+					}}
+				>
+					Enable ask side (one-sided LP → both directions)
+				</button>
+			)}
 			<div className="row" style={{ marginTop: "0.5rem" }}>
 				<button type="button" className="primary" onClick={apply}>
 					Apply

@@ -301,6 +301,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			: [],
 	)
 
+	// Curve-priced FX strategies can have a disabled side (one-sided LP) opened
+	// at runtime from the dashboard; venue-priced ones expose no enableSide.
+	for (const adminStrategy of adminStrategies) {
+		const strategy = strategies[adminStrategy.index]
+		if (strategy instanceof FXFiller && (adminStrategy.bid || adminStrategy.ask)) {
+			adminStrategy.enableSide = (side, policy) => strategy.enableSide(side, policy)
+		}
+	}
+
 	// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
 	for (const strategy of strategies) {
 		if (strategy instanceof FXFiller || strategy instanceof StableFiller) {

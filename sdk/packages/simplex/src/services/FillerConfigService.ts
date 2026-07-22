@@ -193,6 +193,11 @@ export class FillerConfigService {
 		return this.fillerConfig?.allowlist
 	}
 
+	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
+	setRebalancing(rebalancing: RebalancingConfig | undefined): void {
+		if (this.fillerConfig) this.fillerConfig.rebalancing = rebalancing
+	}
+
 	/** Replaces the allowlist at runtime; takes effect on the next order. */
 	setAllowlist(allowlist: AllowlistConfig | undefined): void {
 		if (this.fillerConfig) this.fillerConfig.allowlist = allowlist

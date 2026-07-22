@@ -125,6 +125,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityLogService(dataDir),
 		applyAllowlist: vi.fn(),
+		applyRebalancing: vi.fn(),
 		version: "0.0.0-test",
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
@@ -462,7 +463,8 @@ describe("UiServer (operator mode)", () => {
 
 		const sweepNow = vi.fn().mockResolvedValue(undefined)
 		const redeemAll = vi.fn().mockResolvedValue(undefined)
-		const { base } = await startServer({ vault: { sweepNow, redeemAll } })
+		const reconfigure = vi.fn().mockResolvedValue(undefined)
+		const { base } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
 		expect((await fetch(`${base}/api/vault/sweep`, { method: "POST", headers: CSRF })).status).toBe(200)
 		expect(sweepNow).toHaveBeenCalledTimes(1)
 		expect((await fetch(`${base}/api/vault/redeem`, { method: "POST", headers: CSRF })).status).toBe(200)
@@ -482,6 +484,89 @@ describe("UiServer (operator mode)", () => {
 		expect(res.configured).toBe(true)
 		expect(res.triggerPercentage).toBe(0.5)
 		expect(res.triggers).toEqual({ triggeredChains: [] })
+	})
+
+	it("enables a disabled side on a curve-priced strategy and persists the curve", async () => {
+		const { base, operator } = await startServer()
+		// strategy 3 is ask-only; wire an enableSide like boot does for curve-priced FX
+		const strategy3 = operator.strategies.find((s) => s.index === 3)!
+		const enableSide = vi.fn()
+		strategy3.enableSide = enableSide
+
+		const newBid = [{ amount: "0", price: "1600" }]
+		const res = await put(base, "/api/strategies/3/curves", { bidPriceCurve: newBid })
+		expect(res.status).toBe(200)
+		const bodyJson = await res.json()
+		expect(bodyJson.bid).toEqual(newBid)
+		expect(enableSide).toHaveBeenCalledTimes(1)
+		expect(enableSide.mock.calls[0][0]).toBe("bid")
+		expect(strategy3.bid?.getPoints()).toEqual(newBid)
+
+		// invalid curve neither enables nor mutates
+		const bad = await put(base, "/api/strategies/3/curves", { bidPriceCurve: [{ amount: "0", price: "-1" }] })
+		expect(bad.status).toBe(400)
+		expect(enableSide).toHaveBeenCalledTimes(1)
+	})
+
+	it("still rejects enabling sides on venue-priced strategies", async () => {
+		const { base } = await startServer()
+		// strategy 2 is venue-priced: no policies and no enableSide
+		expect((await put(base, "/api/strategies/2/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
+	})
+
+	it("updates the vault set at runtime and persists it", async () => {
+		const sweepNow = vi.fn().mockResolvedValue(undefined)
+		const redeemAll = vi.fn().mockResolvedValue(undefined)
+		const reconfigure = vi.fn().mockResolvedValue(undefined)
+		const { base, operator } = await startServer({ vault: { sweepNow, redeemAll, reconfigure } })
+
+		const vaults = [
+			{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold: "5000", minBalance: "3000" },
+		]
+		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
+		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
+		expect(reconfigure).toHaveBeenCalledWith(vaults, undefined)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.vault?.vaults).toEqual(vaults)
+
+		// invalid rows rejected before any application
+		const bad = await fetch(`${base}/api/vault`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ vaults: [{ chain: "EVM-8453", vault: "0xabc", threshold: "10", minBalance: "20" }] }),
+		})
+		expect(bad.status).toBe(400)
+	})
+
+	it("reports restart-needed when no vault venue exists at boot", async () => {
+		const { base, operator } = await startServer()
+		const vaults = [{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6" }]
+		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
+		expect(await res.json()).toEqual({ applied: false, restartNeeded: true, persisted: true })
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.vault?.vaults).toEqual(vaults)
+	})
+
+	it("updates rebalancing settings at runtime and persists them", async () => {
+		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
+		const { base, operator } = await startServer({ rebalancing: { checkTriggers } })
+
+		const body = { triggerPercentage: 0.4, baseBalances: { USDC: { "8453": "12000" } } }
+		const res = await fetch(`${base}/api/rebalancing`, { method: "PUT", headers: CSRF, body: JSON.stringify(body) })
+		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
+		expect(operator.applyRebalancing).toHaveBeenCalledWith({
+			triggerPercentage: 0.4,
+			baseBalances: { USDC: { "8453": "12000" } },
+		})
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.rebalancing?.triggerPercentage).toBe(0.4)
+
+		const badTrigger = await fetch(`${base}/api/rebalancing`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ triggerPercentage: 1.5, baseBalances: { USDC: { "1": "10" } } }),
+		})
+		expect(badTrigger.status).toBe(400)
 	})
 
 	it("serves the masked running config", async () => {

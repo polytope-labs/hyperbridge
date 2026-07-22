@@ -70,12 +70,26 @@ function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
 			? {
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
 					redeemAll: () => runtime.vaultVenue!.redeemAll(),
+					reconfigure: (vaults, sweepIntervalMs) => {
+						const vaultsByChain: Record<string, { vault: `0x${string}`; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[]> = {}
+						for (const row of vaults) {
+							if (!vaultsByChain[row.chain]) vaultsByChain[row.chain] = []
+							vaultsByChain[row.chain].push({
+								vault: row.vault,
+								threshold: row.threshold,
+								minBalance: row.minBalance,
+								redeemOnShutdown: row.redeemOnShutdown,
+							})
+						}
+						return runtime.vaultVenue!.reconfigure({ vaultsByChain, sweepIntervalMs })
+					},
 				}
 			: undefined,
 		rebalancing: runtime.rebalancingService
 			? { checkTriggers: () => runtime.rebalancingService!.checkRebalanceTriggers() }
 			: undefined,
 		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
+		applyRebalancing: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,

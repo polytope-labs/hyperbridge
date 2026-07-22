@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { writeConfigFileAtomic } from "@/config/write-config"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
-import type { FillerTomlConfig } from "@/config/filler-toml"
+import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
+import type { FillerTomlConfig, VaultToml } from "@/config/filler-toml"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
 import { isAddress } from "viem"
@@ -27,6 +28,11 @@ export interface AdminStrategy {
 	exotic?: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
+	/**
+	 * Opens a direction configured as one-sided LP with a fresh policy. Present
+	 * only for curve-priced strategies — venue-priced sides stay uneditable.
+	 */
+	enableSide?: (side: "bid" | "ask", policy: FillerPricePolicy) => void
 }
 
 export type UiMode = "init" | "operator"
@@ -57,10 +63,17 @@ export interface OperatorContext {
 	stop(): Promise<void>
 	activity: Pick<ActivityLogService, "getRecent" | "on" | "off">
 	bids?: Pick<BidStorageService, "getRecentBids" | "getStats">
-	vault?: { sweepNow(): Promise<void>; redeemAll(): Promise<void> }
+	vault?: {
+		sweepNow(): Promise<void>
+		redeemAll(): Promise<void>
+		/** Re-hydrates the shared venue with a new vault set; rejects on bad vaults. */
+		reconfigure(vaults: VaultToml[], sweepIntervalMs?: number): Promise<void>
+	}
 	rebalancing?: { checkTriggers(): Promise<unknown> }
 	/** Applies a new allowlist to the running filler (persistence handled by the server). */
 	applyAllowlist(allowlist: AllowlistConfig | undefined): void
+	/** Applies rebalancing settings to the running filler; trigger checks read them live. */
+	applyRebalancing(rebalancing: FillerTomlConfig["rebalancing"]): void
 	version: string
 	startedAt: number
 	configPath: string
@@ -295,6 +308,7 @@ export class UiServer {
 				logLevel: op.config.simplex.logging ?? "info",
 				vaultConfigured: Boolean(op.vault),
 				allowlistUsers: op.config.allowlist?.users ?? [],
+				vaults: op.config.vault?.vaults ?? [],
 			})
 		}
 
@@ -308,6 +322,16 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleAllowlist(req, res)
+		}
+
+		if (path === "/api/vault" && method === "PUT") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			return this.handleVaultUpdate(req, res)
+		}
+
+		if (path === "/api/rebalancing" && method === "PUT") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			return this.handleRebalancingUpdate(req, res)
 		}
 
 		if (path === "/api/vault/sweep" || path === "/api/vault/redeem") {
@@ -419,23 +443,35 @@ export class UiServer {
 		}
 		const update = body as { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] }
 
-		// A side without a policy is structurally uneditable: disabled (one-sided LP)
-		// or venue-priced. Direction enablement is fixed at startup; this only moves prices.
+		// A curve on a disabled side of a curve-priced strategy *enables* that side
+		// (one-sided LP opened by the operator). Venue-priced strategies expose no
+		// enableSide, so their sides remain uneditable.
+		const enabling: Array<{ side: "bid" | "ask"; points: PriceCurvePoint[] }> = []
 		if (update.bidPriceCurve && !strategy.bid) {
-			return sendJson(res, 409, { error: "The bid side of this strategy is not editable (disabled or venue-priced)" })
+			if (!strategy.enableSide) {
+				return sendJson(res, 409, { error: "The bid side of this strategy is not editable (venue-priced)" })
+			}
+			enabling.push({ side: "bid", points: update.bidPriceCurve })
 		}
 		if (update.askPriceCurve && !strategy.ask) {
-			return sendJson(res, 409, { error: "The ask side of this strategy is not editable (disabled or venue-priced)" })
+			if (!strategy.enableSide) {
+				return sendJson(res, 409, { error: "The ask side of this strategy is not editable (venue-priced)" })
+			}
+			enabling.push({ side: "ask", points: update.askPriceCurve })
 		}
 
 		// Apply all-or-nothing: validate every curve before touching any policy.
 		const sides: Array<{ label: "bid" | "ask"; policy: FillerPricePolicy; points: PriceCurvePoint[] }> = []
-		if (update.bidPriceCurve) sides.push({ label: "bid", policy: strategy.bid!, points: update.bidPriceCurve })
-		if (update.askPriceCurve) sides.push({ label: "ask", policy: strategy.ask!, points: update.askPriceCurve })
+		if (update.bidPriceCurve && strategy.bid) sides.push({ label: "bid", policy: strategy.bid, points: update.bidPriceCurve })
+		if (update.askPriceCurve && strategy.ask) sides.push({ label: "ask", policy: strategy.ask, points: update.askPriceCurve })
+		const enabled: Array<{ side: "bid" | "ask"; policy: FillerPricePolicy }> = []
 		try {
 			for (const side of sides) {
 				// Constructing a throwaway policy runs full validation without mutating.
 				void new FillerPricePolicy({ points: side.points })
+			}
+			for (const enable of enabling) {
+				enabled.push({ side: enable.side, policy: new FillerPricePolicy({ points: enable.points }) })
 			}
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
@@ -447,6 +483,15 @@ export class UiServer {
 			this.logger.info(
 				{ strategy: index, side: side.label, previous, next: side.policy.getPoints() },
 				"Price curve updated on the running strategy",
+			)
+		}
+		for (const { side, policy } of enabled) {
+			strategy.enableSide!(side, policy)
+			if (side === "bid") strategy.bid = policy
+			else strategy.ask = policy
+			this.logger.warn(
+				{ strategy: index, side, points: policy.getPoints() },
+				"One-sided LP direction enabled from the UI",
 			)
 		}
 
@@ -499,6 +544,83 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")
 		return sendJson(res, 200, { level, persisted })
+	}
+
+	private async handleVaultUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: { vaults?: VaultToml[]; sweepIntervalMs?: number }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!Array.isArray(body.vaults)) {
+			return sendJson(res, 400, { error: "Provide vaults as an array (empty to disable sourcing/sweeping)" })
+		}
+		try {
+			VaultFundingPlanner.validateConfig(body.vaults)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+
+		const op = this.operator!
+		// A venue only exists when the boot config had one; enabling from nothing
+		// needs strategy re-wiring, which is a restart.
+		if (!op.vault) {
+			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+			const persisted = this.persistConfig()
+			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })
+		}
+
+		try {
+			// Bad vault addresses reject here (hydration reads asset() on-chain),
+			// leaving the previous set live.
+			await op.vault.reconfigure(body.vaults, body.sweepIntervalMs)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+		op.config.vault =
+			body.vaults.length > 0
+				? { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
+				: undefined
+		const persisted = this.persistConfig()
+		this.logger.warn({ vaultCount: body.vaults.length }, "Vault treasury updated from the UI")
+		return sendJson(res, 200, { applied: true, restartNeeded: false, persisted })
+	}
+
+	private async handleRebalancingUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		let body: {
+			triggerPercentage?: number
+			baseBalances?: { USDC?: Record<string, string>; USDT?: Record<string, string> }
+		}
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		const trigger = Number(body.triggerPercentage)
+		if (!Number.isFinite(trigger) || trigger <= 0 || trigger >= 1) {
+			return sendJson(res, 400, { error: "triggerPercentage must be between 0 and 1 (exclusive)" })
+		}
+		const baseBalances = body.baseBalances ?? {}
+		const entries = [...Object.entries(baseBalances.USDC ?? {}), ...Object.entries(baseBalances.USDT ?? {})]
+		if (entries.length === 0) {
+			return sendJson(res, 400, { error: "Provide at least one base balance" })
+		}
+		for (const [chainId, amount] of entries) {
+			if (!/^\d+$/.test(chainId) || !(Number(amount) > 0)) {
+				return sendJson(res, 400, { error: `Invalid base balance for chain ${chainId}: ${amount}` })
+			}
+		}
+
+		const op = this.operator!
+		const rebalancing = { triggerPercentage: trigger, baseBalances }
+		op.applyRebalancing(rebalancing)
+		op.config.rebalancing = rebalancing
+		const persisted = this.persistConfig()
+		// The trigger loop only runs when rebalancing was configured at boot.
+		const applied = Boolean(op.rebalancing)
+		this.logger.warn({ trigger, chains: entries.length }, "Rebalancing settings updated from the UI")
+		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
 	private async handleAllowlist(req: IncomingMessage, res: ServerResponse): Promise<void> {

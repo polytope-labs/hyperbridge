@@ -158,6 +158,8 @@ export interface RetryConfig {
 	backoffMs: number
 	logMessage?: string
 	logger?: ConsolaInstance
+	/** Return false to stop retrying and immediately rethrow the error. */
+	shouldRetry?: (error: unknown) => boolean
 }
 
 export interface IsmpRequest {

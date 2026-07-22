@@ -143,9 +143,13 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
+		let finalizedOrder: Order | undefined
 		while (!result.done) {
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
@@ -166,9 +170,11 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
@@ -272,16 +278,21 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
 		let inspectedBid = false
+		let finalizedOrder: Order | undefined
 
 		while (!result.done) {
 			let feedback: SelectBidResult | undefined
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 
 				if (status.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) throw new Error("Order was not finalized")
 					expect(status.bids.length).toBeGreaterThan(0)
 
-					const ranked = await userSdkHelper.sortBids(order, status.bids)
+					const ranked = await userSdkHelper.sortBids(finalizedOrder, status.bids)
 					expect(ranked.length).toBeGreaterThan(0)
 					const chosen = ranked[0]
 
@@ -323,9 +334,11 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		expect(inspectedBid).toBe(true)
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)

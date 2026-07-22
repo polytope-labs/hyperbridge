@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest"
 import { transformOrderForContract } from "@/protocols/intents/utils"
+import type { HexString, Order } from "@/types"
 import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
-import type { Order, HexString } from "@/types"
+import { describe, expect, it } from "vitest"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 const ADDR_32 = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString

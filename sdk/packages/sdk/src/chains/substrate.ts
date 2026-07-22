@@ -25,7 +25,11 @@ import {
 	replaceWebsocketWithHttp,
 	parseStateMachineId,
 } from "@/utils"
-import { ExpectedError } from "@/utils/exceptions"
+import {
+	ExpectedError,
+	MissingConsensusUpdateTimeError,
+	MISSING_CONSENSUS_UPDATE_TIME_MESSAGE,
+} from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { ISMP_PREFIX } from "@/configs/constants"
 
@@ -404,8 +408,15 @@ export class SubstrateChain implements IChain {
 			height: Number(stateMachineHeight.height),
 		}
 
-		const updateTime: number = await this.rpcClient.call("ismp_queryStateMachineUpdateTime", [payload])
-		return BigInt(updateTime)
+		try {
+			const updateTime: number = await this.rpcClient.call("ismp_queryStateMachineUpdateTime", [payload])
+			return BigInt(updateTime)
+		} catch (error) {
+			if (MissingConsensusUpdateTimeError.isError(error)) {
+				throw new MissingConsensusUpdateTimeError(MISSING_CONSENSUS_UPDATE_TIME_MESSAGE, { cause: error })
+			}
+			throw error
+		}
 	}
 
 	/**

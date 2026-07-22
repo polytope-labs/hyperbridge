@@ -375,7 +375,9 @@ Async generator that cancels a placed order and streams status events until canc
 async *cancelOrder(
   order: Order,
   indexerClient: IsmpClient,
-  options?: { from?: "source" | "destination" },
+  options?: {
+    from?: "source" | "destination"
+  },
 ): AsyncGenerator<CancelEvent>
 ```
 

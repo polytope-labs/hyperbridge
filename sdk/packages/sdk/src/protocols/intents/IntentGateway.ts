@@ -242,8 +242,8 @@ export class IntentGateway {
 	 * placement, fee estimation, bid collection, and execution.
 	 *
 	 * **Yield/receive protocol:**
-	 * 1. If `order.fees` is unset or zero, estimates gas and sets same-chain
-	 *    `order.fees` to twice the estimate. Cross-chain orders retain a 1% buffer
+	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and sets
+	 *    same-chain fees to twice the estimate. Cross-chain orders retain a 1% buffer
 	 *    and include an additional 600k-gas fee uplift, while the wei cost used for
 	 *    the `value` field receives a 2% buffer.
 	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
@@ -253,8 +253,8 @@ export class IntentGateway {
 	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
 	 *    subsequent status updates until the order is filled, exhausted, or fails.
 	 *
-	 * @param order - The order to place and execute. `order.fees` may be 0; it
-	 *   will be estimated automatically if so.
+	 * @param order - The order to place and execute. It is not mutated. `order.fees`
+	 *   may be 0; fees are estimated automatically if so.
 	 * @param graffiti - Optional bytes32 tag for orderflow attribution /
 	 *   revenue share. Defaults to {@link DEFAULT_GRAFFITI}.
 	 * @param options - Optional tuning parameters:
@@ -277,11 +277,12 @@ export class IntentGateway {
 			solver?: { address: HexString; timeoutMs: number }
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
+		const executionOrder: Order = { ...order }
 		let value: bigint | undefined
 
-		if (!order.fees || order.fees === 0n) {
+		if (!executionOrder.fees || executionOrder.fees === 0n) {
 			const estimate = await this.gasEstimator.estimateFillOrder({
-				order,
+				order: executionOrder,
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			})
@@ -303,13 +304,13 @@ export class IntentGateway {
 
 			// Same-chain fills need a larger solver fee margin. Keep cross-chain cost estimation
 			// unchanged for Simplex, and apply the user-order fee uplift only at placement.
-			order.fees = isSameChain
+			executionOrder.fees = isSameChain
 				? estimate.totalGasInFeeToken * 2n
 				: estimate.totalGasInFeeToken +
 					(crossChainFeeBump + (estimate.totalGasInFeeToken * 1n) / 100n)
 		}
 
-		const placeOrderGen = this.orderPlacer.placeOrder(order, graffiti)
+		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)
 		const placeOrderFirst = await placeOrderGen.next()
 		if (placeOrderFirst.done) {
 			throw new Error("placeOrder generator completed without yielding")
@@ -452,14 +453,21 @@ export class IntentGateway {
 		const gen = this.execute(order, graffiti, options)
 		try {
 			let input: HexString | SelectBidResult | undefined
+			let finalizedOrder: Order | undefined
 			while (true) {
 				const { value, done } = await gen.next(input)
 				input = undefined
 				if (done) break
 
-				if (value.status === "BIDS_RECEIVED") {
+				if (value.status === "ORDER_PLACED") {
+					finalizedOrder = value.order
 					yield value
-					input = await this.autoSelect(order, value.bids)
+				} else if (value.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) {
+						throw new Error("Received bids before the order was finalized")
+					}
+					yield value
+					input = await this.autoSelect(finalizedOrder, value.bids)
 				} else if (value.status === "AWAITING_PLACE_ORDER") {
 					input = yield value
 				} else {

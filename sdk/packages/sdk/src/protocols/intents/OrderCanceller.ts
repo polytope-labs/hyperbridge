@@ -14,7 +14,8 @@ import {
 	retryPromise,
 	sleep,
 } from "@/utils"
-import { STORAGE_KEYS } from "@/storage"
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from "@/storage"
+import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
 import type { Order, HexString, IGetRequest, IPostRequest, CancelOrderOptions, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
@@ -45,6 +46,10 @@ import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToF
  * generator can be re-entered after a crash without re-submitting transactions.
  */
 export class OrderCanceller {
+	private static readonly DEFAULT_MAX_RECOVERY_RESTARTS = 1
+	private static readonly PROOF_FRESHNESS_MAX_RETRIES = 3
+	private static readonly PROOF_FRESHNESS_BACKOFF_MS = 500
+
 	private readonly logger = createConsola({
 		level: LogLevels.info,
 		formatOptions: { columns: 80, colors: true, compact: true, date: false },
@@ -84,13 +89,16 @@ export class OrderCanceller {
 	 * @returns The native token dispatch fee in wei.
 	 */
 	private async quoteCancelFromSource(order: Order): Promise<CancelQuote> {
-		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
-
 		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		if (sourceStateMachine === destStateMachine) {
+			return { nativeValue: 0n, relayerFee: 0n }
+		}
+
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(
-			normalizeStateMachineId(order.destination),
+			destStateMachine,
 		)
 		const slotHash = await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
@@ -104,8 +112,8 @@ export class OrderCanceller {
 
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
-			dest: normalizeStateMachineId(order.destination),
-			from: this.ctx.source.configService.getIntentGatewayAddress(normalizeStateMachineId(order.destination)),
+			dest: destStateMachine,
+			from: this.ctx.source.configService.getIntentGatewayAddress(destStateMachine),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
 			keys: [key],
@@ -125,7 +133,9 @@ export class OrderCanceller {
 	 * cancellation is complete.
 	 *
 	 * Delegates to `cancelOrderFromSource` or `cancelOrderFromDest` based on
-	 * the `from` parameter.
+	 * the `from` parameter. If Hyperbridge has pruned consensus data needed for
+	 * source-side GET recovery, clears its stale checkpoint and restarts the
+	 * source-side stream internally.
 	 *
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used to stream ISMP request status
@@ -139,12 +149,34 @@ export class OrderCanceller {
 		indexerClient: IsmpClient,
 		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		const isSameChain = order.source === order.destination
+		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		const isSameChain = sourceStateMachine === destStateMachine
 		if (options.from === "destination" && !isSameChain) {
 			yield* this.cancelOrderFromDest(order, indexerClient)
 			return
 		}
-		yield* this.cancelOrderFromSource(order, indexerClient)
+
+		let recoveryRestarts = 0
+		while (true) {
+			try {
+				yield* this.cancelOrderFromSource(order, indexerClient)
+				return
+			} catch (error) {
+				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+				if (recoveryRestarts >= OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS) {
+					throw new Error(
+						`Cancellation recovery stopped after ${recoveryRestarts} restart(s): Hyperbridge no longer retains a required consensus update.`,
+					)
+				}
+
+				recoveryRestarts += 1
+				this.logger.warn(
+					`Restarting cancellation recovery (${recoveryRestarts}/${OrderCanceller.DEFAULT_MAX_RECOVERY_RESTARTS}) after a required consensus update was pruned`,
+				)
+				await this.clearGetRecoveryCache(order)
+			}
+		}
 	}
 
 	/**
@@ -171,11 +203,10 @@ export class OrderCanceller {
 	 * @throws If the cancel transaction does not contain the expected on-chain event.
 	 */
 	private async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
-		const orderId = order.id!
-		const isSameChain = order.source === order.destination
-		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(
-			normalizeStateMachineId(order.source),
-		)
+		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		const isSameChain = sourceStateMachine === destStateMachine
+		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
 
 		if (isSameChain) {
 			const data = encodeFunctionData({
@@ -212,20 +243,43 @@ export class OrderCanceller {
 			return
 		}
 
+		const storageKeys = this.recoveryStorageKeys(order)
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
 		const hyperbridge = indexerClient.hyperbridge as SubstrateChain
-		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const sourceConsensusStateId = this.ctx.source.configService.getConsensusStateId(sourceStateMachine)
 
-		let destIProof: IProof | null = await this.ctx.cancellationStorage.getItem(STORAGE_KEYS.destProof(orderId))
+		let destIProof: IProof | null = await this.getRecoveryItem(
+			storageKeys.destProof,
+			legacyStorageKeys.map((keys) => keys.destProof),
+		)
 		if (!destIProof) {
 			destIProof = yield* this.fetchDestinationProof(order, indexerClient)
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.destProof(orderId), destIProof)
+			await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
 		} else {
-			yield { status: "DESTINATION_FINALIZED" as const, proof: destIProof }
+			let refreshed = false
+			try {
+				await this.assertProofFresh(hyperbridge, destIProof)
+			} catch (error) {
+				if (!MissingConsensusUpdateTimeError.isError(error)) throw error
+				await this.removeRecoveryItems(
+					storageKeys.destProof,
+					...legacyStorageKeys.map((keys) => keys.destProof),
+				)
+				destIProof = yield* this.fetchDestinationProof(order, indexerClient)
+				await this.ctx.cancellationStorage.setItem(storageKeys.destProof, destIProof)
+				refreshed = true
+			}
+
+			if (!refreshed) yield { status: "DESTINATION_FINALIZED" as const, proof: destIProof }
 		}
 
-		let getRequest: IGetRequest | null = await this.ctx.cancellationStorage.getItem(
-			STORAGE_KEYS.getRequest(orderId),
+		// A proof fetched moments ago can still have crossed the retention boundary;
+		// validate every proof immediately before deriving cancel calldata from it.
+		await this.assertProofFresh(hyperbridge, destIProof)
+
+		let getRequest: IGetRequest | null = await this.getRecoveryItem(
+			storageKeys.getRequest,
+			legacyStorageKeys.map((keys) => keys.getRequest),
 		)
 		if (!getRequest) {
 			const quote = await this.quoteCancelFromSource(order)
@@ -252,7 +306,7 @@ export class OrderCanceller {
 			if (!request) throw new Error("GetRequest missing")
 			getRequest = request.args as unknown as IGetRequest
 
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.getRequest(orderId), getRequest)
+			await this.ctx.cancellationStorage.setItem(storageKeys.getRequest, getRequest)
 
 			yield {
 				status: "CANCEL_STARTED" as const,
@@ -275,8 +329,9 @@ export class OrderCanceller {
 					}
 
 					const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
-					let sourceIProof: IProof | null = await this.ctx.cancellationStorage.getItem(
-						STORAGE_KEYS.sourceProof(orderId),
+					let sourceIProof: IProof | null = await this.getRecoveryItem(
+						storageKeys.sourceProof,
+						legacyStorageKeys.map((keys) => keys.sourceProof),
 					)
 					if (!sourceIProof) {
 						sourceIProof = await fetchSourceProof(
@@ -286,8 +341,10 @@ export class OrderCanceller {
 							sourceConsensusStateId,
 							sourceHeight,
 						)
-						await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.sourceProof(orderId), sourceIProof)
+						await this.ctx.cancellationStorage.setItem(storageKeys.sourceProof, sourceIProof)
 					}
+
+					await this.assertProofFresh(hyperbridge, sourceIProof)
 
 					await waitForChallengePeriod(hyperbridge, {
 						height: sourceIProof.height,
@@ -296,6 +353,13 @@ export class OrderCanceller {
 							consensusStateId: sourceConsensusStateId,
 						},
 					})
+
+					// Challenge waiting can outlive a retention window. Validate both
+					// inputs again immediately before submitting the proof-bearing message.
+					await Promise.all([
+						this.assertProofFresh(hyperbridge, sourceIProof),
+						this.assertProofFresh(hyperbridge, destIProof),
+					])
 
 					const getRequestMessage: IGetRequestMessage = {
 						kind: "GetRequest",
@@ -321,9 +385,12 @@ export class OrderCanceller {
 						status: "HYPERBRIDGE_FINALIZED" as const,
 						metadata: statusUpdate.metadata,
 					}
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.destProof(orderId))
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.getRequest(orderId))
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.sourceProof(orderId))
+					await this.removeRecoveryItems(
+						storageKeys.destProof,
+						storageKeys.getRequest,
+						storageKeys.sourceProof,
+						...legacyStorageKeys.flatMap((keys) => [keys.destProof, keys.getRequest, keys.sourceProof]),
+					)
 					return
 			}
 		}
@@ -341,10 +408,11 @@ export class OrderCanceller {
 	 * @returns The native token dispatch fee in wei.
 	 */
 	private async quoteCancelFromDest(order: Order): Promise<CancelQuote> {
-		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
-
-		const destStateMachine = normalizeStateMachineId(order.destination)
 		const sourceStateMachine = normalizeStateMachineId(order.source)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		if (sourceStateMachine === destStateMachine) {
+			return { nativeValue: 0n, relayerFee: 0n }
+		}
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayAddress(sourceStateMachine)
@@ -388,13 +456,15 @@ export class OrderCanceller {
 	 * @throws If the cancel transaction does not contain a `PostRequestEvent`.
 	 */
 	private async *cancelOrderFromDest(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
-		const orderId = order.id!
+		const storageKeys = this.recoveryStorageKeys(order)
 
 		const destStateMachine = normalizeStateMachineId(order.destination)
 		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 
-		let commitment: HexString | null = await this.ctx.cancellationStorage.getItem(
-			STORAGE_KEYS.postCommitment(orderId),
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
+		let commitment: HexString | null = await this.getRecoveryItem(
+			storageKeys.postCommitment,
+			legacyStorageKeys.map((keys) => keys.postCommitment),
 		)
 
 		if (!commitment) {
@@ -429,7 +499,7 @@ export class OrderCanceller {
 			const postArgs = postEvent.args as unknown as IPostRequest
 			commitment = postRequestCommitment(postArgs).commitment
 
-			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.postCommitment(orderId), commitment)
+			await this.ctx.cancellationStorage.setItem(storageKeys.postCommitment, commitment)
 		}
 
 		const statusStream = indexerClient.postRequestStatusStream(commitment)
@@ -468,7 +538,10 @@ export class OrderCanceller {
 					if (refundEvents.length === 0) {
 						throw new Error("EscrowRefunded event not found in source-chain delivery receipt")
 					}
-					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.postCommitment(orderId))
+					await this.removeRecoveryItems(
+						storageKeys.postCommitment,
+						...legacyStorageKeys.map((keys) => keys.postCommitment),
+					)
 					yield {
 						status: "CANCELLATION_COMPLETE" as const,
 						blockNumber: statusUpdate.metadata.blockNumber,
@@ -520,7 +593,7 @@ export class OrderCanceller {
 				const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(
 					this.ctx.dest.config.stateMachineId,
 				)
-				const orderId = order.id!
+				const orderId = this.orderId(order)
 				const slotHash = (await this.ctx.dest.client.readContract({
 					abi: IntentGatewayV2ABI,
 					address: intentGatewayV2Address,
@@ -540,6 +613,7 @@ export class OrderCanceller {
 				yield { status: "DESTINATION_FINALIZED" as const, proof }
 				return proof
 			} catch (e) {
+				if (MissingConsensusUpdateTimeError.isError(e)) throw e
 				lastFailedHeight = latestHeight
 				await sleep(10000)
 			}
@@ -576,6 +650,7 @@ export class OrderCanceller {
 			this.logger.info(`Unsigned GET ${commitment} submitted; waiting for Hyperbridge response receipt`)
 			await sleep(30000)
 		} catch (error) {
+			if (MissingConsensusUpdateTimeError.isError(error)) throw error
 			this.logger.warn(
 				`Unsigned GET submit failed for ${commitment}; polling response receipt before failing: ${String(error)}`,
 			)
@@ -585,12 +660,129 @@ export class OrderCanceller {
 			await this.pollDeliveredReceipt(hyperbridge, commitment)
 			this.logger.info(`Confirmed Hyperbridge GET delivery for ${commitment}`)
 		} catch (error) {
+			if (MissingConsensusUpdateTimeError.isError(error)) throw error
 			const message = `Failed to deliver GET request to Hyperbridge; no response receipt found for ${commitment}: ${String(error)}`
 			this.logger.error(message)
 			throw new Error(message)
 		}
 	}
 
+	/** Verify that Hyperbridge still retains the consensus update for a proof. */
+	private async assertProofFresh(hyperbridge: SubstrateChain, proof: IProof): Promise<void> {
+		await retryPromise(
+			() =>
+				hyperbridge.stateMachineUpdateTime({
+					height: proof.height,
+					id: {
+						stateId: parseStateMachineId(proof.stateMachine).stateId,
+						consensusStateId: proof.consensusStateId,
+					},
+				}),
+			{
+				maxRetries: OrderCanceller.PROOF_FRESHNESS_MAX_RETRIES,
+				backoffMs: OrderCanceller.PROOF_FRESHNESS_BACKOFF_MS,
+				logger: this.logger,
+				logMessage: `Checking consensus update time for proof at height ${proof.height}`,
+				shouldRetry: (error) => !MissingConsensusUpdateTimeError.isError(error),
+			},
+		)
+	}
+
+	/**
+	 * Drops the source-initiated GET recovery checkpoint after Hyperbridge prunes
+	 * a consensus update required by that recovery attempt.
+	 */
+	private async clearGetRecoveryCache(order: Order): Promise<void> {
+		const keys = this.recoveryStorageKeys(order)
+		const legacyStorageKeys = this.legacyRecoveryStorageKeys(order)
+		await this.removeRecoveryItems(
+			keys.destProof,
+			keys.sourceProof,
+			keys.getRequest,
+			...legacyStorageKeys.flatMap((legacyKeys) => [
+				legacyKeys.destProof,
+				legacyKeys.sourceProof,
+				legacyKeys.getRequest,
+			]),
+		)
+	}
+
+	/**
+	 * Returns the pair-scoped storage keys used to resume cancellation recovery
+	 * for an order.
+	 *
+	 * @param order - The order whose source/destination recovery state is stored.
+	 */
+	private recoveryStorageKeys(order: Order) {
+		const orderId = this.orderId(order)
+		return {
+			destProof: STORAGE_KEYS.destProof(orderId, order.source, order.destination),
+			getRequest: STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
+			sourceProof: STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
+			postCommitment: STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
+		}
+	}
+
+	/** Older SDK key shapes, checked once and migrated to the normalized pair-scoped key. */
+	private legacyRecoveryStorageKeys(order: Order) {
+		const orderId = this.orderId(order)
+		return [
+			{
+				destProof: LEGACY_STORAGE_KEYS.destProof(orderId, order.source, order.destination),
+				getRequest: LEGACY_STORAGE_KEYS.getRequest(orderId, order.source, order.destination),
+				sourceProof: LEGACY_STORAGE_KEYS.sourceProof(orderId, order.source, order.destination),
+				postCommitment: LEGACY_STORAGE_KEYS.postCommitment(orderId, order.source, order.destination),
+			},
+			{
+				destProof: LEGACY_STORAGE_KEYS.destProof(orderId),
+				getRequest: LEGACY_STORAGE_KEYS.getRequest(orderId),
+				sourceProof: LEGACY_STORAGE_KEYS.sourceProof(orderId),
+				postCommitment: LEGACY_STORAGE_KEYS.postCommitment(orderId),
+			},
+		]
+	}
+
+	private async getRecoveryItem<T>(currentKey: string, legacyKeys: string[]): Promise<T | null> {
+		const current = await this.ctx.cancellationStorage.getItem<T>(currentKey)
+		if (current) return current
+
+		for (const legacyKey of new Set(legacyKeys)) {
+			if (legacyKey === currentKey) continue
+			const legacy = await this.ctx.cancellationStorage.getItem<T>(legacyKey)
+			if (!legacy) continue
+
+			await this.ctx.cancellationStorage.setItem(currentKey, legacy)
+			await this.ctx.cancellationStorage.removeItem(legacyKey)
+			return legacy
+		}
+
+		return null
+	}
+
+	private async removeRecoveryItems(...keys: string[]): Promise<void> {
+		await Promise.all(
+			[...new Set(keys)].map((key) => this.ctx.cancellationStorage.removeItem(key)),
+		)
+	}
+
+	/**
+	 * Returns the order identifier required to persist or clear recovery state.
+	 *
+	 * @param order - The order being cancelled.
+	 * @throws If the order has no identifier.
+	 */
+	private orderId(order: Order): string {
+		if (!order.id) throw new Error("An order id is required to recover cancellation")
+		return order.id
+	}
+
+	/**
+	 * Reads the Hyperbridge response receipt for a GET request commitment.
+	 *
+	 * @param hyperbridge - Hyperbridge chain client used to query the receipt.
+	 * @param commitment - Commitment of the GET request.
+	 * @returns The receipt commitment when delivered, otherwise `undefined`.
+	 */
 	private async queryDeliveredReceipt(
 		hyperbridge: SubstrateChain,
 		commitment: HexString,
@@ -598,6 +790,14 @@ export class OrderCanceller {
 		return hyperbridge.queryResponseReceipt(commitment)
 	}
 
+	/**
+	 * Polls Hyperbridge until it records a response receipt for the GET request.
+	 *
+	 * @param hyperbridge - Hyperbridge chain client used to query the receipt.
+	 * @param commitment - Commitment of the GET request.
+	 * @returns The delivered response receipt commitment.
+	 * @throws If no receipt is observed within the configured retry limit.
+	 */
 	private async pollDeliveredReceipt(hyperbridge: SubstrateChain, commitment: HexString): Promise<HexString> {
 		this.logger.info(`Polling Hyperbridge GET response receipt for ${commitment}`)
 		return retryPromise(

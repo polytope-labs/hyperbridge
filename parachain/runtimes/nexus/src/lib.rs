@@ -1511,7 +1511,19 @@ impl_runtime_apis! {
 
 
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
-			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
+			impl cumulus_pallet_session_benchmarking::Config for Runtime {
+				fn generate_session_keys_and_proof(
+					owner: AccountId,
+				) -> (SessionKeys, sp_std::vec::Vec<u8>) {
+					use codec::Encode;
+					// Mirror the session-keys runtime API: generate the keys in the
+					// keystore and a proof-of-possession over the owner account.
+					let generated =
+						owner.using_encoded(|owner| SessionKeys::generate(owner, None));
+					(generated.keys, generated.proof.encode())
+				}
+			}
+			impl pallet_transaction_payment::BenchmarkConfig for Runtime {}
 
 			use frame_support::traits::WhitelistedStorageKeys;
 			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();

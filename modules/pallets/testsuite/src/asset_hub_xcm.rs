@@ -243,6 +243,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type WeightInfo = ();
 	type ConsensusHook = RequireParentIncluded;
 	type RelayParentOffset = ConstU32<0>;
+	type SchedulingSignatureVerifier = ();
 }
 
 impl cumulus_pallet_xcmp_queue::Config for Test {

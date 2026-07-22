@@ -92,7 +92,7 @@ export function StepReview({ state, defaults }: StepProps) {
 				{evmAddress && (
 					<p className="hint">
 						Filler wallet (EVM): <CopyHash value={evmAddress} chars={42} /> — needs stablecoins (USDC/USDT) on
-						every enabled chain; gas is covered by the paymaster, paid in USDC.
+						every enabled chain; gas is covered by the paymaster, paid in USDC/USDT — whichever is available.
 					</p>
 				)}
 				{state.substrateAddress && (

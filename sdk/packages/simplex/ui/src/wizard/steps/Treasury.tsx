@@ -1,7 +1,7 @@
 import { enabledChains, patchAt, removeAt } from "../state"
 import type { StepProps } from "../Wizard"
 
-export function StepTreasury({ state, setState }: StepProps) {
+export function StepTreasury({ state, setState, defaults }: StepProps) {
 	const chains = enabledChains(state)
 
 	return (
@@ -79,8 +79,58 @@ export function StepTreasury({ state, setState }: StepProps) {
 					Fills can source missing stablecoin balance from a vault position atomically, and idle wallet balance
 					above a threshold is swept in to earn yield (e.g. Aave stataUSDC). Threshold and min balance are
 					USD-denominated: 1 means $1 (stablecoins counted at $1). The underlying asset is resolved
-					on-chain from the vault address.
+					on-chain from the vault address. One vault per asset per chain — a second same-asset vault would
+					shadow the first.
 				</p>
+
+				{chains.some((c) => (defaults.knownVaults[c.meta.stateMachineId] ?? []).length > 0) && (
+					<div style={{ marginBottom: "0.8rem" }}>
+						<p className="hint">Known vaults — tick to add (thresholds are edited in the rows below):</p>
+						{chains.map((chain) =>
+							(defaults.knownVaults[chain.meta.stateMachineId] ?? []).map((known) => {
+								const selected = state.vaults.some(
+									(v) =>
+										v.chain === chain.meta.stateMachineId &&
+										v.vault.toLowerCase() === known.address.toLowerCase(),
+								)
+								return (
+									<label className="row" key={`${chain.meta.stateMachineId}-${known.address}`}>
+										<input
+											type="checkbox"
+											checked={selected}
+											onChange={(e) =>
+												setState((s) => ({
+													...s,
+													vaults: e.target.checked
+														? [
+																...s.vaults,
+																{
+																	chain: chain.meta.stateMachineId,
+																	vault: known.address,
+																	threshold: "",
+																	minBalance: "",
+																	redeemOnShutdown: false,
+																},
+															]
+														: s.vaults.filter(
+																(v) =>
+																	!(
+																		v.chain === chain.meta.stateMachineId &&
+																		v.vault.toLowerCase() === known.address.toLowerCase()
+																	),
+															),
+												}))
+											}
+										/>
+										{chain.meta.label}: {known.label} ({known.asset}){" "}
+										<span className="mono">{known.address.slice(0, 10)}…</span>
+									</label>
+								)
+							}),
+						)}
+					</div>
+				)}
+
 				{state.vaults.map((vault, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: positional rows
 					<div className="row" key={index} style={{ marginBottom: "0.5rem" }}>

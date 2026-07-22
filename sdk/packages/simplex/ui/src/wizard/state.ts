@@ -68,7 +68,7 @@ export interface WizardState {
 	binanceKey: string
 	binanceSecret: string
 	vaults: VaultDraft[]
-	allowlist: string
+	allowlistUsers: string[]
 	maxConcurrentOrders: string
 	maxRechecks: string
 	recheckDelayMs: string
@@ -114,7 +114,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		binanceKey: "",
 		binanceSecret: "",
 		vaults: [],
-		allowlist: "",
+		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
 		maxRechecks: String(defaults.queue.maxRechecks),
 		recheckDelayMs: String(defaults.queue.recheckDelayMs),
@@ -230,10 +230,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		Object.entries(state.rebalancingUsdc).filter(([, amount]) => amount.trim()),
 	)
 
-	const allowlistUsers = state.allowlist
-		.split(/[\s,]+/)
-		.map((s) => s.trim())
-		.filter(Boolean)
+	const allowlistUsers = state.allowlistUsers
 
 	const signer =
 		state.signerType === "privateKey"

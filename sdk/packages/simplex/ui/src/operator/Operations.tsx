@@ -1,12 +1,13 @@
 import { useCallback, useState } from "react"
 import { api } from "../api"
+import { AddressListEditor } from "../components/AddressListEditor"
 import { useAction, usePolling } from "../lib/hooks"
 import type { ConfigDto, RebalancingDto } from "../types"
 
 export function Operations() {
 	const [rebalancing, setRebalancing] = useState<RebalancingDto>()
 	const [config, setConfig] = useState<ConfigDto>()
-	const [allowlistInput, setAllowlistInput] = useState("")
+	const [allowlist, setAllowlist] = useState<string[]>([])
 	const { run: act, message, error } = useAction()
 
 	const load = useCallback(async () => {
@@ -16,6 +17,7 @@ export function Operations() {
 		])
 		setRebalancing(rebalancingDto)
 		setConfig(configDto)
+		setAllowlist(configDto.allowlistUsers)
 	}, [])
 	usePolling(useCallback(() => act(load), [act, load]))
 
@@ -63,35 +65,18 @@ export function Operations() {
 			<div className="card">
 				<h2>Allowlist</h2>
 				<p className="hint">
-					Only fill orders placed by these addresses. Applies immediately and is saved to the config. Leave empty
-					and save to accept orders from everyone.
+					Only fill orders placed by these addresses. Changes apply immediately and are saved to the config. An
+					empty list accepts orders from everyone.
 				</p>
-				<div className="row">
-					<input
-						type="text"
-						style={{ flex: 1 }}
-						placeholder="0x…, 0x… (comma or space separated)"
-						value={allowlistInput}
-						onChange={(e) => setAllowlistInput(e.target.value)}
-					/>
-					<button
-						type="button"
-						onClick={() =>
-							act(
-								() =>
-									api.put("/api/allowlist", {
-										users: allowlistInput
-											.split(/[\s,]+/)
-											.map((s) => s.trim())
-											.filter(Boolean),
-									}),
-								"Allowlist updated",
-							)
-						}
-					>
-						Save
-					</button>
-				</div>
+				<AddressListEditor
+					addresses={allowlist}
+					onChange={(users) =>
+						act(async () => {
+							await api.put("/api/allowlist", { users })
+							setAllowlist(users)
+						}, "Allowlist updated")
+					}
+				/>
 			</div>
 
 			<div className="card">

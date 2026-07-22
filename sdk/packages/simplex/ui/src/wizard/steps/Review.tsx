@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { api } from "../../api"
+import { CopyHash } from "../../components/CopyHash"
 import { assembleConfig, chainLabels } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -77,15 +78,29 @@ export function StepReview({ state, defaults }: StepProps) {
 		)
 	}
 
+	const evmAddress =
+		state.signerType === "privateKey"
+			? state.signerAddress
+			: state.signerType === "mpcVault"
+				? state.mpcVault.accountAddress
+				: state.turnkey.signWith
+
 	return (
 		<div>
 			<div className="card">
-				<h2>Before the filler can fill</h2>
-				<p className="hint">
-					· Fund the filler wallet with stablecoins (USDC/USDT) on every chain — gas is covered by the paymaster,
-					paid in USDC.
-					<br />· Fund the Hyperbridge account with BRIDGE tokens for bid fees (claimed back automatically).
-				</p>
+				<h2>Your accounts — fund these</h2>
+				{evmAddress && (
+					<p className="hint">
+						Filler wallet (EVM): <CopyHash value={evmAddress} chars={42} /> — needs stablecoins (USDC/USDT) on
+						every enabled chain; gas is covered by the paymaster, paid in USDC.
+					</p>
+				)}
+				{state.substrateAddress && (
+					<p className="hint">
+						Hyperbridge account: <CopyHash value={state.substrateAddress} chars={16} /> — needs BRIDGE tokens for
+						bid fees (claimed back automatically).
+					</p>
+				)}
 			</div>
 
 			<div className="card">

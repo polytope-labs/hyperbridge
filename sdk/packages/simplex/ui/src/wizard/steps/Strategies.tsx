@@ -9,7 +9,7 @@ const PRICING_TABS = [
 	{ value: "uniswapV4", label: "Uniswap V4 positions" },
 ] as const
 
-export function StepStrategies({ state, setState }: StepProps) {
+export function StepStrategies({ state, setState, defaults }: StepProps) {
 	const chains = enabledChains(state)
 
 	const verifyToken = async (chainId: number) => {
@@ -96,34 +96,72 @@ export function StepStrategies({ state, setState }: StepProps) {
 							/>
 						</label>
 
-						<p className="hint">Exotic token contract per chain it exists on (at least one chain required):</p>
-						{chains.map((chain) => (
-							<label className="field" key={chain.meta.chainId}>
-								<span>{chain.meta.label}</span>
-								<div className="row">
-									<input
-										type="text"
-										style={{ flex: 1 }}
-										placeholder="0x… (leave empty if the token isn't on this chain)"
-										value={chain.token1}
-										onChange={(e) =>
-											setState((s) =>
-												patchChain(s, chain.meta.chainId, {
-													token1: e.target.value,
-													tokenSymbol: undefined,
-													tokenError: undefined,
-												}),
-											)
-										}
-									/>
-									<button type="button" disabled={!chain.token1.trim()} onClick={() => verifyToken(chain.meta.chainId)}>
-										Verify
-									</button>
-									{chain.tokenSymbol && <span className="badge ok">{chain.tokenSymbol}</span>}
-									{chain.tokenError && <span className="badge err">{chain.tokenError}</span>}
-								</div>
-							</label>
-						))}
+						<p className="hint">Exotic token per chain it exists on (at least one chain required):</p>
+						{chains.map((chain) => {
+							const known = defaults.knownTokens[chain.meta.stateMachineId] ?? []
+							const selectedKnown = known.find(
+								(t) => t.address.toLowerCase() === chain.token1.trim().toLowerCase(),
+							)
+							const showCustom = known.length === 0 || (chain.token1 !== "" && !selectedKnown)
+							return (
+								<label className="field" key={chain.meta.chainId}>
+									<span>{chain.meta.label}</span>
+									<div className="row">
+										{known.length > 0 && (
+											<select
+												value={selectedKnown ? selectedKnown.address : showCustom ? "custom" : ""}
+												onChange={(e) =>
+													setState((s) =>
+														patchChain(s, chain.meta.chainId, {
+															token1: e.target.value === "custom" ? "0x" : e.target.value,
+															tokenSymbol: undefined,
+															tokenError: undefined,
+														}),
+													)
+												}
+											>
+												<option value="">none — token isn't on this chain</option>
+												{known.map((token) => (
+													<option key={token.address} value={token.address}>
+														{token.symbol} ({token.address.slice(0, 10)}…)
+													</option>
+												))}
+												<option value="custom">custom address…</option>
+											</select>
+										)}
+										{showCustom && (
+											<input
+												type="text"
+												style={{ flex: 1 }}
+												placeholder="0x… (leave empty if the token isn't on this chain)"
+												value={chain.token1}
+												onChange={(e) =>
+													setState((s) =>
+														patchChain(s, chain.meta.chainId, {
+															token1: e.target.value,
+															tokenSymbol: undefined,
+															tokenError: undefined,
+														}),
+													)
+												}
+											/>
+										)}
+										<button
+											type="button"
+											disabled={!chain.token1.trim() || chain.token1.trim() === "0x"}
+											onClick={() => verifyToken(chain.meta.chainId)}
+										>
+											Verify
+										</button>
+										{chain.tokenSymbol && <span className="badge ok">{chain.tokenSymbol}</span>}
+										{selectedKnown && !chain.tokenSymbol && (
+											<span className="badge ok">{selectedKnown.symbol}</span>
+										)}
+										{chain.tokenError && <span className="badge err">{chain.tokenError}</span>}
+									</div>
+								</label>
+							)
+						})}
 
 						<p className="hint">Price source for the exotic token:</p>
 						<PillTabs

@@ -5,6 +5,7 @@ import {
 	type Chains,
 	hyperbridgeAddress,
 	type ConfiguredAssetSymbol,
+	type Erc4626VaultConfigData,
 	type UniswapV4PoolConfigData,
 } from "@/configs/chain"
 
@@ -113,6 +114,24 @@ export class ChainConfigService {
 
 	getExtDecimals(chain: string): number | undefined {
 		return this.getConfig(chain)?.tokenDecimals?.EXT
+	}
+
+	/** Every configured exotic (non-USD) token on a chain, for selection UIs. */
+	getKnownExoticTokens(chain: string): Array<{ symbol: string; address: HexString; decimals?: number }> {
+		const config = this.getConfig(chain)
+		const tokens: Array<{ symbol: string; address: HexString; decimals?: number }> = []
+		if (config?.assets?.cNGN) {
+			tokens.push({ symbol: "cNGN", address: config.assets.cNGN as HexString, decimals: config.tokenDecimals?.cNGN })
+		}
+		if (config?.assets?.EXT && config.assets.EXT !== config.assets?.cNGN) {
+			tokens.push({ symbol: "EXT", address: config.assets.EXT as HexString, decimals: config.tokenDecimals?.EXT })
+		}
+		return tokens
+	}
+
+	/** Known ERC-4626 treasury vaults on a chain, for selection UIs. */
+	getKnownVaults(chain: string): Erc4626VaultConfigData[] {
+		return this.getConfig(chain)?.erc4626Vaults ?? []
 	}
 
 	getChainId(chain: string): number {

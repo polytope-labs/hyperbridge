@@ -22,6 +22,18 @@ export interface ChainDefault {
 	note?: string
 }
 
+export interface KnownToken {
+	symbol: string
+	address: string
+	decimals?: number
+}
+
+export interface KnownVault {
+	label: string
+	address: string
+	asset: string
+}
+
 export interface SetupDefaults {
 	chains: ChainDefault[]
 	hyperbridgeWs: Record<Network, string>
@@ -31,6 +43,8 @@ export interface SetupDefaults {
 	queue: { maxRechecks: number; recheckDelayMs: number }
 	maxConcurrentOrders: number
 	configPath: string
+	knownTokens: Record<string, KnownToken[]>
+	knownVaults: Record<string, KnownVault[]>
 }
 
 export interface SignerConfig {
@@ -171,4 +185,5 @@ export interface ConfigDto {
 	toml: string
 	logLevel: string
 	vaultConfigured: boolean
+	allowlistUsers: string[]
 }

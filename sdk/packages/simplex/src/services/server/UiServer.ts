@@ -294,6 +294,7 @@ export class UiServer {
 				toml: maskToml(op.config),
 				logLevel: op.config.simplex.logging ?? "info",
 				vaultConfigured: Boolean(op.vault),
+				allowlistUsers: op.config.allowlist?.users ?? [],
 			})
 		}
 

@@ -18,7 +18,7 @@ export function CopyHash(props: { value: string; chars?: number }) {
 	return (
 		<span className="row" style={{ gap: "0.3rem", display: "inline-flex" }}>
 			<span className="mono" title={props.value}>
-				{props.value.slice(0, chars)}…
+				{props.value.length > chars ? `${props.value.slice(0, chars)}…` : props.value}
 			</span>
 			<button
 				type="button"

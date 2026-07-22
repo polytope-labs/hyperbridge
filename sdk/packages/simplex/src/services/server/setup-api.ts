@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { writeConfigFileAtomic } from "@/config/write-config"
 import { createPublicClient, http, isAddress } from "viem"
+import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { validateConfig, DEFAULT_CONFIRMATION_POLICIES, type FillerTomlConfig } from "@/config/filler-toml"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
@@ -58,6 +59,15 @@ export async function handleSetupRequest(
 
 	if (endpoint === "defaults") {
 		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+		// Known exotic tokens and treasury vaults come from the SDK's chain registry
+		// so selection UIs offer curated entries instead of requiring pasted addresses.
+		const registry = new ChainConfigService({})
+		const knownTokens: Record<string, ReturnType<ChainConfigService["getKnownExoticTokens"]>> = {}
+		const knownVaults: Record<string, ReturnType<ChainConfigService["getKnownVaults"]>> = {}
+		for (const meta of INIT_CHAINS) {
+			knownTokens[meta.stateMachineId] = registry.getKnownExoticTokens(meta.stateMachineId)
+			knownVaults[meta.stateMachineId] = registry.getKnownVaults(meta.stateMachineId)
+		}
 		return sendJson(res, 200, {
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
@@ -67,6 +77,8 @@ export async function handleSetupRequest(
 			queue: DEFAULT_QUEUE,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
+			knownTokens,
+			knownVaults,
 		})
 	}
 

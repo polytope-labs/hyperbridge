@@ -1,3 +1,4 @@
+import { AddressListEditor } from "../../components/AddressListEditor"
 import { Field } from "../../components/Field"
 import type { StepProps } from "../Wizard"
 
@@ -21,12 +22,15 @@ export function StepAdvanced({ state, setState }: StepProps) {
 				</label>
 			</div>
 
-			<Field
-				label="Allowlist (optional): only fill orders placed by these user addresses — one per line or comma-separated. Leave empty to fill for everyone."
-				value={state.allowlist}
-				onChange={(allowlist) => setState((s) => ({ ...s, allowlist }))}
-				placeholder="0x…, 0x…"
-			/>
+			<div className="field">
+				<span style={{ display: "block", marginBottom: "0.3rem", color: "var(--muted)", fontSize: "0.9rem" }}>
+					Allowlist (optional): only fill orders placed by these user addresses. Leave empty to fill for everyone.
+				</span>
+				<AddressListEditor
+					addresses={state.allowlistUsers}
+					onChange={(allowlistUsers) => setState((s) => ({ ...s, allowlistUsers }))}
+				/>
+			</div>
 
 			<p className="hint">
 				Gas fee bump (8%/10%) and overfill protection (500 bps / 3 clamps) keep their defaults; the generated

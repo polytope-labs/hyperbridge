@@ -23,6 +23,7 @@ features = [
     "sp-blockchain",
     "sc-client-api",
     "sp-core",
+    "sp-crypto-hashing",
     "sp-mmr-primitives",
     "sc-offchain",
     "sp-runtime",

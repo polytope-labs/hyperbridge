@@ -22,7 +22,7 @@
 use anyhow::anyhow;
 use codec::Decode;
 use pallet_beefy_consensus_proofs::types::offchain_key;
-use sp_core::twox_128;
+use sp_crypto_hashing::twox_128;
 use std::collections::BTreeMap;
 use subxt::ext::subxt_rpcs::{rpc_params, RpcClient};
 pub use tesseract_primitives::{ConsensusProofSource, RotationProof};

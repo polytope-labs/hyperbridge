@@ -23,5 +23,6 @@ features = [
     "sc-transaction-pool-api",
     "sp-blockchain",
     "sp-core",
+    "sp-crypto-hashing",
     "sp-runtime",
 ]

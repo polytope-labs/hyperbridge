@@ -144,7 +144,7 @@ pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
 use primitive_types::{H160, H256, U256};
-use sp_core::keccak_256;
+use sp_crypto_hashing::keccak_256;
 use std::{
 	fmt::{Debug, Display, Formatter},
 	ops::{Add, Mul},

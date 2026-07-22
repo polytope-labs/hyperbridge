@@ -31,10 +31,8 @@ use polkadot_sdk::*;
 use sc_client_api::{Backend, FinalityNotification};
 use sc_offchain::OffchainDb;
 use sp_blockchain::{CachedHeaderMetadata, ForkBackend};
-use sp_core::{
-	keccak_256,
-	offchain::{DbExternalities, StorageKind},
-};
+use sp_core::offchain::{DbExternalities, StorageKind};
+use sp_crypto_hashing::keccak_256;
 use sp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
 use sp_runtime::{
 	traits::{Block, Header, Keccak256, NumberFor, One},

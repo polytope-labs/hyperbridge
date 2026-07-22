@@ -32,7 +32,8 @@ use ismp::{
 use pallet_ismp_host_executive::EvmHosts;
 use polkadot_sdk::*;
 use primitive_types::H160;
-use sp_core::{hashing, storage::ChildInfo, H256};
+use sp_core::{storage::ChildInfo, H256};
+use sp_crypto_hashing::{blake2_256, twox_128};
 use sp_runtime::traits::BlakeTwo256;
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 use thiserror::Error;
@@ -152,7 +153,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	}
 
 	fn commitment_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
-		req_commitment_key::<H, _>(commitments, |k| hashing::blake2_256(k).to_vec())
+		req_commitment_key::<H, _>(commitments, |k| blake2_256(k).to_vec())
 	}
 
 	fn receipts_state_trie_key(&self, commitments: Vec<H256>) -> Vec<Vec<u8>> {
@@ -228,7 +229,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 				.iter()
 				.map(|k| {
 					let slot = if k.len() == 52 { &k[20..] } else { &k[..] };
-					hashing::blake2_256(slot).to_vec()
+					blake2_256(slot).to_vec()
 				})
 				.collect();
 
@@ -249,8 +250,8 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 pub fn contract_info_key(address: H160) -> Vec<u8> {
 	let mut key = Vec::new();
-	key.extend_from_slice(&hashing::twox_128(b"Revive"));
-	key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
+	key.extend_from_slice(&twox_128(b"Revive"));
+	key.extend_from_slice(&twox_128(b"AccountInfoOf"));
 	key.extend_from_slice(address.as_bytes());
 	key
 }

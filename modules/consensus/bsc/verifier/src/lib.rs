@@ -252,11 +252,11 @@ mod tests {
 	use primitive_types::{H160, H256, U256};
 	use primitives::{Testnet, VoteAttestationData, VoteData};
 
-	/// `sp_core::keccak_256` host wired into the `Keccak256` trait.
+	/// `sp_crypto_hashing::keccak_256` host wired into the `Keccak256` trait.
 	struct TestHost;
 	impl Keccak256 for TestHost {
 		fn keccak256(bytes: &[u8]) -> H256 {
-			sp_core::keccak_256(bytes).into()
+			sp_crypto_hashing::keccak_256(bytes).into()
 		}
 	}
 

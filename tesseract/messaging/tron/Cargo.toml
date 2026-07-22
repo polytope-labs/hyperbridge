@@ -26,6 +26,7 @@ anyhow = { workspace = true }
 log = { workspace = true }
 
 sp-core = { workspace = true, features = ["full_crypto"] }
+sp-crypto-hashing = { workspace = true }
 sha2 = "0.10"
 hex = { workspace = true }
 bs58 = "0.5"

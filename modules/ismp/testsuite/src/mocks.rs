@@ -402,7 +402,7 @@ impl Keccak256 for Host {
 	where
 		Self: Sized,
 	{
-		sp_core::keccak_256(bytes).into()
+		sp_io::hashing::keccak_256(bytes).into()
 	}
 }
 
@@ -494,6 +494,6 @@ impl ismp::messaging::Keccak256 for Keccak256Hasher {
 	where
 		Self: Sized,
 	{
-		sp_core::keccak_256(bytes).into()
+		sp_io::hashing::keccak_256(bytes).into()
 	}
 }

@@ -27,7 +27,7 @@ use sync_committee_primitives::{
 	},
 	deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
 	types::{
-		ExecutionPayloadProof, FinalityProof, SyncCommitteeUpdate, VerifierState,
+		ExecutionPayloadProof, ExecutionProof, FinalityProof, SyncCommitteeUpdate, VerifierState,
 		VerifierStateUpdate,
 	},
 	util::{compute_sync_committee_period_at_slot, should_have_sync_committee_update},
@@ -573,11 +573,11 @@ pub fn prove_execution_payload<
 		),
 		block_number: beacon_state.latest_execution_payload_header.block_number,
 		timestamp: beacon_state.latest_execution_payload_header.timestamp,
-		multi_proof,
 		execution_payload_branch: ssz_rs::generate_proof(
 			beacon_state,
 			&[C::EXECUTION_PAYLOAD_INDEX as usize],
 		)?,
+		proof: ExecutionProof::Legacy { multi_proof },
 	})
 }
 
@@ -616,11 +616,11 @@ pub fn prove_execution_payload<
 		state_root: H256::from_slice(header.state_root.as_slice()),
 		block_number: header.number,
 		timestamp: header.timestamp,
-		execution_header,
 		execution_payload_branch: ssz_rs::generate_proof(
 			beacon_state,
 			&[C::EXECUTION_PAYLOAD_INDEX as usize],
 		)?,
+		proof: ExecutionProof::Gloas { execution_header },
 	})
 }
 

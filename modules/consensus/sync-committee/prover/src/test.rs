@@ -121,7 +121,7 @@ async fn test_execution_payload_proof() {
 
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = execution_payload_proof.clone();
-	let multi_proof_vec = execution_payload.multi_proof;
+	let multi_proof_vec = execution_payload.multi_proof().expect("legacy proof").clone();
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
 			Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),

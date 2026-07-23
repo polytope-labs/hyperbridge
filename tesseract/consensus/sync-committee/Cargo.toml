@@ -48,9 +48,9 @@ anyhow = "1.0.75"
 
 [features]
 testing = []
+# Selects the prover's compile-time Gloas `BeaconState` ssz layout. The verifier and ismp client
+# are fork-agnostic and no longer carry this feature.
 glamsterdam = [
     "sync-committee-prover/glamsterdam",
-    "sync-committee-verifier/glamsterdam",
     "sync-committee-primitives/glamsterdam",
-    "ismp-sync-committee/glamsterdam",
 ]

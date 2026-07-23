@@ -11,8 +11,11 @@ pub mod deneb;
 pub mod domains;
 pub mod electra;
 pub mod error;
-#[cfg(feature = "glamsterdam")]
+// Always compiled: the verifier recovers the Gloas execution state root from this rlp header at
+// runtime, so it can no longer live behind the `glamsterdam` feature.
 pub mod execution_header;
+// Gloas `BeaconState`/`BeaconBlockBody` component types, needed only by the prover's compile-time
+// ssz layout.
 #[cfg(feature = "glamsterdam")]
 pub mod gloas;
 mod ssz;

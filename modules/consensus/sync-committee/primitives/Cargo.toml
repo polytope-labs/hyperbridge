@@ -20,9 +20,11 @@ bls-utils = { workspace = true, default-features = false }
 
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
-alloy-primitives = { workspace = true, optional = true }
-alloy-rlp = { workspace = true, optional = true }
-alloy-rlp-derive = { workspace = true, optional = true }
+# Always compiled: the execution header path (`execution_header.rs`) is now part of the
+# fork-agnostic verifier, so these can no longer be gated behind `glamsterdam`.
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-rlp-derive = { workspace = true }
 
 
 [features]
@@ -37,10 +39,13 @@ std = [
     "serde",
     "serde-hex-utils/std",
     "bls-utils/std",
-    "alloy-primitives?/std",
-    "alloy-primitives?/serde",
-    "alloy-rlp?/std",
+    "alloy-primitives/std",
+    "alloy-primitives/serde",
+    "alloy-rlp/std",
 ]
 nofulu = []
-# Gloas (EIP-7732) consensus types and the execution header path that replaces the payload proof.
-glamsterdam = ["dep:alloy-primitives", "dep:alloy-rlp", "dep:alloy-rlp-derive"]
+# Gloas (EIP-7732) consensus types for the prover's `BeaconState`/`BeaconBlockBody` ssz layout.
+# The verifier no longer needs this: it dispatches the execution path at runtime on the enum in
+# `ExecutionPayloadProof`, so only the prover, whose ssz layout is fixed at compile time, still
+# selects the fork here.
+glamsterdam = []

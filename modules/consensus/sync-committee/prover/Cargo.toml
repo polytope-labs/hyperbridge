@@ -27,10 +27,9 @@ async-trait = "0.1.77"
 tracing = "0.1.40"
 
 [features]
-glamsterdam = [
-    "sync-committee-primitives/glamsterdam",
-    "sync-committee-verifier/glamsterdam",
-]
+# Selects the prover's compile-time Gloas `BeaconState` ssz layout. The verifier is fork-agnostic
+# and no longer has this feature.
+glamsterdam = ["sync-committee-primitives/glamsterdam"]
 
 [dev-dependencies]
 env_logger = "0.10.0"

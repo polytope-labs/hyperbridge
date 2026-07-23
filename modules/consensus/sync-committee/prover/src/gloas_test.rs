@@ -64,12 +64,14 @@ async fn execution_header_recovers_the_execution_state_root() {
 	>(&mut finalized_state, header)
 	.unwrap();
 
+	let execution_header = proof.execution_header().expect("gloas proof carries the rlp header");
+
 	// the header we ship is the preimage of the block hash the beacon state committed to
-	assert_eq!(execution_block_hash(&proof.execution_header), block_hash.0);
+	assert_eq!(execution_block_hash(execution_header), block_hash.0);
 
 	// and that block hash really does sit inside the state the sync committee signed over
 	assert!(is_valid_merkle_branch(
-		&Node::from_bytes(execution_block_hash(&proof.execution_header)),
+		&Node::from_bytes(execution_block_hash(execution_header)),
 		proof.execution_payload_branch.iter(),
 		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
 		GlamsterdamDevnet::EXECUTION_PAYLOAD_INDEX as usize,
@@ -77,7 +79,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 	));
 
 	// so the fields the bridge consumes can be read straight off the header
-	let decoded = ExecutionHeader::decode(&proof.execution_header).unwrap();
+	let decoded = ExecutionHeader::decode(execution_header).unwrap();
 	assert_eq!(decoded.state_root.as_slice(), proof.state_root.as_bytes());
 	assert_eq!(decoded.number, proof.block_number);
 	assert_eq!(decoded.timestamp, proof.timestamp);
@@ -157,7 +159,7 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 	// Flipping a byte of the header changes its keccak, so it no longer matches the block hash the
 	// branch proves against.
 	let mut tampered_header = update.clone();
-	tampered_header.execution_payload.execution_header[0] ^= 0xff;
+	tampered_header.execution_payload.execution_header_mut().expect("gloas proof")[0] ^= 0xff;
 	assert!(
 		matches!(
 			verify_sync_committee_attestation::<GlamsterdamDevnet>(

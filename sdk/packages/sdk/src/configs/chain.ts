@@ -362,6 +362,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "ethereum",
 		layerZeroEid: 30101,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0xD4fa2D31b7968E448877f69A96DE69f5de8cD23E", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x7Bc3485026Ac48b6cf9BaF0A377477Fff5703Af8", asset: "USDT" },
+		],
 		popularTokens: [
 			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -416,6 +420,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		defaultRpcUrl: "https://binance.llamarpc.com",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x3906cDdfb781f02B21f21BD81ed7Fd8DC37075E1", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x0471D185cc7Be61E154277cAB2396cD397663da6", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
 			"0x000Ae314E2A2172a039B26378814C252734f556A",
@@ -475,6 +483,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		coingeckoId: "arbitrum-one",
 		layerZeroEid: 30110,
 		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x7F6501d3B98eE91f9b9535E4b0ac710Fb0f9e0bc", asset: "USDC" },
 			{ label: "Aave stataUSDT", address: "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", asset: "USDT" },
 		],
 		popularTokens: [
@@ -597,6 +606,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
 		layerZeroEid: 30109,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x79261231698B26Ed9085b59ae89d59843Ae925a8", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x2eaD203C5C1C00612B1DdbBb20e4180dA822d6ff", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
 			"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",

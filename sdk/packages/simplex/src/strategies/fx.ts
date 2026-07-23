@@ -771,6 +771,34 @@ export class FXFiller implements FillerStrategy {
 		}
 	}
 
+	public isHalted(): boolean {
+		return this.halted
+	}
+
+	/** Operator acknowledgement after investigating a self-halt; resumes filling. */
+	/**
+	 * Opens a direction that was configured as one-sided LP, pricing it with the
+	 * supplied curve from the next order evaluation. Only valid under static
+	 * pricing — venue-priced strategies derive both sides from the pool.
+	 */
+	public enableSide(side: "bid" | "ask", policy: FillerPricePolicy): void {
+		if (side === "bid") {
+			this.bidPricePolicy = policy
+			this.bidEnabled = true
+		} else {
+			this.askPricePolicy = policy
+			this.askEnabled = true
+		}
+		this.logger.warn({ side }, "FX direction enabled by operator with a new price curve")
+	}
+
+	public resetHalt(): void {
+		if (!this.halted) return
+		this.halted = false
+		this.consecutiveClamps = 0
+		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
+	}
+
 	private computeLegPolicyOutput(
 		inputAmount: bigint,
 		inputIsStable: boolean,

@@ -122,6 +122,15 @@ export interface UniswapV4PoolConfigData {
 	hooks?: `0x${string}`
 }
 
+/** A known ERC-4626 vault fillers can use as a stablecoin treasury. */
+export interface Erc4626VaultConfigData {
+	/** Display label, e.g. "Aave stataUSDC" */
+	label: string
+	address: `0x${string}`
+	/** Underlying asset symbol; the on-chain vault resolves the address. */
+	asset: ConfiguredAssetSymbol
+}
+
 export interface ChainConfigData {
 	chainId: number
 	stateMachineId: Chains
@@ -184,6 +193,8 @@ export interface ChainConfigData {
 	coingeckoId: string
 	popularTokens?: string[]
 	uniswapV4Pools?: UniswapV4PoolConfigData[]
+	/** Known ERC-4626 treasury vaults on this chain */
+	erc4626Vaults?: Erc4626VaultConfigData[]
 	/** LayerZero Endpoint ID for cross-chain messaging */
 	layerZeroEid?: number
 }
@@ -352,6 +363,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "ethereum",
 		layerZeroEid: 30101,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0xD4fa2D31b7968E448877f69A96DE69f5de8cD23E", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x7Bc3485026Ac48b6cf9BaF0A377477Fff5703Af8", asset: "USDT" },
+		],
 		popularTokens: [
 			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -406,6 +421,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		defaultRpcUrl: "https://binance.llamarpc.com",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x3906cDdfb781f02B21f21BD81ed7Fd8DC37075E1", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x0471D185cc7Be61E154277cAB2396cD397663da6", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
 			"0x000Ae314E2A2172a039B26378814C252734f556A",
@@ -465,6 +484,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "ETH0",
 		coingeckoId: "arbitrum-one",
 		layerZeroEid: 30110,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x7F6501d3B98eE91f9b9535E4b0ac710Fb0f9e0bc", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
 			"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
@@ -525,6 +548,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		coingeckoId: "base",
 		layerZeroEid: 30184,
 		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", asset: "USDC" },
+			{ label: "Yield Bearing cNGN", address: "0xa82A3531021317240Fb32E67f9c7bC091F737D3b", asset: "cNGN" },
+		],
 		popularTokens: [
 			"0x4200000000000000000000000000000000000006",
 			"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -583,6 +610,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
 		layerZeroEid: 30109,
+		erc4626Vaults: [
+			{ label: "Aave stataUSDC", address: "0x79261231698B26Ed9085b59ae89d59843Ae925a8", asset: "USDC" },
+			{ label: "Aave stataUSDT", address: "0x2eaD203C5C1C00612B1DdbBb20e4180dA822d6ff", asset: "USDT" },
+		],
 		popularTokens: [
 			"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
 			"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",

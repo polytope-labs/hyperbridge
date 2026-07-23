@@ -34,3 +34,7 @@ fi
 
 echo "Running tsup..."
 pnpm exec tsup
+
+# The web UI must build after tsup: tsup's clean:true wipes dist/, including dist/ui.
+echo "Building web UI (vite)..."
+pnpm exec vite build --config ui/vite.config.ts

@@ -1,0 +1,234 @@
+:root {
+	color-scheme: light dark;
+	--bg: #f6f7f9;
+	--card: #ffffff;
+	--text: #16181d;
+	--muted: #6b7280;
+	--border: #e2e5ea;
+	--accent: #0891b2;
+	--accent-text: #ffffff;
+	--ok: #16a34a;
+	--warn: #d97706;
+	--err: #dc2626;
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #101216;
+		--card: #191c22;
+		--text: #e8eaee;
+		--muted: #9aa1ad;
+		--border: #2a2f38;
+		--accent: #2cc5da;
+		--accent-text: #0b1216;
+	}
+}
+* {
+	box-sizing: border-box;
+}
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+}
+#root {
+	max-width: 60rem;
+	margin: 0 auto;
+	padding: 2rem 1.25rem 4rem;
+}
+h1 {
+	font-size: 1.4rem;
+}
+h2 {
+	font-size: 1.05rem;
+	margin: 0 0 0.25rem;
+}
+p.hint {
+	color: var(--muted);
+	font-size: 0.86rem;
+	margin: 0.2rem 0 0.8rem;
+	line-height: 1.45;
+}
+.card {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1.1rem 1.25rem;
+	margin-bottom: 1rem;
+}
+label.field {
+	display: block;
+	margin: 0.65rem 0;
+	font-size: 0.9rem;
+}
+label.field > span {
+	display: block;
+	margin-bottom: 0.3rem;
+	color: var(--muted);
+}
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select {
+	width: 100%;
+	padding: 0.5rem 0.65rem;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--bg);
+	color: var(--text);
+	font: inherit;
+}
+button {
+	font: inherit;
+	border: 1px solid var(--border);
+	background: var(--card);
+	color: var(--text);
+	border-radius: 7px;
+	padding: 0.5rem 1rem;
+	cursor: pointer;
+}
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.row {
+	display: flex;
+	gap: 0.6rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+.spread {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+}
+.badge {
+	display: inline-block;
+	font-size: 0.75rem;
+	border-radius: 999px;
+	padding: 0.15rem 0.6rem;
+	border: 1px solid var(--border);
+	color: var(--muted);
+}
+.badge.ok {
+	color: var(--ok);
+	border-color: var(--ok);
+}
+.badge.warn {
+	color: var(--warn);
+	border-color: var(--warn);
+}
+.badge.err {
+	color: var(--err);
+	border-color: var(--err);
+}
+.steps {
+	display: flex;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+	margin: 1rem 0 1.5rem;
+}
+.steps .step {
+	font-size: 0.8rem;
+	padding: 0.25rem 0.7rem;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+	color: var(--muted);
+}
+.steps .step.active {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+.steps .step.done {
+	color: var(--ok);
+	border-color: var(--ok);
+}
+.stepper {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+	margin: 1rem 0 1.5rem;
+}
+.stepper .step {
+	font-size: 0.8rem;
+	padding: 0.25rem 0.7rem;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+	color: var(--muted);
+	white-space: nowrap;
+}
+.stepper .step.active {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+.stepper .step.done {
+	color: var(--ok);
+	border-color: var(--ok);
+}
+.stepper .connector {
+	flex: 1;
+	min-width: 0.6rem;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--border);
+	transition: background 0.25s ease;
+}
+.stepper .connector.done {
+	background: var(--accent);
+}
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.88rem;
+}
+th,
+td {
+	text-align: left;
+	padding: 0.4rem 0.5rem;
+	border-bottom: 1px solid var(--border);
+}
+td input {
+	max-width: 10rem;
+}
+pre.toml {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 1rem;
+	overflow-x: auto;
+	font-size: 0.8rem;
+	line-height: 1.5;
+}
+.error {
+	color: var(--err);
+	font-size: 0.86rem;
+	margin: 0.5rem 0;
+}
+.mnemonic {
+	background: var(--bg);
+	border: 1px dashed var(--warn);
+	border-radius: 8px;
+	padding: 0.8rem 1rem;
+	font-family: ui-monospace, monospace;
+	font-size: 0.95rem;
+	margin: 0.6rem 0;
+}
+.footer-nav {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 1.5rem;
+}
+.mono {
+	font-family: ui-monospace, monospace;
+	font-size: 0.85em;
+	word-break: break-all;
+}

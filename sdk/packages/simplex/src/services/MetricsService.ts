@@ -2,14 +2,11 @@ import { createServer, type Server } from "node:http"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { networkInterfaces } from "node:os"
-import { formatUnits } from "viem"
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "prom-client"
 import type { EventMonitor } from "@/core/event-monitor"
 import type { BidStorageService } from "./BidStorageService"
-import type { ChainClientManager } from "./ChainClientManager"
-import type { FillerConfigService } from "./FillerConfigService"
+import type { BalanceProvider } from "./BalanceProvider"
 import { getLogger } from "./Logger"
-import { ERC20_ABI } from "@/config/abis/ERC20"
 
 function getLocalNetworkIp(): string | null {
 	const nets = networkInterfaces()
@@ -23,31 +20,10 @@ function getLocalNetworkIp(): string | null {
 	return null
 }
 
-const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
-	1: "ETH",
-	56: "BNB",
-	137: "MATIC",
-	42161: "ETH",
-	8453: "ETH",
-	10: "ETH",
-	43114: "AVAX",
-	250: "FTM",
-	130: "ETH",
-	100: "xDAI",
-	97: "BNB",
-	11155111: "ETH",
-}
-
 export interface MetricsServiceOptions {
 	monitor: EventMonitor
 	bidStorage: BidStorageService | undefined
-	chainClientManager: ChainClientManager
-	configService: FillerConfigService
-	fillerAddress: string
-	chains: number[]
-	token1: Record<string, string>
-	hyperbridgeWsUrl?: string
-	substratePrivateKey?: string
+	balances: BalanceProvider
 	dataDir?: string
 }
 
@@ -62,12 +38,8 @@ interface PersistedCounters {
 export class MetricsService {
 	private server: Server
 	private registry: Registry
-	private balanceRefreshInterval?: NodeJS.Timeout
 	private logger = getLogger("metrics")
 	private options: MetricsServiceOptions
-	// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
-	private polkadotApi?: any
-	private substrateAddress?: string
 
 	// Counters
 	private ordersDetectedTotal: Counter
@@ -253,6 +225,7 @@ export class MetricsService {
 			if (path === "/metrics") {
 				this.uptimeSeconds.set((Date.now() - this.startTime) / 1000)
 				this.refreshBidStats()
+				this.applyBalanceSnapshot()
 
 				res.writeHead(200, { "Content-Type": this.registry.contentType })
 				res.end(await this.registry.metrics())
@@ -280,30 +253,15 @@ export class MetricsService {
 			}
 		})
 
-		// Initial balance fetch after 5s, then every 60s
-		setTimeout(() => this.refreshBalances(), 5_000)
-		this.balanceRefreshInterval = setInterval(() => this.refreshBalances(), 60_000)
-
 		// Persist counters every 30s
 		if (this.persistPath) {
 			this.persistInterval = setInterval(() => this.persistCounters(), 30_000)
-		}
-
-		// Init polkadot API for Hyperbridge balance if configured
-		if (this.options.hyperbridgeWsUrl && this.options.substratePrivateKey) {
-			this.initPolkadotApi().catch((err) => {
-				this.logger.warn({ err }, "Failed to initialize Polkadot API for Hyperbridge balance")
-			})
 		}
 	}
 
 	stop(): void {
 		if (this.persistInterval) clearInterval(this.persistInterval)
-		if (this.balanceRefreshInterval) clearInterval(this.balanceRefreshInterval)
 		this.persistCounters()
-		if (this.polkadotApi) {
-			this.polkadotApi.disconnect().catch(() => {})
-		}
 		this.server.close()
 	}
 
@@ -355,36 +313,25 @@ export class MetricsService {
 		}
 	}
 
-	// ─── Polkadot / Hyperbridge Balance ──────────────────────────────────────────
+	// ─── Balances from the shared provider ───────────────────────────────────────
 
-	private async initPolkadotApi(): Promise<void> {
-		const { ApiPromise, WsProvider, Keyring } = await import("@polkadot/api")
-
-		const provider = new WsProvider(this.options.hyperbridgeWsUrl!)
-		this.polkadotApi = await ApiPromise.create({ provider })
-
-		const keyring = new Keyring({ type: "sr25519" })
-		const keypair = keyring.addFromUri(this.options.substratePrivateKey!)
-		this.substrateAddress = keypair.address
-
-		const fetchBalance = async () => {
-			try {
-				const account = await this.polkadotApi.query.system.account(this.substrateAddress)
-				const decimals = (this.polkadotApi.registry.chainDecimals as number[])[0] ?? 12
-
-				const free = parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-				const reserved = parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
-
-				this.hyperbridgeFree.set(free)
-				this.hyperbridgeReserved.set(reserved)
-			} catch (err) {
-				this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
+	private applyBalanceSnapshot(): void {
+		const snapshot = this.options.balances.getSnapshot()
+		for (const row of snapshot.chains) {
+			const chainLabel = String(row.chainId)
+			if (row.native) {
+				this.balanceNative.set({ chain_id: chainLabel, symbol: row.native.symbol }, row.native.amount)
+			}
+			if (row.usdc !== undefined) this.balanceUsdc.set({ chain_id: chainLabel }, row.usdc)
+			if (row.usdt !== undefined) this.balanceUsdt.set({ chain_id: chainLabel }, row.usdt)
+			if (row.exotic) {
+				this.balanceExotic.set({ chain_id: chainLabel, symbol: row.exotic.symbol }, row.exotic.amount)
 			}
 		}
-
-		await fetchBalance()
-		setInterval(fetchBalance, 60_000)
-		this.logger.info({ address: this.substrateAddress }, "Hyperbridge balance tracking initialized")
+		if (snapshot.hyperbridge) {
+			this.hyperbridgeFree.set(snapshot.hyperbridge.free)
+			this.hyperbridgeReserved.set(snapshot.hyperbridge.reserved)
+		}
 	}
 
 	// ─── Monitor Listeners ────────────────────────────────────────────────────────
@@ -446,95 +393,4 @@ export class MetricsService {
 		this.bidsPending.set(stats.pendingRetraction)
 	}
 
-	// ─── Balance Refresh ──────────────────────────────────────────────────────────
-
-	private async refreshBalances(): Promise<void> {
-		const chainIds = this.options.configService.getConfiguredChainIds()
-
-		// Collect FX strategy exotic token addresses keyed by chain ID
-		const fxExoticByChain = new Map<number, string>()
-		for (const [chainKey, addr] of Object.entries(this.options.token1)) {
-			const id = parseInt(chainKey.replace("EVM-", ""), 10)
-			if (!isNaN(id)) fxExoticByChain.set(id, addr)
-		}
-
-		await Promise.allSettled(
-			chainIds.map(async (chainId) => {
-				const chain = `EVM-${chainId}`
-				const client = this.options.chainClientManager.getPublicClient(chain)
-				const fillerAddr = this.options.fillerAddress as `0x${string}`
-				const chainLabel = String(chainId)
-
-				// Native balance
-				try {
-					const native = await client.getBalance({ address: fillerAddr })
-					const symbol = CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
-					this.balanceNative.set({ chain_id: chainLabel, symbol }, parseFloat(formatUnits(native, 18)))
-				} catch {}
-
-				// USDC
-				try {
-					const usdcAddr = this.options.configService.getUsdcAsset(chain)
-					const usdcDecimals = this.options.configService.getUsdcDecimals(chain)
-					const balance = await client.readContract({
-						address: usdcAddr as `0x${string}`,
-						abi: ERC20_ABI,
-						functionName: "balanceOf",
-						args: [fillerAddr],
-					})
-					this.balanceUsdc.set({ chain_id: chainLabel }, parseFloat(formatUnits(balance as bigint, usdcDecimals)))
-				} catch {}
-
-				// USDT
-				try {
-					const usdtAddr = this.options.configService.getUsdtAsset(chain)
-					const usdtDecimals = this.options.configService.getUsdtDecimals(chain)
-					const balance = await client.readContract({
-						address: usdtAddr as `0x${string}`,
-						abi: ERC20_ABI,
-						functionName: "balanceOf",
-						args: [fillerAddr],
-					})
-					this.balanceUsdt.set({ chain_id: chainLabel }, parseFloat(formatUnits(balance as bigint, usdtDecimals)))
-				} catch {}
-
-				// Exotic tokens
-				const fxAddr = fxExoticByChain.get(chainId)
-				if (fxAddr) {
-					try {
-						let symbol = "EXOTIC"
-						try {
-							symbol = (await client.readContract({
-								address: fxAddr as `0x${string}`,
-								abi: ERC20_ABI,
-								functionName: "symbol",
-								args: [],
-							})) as string
-						} catch {}
-						let decimals = 18
-						try {
-							decimals = (await client.readContract({
-								address: fxAddr as `0x${string}`,
-								abi: ERC20_ABI,
-								functionName: "decimals",
-								args: [],
-							})) as number
-						} catch {}
-						const balance = await client.readContract({
-							address: fxAddr as `0x${string}`,
-							abi: ERC20_ABI,
-							functionName: "balanceOf",
-							args: [fillerAddr],
-						})
-						this.balanceExotic.set(
-							{ chain_id: chainLabel, symbol },
-							parseFloat(formatUnits(balance as bigint, decimals)),
-						)
-					} catch {}
-				}
-			}),
-		)
-
-		this.logger.debug({ chains: chainIds.length }, "Balances refreshed for metrics")
-	}
 }

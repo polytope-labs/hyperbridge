@@ -33,7 +33,7 @@ use pallet_ismp_host_executive::EvmHosts;
 use polkadot_sdk::*;
 use primitive_types::H160;
 use sp_core::{storage::ChildInfo, H256};
-use sp_crypto_hashing::{blake2_256, twox_128};
+use sp_io::hashing::{blake2_256, twox_128};
 use sp_runtime::traits::BlakeTwo256;
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 use thiserror::Error;

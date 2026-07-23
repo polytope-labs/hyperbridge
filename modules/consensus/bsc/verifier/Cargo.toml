@@ -25,7 +25,7 @@ ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", def
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["sp-runtime", "sp-core", "sp-crypto-hashing"]
+features = ["sp-runtime", "sp-core", "sp-io"]
 
 [features]
 default = ["std"]

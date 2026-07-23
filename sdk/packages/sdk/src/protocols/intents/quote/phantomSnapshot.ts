@@ -16,7 +16,7 @@ import { deductProtocolFee, divCeil, grossUpForProtocolFee, readProtocolFeeBps, 
 
 export const PHANTOM_INTENT_QUOTE_CHAIN = Chains.BASE_MAINNET
 
-interface ResolvedPhantomPair {
+export interface ResolvedPhantomPair {
 	tokenA: HexString
 	tokenB: HexString
 }
@@ -40,10 +40,14 @@ const BASE_SNAPSHOT_ASSET_BY_ORDER_ASSET: Partial<Record<ConfiguredAssetSymbol, 
 const SUPPORTED_BASE_SNAPSHOT_PAIRS = new Set(["USDC:cNGN", "cNGN:USDC"])
 
 export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHandler {
+	private readonly pairResolver: PhantomSnapshotPairResolver
+
 	constructor(
 		private readonly chainConfigService: ChainConfigService,
 		private readonly getQueryClient: () => IndexerQueryClient,
-	) {}
+	) {
+		this.pairResolver = new PhantomSnapshotPairResolver(chainConfigService)
+	}
 
 	async quote(
 		params: QuoteIntentParams,
@@ -51,7 +55,7 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 		destination: IntentQuoteChainContext,
 	): Promise<QuoteIntentResult> {
 		validateQuoteParams(params)
-		const pair = this.resolveBaseSnapshotPair(params, source.stateMachineId, destination.stateMachineId)
+		const pair = this.pairResolver.resolve(params, source.stateMachineId, destination.stateMachineId)
 		if (!pair) {
 			throw new UnsupportedIntentQuotePairError({
 				source: source.stateMachineId,
@@ -139,8 +143,13 @@ export class PhantomSnapshotIntentQuoteStrategy implements IntentQuoteStrategyHa
 			throw new InvalidPhantomSnapshotError(snapshot.commitment, "snapshotTime is invalid")
 		}
 	}
+}
 
-	private resolveBaseSnapshotPair(
+/** Resolves order-chain tokens to the canonical Base Phantom snapshot market. */
+export class PhantomSnapshotPairResolver {
+	constructor(private readonly chainConfigService: ChainConfigService) {}
+
+	resolve(
 		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
 		sourceStateMachineId: string,
 		destinationStateMachineId: string,

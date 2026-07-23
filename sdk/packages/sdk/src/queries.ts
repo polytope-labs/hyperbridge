@@ -265,6 +265,57 @@ query LatestPhantomOrderPriceSnapshot($tokenA: String!, $tokenB: String!) {
   }
 }`
 
+export const LATEST_PHANTOM_ORDER_LIQUIDITY_SNAPSHOT = `
+query LatestPhantomOrderLiquiditySnapshot($tokenA: String!, $tokenB: String!) {
+  phantomOrderPriceSnapshots(
+    filter: {
+      and: [
+        { tokenA: { equalTo: $tokenA } }
+        { tokenB: { equalTo: $tokenB } }
+      ]
+    }
+    orderBy: SNAPSHOT_TIME_DESC
+    first: 1
+  ) {
+    nodes {
+      commitment
+      tokenA
+      tokenB
+      snapshotTime
+    }
+  }
+}`
+
+export const LIQUIDITY_PROVIDER_BALANCES = `
+query LiquidityProviderBalanceAggregates($commitment: String!, $tokenAddress: String!) {
+  liquidityProviderBalances(
+    filter: {
+      and: [
+        { commitment: { equalTo: $commitment } }
+        { tokenAddress: { equalTo: $tokenAddress } }
+      ]
+    }
+  ) {
+    aggregates {
+      sum {
+        balance
+      }
+      distinctCount {
+        providerId
+      }
+    }
+    groupedAggregates(groupBy: [CHAIN, TOKEN_ADDRESS]) {
+      keys
+      sum {
+        balance
+      }
+      distinctCount {
+        providerId
+      }
+    }
+  }
+}`
+
 export const TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS = `
 query TokenGatewayAssetTeleportedStatus($commitment: String!) {
   tokenGatewayAssetTeleportedV2s(

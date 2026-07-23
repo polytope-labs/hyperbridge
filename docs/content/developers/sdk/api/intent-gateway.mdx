@@ -227,6 +227,50 @@ The result includes `amountIn`, `amountOut`, and strategy-specific quote metadat
 
 For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `floor(netInput × medianPrice / standardAmount)`. For an exact-output quote, it computes `ceil(amountOut × standardAmount / medianPrice)` and grosses that input up for the gateway fee. A missing indexer, missing snapshot, or invalid snapshot throws an explicit error; the SDK does not silently switch price sources.
 
+### queryAvailableLiquidity(params)
+
+Returns the total output-token liquidity measured in the latest directional
+Phantom snapshot. For `USDC → cNGN`, the result is the amount of cNGN held by
+eligible solvers for that snapshot at its measurement time.
+
+```typescript lineNumbers
+import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
+
+const gateway = (await IntentGateway.create(source, dest)).withQueryClient(
+  createQueryClient({ url: "https://nexus.indexer.polytope.technology" }),
+)
+
+const liquidity = await gateway.queryAvailableLiquidity({
+  tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  tokenOut: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
+})
+
+if (liquidity) {
+  console.log(liquidity.totalLiquidity, "cNGN")
+  console.log("Providers:", liquidity.providerCount)
+  console.log("Liquidity by chain:", liquidity.liquidityByChain)
+  console.log("Measured at:", liquidity.snapshotTime)
+}
+```
+
+```typescript
+async queryAvailableLiquidity(params: {
+  tokenIn: HexString
+  tokenOut: HexString
+}): Promise<AvailableLiquiditySnapshot | undefined>
+```
+
+`totalLiquidity` is a decimal string formatted with the canonical Base output
+token decimals. `liquidityByChain` provides the corresponding `chain`,
+`tokenAddress`, formatted `totalLiquidity`, and `providerCount` for each
+indexed output-token balance group; each group uses its own chain/token
+decimals. The
+indexer aggregates raw ERC-20 balances plus
+redeemable ERC-4626 positions at the snapshot time. This is historical
+availability, not reserved liquidity or a guarantee that the same amount remains
+fillable. The method returns `undefined` when the directional pair has no indexed
+snapshot.
+
 ---
 
 ### executeBest(order, graffiti?, options)

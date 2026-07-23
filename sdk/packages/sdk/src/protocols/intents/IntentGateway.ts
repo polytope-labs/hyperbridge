@@ -10,6 +10,7 @@ import type {
 	IndexerQueryClient,
 	OrderStatus,
 	OrderWithStatus,
+	AvailableLiquiditySnapshot,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -35,14 +36,17 @@ import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
+import { LiquidityEngine } from "./LiquidityEngine"
 import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	PhantomSnapshotIntentQuoteStrategy,
 	UniswapV4IntentQuoteStrategy,
+	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
+import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
 import { convertGasToFeeToken } from "./utils"
@@ -100,6 +104,8 @@ export class IntentGateway {
 	private readonly gasEstimator: GasEstimator
 	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
 	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
+	/** Resolves order tokens to canonical Phantom snapshot market pairs. */
+	private readonly phantomSnapshotPairResolver: PhantomSnapshotPairResolver
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -148,6 +154,7 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
+		this.phantomSnapshotPairResolver = new PhantomSnapshotPairResolver(dest.configService)
 		this.quoteStrategies = {
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
@@ -238,6 +245,40 @@ export class IntentGateway {
 	}
 
 	/**
+	 * Returns the output-token liquidity measured in the latest directional
+	 * Phantom snapshot for this gateway's source and destination.
+	 *
+	 * Pair resolution uses the same canonical Base market as {@link quoteIntent}.
+	 * The snapshot itself determines the output token and chain to aggregate. The
+	 * amount is in the token's smallest unit and reflects the indexer's
+	 * `snapshotTime`; it is not a live reservation or fill guarantee.
+	 *
+	 * Requires a prior call to {@link withQueryClient}.
+	 */
+	async queryAvailableLiquidity(
+		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
+	): Promise<AvailableLiquiditySnapshot | undefined> {
+		const { queryClient } = this.requireIndexer()
+		const sourceStateMachineId = this.source.config.stateMachineId
+		const destinationStateMachineId = this.dest.config.stateMachineId
+		const pair = this.phantomSnapshotPairResolver.resolve(params, sourceStateMachineId, destinationStateMachineId)
+		if (!pair) {
+			throw new UnsupportedIntentQuotePairError({
+				source: sourceStateMachineId,
+				destination: destinationStateMachineId,
+				tokenIn: params.tokenIn,
+				tokenOut: params.tokenOut,
+				quoteSource: "Phantom snapshot pair",
+			})
+		}
+
+		return new LiquidityEngine(queryClient, this.dest.configService).getAvailableLiquiditySnapshot({
+			tokenIn: pair.tokenA,
+			tokenOut: pair.tokenB,
+		})
+	}
+
+	/**
 	 * Bidirectional async generator that orchestrates the full order lifecycle:
 	 * placement, fee estimation, bid collection, and execution.
 	 *
@@ -306,8 +347,7 @@ export class IntentGateway {
 			// unchanged for Simplex, and apply the user-order fee uplift only at placement.
 			executionOrder.fees = isSameChain
 				? estimate.totalGasInFeeToken * 2n
-				: estimate.totalGasInFeeToken +
-					(crossChainFeeBump + (estimate.totalGasInFeeToken * 1n) / 100n)
+				: estimate.totalGasInFeeToken + (crossChainFeeBump + (estimate.totalGasInFeeToken * 1n) / 100n)
 		}
 
 		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)

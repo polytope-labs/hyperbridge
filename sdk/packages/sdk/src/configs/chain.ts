@@ -548,6 +548,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		uniswapV4Pools: [{ tokens: ["USDC", "cNGN"], fee: 1500, tickSpacing: 30 }],
 		erc4626Vaults: [
 			{ label: "Aave stataUSDC", address: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", asset: "USDC" },
+			{ label: "Yield Bearing cNGN", address: "0xa82A3531021317240Fb32E67f9c7bC091F737D3b", asset: "cNGN" },
 		],
 		popularTokens: [
 			"0x4200000000000000000000000000000000000006",

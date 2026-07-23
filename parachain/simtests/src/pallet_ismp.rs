@@ -12,7 +12,8 @@ use ismp_parachain::ParachainData;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
-use sp_core::{crypto::Ss58Codec, keccak_256, Bytes, KeccakHasher};
+use sp_core::{crypto::Ss58Codec, Bytes, KeccakHasher};
+use sp_io::hashing::keccak_256;
 use sp_keyring::sr25519::Keyring;
 use sp_trie::{LayoutV0, MemoryDB};
 use subxt::{

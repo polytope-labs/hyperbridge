@@ -160,31 +160,31 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "=2512.3.2", default-features = false }
+polkadot-sdk = { version = "=2606.0.0", default-features = false }
 
 rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
 
 # crates that can't be used in polkadot-sdk
-sp-weights = { version = "33.2.0", default-features = false }
-sp-core = { version = "39.0.0", default-features = false }
-frame-benchmarking = { version = "45.0.1", default-features = false }
-sp-io = { version = "44.0.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.25.0", default-features = false }
-substrate-wasm-builder = "31.1.0"
-sc-service = "0.56.0"
-sc-tracing = "44.0.0"
-sp-api-proc-macro = "26.0.0"
-sp-consensus-beefy = { version = "28.0.0" }
+sp-weights = { version = "36.0.0", default-features = false }
+sp-core = { version = "43.0.0", default-features = false }
+frame-benchmarking = { version = "49.0.0", default-features = false }
+sp-io = { version = "48.0.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.29.0", default-features = false }
+substrate-wasm-builder = "34.0.0"
+sc-service = "0.60.0"
+sc-tracing = "47.0.0"
+sp-api-proc-macro = "29.0.0"
+sp-consensus-beefy = { version = "31.0.0" }
 sp-crypto-hashing = "0.1.0"
-xcm-simulator-example = "26.0.0"
+xcm-simulator-example = "30.0.0"
 
 # supporting polkadot-sdk crates
-sc-simnode = { version = "2512.0.0" }
-simnode-runtime-api = { version = "2512.0.0", default-features = false }
+sc-simnode = { version = "2606.0.0" }
+simnode-runtime-api = { version = "2606.0.0", default-features = false }
 
 # crates.io
 serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
-trie-db = { version = "0.30.0", default-features = false }
+trie-db = { version = "0.31.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 log = { version = "0.4", default-features = false }
@@ -248,23 +248,23 @@ ibc-core-host = { version = "0.57.0", default-features = false }
 ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
 
 # published crates
-ismp = { version = "2512.1.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "2606.0.0", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.2.0", path = "modules/utils/serde", default-features = false }
 crypto-utils = { version = "0.3.0", path = "modules/utils/crypto", default-features = false }
 bls-utils = { path = "modules/utils/bls-utils", default-features = false }
-grandpa-verifier-primitives = { version = "2512.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
-grandpa-verifier = { version = "2512.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
-ismp-grandpa = { version = "2512.1.0", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2512.3.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-runtime-api = { version = "2512.1.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
-pallet-ismp = { version = "2512.2.0", path = "modules/pallets/ismp", default-features = false }
-pallet-ismp-rpc = { version = "2512.1.0", path = "modules/pallets/ismp/rpc" }
-pallet-ismp-runtime-api = { version = "2512.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
+grandpa-verifier-primitives = { version = "2606.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+grandpa-verifier = { version = "2606.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
+ismp-grandpa = { version = "2606.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "2606.0.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-runtime-api = { version = "2606.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+pallet-ismp = { version = "2606.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "2606.0.0", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "2606.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
 
-pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
+pallet-hyper-fungible-token = { version = "2606.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
 
-substrate-state-machine = { version = "2512.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "2606.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }

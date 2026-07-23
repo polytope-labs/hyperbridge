@@ -17,6 +17,7 @@ codec = { package = "parity-scale-codec", version = "3.2.2", features = [
     "derive",
 ] }
 sp-core = { workspace = true, features = ["full_crypto"] }
+sp-crypto-hashing = { workspace = true }
 log = "0.4.19"
 tokio = { workspace = true, features = ["sync", "time"] }
 tokio-stream = { workspace = true }

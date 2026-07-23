@@ -109,6 +109,7 @@ where
 			config,
 			telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
 			executor,
+			Default::default(),
 		)?;
 	let client = Arc::new(client);
 
@@ -184,9 +185,9 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 	T: pallet_intents_rpc::pallet_intents_coprocessor::Config + Send + 'static,
 	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_rpc::pallet_intents_coprocessor::Call<T>>
-		+ codec::Decode,
-	T::AccountId: codec::Encode + From<[u8; 32]>,
-	Extra: codec::Decode + Send + 'static,
+		+ codec::DecodeWithMemTracking,
+	T::AccountId: codec::Encode + From<[u8; 32]> + codec::DecodeWithMemTracking,
+	Extra: codec::DecodeWithMemTracking + Send + 'static,
 {
 	let parachain_config = prepare_node_config(parachain_config);
 	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
@@ -254,6 +255,7 @@ where
 			transaction_pool: transaction_pool.clone(),
 			para_id,
 			spawn_handle: task_manager.spawn_handle(),
+			spawn_essential_handle: task_manager.spawn_essential_handle(),
 			relay_chain_interface: relay_chain_interface.clone(),
 			import_queue: params.import_queue,
 			sybil_resistance_level: CollatorSybilResistance::Resistant, // because of Aura

@@ -278,7 +278,6 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type AssetTrap = PalletXcm;
 	type AssetLocker = ();
 	type AssetExchanger = ();
-	type AssetClaims = PalletXcm;
 	type SubscriptionService = ();
 	type PalletInstancesInfo = ();
 	type FeeManager = ();
@@ -320,6 +319,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type WeightInfo = ();
 	type ConsensusHook = RequireParentIncluded;
 	type RelayParentOffset = ConstU32<0>;
+	type SchedulingSignatureVerifier = ();
 }
 
 use crate::runtime::BOB;

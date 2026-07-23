@@ -251,7 +251,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 7_900,
+	spec_version: 8_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -474,6 +474,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
 	type RelayParentOffset = ConstU32<0>;
+	type SchedulingSignatureVerifier = ();
 }
 
 impl staging_parachain_info::Config for Runtime {}
@@ -1130,8 +1131,8 @@ impl_runtime_apis! {
 	}
 
 	impl sp_session::SessionKeys<Block> for Runtime {
-		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-			SessionKeys::generate(seed)
+		fn generate_session_keys(owner: Vec<u8>, seed: Option<Vec<u8>>) -> sp_session::OpaqueGeneratedSessionKeys {
+			SessionKeys::generate(&owner, seed).into()
 		}
 
 		fn decode_session_keys(
@@ -1282,6 +1283,13 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl cumulus_primitives_core::KeyToIncludeInRelayProof<Block> for Runtime {
+		fn keys_to_prove() -> cumulus_primitives_core::RelayProofRequest {
+			// This runtime reads no extra relay chain storage, so no keys need proving.
+			Default::default()
+		}
+	}
+
 	#[cfg(feature = "try-runtime")]
 	impl frame_try_runtime::TryRuntime<Block> for Runtime {
 		fn on_runtime_upgrade(checks: frame_try_runtime::UpgradeCheckSelect) -> (Weight, Weight) {
@@ -1338,7 +1346,19 @@ impl_runtime_apis! {
 
 
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
-			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
+			impl cumulus_pallet_session_benchmarking::Config for Runtime {
+				fn generate_session_keys_and_proof(
+					owner: AccountId,
+				) -> (SessionKeys, sp_std::vec::Vec<u8>) {
+					use codec::Encode;
+					// Mirror the session-keys runtime API: generate the keys in the
+					// keystore and a proof-of-possession over the owner account.
+					let generated =
+						owner.using_encoded(|owner| SessionKeys::generate(owner, None));
+					(generated.keys, generated.proof.encode())
+				}
+			}
+			impl pallet_transaction_payment::BenchmarkConfig for Runtime {}
 
 			use frame_support::traits::WhitelistedStorageKeys;
 			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();

@@ -258,10 +258,13 @@ pub fn run() -> Result<()> {
 			match cmd {
 				BenchmarkCmd::Pallet(cmd) =>
 					if cfg!(feature = "runtime-benchmarks") {
-						runner.sync_run(|config| {
-							cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ReclaimHostFunctions>(Some(
-								config.chain_spec,
-							))
+						runner.sync_run(|_config| {
+							// Pass `None` so the benchmark CLI resolves genesis from the
+							// `--runtime` blob (its `get_preset`), not the node's default
+							// chain spec. Since frame-benchmarking-cli 58 (2604), a spec
+							// supplied here takes precedence over `--runtime`, which broke
+							// the runtime-driven benchmark flow that our weights rely on.
+							cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ReclaimHostFunctions>(None)
 						})
 					} else {
 						Err("Benchmarking wasn't enabled when building the node. \

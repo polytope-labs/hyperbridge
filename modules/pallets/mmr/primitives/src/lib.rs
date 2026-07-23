@@ -22,7 +22,7 @@ use alloc::{vec, vec::Vec};
 use merkle_mountain_range::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use pallet_ismp::offchain::FullLeaf;
 use polkadot_sdk::*;
-use sp_runtime::{traits, RuntimeDebug};
+use sp_runtime::traits;
 
 /// Offchain DB indexing prefix used by `pallet-mmr-tree` for storing MMR nodes.
 ///
@@ -41,7 +41,7 @@ pub const INDEXING_PREFIX: &[u8] = b"ISMP-mmr-v2";
 ///
 /// `DataOrHash::hash` method calculates the hash of this element in its compact form,
 /// so should be used instead of hashing the encoded form (which will always be non-compact).
-#[derive(RuntimeDebug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataOrHash<H: traits::Hash, L> {
 	/// Arbitrary data in its full form.
 	Data(L),

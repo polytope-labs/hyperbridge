@@ -542,7 +542,7 @@ fn bls_data_slots_from_hex(hex_value: &str) -> Result<u64, ProverError> {
 	}
 }
 
-/// Keccak256 hash using sp_core.
+/// Keccak256 hash using sp_crypto_hashing.
 fn keccak256(data: &[u8]) -> [u8; 32] {
-	sp_core::keccak_256(data)
+	sp_crypto_hashing::keccak_256(data)
 }

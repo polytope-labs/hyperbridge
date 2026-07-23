@@ -18,6 +18,7 @@ tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
 log = { workspace = true }
 sp-core = { workspace = true,  features = ["full_crypto"] }
+sp-crypto-hashing = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

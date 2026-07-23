@@ -8690,7 +8690,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.20",
@@ -8715,7 +8715,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier-primitives"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "finality-grandpa",
@@ -10495,7 +10495,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "ismp"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
@@ -10588,7 +10588,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -10632,7 +10632,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2512.3.0"
+version = "2606.0.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -10649,7 +10649,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "polkadot-sdk",
 ]
@@ -15334,7 +15334,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyper-fungible-token"
-version = "2512.0.0"
+version = "2606.0.0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-macro 1.5.7",
@@ -15417,7 +15417,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-intents-coprocessor"
-version = "2506.2.0"
+version = "2606.0.0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-macro 1.5.7",
@@ -15436,7 +15436,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-intents-rpc"
-version = "2506.2.0"
+version = "2606.0.0"
 dependencies = [
  "futures",
  "hex",
@@ -15451,7 +15451,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2512.2.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "crypto-utils",
@@ -15525,7 +15525,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "hash-db",
@@ -15545,7 +15545,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -27369,7 +27369,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "2512.1.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "hash-db",

@@ -18,6 +18,7 @@ import {
 	encodePacked,
 	isHex,
 	hexToBytes,
+	isAddress,
 	keccak256,
 	toHex,
 } from "viem"
@@ -306,6 +307,14 @@ export function encodeStateMachineId(stateMachineId: string): HexString {
 export function normalizeAddressForEvmBytes32(address: string): HexString {
 	if (address.length === 66) return address as HexString
 	return bytes20ToBytes32(address)
+}
+
+/**
+ * Validates an EVM address and returns its canonical lowercase representation.
+ */
+export function normalizeEvmAddress(address: string, field = "address"): HexString {
+	if (!isAddress(address)) throw new TypeError(`${field} must be a valid EVM address`)
+	return address.toLowerCase() as HexString
 }
 
 export function normalizeAddressForStateMachine(address: string, stateMachineId: string): HexString {

@@ -74,11 +74,18 @@ export interface OperatorContext {
 	applyAllowlist(allowlist: AllowlistConfig | undefined): void
 	/** Applies rebalancing settings to the running filler; trigger checks read them live. */
 	applyRebalancing(rebalancing: FillerTomlConfig["rebalancing"]): void
+	/**
+	 * Hydration-level validation of a prospective vault set (unconfigured chain,
+	 * same-asset duplicates, non-vault address) without touching any live venue.
+	 */
+	vaultPreflight?: (vaults: VaultToml[]) => Promise<void>
 	version: string
 	startedAt: number
 	configPath: string
 	chains: number[]
 	strategyTypes: string[]
+	/** Filler accounts, shown permanently on the dashboard for funding. */
+	addresses?: { evm: string; substrate?: string }
 	dataDir?: string
 }
 
@@ -421,6 +428,7 @@ export class UiServer {
 			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),
 			strategyTypes: op.strategyTypes,
 			configPath: op.configPath,
+			addresses: op.addresses,
 		})
 	}
 
@@ -564,8 +572,15 @@ export class UiServer {
 
 		const op = this.operator!
 		// A venue only exists when the boot config had one; enabling from nothing
-		// needs strategy re-wiring, which is a restart.
+		// needs strategy re-wiring, which is a restart. Hydration-level errors
+		// (same-asset duplicates, unconfigured chain, non-vault address) must
+		// still reject here — persisting them would brick the next boot.
 		if (!op.vault) {
+			try {
+				await op.vaultPreflight?.(body.vaults)
+			} catch (err) {
+				return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+			}
 			op.config.vault = { vaults: body.vaults, ...(body.sweepIntervalMs ? { sweepIntervalMs: body.sweepIntervalMs } : {}) }
 			const persisted = this.persistConfig()
 			return sendJson(res, 200, { applied: false, restartNeeded: true, persisted })

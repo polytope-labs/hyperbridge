@@ -9,6 +9,7 @@ interface VaultRow {
 	vault: string
 	threshold: string
 	minBalance: string
+	redeemOnShutdown: boolean
 }
 
 interface BalanceRow {
@@ -42,6 +43,7 @@ export function Operations(props: { chains: number[] }) {
 					vault: v.vault,
 					threshold: v.threshold ?? "",
 					minBalance: v.minBalance ?? "",
+					redeemOnShutdown: v.redeemOnShutdown ?? false,
 				})),
 		)
 		// seed the editors once from the running config; later edits are local until saved
@@ -88,6 +90,7 @@ export function Operations(props: { chains: number[] }) {
 					vault: r.vault.trim(),
 					...(r.threshold.trim() ? { threshold: r.threshold.trim() } : {}),
 					...(r.minBalance.trim() ? { minBalance: r.minBalance.trim() } : {}),
+					redeemOnShutdown: r.redeemOnShutdown,
 				})),
 			})
 			await load()
@@ -231,6 +234,18 @@ export function Operations(props: { chains: number[] }) {
 								setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, minBalance: e.target.value } : r)))
 							}
 						/>
+						<label className="row" style={{ whiteSpace: "nowrap" }} title="Redeem this position to the wallet on graceful shutdown">
+							<input
+								type="checkbox"
+								checked={row.redeemOnShutdown}
+								onChange={(e) =>
+									setVaultRows((rows) =>
+										(rows ?? []).map((r, i) => (i === index ? { ...r, redeemOnShutdown: e.target.checked } : r)),
+									)
+								}
+							/>
+							redeem on shutdown
+						</label>
 						<button type="button" onClick={() => setVaultRows((rows) => (rows ?? []).filter((_, i) => i !== index))}>
 							✕
 						</button>
@@ -242,7 +257,7 @@ export function Operations(props: { chains: number[] }) {
 						onClick={() =>
 							setVaultRows((rows) => [
 								...(rows ?? []),
-								{ chain: `EVM-${props.chains[0] ?? ""}`, vault: "", threshold: "", minBalance: "" },
+								{ chain: `EVM-${props.chains[0] ?? ""}`, vault: "", threshold: "", minBalance: "", redeemOnShutdown: false },
 							])
 						}
 					>

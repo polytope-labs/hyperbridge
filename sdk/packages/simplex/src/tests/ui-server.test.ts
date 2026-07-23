@@ -539,12 +539,54 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("reports restart-needed when no vault venue exists at boot", async () => {
-		const { base, operator } = await startServer()
+		const vaultPreflight = vi.fn().mockResolvedValue(undefined)
+		const { base, operator } = await startServer({ vaultPreflight })
 		const vaults = [{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6" }]
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: false, restartNeeded: true, persisted: true })
+		expect(vaultPreflight).toHaveBeenCalledWith(vaults)
 		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
 		expect(written.vault?.vaults).toEqual(vaults)
+	})
+
+	it("rejects a vault set that fails preflight instead of persisting it", async () => {
+		const vaultPreflight = vi
+			.fn()
+			.mockRejectedValue(new Error("Vaults A and B on EVM-8453 share the underlying asset USDC"))
+		const { base, operator } = await startServer({ vaultPreflight })
+		const res = await fetch(`${base}/api/vault`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({
+				vaults: [
+					{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6" },
+					{ chain: "EVM-8453", vault: "0x616a4E1db48e22028f6bbf20444Cd3b8e3273738" },
+				],
+			}),
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain("share the underlying asset")
+		expect(existsSync(operator.configPath)).toBe(false)
+	})
+
+	it("round-trips redeemOnShutdown through a vault update", async () => {
+		const reconfigure = vi.fn().mockResolvedValue(undefined)
+		const { base, operator } = await startServer({
+			vault: {
+				sweepNow: vi.fn().mockResolvedValue(undefined),
+				redeemAll: vi.fn().mockResolvedValue(undefined),
+				reconfigure,
+			},
+		})
+		const vaults = [
+			{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", redeemOnShutdown: true },
+		]
+		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
+		expect(res.status).toBe(200)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.vault?.vaults?.[0]?.redeemOnShutdown).toBe(true)
+		const config = await (await fetch(`${base}/api/config`)).json()
+		expect(config.vaults[0].redeemOnShutdown).toBe(true)
 	})
 
 	it("updates rebalancing settings at runtime and persists them", async () => {

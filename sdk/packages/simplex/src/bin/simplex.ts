@@ -19,6 +19,7 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { initializeSignerFromToml, type SigningAccount } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
+import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -53,8 +54,12 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
+async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorContext> {
+	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
+		.then((pair) => pair.address)
+		.catch(() => undefined)
 	return {
+		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
 		strategies: runtime.adminStrategies,
 		filler: runtime.intentFiller,
 		balances: runtime.balanceProvider,
@@ -90,6 +95,7 @@ function operatorContextFrom(runtime: FillerRuntime): OperatorContext {
 			: undefined,
 		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
 		applyRebalancing: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
+		vaultPreflight: (vaults) => runtime.vaultPreflight(vaults),
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
@@ -190,7 +196,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: operatorContextFrom(runtime),
+						operator: await operatorContextFrom(runtime),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -226,7 +232,7 @@ program
 							dataDir: options.dataDir,
 							metricsBind,
 						})
-						server.enterOperatorMode(operatorContextFrom(runtime))
+						server.enterOperatorMode(await operatorContextFrom(runtime))
 					},
 				},
 			})

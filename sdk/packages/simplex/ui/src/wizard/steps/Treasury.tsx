@@ -185,6 +185,23 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 								}))
 							}
 						/>
+						<label
+							className="row"
+							style={{ whiteSpace: "nowrap" }}
+							title="Redeem this position to the wallet on graceful shutdown"
+						>
+							<input
+								type="checkbox"
+								checked={vault.redeemOnShutdown}
+								onChange={(e) =>
+									setState((s) => ({
+										...s,
+										vaults: patchAt(s.vaults, index, { redeemOnShutdown: e.target.checked }),
+									}))
+								}
+							/>
+							redeem on shutdown
+						</label>
 						<button
 							type="button"
 							onClick={() => setState((s) => ({ ...s, vaults: removeAt(s.vaults, index) }))}

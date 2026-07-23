@@ -5,6 +5,7 @@ import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
+import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -18,6 +19,7 @@ import {
 	DEFAULT_CONFIRMATION_POLICIES,
 	type FillerTomlConfig,
 	type StrategyConfig,
+	type VaultToml,
 } from "@/config/filler-toml"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
@@ -63,6 +65,12 @@ export interface FillerRuntime {
 	watchOnly?: Record<number, boolean>
 	config: FillerTomlConfig
 	configPath: string
+	/**
+	 * Hydrates throwaway state for a prospective vault set (read-only on-chain
+	 * calls) so hydration-time errors — unconfigured chain, same-asset
+	 * duplicates, non-vault address — surface before the set is persisted.
+	 */
+	vaultPreflight(vaults: VaultToml[]): Promise<void>
 	dataDir?: string
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
@@ -476,6 +484,26 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configPath: options.configPath,
 		dataDir: options.dataDir,
 		startedAt: Date.now(),
+		vaultPreflight: async (vaults) => {
+			const byChain: Record<string, VaultConfig[]> = {}
+			for (const row of vaults) {
+				if (!byChain[row.chain]) byChain[row.chain] = []
+				byChain[row.chain].push({
+					vault: row.vault,
+					threshold: row.threshold,
+					minBalance: row.minBalance,
+					redeemOnShutdown: row.redeemOnShutdown,
+				})
+			}
+			for (const [chain, chainVaults] of Object.entries(byChain)) {
+				await new VaultLiquidityState(
+					chain,
+					chainVaults,
+					runtimeSigner.account.address as HexString,
+					chainClientManager,
+				).hydrate()
+			}
+		},
 		shutdown,
 	}
 }

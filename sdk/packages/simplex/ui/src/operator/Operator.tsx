@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react"
 import { api } from "../api"
+import { CopyHash } from "../components/CopyHash"
 import { CurveEditor, fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
 import { PillTabs } from "../components/PillTabs"
 import { useAction, usePolling } from "../lib/hooks"
@@ -96,6 +97,17 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				Config: <span className="mono">{status.configPath}</span> · chains {status.chains.join(", ")} · strategies{" "}
 				{status.strategyTypes.join(", ")}
 			</p>
+			{status.addresses && (
+				<p className="hint">
+					Filler wallet: <CopyHash value={status.addresses.evm} chars={42} />
+					{status.addresses.substrate && (
+						<>
+							{" "}
+							· Hyperbridge: <CopyHash value={status.addresses.substrate} chars={16} />
+						</>
+					)}
+				</p>
+			)}
 
 			<PillTabs options={PAGE_TABS} value={tab} onChange={setTab} />
 

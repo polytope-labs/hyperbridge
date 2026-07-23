@@ -117,6 +117,7 @@ export interface StatusOperator {
 	strategies: Array<{ index: number; exotic?: string }>
 	strategyTypes: string[]
 	configPath: string
+	addresses?: { evm: string; substrate?: string }
 }
 
 export type Status = StatusInit | StatusOperator

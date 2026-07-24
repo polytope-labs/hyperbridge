@@ -1321,6 +1321,13 @@ export interface FillOrderEstimate {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
+	/**
+	 * Relayer fee for the cross-chain settlement message, denominated in the
+	 * SOURCE fee token (same unit as `Order.fees`). This is `RELAYER_MESSAGE_GAS`
+	 * priced on the source chain; it is 0 for same-chain fills. A filler's
+	 * `order.fees` must cover `totalGasInFeeToken + relayerFeeInSourceFeeToken`.
+	 */
+	relayerFeeInSourceFeeToken: bigint
 }
 
 /**

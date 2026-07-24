@@ -1,4 +1,5 @@
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { type HexString } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -11,8 +12,32 @@ const CHAIN = "EVM-8453"
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const REFERENCE = "1575" // exotic per USD
 
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: any,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
+
 function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>): FXFiller {
 	const configService = {
+		getUsdcAsset: () => "0x1111111111111111111111111111111111111111" as HexString,
+		getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+		getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
 	} as any
@@ -20,9 +45,14 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 	const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any
 	const clientManager = {} as any
 
-	return new FXFiller(signer, configService, clientManager, contractService, 5000, { [CHAIN]: EXOTIC }, {
-		bidPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
-		askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
+	const { pairs, registry } = exoticPairs(
+		configService,
+		{ [CHAIN]: EXOTIC },
+		5000,
+		new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
+		new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
+	)
+	return new FXFiller(signer, configService, clientManager, contractService, pairs, registry, {
 		priceGuard,
 	})
 }

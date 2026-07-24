@@ -3,9 +3,9 @@ import {
 	Order,
 	ExecutionResult,
 	HexString,
+	adjustDecimals,
 	bytes32ToBytes20,
 	type ERC7821Call,
-	FillOptions,
 	TokenInfo,
 	IntentsCoprocessor,
 	ADDRESS_ZERO,
@@ -15,6 +15,8 @@ import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import { unanchoredToken0Symbols } from "@/config/pairs"
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -22,46 +24,103 @@ import type { FundingVenue } from "@/funding/types"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
- * Strategy for swaps between USD-pegged stablecoins (USDC/USDT) and a single
- * configurable exotic token priced via a `FillerPricePolicy`.
- * Supports both same-chain and cross-chain orders.
+ * A trading pair the engine serves. `token0` and `token1` are registry symbols
+ * (see `AssetRegistry`); the price policies quote **token1 per 1 token0**,
+ * keyed by the order's token0 notional.
  *
- * The filler holds both the stablecoin(s) and the exotic token. When a user
- * places an order swapping between the two (on the same chain or across
- * different chains), this strategy:
- * 1. Evaluates profitability using the filler's price policy for the exotic token
- * 2. Calls fillOrder to deliver output tokens to the user on the destination chain
- * 3. Receives the user's escrowed input tokens from the source chain contract
+ * The bid policy prices the filler *buying* token1 (user sends token1, receives
+ * token0); the ask policy prices the filler *selling* token1. A missing policy
+ * disables that direction for this pair (one-sided LP). A pair with neither
+ * policy is priced from a Uniswap V4 venue (USD-stable `token0` only).
  *
- * For cross-chain orders, input tokens are resolved against the source chain's
- * stable/exotic addresses, and output tokens against the destination chain's.
- * The filler's output balance is checked on the destination chain.
+ * A **same-token pair** (`token0 == token1`, e.g. USDC/USDC) is the same-asset
+ * cross-chain market: ask-only, with the ask price at or below par — the gap
+ * to 1 is the filler's spread, realized in-kind on every fill.
  *
- * The filler manages their own internal rebalancing/swaps outside of order execution.
+ * `maxOrderSize` caps the pair's exposure per order, denominated in token0 —
+ * the curve amount axis shares that unit, so trade pricing never consults an
+ * external feed. Confirmation sizing alone converts token0 notionals to USD,
+ * derived from the declared curves (USD stables at $1, curve mids as FX edges).
+ */
+export interface TradingPair {
+	token0: string
+	token1: string
+	/** Maximum token0 notional this pair fills per order. */
+	maxOrderSize: Decimal
+	bidPricePolicy?: FillerPricePolicy
+	askPricePolicy?: FillerPricePolicy
+}
+
+/** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
+function isSameTokenPair(pair: TradingPair): boolean {
+	return normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
+}
+
+/** Zero-notional mid of a pair's curves (token1 per token0), or null when curve-less. */
+function pairMidRate(pair: TradingPair): Decimal | null {
+	const rates: Decimal[] = []
+	for (const policy of [pair.bidPricePolicy, pair.askPricePolicy]) {
+		const rate = policy?.getPrice(new Decimal(0))
+		if (rate?.gt(0)) rates.push(rate)
+	}
+	if (rates.length === 0) return null
+	return rates.reduce((a, b) => a.plus(b)).div(rates.length)
+}
+
+/** A leg matched to a configured pair, with everything needed to price it. */
+interface ResolvedLeg {
+	pair: TradingPair
+	/** True when the leg's input is the pair's token0 (filler sells token1). */
+	inputIsToken0: boolean
+	/** token1 address on the chain where the exotic side of this leg settles. */
+	token1Address: string
+	/** Chain (state machine id) where the token1 side of this leg lives. */
+	token1Chain: string
+}
+
+/** Rate context resolved for a leg: pricing rate plus the opposite side for margin marking. */
+interface LegRates {
+	/** token1 per token0 used to price this leg's output. */
+	rate: Decimal
+	/** The opposite side's rate (bid for ask-legs, ask for bid-legs), when available. */
+	oppositeRate: Decimal | null
+	priceSource: "venue" | "policy"
+}
+
+/**
+ * Strategy for swaps across a configurable set of trading pairs, each priced
+ * and sized by its own bid/ask curves (or a Uniswap V4 venue). Supports both
+ * same-chain and cross-chain orders.
  *
- * This implementation also enforces a per-order USD cap for risk management:
- * - A maximum order USD value is configured on the constructor.
- * - The price policy is always evaluated on the capped USD amount.
- * - The capped USD budget is then allocated across legs in order to determine
- *   how much the filler is willing to output.
- * - Actual outputs are further limited by the filler's real token balances.
+ * Pairs are declared as `token0`/`token1` registry symbols — e.g. USDC/CNGN,
+ * USDT/CNGN, ZARP/CNGN — and any number of pairs can run in one engine. Curves
+ * are quoted in **token1 per token0**; nothing assumes the quote side is a USD
+ * stablecoin and no external price feed is consulted. Trade sizing is
+ * pair-local in token0 units (the per-order `maxOrderSize` cap and the curve
+ * amount axis); only confirmation sizing converts to USD, using the curves
+ * themselves as the price feed (see `usdFactors`).
  *
- * Because the IntentGateway releases inputs proportionally to the fraction of
- * outputs provided, this allows safe partial fills (and even overfills relative
- * to the user's requested outputs) without additional on-chain logic here.
+ * For each (input, output) leg the engine finds the configured pair matching
+ * the leg's direction:
+ *  - input = token0, output = token1 → the filler *sells* token1 at the ask.
+ *  - input = token1, output = token0 → the filler *buys* token1 at the bid.
+ *
+ * The filler holds inventory on both sides of its pairs. Profitability
+ * evaluation caps each pair's legs at the pair's `maxOrderSize`, prices each
+ * leg with its pair's curve (or venue), and bounds outputs by the filler's
+ * real balances plus funding-venue withdrawals. Because the IntentGateway
+ * releases inputs proportionally to the fraction of outputs provided, partial
+ * fills (and overfills) need no extra on-chain logic.
  */
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
-	/** Bid price policy: exotic tokens per USD when the filler is *buying* exotic from a user */
-	private bidPricePolicy: FillerPricePolicy
-	/** Ask price policy: exotic tokens per USD when the filler is *selling* exotic to a user */
-	private askPricePolicy: FillerPricePolicy
-	/** Maps chain identifier → exotic token address (e.g. cNGN on each supported chain) */
-	private token1: Record<string, HexString>
-	private maxOrderUsd: Decimal
+	/** Trading pairs served by this engine; each with its own bid/ask policies and cap. */
+	private pairs: TradingPair[]
+	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
+	private registry: AssetRegistry
 	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
 	/** Consecutive orders where overfill clamp activated. */
@@ -74,94 +133,129 @@ export class FXFiller implements FillerStrategy {
 	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
-	private spreadBps: number
 	/**
 	 * Optional Uniswap price guard, keyed by chain. When a chain has an entry, a
 	 * venue (pool) quote is only trusted if it stays within `maxDeviationBps` of the
-	 * static `reference` price (exotic per USD); a quote outside the band rejects the
+	 * static `reference` price (token1 per USD); a quote outside the band rejects the
 	 * order — defence against a manipulated, stale, or thin pool. Sourced from the
 	 * per-position config under `[strategies.vault.uniswapV4]`.
 	 */
 	private priceGuard?: Map<string, { reference: Decimal; maxDeviationBps: number }>
 	/**
-	 * Whether the filler buys exotic from users (exotic-in/stable-out legs), priced
-	 * with the bid curve. Disabled by omitting the bid curve — the basis for one-sided
-	 * LP: drop a side and the filler skips orders in that direction.
+	 * One-sided switch for venue-priced pairs (no static curves): "bid" only buys
+	 * token1, "ask" only sells it. Curve-priced pairs express one-sidedness by
+	 * omitting a curve instead.
 	 */
-	private bidEnabled: boolean
-	/** Whether the filler sells exotic to users (stable-in/exotic-out legs), priced with the ask curve. */
-	private askEnabled: boolean
+	private side?: "bid" | "ask"
 
 	/**
-	 * @param signer                 Filler's signing account for UserOp signatures.
-	 * @param configService          Network/config provider for addresses and decimals.
-	 * @param clientManager          Used to get viem PublicClients for chains.
-	 * @param contractService        Shared contract interaction service.
-	 * @param maxOrderUsd             Maximum USD value this filler is willing to fill per order.
-	 * @param token1   Map of chain identifier → exotic token address.
-	 * @param options.bidPricePolicy Optional price curve for buying exotic. Required if no fundingVenues.
-	 * @param options.askPricePolicy Optional price curve for selling exotic. Required if no fundingVenues.
+	 * @param signer          Filler's signing account for UserOp signatures.
+	 * @param configService   Network/config provider for addresses and decimals.
+	 * @param clientManager   Used to get viem PublicClients for chains.
+	 * @param contractService Shared contract interaction service.
+	 * @param pairs           Trading pairs with their bid/ask price policies and per-order caps.
+	 * @param registry        Asset symbol registry resolving pair symbols per chain.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
-	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
-	 *
-	 * One-sided LP, two ways depending on the pricing mode:
-	 * - Static curves: omit one of `bidPricePolicy`/`askPricePolicy` to fill only the other
-	 *   side. Providing both keeps both directions open.
-	 * - Venue (pool) pricing with no curves: set `side` to restrict to one direction.
-	 *   Omitting `side` keeps both directions open.
-	 * @param options.side Pool-pricing one-sided switch ("bid" buys exotic, "ask" sells exotic).
-	 *   Only valid with venue pricing and no static curves.
+	 * @param options.side    Venue-pricing one-sided switch ("bid" buys token1, "ask" sells token1).
+	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
 	 */
 	constructor(
 		signer: SigningAccount,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		maxOrderUsd: number,
-		token1: Record<string, HexString>,
+		pairs: TradingPair[],
+		registry: AssetRegistry,
 		options?: {
-			bidPricePolicy?: FillerPricePolicy
-			askPricePolicy?: FillerPricePolicy
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
-			spreadBps?: number
 			priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>
 			side?: "bid" | "ask"
 		},
 	) {
-		const {
-			bidPricePolicy,
-			askPricePolicy,
-			confirmationPolicy,
-			fundingVenues = [],
-			spreadBps = 50,
-			priceGuard,
-			side,
-		} = options ?? {}
+		const { confirmationPolicy, fundingVenues = [], priceGuard, side } = options ?? {}
 
-		const hasAnyPolicy = !!(bidPricePolicy || askPricePolicy)
+		if (pairs.length === 0) {
+			throw new Error("FXFiller requires at least one trading pair")
+		}
+		const hasAnyPolicy = pairs.some((p) => p.bidPricePolicy || p.askPricePolicy)
 		const hasVenues = fundingVenues.length > 0
 
 		if (!hasAnyPolicy && !hasVenues) {
-			throw new Error("FXFiller requires a bid and/or ask price policy, or funding venues")
+			throw new Error("FXFiller requires price curves on its pairs, or funding venues for pool pricing")
 		}
 		if (side && hasAnyPolicy) {
-			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit bid/ask price policies")
+			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit pair price curves")
+		}
+		const seenPairs = new Set<string>()
+		for (const pair of pairs) {
+			const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
+			const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
+			if (seenPairs.has(label) || seenPairs.has(reversed)) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: duplicate market (a pair and its reverse are the same market)`,
+				)
+			}
+			seenPairs.add(label)
+			if (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0)) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
+				)
+			}
+			if (isSameTokenPair(pair)) {
+				// Same-asset market: ask-only, priced at or below par — above par
+				// pays out more than it receives on every fill.
+				if (pair.bidPricePolicy || !pair.askPricePolicy) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
+					)
+				}
+				const abovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gt(1))
+				if (abovePar) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must not exceed 1`,
+					)
+				}
+				continue
+			}
+			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
+				if (!hasVenues) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy, or funding venues`,
+					)
+				}
+				if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: venue (pool) pricing requires a USD-stable token0 — add price curves instead`,
+					)
+				}
+			}
 		}
 
-		// Direction enablement. With static curves, only the side(s) with a curve are filled
-		// (one-sided LP). With venue pricing (no curves), `side` optionally restricts to one
-		// direction; without it both sides are open.
-		this.bidEnabled = hasAnyPolicy ? !!bidPricePolicy : side ? side === "bid" : true
-		this.askEnabled = hasAnyPolicy ? !!askPricePolicy : side ? side === "ask" : true
+		// Mirrors validatePairConfigs for direct SDK construction: confirmation
+		// depth prices token0 notionals in USD through the curve graph, so every
+		// token0 must be reachable from a USD stable.
+		const unanchored = unanchoredToken0Symbols(
+			pairs.map((p) => ({
+				token0: p.token0,
+				token1: p.token1,
+				hasCurve: Boolean(p.bidPricePolicy || p.askPricePolicy),
+			})),
+		)
+		if (unanchored.length > 0) {
+			throw new Error(
+				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset`,
+			)
+		}
 
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
-		this.token1 = token1
+		this.pairs = pairs
+		this.registry = registry
 		this.fundingVenues = fundingVenues
-		this.spreadBps = spreadBps
+		this.side = side
 		if (priceGuard && Object.keys(priceGuard).length > 0) {
 			this.priceGuard = new Map()
 			for (const [chain, guard] of Object.entries(priceGuard)) {
@@ -172,15 +266,6 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		// Absent policies get a placeholder flat curve. A side without a curve is either
-		// disabled (so never priced) or venue-priced at runtime, so the placeholder is unused.
-		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
-		this.askPricePolicy = askPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
-
-		this.maxOrderUsd = new Decimal(maxOrderUsd)
-		if (this.maxOrderUsd.lte(0)) {
-			throw new Error("FXFiller maxOrderUsd must be greater than 0")
-		}
 		this.signer = signer
 		this.maxOverfillBps = configService.getMaxOverfillBps()
 		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
@@ -198,7 +283,7 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Call once at startup after construction.
-	 * Hydrates all funding venue state and derives initial bid/ask prices from venue data.
+	 * Hydrates all funding venue state so venue-priced pairs quote from live pool data.
 	 */
 	async initialise(): Promise<void> {
 		const solver = this.signer.account.address as HexString
@@ -206,48 +291,54 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Queries funding venues for the exotic token's USD price on a given chain.
-	 * Uniswap V4 is preferred; falls back to other venues. Returns the raw
-	 * pool price as both bid and ask, or null if no venue has a price.
+	 * Queries funding venues for `token1Address`'s USD price on a chain.
+	 * Uniswap V4 is preferred; falls back to other venues. Returns null when no
+	 * venue can price the token there.
 	 */
-	private async getVenuePrice(chain: string): Promise<{ bid: Decimal; ask: Decimal } | null> {
-		const exoticAddr = this.token1[chain]
-		if (!exoticAddr) return null
+	private async getVenueUsdPrice(chain: string, token1Address: string): Promise<Decimal | null> {
+		if (this.fundingVenues.length === 0) return null
 
 		// Prefer V4, fall back to others
 		const v4 = this.fundingVenues.filter((v) => v.name === "UniswapV4")
 		const venues = v4.length > 0 ? v4 : this.fundingVenues
 
 		for (const venue of venues) {
-			const usdPrice = await venue.getExoticTokenPrice(chain, exoticAddr)
-			if (usdPrice && usdPrice.isPositive()) {
-				const exoticPerUsd = new Decimal(1).div(usdPrice)
-				return {
-					bid: exoticPerUsd,
-					ask: exoticPerUsd,
-				}
-			}
+			const usdPrice = await venue.getExoticTokenPrice(chain, token1Address)
+			if (usdPrice?.isPositive()) return usdPrice
 		}
 		return null
+	}
+
+	/** Per-evaluation memo over `getVenueUsdPrice`, keyed by (chain, token1). */
+	private venuePriceMemo(): (chain: string, token1Address: string) => Promise<Decimal | null> {
+		const cache = new Map<string, Decimal | null>()
+		return async (chain: string, token1Address: string) => {
+			const key = `${chain}:${token1Address}`
+			const cached = cache.get(key)
+			if (cached !== undefined) return cached
+			const price = await this.getVenueUsdPrice(chain, token1Address)
+			cache.set(key, price)
+			return price
+		}
 	}
 
 	/**
 	 * Validates a live venue quote against the static reference price for the chain.
 	 * Returns true (pass) when no guard is configured, or no reference exists for the
-	 * chain. Returns false when the quote (exotic per USD) deviates from the reference
+	 * chain. Returns false when the quote (token1 per USD) deviates from the reference
 	 * by more than `maxDeviationBps`, in which case the order must not be filled.
 	 */
-	private checkPriceGuard(orderId: string | undefined, chain: string, venueExoticPerUsd: Decimal): boolean {
+	private checkPriceGuard(orderId: string | undefined, chain: string, venueToken1PerUsd: Decimal): boolean {
 		const guard = this.priceGuard?.get(chain)
 		if (!guard || guard.reference.lte(0)) return true
 
-		const deviationBps = venueExoticPerUsd.minus(guard.reference).abs().div(guard.reference).mul(10000)
+		const deviationBps = venueToken1PerUsd.minus(guard.reference).abs().div(guard.reference).mul(10000)
 		if (deviationBps.gt(guard.maxDeviationBps)) {
 			this.logger.warn(
 				{
 					orderId,
 					chain,
-					venuePrice: venueExoticPerUsd.toString(),
+					venuePrice: venueToken1PerUsd.toString(),
 					referencePrice: guard.reference.toString(),
 					deviationBps: deviationBps.toFixed(2),
 					maxDeviationBps: guard.maxDeviationBps,
@@ -273,13 +364,12 @@ export class FXFiller implements FillerStrategy {
 				return false
 			}
 
-			const pairs = this.classifyAllPairs(order)
-			if (!pairs) {
-				this.logger.debug({ sourceChain: order.source, destChain: order.destination }, "Unsupported token pair")
-				return false
-			}
-
-			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
+			const legs = this.resolveOrderLegs(order)
+			if (!legs) {
+				this.logger.debug(
+					{ sourceChain: order.source, destChain: order.destination },
+					"No configured pair matches the order's token legs",
+				)
 				return false
 			}
 
@@ -291,21 +381,22 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Evaluates whether an order is profitable to fill under the configured
-	 * per-order USD cap and the filler's current token balances.
+	 * Evaluates whether an order is profitable to fill under the per-pair
+	 * `maxOrderSize` caps and the filler's current token balances.
 	 *
 	 * High-level flow:
-	 * - Compute the total USD value of the order based on the input side,
-	 *   pricing exotic inputs at the policy's minimum price.
-	 * - Cap this at `maxOrderUsd` to get a capped USD budget.
-	 * - Ask the price policy for an exotic token price at that capped USD.
-	 * - Walk each (input, output) leg in order, allocating from the capped USD
-	 *   budget and computing how much the filler is willing to output.
-	 * - Further cap each leg by the filler's current token balance.
+	 * - Resolve each (input, output) leg to a configured pair and direction.
+	 * - Estimate each pair's total token0 notional in the order and cap it at
+	 *   the pair's `maxOrderSize`; pair curves are evaluated at that capped
+	 *   notional.
+	 * - Walk the legs, allocating from each pair's capped token0 budget and
+	 *   pricing outputs at the pair's rate.
+	 * - Further cap each leg by the filler's current token balance plus
+	 *   funding-venue withdrawals.
 	 * - Cache the resulting outputs for later use in `executeOrder`.
 	 *
 	 * Note: we may intentionally overfill relative to the user's requested
-	 * outputs if the price policy makes that attractive. This is how we stay competitive.
+	 * outputs if the pair pricing makes that attractive. This is how we stay competitive.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		if (this.halted) {
@@ -321,66 +412,45 @@ export class FXFiller implements FillerStrategy {
 			const walletAddress = this.signer.account.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
-			const pairs = this.classifyAllPairs(order)
-			if (!pairs) {
-				this.logger.info({ orderId: order.id }, "Skipping order: could not classify token pairs")
+			const legs = this.resolveOrderLegs(order)
+			if (!legs) {
+				this.logger.info({ orderId: order.id }, "Skipping order: no configured pair matches its legs")
 				return 0
 			}
 
-			if (!this.isOrderDirectionEnabled(pairs, order.id)) {
+			// A zero requested output is degenerate on the fill path: the gateway
+			// releases no escrow for it (remaining == 0), yet the leg would still be
+			// sized and could feed the profit gate. Never bid on such an order.
+			if (order.output.assets.some((a) => a.amount === 0n)) {
+				this.logger.info({ orderId: order.id }, "Skipping order: contains a zero-amount requested output")
 				return 0
 			}
 
-			const usdResult = await this.getOrderUsdValue(order)
-			const totalInputUsd = usdResult?.inputUsd
+			const venueUsdPrice = this.venuePriceMemo()
 
-			if (!totalInputUsd || totalInputUsd.lte(0)) {
-				this.logger.info({ orderId: order.id }, "Skipping order: could not compute input USD value")
+			// Per-pair token0 notionals, capped at each pair's maxOrderSize. The
+			// capped notional is both the curve evaluation point and the budget
+			// legs of that pair draw from.
+			const sized = await this.sizeOrder(order, legs, venueUsdPrice)
+			if (!sized) {
+				this.logger.info({ orderId: order.id }, "Skipping order: could not size the order's legs")
 				return 0
 			}
+			const { legNotionals, cappedByPair, totalNotional } = sized
 
-			const cappedOrderUsd = Decimal.min(totalInputUsd, this.maxOrderUsd)
-			if (cappedOrderUsd.lte(0)) {
-				this.logger.info(
-					{
-						orderId: order.id,
-						orderValueUsdFull: totalInputUsd.toString(),
-						orderValueUsdCapped: cappedOrderUsd.toString(),
-						maxOrderUsd: this.maxOrderUsd.toString(),
-					},
-					"Skipping order: capped USD value is non-positive",
-				)
-				return 0
-			}
+			const remainingByPair = new Map(cappedByPair)
 
-			// Compute bid and ask prices at the capped order size once, then pick per leg.
-			// - askPrice: used when filler sells exotic (stable->exotic). Lower rate = fewer exotic sent.
-			// - bidPrice: used when filler buys exotic (exotic->stable). Higher rate = fewer USD paid out.
-			const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
-			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
 			const fillerOutputs: TokenInfo[] = []
 			// Original leg index for each entry in `fillerOutputs`. Legs can be skipped
 			// (insufficient balance, exhausted budget), so `fillerOutputs[k]` is the k-th
 			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
-			// original input/pair via this array rather than by position.
+			// original input/leg via this array rather than by position.
 			const fillerOutputLegs: number[] = []
-			let remainingUsd = cappedOrderUsd
+			// Rate context per original leg index, captured during the leg loop so the
+			// margin pass below prices with the same numbers.
+			const legRatesByIndex = new Map<number, LegRates>()
 
 			const fundingCalls: ERC7821Call[] = []
-
-			// Fetch venue prices once per chain (avoids redundant RPC per leg)
-			const sourceVenuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
-			const destVenuePrice = sourceChain !== destChain && this.fundingVenues.length > 0
-				? await this.getVenuePrice(destChain) : sourceVenuePrice
-
-			// Price guard: reject the whole order if a venue quote on any involved chain
-			// has drifted beyond the configured band from its static reference price.
-			if (sourceVenuePrice && !this.checkPriceGuard(order.id, sourceChain, sourceVenuePrice.bid)) {
-				return 0
-			}
-			if (sourceChain !== destChain && destVenuePrice && !this.checkPriceGuard(order.id, destChain, destVenuePrice.bid)) {
-				return 0
-			}
 
 			let deadlineTimestamp: bigint | undefined
 			try {
@@ -396,7 +466,7 @@ export class FXFiller implements FillerStrategy {
 			for (let i = 0; i < order.inputs.length; i++) {
 				const input = order.inputs[i]
 				const output = order.output.assets[i]
-				const pair = pairs[i]
+				const leg = legs[i]
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -407,28 +477,36 @@ export class FXFiller implements FillerStrategy {
 					destChain,
 				)
 
-				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
-				const exoticTokenDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
+				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
+				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
-				const venuePrice = pair.inputIsStable ? destVenuePrice : sourceVenuePrice
-				const bidPrice = venuePrice?.bid ?? policyBidPrice
-				const askPrice = venuePrice?.ask ?? policyAskPrice
+				const cappedNotional = cappedByPair.get(leg.pair) ?? leg.pair.maxOrderSize
+				const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
+				if (!rates) return 0
+				legRatesByIndex.set(i, rates)
 
+				const remaining = remainingByPair.get(leg.pair) ?? new Decimal(0)
 				const legResult = this.computeLegPolicyOutput(
 					input.amount,
-					pair.inputIsStable,
-					stableDecimals,
-					exoticTokenDecimals,
-					remainingUsd,
-					pair.inputIsStable ? askPrice : bidPrice,
+					leg.inputIsToken0,
+					token0Decimals,
+					token1Decimals,
+					remaining,
+					rates.rate,
 				)
 
 				if (!legResult) {
+					// Budget exhausted for this pair. Emit a zero output so the
+					// on-chain outputs array stays index-aligned with
+					// order.output.assets (the gateway skips solverAmount == 0 legs);
+					// a compacted array would mismatch and revert fillOrder.
+					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerOutputLegs.push(i)
 					continue
 				}
 
-				const { usdUsed, policyMaxOutput: rawPolicyMaxOutput } = legResult
-				remainingUsd = remainingUsd.minus(usdUsed)
+				const { token0Used, policyMaxOutput: rawPolicyMaxOutput } = legResult
+				remainingByPair.set(leg.pair, remaining.minus(token0Used))
 
 				// Overfill detection is warn-only: the clamp is DISABLED, so the filler
 				// fills the full computed amount even when it exceeds
@@ -439,17 +517,17 @@ export class FXFiller implements FillerStrategy {
 				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
 				const policyMaxOutput = rawPolicyMaxOutput
 				if (rawPolicyMaxOutput > overfillCeiling) {
-					const priceSource = venuePrice ? "venue" : "policy"
 					this.logger.warn(
 						{
 							orderId: order.id,
 							leg: i,
+							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
 							userRequested: output.amount.toString(),
 							unclamped: rawPolicyMaxOutput.toString(),
 							ceiling: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
-							priceSource,
+							priceSource: rates.priceSource,
 						},
 						"Overfill ceiling exceeded — clamp disabled, filling unclamped amount",
 					)
@@ -495,6 +573,9 @@ export class FXFiller implements FillerStrategy {
 						},
 						"Skipping leg: no available balance for required output token",
 					)
+					// Aligned zero output (see budget-exhausted case above).
+					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerOutputLegs.push(i)
 					continue
 				}
 
@@ -502,6 +583,7 @@ export class FXFiller implements FillerStrategy {
 					this.logger.info(
 						{
 							orderId: order.id,
+							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
 							policyOutput: policyMaxOutput.toString(),
 							userRequested: output.amount.toString(),
@@ -532,21 +614,15 @@ export class FXFiller implements FillerStrategy {
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)
-
-				if (remainingUsd.lte(0)) {
-					break
-				}
 			}
 
-			if (fillerOutputs.length === 0) {
+			if (fillerOutputs.every((o) => o.amount === 0n)) {
 				this.logger.info(
 					{
 						orderId: order.id,
-						orderValueUsdFull: totalInputUsd.toString(),
-						orderValueUsdCapped: cappedOrderUsd.toString(),
-						maxOrderUsd: this.maxOrderUsd.toString(),
+						orderNotional: totalNotional.toString(),
 					},
-					"Skipping order: no outputs after applying USD cap and balance constraints",
+					"Skipping order: no fillable outputs after applying pair caps and balance constraints",
 				)
 				return 0
 			}
@@ -561,18 +637,31 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Realized FX margin, report-only — never rejects an order. A single fill is half a
-			// round-trip, so the open leg is marked at the opposite side of the spread:
-			// - sells exotic (stable→exotic): value the exotic given at bid (rebuy cost).
-			// - buys exotic (exotic→stable): value the exotic received at ask (resale value).
-			// Positive by construction when bid ≥ ask. `fillerOutputs[i]` is the i-th *surviving*
-			// leg; realign to its original input/pair via `fillerOutputLegs`.
-			let fxMarginUsd = new Decimal(0)
+			// Per-leg P&L accounting over the surviving legs, feeding the SPREAD gate
+			// (the filler's margin on the swap itself, independent of order.fees):
+			//  - Same-token legs realize their spread in-kind (input − output of the
+			//    SAME asset), in fee-token (USD) units — deterministic.
+			//  - Cross-asset legs are half a round-trip: the open side is marked at
+			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
+			//    resale at ask), in token0 units. Only two-sided legs contribute; a
+			//    one-sided (directional) leg has no opposite curve to mark against.
+			let realizedSpreadProfit = 0n
+			let fxMarginQuote = new Decimal(0)
+			let hasSameTokenSpread = false
+			// Every same-token leg must individually come out ahead in its OWN asset.
+			// Checked per leg (not on the summed total) because same-token legs of
+			// different assets aren't in a common unit.
+			let sameTokenAllProfitable = true
+			let hasFxMargin = false
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
 				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
-				const pair = pairs[legIndex]
+				const leg = legs[legIndex]
+
+				// Zero-amount legs are placeholders keeping the outputs array aligned;
+				// they release no escrow on-chain, so they contribute nothing to P&L.
+				if (output.amount === 0n) continue
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -582,23 +671,37 @@ export class FXFiller implements FillerStrategy {
 					bytes32ToBytes20(output.token) as HexString,
 					destChain,
 				)
-				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
-				const exoticDecimalsLeg = pair.inputIsStable ? outputDecimals : inputDecimals
 
-				const venuePriceProfit = pair.inputIsStable ? destVenuePrice : sourceVenuePrice
-				const bidPrice = venuePriceProfit?.bid ?? policyBidPrice
-				const askPrice = venuePriceProfit?.ask ?? policyAskPrice
+				if (isSameTokenPair(leg.pair)) {
+					// Spread in the asset's OWN units: escrow released (full input) minus
+					// output paid. Positive iff the filler nets the asset — a sign check
+					// that is valid for any asset (USD-stable or not), since it never
+					// crosses into another unit.
+					const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
+					const spread = convertedInput - output.amount
+					if (spread <= 0n) sameTokenAllProfitable = false
+					realizedSpreadProfit += adjustDecimals(spread, outputDecimals, feeTokenDecimals)
+					hasSameTokenSpread = true
+					continue
+				}
 
-				if (pair.inputIsStable) {
-					// Sells exotic: receives stable, gives exotic valued at bid (rebuy cost).
-					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
-					const outputExotic = new Decimal(formatUnits(output.amount, exoticDecimalsLeg))
-					fxMarginUsd = fxMarginUsd.plus(inputUsd.minus(outputExotic.div(bidPrice)))
+				const rates = legRatesByIndex.get(legIndex)
+				if (!rates?.oppositeRate) continue
+				hasFxMargin = true
+
+				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
+				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
+
+				if (leg.inputIsToken0) {
+					// Sells token1: receives token0, gives token1 valued at bid (rebuy cost).
+					const inputToken0 = new Decimal(formatUnits(input.amount, token0Decimals))
+					const outputToken1 = new Decimal(formatUnits(output.amount, token1Decimals))
+					fxMarginQuote = fxMarginQuote.plus(inputToken0.minus(outputToken1.div(rates.oppositeRate)))
 				} else {
-					// Buys exotic: gives stable, receives exotic valued at ask (resale value).
-					const inputExotic = new Decimal(formatUnits(input.amount, exoticDecimalsLeg))
-					const outputUsd = new Decimal(formatUnits(output.amount, stableDecimals))
-					fxMarginUsd = fxMarginUsd.plus(inputExotic.div(askPrice).minus(outputUsd))
+					// Buys token1: gives token0, receives token1 valued at ask (resale value).
+					const inputToken1 = new Decimal(formatUnits(input.amount, token1Decimals))
+					const outputToken0 = new Decimal(formatUnits(output.amount, token0Decimals))
+					fxMarginQuote = fxMarginQuote.plus(inputToken1.div(rates.oppositeRate).minus(outputToken0))
 				}
 			}
 
@@ -606,23 +709,57 @@ export class FXFiller implements FillerStrategy {
 			// left in place but dormant (always recorded as a clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
 
-			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
-			if (order.fees < totalCostInSourceFeeToken) {
+			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken } =
+				await this.contractService.estimateGasFillPost(order)
+
+			// GATE 1 — execution cost (independent). order.fees exist solely to pay
+			// for execution: the fill gas plus, for cross-chain orders, the relayer
+			// fee for delivering the escrow-release message back to the source chain
+			// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
+			// swap spread is NOT credited here — fees must cover cost on their own.
+			const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
+			if (order.fees < executionCost) {
 				this.logger.info(
 					{
 						orderId: order.id,
 						orderFees: formatUnits(order.fees, feeTokenDecimals),
-						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+						executionCost: formatUnits(executionCost, feeTokenDecimals),
 					},
-					"Skipping order: attached fees do not cover estimated execution cost",
+					"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
 				)
 				return 0
 			}
-			const feeProfit = order.fees - totalCostInSourceFeeToken
-			// FX bids are gated on fee profit only. fxMarginUsd is a theoretical mark-to-model
-			// value (open leg priced at the opposite curve) and is reported separately, never summed in.
-			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
+
+			// GATE 2 — swap profit (independent). The fill must make the filler money
+			// on the swap itself, measured per category present. One-sided (directional)
+			// legs produce no spread signal and are not gated here — the operator opted
+			// into that position by configuring one-sided pricing.
+			if (hasSameTokenSpread && !sameTokenAllProfitable) {
+				this.logger.info(
+					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
+					"Skipping order: a same-token leg does not net a positive spread",
+				)
+				return 0
+			}
+			if (hasFxMargin && fxMarginQuote.lte(0)) {
+				this.logger.info(
+					{ orderId: order.id, fxMarginQuote: fxMarginQuote.toString() },
+					"Skipping order: FX spread margin is not positive",
+				)
+				return 0
+			}
+
+			const feeProfit = order.fees - executionCost
+			// Both gates passed → the order is profitable. This number is only the
+			// ranking / >0 execute signal, never a funds gate (the two gates above
+			// already decided). It sums fee surplus (USD) with the realized same-token
+			// spread and the cross-asset FX margin — for a non-USD same-token asset
+			// the spread term is in that asset's units, so the magnitude is a rough
+			// signal rather than a true dollar figure; its sign is always correct.
+			const totalProfit =
+				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginQuote.toNumber()
 
 			this.logger.info(
 				{
@@ -630,15 +767,19 @@ export class FXFiller implements FillerStrategy {
 					sourceChain,
 					destChain,
 					crossChain: sourceChain !== destChain,
-					orderValueUsdFull: totalInputUsd.toString(),
-					orderValueUsdCapped: cappedOrderUsd.toString(),
-					maxOrderUsd: this.maxOrderUsd.toString(),
-					bidPrice: policyBidPrice.toString(),
-					askPrice: policyAskPrice.toString(),
+					pairs: legs.map((leg) => `${leg.pair.token0}/${leg.pair.token1}`),
+					orderNotional: totalNotional.toString(),
+					legNotionals: legNotionals.map((n) => n.toString()),
+					pairCaps: [...cappedByPair].map(
+						([pair, cap]) => `${pair.token0}/${pair.token1}=${cap.toString()}`,
+					),
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
-					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+					fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+					relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+					executionCost: formatUnits(executionCost, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
-					fxMarginUsd: fxMarginUsd.toString(),
+					realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
+					fxMarginQuote: fxMarginQuote.toString(),
 					totalProfit,
 					profitable: totalProfit > 0,
 				},
@@ -737,19 +878,6 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 
 	/**
-	 * Given a single (input, output) leg and the remaining capped USD budget,
-	 * computes how much USD to allocate to this leg and the corresponding
-	 * maximum output amount according to the price policy.
-	 *
-	 * Uses `exoticPerUsd` (exotic tokens per 1 USD) consistently for both directions:
-	 * - Stable input → exotic output: USD × exoticPerUsd → exotic amount.
-	 * - Exotic input → stable output: exoticAmount / exoticPerUsd → USD.
-	 *
-	 * Returns `null` when this leg cannot consume any of the remaining USD
-	 * budget (e.g. the cap has already been exhausted).
-	 */
-
-	/**
 	 * Update consecutive-clamp counter after a successful order evaluation.
 	 * Only venue-priced legs feed this counter (see clamp site) — a streak of those
 	 * is the signal that a live market source has gone off (stale pool, manipulated
@@ -771,38 +899,167 @@ export class FXFiller implements FillerStrategy {
 		}
 	}
 
-	private computeLegPolicyOutput(
-		inputAmount: bigint,
-		inputIsStable: boolean,
-		stableDecimals: number,
-		exoticTokenDecimals: number,
-		remainingUsd: Decimal,
-		exoticPerUsd: Decimal,
-	): { usdUsed: Decimal; policyMaxOutput: bigint } | null {
-		let legMaxUsd: Decimal
-		if (inputIsStable) {
-			legMaxUsd = new Decimal(formatUnits(inputAmount, stableDecimals))
-		} else {
-			const normalizedExoticInput = new Decimal(formatUnits(inputAmount, exoticTokenDecimals))
-			legMaxUsd = normalizedExoticInput.div(exoticPerUsd)
+	/**
+	 * Estimates each leg's token0 notional and derives per-pair budgets.
+	 *
+	 * The estimate uses the leg's own price source at minimum size (curve at 0,
+	 * or the venue quote) to convert token1-input legs into token0 terms. Each
+	 * pair's total is capped at its `maxOrderSize` — that capped notional is
+	 * the point pair curves are evaluated at and the budget its legs draw from.
+	 *
+	 * Returns null when a leg cannot be estimated (no usable rate).
+	 */
+	private async sizeOrder(
+		order: Order,
+		legs: ResolvedLeg[],
+		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
+	): Promise<{ legNotionals: Decimal[]; cappedByPair: Map<TradingPair, Decimal>; totalNotional: Decimal } | null> {
+		const sourceChain = order.source
+		const legNotionals: Decimal[] = []
+		const totals = new Map<TradingPair, Decimal>()
+
+		for (let i = 0; i < order.inputs.length; i++) {
+			const leg = legs[i]
+			const decimals = await this.contractService.getTokenDecimals(
+				bytes32ToBytes20(order.inputs[i].token) as HexString,
+				sourceChain,
+			)
+			const amount = new Decimal(formatUnits(order.inputs[i].amount, decimals))
+
+			let notional: Decimal
+			if (leg.inputIsToken0) {
+				notional = amount
+			} else {
+				const rate = await this.referenceRate(leg, venueUsdPrice)
+				if (!rate) return null
+				notional = amount.div(rate)
+			}
+			legNotionals.push(notional)
+			totals.set(leg.pair, (totals.get(leg.pair) ?? new Decimal(0)).plus(notional))
 		}
 
-		const usdForLeg = Decimal.min(legMaxUsd, remainingUsd)
-		if (usdForLeg.lte(0)) {
+		const cappedByPair = new Map<TradingPair, Decimal>()
+		// totalNotional is log-only: for an order whose legs span pairs with
+		// different token0s it mixes units — anything decision-making must use
+		// legNotionals (per-pair token0) or getOrderUsdValue (USD).
+		let totalNotional = new Decimal(0)
+		for (const [pair, total] of totals) {
+			cappedByPair.set(pair, Decimal.min(total, pair.maxOrderSize))
+			totalNotional = totalNotional.plus(total)
+		}
+
+		return { legNotionals, cappedByPair, totalNotional }
+	}
+
+	/**
+	 * Minimum-size reference rate (token1 per token0) for a leg's pair: the
+	 * bid curve at 0 (the side token1-input legs trade at), falling back to the
+	 * ask curve, then the live venue quote for venue-priced pairs.
+	 */
+	private async referenceRate(
+		leg: ResolvedLeg,
+		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
+	): Promise<Decimal | null> {
+		const policy = leg.pair.bidPricePolicy ?? leg.pair.askPricePolicy
+		if (policy) {
+			const rate = policy.getPrice(new Decimal(0))
+			return rate.gt(0) ? rate : null
+		}
+		// Venue-priced pair: token0 is USD-stable (constructor invariant), so the
+		// venue's USD-per-token1 quote inverts straight into token1-per-token0.
+		const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
+		return venueUsd ? new Decimal(1).div(venueUsd) : null
+	}
+
+	/**
+	 * Given a single (input, output) leg and the remaining token0 budget of its
+	 * pair, computes how much token0 notional to allocate to this leg and the
+	 * corresponding maximum output amount at the pair's rate.
+	 *
+	 * `rate` is **token1 per 1 token0**:
+	 * - token0 input → token1 output: token0 × rate → token1 amount.
+	 * - token1 input → token0 output: token1 ÷ rate → token0 amount.
+	 *
+	 * Returns `null` when this leg cannot consume any of the pair's remaining
+	 * budget (e.g. the cap has already been exhausted).
+	 */
+	private computeLegPolicyOutput(
+		inputAmount: bigint,
+		inputIsToken0: boolean,
+		token0Decimals: number,
+		token1Decimals: number,
+		remainingToken0: Decimal,
+		rate: Decimal,
+	): { token0Used: Decimal; policyMaxOutput: bigint } | null {
+		let legMaxToken0: Decimal
+		if (inputIsToken0) {
+			legMaxToken0 = new Decimal(formatUnits(inputAmount, token0Decimals))
+		} else {
+			legMaxToken0 = new Decimal(formatUnits(inputAmount, token1Decimals)).div(rate)
+		}
+
+		const token0ForLeg = Decimal.min(legMaxToken0, remainingToken0)
+		if (token0ForLeg.lte(0)) {
 			return null
 		}
 
 		let policyMaxOutput: bigint
-		if (inputIsStable) {
-			// Output is exotic: convert USD allocation to exotic tokens at the policy price
-			const exoticFromAlloc = usdForLeg.mul(exoticPerUsd)
-			policyMaxOutput = BigInt(exoticFromAlloc.mul(new Decimal(10).pow(exoticTokenDecimals)).floor().toFixed(0))
+		if (inputIsToken0) {
+			// Output is token1: convert the token0 allocation at the pair rate.
+			policyMaxOutput = BigInt(
+				token0ForLeg.mul(rate).mul(new Decimal(10).pow(token1Decimals)).floor().toFixed(0),
+			)
 		} else {
-			// Output is stable: the filler pays out the USD value of the exotic input
-			policyMaxOutput = BigInt(usdForLeg.mul(new Decimal(10).pow(stableDecimals)).floor().toFixed(0))
+			// Output is token0: pay out the token0 equivalent of the token1 input.
+			policyMaxOutput = BigInt(token0ForLeg.mul(new Decimal(10).pow(token0Decimals)).floor().toFixed(0))
 		}
 
-		return { usdUsed: usdForLeg, policyMaxOutput }
+		return { token0Used: token0ForLeg, policyMaxOutput }
+	}
+
+	/**
+	 * Resolves the pricing rate (token1 per token0) for a leg: the venue quote
+	 * when available (validated against the price guard; USD-stable token0
+	 * pairs only), otherwise the pair's curve for the leg's direction at the
+	 * pair's capped token0 notional. Returns null when the leg cannot be priced
+	 * (guard tripped, or direction disabled).
+	 */
+	private async resolveLegRates(
+		orderId: string | undefined,
+		leg: ResolvedLeg,
+		cappedPairNotional: Decimal,
+		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
+	): Promise<LegRates | null> {
+		// Explicitly configured curves always win — the venue only prices pairs
+		// with no curves at all (and never same-token pairs, where a venue quote
+		// would just be the asset's own USD price, not a spread).
+		const curveless = !leg.pair.bidPricePolicy && !leg.pair.askPricePolicy
+		if (curveless && !isSameTokenPair(leg.pair) && USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
+			const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
+			if (venueUsd) {
+				// Guard compares the venue's token1-per-USD quote against the static reference.
+				if (!this.checkPriceGuard(orderId, leg.token1Chain, new Decimal(1).div(venueUsd))) {
+					return null
+				}
+				// The pool mid is used for both directions, mirroring the previous
+				// venue behaviour.
+				const venueRate = new Decimal(1).div(venueUsd)
+				return { rate: venueRate, oppositeRate: venueRate, priceSource: "venue" }
+			}
+		}
+
+		const askRate = leg.pair.askPricePolicy?.getPrice(cappedPairNotional) ?? null
+		const bidRate = leg.pair.bidPricePolicy?.getPrice(cappedPairNotional) ?? null
+
+		const rate = leg.inputIsToken0 ? askRate : bidRate
+		if (!rate) {
+			this.logger.debug(
+				{ orderId, pair: `${leg.pair.token0}/${leg.pair.token1}`, inputIsToken0: leg.inputIsToken0 },
+				"Rejecting leg: direction disabled for one-sided LP",
+			)
+			return null
+		}
+		return { rate, oppositeRate: leg.inputIsToken0 ? bidRate : askRate, priceSource: "policy" }
 	}
 
 	/**
@@ -816,6 +1073,7 @@ export class FXFiller implements FillerStrategy {
 	private async getAndCacheBalance(
 		tokenAddressLower: string,
 		walletAddress: HexString,
+		// biome-ignore lint/suspicious/noExplicitAny: viem public client type varies per chain
 		destClient: any,
 		balanceCache: Map<string, bigint>,
 	): Promise<bigint> {
@@ -842,91 +1100,126 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Classifies all (input, output) legs of an order in one pass.
-	 * Returns null if any leg has an unsupported pair.
+	 * Matches an (input, output) leg to a configured pair on the order's chains.
+	 *
+	 * A leg matches when input = token0 on source and output = token1 on dest
+	 * (the filler sells token1 — ask direction), or input = token1 on source and
+	 * output = token0 on dest (the filler buys token1 — bid direction). The
+	 * direction must also be enabled for the pair (one-sided LP).
 	 */
-	private classifyAllPairs(order: Order): CachedPairClassification[] | null {
-		if (order.id) {
-			const cached = this.contractService.cacheService.getPairClassifications(order.id)
-			if (cached) return cached
-		}
+	private matchLeg(
+		sourceChain: string,
+		destChain: string,
+		inputAddress: string,
+		outputAddress: string,
+	): ResolvedLeg | null {
+		for (const pair of this.pairs) {
+			// Same-token pairs are the same-asset CROSS-chain market only. A
+			// same-chain leg (source == dest) would be a pay-more-get-less self
+			// swap on one chain — never fill it.
+			if (isSameTokenPair(pair) && sourceChain === destChain) continue
 
-		const sourceChain = order.source
-		const destChain = order.destination
-		const sourceExotic = this.token1[sourceChain]
-		const destExotic = this.token1[destChain]
-		if (!sourceExotic && !destExotic) {
-			throw new Error(`Exotic token address not configured for chains ${sourceChain} / ${destChain}`)
-		}
+			const token0Source = this.registry.getAddress(pair.token0, sourceChain)?.toLowerCase()
+			const token1Dest = this.registry.getAddress(pair.token1, destChain)?.toLowerCase()
+			if (token0Source && token1Dest && inputAddress === token0Source && outputAddress === token1Dest) {
+				if (!this.directionEnabled(pair, true)) continue
+				return {
+					pair,
+					inputIsToken0: true,
+					token1Address: token1Dest,
+					token1Chain: destChain,
+				}
+			}
 
-		const pairs: CachedPairClassification[] = []
-		for (let i = 0; i < order.inputs.length; i++) {
-			const normalizedInput = bytes32ToBytes20(order.inputs[i].token).toLowerCase()
-			const normalizedOutput = bytes32ToBytes20(order.output.assets[i].token).toLowerCase()
+			// Same-token pairs have identical addresses on both branches — every
+			// matching leg is the ask direction, so the bid branch never applies.
+			if (isSameTokenPair(pair)) continue
 
-			const inputStable = this.getStableType(normalizedInput, sourceChain)
-			const outputStable = this.getStableType(normalizedOutput, destChain)
-
-			if (inputStable && destExotic && normalizedOutput === destExotic.toLowerCase()) {
-				pairs.push({
-					inputIsStable: true,
-					stableToken: order.inputs[i].token,
-					exoticToken: order.output.assets[i].token,
-				})
-			} else if (sourceExotic && normalizedInput === sourceExotic.toLowerCase() && outputStable) {
-				pairs.push({
-					inputIsStable: false,
-					stableToken: order.output.assets[i].token,
-					exoticToken: order.inputs[i].token,
-				})
-			} else {
-				return null
+			const token1Source = this.registry.getAddress(pair.token1, sourceChain)?.toLowerCase()
+			const token0Dest = this.registry.getAddress(pair.token0, destChain)?.toLowerCase()
+			if (token1Source && token0Dest && inputAddress === token1Source && outputAddress === token0Dest) {
+				if (!this.directionEnabled(pair, false)) continue
+				return {
+					pair,
+					inputIsToken0: false,
+					token1Address: token1Source,
+					token1Chain: sourceChain,
+				}
 			}
 		}
-
-		if (order.id) {
-			this.contractService.cacheService.setPairClassifications(order.id, pairs)
-		}
-
-		return pairs
+		return null
 	}
 
 	/**
-	 * One-sided LP gate: returns false if any leg runs in a disabled direction
-	 * (curve omitted, or excluded by the venue `side`). A stable-in leg sells exotic
-	 * and needs the ask side; an exotic-in leg buys exotic and needs the bid side.
-	 * The IntentGateway settles all legs atomically, so a mixed-direction order can't
-	 * be partially honoured.
-	 *
-	 * Kept separate from `classifyAllPairs`: that result is cached and shared across
-	 * strategies, whereas enablement is per-strategy, so this must run on every
-	 * evaluation regardless of cache state.
+	 * Whether a pair fills legs in the given direction. Curve-priced pairs are
+	 * gated by the presence of the direction's curve; venue-priced pairs (no
+	 * curves) by the global `side` switch. The IntentGateway settles all legs
+	 * atomically, so a mixed-direction order is rejected as a whole when any
+	 * leg's direction is disabled.
 	 */
-	private isOrderDirectionEnabled(pairs: CachedPairClassification[], orderId: string | undefined): boolean {
-		for (let i = 0; i < pairs.length; i++) {
-			const leg = pairs[i]
-			if ((leg.inputIsStable && !this.askEnabled) || (!leg.inputIsStable && !this.bidEnabled)) {
-				this.logger.debug(
-					{
-						orderId,
-						leg: i,
-						inputIsStable: leg.inputIsStable,
-						bidEnabled: this.bidEnabled,
-						askEnabled: this.askEnabled,
-					},
-					"Rejecting order: leg direction disabled for one-sided LP",
-				)
-				return false
-			}
+	private directionEnabled(pair: TradingPair, inputIsToken0: boolean): boolean {
+		const hasCurves = !!(pair.bidPricePolicy || pair.askPricePolicy)
+		if (hasCurves) {
+			// input token0 → filler sells token1 → needs the ask curve; and vice versa.
+			return inputIsToken0 ? !!pair.askPricePolicy : !!pair.bidPricePolicy
+		}
+		if (this.side) {
+			return inputIsToken0 ? this.side === "ask" : this.side === "bid"
 		}
 		return true
 	}
 
-	private getStableType(normalizedAddress: string, chain: string): boolean {
-		return (
-			normalizedAddress === this.configService.getUsdcAsset(chain).toLowerCase() ||
-			normalizedAddress === this.configService.getUsdtAsset(chain).toLowerCase()
-		)
+	/**
+	 * Resolves every (input, output) leg of an order to a configured pair in one
+	 * pass. Returns null if any leg matches no pair (or a disabled direction).
+	 *
+	 * The address-level classification is cached per order id in the shared
+	 * cache (as `CachedPairClassification`, one entry per leg) so repeated
+	 * evaluations skip re-derivation; pair resolution itself is re-run per
+	 * strategy since pair sets differ between engine instances.
+	 */
+	private resolveOrderLegs(order: Order): ResolvedLeg[] | null {
+		const sourceChain = order.source
+		const destChain = order.destination
+
+		const cached = order.id ? this.contractService.cacheService.getPairClassifications(order.id) : null
+		if (cached) {
+			const legs: ResolvedLeg[] = []
+			for (const entry of cached) {
+				// Re-derive the leg's input/output addresses from the cached
+				// classification, then re-match against THIS engine's pairs.
+				const token0Address = bytes32ToBytes20(entry.stableToken).toLowerCase()
+				const token1Address = bytes32ToBytes20(entry.exoticToken).toLowerCase()
+				const inputAddress = entry.inputIsStable ? token0Address : token1Address
+				const outputAddress = entry.inputIsStable ? token1Address : token0Address
+				const leg = this.matchLeg(sourceChain, destChain, inputAddress, outputAddress)
+				if (!leg) return null
+				legs.push(leg)
+			}
+			return legs
+		}
+
+		const legs: ResolvedLeg[] = []
+		const classifications: CachedPairClassification[] = []
+		for (let i = 0; i < order.inputs.length; i++) {
+			const inputAddress = bytes32ToBytes20(order.inputs[i].token).toLowerCase()
+			const outputAddress = bytes32ToBytes20(order.output.assets[i].token).toLowerCase()
+
+			const leg = this.matchLeg(sourceChain, destChain, inputAddress, outputAddress)
+			if (!leg) return null
+			legs.push(leg)
+			classifications.push({
+				inputIsStable: leg.inputIsToken0,
+				stableToken: leg.inputIsToken0 ? order.inputs[i].token : order.output.assets[i].token,
+				exoticToken: leg.inputIsToken0 ? order.output.assets[i].token : order.inputs[i].token,
+			})
+		}
+
+		if (order.id) {
+			this.contractService.cacheService.setPairClassifications(order.id, classifications)
+		}
+
+		return legs
 	}
 
 	/**
@@ -934,66 +1227,64 @@ export class FXFiller implements FillerStrategy {
 	 * checking on-chain balance or estimating gas. Phantom orders are probes that
 	 * never execute; we only need the price signal.
 	 *
-	 * Returns `null` when the pair is not supported or the USD value cannot be
-	 * computed (e.g. venue price unavailable and no fallback).
+	 * Returns `null` when no pair matches or the legs cannot be sized (e.g.
+	 * venue price unavailable and no fallback).
 	 */
 	async quotePhantomFill(order: Order): Promise<TokenInfo[] | null> {
 		if (!(await this.canFill(order))) return null
 
-		const pairs = this.classifyAllPairs(order)
-		if (!pairs) return null
-
-		const usdResult = await this.getOrderUsdValue(order)
-		if (!usdResult || usdResult.inputUsd.lte(0)) return null
-
-		const cappedOrderUsd = Decimal.min(usdResult.inputUsd, this.maxOrderUsd)
-		if (cappedOrderUsd.lte(0)) return null
+		const legs = this.resolveOrderLegs(order)
+		if (!legs) return null
 
 		const chain = order.source
-		const venuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(chain) : null
-		const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
-		const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
+		const venueUsdPrice = this.venuePriceMemo()
+
+		const sized = await this.sizeOrder(order, legs, venueUsdPrice)
+		if (!sized) return null
+		const remainingByPair = new Map(sized.cappedByPair)
 
 		const outputs: TokenInfo[] = []
-		let remainingUsd = cappedOrderUsd
 
 		for (let i = 0; i < order.inputs.length; i++) {
 			const input = order.inputs[i]
 			const output = order.output.assets[i]
-			const pair = pairs[i]
+			const leg = legs[i]
 
 			const inputDecimals = await this.contractService.getTokenDecimals(
 				bytes32ToBytes20(input.token) as HexString,
 				chain,
 			)
+			// Phantom orders are same-chain probes today, but resolve the output on
+			// the destination anyway — decimals differ per chain for some assets.
 			const outputDecimals = await this.contractService.getTokenDecimals(
 				bytes32ToBytes20(output.token) as HexString,
-				chain,
+				order.destination,
 			)
 
-			const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
-			const exoticDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
-			const bidPrice = venuePrice?.bid ?? policyBidPrice
-			const askPrice = venuePrice?.ask ?? policyAskPrice
+			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
+			const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
+			const cappedNotional = sized.cappedByPair.get(leg.pair) ?? leg.pair.maxOrderSize
+			const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
+			if (!rates) return null
+
+			const remaining = remainingByPair.get(leg.pair) ?? new Decimal(0)
 			const legResult = this.computeLegPolicyOutput(
 				input.amount,
-				pair.inputIsStable,
-				stableDecimals,
-				exoticDecimals,
-				remainingUsd,
-				pair.inputIsStable ? askPrice : bidPrice,
+				leg.inputIsToken0,
+				token0Decimals,
+				token1Decimals,
+				remaining,
+				rates.rate,
 			)
 
 			if (!legResult) continue
 
-			remainingUsd = remainingUsd.minus(legResult.usdUsed)
+			remainingByPair.set(leg.pair, remaining.minus(legResult.token0Used))
 
 			// Phantom orders only probe price (they request a zero output), so there is no
 			// user-requested amount to cap against — quote the full policy output.
 			outputs.push({ token: output.token, amount: legResult.policyMaxOutput })
-
-			if (remainingUsd.lte(0)) break
 		}
 
 		if (outputs.length === 0) return null
@@ -1006,38 +1297,80 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Returns the USD value of the order's full input basket.
-	 * Stablecoin inputs are priced at face value; exotic inputs are converted
-	 * via the bid price policy at the minimum price point.
-	 * Returns `null` only when pair classification fails (genuine "can't price").
+	 * Returns the order's input basket in **USD** — each leg is sized to its
+	 * pair's token0 notional via the pair's own reference rate (curve at
+	 * minimum size, or the venue quote), converted to dollars through the
+	 * curve-derived anchor factor for that token0, and summed across legs.
+	 *
+	 * The core filler feeds this to the per-chain confirmation curves, whose
+	 * `amount` axis is USD — honest for non-USD pairs too, which is the whole
+	 * point of the anchor graph. Returns `null` when a leg matches no pair or
+	 * cannot be sized (genuine "can't price").
 	 */
 	async getOrderUsdValue(order: Order): Promise<{ inputUsd: Decimal } | null> {
-		const pairs = this.classifyAllPairs(order)
-		if (!pairs) return null
+		const legs = this.resolveOrderLegs(order)
+		if (!legs) return null
 
-		const sourceChain = order.source
-		let totalInputUsd = new Decimal(0)
+		const sized = await this.sizeOrder(order, legs, this.venuePriceMemo())
+		if (!sized) return null
 
-		for (let j = 0; j < order.inputs.length; j++) {
-			if (pairs[j].inputIsStable) {
-				const decimals = await this.contractService.getTokenDecimals(
-					bytes32ToBytes20(order.inputs[j].token) as HexString,
-					sourceChain,
-				)
-				totalInputUsd = totalInputUsd.plus(new Decimal(formatUnits(order.inputs[j].amount, decimals)))
-			} else {
-				const exoticDecimals = await this.contractService.getTokenDecimals(
-					this.token1[sourceChain],
-					sourceChain,
-				)
-				const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))
-				const vp = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
-				const bidPriceForChain = vp?.bid ?? this.bidPricePolicy.getPrice(new Decimal(0))
-				totalInputUsd = totalInputUsd.plus(normalized.div(bidPriceForChain))
+		// Leg notionals are in each pair's own token0. Convert to USD through
+		// the curve graph before summing — the confirmation curve's amount axis
+		// is USD, and a raw token quantity would over-wait for sub-dollar
+		// assets and, worse, under-wait for anything above a dollar.
+		const factors = this.usdFactors()
+		let inputUsd = new Decimal(0)
+		for (let i = 0; i < legs.length; i++) {
+			const factor = factors.get(normalizeSymbol(legs[i].pair.token0))
+			// Unreachable after the constructor's anchor check; refuse to size
+			// rather than mislabel a token quantity as dollars.
+			if (!factor) return null
+			inputUsd = inputUsd.plus(sized.legNotionals[i].mul(factor))
+		}
+		if (inputUsd.lte(0)) return null
+		return { inputUsd }
+	}
+
+	/**
+	 * USD per unit of every priceable symbol, derived from the operator's own
+	 * curves: USD stables are $1 anchors and each curve-priced cross-asset
+	 * pair's zero-notional mid is an FX edge (token1 per token0). Recomputed
+	 * per call so live curve edits through the admin server take effect
+	 * immediately; the graph is a handful of pairs, so this is trivial.
+	 *
+	 * When several pairs could price the same symbol, the **first anchoring
+	 * pair in declaration order wins** and later edges are ignored — factors
+	 * are never re-derived, which keeps the walk terminating and deterministic
+	 * (no averaging across inconsistent routes, no divergence on curve cycles).
+	 * USD stables are pinned at $1 and never re-priced through a curve, so a
+	 * mis-set stable/stable curve cannot contaminate the anchors. Declare the
+	 * pair you want as the reference first if an asset has multiple routes.
+	 */
+	private usdFactors(): Map<string, Decimal> {
+		const factors = new Map<string, Decimal>()
+		for (const symbol of USD_STABLE_SYMBOLS) factors.set(symbol, new Decimal(1))
+
+		let grew = true
+		while (grew) {
+			grew = false
+			for (const pair of this.pairs) {
+				if (isSameTokenPair(pair)) continue
+				const mid = pairMidRate(pair)
+				if (!mid) continue
+				const token0 = normalizeSymbol(pair.token0)
+				const token1 = normalizeSymbol(pair.token1)
+				const usd0 = factors.get(token0)
+				const usd1 = factors.get(token1)
+				if (usd0 && !usd1) {
+					// 1 token0 = mid token1 ⇒ usd(token1) = usd(token0) / mid.
+					factors.set(token1, usd0.div(mid))
+					grew = true
+				} else if (usd1 && !usd0) {
+					factors.set(token0, usd1.mul(mid))
+					grew = true
+				}
 			}
 		}
-
-		if (totalInputUsd.lte(0)) return null
-		return { inputUsd: totalInputUsd }
+		return factors
 	}
 }

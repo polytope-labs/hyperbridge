@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import Decimal from "decimal.js"
 
 describe("ConfirmationPolicy", () => {
@@ -328,6 +328,43 @@ describe("ConfirmationPolicy", () => {
 			expect(policy.getConfirmationBlocks(1, new Decimal("550.5"))).toBeDefined()
 			expect(policy.getConfirmationBlocks(1, new Decimal(550.5))).toBeDefined()
 			expect(policy.getConfirmationBlocks(1, Decimal.add(500, 50))).toBeDefined()
+		})
+	})
+
+	describe("assertCovers (startup coverage guard)", () => {
+		const points = [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		]
+
+		it("passes when every configured chain has a curve", () => {
+			const policy = new ConfirmationPolicy({ "1": { points }, "8453": { points } })
+			expect(() => policy.assertCovers([1, 8453])).not.toThrow()
+			expect(() => policy.assertCovers([])).not.toThrow()
+		})
+
+		it("throws at startup naming every uncovered chain", () => {
+			// A missing policy must fail at boot — at fill time it would surface
+			// as a per-order throw, silently dropping that chain's orders.
+			const policy = new ConfirmationPolicy({ "1": { points } })
+			expect(() => policy.assertCovers([1, 130, 999])).toThrow(/130, 999/)
+		})
+
+		it("ships defaults covering every supported mainnet, including Unichain", () => {
+			const policy = new ConfirmationPolicy(DEFAULT_CONFIRMATION_POLICIES)
+			expect(() => policy.assertCovers([1, 56, 137, 8453, 42161, 130])).not.toThrow()
+		})
+
+		it("user entries override a default per chain without losing the rest", () => {
+			// Mirrors bin's startup merge: spread defaults, then user config.
+			const policy = new ConfirmationPolicy({
+				...DEFAULT_CONFIRMATION_POLICIES,
+				"1": { points: [{ amount: "0", value: 40 }, { amount: "1", value: 40 }] },
+			})
+			expect(policy.getConfirmationBlocks(1, new Decimal(1_000_000))).toBe(40)
+			// Untouched defaults survive the merge — Unichain still covered.
+			expect(() => policy.assertCovers([130])).not.toThrow()
+			expect(policy.getConfirmationBlocks(130, new Decimal(100_000))).toBe(180)
 		})
 	})
 })

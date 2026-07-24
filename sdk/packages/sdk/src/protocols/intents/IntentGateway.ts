@@ -34,7 +34,7 @@ import { OrderPlacer } from "./OrderPlacer"
 import { OrderExecutor } from "./OrderExecutor"
 import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
-import { GasEstimator } from "./GasEstimator"
+import { GasEstimator, RELAYER_MESSAGE_GAS } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
 import { LiquidityEngine } from "./LiquidityEngine"
 import {
@@ -50,8 +50,6 @@ import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
 import { convertGasToFeeToken } from "./utils"
-
-const CROSS_CHAIN_ORDER_FEE_GAS_BUMP = 600_000n
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -283,10 +281,11 @@ export class IntentGateway {
 	 * placement, fee estimation, bid collection, and execution.
 	 *
 	 * **Yield/receive protocol:**
-	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and sets
-	 *    same-chain fees to twice the estimate. Cross-chain orders retain a 1% buffer
-	 *    and include an additional 600k-gas fee uplift, while the wei cost used for
-	 *    the `value` field receives a 2% buffer.
+	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and
+	 *    sets same-chain fees to twice the estimate. Cross-chain orders retain a
+	 *    1% buffer and add a settlement-message uplift of `RELAYER_MESSAGE_GAS`
+	 *    (the same gas budget the solver's relayer fee uses), while the wei cost
+	 *    used for the `value` field receives a 2% buffer.
 	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
@@ -334,11 +333,14 @@ export class IntentGateway {
 
 			const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
 			value = estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n
+			// Cover the cross-chain settlement (RedeemEscrow) message with the SAME
+			// gas budget the solver's relayer fee is sized against, so a user placing
+			// via the SDK attaches exactly what a solver requires to fill.
 			const crossChainFeeBump = isSameChain
 				? 0n
 				: await convertGasToFeeToken(
 						this.ctx,
-						CROSS_CHAIN_ORDER_FEE_GAS_BUMP,
+						RELAYER_MESSAGE_GAS,
 						"source",
 						this.source.config.stateMachineId,
 					)

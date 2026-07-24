@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 import { Command } from "commander"
+import { Decimal } from "decimal.js"
 import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { isAddress } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { StableFiller } from "@/strategies/stable"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES, FillerPricePolicy } from "@/config/interpolated-curve"
+import { AssetRegistry, normalizeSymbol, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -32,7 +34,6 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import { AdminServer, type AdminStrategy } from "@/services/server/AdminServer"
-import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
 
@@ -64,20 +65,6 @@ interface ChainConfirmationPolicy {
 	}>
 }
 
-interface StableStrategyConfig {
-	type: "stable"
-	/**
-	 * Array of (amount, value) coordinates defining the BPS curve.
-	 * value = basis points at that order amount
-	 */
-	bpsCurve: Array<{
-		amount: string
-		value: number
-	}>
-	/** Per-chain confirmation policies keyed by chain ID string. Defaults provided for ETH, BSC, Base, Arbitrum. */
-	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
-}
-
 /** TOML row for a Uniswap V4 position; only chain + tokenId required. */
 interface UniswapV4PositionToml {
 	chain: string
@@ -106,102 +93,30 @@ interface VaultToml {
 	redeemOnShutdown?: boolean
 }
 
-/** Top-level vault config: shared by the withdraw venue and the sweep timer. */
+/**
+ * Top-level `[vault]` config — every on-chain liquidity venue in one place:
+ * ERC-4626 treasury vaults (withdraw sourcing + threshold sweeping) and
+ * Uniswap V4 LP positions (exotic funding + pool-based pricing).
+ */
 interface VaultTomlConfig {
-	vaults: VaultToml[]
+	vaults?: VaultToml[]
 	sweepIntervalMs?: number
-}
-
-interface FxStrategyConfig {
-	type: "hyperfx"
-	/**
-	 * Bid price curve: exotic tokens per 1 USD when the filler *buys* exotic from a user
-	 * (exotic→stable leg). Should have a higher exotic-per-USD rate than the ask curve so
-	 * the filler pays out fewer stablecoins per exotic token received.
-	 *
-	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
-	 * (while keeping the ask) is one-sided LP: the filler stops buying exotic and only
-	 * sells it, accumulating stablecoins.
-	 */
-	bidPriceCurve?: Array<{
-		amount: string
-		price: string
-	}>
-	/**
-	 * Ask price curve: exotic tokens per 1 USD when the filler *sells* exotic to a user
-	 * (stable→exotic leg). Should have a lower exotic-per-USD rate than the bid curve so
-	 * the filler sends fewer exotic tokens per stablecoin received.
-	 *
-	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
-	 * are then derived from the Uniswap V4 pool after startup. Omitting only this curve
-	 * (while keeping the bid) is one-sided LP: the filler stops selling exotic and only
-	 * buys it, accumulating the exotic token.
-	 */
-	askPriceCurve?: Array<{
-		amount: string
-		price: string
-	}>
-	/**
-	 * Symmetric spread (basis points) around Uniswap V4 pool mid when venue pricing is used.
-	 * Ignored when only static bid/ask curves apply.
-	 */
-	spreadBps?: number
-	/** Maximum USD value per order */
-	maxOrderUsd: number
-	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
-	token1: Record<string, HexString>
-	/** Optional per-chain confirmation policies for cross-chain orders */
-	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
-	/** Optional on-chain liquidity funding for destination-chain outputs */
-	vault?: {
-		uniswapV4?: {
-			positions?: UniswapV4PositionToml[]
-			/**
-			 * One-sided LP under pool pricing. "bid" buys exotic (accumulate exotic);
-			 * "ask" sells exotic (accumulate stable). Only valid with pool pricing — i.e.
-			 * no `bidPriceCurve`/`askPriceCurve` set. Omit to fill both directions.
-			 */
-			side?: "bid" | "ask"
-		}
+	uniswapV4?: {
+		positions?: UniswapV4PositionToml[]
+		/**
+		 * One-sided LP under pool pricing. "bid" only buys token1; "ask" only
+		 * sells it. Only valid when no pair has static curves (curves express
+		 * one-sidedness by omission). Omit to fill both directions.
+		 */
+		side?: "bid" | "ask"
+		/**
+		 * Slippage tolerance (basis points) for LP redemptions and the symmetric
+		 * spread around pool mid when venue pricing is used. Default 50.
+		 */
+		spreadBps?: number
 	}
 }
 
-type StrategyConfig = StableStrategyConfig | FxStrategyConfig
-
-/** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
-const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
-	"1": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 15 },
-		],
-	}, // Ethereum (~12s blocks, ~24s–3min)
-	"56": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 3 },
-		],
-	}, // BNB Chain (~3s blocks, fast finality)
-	"137": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 32 },
-		],
-	}, // Polygon (~2s blocks, milestone finality)
-	"8453": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 90 },
-		],
-	}, // Base (~2s blocks, L2)
-	"42161": {
-		points: [
-			{ amount: "1000", value: 8 },
-			{ amount: "100000", value: 720 },
-		],
-	}, // Arbitrum (~0.25s blocks, L2)
-}
 
 const DEFAULT_ADMIN_PORT = 8686
 
@@ -229,6 +144,28 @@ interface BinanceConfig {
 }
 
 interface FillerTomlConfig {
+	/**
+	 * Optional asset-registry escape hatch: symbol → { chain → address }. Only
+	 * needed for assets the built-in registry does not ship, or to override a
+	 * shipped address for a deployment. Shipped symbols: USDC, USDT, DAI, CNGN
+	 * (SDK chain registry) + curated ZARP, EURC, XSGD, TRYB.
+	 */
+	assets?: Record<string, AssetDefinition>
+	/**
+	 * Trading pairs — the entire trading configuration. Each pair prices
+	 * `token1` in units of `token0` via its own bid/ask curves and carries a
+	 * per-order `maxOrderSize` cap; a same-token pair (token0 == token1) is the
+	 * same-asset cross-chain market. Required unless running watch-only.
+	 */
+	pairs?: PairConfig[]
+	/**
+	 * Per-chain confirmation policies for cross-chain orders, keyed by chain id.
+	 * Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum,
+	 * Unichain); every configured chain must be covered or startup fails. The
+	 * curve amount axis is the order's USD value, derived from the pair curves
+	 * via the USD anchors.
+	 */
+	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
 		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
@@ -259,7 +196,6 @@ interface FillerTomlConfig {
 			maxConsecutiveClamps?: number
 		}
 	}
-	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
@@ -301,7 +237,7 @@ program
 			const tomlContent = readFileSync(configPath, "utf-8")
 			const config = parse(tomlContent) as FillerTomlConfig
 
-			validateConfig(config)
+			validateConfig(config, options.watchOnly === true)
 
 			// Configure logger based on config BEFORE creating any services
 			if (config.simplex.logging) {
@@ -422,111 +358,137 @@ program
 				)
 			}
 
-			// Initialize strategies with shared services
-			logger.info("Initializing strategies...")
-			// Editable price curves for the admin server, collected at construction so the
-			// server mutates the exact policy instances the strategies price with.
-			const adminStrategies: AdminStrategy[] = []
-			const adminTokenMaps = new Map<number, Record<string, HexString>>()
-			const strategies = config.strategies.map((strategyConfig, strategyIndex) => {
-				switch (strategyConfig.type) {
-					case "stable": {
-						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
-						const mergedStablePolicies = {
-							...DEFAULT_CONFIRMATION_POLICIES,
-							...(strategyConfig.confirmationPolicies ?? {}),
-						}
-						const confirmationPolicy = new ConfirmationPolicy(mergedStablePolicies)
-						return new StableFiller(
-							runtimeSigner,
-							configService,
-							chainClientManager,
-							contractService,
-							bpsPolicy,
-							confirmationPolicy,
-							vaultVenue ? [vaultVenue] : [],
-						)
-					}
-					case "hyperfx": {
-						const bidPricePolicy = strategyConfig.bidPriceCurve?.length
-							? new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
-							: undefined
-						const askPricePolicy = strategyConfig.askPriceCurve?.length
-							? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
-							: undefined
-						adminStrategies.push({
-							index: strategyIndex,
-							bid: bidPricePolicy,
-							ask: askPricePolicy,
-						})
-						adminTokenMaps.set(strategyIndex, strategyConfig.token1)
-						const mergedFxPolicies = {
-							...DEFAULT_CONFIRMATION_POLICIES,
-							...(strategyConfig.confirmationPolicies ?? {}),
-						}
-						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
-						const fundingVenues: FundingVenue[] = []
-						// Vault first: source stablecoins from the idle-yield treasury before
-						// draining a V4 LP position (which also pulls the paired exotic and
-						// perturbs the pool used for exotic pricing). V4 then covers the
-						// exotic legs and any stablecoin the vault can't fully fund.
-						if (vaultVenue) {
-							fundingVenues.push(vaultVenue)
-						}
-						const priceGuard: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
-						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
-							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
-							for (const row of strategyConfig.vault.uniswapV4.positions) {
-								const chain = row.chain
-								if (!positionsByChain[chain]) positionsByChain[chain] = []
-								positionsByChain[chain].push({
-									tokenId: BigInt(row.tokenId),
-								})
-								if (row.referencePrice !== undefined) {
-									priceGuard[chain] = {
-										referencePrice: row.referencePrice,
-										maxDeviationBps: row.maxDeviationBps!,
-									}
-								}
-							}
-							fundingVenues.push(
-								new UniswapV4FundingPlanner(
-									chainClientManager,
-									{ positionsByChain },
-									configService,
-									strategyConfig.spreadBps,
-								),
-							)
-						}
-						return new FXFiller(
-							runtimeSigner,
-							configService,
-							chainClientManager,
-							contractService,
-							strategyConfig.maxOrderUsd,
-							strategyConfig.token1,
-							{
-								bidPricePolicy,
-								askPricePolicy,
-								confirmationPolicy: fxConfirmationPolicy,
-								fundingVenues,
-								spreadBps: strategyConfig.spreadBps,
-								priceGuard,
-								side: strategyConfig.vault?.uniswapV4?.side,
-							},
-						)
-					}
-					default:
-						throw new Error(`Unknown strategy type: ${(strategyConfig as StrategyConfig).type}`)
-				}
-			})
+			// Build the trading engine from top-level [[pairs]].
+			logger.info("Initializing trading engine...")
 
-			// Initialise strategies that source on-chain liquidity (hydrate funding venue state)
-			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller || strategy instanceof StableFiller) {
-					logger.info("Hydrating funding venue state...")
-					await strategy.initialise()
+			// Asset symbol registry: built-ins (USDC/USDT/DAI/CNGN) resolved from the
+			// SDK chain registry, extended/overridden by the user's [assets] table.
+			const assetRegistry = new AssetRegistry(configService, config.assets)
+
+			// Editable price curves for the admin server, collected at construction so
+			// the server mutates the exact policy instances the engine prices with.
+			// Every pair symbol must resolve to a real deployment on at least one
+			// configured chain. This catches assets the registry marks absent (the
+			// SDK stores zero-address sentinels for undeployed assets) before the
+			// engine can match a zero address — which doubles as the native-token
+			// sentinel in the fill path — against an order leg.
+			const configuredChainNames = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
+			const pairSymbols = new Set((config.pairs ?? []).flatMap((p) => [p.token0, p.token1]))
+			for (const pair of config.pairs ?? []) {
+				for (const symbol of [pair.token0, pair.token1]) {
+					const resolvesSomewhere = configuredChainNames.some(
+						(chainName) => assetRegistry.getAddress(symbol, chainName) !== null,
+					)
+					if (!resolvesSomewhere) {
+						throw new Error(
+							`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
+						)
+					}
 				}
+			}
+
+			// No two distinct symbols may resolve to the SAME contract on a chain
+			// (e.g. an [assets] alias of USDC's address). Aliasing collapses a
+			// cross-asset pair into a same-asset market — bypassing the same-token
+			// safeguards — and makes leg matching order-dependent.
+			for (const chainName of configuredChainNames) {
+				const addressOwner = new Map<string, string>()
+				for (const symbol of pairSymbols) {
+					const address = assetRegistry.getAddress(symbol, chainName)?.toLowerCase()
+					if (!address) continue
+					const owner = addressOwner.get(address)
+					if (owner && normalizeSymbol(owner) !== normalizeSymbol(symbol)) {
+						throw new Error(
+							`assets: '${symbol}' and '${owner}' both resolve to ${address} on ${chainName} — symbols must map to distinct contracts`,
+						)
+					}
+					addressOwner.set(address, symbol)
+				}
+			}
+
+			const adminStrategies: AdminStrategy[] = []
+			const strategies: FXFiller[] = []
+			if (config.pairs?.length) {
+				const tradingPairs: TradingPair[] = config.pairs.map((pair) => ({
+					token0: pair.token0,
+					token1: pair.token1,
+					maxOrderSize: new Decimal(pair.maxOrderSize),
+					bidPricePolicy: pair.bidPriceCurve?.length
+						? new FillerPricePolicy({ points: pair.bidPriceCurve })
+						: undefined,
+					askPricePolicy: pair.askPriceCurve?.length
+						? new FillerPricePolicy({ points: pair.askPriceCurve })
+						: undefined,
+				}))
+				for (const pair of tradingPairs) {
+					if (pair.bidPricePolicy || pair.askPricePolicy) {
+						adminStrategies.push({
+							index: adminStrategies.length,
+							exotic: `${pair.token0}/${pair.token1}`,
+							bid: pair.bidPricePolicy,
+							ask: pair.askPricePolicy,
+						})
+					}
+				}
+
+				const confirmationPolicy = new ConfirmationPolicy({
+					...DEFAULT_CONFIRMATION_POLICIES,
+					...(config.confirmationPolicies ?? {}),
+				})
+				// Orders can be sourced on any configured chain (watch-only ones
+				// included), so each needs a confirmation curve — fail at boot,
+				// not with silently dropped orders at fill time.
+				confirmationPolicy.assertCovers(resolvedChains.map((c) => c.chainId))
+
+				const fundingVenues: FundingVenue[] = []
+				// Vault first: source stablecoins from the idle-yield treasury before
+				// draining a V4 LP position (which also pulls the paired exotic and
+				// perturbs the pool used for exotic pricing). V4 then covers the
+				// exotic legs and any stablecoin the vault can't fully fund.
+				if (vaultVenue) {
+					fundingVenues.push(vaultVenue)
+				}
+				const priceGuard: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
+				if (config.vault?.uniswapV4?.positions?.length) {
+					const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
+					for (const row of config.vault.uniswapV4.positions) {
+						const chain = row.chain
+						if (!positionsByChain[chain]) positionsByChain[chain] = []
+						positionsByChain[chain].push({ tokenId: BigInt(row.tokenId) })
+						if (row.referencePrice !== undefined) {
+							priceGuard[chain] = {
+								referencePrice: row.referencePrice,
+								maxDeviationBps: row.maxDeviationBps!,
+							}
+						}
+					}
+					fundingVenues.push(
+						new UniswapV4FundingPlanner(
+							chainClientManager,
+							{ positionsByChain },
+							configService,
+							config.vault.uniswapV4.spreadBps,
+						),
+					)
+				}
+
+				const engine = new FXFiller(
+					runtimeSigner,
+					configService,
+					chainClientManager,
+					contractService,
+					tradingPairs,
+					assetRegistry,
+					{
+						confirmationPolicy,
+						fundingVenues,
+						priceGuard,
+						side: config.vault?.uniswapV4?.side,
+					},
+				)
+				logger.info("Hydrating funding venue state...")
+				await engine.initialise()
+				strategies.push(engine)
 			}
 
 			// Ensure the shared vault venue is hydrated even if no strategy
@@ -582,11 +544,15 @@ program
 				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
 					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
-					// Collect exotic token addresses from FX strategies
+					// Collect exotic token addresses (the non-quote side of cross-asset
+					// pairs) via the asset registry; same-token pairs have no exotic side.
 					const token1: Record<string, string> = {}
-					for (const s of config.strategies) {
-						if (s.type === "hyperfx" && s.token1) {
-							Object.assign(token1, s.token1)
+					for (const pair of config.pairs ?? []) {
+						if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) continue
+						for (const chain of resolvedChains) {
+							const chainName = `EVM-${chain.chainId}`
+							const address = assetRegistry.getAddress(pair.token1, chainName)
+							if (address) token1[chainName] = address
 						}
 					}
 					metrics = new MetricsService({
@@ -625,27 +591,8 @@ program
 					adminPort = parsed
 				}
 				if (adminStrategies.length === 0) {
-					logger.warn("No FX strategies are configured; the admin server has nothing editable")
+					logger.warn("No curve-priced pairs are configured; the admin server has nothing editable")
 				}
-				// Resolve exotic token symbols (display-only) best-effort from the first
-				// configured chain; a failed read just leaves the strategy unlabelled.
-				await Promise.all(
-					adminStrategies.map(async (adminStrategy) => {
-						const token1 = adminTokenMaps.get(adminStrategy.index) ?? {}
-						const [chain, address] = Object.entries(token1)[0] ?? []
-						if (!chain || !address) return
-						try {
-							adminStrategy.exotic = (await chainClientManager.getPublicClient(chain).readContract({
-								address,
-								abi: ERC20_ABI,
-								functionName: "symbol",
-								args: [],
-							})) as string
-						} catch (err) {
-							logger.warn({ err, chain, address }, "Could not resolve exotic token symbol for admin UI")
-						}
-					}),
-				)
 				adminServer = new AdminServer(adminStrategies)
 				try {
 					await adminServer.start(adminPort, adminHost)
@@ -671,7 +618,7 @@ program
 			logger.info(
 				{
 					chains: resolvedChains.map((c) => c.chainId),
-					strategies: config.strategies.map((s) => s.type),
+					pairs: (config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
 					maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 					watchOnlyChains: watchOnlyChains.length > 0 ? watchOnlyChains : undefined,
 				},
@@ -758,11 +705,19 @@ program
 		}
 	})
 
-function validateConfig(config: FillerTomlConfig): void {
-	// Validate required fields
-	// Private key is only required if not all chains are in watch-only mode
-	const isWatchOnlyGlobal = config.simplex?.watchOnly === true
-	const allChainsWatchOnly = isWatchOnlyGlobal
+function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {
+	// The [[strategies]] array was removed when the pair engine subsumed the
+	// stable strategy — fail loudly so stale configs are migrated, not ignored.
+	if ("strategies" in config) {
+		throw new Error(
+			"[[strategies]] was removed — declare top-level [[pairs]] instead (a same-token pair like USDC/USDC with an ask curve below par replaces the stable strategy; engine settings moved to [confirmationPolicies] and [vault.uniswapV4])",
+		)
+	}
+
+	// Private key is only required if not all chains are in watch-only mode.
+	// The --watch-only CLI flag forces global watch-only, so honour it here too
+	// (otherwise the flag's own config would still trip the signer requirement).
+	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
 
 	const signer = config.simplex?.signer
 
@@ -776,10 +731,6 @@ function validateConfig(config: FillerTomlConfig): void {
 
 	if (!config.simplex?.hyperbridgeWsUrl) {
 		throw new Error("simplex.hyperbridgeWsUrl is required")
-	}
-
-	if ((!config.strategies || config.strategies.length === 0) && !allChainsWatchOnly) {
-		throw new Error("At least one strategy must be configured (unless all chains are in watchOnly mode)")
 	}
 
 	if (!config.chains || config.chains.length === 0) {
@@ -819,163 +770,106 @@ function validateConfig(config: FillerTomlConfig): void {
 		VaultFundingPlanner.validateConfig(config.vault.vaults)
 	}
 
-	// Validate strategies
-	for (const strategy of config.strategies) {
-		if (!strategy.type) {
-			throw new Error("Strategy type is required")
+	// Asset registry and trading pairs — the entire trading configuration.
+	if (config.assets) {
+		validateAssetDefinitions(config.assets)
+	}
+	const hasPairs = (config.pairs?.length ?? 0) > 0
+	if (!hasPairs && !allChainsWatchOnly) {
+		throw new Error("At least one [[pairs]] entry must be configured (unless all chains are in watchOnly mode)")
+	}
+	const hasVenuePricing = (config.vault?.uniswapV4?.positions?.length ?? 0) > 0
+	if (hasPairs) {
+		validatePairConfigs(config.pairs!, config.assets, hasVenuePricing)
+	}
+
+	// Per-chain confirmation policies (merged over built-in defaults at startup).
+	for (const [chainId, policy] of Object.entries(config.confirmationPolicies ?? {})) {
+		if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
+			throw new Error(
+				`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,
+			)
 		}
-
-		if (!["stable", "hyperfx"].includes(strategy.type)) {
-			throw new Error(`Invalid strategy type: ${strategy.type}`)
-		}
-
-		if (strategy.type === "stable") {
-			// Validate BPS curve
-			if (!strategy.bpsCurve || !Array.isArray(strategy.bpsCurve) || strategy.bpsCurve.length < 2) {
-				throw new Error("Stable strategy must have a 'bpsCurve' array with at least 2 points")
-			}
-
-			for (const point of strategy.bpsCurve) {
-				if (point.amount === undefined || point.value === undefined) {
-					throw new Error("Each BPS curve point must have 'amount' and 'value'")
-				}
-			}
-
-			// Validate user-provided confirmation policies (defaults are always present)
-			for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies ?? {})) {
-				if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
-					throw new Error(
-						`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,
-					)
-				}
-				for (const point of policy.points) {
-					if (point.amount === undefined || point.value === undefined) {
-						throw new Error(
-							`Each point in confirmation policy for chain ${chainId} must have 'amount' and 'value'`,
-						)
-					}
-				}
-			}
-		}
-
-		if (strategy.type === "hyperfx") {
-			if (strategy.vault?.uniswapV4?.positions?.length) {
-				UniswapV4FundingPlanner.validateConfig(strategy.vault.uniswapV4.positions)
-			}
-
-			const bidLen = strategy.bidPriceCurve?.length ?? 0
-			const askLen = strategy.askPriceCurve?.length ?? 0
-
-			// A single point is a valid flat curve — FillerPricePolicy returns that price at every size.
-			// One-sided LP: providing only one of bid/ask restricts the filler to that direction.
-			const hasAnyCurve = bidLen >= 1 || askLen >= 1
-			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
-
-			if (!hasAnyCurve && !hasUniswapV4Positions) {
+		for (const point of policy.points) {
+			if (point.amount === undefined || point.value === undefined) {
 				throw new Error(
-					"hyperfx: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
+					`Each point in confirmation policy for chain ${chainId} must have 'amount' and 'value'`,
 				)
 			}
+		}
+	}
 
-			if (strategy.spreadBps !== undefined) {
-				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
-					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
-				}
-			}
+	// Uniswap V4 venue config ([vault.uniswapV4]): positions, price guards,
+	// one-sided switch, redemption slippage.
+	const uniswapV4 = config.vault?.uniswapV4
+	if (uniswapV4?.positions?.length) {
+		UniswapV4FundingPlanner.validateConfig(uniswapV4.positions)
+	}
 
-			// Per-position price guard: referencePrice and maxDeviationBps are optional but
-			// must be set together. A given chain may not carry conflicting guard values.
-			const guardByChain: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
-			for (const position of strategy.vault?.uniswapV4?.positions ?? []) {
-				const hasRef = position.referencePrice !== undefined
-				const hasBps = position.maxDeviationBps !== undefined
-				if (hasRef !== hasBps) {
-					throw new Error(
-						"hyperfx: a Uniswap V4 position price guard needs both 'referencePrice' and 'maxDeviationBps', or neither",
-					)
-				}
-				if (!hasRef) continue
+	if (uniswapV4?.spreadBps !== undefined) {
+		if (!Number.isFinite(uniswapV4.spreadBps) || uniswapV4.spreadBps < 0 || uniswapV4.spreadBps > 10_000) {
+			throw new Error("vault.uniswapV4: 'spreadBps' must be a number between 0 and 10000")
+		}
+	}
 
-				const parsedRef = Number(position.referencePrice)
-				if (!Number.isFinite(parsedRef) || parsedRef <= 0) {
-					throw new Error(`hyperfx: position 'referencePrice' for chain '${position.chain}' must be a positive number`)
-				}
-				if (
-					!Number.isFinite(position.maxDeviationBps!) ||
-					position.maxDeviationBps! <= 0 ||
-					position.maxDeviationBps! > 10_000
-				) {
-					throw new Error(
-						`hyperfx: position 'maxDeviationBps' for chain '${position.chain}' must be a number between 0 (exclusive) and 10000`,
-					)
-				}
-				const existing = guardByChain[position.chain]
-				if (
-					existing &&
-					(existing.referencePrice !== position.referencePrice || existing.maxDeviationBps !== position.maxDeviationBps)
-				) {
-					throw new Error(`hyperfx: conflicting price guard values for chain '${position.chain}'`)
-				}
-				guardByChain[position.chain] = {
-					referencePrice: position.referencePrice!,
-					maxDeviationBps: position.maxDeviationBps!,
-				}
-			}
+	// Per-position price guard: referencePrice and maxDeviationBps are optional but
+	// must be set together. A given chain may not carry conflicting guard values.
+	const guardByChain: Record<string, { referencePrice: string; maxDeviationBps: number }> = {}
+	for (const position of uniswapV4?.positions ?? []) {
+		const hasRef = position.referencePrice !== undefined
+		const hasBps = position.maxDeviationBps !== undefined
+		if (hasRef !== hasBps) {
+			throw new Error(
+				"vault.uniswapV4: a position price guard needs both 'referencePrice' and 'maxDeviationBps', or neither",
+			)
+		}
+		if (!hasRef) continue
 
-			// One-sided LP under pool pricing: `side` enables a single direction. Only valid
-			// with venue pricing and no static curves (curves express one-sided by omission).
-			const side = strategy.vault?.uniswapV4?.side
-			if (side !== undefined) {
-				if (side !== "bid" && side !== "ask") {
-					throw new Error("hyperfx: 'vault.uniswapV4.side' must be either 'bid' or 'ask'")
-				}
-				if (!hasUniswapV4Positions) {
-					throw new Error("hyperfx: 'vault.uniswapV4.side' requires [strategies.vault.uniswapV4].positions")
-				}
-				if (hasAnyCurve) {
-					throw new Error(
-						"hyperfx: 'vault.uniswapV4.side' only applies to pool pricing; omit 'bidPriceCurve'/'askPriceCurve' (or drop one curve to do one-sided LP with static pricing)",
-					)
-				}
-			}
+		const parsedRef = Number(position.referencePrice)
+		if (!Number.isFinite(parsedRef) || parsedRef <= 0) {
+			throw new Error(
+				`vault.uniswapV4: position 'referencePrice' for chain '${position.chain}' must be a positive number`,
+			)
+		}
+		if (
+			!Number.isFinite(position.maxDeviationBps!) ||
+			position.maxDeviationBps! <= 0 ||
+			position.maxDeviationBps! > 10_000
+		) {
+			throw new Error(
+				`vault.uniswapV4: position 'maxDeviationBps' for chain '${position.chain}' must be a number between 0 (exclusive) and 10000`,
+			)
+		}
+		const existing = guardByChain[position.chain]
+		if (
+			existing &&
+			(existing.referencePrice !== position.referencePrice || existing.maxDeviationBps !== position.maxDeviationBps)
+		) {
+			throw new Error(`vault.uniswapV4: conflicting price guard values for chain '${position.chain}'`)
+		}
+		guardByChain[position.chain] = {
+			referencePrice: position.referencePrice!,
+			maxDeviationBps: position.maxDeviationBps!,
+		}
+	}
 
-			if (bidLen > 0) {
-				for (const point of strategy.bidPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
-					}
-				}
-				for (const point of strategy.askPriceCurve!) {
-					if (point.amount === undefined || point.price === undefined) {
-						throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
-					}
-				}
-			}
-
-			if (!strategy.maxOrderUsd) {
-				throw new Error("FX strategy must have 'maxOrderUsd'")
-			}
-
-			if (!strategy.token1 || Object.keys(strategy.token1).length === 0) {
-				throw new Error("FX strategy must have at least one entry in 'token1'")
-			}
-
-			if (strategy.confirmationPolicies) {
-				for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies)) {
-					if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
-						throw new Error(
-							`FX confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,
-						)
-					}
-					for (const point of policy.points) {
-						if (point.amount === undefined || point.value === undefined) {
-							throw new Error(
-								`Each point in FX confirmation policy for chain ${chainId} must have 'amount' and 'value'`,
-							)
-						}
-					}
-				}
-			}
+	// One-sided LP under pool pricing: `side` enables a single direction. Only valid
+	// with venue pricing and no static curves (curves express one-sided by omission).
+	const side = uniswapV4?.side
+	if (side !== undefined) {
+		if (side !== "bid" && side !== "ask") {
+			throw new Error("vault.uniswapV4: 'side' must be either 'bid' or 'ask'")
+		}
+		if (!hasVenuePricing) {
+			throw new Error("vault.uniswapV4: 'side' requires [vault.uniswapV4].positions")
+		}
+		const anyCurves = (config.pairs ?? []).some(
+			(p) => (p.bidPriceCurve?.length ?? 0) > 0 || (p.askPriceCurve?.length ?? 0) > 0,
+		)
+		if (anyCurves) {
+			throw new Error(
+				"vault.uniswapV4: 'side' only applies to pool pricing; omit the pair price curves (or drop one curve to do one-sided LP with static pricing)",
+			)
 		}
 	}
 }

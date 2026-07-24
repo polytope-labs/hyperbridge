@@ -1,4 +1,5 @@
-import { FXFiller, legacyExoticPairs } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { type HexString } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -10,6 +11,26 @@ import { Decimal } from "decimal.js"
 const CHAIN = "EVM-8453"
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const REFERENCE = "1575" // exotic per USD
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: any,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
 
 function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>): FXFiller {
 	const configService = {
@@ -24,7 +45,7 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 	const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any
 	const clientManager = {} as any
 
-	const { pairs, registry } = legacyExoticPairs(
+	const { pairs, registry } = exoticPairs(
 		configService,
 		{ [CHAIN]: EXOTIC },
 		5000,

@@ -5,7 +5,7 @@ description: Simplex is an automated binary that monitors Intent Gateway orders 
 
 # Simplex
 
-Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, evaluates profitability across all configured strategies, and executes the best fill. Fillers earn the difference between order inputs and outputs.
+Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, prices each order against the configured trading pairs, and fills when profitable. Fillers earn the difference between order inputs and outputs.
 
 ## Quick Start
 
@@ -16,36 +16,11 @@ docker pull polytopelabs/simplex:latest
 docker run --rm -it polytopelabs/simplex:latest --help
 ```
 
-## Strategies
+## Markets
 
-Simplex ships with two built-in strategies configured as `[[strategies]]` entries in your TOML config. For every order, Simplex evaluates all configured strategies and executes whichever returns the highest profit.
+Simplex is a single pair engine. Every market it serves — cross-asset swaps like USDC/cNGN and same-asset cross-chain transfers like USDC→USDC — is a **`[[pairs]]`** entry in your TOML config, priced by its own bid/ask curves. Pairs reference assets by symbol from the built-in [asset registry](#the-asset-registry), and an LP can declare any number of them. Both **same-chain** and **cross-chain** orders are supported.
 
-### Stable
-
-The Stable strategy fills cross-chain orders where the input and output token are the same — USDC→USDC or USDT→USDT across chains. It checks your balance on the destination chain, estimates `order fees - (gas + protocol fees + relayer fees)`, and fills directly if profitable.
-
-The `bpsCurve` sets the minimum basis-point margin required at each order size. Points are interpolated, so you can model tighter spreads for larger orders:
-
-```toml lineNumbers
-[[strategies]]
-type = "stable"
-bpsCurve = [
-    { amount = "100",    value = 100 },   # $100 orders: 1% minimum margin
-    { amount = "1000",   value = 50  },   # $1000 orders: 0.5%
-    { amount = "10000",  value = 25  },   # $10k orders: 0.25%
-    { amount = "100000", value = 10  },   # $100k orders: 0.1%
-]
-```
-
-The Stable strategy requires pre-positioned stablecoins on each destination chain (optionally backed by the [`[vault]` treasury](#vault-treasury-erc-4626)).
-
----
-
-### HyperFX
-
-HyperFX fills swaps across a configurable set of **trading pairs** — for example USDC/cNGN, USDT/cNGN, or ZARP/cNGN — each priced by its own bid/ask curves. Pairs reference assets by symbol from the built-in [asset registry](#the-asset-registry), and an LP can declare any number of them; one FX engine serves them all. Both **same-chain** and **cross-chain** orders are supported.
-
-Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders use the configured **confirmation policy** for HyperFX to determine how many confirmations to wait for before bidding.
+Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders wait per the configured [confirmation policy](#confirmation-policy) before bidding.
 
 Profit comes from two sources: the **bid/ask spread** on each pair, and **order fees** minus gas. The filler holds inventory on both sides of its pairs. When a user swaps token0→token1 the filler sells token1 at the pair's ask price; when the user swaps token1→token0 the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
 
@@ -53,7 +28,7 @@ Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 
 
 Each pair's **`maxOrderSize`** caps the filler's exposure per order, denominated in that pair's token0. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
-HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
+Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 
 On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. A paymaster covers the delegation tx (and subsequent fills) in stablecoins on chains where one is deployed: the Circle Paymaster (USDC) is tried first, then the `SimplexPaymaster` (USDC or USDT), which is live on Ethereum, Arbitrum, Base, Polygon, and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet). On chains without any paymaster, Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
 
@@ -92,9 +67,15 @@ maxOrderSize = "90000"      # 90,000 ZARP per order
 bidPriceCurve = [ { amount = "0", price = "86" } ]   # CNGN per ZARP
 askPriceCurve = [ { amount = "0", price = "84" } ]
 
-# Engine-level settings live on the strategy block.
-[[strategies]]
-type = "hyperfx"
+# A same-asset cross-chain market (USDC→USDC): ask price below par IS the spread.
+[[pairs]]
+token0 = "USDC"
+token1 = "USDC"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },   # small orders: 1% spread
+    { amount = "100000", price = "0.999" },   # large orders: 0.1%
+]
 ```
 
 #### The asset registry
@@ -123,7 +104,11 @@ Each **`[[pairs]]`** entry is one market: `token0`/`token1` symbols, a per-order
 
 Cross-chain confirmation policies are sized with the order's **token0 notional** (each leg converted through its pair's own curve) — for USD-quoted pairs that is a dollar amount; for others it is denominated in the quote asset, so tune the per-chain confirmation curves accordingly.
 
-Declaring `[[pairs]]` requires exactly one `hyperfx` strategy block, which carries the engine-level settings (confirmation policies, venue funding, `spreadBps`). The legacy strategy-level `token1` + `bidPriceCurve`/`askPriceCurve` + `maxOrderUsd` form is still accepted (translated internally into USDC/exotic and USDT/exotic pairs at par) but deprecated — new configs should declare pairs.
+#### Same-token markets
+
+A pair may quote the **same symbol on both sides** — the same-asset cross-chain market (USDC on one chain in, USDC on another out). Same-token pairs are **ask-only** (both directions are one market) and their ask prices sit **at or below par**: the price is the fraction of the input paid back out, so `0.9995` keeps 5 bps of every fill. Prices above 1 are rejected at startup — they would pay out more than received.
+
+Unlike cross-asset fills, the same-token spread is **realized in-kind on the fill itself**, so it counts toward the profitability gate: an order whose fees alone don't cover gas still fills when fees plus spread do. Pre-position the asset on each destination chain (optionally backed by the [`[vault]` treasury](#vault-treasury-erc-4626)).
 
 #### One-sided LP
 
@@ -145,23 +130,21 @@ askPriceCurve = [
     { amount = "1000", price = "1555" },
     { amount = "5000", price = "1550" },
 ]
-
-[[strategies]]
-type = "hyperfx"
 ```
 
-When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[strategies.vault.uniswapV4]` block instead — `"ask"` to only sell exotic (accumulate stablecoins) or `"bid"` to only buy exotic. Omit `side` to fill both directions. `side` cannot be combined with static curves.
+When pricing from a [Uniswap V4 pool](#pool-based-pricing) (no curves), there is no curve to omit, so set **`side`** on the `[vault.uniswapV4]` block instead — `"ask"` to only sell token1 (accumulate the quote asset) or `"bid"` to only buy token1. Omit `side` to fill both directions. `side` cannot be combined with static curves.
 
 ```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-
-[strategies.token1]
+[assets.CNGN]
 "EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
 
-[strategies.vault.uniswapV4]
-side = "ask"  # only sell exotic; keep accumulating stablecoins
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"       # pool-priced: no curves
+
+[vault.uniswapV4]
+side = "ask"  # only sell CNGN; keep accumulating USDC
 positions = [
     { chain = "EVM-8453", tokenId = "2087350" },
 ]
@@ -171,15 +154,15 @@ positions = [
 #### Uniswap V4 LP funding
 
 <Callout type="info">
-This is the HyperFX-specific **Uniswap V4 LP** funding source, configured per strategy under `[strategies.vault.uniswapV4]`. It funds (and prices) the **exotic** token from concentrated-liquidity positions. It is distinct from the filler-wide [`[vault]` stablecoin treasury](#vault-treasury-erc-4626) (ERC-4626), which is configured at the top level and sources **stablecoins**.
+This is the **Uniswap V4 LP** funding source, configured under `[vault.uniswapV4]`. It funds (and prices) the **exotic** token from concentrated-liquidity positions. It is distinct from the [`[vault]` stablecoin treasury](#vault-treasury-erc-4626) (ERC-4626), which sources **stablecoins** — the two share the `[vault]` section.
 </Callout>
 
-When the solver's wallet balance on the destination chain is insufficient to fill an order, HyperFX can automatically withdraw liquidity from on-chain positions to cover the deficit. Withdrawal calls are prepended to the UserOperation as ERC-7821 batch calls, making the funding atomic with the fill.
+When the solver's wallet balance on the destination chain is insufficient to fill an order, Simplex can automatically withdraw liquidity from on-chain positions to cover the deficit. Withdrawal calls are prepended to the UserOperation as ERC-7821 batch calls, making the funding atomic with the fill.
 
-Configured under `[strategies.vault.uniswapV4]` within the HyperFX strategy block. Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Slippage tolerance is set by `spreadBps` (default 50 bps / 0.50%), deadline defaults to the order's deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
+Configured under the top-level `[vault.uniswapV4]` block. Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Slippage tolerance is set by `spreadBps` (default 50 bps / 0.50%), deadline defaults to the order's deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
 
 ```toml lineNumbers
-[strategies.vault.uniswapV4]
+[vault.uniswapV4]
 positions = [
     { chain = "EVM-8453", tokenId = "123456789" },
 ]
@@ -200,29 +183,30 @@ To find your `tokenId`, open your position on the Uniswap V4 app — the token I
 
 #### Pool-Based Pricing
 
-When **`[strategies.vault.uniswapV4]`** lists at least one position, HyperFX derives bid/ask prices from **Uniswap V4 pool state** (current tick). This is the recommended approach — let the pool act as your price oracle rather than maintaining static curves.
+When **`[vault.uniswapV4]`** lists at least one position, cross-asset pairs without curves derive bid/ask prices from **Uniswap V4 pool state** (current tick). This is the recommended approach — let the pool act as your price oracle rather than maintaining static curves.
 
-With Uniswap V4 positions configured, you can **omit** `bidPriceCurve` and `askPriceCurve` entirely. The optional **`spreadBps`** field (basis points) sets the slippage tolerance for on-chain LP redemptions. For example, `spreadBps = 50` applies a 0.50% slippage tolerance on remove-liquidity operations. Defaults to `50` if omitted.
+With Uniswap V4 positions configured, you can **omit** `bidPriceCurve` and `askPriceCurve` on the pair. Pool pricing requires the pair's `token0` to be a USD stablecoin, and same-token pairs always need their curve. The optional **`spreadBps`** field (basis points) sets the slippage tolerance for on-chain LP redemptions; defaults to `50` (0.50%).
 
-Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). When multiple positions exist for the same exotic token on a chain, the most-liquid qualifying pool’s price is used.
+Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). When multiple positions exist for the same exotic token on a chain, the most-liquid qualifying pool's price is used.
 
 ```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-spreadBps = 50  # 0.5% slippage tolerance on LP redemptions
-
-[strategies.token1]
+[assets.CNGN]
 "EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
 
-[strategies.vault.uniswapV4]
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "5000"       # no curves — priced from the pool
+
+[vault.uniswapV4]
+spreadBps = 50  # 0.5% slippage tolerance on LP redemptions
 positions = [
     { chain = "EVM-8453", tokenId = "2087350" },
 ]
 ```
 
 <Callout type="info">
-Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.vault.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
+Startup validation requires a pricing source per pair: **either** bid/ask price curves, **or** at least one `[vault.uniswapV4]` position. A pair with neither fails validation.
 </Callout>
 
 #### Uniswap price guards
@@ -232,14 +216,7 @@ Pool-based pricing trusts the live pool, which leaves the filler exposed to a ma
 `referencePrice` is expressed in **exotic tokens per USD**, the same units as the bid/ask curves. The two fields must be set together; omit both to leave the chain unguarded.
 
 ```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-
-[strategies.token1]
-"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
-
-[strategies.vault.uniswapV4]
+[vault.uniswapV4]
 positions = [
     # referencePrice is the expected cNGN per USD; reject if the quote is more than 2% off
     { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
@@ -348,7 +325,7 @@ maxConsecutiveClamps = 3     # halt threshold (HyperFX)
 The optional top-level `[vault]` section configures a **filler-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Only the vault address is required; the underlying asset and its decimals are resolved on-chain at startup.
 
 <Callout type="info">
-This is distinct from the HyperFX-specific [`[strategies.vault.uniswapV4]`](#uniswap-v4-lp-funding) source. `[vault]` is filler-wide and sources **stablecoins** (the input/output token of the Stable strategy); `[strategies.vault.uniswapV4]` is per-strategy and sources/prices the **exotic** token.
+This is distinct from the [`[vault.uniswapV4]`](#uniswap-v4-lp-funding) source, which shares the `[vault]` section. The ERC-4626 treasury sources **stablecoins**; `[vault.uniswapV4]` sources and prices the **exotic** token.
 </Callout>
 
 One vault list drives three behaviours:
@@ -428,10 +405,6 @@ maxFeePerGasBumpPercent         = 10   # added to base gasPrice for the max fee
 
 ### Confirmation Policy
 
-<Callout type="info">
-Confirmation policies are configured per strategy. Both the Stable strategy and HyperFX can use confirmation policies for cross-chain orders.
-</Callout>
-
 Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
 
 #### Built-in Defaults
@@ -450,58 +423,25 @@ Values between the min and max order amounts are linearly interpolated.
 
 #### Custom Overrides
 
-Confirmation policies are configured **per strategy** under `[strategies.confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults:
+Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's token0 notional (a dollar amount for USD-quoted pairs):
 
 ```toml lineNumbers
-[[strategies]]
-type = "stable"
-bpsCurve = [
-    { amount = "100",    value = 100 },
-    { amount = "100000", value = 10  },
-]
-
-[strategies.confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
+[confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
 points = [
     { amount = "1000",   value = 3  },   # $1k → 3 blocks (~36s)
     { amount = "50000",  value = 15 },   # $50k → 15 blocks (~3m)
     { amount = "100000", value = 20 },   # $100k → 20 blocks (~4m)
 ]
 
-[strategies.confirmationPolicies."56"]    # BSC (~3s blocks)
+[confirmationPolicies."56"]    # BSC (~3s blocks)
 points = [
     { amount = "1000",   value = 2  },
     { amount = "100000", value = 5  },
 ]
 ```
 
-HyperFX uses the same schema:
-
-```toml lineNumbers
-[[strategies]]
-type = "hyperfx"
-maxOrderUsd = 5000
-
-[strategies.token1]
-"EVM-56"  = "0xExoticTokenAddressOnBsc"
-"EVM-137" = "0xExoticTokenAddressOnPolygon"
-
-[strategies.confirmationPolicies."56"]    # BSC
-points = [
-    { amount = "1",    value = 3  },
-    { amount = "500",  value = 6  },
-    { amount = "5000", value = 15 },
-]
-
-[strategies.confirmationPolicies."42161"] # Arbitrum
-points = [
-    { amount = "2",    value = 2  },
-    { amount = "1000", value = 5  },
-    { amount = "8000", value = 10 },
-]
-```
-
 <Callout type="info">
-Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[strategies.confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
+Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
 </Callout>
 
 ### RPC Quorum
@@ -610,26 +550,32 @@ vaults = [
     { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" }, # Aave stataUSDT on Arbitrum
 ]
 
-# Same-token stablecoin fills (USDC→USDC, USDT→USDT)
-[[strategies]]
-type     = "stable"
-bpsCurve = [
-    { amount = "100",    value = 100 },
-    { amount = "100000", value = 10  },
+# Same-asset cross-chain markets (USDC→USDC, USDT→USDT): ask below par = spread
+[[pairs]]
+token0 = "USDC"
+token1 = "USDC"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },
+    { amount = "100000", price = "0.999" },
 ]
 
-# Exotic-token swaps (e.g. stablecoin ↔ cNGN)
-[[strategies]]
-type        = "hyperfx"
-maxOrderUsd = 50000
+[[pairs]]
+token0 = "USDT"
+token1 = "USDT"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },
+    { amount = "100000", price = "0.999" },
+]
 
-[strategies.token1]
-"EVM-1"     = "0x..."  # Ethereum
-"EVM-56"    = "0x..."  # BSC
-"EVM-8453"  = "0x..."  # Base
-"EVM-137"   = "0x..."  # Polygon
+# Cross-asset market (USDC ↔ cNGN), priced from the Uniswap V4 pool below
+[[pairs]]
+token0 = "USDC"
+token1 = "CNGN"
+maxOrderSize = "50000"
 
-[strategies.vault.uniswapV4]
+[vault.uniswapV4]
 positions = [
     { chain = "EVM-8453", tokenId = "2087350" },
 ]
@@ -678,7 +624,7 @@ RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, Quic
 For verbose output, set `logging = "debug"` in `[simplex]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).
 
 ### **No profitable strategy found**
-Gas prices may be too high relative to the order fee, or your `bpsCurve` thresholds are set too conservatively. Check balances on the destination chain and review current gas prices.
+Gas prices may be too high relative to the order fee, or your pair curves may be set too conservatively. Check balances on the destination chain and review current gas prices.
 
 ---
 

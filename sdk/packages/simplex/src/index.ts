@@ -5,7 +5,6 @@ export { IntentFiller } from "@/core/filler"
 export { EventMonitor } from "@/core/event-monitor"
 
 // Strategy exports
-export { StableFiller } from "@/strategies/stable"
 export { FXFiller } from "@/strategies/fx"
 
 // Configuration exports

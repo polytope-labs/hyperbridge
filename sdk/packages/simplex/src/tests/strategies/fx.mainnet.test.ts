@@ -10,7 +10,9 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
-import { FXFiller, legacyExoticPairs } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	type ChainConfig,
@@ -49,6 +51,26 @@ import { Pool as V4Pool, Position as V4Position, V4PositionManager } from "@unis
 import type { MintOptions } from "@uniswap/v4-sdk"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: FillerConfigService,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
 
 // NOTE: This is a live mainnet integration test.
 // It is skipped by default to avoid accidental execution in CI.
@@ -851,7 +873,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
-		const legacy = legacyExoticPairs(chainConfigService, token1, 5000)
+		const legacy = exoticPairs(chainConfigService, token1, 5000)
 		const fxStrategy = new FXFiller(
 			signer,
 			chainConfigService,
@@ -1184,7 +1206,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
-		const legacy = legacyExoticPairs(chainConfigService, token1, 5000)
+		const legacy = exoticPairs(chainConfigService, token1, 5000)
 		const fxStrategy = new FXFiller(
 			signer,
 			chainConfigService,
@@ -2125,7 +2147,7 @@ async function createCrossChainFxIntentFiller(
 		},
 	})
 
-	const legacy = legacyExoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
+	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
 	const fxStrategy = new FXFiller(
 		fillerSigner,
 		chainConfigService,
@@ -2185,7 +2207,7 @@ async function createFxOnlyIntentFiller(
 	const extAsset = exoticTokenOverride ?? chainConfigService.getExtAsset(mainnetId)
 	const token1: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
-	const legacy = legacyExoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
+	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
 	const fxStrategy = new FXFiller(
 		signer,
 		chainConfigService,

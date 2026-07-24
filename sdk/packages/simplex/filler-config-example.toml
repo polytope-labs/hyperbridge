@@ -141,84 +141,46 @@ triggerPercentage = 0.5
 # "EVM-1"     = ["0x2222222222222222222222222222222222222222"]  # Ethereum-only partner
 # "EVM-42161" = ["0x3333333333333333333333333333333333333333"]  # Arbitrum-only partner
 
-# Strategy configuration
-# You can configure multiple strategies
-# All strategies use the configured simplex signer (privateKey or mpcVault)
-[[strategies]]
-type = "stable"
-# Filler BPS (basis points) curve based on order value
-# Uses polynomial interpolation to create a smooth curve through all points
-# - Small orders: Higher BPS to make filling worthwhile
-# - Large orders: Lower BPS to be more competitive
-bpsCurve = [
-    { amount = "100", value = 100 },      # $100 orders: 1% margin
-    { amount = "1000", value = 50 },      # $1000 orders: 0.5% margin
-    { amount = "10000", value = 25 },     # $10000 orders: 0.25% margin
-    { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
-]
-
-# Per-chain confirmation policies for this strategy (optional).
-# Uses polynomial interpolation to create a smooth curve through all points.
-# The chain ID should match the numeric ID from the chain configuration.
-# Sensible defaults are merged in for chains you don't list (ETH, BSC, Polygon, Base, Arbitrum).
-[strategies.confirmationPolicies."1"]  # Ethereum Mainnet
-points = [
-    { amount = "5", value = 3 },
-    { amount = "500", value = 6 },
-    { amount = "5000", value = 12 },
-]
-
-[strategies.confirmationPolicies."56"]  # BSC Mainnet
-points = [
-    { amount = "1", value = 3 },
-    { amount = "500", value = 6 },
-    { amount = "5000", value = 15 },
-]
-
-[strategies.confirmationPolicies."42161"]  # Arbitrum Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[strategies.confirmationPolicies."8453"]  # Base Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[strategies.confirmationPolicies."137"]  # Polygon Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[strategies.confirmationPolicies."130"]  # Unichain Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-# ===== Trading pairs (HyperFX) =====
+# ===== Trading pairs =====
 #
-# Assets are referenced by symbol from Simplex's built-in registry — no address
+# Every market Simplex serves is a [[pairs]] entry: cross-asset swaps
+# (USDC/CNGN) and same-asset cross-chain markets (USDC/USDC) alike. Assets are
+# referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
 # the SDK, testnets included) plus curated mainnet deployments of ZARP, EURC,
 # XSGD and TRYB, all verified on-chain. The registry holds addresses only; the
 # pair curves are the only price source.
 #
-# [[pairs]] declares the markets the FX engine serves — any number of pairs,
-# each priced by its own curves in token1 per 1 token0 and capped per order by
-# maxOrderSize, all denominated in token0 (the curve amount axis, the cap, and
-# the value fed to confirmation policies share that unit). Omit one curve for
-# one-sided LP on that pair (keep only askPriceCurve to sell token1 /
-# accumulate token0; only bidPriceCurve to buy token1). Omit both curves only
-# with [strategies.vault.uniswapV4] pool pricing. Orders whose legs match no
-# pair are rejected.
+# Each pair is priced by its own curves in token1 per 1 token0 and capped per
+# order by maxOrderSize, all denominated in token0 (the curve amount axis, the
+# cap, and the value fed to confirmation policies share that unit). Omit one
+# curve for one-sided LP (keep only askPriceCurve to sell token1 / accumulate
+# token0; only bidPriceCurve to buy token1). Omit both curves only with
+# [vault.uniswapV4] pool pricing. Orders whose legs match no pair are rejected.
+
+# Same-asset cross-chain market (replaces the old "stable" strategy): ask-only,
+# prices at or below par — the gap to 1 is your spread, realized on every fill.
+[[pairs]]
+token0 = "USDC"
+token1 = "USDC"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },   # $100 orders: 1% spread
+    { amount = "1000",   price = "0.995" },   # $1000 orders: 0.5%
+    { amount = "10000",  price = "0.9975" },  # $10k orders: 0.25%
+    { amount = "100000", price = "0.999" },   # $100k orders: 0.1%
+]
+
+[[pairs]]
+token0 = "USDT"
+token1 = "USDT"
+maxOrderSize = "100000"
+askPriceCurve = [
+    { amount = "100",    price = "0.99"  },
+    { amount = "100000", price = "0.999" },
+]
+
+# Cross-asset markets (e.g. stablecoin <-> cNGN) — uncomment and configure:
 #
 # [[pairs]]
 # token0 = "USDC"
@@ -253,33 +215,36 @@ points = [
 # does not ship, or to override a shipped address for your deployment.
 # [assets.BRZ]
 # "EVM-137" = "0xBrzOnPolygon"
+
+# Per-chain confirmation policies for cross-chain orders (optional).
+# Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum). The curve
+# amount axis is the order's token0 notional (a dollar amount for USD pairs).
+[confirmationPolicies."1"]  # Ethereum Mainnet
+points = [
+    { amount = "5", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 12 },
+]
+
+[confirmationPolicies."56"]  # BSC Mainnet
+points = [
+    { amount = "1", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 15 },
+]
+
+# Uniswap V4 LP positions (optional) — exotic-token funding and pool-based
+# pricing for cross-asset pairs without curves (USD-stable token0 only).
+# Optional per-position price guard: referencePrice (token1 per USD) +
+# maxDeviationBps reject orders when the live pool quote drifts out of band.
+# One-sided pool pricing: side = "ask" (sell token1) or "bid" (buy token1).
 #
-# The hyperfx strategy block carries engine-level settings; [[pairs]] requires
-# exactly one. (The legacy strategy-level token1 + curves + maxOrderUsd form
-# still works — translated into USDC/exotic and USDT/exotic pairs — but is
-# deprecated.)
-# [[strategies]]
-# type = "hyperfx"
-# # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
-# spreadBps = 50
-#
-# # Auto-funding from on-chain liquidity (optional)
-# # When wallet balance is insufficient, Simplex withdraws from these positions atomically
-# #
-# # Optional per-position price guard: set referencePrice (exotic per USD, same units as the
-# # bid/ask curves) and maxDeviationBps together to reject orders whenever the live pool quote
-# # on that chain drifts beyond the band. Guards against a manipulated, stale, or thin pool.
-# #
-# # One-sided LP under pool pricing (no bid/ask curves): set `side` to fill a single direction.
-# # "ask" sells exotic (accumulate stablecoins); "bid" buys exotic (accumulate the exotic token).
-# # Omit `side` to fill both directions.
-#
-# [strategies.vault.uniswapV4]
+# [vault.uniswapV4]
+# spreadBps = 50              # LP redemption slippage tolerance (default 50)
 # side = "ask"
 # positions = [
-#     { chain = "EVM-8453", tokenId = "123456789", referencePrice = "1575", maxDeviationBps = 200 },
+#     { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
 # ]
-#
 
 
 # Phantom order generator (optional)

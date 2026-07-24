@@ -22,7 +22,12 @@ import { isRegistrySymbol, normalizeSymbol, registrySymbols, type AssetDefinitio
  * Omitting one curve disables that direction for this pair (one-sided LP);
  * omitting both is only valid when Uniswap V4 venue pricing is configured.
  *
- * Users may declare any number of pairs; a single FX engine serves all of them.
+ * A pair may quote the **same symbol on both sides** (`token0 = token1 =
+ * "USDC"`) — the same-asset cross-chain market. Such pairs are ask-only with
+ * prices at or below par; the gap to 1 is the filler's spread (e.g. "0.9995"
+ * keeps 5 bps of every fill).
+ *
+ * Users may declare any number of pairs; a single engine serves all of them.
  */
 export interface PairConfig {
 	/** Quote-side symbol (e.g. "USDC", "USDT", "ZARP"). */
@@ -80,9 +85,6 @@ export function validatePairConfigs(
 		const token1 = normalizeSymbol(pair.token1)
 		const label = `${token0}/${token1}`
 
-		if (token0 === token1) {
-			throw new Error(`pairs.${label}: token0 and token1 must differ`)
-		}
 		if (seen.has(label)) {
 			throw new Error(`pairs.${label}: pair is declared twice`)
 		}
@@ -112,10 +114,40 @@ export function validatePairConfigs(
 		validateCurve(label, "bidPriceCurve", pair.bidPriceCurve)
 		validateCurve(label, "askPriceCurve", pair.askPriceCurve)
 
+		// Same-token pairs (token0 == token1) are the same-asset cross-chain
+		// market (the former "stable" strategy): both directions are one market,
+		// so they are ask-only, and the ask price is the fraction of the input
+		// paid back out — above par would be a guaranteed loss.
+		if (token0 === token1) {
+			if (pair.bidPriceCurve !== undefined) {
+				throw new Error(
+					`pairs.${label}: same-token pairs are ask-only — omit 'bidPriceCurve' (both directions are the same market)`,
+				)
+			}
+			if ((pair.askPriceCurve?.length ?? 0) < 1) {
+				throw new Error(
+					`pairs.${label}: same-token pairs need an 'askPriceCurve' with prices below par (e.g. "0.9995" keeps a 5 bps spread)`,
+				)
+			}
+			for (const point of pair.askPriceCurve ?? []) {
+				let price: Decimal
+				try {
+					price = new Decimal(point.price)
+				} catch {
+					throw new Error(`pairs.${label}: ask price must be a decimal string, got '${point.price}'`)
+				}
+				if (!price.isFinite() || price.lte(0) || price.gt(1)) {
+					throw new Error(
+						`pairs.${label}: same-token ask prices must be in (0, 1] — '${point.price}' would pay out more than received`,
+					)
+				}
+			}
+		}
+
 		const hasAnyCurve = (pair.bidPriceCurve?.length ?? 0) >= 1 || (pair.askPriceCurve?.length ?? 0) >= 1
 		if (!hasAnyCurve && !hasVenuePricing) {
 			throw new Error(
-				`pairs.${label}: provide a bid and/or ask price curve, or configure [strategies.vault.uniswapV4] positions for pool-based pricing`,
+				`pairs.${label}: provide a bid and/or ask price curve, or configure [vault.uniswapV4] positions for pool-based pricing`,
 			)
 		}
 	}

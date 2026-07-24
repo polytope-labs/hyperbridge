@@ -108,13 +108,10 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 	})
 
-	it("rejects unknown symbols, self-pairs, and duplicates", () => {
+	it("rejects unknown symbols and duplicates", () => {
 		expect(() =>
 			validatePairConfigs([{ token0: "USDC", token1: "WAT", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
 		).toThrow(/unknown symbol/)
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "usdc", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
-		).toThrow(/must differ/)
 		expect(() =>
 			validatePairConfigs(
 				[
@@ -124,6 +121,32 @@ describe("validatePairConfigs", () => {
 				assets,
 			),
 		).toThrow(/declared twice/)
+	})
+
+	it("accepts same-token pairs that are ask-only with prices at or below par", () => {
+		const PAR_CURVE = [
+			{ amount: "100", price: "0.99" },
+			{ amount: "100000", price: "0.999" },
+		]
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "usdc", maxOrderSize: SIZE, askPriceCurve: PAR_CURVE }]),
+		).not.toThrow()
+		// Bid curve is meaningless — both directions are the same market.
+		expect(() =>
+			validatePairConfigs([
+				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: PAR_CURVE, bidPriceCurve: PAR_CURVE },
+			]),
+		).toThrow(/ask-only/)
+		// Above par pays out more than received.
+		expect(() =>
+			validatePairConfigs([
+				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] },
+			]),
+		).toThrow(/more than received/)
+		// Venue pricing cannot substitute for the curve on same-token pairs.
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE }], undefined, true),
+		).toThrow(/askPriceCurve/)
 	})
 
 	it("requires a positive maxOrderSize", () => {
@@ -299,6 +322,71 @@ describe("FXFiller pairs engine", () => {
 			{ token: bytes20ToBytes32(USDC), amount: 0n },
 		)
 		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("5000", 6))
+	})
+
+	it("quotes same-token pairs at the below-par ask, across differing decimals", async () => {
+		// USDC is 6-decimal on CHAIN and 18-decimal on CHAIN2 (à la BSC).
+		const CHAIN2 = "EVM-97"
+		const USDC18 = "0x6666666666666666666666666666666666666666" as HexString
+		const configService = {
+			getUsdcAsset: (chain: string) => (chain === CHAIN2 ? USDC18 : USDC),
+			getUsdtAsset: () => USDT,
+			getDaiAsset: () => {
+				throw new Error("not configured")
+			},
+			getCNgnAsset: () => undefined,
+			getMaxOverfillBps: () => 500n,
+			getMaxConsecutiveClamps: () => 3,
+		} as any
+		const contractService = makeContractService()
+		// Extend the decimals mock for the 18-decimal deployment.
+		const inner = contractService.getTokenDecimals
+		contractService.getTokenDecimals = async (token: string) =>
+			token.toLowerCase() === USDC18.toLowerCase() ? 18 : inner(token)
+
+		const pairs: TradingPair[] = [
+			// 50 bps spread, capped at 10,000 USDC per order.
+			{ token0: "USDC", token1: "USDC", maxOrderSize: size("10000"), askPricePolicy: flat("0.995") },
+		]
+		const registry = new AssetRegistry(configService)
+		const signer = { account: { address: SOLVER } } as any
+		const filler = new FXFiller(signer, configService, {} as any, contractService, pairs, registry)
+
+		const order = {
+			...makeOrder(
+				"same-token",
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(USDC18), amount: 0n },
+			),
+			destination: CHAIN2,
+		} as unknown as Order
+		// 1000 USDC in → 995 USDC out (0.995), scaled to the destination's 18 decimals.
+		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("995", 18))
+
+		const large = {
+			...makeOrder(
+				"same-token-capped",
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("20000", 6) },
+				{ token: bytes20ToBytes32(USDC18), amount: 0n },
+			),
+			destination: CHAIN2,
+		} as unknown as Order
+		// 20,000 USDC → capped at maxOrderSize 10,000 → 9,950 out.
+		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("9950", 18))
+	})
+
+	it("rejects same-token engine pairs with a bid policy or above-par prices", () => {
+		const registry = new AssetRegistry(resolver as any)
+		const signer = { account: { address: SOLVER } } as any
+		const build = (pair: TradingPair) =>
+			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
+
+		expect(() =>
+			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.995"), bidPricePolicy: flat("0.995") }),
+		).toThrow(/ask-only/)
+		expect(() =>
+			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("1.5") }),
+		).toThrow(/must not exceed 1/)
 	})
 
 	it("rejects orders whose legs match no configured pair", async () => {

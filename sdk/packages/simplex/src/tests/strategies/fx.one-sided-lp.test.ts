@@ -1,4 +1,4 @@
-import { FXFiller, legacyExoticPairs, type TradingPair } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
@@ -17,6 +17,26 @@ const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: any,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
 
 const configService = {
 	getUsdcAsset: () => STABLE,
@@ -50,7 +70,7 @@ function makeFiller(options: {
 	const contractService = provided ?? makeContractService()
 	const signer = { account: { address: SOLVER } } as any
 
-	const { pairs, registry } = legacyExoticPairs(configService, { [CHAIN]: EXOTIC }, 5000, bidPricePolicy, askPricePolicy)
+	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC }, 5000, bidPricePolicy, askPricePolicy)
 	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, fillerOptions)
 }
 

@@ -3,6 +3,7 @@ import {
 	Order,
 	ExecutionResult,
 	HexString,
+	adjustDecimals,
 	bytes32ToBytes20,
 	type ERC7821Call,
 	TokenInfo,
@@ -14,12 +15,7 @@ import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import {
-	AssetRegistry,
-	normalizeSymbol,
-	USD_STABLE_SYMBOLS,
-	type BuiltinAssetResolver,
-} from "@/config/asset-registry"
+import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -27,14 +23,18 @@ import type { FundingVenue } from "@/funding/types"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
- * A trading pair the FX engine serves. `token0` and `token1` are registry
- * symbols (see `AssetRegistry`); the price policies quote **token1 per 1
- * token0**, keyed by the order's token0 notional.
+ * A trading pair the engine serves. `token0` and `token1` are registry symbols
+ * (see `AssetRegistry`); the price policies quote **token1 per 1 token0**,
+ * keyed by the order's token0 notional.
  *
  * The bid policy prices the filler *buying* token1 (user sends token1, receives
  * token0); the ask policy prices the filler *selling* token1. A missing policy
  * disables that direction for this pair (one-sided LP). A pair with neither
  * policy is priced from a Uniswap V4 venue (USD-stable `token0` only).
+ *
+ * A **same-token pair** (`token0 == token1`, e.g. USDC/USDC) is the same-asset
+ * cross-chain market: ask-only, with the ask price at or below par — the gap
+ * to 1 is the filler's spread, realized in-kind on every fill.
  *
  * `maxOrderSize` caps the pair's exposure per order, denominated in token0 —
  * every quantity that sizes this pair (curve amounts, the cap, confirmation
@@ -49,30 +49,9 @@ export interface TradingPair {
 	askPricePolicy?: FillerPricePolicy
 }
 
-/**
- * Builds the pair set + registry for the legacy single-exotic configuration:
- * the `token1` address map traded against USDC and USDT at par, both pairs
- * sharing one bid/ask policy pair (curves in exotic-per-USD are identical to
- * token1-per-token0 when token0 is a USD stablecoin) and one `maxOrderUsd`
- * (identical to a token0-denominated cap for the same reason). Used by the
- * CLI's deprecated config path and by tests.
- */
-export function legacyExoticPairs(
-	resolver: BuiltinAssetResolver,
-	token1: Record<string, HexString>,
-	maxOrderUsd: number,
-	bidPricePolicy?: FillerPricePolicy,
-	askPricePolicy?: FillerPricePolicy,
-): { pairs: TradingPair[]; registry: AssetRegistry } {
-	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
-		token0,
-		token1: "EXOTIC",
-		maxOrderSize: new Decimal(maxOrderUsd),
-		bidPricePolicy,
-		askPricePolicy,
-	}))
-	return { pairs, registry }
+/** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
+function isSameTokenPair(pair: TradingPair): boolean {
+	return normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
 }
 
 /** A leg matched to a configured pair, with everything needed to price it. */
@@ -140,7 +119,6 @@ export class FXFiller implements FillerStrategy {
 	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
-	private spreadBps: number
 	/**
 	 * Optional Uniswap price guard, keyed by chain. When a chain has an entry, a
 	 * venue (pool) quote is only trusted if it stays within `maxDeviationBps` of the
@@ -165,7 +143,6 @@ export class FXFiller implements FillerStrategy {
 	 * @param registry        Asset symbol registry resolving pair symbols per chain.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
-	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
 	 * @param options.side    Venue-pricing one-sided switch ("bid" buys token1, "ask" sells token1).
 	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
 	 */
@@ -179,12 +156,11 @@ export class FXFiller implements FillerStrategy {
 		options?: {
 			confirmationPolicy?: ConfirmationPolicy
 			fundingVenues?: FundingVenue[]
-			spreadBps?: number
 			priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>
 			side?: "bid" | "ask"
 		},
 	) {
-		const { confirmationPolicy, fundingVenues = [], spreadBps = 50, priceGuard, side } = options ?? {}
+		const { confirmationPolicy, fundingVenues = [], priceGuard, side } = options ?? {}
 
 		if (pairs.length === 0) {
 			throw new Error("FXFiller requires at least one trading pair")
@@ -203,6 +179,22 @@ export class FXFiller implements FillerStrategy {
 				throw new Error(
 					`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
 				)
+			}
+			if (isSameTokenPair(pair)) {
+				// Same-asset market: ask-only, priced at or below par — above par
+				// pays out more than it receives on every fill.
+				if (pair.bidPricePolicy || !pair.askPricePolicy) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
+					)
+				}
+				const abovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gt(1))
+				if (abovePar) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must not exceed 1`,
+					)
+				}
+				continue
 			}
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
 				if (!hasVenues) {
@@ -224,7 +216,6 @@ export class FXFiller implements FillerStrategy {
 		this.pairs = pairs
 		this.registry = registry
 		this.fundingVenues = fundingVenues
-		this.spreadBps = spreadBps
 		this.side = side
 		if (priceGuard && Object.keys(priceGuard).length > 0) {
 			this.priceGuard = new Map()
@@ -590,21 +581,22 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Realized FX margin, report-only — never rejects an order. A single fill is
-			// half a round-trip, so the open leg is marked at the opposite side of the
-			// spread: sells token1 → value the token1 given at bid (rebuy cost); buys
-			// token1 → value the token1 received at ask (resale value). Expressed in
-			// token0 units of each leg's pair (summed across legs). Positive by
-			// construction when bid ≥ ask. Legs whose opposite side is disabled
-			// (one-sided LP) are skipped — there is no curve to mark them against.
+			// Per-leg P&L accounting over the surviving legs:
+			//  - Same-token legs realize their spread in-kind (input − output of the
+			//    SAME asset) — deterministic profit, summed into the gated total in
+			//    fee-token decimals.
+			//  - Cross-asset legs are half a round-trip: the open side is marked at
+			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
+			//    resale at ask). That mark-to-model margin is report-only and never
+			//    gates; legs whose opposite side is disabled (one-sided LP) are
+			//    skipped — there is no curve to mark them against.
+			let realizedSpreadProfit = 0n
 			let fxMarginQuote = new Decimal(0)
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
 				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
 				const leg = legs[legIndex]
-				const rates = legRatesByIndex.get(legIndex)
-				if (!rates?.oppositeRate) continue
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -614,6 +606,17 @@ export class FXFiller implements FillerStrategy {
 					bytes32ToBytes20(output.token) as HexString,
 					destChain,
 				)
+
+				if (isSameTokenPair(leg.pair)) {
+					const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
+					const spread = convertedInput - output.amount
+					realizedSpreadProfit += adjustDecimals(spread, outputDecimals, feeTokenDecimals)
+					continue
+				}
+
+				const rates = legRatesByIndex.get(legIndex)
+				if (!rates?.oppositeRate) continue
+
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
@@ -635,23 +638,24 @@ export class FXFiller implements FillerStrategy {
 			this.recordOrderOutcome(false, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			// Reject only when the user's attached fees can't cover what we expect to spend on the fill.
-			if (order.fees < totalCostInSourceFeeToken) {
+			// Gate on fees plus REALIZED profit: same-token spread is earned in-kind
+			// on the fill itself, so it can carry an order whose fees alone don't
+			// cover gas. Cross-asset fxMarginQuote stays mark-to-model and never
+			// gates.
+			if (order.fees + realizedSpreadProfit < totalCostInSourceFeeToken) {
 				this.logger.info(
 					{
 						orderId: order.id,
 						orderFees: formatUnits(order.fees, feeTokenDecimals),
+						realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
 						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					},
-					"Skipping order: attached fees do not cover estimated execution cost",
+					"Skipping order: fees plus realized spread do not cover estimated execution cost",
 				)
 				return 0
 			}
 			const feeProfit = order.fees - totalCostInSourceFeeToken
-			// FX bids are gated on fee profit only. fxMarginQuote is a theoretical
-			// mark-to-model value (open leg priced at the opposite curve) and is
-			// reported separately, never summed in.
-			const totalProfit = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
+			const totalProfit = parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -668,6 +672,7 @@ export class FXFiller implements FillerStrategy {
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
 					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
+					realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
 					fxMarginQuote: fxMarginQuote.toString(),
 					totalProfit,
 					profitable: totalProfit > 0,
@@ -916,7 +921,9 @@ export class FXFiller implements FillerStrategy {
 		cappedPairNotional: Decimal,
 		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
 	): Promise<LegRates | null> {
-		if (USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
+		// Same-token pairs always price from their ask curve — a venue quote for
+		// the "exotic" side would just be the asset's own USD price, not a spread.
+		if (!isSameTokenPair(leg.pair) && USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
 			const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
 			if (venueUsd) {
 				// Guard compares the venue's token1-per-USD quote against the static reference.
@@ -1007,6 +1014,10 @@ export class FXFiller implements FillerStrategy {
 					token1Chain: destChain,
 				}
 			}
+
+			// Same-token pairs have identical addresses on both branches — every
+			// matching leg is the ask direction, so the bid branch never applies.
+			if (isSameTokenPair(pair)) continue
 
 			const token1Source = this.registry.getAddress(pair.token1, sourceChain)?.toLowerCase()
 			const token0Dest = this.registry.getAddress(pair.token0, destChain)?.toLowerCase()

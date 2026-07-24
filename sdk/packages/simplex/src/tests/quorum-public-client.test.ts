@@ -224,67 +224,86 @@ describe("aggregateConfirmations — BFT receipt agreement", () => {
 	})
 })
 
-describe("registry endpoint circuit breaker", () => {
-	// The first `operatorCount` URLs are the operator's (never ejected); the rest
-	// are registry endpoints that bench after repeated failures. Client stubs are
-	// swapped in post-construction; registry chainId verification is bypassed
-	// (its URLs here are .invalid and unreachable anyway).
-	function makeClient(): QuorumPublicClient {
-		const client = new QuorumPublicClient(
-			BASE_CHAIN_ID,
-			["https://operator.invalid", "https://registry-a.invalid", "https://registry-b.invalid"],
-			1,
-		)
-		;(client as any).registryVerification = Promise.resolve()
-		return client
+describe("failure policy — 429s are skipped, other errors pause the endpoint", () => {
+	// The first `operatorCount` URLs are the operator's own; they set the floor
+	// the per-call threshold can never drop below. Client stubs are swapped in
+	// post-construction (URLs are .invalid and never contacted).
+	function makeClient(urls: string[], operatorCount: number): QuorumPublicClient {
+		return new QuorumPublicClient(BASE_CHAIN_ID, urls, operatorCount)
 	}
+	const THREE = ["https://operator.invalid", "https://registry-a.invalid", "https://registry-b.invalid"]
 	const ok = (head: bigint) => ({ getBlockNumber: async () => head }) as any
-	const throttled = () =>
+	const failWith = (message: string) =>
 		({
 			getBlockNumber: async () => {
-				throw new Error("429 Too Many Requests")
+				throw new Error(message)
 			},
 		}) as any
 
-	it("benches a persistently failing registry endpoint and recomputes the threshold", async () => {
-		const client = makeClient()
-		client.clients[0] = ok(100n) // operator
-		client.clients[1] = ok(100n) // registry, healthy
-		client.clients[2] = throttled() // registry, rate limited
-
-		// N=3 → threshold 3: the throttled endpoint fails every batch.
-		for (let i = 0; i < 5; i++) {
-			await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
-		}
-		// After 5 consecutive failures it is benched: active N=2 → threshold 2.
-		await expect(client.getBlockNumber()).resolves.toBe(100n)
-	})
-
-	it("never ejects operator endpoints — the quorum cannot shrink below them", async () => {
-		const client = makeClient()
-		client.clients[0] = throttled() // operator down
+	it("excludes a 429ing endpoint from the call without pausing it", async () => {
+		const client = makeClient(THREE, 1)
+		client.clients[0] = ok(100n)
 		client.clients[1] = ok(100n)
-		client.clients[2] = ok(100n)
+		client.clients[2] = failWith("429 Too Many Requests")
 
-		// If the operator endpoint were ejectable, active N would drop to 2 and the
-		// two registry endpoints would form a quorum on their own. It must not:
-		// the set stays at 3 with threshold 3, and every batch keeps failing.
-		for (let i = 0; i < 10; i++) {
-			await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
-		}
+		// 2 responders, threshold max(q(2)=2, q(1)=1) = 2 → succeeds immediately.
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		// Rate limiting is call-local noise — the endpoint is not paused.
+		expect((client as any).pausedUntil[2]).toBe(0)
 	})
 
-	it("a divergent-but-responsive provider is never ejected", async () => {
-		const client = makeClient()
+	it("pauses an endpoint that errors with anything other than a 429", async () => {
+		const client = makeClient(THREE, 1)
+		client.clients[0] = ok(100n)
+		client.clients[1] = ok(100n)
+		client.clients[2] = failWith("connect ECONNREFUSED")
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		expect((client as any).pausedUntil[2]).toBeGreaterThan(Date.now())
+
+		// While paused the endpoint is not queried at all: even if it would now
+		// answer (divergently), the result is unchanged.
+		let queried = false
+		client.clients[2] = {
+			getBlockNumber: async () => {
+				queried = true
+				return 999999n
+			},
+		} as any
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		expect(queried).toBe(false)
+	})
+
+	it("the threshold never drops below the operator set's own bound", async () => {
+		// Three operator endpoints (floor q(3) = 3) + one registry endpoint.
+		const client = makeClient(
+			[
+				"https://op-a.invalid",
+				"https://op-b.invalid",
+				"https://op-c.invalid",
+				"https://registry-a.invalid",
+			],
+			3,
+		)
+		client.clients[0] = ok(100n)
+		client.clients[1] = failWith("429 Too Many Requests")
+		client.clients[2] = failWith("429 Too Many Requests")
+		client.clients[3] = ok(100n)
+
+		// Only 2 responders agree, but the operator floor demands 3 — an outage
+		// of the operator's own endpoints must not quietly weaken the quorum.
+		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+	})
+
+	it("a divergent responder is counted, not excluded — and gets outvoted", async () => {
+		const client = makeClient(THREE, 1)
 		client.clients[0] = ok(100n)
 		client.clients[1] = ok(100n)
 		client.clients[2] = ok(999999n) // lying about the head — but responding
 
-		// Divergence must not eject (that property makes lying detectable), and the
-		// BFT head selection already discounts the outlier: threshold-th highest of
-		// [999999, 100, 100] at threshold 3 is 100.
-		for (let i = 0; i < 10; i++) {
-			await expect(client.getBlockNumber()).resolves.toBe(100n)
-		}
+		// 3 responders → threshold 3; the BFT head selection discounts the outlier:
+		// threshold-th highest of [999999, 100, 100] is 100.
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		expect((client as any).pausedUntil[2]).toBe(0)
 	})
 })

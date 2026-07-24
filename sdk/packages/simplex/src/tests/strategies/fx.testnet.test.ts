@@ -387,7 +387,10 @@ async function createFxIntentFiller(
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	// Exotic ≈ $1 (Polygon USDC stand-in), so price is 1 exotic token per USD.
+	// Exotic ≈ $1 (Polygon USDC stand-in). The book must carry a real spread:
+	// the profit gate requires the FX margin to be strictly positive, so a
+	// bid == ask (zero-spread) config makes the filler refuse to bid and the
+	// E2E flow time out. 50 bps: buy exotic at 1, sell at 0.995 per USD.
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: "1" },
@@ -396,8 +399,8 @@ async function createFxIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "1" },
-			{ amount: "10000", price: "1" },
+			{ amount: "1", price: "0.995" },
+			{ amount: "10000", price: "0.995" },
 		],
 	})
 

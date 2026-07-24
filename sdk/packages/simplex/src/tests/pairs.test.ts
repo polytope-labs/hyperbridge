@@ -557,6 +557,20 @@ describe("FXFiller pairs engine", () => {
 		expect(await filler.canFill(order)).toBe(false)
 		expect(await filler.quotePhantomFill(order)).toBeNull()
 	})
+
+	it("accepts same-chain cross-asset orders — only same-token pairs are chain-restricted", async () => {
+		// makeOrder is source == destination: an on-chain USDC→CNGN swap. The
+		// same-chain rejection applies to same-token self-swaps, never to FX.
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"same-chain-fx",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		expect(await filler.canFill(order)).toBe(true)
+	})
 })
 
 describe("FXFiller same-token markets (cross-chain only)", () => {

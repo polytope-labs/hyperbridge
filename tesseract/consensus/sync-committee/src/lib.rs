@@ -153,7 +153,20 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		evm: &EvmConfig,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> Result<Self, anyhow::Error> {
+		#[cfg(not(feature = "glamsterdam"))]
 		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
+
+		// Gloas keeps only the execution block hash in the beacon state, so the prover needs an
+		// execution rpc of its own to fetch the header that hash commits to.
+		#[cfg(feature = "glamsterdam")]
+		let prover = SyncCommitteeProver::new(
+			host.beacon_http_urls.clone(),
+			evm.rpc_urls
+				.first()
+				.ok_or_else(|| anyhow::anyhow!("An execution rpc url is required"))?
+				.clone(),
+		);
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);

@@ -121,7 +121,11 @@ export class ChainClientManager {
 		const config = this.configService.getChainConfig(chain)
 		let client = this.quorumClients.get(config.chainId)
 		if (!client) {
-			client = new QuorumPublicClient(config.chainId, this.configService.getQuorumRpcUrls(chain))
+			// getQuorumRpcUrls puts the operator's endpoints first, then the public
+			// registry — the operator count tells the quorum client which providers
+			// may never be ejected.
+			const operatorCount = this.configService.getRpcUrls(chain).length
+			client = new QuorumPublicClient(config.chainId, this.configService.getQuorumRpcUrls(chain), operatorCount)
 			this.quorumClients.set(config.chainId, client)
 		}
 		return client

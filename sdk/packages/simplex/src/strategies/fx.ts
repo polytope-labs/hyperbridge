@@ -174,7 +174,16 @@ export class FXFiller implements FillerStrategy {
 		if (side && hasAnyPolicy) {
 			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit pair price curves")
 		}
+		const seenPairs = new Set<string>()
 		for (const pair of pairs) {
+			const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
+			const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
+			if (seenPairs.has(label) || seenPairs.has(reversed)) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: duplicate market (a pair and its reverse are the same market)`,
+				)
+			}
+			seenPairs.add(label)
 			if (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0)) {
 				throw new Error(
 					`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
@@ -921,9 +930,11 @@ export class FXFiller implements FillerStrategy {
 		cappedPairNotional: Decimal,
 		venueUsdPrice: (chain: string, token1Address: string) => Promise<Decimal | null>,
 	): Promise<LegRates | null> {
-		// Same-token pairs always price from their ask curve — a venue quote for
-		// the "exotic" side would just be the asset's own USD price, not a spread.
-		if (!isSameTokenPair(leg.pair) && USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
+		// Explicitly configured curves always win — the venue only prices pairs
+		// with no curves at all (and never same-token pairs, where a venue quote
+		// would just be the asset's own USD price, not a spread).
+		const curveless = !leg.pair.bidPricePolicy && !leg.pair.askPricePolicy
+		if (curveless && !isSameTokenPair(leg.pair) && USD_STABLE_SYMBOLS.has(normalizeSymbol(leg.pair.token0))) {
 			const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
 			if (venueUsd) {
 				// Guard compares the venue's token1-per-USD quote against the static reference.
@@ -1138,9 +1149,11 @@ export class FXFiller implements FillerStrategy {
 				bytes32ToBytes20(input.token) as HexString,
 				chain,
 			)
+			// Phantom orders are same-chain probes today, but resolve the output on
+			// the destination anyway — decimals differ per chain for some assets.
 			const outputDecimals = await this.contractService.getTokenDecimals(
 				bytes32ToBytes20(output.token) as HexString,
-				chain,
+				order.destination,
 			)
 
 			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals

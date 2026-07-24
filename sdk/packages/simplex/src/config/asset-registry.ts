@@ -40,12 +40,11 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 }
 
 /**
- * Symbols treated as worth exactly 1 USD for *risk sizing* (the `maxOrderUsd`
- * cap and confirmation policies). Pairs quoted in one of these size directly
- * off token0 notional; other quote assets are valued through the operator's own
- * configured pair curves (see `FXFiller`). Trade pricing never uses this.
+ * Symbols pegged to 1 USD, used to gate Uniswap venue pricing (a pool's
+ * USD-per-token quote only inverts into a pair rate when token0 is a dollar).
+ * Trade pricing never uses this as a price.
  */
-export const USD_STABLE_SYMBOLS = new Set(["USDC", "USDT", "DAI"])
+export const USD_STABLE_SYMBOLS: ReadonlySet<string> = new Set(["USDC", "USDT", "DAI"])
 
 /**
  * Curated registry of additional stablecoin deployments on the supported
@@ -68,7 +67,7 @@ export const KNOWN_ASSETS: Record<string, AssetDefinition> = {
 	},
 	// StraitsX Singapore dollar stablecoin.
 	XSGD: {
-		"EVM-1": "0x70e8de73cE538DA2bEEd35d14187F6959a8ecA96",
+		"EVM-1": "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96",
 		"EVM-137": "0xDC3326e71D45186F113a2F448984CA0e8D201995",
 	},
 	// BiLira Turkish lira stablecoin.
@@ -76,10 +75,27 @@ export const KNOWN_ASSETS: Record<string, AssetDefinition> = {
 		"EVM-1": "0x2C537E5624e4af88A7ae4060C022609376C8D0EB",
 	},
 }
+// Frozen: the registry is shared, and `AssetRegistry` caches resolutions
+// permanently — a runtime mutation would leave lookups incoherent.
+for (const definition of Object.values(KNOWN_ASSETS)) Object.freeze(definition)
+Object.freeze(KNOWN_ASSETS)
 
 /** Normalises a symbol for lookups: trimmed, uppercased. "cNGN" ≡ "CNGN". */
 export function normalizeSymbol(symbol: string): string {
 	return symbol.trim().toUpperCase()
+}
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+/**
+ * Whether a value from an address source is a real deployment. The SDK chain
+ * registry returns `"0x"` for chains it has no entry for and stores a literal
+ * zero address for assets not deployed on a chain — both are truthy, and the
+ * zero address doubles as the NATIVE-token sentinel in the fill path, so
+ * letting either through would price native currency as if it were the asset.
+ */
+function isRealAddress(address: string | undefined): address is HexString {
+	return !!address && isAddress(address, { strict: false }) && address.toLowerCase() !== ZERO_ADDRESS
 }
 
 /** Every symbol the registry ships without user configuration. */
@@ -115,7 +131,7 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
 			throw new Error(`assets.${symbol}: entry must map at least one chain to a token address`)
 		}
 		for (const [chain, address] of entries) {
-			if (!isAddress(address)) {
+			if (!isAddress(address) || address.toLowerCase() === ZERO_ADDRESS) {
 				throw new Error(`assets.${symbol}: invalid address '${address}' for chain '${chain}'`)
 			}
 		}
@@ -167,7 +183,7 @@ export class AssetRegistry {
 		const cached = this.addressCache.get(cacheKey)
 		if (cached !== undefined) return cached
 
-		let address: HexString | undefined =
+		let address: string | undefined =
 			this.userAssets.get(normalized)?.[chain] ?? KNOWN_ASSETS[normalized]?.[chain]
 		if (!address) {
 			const builtin = BUILTIN_ASSETS[normalized]
@@ -175,13 +191,15 @@ export class AssetRegistry {
 				try {
 					address = builtin.resolve(this.resolver, chain)
 				} catch {
-					// SDK registry has no entry for this chain — treat as absent.
 					address = undefined
 				}
 			}
 		}
 
-		const result = address ?? null
+		// The SDK registry signals absence with sentinels ("0x", the zero
+		// address) rather than throwing — filter them so callers get a clean
+		// "not deployed here" instead of a poisonous pseudo-address.
+		const result = isRealAddress(address) ? address : null
 		this.addressCache.set(cacheKey, result)
 		return result
 	}

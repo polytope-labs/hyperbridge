@@ -399,6 +399,25 @@ program
 
 			// Editable price curves for the admin server, collected at construction so
 			// the server mutates the exact policy instances the engine prices with.
+			// Every pair symbol must resolve to a real deployment on at least one
+			// configured chain. This catches assets the registry marks absent (the
+			// SDK stores zero-address sentinels for undeployed assets) before the
+			// engine can match a zero address — which doubles as the native-token
+			// sentinel in the fill path — against an order leg.
+			const configuredChainNames = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
+			for (const pair of config.pairs ?? []) {
+				for (const symbol of [pair.token0, pair.token1]) {
+					const resolvesSomewhere = configuredChainNames.some(
+						(chainName) => assetRegistry.getAddress(symbol, chainName) !== null,
+					)
+					if (!resolvesSomewhere) {
+						throw new Error(
+							`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
+						)
+					}
+				}
+			}
+
 			const adminStrategies: AdminStrategy[] = []
 			const strategies: FXFiller[] = []
 			if (config.pairs?.length) {

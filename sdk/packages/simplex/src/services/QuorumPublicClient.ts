@@ -11,7 +11,8 @@ import {
 	type PublicClient,
 } from "viem"
 import { getViemChain } from "@hyperbridge/sdk"
-import { validateRpcUrls } from "./FillerConfigService"
+import { fetchChainId, validateRpcUrls } from "./FillerConfigService"
+import { getLogger } from "./Logger"
 
 /**
  * Minimum number of providers that must agree for a batch to succeed. Uses the
@@ -31,24 +32,37 @@ export function quorumThreshold(numProviders: number): number {
 	return Math.floor((2 * numProviders) / 3) + 1
 }
 
+/** Consecutive failures before a registry (non-operator) provider is benched. */
+const EJECTION_FAILURES = 5
+/** How long a benched registry provider sits out before being retried. */
+const EJECTION_COOLDOWN_MS = 5 * 60_000
+
 /**
  * Wraps multiple `PublicClient`s — one per configured RPC URL — and runs selected
- * read paths (currently `getLogs` and `getBlockNumber`) as a Byzantine-fault-tolerant
- * quorum.
+ * read paths (`getLogs`, `getBlockNumber`, `getTransactionConfirmations`) as a
+ * Byzantine-fault-tolerant quorum.
  *
- * A batch succeeds when **more than two thirds** of providers return the same
- * result (see {@link quorumThreshold}). Providers that time out, error, or return
- * a divergent result are tolerated up to the BFT bound; beyond that the batch
- * fails loudly — no silent fall-through to a single provider's view of the chain.
+ * A batch succeeds when **more than two thirds** of the currently *active*
+ * providers return the same result (see {@link quorumThreshold}). Providers that
+ * time out, error, or return a divergent result are tolerated up to the BFT
+ * bound; beyond that the batch fails loudly — no silent fall-through to a single
+ * provider's view of the chain.
  *
- * For `getLogs`, every underlying client is queried in parallel and results are
- * grouped by a canonical serialisation. The largest agreement group must reach
- * the quorum threshold or the batch fails.
+ * The provider set has two tiers. The first `operatorCount` URLs are the
+ * **operator's endpoints**: always active, never ejected — the quorum can never
+ * shrink below them, so the guarantee never drops below what the operator
+ * configured. The rest are **registry endpoints** (the built-in public-RPC
+ * registry): best-effort hardening witnesses that are
  *
- * For `getBlockNumber`, every client is queried in parallel and the returned head
- * is the highest block at which at least {@link quorumThreshold} providers have
- * indexed up to that block — so the block scanner never advances past a cursor
- * that lacks BFT-level support.
+ *  - verified against `eth_chainId` once at startup (a mismatched endpoint is
+ *    permanently ejected), and
+ *  - benched for {@link EJECTION_COOLDOWN_MS} after {@link EJECTION_FAILURES}
+ *    consecutive errors/timeouts (e.g. sustained rate limiting), with the
+ *    threshold recomputed over the remaining active set.
+ *
+ * Ejection is failure-only, never divergence-based: a provider that *answers*
+ * with different data stays in the set and simply cannot form a quorum — which
+ * is exactly the property that makes lying detectable.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
  * isn't secretly the same upstream in disguise.
@@ -56,11 +70,27 @@ export function quorumThreshold(numProviders: number): number {
 export class QuorumPublicClient {
 	public readonly clients: PublicClient[]
 	public readonly rpcUrls: string[]
+	/** BFT threshold over the FULL provider set (the maximum a call can require). */
 	public readonly threshold: number
+	/** Number of leading URLs that are the operator's own (never ejected). */
+	public readonly operatorCount: number
 
-	constructor(chainId: number, rpcUrls: string[]) {
+	private readonly chainId: number
+	/** Per-provider consecutive-failure counters (registry providers only advance). */
+	private readonly consecutiveFailures: number[]
+	/** Per-provider bench-until timestamps (ms); 0 = active, Infinity = permanent. */
+	private readonly disabledUntil: number[]
+	/** One-time startup verification of registry endpoints' chain ids. */
+	private readonly registryVerification: Promise<void>
+	private logger = getLogger("quorum")
+
+	constructor(chainId: number, rpcUrls: string[], operatorCount?: number) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
+		this.chainId = chainId
+		this.operatorCount = Math.min(Math.max(operatorCount ?? rpcUrls.length, 1), this.rpcUrls.length)
 		this.threshold = quorumThreshold(this.rpcUrls.length)
+		this.consecutiveFailures = this.rpcUrls.map(() => 0)
+		this.disabledUntil = this.rpcUrls.map(() => 0)
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
@@ -72,6 +102,7 @@ export class QuorumPublicClient {
 				}),
 			}),
 		)
+		this.registryVerification = this.verifyRegistryEndpoints()
 	}
 
 	get size(): number {
@@ -79,28 +110,107 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Highest block head that at least {@link quorumThreshold} providers have
-	 * indexed. Throws a {@link QuorumError} if fewer than that many providers
-	 * respond successfully.
+	 * Checks each registry endpoint's `eth_chainId` once at startup and
+	 * permanently ejects mismatches — registry URLs don't go through the
+	 * operator-endpoint resolution flow, so this is their equivalent guard.
+	 * Unreachable endpoints are left active; the runtime failure ejection
+	 * handles them if the condition persists.
+	 */
+	private async verifyRegistryEndpoints(): Promise<void> {
+		await Promise.all(
+			this.rpcUrls.map(async (url, idx) => {
+				if (idx < this.operatorCount) return
+				try {
+					const reported = await fetchChainId(url)
+					if (reported !== this.chainId) {
+						this.disabledUntil[idx] = Number.POSITIVE_INFINITY
+						this.logger.error(
+							{ url, expected: this.chainId, reported },
+							"Registry RPC endpoint serves the wrong chain — permanently ejected from the quorum",
+						)
+					}
+				} catch {
+					// Transient unreachability — runtime ejection covers persistence.
+				}
+			}),
+		)
+	}
+
+	/** Indices of currently active providers (operator endpoints always included). */
+	private activeIndices(): number[] {
+		const now = Date.now()
+		const active: number[] = []
+		for (let idx = 0; idx < this.clients.length; idx++) {
+			if (idx < this.operatorCount) {
+				active.push(idx)
+				continue
+			}
+			const benchedUntil = this.disabledUntil[idx]
+			if (benchedUntil === 0) {
+				active.push(idx)
+				continue
+			}
+			if (benchedUntil === Number.POSITIVE_INFINITY || now < benchedUntil) continue
+			// Cooldown elapsed — readmit.
+			this.disabledUntil[idx] = 0
+			this.logger.info({ url: this.rpcUrls[idx] }, "Registry RPC endpoint readmitted to the quorum")
+			active.push(idx)
+		}
+		return active
+	}
+
+	/**
+	 * Updates failure counters after a batch. Registry providers that error
+	 * {@link EJECTION_FAILURES} times in a row (rate limiting, outage) are
+	 * benched for {@link EJECTION_COOLDOWN_MS} so a flaky public endpoint
+	 * degrades the quorum back toward the operator's own set instead of
+	 * blinding the filler. Divergent-but-successful answers never eject.
+	 */
+	private recordOutcomes(indices: number[], failedIdxs: Set<number>): void {
+		for (const idx of indices) {
+			if (idx < this.operatorCount) continue
+			if (!failedIdxs.has(idx)) {
+				this.consecutiveFailures[idx] = 0
+				continue
+			}
+			this.consecutiveFailures[idx] += 1
+			if (this.consecutiveFailures[idx] >= EJECTION_FAILURES) {
+				this.consecutiveFailures[idx] = 0
+				this.disabledUntil[idx] = Date.now() + EJECTION_COOLDOWN_MS
+				this.logger.warn(
+					{ url: this.rpcUrls[idx], cooldownMs: EJECTION_COOLDOWN_MS },
+					"Registry RPC endpoint benched after repeated failures — quorum threshold recomputed without it",
+				)
+			}
+		}
+	}
+
+	/**
+	 * Highest block head that a BFT threshold of active providers have indexed.
+	 * Throws a {@link QuorumError} if fewer than that many respond successfully.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const settled = await Promise.allSettled(this.clients.map((c) => c.getBlockNumber()))
+		await this.registryVerification
+		const indices = this.activeIndices()
+		const activeThreshold = quorumThreshold(indices.length)
+		const settled = await Promise.allSettled(indices.map((idx) => this.clients[idx].getBlockNumber()))
 
 		const successes: bigint[] = []
 		const failures: { idx: number; error: unknown }[] = []
-		for (let idx = 0; idx < settled.length; idx++) {
-			const outcome = settled[idx]
+		for (let i = 0; i < settled.length; i++) {
+			const outcome = settled[i]
 			if (outcome.status === "fulfilled") {
 				successes.push(outcome.value)
 			} else {
-				failures.push({ idx, error: outcome.reason })
+				failures.push({ idx: indices[i], error: outcome.reason })
 			}
 		}
+		this.recordOutcomes(indices, new Set(failures.map((f) => f.idx)))
 
-		if (successes.length < this.threshold) {
+		if (successes.length < activeThreshold) {
 			throw new QuorumError(
-				`Quorum not reached for getBlockNumber: only ${successes.length}/${this.clients.length} ` +
-					`providers succeeded (need ${this.threshold}). ${this.formatFailures(failures)}`,
+				`Quorum not reached for getBlockNumber: only ${successes.length}/${indices.length} ` +
+					`providers succeeded (need ${activeThreshold}). ${this.formatFailures(failures)}`,
 			)
 		}
 
@@ -109,14 +219,14 @@ export class QuorumPublicClient {
 		// threshold=3, this picks 117 — three providers (120, 118, 117) all have
 		// heads ≥ 117.
 		const descending = [...successes].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0))
-		return descending[this.threshold - 1]
+		return descending[activeThreshold - 1]
 	}
 
 	/**
 	 * Confirmation count for a transaction, counted with BFT-quorum semantics.
 	 *
-	 * Every provider is asked for the transaction receipt and its chain head in
-	 * parallel. At least {@link quorumThreshold} providers must agree on *where*
+	 * Every active provider is asked for the transaction receipt and its chain
+	 * head in parallel. At least a BFT threshold of them must agree on *where*
 	 * the transaction landed — the receipt's `(blockHash, blockNumber)` pair — so
 	 * a minority of providers serving a reorged or fabricated inclusion cannot
 	 * influence the count. The head used for counting is the highest block that
@@ -129,8 +239,12 @@ export class QuorumPublicClient {
 	 * quorum of providers.
 	 */
 	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
+		await this.registryVerification
+		const indices = this.activeIndices()
+		const activeThreshold = quorumThreshold(indices.length)
 		const settled = await Promise.allSettled(
-			this.clients.map(async (client) => {
+			indices.map(async (idx) => {
+				const client = this.clients[idx]
 				const [receipt, head] = await Promise.all([
 					client.getTransactionReceipt({ hash }),
 					client.getBlockNumber(),
@@ -145,29 +259,29 @@ export class QuorumPublicClient {
 
 		const views: ProviderReceiptView[] = []
 		const failures: { idx: number; error: unknown }[] = []
-		for (let idx = 0; idx < settled.length; idx++) {
-			const outcome = settled[idx]
+		for (let i = 0; i < settled.length; i++) {
+			const outcome = settled[i]
 			if (outcome.status === "fulfilled") {
 				views.push(outcome.value)
 			} else {
-				failures.push({ idx, error: outcome.reason })
+				failures.push({ idx: indices[i], error: outcome.reason })
 			}
 		}
+		this.recordOutcomes(indices, new Set(failures.map((f) => f.idx)))
 
-		const confirmations = aggregateConfirmations(views, this.threshold)
+		const confirmations = aggregateConfirmations(views, activeThreshold)
 		if (confirmations === null) {
 			throw new QuorumError(
 				`Quorum not reached for getTransactionConfirmations(${hash}): no receipt agreed on by ` +
-					`${this.threshold}/${this.clients.length} providers. ${this.formatFailures(failures)}`,
+					`${activeThreshold}/${indices.length} providers. ${this.formatFailures(failures)}`,
 			)
 		}
 		return confirmations
 	}
 
 	/**
-	 * Fetches logs from every provider in parallel and returns the result once a
-	 * quorum — {@link quorumThreshold} providers — agree. Fails with
-	 * {@link QuorumError} otherwise.
+	 * Fetches logs from every active provider in parallel and returns the result
+	 * once a BFT threshold of them agree. Fails with {@link QuorumError} otherwise.
 	 *
 	 * Generics mirror `PublicClient.getLogs` so caller-side inference (event decoding,
 	 * strict mode, pending vs mined) is preserved end-to-end.
@@ -185,41 +299,45 @@ export class QuorumPublicClient {
 	): Promise<GetLogsReturnType<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>> {
 		type ResultType = GetLogsReturnType<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>
 
+		await this.registryVerification
+		const indices = this.activeIndices()
+		const activeThreshold = quorumThreshold(indices.length)
 		const settled = await Promise.allSettled(
-			this.clients.map((client) =>
-				client.getLogs<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>(params),
+			indices.map((idx) =>
+				this.clients[idx].getLogs<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>(params),
 			),
 		)
 
 		const groups = new Map<string, { result: ResultType; count: number; providerIdxs: number[] }>()
 		const failures: { idx: number; error: unknown }[] = []
-		for (let idx = 0; idx < settled.length; idx++) {
-			const outcome = settled[idx]
+		for (let i = 0; i < settled.length; i++) {
+			const outcome = settled[i]
 			if (outcome.status === "fulfilled") {
 				const result = outcome.value as ResultType
 				const key = canonicalizeLogs(result)
 				const existing = groups.get(key)
 				if (existing) {
 					existing.count += 1
-					existing.providerIdxs.push(idx)
+					existing.providerIdxs.push(indices[i])
 				} else {
-					groups.set(key, { result, count: 1, providerIdxs: [idx] })
+					groups.set(key, { result, count: 1, providerIdxs: [indices[i]] })
 				}
 			} else {
-				failures.push({ idx, error: outcome.reason })
+				failures.push({ idx: indices[i], error: outcome.reason })
 			}
 		}
+		this.recordOutcomes(indices, new Set(failures.map((f) => f.idx)))
 
 		let winner: { result: ResultType; count: number; providerIdxs: number[] } | undefined
 		for (const group of groups.values()) {
 			if (!winner || group.count > winner.count) winner = group
 		}
 
-		if (!winner || winner.count < this.threshold) {
+		if (!winner || winner.count < activeThreshold) {
 			const largest = winner?.count ?? 0
 			throw new QuorumError(
-				`Quorum not reached for getLogs: largest agreeing group had ${largest}/${this.clients.length} ` +
-					`providers (need ${this.threshold}). ${this.formatFailures(failures)}`,
+				`Quorum not reached for getLogs: largest agreeing group had ${largest}/${indices.length} ` +
+					`providers (need ${activeThreshold}). ${this.formatFailures(failures)}`,
 			)
 		}
 

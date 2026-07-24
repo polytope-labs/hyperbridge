@@ -54,6 +54,8 @@ export const PUBLIC_RPC_URLS: Record<number, readonly string[]> = {
 		"https://1rpc.io/arb",
 	],
 }
+for (const urls of Object.values(PUBLIC_RPC_URLS)) Object.freeze(urls)
+Object.freeze(PUBLIC_RPC_URLS)
 
 /**
  * Public RPC endpoints for a chain, or an empty array for networks without a

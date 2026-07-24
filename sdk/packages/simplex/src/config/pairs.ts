@@ -88,6 +88,14 @@ export function validatePairConfigs(
 		if (seen.has(label)) {
 			throw new Error(`pairs.${label}: pair is declared twice`)
 		}
+		// The reverse orientation is the same market seen from the other side —
+		// declaring both would make leg matching declaration-order dependent
+		// (and price the reversed legs in the wrong unit). One orientation only.
+		if (seen.has(`${token1}/${token0}`)) {
+			throw new Error(
+				`pairs.${label}: ${token1}/${token0} is already declared — a market has one orientation; use its bid curve for the reverse direction`,
+			)
+		}
 		seen.add(label)
 
 		for (const symbol of [token0, token1]) {

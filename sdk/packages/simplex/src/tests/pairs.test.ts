@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
-import { AssetRegistry, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
+import { AssetRegistry, KNOWN_ASSETS, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
 import { validatePairConfigs } from "@/config/pairs"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
@@ -54,6 +54,34 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("USDC", OTHER_CHAIN)).toBe(ZARP)
 		// …while other chains still resolve from the built-in registry.
 		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
+	})
+
+	it("ships only curated addresses that pass the address validator", () => {
+		// Guards KNOWN_ASSETS itself against transcription slips (bad EIP-55
+		// checksums, zero addresses) — the validator otherwise only sees [assets].
+		expect(() => validateAssetDefinitions(KNOWN_ASSETS)).not.toThrow()
+	})
+
+	it("treats SDK sentinel values ('0x', zero address) as absent", () => {
+		// The SDK chain registry never throws for unknown chains/assets — it
+		// returns "0x" or stores a literal zero address. Neither may leak out:
+		// the zero address doubles as the native-token sentinel in the fill path.
+		const sentinelResolver: BuiltinAssetResolver = {
+			getUsdcAsset: () => USDC,
+			getUsdtAsset: () => "0x" as HexString,
+			getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+			getCNgnAsset: () => undefined,
+		}
+		const registry = new AssetRegistry(sentinelResolver)
+		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
+		expect(registry.getAddress("USDT", CHAIN)).toBeNull()
+		expect(registry.getAddress("DAI", CHAIN)).toBeNull()
+		// A user [assets] entry may not smuggle the zero address in either.
+		expect(() =>
+			validateAssetDefinitions({
+				FOO: { [CHAIN]: "0x0000000000000000000000000000000000000000" as HexString },
+			}),
+		).toThrow(/invalid address/)
 	})
 
 	it("ships curated assets with zero user configuration", () => {
@@ -121,6 +149,17 @@ describe("validatePairConfigs", () => {
 				assets,
 			),
 		).toThrow(/declared twice/)
+		// The reverse orientation is the same market — accepting both would make
+		// leg matching declaration-order dependent (and price legs in the wrong unit).
+		expect(() =>
+			validatePairConfigs(
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "CNGN", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: CURVE },
+				],
+				assets,
+			),
+		).toThrow(/already declared/)
 	})
 
 	it("accepts same-token pairs that are ask-only with prices at or below par", () => {
@@ -373,6 +412,61 @@ describe("FXFiller pairs engine", () => {
 		} as unknown as Order
 		// 20,000 USDC → capped at maxOrderSize 10,000 → 9,950 out.
 		expect((await filler.quotePhantomFill(large))?.[0].amount).toBe(parseUnits("9950", 18))
+	})
+
+	it("prefers explicitly configured curves over venue pricing", async () => {
+		// The pair has curves AND a venue is available — the curve must win; the
+		// pool only prices pairs with no curves at all.
+		const venue = {
+			name: "UniswapV4",
+			initialise: async () => {},
+			getExoticTokenPrice: async () => new Decimal("0.001"), // pool says 1000 CNGN/USD
+			walletReserveForToken: () => 0n,
+			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
+		} as any
+		const configService = {
+			...resolver,
+			getMaxOverfillBps: () => 500n,
+			getMaxConsecutiveClamps: () => 3,
+		} as any
+		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
+		const signer = { account: { address: SOLVER } } as any
+		const filler = new FXFiller(
+			signer,
+			configService,
+			{} as any,
+			makeContractService(),
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") }],
+			registry,
+			{ fundingVenues: [venue] },
+		)
+		const order = makeOrder(
+			"curve-beats-venue",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: 0n },
+		)
+		// Curve rate 1500, venue rate would be 1000 — expect the curve's output.
+		expect((await filler.quotePhantomFill(order))?.[0].amount).toBe(parseUnits("150000", 18))
+	})
+
+	it("rejects duplicate and reverse-duplicate engine pairs", () => {
+		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
+		const signer = { account: { address: SOLVER } } as any
+		const build = (pairs: TradingPair[]) =>
+			new FXFiller(
+				signer,
+				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any,
+				{} as any,
+				makeContractService(),
+				pairs,
+				registry,
+			)
+		expect(() =>
+			build([
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+				{ token0: "CNGN", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.0006") },
+			]),
+		).toThrow(/duplicate market/)
 	})
 
 	it("rejects same-token engine pairs with a bid policy or above-par prices", () => {

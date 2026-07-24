@@ -50,6 +50,13 @@ import { CryptoUtils } from "./CryptoUtils"
  * that dispatch — and the amount a filler's `order.fees` must cover — is this
  * gas priced on the source chain. Sized conservatively so the relayer is
  * reliably incentivised to deliver.
+ *
+ * TODO: replace this flat budget with a measured estimate via
+ * `EvmChain.estimateGas(postRequest)` (a `handlePostRequests` simulation plus
+ * its ~600k consensus-verification adder, as the TokenGateway flow does) —
+ * `estimateCrossChainFees` already constructs the exact RedeemEscrow
+ * postRequest it would need. A flat number can't track per-chain differences
+ * like L1 data costs.
  */
 export const RELAYER_MESSAGE_GAS = 1_000_000n
 

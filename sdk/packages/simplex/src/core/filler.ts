@@ -112,12 +112,23 @@ export class IntentFiller {
 	 * depositing the target amount to the EntryPoint on chains where solver
 	 * selection is active. This should be called before start().
 	 */
+	/** Whether the given chain id is configured for watch-only (monitor, never fill). */
+	private isChainWatchOnly(chainId: number): boolean {
+		const watchOnly = this.config.watchOnly
+		return typeof watchOnly === "object" && watchOnly !== null && watchOnly[chainId] === true
+	}
+
 	public async initialize(): Promise<void> {
 		// Check which chains have solver selection active
 		const chainIds = this.configService.getConfiguredChainIds()
 		const chainsWithSolverSelection: string[] = []
 
 		for (const chainId of chainIds) {
+			// Watch-only chains never fill, so they never need EIP-7702 delegation
+			// or an EntryPoint deposit. Skipping them lets a signerless watch-only
+			// filler (which runs on a throwaway key) start without attempting a
+			// delegation that would fail on the unfunded account.
+			if (this.isChainWatchOnly(chainId)) continue
 			const chain = `EVM-${chainId}`
 			const isActive = await this.contractService.isSolverSelectionActive(chain)
 			if (isActive) {
@@ -567,11 +578,7 @@ export class IntentFiller {
 	): Promise<{ strategy: FillerStrategy; profitability: number } | null> {
 		// Check if watch-only mode is enabled for the destination chain
 		const destChainId = getChainId(order.destination)
-		const isWatchOnly =
-			destChainId !== undefined &&
-			this.config.watchOnly !== undefined &&
-			typeof this.config.watchOnly === "object" &&
-			this.config.watchOnly[destChainId] === true
+		const isWatchOnly = destChainId !== undefined && this.isChainWatchOnly(destChainId)
 
 		if (isWatchOnly) {
 			this.logger.info(

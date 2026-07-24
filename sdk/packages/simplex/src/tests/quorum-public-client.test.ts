@@ -5,7 +5,7 @@ import {
 	QuorumError,
 	quorumThreshold,
 	aggregateConfirmations,
-	type ProviderReceiptView,
+	type ReceiptView,
 } from "@/services/QuorumPublicClient"
 
 /**
@@ -179,131 +179,167 @@ describeIfNetwork("QuorumPublicClient.getBlockNumber — N=2 public + env Base R
 	}, 60_000)
 })
 
-describe("aggregateConfirmations — BFT receipt agreement", () => {
+describe("aggregateConfirmations — tiered operator+public agreement", () => {
 	const RECEIPT_BLOCK = 100n
 	const HASH_A = "0xaaaa"
 	const HASH_B = "0xbbbb"
 
-	function view(head: bigint, blockHash = HASH_A, blockNumber = RECEIPT_BLOCK): ProviderReceiptView {
-		return { blockHash, blockNumber, head }
+	function op(head: bigint, blockHash = HASH_A, blockNumber = RECEIPT_BLOCK): ReceiptView {
+		return { isOperator: true, blockHash, blockNumber, head }
+	}
+	function pub(head: bigint, blockHash = HASH_A, blockNumber = RECEIPT_BLOCK): ReceiptView {
+		return { isOperator: false, blockHash, blockNumber, head }
 	}
 
-	it("counts confirmations from the threshold-th highest head of the agreeing group", () => {
-		// 5 providers all agree on the receipt; heads diverge. threshold=4 →
-		// the 4th-highest head (115) backs the count: 115 - 100 + 1 = 16.
-		const views = [view(120n), view(118n), view(117n), view(115n), view(110n)]
-		expect(aggregateConfirmations(views, 4)).toBe(16n)
+	// Common shape: 1 operator, 2 public required (operatorQuorum=1, requiredPublic=2).
+	it("counts from the tiered head when operator + 2 public agree", () => {
+		// heads: op 120, public 118 and 115. Tiered head = min(op[0]=120, pub[1]=115) = 115 → 115-100+1 = 16.
+		const views = [op(120n), pub(118n), pub(115n)]
+		expect(aggregateConfirmations(views, 1, 2)).toBe(16n)
 	})
 
-	it("ignores a minority provider reporting a different inclusion block", () => {
-		// One provider serves a reorged/fabricated receipt. The agreeing four still
-		// form a quorum; the liar's head cannot influence the count.
-		const views = [view(120n), view(118n), view(117n), view(115n), view(999n, HASH_B, 90n)]
-		expect(aggregateConfirmations(views, 4)).toBe(16n)
+	it("returns null when the operator is not among the receipt-holders", () => {
+		// Two stale public endpoints agree, but no operator does — the critical
+		// reorg case: a minority serving a pre-reorg receipt must not reach quorum.
+		const views = [pub(120n), pub(118n)]
+		expect(aggregateConfirmations(views, 1, 2)).toBeNull()
 	})
 
-	it("returns null when no receipt identity reaches the threshold", () => {
-		const views = [view(120n), view(118n), view(999n, HASH_B), view(998n, HASH_B)]
-		expect(aggregateConfirmations(views, 3)).toBeNull()
+	it("returns null when fewer than the required public witnesses agree", () => {
+		// Operator + only 1 public hold the receipt; the public floor is 2.
+		const views = [op(120n), pub(118n)]
+		expect(aggregateConfirmations(views, 1, 2)).toBeNull()
 	})
 
-	it("returns null when there are no successful views", () => {
-		expect(aggregateConfirmations([], 1)).toBeNull()
+	it("ignores a divergent minority and counts the agreeing tiered group", () => {
+		// One public serves a different inclusion (HASH_B); the operator + 2 public
+		// agreeing on HASH_A still form the quorum.
+		const views = [op(120n), pub(118n), pub(117n), pub(999n, HASH_B, 90n)]
+		expect(aggregateConfirmations(views, 1, 2)).toBe(18n) // min(120, pub[1]=117) = 117 → 117-100+1
 	})
 
-	it("floors at zero when the quorum head trails the inclusion block", () => {
-		// Providers agree on the receipt but their heads are behind it (possible
-		// mid-reorg or load-balanced lagging replicas). Never negative.
-		const views = [view(99n), view(98n), view(99n)]
-		expect(aggregateConfirmations(views, 3)).toBe(0n)
+	it("floors at zero when the tiered head trails the inclusion block", () => {
+		const views = [op(99n), pub(98n), pub(99n)]
+		expect(aggregateConfirmations(views, 1, 2)).toBe(0n)
 	})
 
-	it("single provider degrades to plain confirmation counting", () => {
-		expect(aggregateConfirmations([view(100n)], 1)).toBe(1n)
-		expect(aggregateConfirmations([view(105n)], 1)).toBe(6n)
+	it("operator-only quorum (no public configured) needs just the operator BFT quorum", () => {
+		// requiredPublic=0: two operators agreeing is enough (e.g. a non-registry chain).
+		const views = [op(105n), op(104n)]
+		expect(aggregateConfirmations(views, 2, 0)).toBe(5n) // 2nd op head = 104 → 104-100+1
+	})
+
+	it("empty views never reach quorum", () => {
+		expect(aggregateConfirmations([], 1, 2)).toBeNull()
 	})
 })
 
-describe("failure policy — 429s are skipped, other errors pause the endpoint", () => {
-	// The first `operatorCount` URLs are the operator's own; they set the floor
-	// the per-call threshold can never drop below. Client stubs are swapped in
-	// post-construction (URLs are .invalid and never contacted).
-	function makeClient(urls: string[], operatorCount: number): QuorumPublicClient {
+describe("QuorumPublicClient — tiered failure handling (stubbed clients)", () => {
+	// operatorCount leading URLs are the operator's; the rest public. Stubs are
+	// swapped in post-construction (URLs are .invalid, never contacted).
+	function makeClient(operatorCount: number, publicCount: number): QuorumPublicClient {
+		const urls = [
+			...Array.from({ length: operatorCount }, (_, i) => `https://op-${i}.invalid`),
+			...Array.from({ length: publicCount }, (_, i) => `https://pub-${i}.invalid`),
+		]
 		return new QuorumPublicClient(BASE_CHAIN_ID, urls, operatorCount)
 	}
-	const THREE = ["https://operator.invalid", "https://registry-a.invalid", "https://registry-b.invalid"]
-	const ok = (head: bigint) => ({ getBlockNumber: async () => head }) as any
-	const failWith = (message: string) =>
+	const okHead = (head: bigint) => ({ getBlockNumber: async () => head }) as any
+	const errHead = (message: string) =>
 		({
 			getBlockNumber: async () => {
 				throw new Error(message)
 			},
 		}) as any
-
-	it("excludes a 429ing endpoint from the call without pausing it", async () => {
-		const client = makeClient(THREE, 1)
-		client.clients[0] = ok(100n)
-		client.clients[1] = ok(100n)
-		client.clients[2] = failWith("429 Too Many Requests")
-
-		// 2 responders, threshold max(q(2)=2, q(1)=1) = 2 → succeeds immediately.
-		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		// Rate limiting is call-local noise — the endpoint is not paused.
-		expect((client as any).pausedUntil[2]).toBe(0)
-	})
-
-	it("pauses an endpoint that errors with anything other than a 429", async () => {
-		const client = makeClient(THREE, 1)
-		client.clients[0] = ok(100n)
-		client.clients[1] = ok(100n)
-		client.clients[2] = failWith("connect ECONNREFUSED")
-
-		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		expect((client as any).pausedUntil[2]).toBeGreaterThan(Date.now())
-
-		// While paused the endpoint is not queried at all: even if it would now
-		// answer (divergently), the result is unchanged.
-		let queried = false
-		client.clients[2] = {
-			getBlockNumber: async () => {
-				queried = true
-				return 999999n
+	const receiptClient = (head: bigint, blockHash: string, blockNumber: bigint) =>
+		({
+			getBlockNumber: async () => head,
+			getTransactionReceipt: async () => ({ blockHash, blockNumber }),
+		}) as any
+	const notFoundClient = (head: bigint) =>
+		({
+			getBlockNumber: async () => head,
+			getTransactionReceipt: async () => {
+				const e = new Error("Transaction receipt could not be found")
+				e.name = "TransactionReceiptNotFoundError"
+				throw e
 			},
-		} as any
-		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		expect(queried).toBe(false)
+		}) as any
+
+	it("reports the tier split on the client", () => {
+		const c = makeClient(1, 4)
+		expect(c.operatorCount).toBe(1)
+		expect(c.publicCount).toBe(4)
+		expect(c.operatorQuorum).toBe(1)
+		expect(c.requiredPublic).toBe(2)
 	})
 
-	it("the threshold never drops below the operator set's own bound", async () => {
-		// Three operator endpoints (floor q(3) = 3) + one registry endpoint.
-		const client = makeClient(
-			[
-				"https://op-a.invalid",
-				"https://op-b.invalid",
-				"https://op-c.invalid",
-				"https://registry-a.invalid",
-			],
-			3,
-		)
-		client.clients[0] = ok(100n)
-		client.clients[1] = failWith("429 Too Many Requests")
-		client.clients[2] = failWith("429 Too Many Requests")
-		client.clients[3] = ok(100n)
-
-		// Only 2 responders agree, but the operator floor demands 3 — an outage
-		// of the operator's own endpoints must not quietly weaken the quorum.
-		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+	it("getBlockNumber fails when the operator does not respond (operator failure is intolerable)", async () => {
+		const c = makeClient(1, 2)
+		c.clients[0] = errHead("operator down")
+		c.clients[1] = okHead(100n)
+		c.clients[2] = okHead(100n)
+		await expect(c.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 	})
 
-	it("a divergent responder is counted, not excluded — and gets outvoted", async () => {
-		const client = makeClient(THREE, 1)
-		client.clients[0] = ok(100n)
-		client.clients[1] = ok(100n)
-		client.clients[2] = ok(999999n) // lying about the head — but responding
+	it("getBlockNumber fails when fewer than 2 public corroborate", async () => {
+		const c = makeClient(1, 2)
+		c.clients[0] = okHead(100n)
+		c.clients[1] = okHead(100n)
+		c.clients[2] = errHead("public down")
+		await expect(c.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
+	})
 
-		// 3 responders → threshold 3; the BFT head selection discounts the outlier:
-		// threshold-th highest of [999999, 100, 100] is 100.
-		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		expect((client as any).pausedUntil[2]).toBe(0)
+	it("getBlockNumber returns the tiered head when operator + 2 public respond", async () => {
+		const c = makeClient(1, 2)
+		c.clients[0] = okHead(120n) // operator
+		c.clients[1] = okHead(118n)
+		c.clients[2] = okHead(115n)
+		// min(op head 120, 2nd public head 115) = 115.
+		await expect(c.getBlockNumber()).resolves.toBe(115n)
+	})
+
+	it("a public endpoint failing is tolerated when 2 others still corroborate", async () => {
+		const c = makeClient(1, 4)
+		c.clients[0] = okHead(120n)
+		c.clients[1] = okHead(118n)
+		c.clients[2] = okHead(117n)
+		c.clients[3] = errHead("throttled")
+		c.clients[4] = errHead("down")
+		await expect(c.getBlockNumber()).resolves.toBe(117n) // min(120, pub[1]=117)
+	})
+
+	it("confirmations: a stale public minority cannot reach quorum after a reorg", async () => {
+		const c = makeClient(1, 4)
+		// Operator and two publics no longer see the tx (reorged out) — not-found.
+		c.clients[0] = notFoundClient(200n)
+		c.clients[1] = notFoundClient(200n)
+		c.clients[2] = notFoundClient(200n)
+		// Two stale publics still serve the pre-reorg receipt.
+		c.clients[3] = receiptClient(200n, "0xdead", 100n)
+		c.clients[4] = receiptClient(200n, "0xdead", 100n)
+		// No operator holds the receipt → operator quorum unmet → throws.
+		await expect(c.getTransactionConfirmations({ hash: "0x1" as any })).rejects.toThrow(/Quorum not reached/)
+	})
+
+	it("confirmations: operator not-found blocks confirmation even if all public agree", async () => {
+		const c = makeClient(1, 4)
+		c.clients[0] = notFoundClient(200n) // operator hasn't/doesn't see it
+		c.clients[1] = receiptClient(200n, "0xabc", 100n)
+		c.clients[2] = receiptClient(200n, "0xabc", 100n)
+		c.clients[3] = receiptClient(200n, "0xabc", 100n)
+		c.clients[4] = receiptClient(200n, "0xabc", 100n)
+		await expect(c.getTransactionConfirmations({ hash: "0x1" as any })).rejects.toThrow(/Quorum not reached/)
+	})
+
+	it("confirmations: succeeds when operator + 2 public agree on the inclusion", async () => {
+		const c = makeClient(1, 4)
+		c.clients[0] = receiptClient(120n, "0xabc", 100n) // operator
+		c.clients[1] = receiptClient(118n, "0xabc", 100n)
+		c.clients[2] = receiptClient(115n, "0xabc", 100n)
+		c.clients[3] = notFoundClient(120n)
+		c.clients[4] = errHead("down")
+		// tiered head = min(op 120, 2nd public 115) = 115 → 115-100+1 = 16.
+		await expect(c.getTransactionConfirmations({ hash: "0x1" as any })).resolves.toBe(16n)
 	})
 })

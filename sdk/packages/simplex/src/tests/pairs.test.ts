@@ -188,6 +188,21 @@ describe("validatePairConfigs", () => {
 		).toThrow(/askPriceCurve/)
 	})
 
+	it("rejects non-USD-stable same-token pairs (spread would be valued in the wrong unit)", () => {
+		// CNGN/CNGN is a known pair of symbols but the realized spread is credited
+		// into a USD-denominated gate — only USD-stable same-token markets are sound.
+		expect(() =>
+			validatePairConfigs(
+				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] }],
+				assets,
+			),
+		).toThrow(/USD-stable/)
+		// USDC/USDC and USDT/USDT are fine.
+		expect(() =>
+			validatePairConfigs([{ token0: "USDT", token1: "USDT", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.999" }] }]),
+		).not.toThrow()
+	})
+
 	it("requires a positive maxOrderSize", () => {
 		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any])).toThrow(
 			/maxOrderSize' is required/,
@@ -494,5 +509,70 @@ describe("FXFiller pairs engine", () => {
 		)
 		expect(await filler.canFill(order)).toBe(false)
 		expect(await filler.quotePhantomFill(order)).toBeNull()
+	})
+})
+
+describe("FXFiller same-token markets (cross-chain only, USD-stable only)", () => {
+	const CHAIN_A = "EVM-1"
+	const CHAIN_B = "EVM-8453"
+	// USDC resolves to the same address on both chains (USDC-style deployment).
+	const cfg = {
+		getUsdcAsset: () => USDC,
+		getUsdtAsset: () => USDT,
+		getDaiAsset: () => {
+			throw new Error("not configured")
+		},
+		getCNgnAsset: () => undefined,
+		getMaxOverfillBps: () => 500n,
+		getMaxConsecutiveClamps: () => 3,
+	} as any
+	const signer = { account: { address: SOLVER } } as any
+	const usdcUsdc = (): TradingPair[] => [
+		{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") },
+	]
+
+	function sameTokenOrder(source: string, destination: string): Order {
+		return {
+			id: "st",
+			user: bytes20ToBytes32(SOLVER),
+			source,
+			destination,
+			deadline: 0n,
+			nonce: 0n,
+			fees: 0n,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs: [{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) }],
+			output: {
+				beneficiary: bytes20ToBytes32(SOLVER),
+				assets: [{ token: bytes20ToBytes32(USDC), amount: parseUnits("999", 6) }],
+				call: "0x" as HexString,
+			},
+		} as unknown as Order
+	}
+
+	it("rejects a same-chain same-token order (a self-swap paying more than received)", async () => {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg))
+		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_A))).toBe(false)
+	})
+
+	it("accepts a cross-chain same-token order (the same-asset transfer market)", async () => {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg))
+		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_B))).toBe(true)
+	})
+
+	it("rejects a non-USD-stable same-token pair at construction", () => {
+		const registry = new AssetRegistry(cfg, { CNGN: { [CHAIN_A]: CNGN, [CHAIN_B]: CNGN } })
+		expect(
+			() =>
+				new FXFiller(
+					signer,
+					cfg,
+					{} as any,
+					makeContractService(),
+					[{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("0.99") }],
+					registry,
+				),
+		).toThrow(/USD-stable/)
 	})
 })

@@ -203,6 +203,15 @@ export class FXFiller implements FillerStrategy {
 						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must not exceed 1`,
 					)
 				}
+				// The realized same-token spread is credited into the USD-denominated
+				// profit gate at face value (fee token is a USD stable), so the asset
+				// must itself be USD-pegged — otherwise the spread is valued in the
+				// wrong unit. We have no price feed to convert a non-USD asset.
+				if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token markets are limited to USD-stable assets (${[...USD_STABLE_SYMBOLS].join(", ")})`,
+					)
+				}
 				continue
 			}
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
@@ -388,6 +397,14 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
+			// A zero requested output is degenerate on the fill path: the gateway
+			// releases no escrow for it (remaining == 0), yet the leg would still be
+			// sized and could feed the profit gate. Never bid on such an order.
+			if (order.output.assets.some((a) => a.amount === 0n)) {
+				this.logger.info({ orderId: order.id }, "Skipping order: contains a zero-amount requested output")
+				return 0
+			}
+
 			const venueUsdPrice = this.venuePriceMemo()
 
 			// Per-pair token0 notionals, capped at each pair's maxOrderSize. The
@@ -458,6 +475,12 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (!legResult) {
+					// Budget exhausted for this pair. Emit a zero output so the
+					// on-chain outputs array stays index-aligned with
+					// order.output.assets (the gateway skips solverAmount == 0 legs);
+					// a compacted array would mismatch and revert fillOrder.
+					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerOutputLegs.push(i)
 					continue
 				}
 
@@ -529,6 +552,9 @@ export class FXFiller implements FillerStrategy {
 						},
 						"Skipping leg: no available balance for required output token",
 					)
+					// Aligned zero output (see budget-exhausted case above).
+					fillerOutputs.push({ token: output.token, amount: 0n })
+					fillerOutputLegs.push(i)
 					continue
 				}
 
@@ -569,13 +595,13 @@ export class FXFiller implements FillerStrategy {
 				fillerOutputLegs.push(i)
 			}
 
-			if (fillerOutputs.length === 0) {
+			if (fillerOutputs.every((o) => o.amount === 0n)) {
 				this.logger.info(
 					{
 						orderId: order.id,
 						orderNotional: totalNotional.toString(),
 					},
-					"Skipping order: no outputs after applying pair caps and balance constraints",
+					"Skipping order: no fillable outputs after applying pair caps and balance constraints",
 				)
 				return 0
 			}
@@ -606,6 +632,10 @@ export class FXFiller implements FillerStrategy {
 				const input = order.inputs[legIndex]
 				const output = fillerOutputs[i]
 				const leg = legs[legIndex]
+
+				// Zero-amount legs are placeholders keeping the outputs array aligned;
+				// they release no escrow on-chain, so they contribute nothing to P&L.
+				if (output.amount === 0n) continue
 
 				const inputDecimals = await this.contractService.getTokenDecimals(
 					bytes32ToBytes20(input.token) as HexString,
@@ -1014,6 +1044,11 @@ export class FXFiller implements FillerStrategy {
 		outputAddress: string,
 	): ResolvedLeg | null {
 		for (const pair of this.pairs) {
+			// Same-token pairs are the same-asset CROSS-chain market only. A
+			// same-chain leg (source == dest) would be a pay-more-get-less self
+			// swap on one chain — never fill it.
+			if (isSameTokenPair(pair) && sourceChain === destChain) continue
+
 			const token0Source = this.registry.getAddress(pair.token0, sourceChain)?.toLowerCase()
 			const token1Dest = this.registry.getAddress(pair.token1, destChain)?.toLowerCase()
 			if (token0Source && token1Dest && inputAddress === token0Source && outputAddress === token1Dest) {

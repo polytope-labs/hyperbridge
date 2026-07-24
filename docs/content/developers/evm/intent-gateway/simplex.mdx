@@ -108,6 +108,8 @@ Cross-chain confirmation policies are sized with the order's **token0 notional**
 
 A pair may quote the **same symbol on both sides** — the same-asset cross-chain market (USDC on one chain in, USDC on another out). Same-token pairs are **ask-only** (both directions are one market) and their ask prices sit **at or below par**: the price is the fraction of the input paid back out, so `0.9995` keeps 5 bps of every fill. Prices above 1 are rejected at startup — they would pay out more than received.
 
+Two constraints keep the accounting sound. Same-token markets are **cross-chain only** — a same-chain order (source == destination) would be a pay-more-get-less self-swap and is rejected. And they are limited to **USD-stable assets** (USDC, USDT, DAI): the realized spread is credited into the USD-denominated profit gate at face value, which is only correct when the asset is itself pegged to the dollar (there is no price feed to convert a non-USD asset).
+
 Unlike cross-asset fills, the same-token spread is **realized in-kind on the fill itself**, so it counts toward the profitability gate: an order whose fees alone don't cover gas still fills when fees plus spread do. Pre-position the asset on each destination chain (optionally backed by the [`[vault]` treasury](#vault-treasury-erc-4626)).
 
 #### One-sided LP
@@ -458,19 +460,14 @@ rpcUrls = [
 bundlerUrl = "https://..."
 ```
 
-When two or more URLs are configured, the event monitor fans every `eth_getLogs` batch out to all providers in parallel and accepts the batch once a **Byzantine-fault-tolerant quorum** of providers agree. The threshold is the standard BFT bound — strictly more than two thirds, i.e. `floor(2N/3) + 1` providers:
+When public registry endpoints are merged in (or you configure more than one URL), the quorum is **weighted across two tiers**. Your configured `rpcUrls` are the **operator tier** — load-bearing — and the appended public endpoints are the **corroboration tier**. A read (`eth_getLogs`, `eth_blockNumber`, receipt during confirmation counting) is accepted only when **both** hold:
 
-| Providers (N) | Quorum threshold | Faults tolerated |
-|---|---|---|
-| 1 | 1 | 0 |
-| 2 | 2 | 0 |
-| 3 | 3 | 0 |
-| 4 | 3 | 1 |
-| 5 | 4 | 1 |
-| 7 | 5 | 2 |
-| 10 | 7 | 3 |
+1. a BFT quorum of your operator endpoints agree — `floor(2·op/3) + 1` of them — **and**
+2. at least **two** public endpoints agree with them (or all public endpoints, if fewer than two are configured).
 
-Rate-limited providers (HTTP 429) are excluded from that call's quorum; providers failing with any other error are paused for five minutes. The agreement threshold is computed over the providers that responded, but never drops below what your own `rpcUrls` set alone would require — so missing public endpoints can't weaken the quorum past your configuration. Divergent results are tolerated up to the BFT bound; beyond it, the batch fails with a `QuorumError` that enumerates each failing URL and the size of the largest agreeing group — the scan cursor does not advance, so the same range is retried on the next tick. Agreement is computed by sorting logs by `(blockNumber, logIndex, transactionHash)` and comparing only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`); provider-added extras such as `blockTimestamp` are deliberately excluded so debug metadata on one node does not manufacture a quorum failure. `getBlockNumber` resolves to the highest block at which `floor(2N/3) + 1` providers have indexed — preventing the scanner from running ahead of BFT-supported state.
+This makes the two tiers asymmetric on purpose. **Operator failures are intolerable:** if your endpoints can't form their own quorum — because they're down, throttled, or disagree — the call fails loudly with a `QuorumError` and the scan cursor does not advance; it never proceeds on public endpoints alone. **Public failures are tolerable:** any two agreeing witnesses suffice, so the rest may be down, rate-limited, or a few blocks behind without consequence. There is no pausing or ejection state — each call independently queries every endpoint, so a chronically slow public endpoint costs one failed sub-request per call, never a shrunken quorum. A provider that *answers with divergent data* is never special-cased away; it simply fails to join the agreeing group, which is what keeps a lying or reorged endpoint detectable rather than authoritative.
+
+With the common single-operator-RPC config plus four public endpoints, the rule is "your endpoint **and** any two of the four public endpoints agree" — you keep full protection while tolerating two public endpoints failing at once. Log agreement compares only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`), sorted by `(blockNumber, logIndex, transactionHash)`; provider-added extras like `blockTimestamp` are dropped so debug metadata can't manufacture a disagreement. `getBlockNumber` returns the highest block that both tiers have indexed, so the scanner never runs ahead of quorum-supported state.
 
 #### Public RPC registry
 
@@ -482,7 +479,7 @@ Chains outside the registry (testnets, other networks) keep the pre-existing beh
 
 #### Quorum-checked confirmations
 
-Cross-chain orders wait for source-chain confirmations (per the strategy's confirmation policy) before a bid is submitted. That count is also computed with quorum semantics: every provider is asked for the transaction receipt and its chain head, a BFT threshold of providers must agree on the *inclusion block* — the receipt's `(blockHash, blockNumber)` — and the count is derived from the threshold-th highest head among the agreeing providers. A minority of providers serving a reorged or fabricated inclusion can neither inflate the confirmation count nor vouch for a transaction the honest majority has not seen.
+Cross-chain orders wait for source-chain confirmations (per the confirmation policy) before a bid is submitted. That count is computed with the same two-tier quorum: every endpoint is asked for the transaction receipt and its chain head, and the transaction is confirmed only when a BFT quorum of operator endpoints **plus** two public endpoints agree on the *inclusion block* — the receipt's `(blockHash, blockNumber)`. The depth is the tiered head of that agreeing group. Crucially, an endpoint answering **"receipt not found"** is a valid *no* vote — it's responsive but doesn't see the transaction — not a failure: so if the transaction is reorged out, the operator and honest public endpoints report not-found, no group reaches quorum, and the count does not advance. A minority still serving a stale or fabricated receipt can neither reach the quorum nor, because operator agreement is mandatory, substitute for your own endpoints' view.
 
 #### Why this matters for cross-chain orders
 

@@ -27,7 +27,7 @@ const BASE_CHAIN_ID = 8453
 type Mode = "ok" | "limited" | "broken"
 
 // Distinct loopback IPs so validateRpcUrls' distinct-hostname rule is satisfied.
-const HOSTS = ["127.0.0.1", "127.0.0.2", "127.0.0.3"] as const
+const HOSTS = ["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4"] as const
 
 const servers: Server[] = []
 afterAll(async () => {
@@ -109,23 +109,27 @@ describe("isRateLimited against real HTTP responses (local server)", () => {
 		expect(isRateLimited(thrown)).toBe(false)
 	}, 30_000)
 
-	it("end-to-end: a really-429ing provider is skipped without pause; a really-broken one is paused", async () => {
-		const [okA, okB, limited] = await Promise.all([
+	it("end-to-end: a really-429ing (or really-broken) public endpoint is excluded; the tiered quorum still succeeds", async () => {
+		// operator + 3 public (operatorQuorum=1, requiredPublic=2). One public
+		// genuinely 429s and one genuinely 500s — both excluded — but the operator
+		// plus the two healthy publics still form the quorum.
+		const [operator, pubOk1, pubOk2, pubBad] = await Promise.all([
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
-			rpcServer(HOSTS[2], "limited"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "limited"),
 		])
-
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, [okA, okB, limited], 1)
-		// 2 responders agree at head 100; the 429ing provider is call-local noise.
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubOk2, pubBad], 1)
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
-		expect((client as any).pausedUntil[2]).toBe(0)
 
-		const brokenUrl = await rpcServer(HOSTS[2], "broken")
-		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [okA, okB, brokenUrl], 1)
+		// With the 500 endpoint too: still one healthy operator + 2 healthy publics.
+		const pubBroken = await rpcServer(HOSTS[3], "broken")
+		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubOk2, pubBroken], 1)
 		await expect(client2.getBlockNumber()).resolves.toBe(100n)
-		// A genuine 5xx pauses the endpoint.
-		expect((client2 as any).pausedUntil[2]).toBeGreaterThan(Date.now())
+
+		// But if a 429 drops one healthy public below the 2-witness floor, the call fails.
+		const client3 = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubBad], 1)
+		await expect(client3.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 	}, 60_000)
 })
 

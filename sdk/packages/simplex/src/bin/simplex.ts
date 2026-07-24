@@ -269,7 +269,7 @@ program
 			const tomlContent = readFileSync(configPath, "utf-8")
 			const config = parse(tomlContent) as FillerTomlConfig
 
-			validateConfig(config)
+			validateConfig(config, options.watchOnly === true)
 
 			// Configure logger based on config BEFORE creating any services
 			if (config.simplex.logging) {
@@ -405,6 +405,7 @@ program
 			// engine can match a zero address — which doubles as the native-token
 			// sentinel in the fill path — against an order leg.
 			const configuredChainNames = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
+			const pairSymbols = new Set((config.pairs ?? []).flatMap((p) => [p.token0, p.token1]))
 			for (const pair of config.pairs ?? []) {
 				for (const symbol of [pair.token0, pair.token1]) {
 					const resolvesSomewhere = configuredChainNames.some(
@@ -415,6 +416,25 @@ program
 							`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
 						)
 					}
+				}
+			}
+
+			// No two distinct symbols may resolve to the SAME contract on a chain
+			// (e.g. an [assets] alias of USDC's address). Aliasing collapses a
+			// cross-asset pair into a same-asset market — bypassing the same-token
+			// safeguards — and makes leg matching order-dependent.
+			for (const chainName of configuredChainNames) {
+				const addressOwner = new Map<string, string>()
+				for (const symbol of pairSymbols) {
+					const address = assetRegistry.getAddress(symbol, chainName)?.toLowerCase()
+					if (!address) continue
+					const owner = addressOwner.get(address)
+					if (owner && normalizeSymbol(owner) !== normalizeSymbol(symbol)) {
+						throw new Error(
+							`assets: '${symbol}' and '${owner}' both resolve to ${address} on ${chainName} — symbols must map to distinct contracts`,
+						)
+					}
+					addressOwner.set(address, symbol)
 				}
 			}
 
@@ -713,7 +733,7 @@ program
 		}
 	})
 
-function validateConfig(config: FillerTomlConfig): void {
+function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {
 	// The [[strategies]] array was removed when the pair engine subsumed the
 	// stable strategy — fail loudly so stale configs are migrated, not ignored.
 	if ("strategies" in config) {
@@ -722,8 +742,10 @@ function validateConfig(config: FillerTomlConfig): void {
 		)
 	}
 
-	// Private key is only required if not all chains are in watch-only mode
-	const allChainsWatchOnly = config.simplex?.watchOnly === true
+	// Private key is only required if not all chains are in watch-only mode.
+	// The --watch-only CLI flag forces global watch-only, so honour it here too
+	// (otherwise the flag's own config would still trip the signer requirement).
+	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
 
 	const signer = config.simplex?.signer
 

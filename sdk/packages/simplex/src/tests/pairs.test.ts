@@ -188,19 +188,20 @@ describe("validatePairConfigs", () => {
 		).toThrow(/askPriceCurve/)
 	})
 
-	it("rejects non-USD-stable same-token pairs (spread would be valued in the wrong unit)", () => {
-		// CNGN/CNGN is a known pair of symbols but the realized spread is credited
-		// into a USD-denominated gate — only USD-stable same-token markets are sound.
+	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) — the spread gate is a per-asset sign check", () => {
 		expect(() =>
 			validatePairConfigs(
 				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] }],
 				assets,
 			),
-		).toThrow(/USD-stable/)
-		// USDC/USDC and USDT/USDT are fine.
-		expect(() =>
-			validatePairConfigs([{ token0: "USDT", token1: "USDT", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.999" }] }]),
 		).not.toThrow()
+		// The ask-only and at-or-below-par rules still apply to any same-token pair.
+		expect(() =>
+			validatePairConfigs(
+				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] }],
+				assets,
+			),
+		).toThrow(/more than received/)
 	})
 
 	it("requires a positive maxOrderSize", () => {
@@ -561,19 +562,37 @@ describe("FXFiller same-token markets (cross-chain only, USD-stable only)", () =
 		expect(await filler.canFill(sameTokenOrder(CHAIN_A, CHAIN_B))).toBe(true)
 	})
 
-	it("rejects a non-USD-stable same-token pair at construction", () => {
+	it("accepts a non-USD same-token pair (CNGN/CNGN) cross-chain", async () => {
 		const registry = new AssetRegistry(cfg, { CNGN: { [CHAIN_A]: CNGN, [CHAIN_B]: CNGN } })
-		expect(
-			() =>
-				new FXFiller(
-					signer,
-					cfg,
-					{} as any,
-					makeContractService(),
-					[{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("0.99") }],
-					registry,
-				),
-		).toThrow(/USD-stable/)
+		const filler = new FXFiller(
+			signer,
+			cfg,
+			{} as any,
+			makeContractService(),
+			[{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.99") }],
+			registry,
+		)
+		// Cross-chain CNGN→CNGN is fillable; same-chain is still a rejected self-swap.
+		const cngnOrder = (src: string, dst: string) =>
+			({
+				id: "cngn",
+				user: bytes20ToBytes32(SOLVER),
+				source: src,
+				destination: dst,
+				deadline: 0n,
+				nonce: 0n,
+				fees: 0n,
+				session: "0x0000000000000000000000000000000000000000" as HexString,
+				predispatch: { assets: [], call: "0x" as HexString },
+				inputs: [{ token: bytes20ToBytes32(CNGN), amount: parseUnits("100000", 18) }],
+				output: {
+					beneficiary: bytes20ToBytes32(SOLVER),
+					assets: [{ token: bytes20ToBytes32(CNGN), amount: parseUnits("99000", 18) }],
+					call: "0x" as HexString,
+				},
+			}) as unknown as Order
+		expect(await filler.canFill(cngnOrder(CHAIN_A, CHAIN_B))).toBe(true)
+		expect(await filler.canFill(cngnOrder(CHAIN_A, CHAIN_A))).toBe(false)
 	})
 })
 

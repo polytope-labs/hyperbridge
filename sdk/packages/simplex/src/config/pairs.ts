@@ -1,12 +1,6 @@
 import { Decimal } from "decimal.js"
 import type { PriceCurvePoint } from "@/config/interpolated-curve"
-import {
-	isRegistrySymbol,
-	normalizeSymbol,
-	registrySymbols,
-	USD_STABLE_SYMBOLS,
-	type AssetDefinition,
-} from "@/config/asset-registry"
+import { isRegistrySymbol, normalizeSymbol, registrySymbols, type AssetDefinition } from "@/config/asset-registry"
 
 /**
  * One trading pair from the top-level `[[pairs]]` TOML array:
@@ -133,14 +127,6 @@ export function validatePairConfigs(
 		// so they are ask-only, and the ask price is the fraction of the input
 		// paid back out — above par would be a guaranteed loss.
 		if (token0 === token1) {
-			// The same-token spread is realized in-kind and credited into the
-			// USD-denominated profit gate at face value, so the asset must be
-			// USD-pegged (there is no price feed to convert a non-USD asset).
-			if (!USD_STABLE_SYMBOLS.has(token0)) {
-				throw new Error(
-					`pairs.${label}: same-token markets are limited to USD-stable assets (${[...USD_STABLE_SYMBOLS].join(", ")})`,
-				)
-			}
 			if (pair.bidPriceCurve !== undefined) {
 				throw new Error(
 					`pairs.${label}: same-token pairs are ask-only — omit 'bidPriceCurve' (both directions are the same market)`,

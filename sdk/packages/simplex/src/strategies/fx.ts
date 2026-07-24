@@ -203,15 +203,6 @@ export class FXFiller implements FillerStrategy {
 						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must not exceed 1`,
 					)
 				}
-				// The realized same-token spread is credited into the USD-denominated
-				// profit gate at face value (fee token is a USD stable), so the asset
-				// must itself be USD-pegged — otherwise the spread is valued in the
-				// wrong unit. We have no price feed to convert a non-USD asset.
-				if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: same-token markets are limited to USD-stable assets (${[...USD_STABLE_SYMBOLS].join(", ")})`,
-					)
-				}
 				continue
 			}
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
@@ -627,6 +618,10 @@ export class FXFiller implements FillerStrategy {
 			let realizedSpreadProfit = 0n
 			let fxMarginQuote = new Decimal(0)
 			let hasSameTokenSpread = false
+			// Every same-token leg must individually come out ahead in its OWN asset.
+			// Checked per leg (not on the summed total) because same-token legs of
+			// different assets aren't in a common unit.
+			let sameTokenAllProfitable = true
 			let hasFxMargin = false
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
@@ -648,8 +643,13 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (isSameTokenPair(leg.pair)) {
+					// Spread in the asset's OWN units: escrow released (full input) minus
+					// output paid. Positive iff the filler nets the asset — a sign check
+					// that is valid for any asset (USD-stable or not), since it never
+					// crosses into another unit.
 					const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
 					const spread = convertedInput - output.amount
+					if (spread <= 0n) sameTokenAllProfitable = false
 					realizedSpreadProfit += adjustDecimals(spread, outputDecimals, feeTokenDecimals)
 					hasSameTokenSpread = true
 					continue
@@ -706,10 +706,10 @@ export class FXFiller implements FillerStrategy {
 			// on the swap itself, measured per category present. One-sided (directional)
 			// legs produce no spread signal and are not gated here — the operator opted
 			// into that position by configuring one-sided pricing.
-			if (hasSameTokenSpread && realizedSpreadProfit <= 0n) {
+			if (hasSameTokenSpread && !sameTokenAllProfitable) {
 				this.logger.info(
 					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
-					"Skipping order: same-token spread is not positive",
+					"Skipping order: a same-token leg does not net a positive spread",
 				)
 				return 0
 			}
@@ -722,10 +722,12 @@ export class FXFiller implements FillerStrategy {
 			}
 
 			const feeProfit = order.fees - executionCost
-			// Both gates passed. Report total filler profit (fee surplus + realized
-			// spread, both USD fee-token; plus the cross-asset FX margin, in token0
-			// units ≈ USD for stable token0). Used only for ranking / the >0 execute
-			// signal, never as a funds gate.
+			// Both gates passed → the order is profitable. This number is only the
+			// ranking / >0 execute signal, never a funds gate (the two gates above
+			// already decided). It sums fee surplus (USD) with the realized same-token
+			// spread and the cross-asset FX margin — for a non-USD same-token asset
+			// the spread term is in that asset's units, so the magnitude is a rough
+			// signal rather than a true dollar figure; its sign is always correct.
 			const totalProfit =
 				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginQuote.toNumber()
 

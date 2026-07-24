@@ -35,13 +35,38 @@ export function quorumThreshold(numProviders: number): number {
 /** How long an endpoint that errors (anything other than a 429) is paused. */
 const PAUSE_MS = 5 * 60_000
 
-/** Whether an error is an HTTP 429 rate limit (checked through viem's cause chain). */
-function isRateLimited(error: unknown): boolean {
+/** JSON-RPC error codes providers use to signal rate limiting (HTTP 200 body). */
+const RATE_LIMIT_RPC_CODES = new Set([-32005, -32097, -32016, 429])
+
+/**
+ * Whether an error signals rate limiting. Providers express it two ways: an HTTP
+ * 429 (viem throws `HttpRequestError` with `status: 429`), or an HTTP 200 with a
+ * JSON-RPC error whose code/message says "rate limited" (viem throws
+ * `RpcRequestError`). We check status, error code, and text across viem's whole
+ * error chain (`cause`, plus the `details`/`shortMessage`/`metaMessages` fields
+ * viem attaches to `BaseError`) because the tell-tale can live at any level.
+ *
+ * Exported for tests that induce a real provider 429 and assert we catch its
+ * actual shape (the unit tests otherwise throw a synthetic error we detect,
+ * which would pass even if viem's real shape differed).
+ */
+export function isRateLimited(error: unknown): boolean {
 	let current: unknown = error
-	for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
-		if ((current as { status?: number }).status === 429) return true
-		if (/\b429\b|too many requests/i.test(current.message)) return true
-		current = (current as { cause?: unknown }).cause
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as {
+			status?: number
+			code?: number
+			message?: string
+			details?: string
+			shortMessage?: string
+			metaMessages?: string[]
+			cause?: unknown
+		}
+		if (e.status === 429) return true
+		if (typeof e.code === "number" && RATE_LIMIT_RPC_CODES.has(e.code)) return true
+		const text = [e.message, e.details, e.shortMessage, ...(e.metaMessages ?? [])].filter(Boolean).join(" ")
+		if (/\b429\b|too many requests|rate.?limit/i.test(text)) return true
+		current = e.cause
 	}
 	return false
 }

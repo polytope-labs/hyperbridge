@@ -615,6 +615,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		[USDC.toLowerCase()]: 6,
 		[USDT.toLowerCase()]: 6,
 		[CNGN.toLowerCase()]: 18,
+		[ZARP.toLowerCase()]: 18,
 	}
 
 	// contractService + clientManager mocked just enough to drive calculateProfitability.
@@ -725,5 +726,43 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		)
 		// 1000 in, 999 out (ask 0.999) → $1 spread; fees cover exec → profitable.
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	// Two arbitrary NON-USD tokens: ZARP/CNGN. token0=ZARP, curves in CNGN-per-ZARP.
+	// Nothing in pricing, sizing, or the spread gate touches USD — only order.fees
+	// (gate 1) is in the USD fee token, and it is asset-independent.
+	const zarpCngnRegistry = () =>
+		new AssetRegistry(cfg, { ZARP: { [SRC]: ZARP, [DST]: ZARP }, CNGN: { [SRC]: CNGN, [DST]: CNGN } })
+
+	it("fills a two-non-USD cross-asset pair (ZARP/CNGN) when fees cover exec and the FX margin is positive", async () => {
+		// bid 100 > ask 95 (CNGN per ZARP) → positive round-trip margin in ZARP terms.
+		const filler = gateFiller(
+			[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") }],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"zc-pass",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	it("rejects a two-non-USD cross-asset pair with a crossed (inverted) book — FX margin negative", async () => {
+		// bid 90 < ask 95 → the filler would sell CNGN cheaper than it could rebuy → loss.
+		const filler = gateFiller(
+			[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("90"), askPricePolicy: flat("95") }],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"zc-cross",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) },
+			parseUnits("10", 6), // fees easily cover exec, but the swap itself loses
+		)
+		expect(await filler.calculateProfitability(o)).toBe(0)
 	})
 })

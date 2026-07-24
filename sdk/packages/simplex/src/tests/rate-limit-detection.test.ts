@@ -16,9 +16,10 @@ import { QuorumPublicClient, isRateLimited } from "@/services/QuorumPublicClient
  *
  * The last suite goes further and floods a real public RPC until it rate-limits
  * us, then asserts we detect the provider's actual 429. That deliberately abuses
- * a keyless endpoint, so it is opt-in:
+ * a keyless endpoint, so it is opt-in. `eth.meowrpc.com` throttles ~a few
+ * hundred requests/sec/IP, so it trips reliably:
  *
- *   SPAM_RPC_429=https://1rpc.io/base pnpm vitest run src/tests/rate-limit-detection.test.ts
+ *   SPAM_RPC_429=https://eth.meowrpc.com pnpm vitest run src/tests/rate-limit-detection.test.ts
  */
 
 const BASE_CHAIN_ID = 8453
@@ -156,10 +157,20 @@ describeIfSpam(`live 429 induction against ${SPAM_TARGET}`, () => {
 			return /\b429\b/.test(String(error))
 		}
 
+		// Rate limits are per-second windows, so concurrency matters more than
+		// total volume: escalate burst size until the endpoint throttles. Use the
+		// raw EIP-1193 request, NOT getBlockNumber — viem's block-number action
+		// dedupes concurrent calls into a single HTTP request, so a burst of them
+		// would never actually reach the provider's rate limiter.
+		const BURSTS = [50, 100, 200, 400, 800, 800, 800, 800]
 		let real429: unknown
 		let sampleRejection: unknown
-		outer: for (let round = 0; round < 40; round++) {
-			const burst = await Promise.allSettled(Array.from({ length: 50 }, () => client.getBlockNumber()))
+		let sent = 0
+		outer: for (const burstSize of BURSTS) {
+			sent += burstSize
+			const burst = await Promise.allSettled(
+				Array.from({ length: burstSize }, () => client.request({ method: "eth_blockNumber" })),
+			)
 			for (const result of burst) {
 				if (result.status !== "rejected") continue
 				sampleRejection ??= result.reason
@@ -171,10 +182,10 @@ describeIfSpam(`live 429 induction against ${SPAM_TARGET}`, () => {
 		}
 
 		if (!real429) {
-			// Endpoint never limited us within ~2000 requests (generous tier or a
-			// CDN absorbing the burst) — inconclusive, not a failure.
+			// Endpoint absorbed everything up to 800-way concurrency (generous
+			// tier or a CDN soaking the burst) — inconclusive, not a failure.
 			console.warn(
-				`No 429 induced from ${SPAM_TARGET} after 2000 requests; sample rejection:`,
+				`No 429 induced from ${SPAM_TARGET} after ${sent} requests (bursts up to 800); sample rejection:`,
 				sampleRejection ? String(sampleRejection) : "(none)",
 			)
 			ctx.skip()

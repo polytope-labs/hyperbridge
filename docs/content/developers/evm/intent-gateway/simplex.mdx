@@ -22,7 +22,12 @@ Simplex is a single pair engine. Every market it serves — cross-asset swaps li
 
 Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders wait per the configured [confirmation policy](#confirmation-policy) before bidding.
 
-Profit comes from two sources: the **bid/ask spread** on each pair, and **order fees** minus gas. The filler holds inventory on both sides of its pairs. When a user swaps token0→token1 the filler sells token1 at the pair's ask price; when the user swaps token1→token0 the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
+An order is filled only when **two independent checks both pass**:
+
+1. **Fees cover execution.** `order.fees` must cover the fill gas and, for a cross-chain order, the **relayer fee** for delivering the escrow-release message back to the source chain (a ~1M-gas cost priced on the source chain; zero for same-chain fills). The swap spread is never credited toward this — fees must stand on their own.
+2. **The swap is profitable.** The filler's margin on the trade itself must be positive: the below-par spread on a same-token market, or the bid/ask spread on a cross-asset pair. A one-sided (directional) pair has no measurable per-fill spread and is not subject to this check — configuring it is an explicit choice to take that position.
+
+The filler holds inventory on both sides of its pairs. When a user swaps token0→token1 the filler sells token1 at the pair's ask price; when the user swaps token1→token0 the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
 
 Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the filler owes less token0 per token1 received (it profits more buying token1). A lower ask means the filler sends fewer token1 per token0 received (it profits more selling token1).
 

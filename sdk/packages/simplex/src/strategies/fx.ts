@@ -616,17 +616,18 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Per-leg P&L accounting over the surviving legs:
+			// Per-leg P&L accounting over the surviving legs, feeding the SPREAD gate
+			// (the filler's margin on the swap itself, independent of order.fees):
 			//  - Same-token legs realize their spread in-kind (input − output of the
-			//    SAME asset) — deterministic profit, summed into the gated total in
-			//    fee-token decimals.
+			//    SAME asset), in fee-token (USD) units — deterministic.
 			//  - Cross-asset legs are half a round-trip: the open side is marked at
 			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
-			//    resale at ask). That mark-to-model margin is report-only and never
-			//    gates; legs whose opposite side is disabled (one-sided LP) are
-			//    skipped — there is no curve to mark them against.
+			//    resale at ask), in token0 units. Only two-sided legs contribute; a
+			//    one-sided (directional) leg has no opposite curve to mark against.
 			let realizedSpreadProfit = 0n
 			let fxMarginQuote = new Decimal(0)
+			let hasSameTokenSpread = false
+			let hasFxMargin = false
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
 				const input = order.inputs[legIndex]
@@ -650,11 +651,13 @@ export class FXFiller implements FillerStrategy {
 					const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
 					const spread = convertedInput - output.amount
 					realizedSpreadProfit += adjustDecimals(spread, outputDecimals, feeTokenDecimals)
+					hasSameTokenSpread = true
 					continue
 				}
 
 				const rates = legRatesByIndex.get(legIndex)
 				if (!rates?.oppositeRate) continue
+				hasFxMargin = true
 
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
@@ -676,25 +679,55 @@ export class FXFiller implements FillerStrategy {
 			// left in place but dormant (always recorded as a clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
 
-			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
-			// Gate on fees plus REALIZED profit: same-token spread is earned in-kind
-			// on the fill itself, so it can carry an order whose fees alone don't
-			// cover gas. Cross-asset fxMarginQuote stays mark-to-model and never
-			// gates.
-			if (order.fees + realizedSpreadProfit < totalCostInSourceFeeToken) {
+			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken } =
+				await this.contractService.estimateGasFillPost(order)
+
+			// GATE 1 — execution cost (independent). order.fees exist solely to pay
+			// for execution: the fill gas plus, for cross-chain orders, the relayer
+			// fee for delivering the escrow-release message back to the source chain
+			// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
+			// swap spread is NOT credited here — fees must cover cost on their own.
+			const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
+			if (order.fees < executionCost) {
 				this.logger.info(
 					{
 						orderId: order.id,
 						orderFees: formatUnits(order.fees, feeTokenDecimals),
-						realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
-						estimatedCost: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+						relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+						executionCost: formatUnits(executionCost, feeTokenDecimals),
 					},
-					"Skipping order: fees plus realized spread do not cover estimated execution cost",
+					"Skipping order: attached fees do not cover execution cost (fill gas + relayer fee)",
 				)
 				return 0
 			}
-			const feeProfit = order.fees - totalCostInSourceFeeToken
-			const totalProfit = parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+
+			// GATE 2 — swap profit (independent). The fill must make the filler money
+			// on the swap itself, measured per category present. One-sided (directional)
+			// legs produce no spread signal and are not gated here — the operator opted
+			// into that position by configuring one-sided pricing.
+			if (hasSameTokenSpread && realizedSpreadProfit <= 0n) {
+				this.logger.info(
+					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
+					"Skipping order: same-token spread is not positive",
+				)
+				return 0
+			}
+			if (hasFxMargin && fxMarginQuote.lte(0)) {
+				this.logger.info(
+					{ orderId: order.id, fxMarginQuote: fxMarginQuote.toString() },
+					"Skipping order: FX spread margin is not positive",
+				)
+				return 0
+			}
+
+			const feeProfit = order.fees - executionCost
+			// Both gates passed. Report total filler profit (fee surplus + realized
+			// spread, both USD fee-token; plus the cross-asset FX margin, in token0
+			// units ≈ USD for stable token0). Used only for ranking / the >0 execute
+			// signal, never as a funds gate.
+			const totalProfit =
+				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginQuote.toNumber()
 
 			this.logger.info(
 				{
@@ -709,7 +742,9 @@ export class FXFiller implements FillerStrategy {
 						([pair, cap]) => `${pair.token0}/${pair.token1}=${cap.toString()}`,
 					),
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
-					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+					fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
+					relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
+					executionCost: formatUnits(executionCost, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
 					realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
 					fxMarginQuote: fxMarginQuote.toString(),

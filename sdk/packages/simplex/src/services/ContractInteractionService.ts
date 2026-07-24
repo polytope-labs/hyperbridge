@@ -158,6 +158,7 @@ export class ContractInteractionService {
 	 */
 	async estimateGasFillPost(order: Order): Promise<{
 		totalCostInSourceFeeToken: bigint
+		relayerFeeInSourceFeeToken: bigint
 		dispatchFee: bigint
 		nativeDispatchFee: bigint
 		callGasLimit: bigint
@@ -168,6 +169,7 @@ export class ContractInteractionService {
 			if (cachedEstimate) {
 				return {
 					totalCostInSourceFeeToken: cachedEstimate.totalCostInSourceFeeToken,
+					relayerFeeInSourceFeeToken: cachedEstimate.relayerFeeInSourceFeeToken,
 					dispatchFee: cachedEstimate.dispatchFee,
 					nativeDispatchFee: cachedEstimate.nativeDispatchFee,
 					callGasLimit: cachedEstimate.callGasLimit,
@@ -211,6 +213,7 @@ export class ContractInteractionService {
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
+				estimate.relayerFeeInSourceFeeToken,
 				estimate.fillOptions.relayerFee,
 				estimate.fillOptions.nativeDispatchFee,
 				callGasLimit,
@@ -223,6 +226,7 @@ export class ContractInteractionService {
 			)
 			return {
 				totalCostInSourceFeeToken: estimate.totalGasInFeeToken,
+				relayerFeeInSourceFeeToken: estimate.relayerFeeInSourceFeeToken,
 				dispatchFee: estimate.fillOptions.relayerFee,
 				nativeDispatchFee: estimate.fillOptions.nativeDispatchFee,
 				callGasLimit: estimate.callGasLimit,

@@ -43,6 +43,16 @@ import { CryptoUtils } from "./CryptoUtils"
  * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
  * URL contains `alchemy.com`.
  */
+/**
+ * Gas budget assumed for delivering and executing the cross-chain RedeemEscrow
+ * POST message on the SOURCE chain (the message a cross-chain `fillOrder`
+ * dispatches back to release escrow to the filler). The relayer fee carried by
+ * that dispatch — and the amount a filler's `order.fees` must cover — is this
+ * gas priced on the source chain. Sized conservatively so the relayer is
+ * reliably incentivised to deliver.
+ */
+export const RELAYER_MESSAGE_GAS = 1_000_000n
+
 export class GasEstimator {
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
@@ -119,7 +129,7 @@ export class GasEstimator {
 				entryPointAddress,
 			}),
 			isSameChain
-				? Promise.resolve({ postRequestFee: 0n, protocolFee: 0n })
+				? Promise.resolve({ postRequestFee: 0n, protocolFee: 0n, relayerFeeInSourceFeeToken: 0n })
 				: this.estimateCrossChainFees(
 						sourceFeeToken,
 						destFeeToken,
@@ -345,6 +355,7 @@ export class GasEstimator {
 			maxPriorityFeePerGas,
 			totalGasCostWei,
 			totalGasInFeeToken: totalGasInSourceFeeToken,
+			relayerFeeInSourceFeeToken: crossChainFees.relayerFeeInSourceFeeToken,
 			fillOptions,
 		}
 	}
@@ -359,13 +370,13 @@ export class GasEstimator {
 		sourceChainId: string,
 		destChainId: string,
 		order: Order,
-	): Promise<{ postRequestFee: bigint; protocolFee: bigint }> {
-		const postRequestGas = 400_000n
-
-		const [postRequestFeeInSourceFeeToken, nonce] = await Promise.all([
-			convertGasToFeeToken(this.ctx, postRequestGas, "source", sourceChainId),
+	): Promise<{ postRequestFee: bigint; protocolFee: bigint; relayerFeeInSourceFeeToken: bigint }> {
+		const [postRequestFeeInSourceFeeTokenRaw, nonce] = await Promise.all([
+			convertGasToFeeToken(this.ctx, RELAYER_MESSAGE_GAS, "source", sourceChainId),
 			this.ctx.dest.getHostNonce(),
 		])
+		// 0.5% headroom over the raw estimate so the relayer fee stays deliverable.
+		const postRequestFeeInSourceFeeToken = (postRequestFeeInSourceFeeTokenRaw * 1005n) / 1000n
 
 		let postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,
@@ -383,15 +394,17 @@ export class GasEstimator {
 			to: this.ctx.source.configService.getIntentGatewayAddress(sourceChainId),
 		}
 
-		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
-
 		let protocolFeeInNativeToken = await this.ctx.dest
 			.quoteNative(postRequest, postRequestFeeInDestFeeToken)
 			.catch(() => 0n)
 
 		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
 
-		return { postRequestFee: postRequestFeeInDestFeeToken, protocolFee: protocolFeeInNativeToken }
+		return {
+			postRequestFee: postRequestFeeInDestFeeToken,
+			protocolFee: protocolFeeInNativeToken,
+			relayerFeeInSourceFeeToken: postRequestFeeInSourceFeeToken,
+		}
 	}
 
 	/**

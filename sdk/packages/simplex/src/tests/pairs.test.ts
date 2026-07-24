@@ -576,3 +576,135 @@ describe("FXFiller same-token markets (cross-chain only, USD-stable only)", () =
 		).toThrow(/USD-stable/)
 	})
 })
+
+describe("FXFiller profit gates (fees cover execution; spread independently positive)", () => {
+	const SRC = "EVM-1"
+	const DST = "EVM-8453"
+	const cfg = {
+		getUsdcAsset: () => USDC,
+		getUsdtAsset: () => USDT,
+		getDaiAsset: () => {
+			throw new Error("nc")
+		},
+		getCNgnAsset: () => undefined,
+		getMaxOverfillBps: () => 500n,
+		getMaxConsecutiveClamps: () => 3,
+	} as any
+	const signer = { account: { address: SOLVER } } as any
+
+	const decimalsByAddr: Record<string, number> = {
+		[USDC.toLowerCase()]: 6,
+		[USDT.toLowerCase()]: 6,
+		[CNGN.toLowerCase()]: 18,
+	}
+
+	// contractService + clientManager mocked just enough to drive calculateProfitability.
+	function gateFiller(pairs: TradingPair[], registry: AssetRegistry, estimate: { fillGas: bigint; relayer: bigint }) {
+		const cache = new Map<string, unknown>()
+		const contractService = {
+			cacheService: {
+				getPairClassifications: (id: string) => cache.get(`pc:${id}`),
+				setPairClassifications: (id: string, v: unknown) => cache.set(`pc:${id}`, v),
+				setFillerOutputs: () => {},
+				setFundingPrepends: () => {},
+				clearFundingPrepends: () => {},
+			},
+			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
+			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
+			estimateGasFillPost: async () => ({
+				totalCostInSourceFeeToken: estimate.fillGas,
+				relayerFeeInSourceFeeToken: estimate.relayer,
+				dispatchFee: 0n,
+				nativeDispatchFee: 0n,
+				callGasLimit: 0n,
+			}),
+		} as any
+		const destClient = {
+			chain: { blockTime: 2000 },
+			getBlock: async () => ({ number: 100n, timestamp: 0n }),
+			getBalance: async () => 10n ** 30n,
+			readContract: async () => 10n ** 30n, // balanceOf: effectively unlimited
+		}
+		const clientManager = { getPublicClient: () => destClient } as any
+		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry)
+	}
+
+	function order(id: string, input: TokenInfo, output: TokenInfo, fees: bigint): Order {
+		return {
+			id,
+			user: bytes20ToBytes32(SOLVER),
+			source: SRC,
+			destination: DST,
+			deadline: 1_000_000n,
+			nonce: 0n,
+			fees,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs: [input],
+			output: { beneficiary: bytes20ToBytes32(SOLVER), assets: [output], call: "0x" as HexString },
+		} as unknown as Order
+	}
+
+	const usdcOnBoth = () => new AssetRegistry(cfg, { CNGN: { [SRC]: CNGN, [DST]: CNGN } })
+
+	it("gate 1: rejects when fees do not cover fill gas + relayer fee", async () => {
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, // exec cost = $5
+		)
+		const o = order(
+			"g1-fail",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
+			parseUnits("4", 6), // fees $4 < $5 exec cost
+		)
+		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("gate 1: passes when fees cover execution and the FX spread is positive", async () => {
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) },
+		)
+		const o = order(
+			"g1-pass",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
+			parseUnits("10", 6), // fees $10 > $5 exec cost; bid 1500 > ask 1450 → positive FX margin
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	it("gate 2: rejects a same-token order whose spread is zero (ask == par)", async () => {
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("1") }],
+			new AssetRegistry(cfg),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"g2-fail",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("999", 6) },
+			parseUnits("100", 6), // fees easily cover exec, but spread = 0 at ask 1.0
+		)
+		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("gate 2: passes a same-token order with a below-par spread and covering fees", async () => {
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") }],
+			new AssetRegistry(cfg),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"g2-pass",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("999", 6) },
+			parseUnits("100", 6),
+		)
+		// 1000 in, 999 out (ask 0.999) → $1 spread; fees cover exec → profitable.
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+})

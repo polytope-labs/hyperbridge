@@ -18,6 +18,51 @@ export interface CurveConfig {
 }
 
 /**
+ * Built-in per-chain confirmation curves for the supported mainnets, merged
+ * under any user-supplied `[confirmationPolicies]` entries at startup. The
+ * curve amount axis is the order's USD value (derived from the pair curves
+ * via the USD anchors); the value is the confirmation depth in blocks.
+ */
+export const DEFAULT_CONFIRMATION_POLICIES: Record<string, CurveConfig> = {
+	"1": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		],
+	}, // Ethereum (~12s blocks, ~24s–3min)
+	"56": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 3 },
+		],
+	}, // BNB Chain (~3s blocks, fast finality)
+	"137": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 32 },
+		],
+	}, // Polygon (~2s blocks, milestone finality)
+	"8453": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 90 },
+		],
+	}, // Base (~2s blocks, L2)
+	"42161": {
+		points: [
+			{ amount: "1000", value: 8 },
+			{ amount: "100000", value: 720 },
+		],
+	}, // Arbitrum (~0.25s blocks, L2)
+	"130": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 180 },
+		],
+	}, // Unichain (~1s blocks, OP-stack L2 — time-equivalent to Base's curve)
+}
+
+/**
  * A coordinate point on a price curve
  * @property amount - The input threshold (e.g., USD amount)
  * @property price - The exotic tokens per 1 USD at this threshold
@@ -128,6 +173,20 @@ export class ConfirmationPolicy {
 		const curve = this.policies.get(chainId)
 		if (!curve) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 		return curve.getValue(amountUsd)
+	}
+
+	/**
+	 * Startup guard: every configured chain must have a confirmation curve.
+	 * Without this, a missing policy only surfaces as a per-order throw at
+	 * fill time — cross-chain orders sourced on that chain silently dropped.
+	 */
+	assertCovers(chainIds: number[]): void {
+		const missing = chainIds.filter((id) => !this.policies.has(id))
+		if (missing.length > 0) {
+			throw new Error(
+				`No confirmation policy for chain(s) ${missing.join(", ")} — add [confirmationPolicies."<chainId>"] entries for them (built-in defaults cover Ethereum, BSC, Polygon, Base, Arbitrum and Unichain)`,
+			)
+		}
 	}
 }
 

@@ -152,11 +152,13 @@ triggerPercentage = 0.5
 # pair curves are the only price source.
 #
 # Each pair is priced by its own curves in token1 per 1 token0 and capped per
-# order by maxOrderSize, all denominated in token0 (the curve amount axis, the
-# cap, and the value fed to confirmation policies share that unit). Omit one
-# curve for one-sided LP (keep only askPriceCurve to sell token1 / accumulate
-# token0; only bidPriceCurve to buy token1). Omit both curves only with
-# [vault.uniswapV4] pool pricing. Orders whose legs match no pair are rejected.
+# order by maxOrderSize, both denominated in token0 (the curve amount axis and
+# the cap share that unit). Confirmation policies are the exception: they are
+# fed the order's USD value, derived from these curves via the USD anchors.
+# Omit one curve for one-sided LP (keep only askPriceCurve to sell token1 /
+# accumulate token0; only bidPriceCurve to buy token1). Omit both curves only
+# with [vault.uniswapV4] pool pricing. Orders whose legs match no pair are
+# rejected.
 
 # Same-asset cross-chain market (replaces the old "stable" strategy): ask-only,
 # prices at or below par — the gap to 1 is your spread, realized on every fill.
@@ -211,14 +213,22 @@ askPriceCurve = [
 # bidPriceCurve = [ { amount = "0", price = "86" } ]
 # askPriceCurve = [ { amount = "0", price = "84" } ]
 #
+# Every pair's token0 must have a USD anchor: be a USD stable, or connect to
+# one through your own curve-priced pairs — confirmation depth is sized in USD
+# and your curves are the only price feed. ZARP above is anchored transitively:
+# USDC/CNGN prices CNGN in USD, and ZARP/CNGN's curve prices ZARP through CNGN.
+# A config whose token0 cannot be anchored fails at startup.
+#
 # [assets] is an OPTIONAL escape hatch: only needed for assets the registry
 # does not ship, or to override a shipped address for your deployment.
 # [assets.BRZ]
 # "EVM-137" = "0xBrzOnPolygon"
 
 # Per-chain confirmation policies for cross-chain orders (optional).
-# Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum). The curve
-# amount axis is the order's token0 notional (a dollar amount for USD pairs).
+# Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum, Unichain);
+# every configured chain must be covered or startup fails. The curve amount
+# axis is the order's USD value, derived from your pair curves via the USD
+# anchors — honest for non-USD pairs too.
 [confirmationPolicies."1"]  # Ethereum Mainnet
 points = [
     { amount = "5", value = 3 },

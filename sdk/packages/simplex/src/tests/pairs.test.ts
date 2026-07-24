@@ -127,10 +127,12 @@ describe("validatePairConfigs", () => {
 	})
 
 	it("accepts registry-shipped symbols with no [assets] config at all", () => {
+		// ZARP anchors through CNGN (via USDC/CNGN), EURC directly via USDC/EURC.
 		expect(() =>
 			validatePairConfigs([
 				{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
 				{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+				{ token0: "USDC", token1: "EURC", maxOrderSize: SIZE, askPriceCurve: CURVE },
 				{ token0: "EURC", token1: "XSGD", maxOrderSize: SIZE, bidPriceCurve: CURVE },
 			]),
 		).not.toThrow()
@@ -188,20 +190,61 @@ describe("validatePairConfigs", () => {
 		).toThrow(/askPriceCurve/)
 	})
 
-	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) — the spread gate is a per-asset sign check", () => {
+	it("accepts non-USD same-token pairs (e.g. CNGN/CNGN) when a USD pair anchors the asset", () => {
+		// The USDC/CNGN curve is the price feed that lets confirmation depth
+		// size CNGN notionals in USD; without it the config must not start.
 		expect(() =>
 			validatePairConfigs(
-				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] }],
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] },
+				],
 				assets,
 			),
 		).not.toThrow()
 		// The ask-only and at-or-below-par rules still apply to any same-token pair.
 		expect(() =>
 			validatePairConfigs(
-				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] }],
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] },
+				],
 				assets,
 			),
 		).toThrow(/more than received/)
+	})
+
+	it("rejects any pair whose token0 has no USD anchor — direct or transitive", () => {
+		// A lone non-USD market has no path to a $1 anchor.
+		expect(() =>
+			validatePairConfigs([{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE }], assets),
+		).toThrow(/no USD anchor for ZARP/)
+		// Same-token non-USD alone is equally unanchored.
+		expect(() =>
+			validatePairConfigs(
+				[{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.99" }] }],
+				assets,
+			),
+		).toThrow(/no USD anchor for CNGN/)
+		// USDC/CNGN anchors CNGN, whose curve then anchors ZARP: two hops.
+		expect(() =>
+			validatePairConfigs(
+				[
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+					{ token0: "ZARP", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
+				],
+				assets,
+			),
+		).not.toThrow()
+	})
+
+	it("rejects non-positive curve prices (they would poison the USD anchor math)", () => {
+		expect(() =>
+			validatePairConfigs(
+				[{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0" }] }],
+				assets,
+			),
+		).toThrow(/must be positive/)
 	})
 
 	it("requires a positive maxOrderSize", () => {
@@ -331,8 +374,10 @@ describe("FXFiller pairs engine", () => {
 	})
 
 	it("caps each pair at its own maxOrderSize, in token0 units", async () => {
-		// ZARP-quoted pair: everything is denominated in ZARP — no USD anywhere.
+		// ZARP-quoted pair: pricing and the cap are denominated in ZARP. The
+		// USDC/ZARP pair only anchors ZARP for confirmation sizing.
 		const filler = makeFiller([
+			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("18") },
 			{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("100") },
 		])
 
@@ -343,9 +388,10 @@ describe("FXFiller pairs engine", () => {
 		)
 		// 1000 ZARP (under the cap) × 100 CNGN/ZARP = 100,000 CNGN
 		expect((await filler.quotePhantomFill(small))?.[0].amount).toBe(parseUnits("100000", 18))
-		// Order sizing is the token0 notional — fed to confirmation curves as-is.
+		// Confirmation sizing converts the token0 notional to USD via the
+		// anchor factor: 1000 ZARP ÷ 18 ZARP-per-USDC ≈ $55.56, not "$1000".
 		const sized = await filler.getOrderUsdValue(small)
-		expect(sized?.inputUsd.eq(new Decimal(1000))).toBe(true)
+		expect(sized?.inputUsd.toFixed(4)).toBe("55.5556")
 
 		const large = makeOrder(
 			"zarp-large",
@@ -513,7 +559,7 @@ describe("FXFiller pairs engine", () => {
 	})
 })
 
-describe("FXFiller same-token markets (cross-chain only, USD-stable only)", () => {
+describe("FXFiller same-token markets (cross-chain only)", () => {
 	const CHAIN_A = "EVM-1"
 	const CHAIN_B = "EVM-8453"
 	// USDC resolves to the same address on both chains (USDC-style deployment).
@@ -569,7 +615,11 @@ describe("FXFiller same-token markets (cross-chain only, USD-stable only)", () =
 			cfg,
 			{} as any,
 			makeContractService(),
-			[{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.99") }],
+			[
+				// The USDC/CNGN curve anchors CNGN so confirmation depth can be sized in USD.
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+				{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.99") },
+			],
 			registry,
 		)
 		// Cross-chain CNGN→CNGN is fillable; same-chain is still a rejected self-swap.
@@ -729,15 +779,25 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	})
 
 	// Two arbitrary NON-USD tokens: ZARP/CNGN. token0=ZARP, curves in CNGN-per-ZARP.
-	// Nothing in pricing, sizing, or the spread gate touches USD — only order.fees
-	// (gate 1) is in the USD fee token, and it is asset-independent.
+	// Pricing, sizing, and the spread gate all work in the pair's own units; the
+	// USDC/ZARP anchor pair exists so confirmation depth can price ZARP in USD.
 	const zarpCngnRegistry = () =>
 		new AssetRegistry(cfg, { ZARP: { [SRC]: ZARP, [DST]: ZARP }, CNGN: { [SRC]: CNGN, [DST]: CNGN } })
+	const usdcZarpAnchor = (): TradingPair => ({
+		token0: "USDC",
+		token1: "ZARP",
+		maxOrderSize: size("100000"),
+		bidPricePolicy: flat("18.2"),
+		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
+	})
 
 	it("fills a two-non-USD cross-asset pair (ZARP/CNGN) when fees cover exec and the FX margin is positive", async () => {
 		// bid 100 > ask 95 (CNGN per ZARP) → positive round-trip margin in ZARP terms.
 		const filler = gateFiller(
-			[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") }],
+			[
+				usdcZarpAnchor(),
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+			],
 			zarpCngnRegistry(),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
@@ -753,7 +813,10 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	it("rejects a two-non-USD cross-asset pair with a crossed (inverted) book — FX margin negative", async () => {
 		// bid 90 < ask 95 → the filler would sell CNGN cheaper than it could rebuy → loss.
 		const filler = gateFiller(
-			[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("90"), askPricePolicy: flat("95") }],
+			[
+				usdcZarpAnchor(),
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("90"), askPricePolicy: flat("95") },
+			],
 			zarpCngnRegistry(),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
@@ -764,5 +827,77 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			parseUnits("10", 6), // fees easily cover exec, but the swap itself loses
 		)
 		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("rejects construction when a pair's token0 has no USD anchor", () => {
+		expect(() =>
+			gateFiller(
+				[{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), askPricePolicy: flat("95") }],
+				zarpCngnRegistry(),
+				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			),
+		).toThrow(/no USD anchor for ZARP/)
+	})
+
+	it("sizes confirmation depth in genuine USD via the curve-derived anchor factor", async () => {
+		// 1800 ZARP at ZARP = $1/18 (mid of the USDC/ZARP curves) → $100, not "1800".
+		const filler = gateFiller(
+			[
+				usdcZarpAnchor(),
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+			],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"usd-anchor",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1800", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("170000", 18) },
+			parseUnits("10", 6),
+		)
+		const value = await filler.getOrderUsdValue(o)
+		expect(value).not.toBeNull()
+		expect(value!.inputUsd.toFixed(6)).toBe("100.000000")
+	})
+
+	it("keeps USD stables pinned at $1 — a stable/stable curve contributes no FX edge", async () => {
+		// A (mis-set) USDC/USDT curve at 0.95 must never re-price USDT: both
+		// sides are $1 anchors, so 1000 USDT reads as $1000, not $950 or $1052.
+		const filler = gateFiller(
+			[
+				{ token0: "USDC", token1: "USDT", maxOrderSize: size("100000"), askPricePolicy: flat("0.95") },
+				{ token0: "USDT", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("1500") },
+			],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"stable-pin",
+			{ token: bytes20ToBytes32(USDT), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
+			parseUnits("10", 6),
+		)
+		expect((await filler.getOrderUsdValue(o))?.inputUsd.toFixed(6)).toBe("1000.000000")
+	})
+
+	it("resolves conflicting anchor routes deterministically — first declared pair wins", async () => {
+		// USDC/ZARP (mid 18) is declared before USDT/ZARP (mid 20), so ZARP's
+		// factor comes from the first: 1800 ZARP = $100, not $90.
+		const filler = gateFiller(
+			[
+				usdcZarpAnchor(),
+				{ token0: "USDT", token1: "ZARP", maxOrderSize: size("100000"), askPricePolicy: flat("20") },
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+			],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"first-edge",
+			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1800", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("170000", 18) },
+			parseUnits("10", 6),
+		)
+		expect((await filler.getOrderUsdValue(o))?.inputUsd.toFixed(6)).toBe("100.000000")
 	})
 })

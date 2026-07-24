@@ -16,6 +16,7 @@ import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import { unanchoredToken0Symbols } from "@/config/pairs"
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -37,8 +38,9 @@ import type { SigningAccount } from "@/services/wallet"
  * to 1 is the filler's spread, realized in-kind on every fill.
  *
  * `maxOrderSize` caps the pair's exposure per order, denominated in token0 —
- * every quantity that sizes this pair (curve amounts, the cap, confirmation
- * sizing) shares that unit, so no external price feed is ever consulted.
+ * the curve amount axis shares that unit, so trade pricing never consults an
+ * external feed. Confirmation sizing alone converts token0 notionals to USD,
+ * derived from the declared curves (USD stables at $1, curve mids as FX edges).
  */
 export interface TradingPair {
 	token0: string
@@ -52,6 +54,17 @@ export interface TradingPair {
 /** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
 function isSameTokenPair(pair: TradingPair): boolean {
 	return normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
+}
+
+/** Zero-notional mid of a pair's curves (token1 per token0), or null when curve-less. */
+function pairMidRate(pair: TradingPair): Decimal | null {
+	const rates: Decimal[] = []
+	for (const policy of [pair.bidPricePolicy, pair.askPricePolicy]) {
+		const rate = policy?.getPrice(new Decimal(0))
+		if (rate?.gt(0)) rates.push(rate)
+	}
+	if (rates.length === 0) return null
+	return rates.reduce((a, b) => a.plus(b)).div(rates.length)
 }
 
 /** A leg matched to a configured pair, with everything needed to price it. */
@@ -82,9 +95,10 @@ interface LegRates {
  * Pairs are declared as `token0`/`token1` registry symbols — e.g. USDC/CNGN,
  * USDT/CNGN, ZARP/CNGN — and any number of pairs can run in one engine. Curves
  * are quoted in **token1 per token0**; nothing assumes the quote side is a USD
- * stablecoin and no external price feed is consulted. All sizing is pair-local
- * in token0 units: the per-order `maxOrderSize` cap, the curve amount axis,
- * and the order value reported for confirmation sizing.
+ * stablecoin and no external price feed is consulted. Trade sizing is
+ * pair-local in token0 units (the per-order `maxOrderSize` cap and the curve
+ * amount axis); only confirmation sizing converts to USD, using the curves
+ * themselves as the price feed (see `usdFactors`).
  *
  * For each (input, output) leg the engine finds the configured pair matching
  * the leg's direction:
@@ -217,6 +231,22 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 			}
+		}
+
+		// Mirrors validatePairConfigs for direct SDK construction: confirmation
+		// depth prices token0 notionals in USD through the curve graph, so every
+		// token0 must be reachable from a USD stable.
+		const unanchored = unanchoredToken0Symbols(
+			pairs.map((p) => ({
+				token0: p.token0,
+				token1: p.token1,
+				hasCurve: Boolean(p.bidPricePolicy || p.askPricePolicy),
+			})),
+		)
+		if (unanchored.length > 0) {
+			throw new Error(
+				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset`,
+			)
 		}
 
 		this.configService = configService
@@ -909,6 +939,9 @@ export class FXFiller implements FillerStrategy {
 		}
 
 		const cappedByPair = new Map<TradingPair, Decimal>()
+		// totalNotional is log-only: for an order whose legs span pairs with
+		// different token0s it mixes units — anything decision-making must use
+		// legNotionals (per-pair token0) or getOrderUsdValue (USD).
 		let totalNotional = new Decimal(0)
 		for (const [pair, total] of totals) {
 			cappedByPair.set(pair, Decimal.min(total, pair.maxOrderSize))
@@ -1264,22 +1297,80 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Returns the order's input basket sized in **token0 notional** — each leg
-	 * converted to its pair's token0 units via the pair's own reference rate
-	 * (curve at minimum size, or the venue quote), summed across legs.
+	 * Returns the order's input basket in **USD** — each leg is sized to its
+	 * pair's token0 notional via the pair's own reference rate (curve at
+	 * minimum size, or the venue quote), converted to dollars through the
+	 * curve-derived anchor factor for that token0, and summed across legs.
 	 *
-	 * For pairs quoted in a USD stablecoin this is a USD value; for other quote
-	 * assets it is denominated in that asset. The core filler feeds it to the
-	 * per-chain confirmation curves, whose `amount` axis therefore shares the
-	 * same unit. Returns `null` when a leg matches no pair or cannot be sized
-	 * (genuine "can't price").
+	 * The core filler feeds this to the per-chain confirmation curves, whose
+	 * `amount` axis is USD — honest for non-USD pairs too, which is the whole
+	 * point of the anchor graph. Returns `null` when a leg matches no pair or
+	 * cannot be sized (genuine "can't price").
 	 */
 	async getOrderUsdValue(order: Order): Promise<{ inputUsd: Decimal } | null> {
 		const legs = this.resolveOrderLegs(order)
 		if (!legs) return null
 
 		const sized = await this.sizeOrder(order, legs, this.venuePriceMemo())
-		if (!sized || sized.totalNotional.lte(0)) return null
-		return { inputUsd: sized.totalNotional }
+		if (!sized) return null
+
+		// Leg notionals are in each pair's own token0. Convert to USD through
+		// the curve graph before summing — the confirmation curve's amount axis
+		// is USD, and a raw token quantity would over-wait for sub-dollar
+		// assets and, worse, under-wait for anything above a dollar.
+		const factors = this.usdFactors()
+		let inputUsd = new Decimal(0)
+		for (let i = 0; i < legs.length; i++) {
+			const factor = factors.get(normalizeSymbol(legs[i].pair.token0))
+			// Unreachable after the constructor's anchor check; refuse to size
+			// rather than mislabel a token quantity as dollars.
+			if (!factor) return null
+			inputUsd = inputUsd.plus(sized.legNotionals[i].mul(factor))
+		}
+		if (inputUsd.lte(0)) return null
+		return { inputUsd }
+	}
+
+	/**
+	 * USD per unit of every priceable symbol, derived from the operator's own
+	 * curves: USD stables are $1 anchors and each curve-priced cross-asset
+	 * pair's zero-notional mid is an FX edge (token1 per token0). Recomputed
+	 * per call so live curve edits through the admin server take effect
+	 * immediately; the graph is a handful of pairs, so this is trivial.
+	 *
+	 * When several pairs could price the same symbol, the **first anchoring
+	 * pair in declaration order wins** and later edges are ignored — factors
+	 * are never re-derived, which keeps the walk terminating and deterministic
+	 * (no averaging across inconsistent routes, no divergence on curve cycles).
+	 * USD stables are pinned at $1 and never re-priced through a curve, so a
+	 * mis-set stable/stable curve cannot contaminate the anchors. Declare the
+	 * pair you want as the reference first if an asset has multiple routes.
+	 */
+	private usdFactors(): Map<string, Decimal> {
+		const factors = new Map<string, Decimal>()
+		for (const symbol of USD_STABLE_SYMBOLS) factors.set(symbol, new Decimal(1))
+
+		let grew = true
+		while (grew) {
+			grew = false
+			for (const pair of this.pairs) {
+				if (isSameTokenPair(pair)) continue
+				const mid = pairMidRate(pair)
+				if (!mid) continue
+				const token0 = normalizeSymbol(pair.token0)
+				const token1 = normalizeSymbol(pair.token1)
+				const usd0 = factors.get(token0)
+				const usd1 = factors.get(token1)
+				if (usd0 && !usd1) {
+					// 1 token0 = mid token1 ⇒ usd(token1) = usd(token0) / mid.
+					factors.set(token1, usd0.div(mid))
+					grew = true
+				} else if (usd1 && !usd0) {
+					factors.set(token0, usd1.mul(mid))
+					grew = true
+				}
+			}
+		}
+		return factors
 	}
 }

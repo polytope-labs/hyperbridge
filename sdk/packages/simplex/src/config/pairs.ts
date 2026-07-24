@@ -1,6 +1,12 @@
 import { Decimal } from "decimal.js"
 import type { PriceCurvePoint } from "@/config/interpolated-curve"
-import { isRegistrySymbol, normalizeSymbol, registrySymbols, type AssetDefinition } from "@/config/asset-registry"
+import {
+	isRegistrySymbol,
+	normalizeSymbol,
+	registrySymbols,
+	USD_STABLE_SYMBOLS,
+	type AssetDefinition,
+} from "@/config/asset-registry"
 
 /**
  * One trading pair from the top-level `[[pairs]]` TOML array:
@@ -48,6 +54,47 @@ function isKnownSymbol(symbol: string, userAssets?: Record<string, AssetDefiniti
 	return Object.keys(userAssets ?? {}).some((key) => normalizeSymbol(key) === normalized)
 }
 
+/**
+ * Confirmation depth is sized in USD, and the only price feed is the operator's
+ * own curves: USD stables are $1 anchors and every curve-priced cross-asset
+ * pair is an FX edge between its two symbols. A token0 can therefore be priced
+ * iff it is a USD stable or connected to one through curve edges — possibly
+ * transitively (USDC/CNGN + ZARP/CNGN anchors ZARP through CNGN).
+ *
+ * Returns the token0 symbols (normalized) that cannot be priced. Same-token
+ * pairs carry no FX information and venue-priced (curve-less) pairs have no
+ * quote at validation time, so neither contributes an edge.
+ */
+export function unanchoredToken0Symbols(
+	pairs: Array<{ token0: string; token1: string; hasCurve: boolean }>,
+): string[] {
+	const anchored = new Set(USD_STABLE_SYMBOLS)
+	// Fixed-point: each pass extends reachability by at least one hop or stops.
+	let grew = true
+	while (grew) {
+		grew = false
+		for (const pair of pairs) {
+			const token0 = normalizeSymbol(pair.token0)
+			const token1 = normalizeSymbol(pair.token1)
+			if (!pair.hasCurve || token0 === token1) continue
+			if (anchored.has(token0) && !anchored.has(token1)) {
+				anchored.add(token1)
+				grew = true
+			} else if (anchored.has(token1) && !anchored.has(token0)) {
+				anchored.add(token0)
+				grew = true
+			}
+		}
+	}
+
+	const missing = new Set<string>()
+	for (const pair of pairs) {
+		const token0 = normalizeSymbol(pair.token0)
+		if (!anchored.has(token0)) missing.add(token0)
+	}
+	return [...missing]
+}
+
 function validateCurve(pairLabel: string, name: string, curve: PriceCurvePoint[] | undefined): void {
 	if (curve === undefined) return
 	if (!Array.isArray(curve) || curve.length < 1) {
@@ -56,6 +103,15 @@ function validateCurve(pairLabel: string, name: string, curve: PriceCurvePoint[]
 	for (const point of curve) {
 		if (point.amount === undefined || point.price === undefined) {
 			throw new Error(`pairs.${pairLabel}: each ${name} point must have 'amount' and 'price'`)
+		}
+		let price: Decimal
+		try {
+			price = new Decimal(point.price)
+		} catch {
+			throw new Error(`pairs.${pairLabel}: ${name} price must be a decimal string, got '${point.price}'`)
+		}
+		if (!price.isFinite() || price.lte(0)) {
+			throw new Error(`pairs.${pairLabel}: ${name} prices must be positive, got '${point.price}'`)
 		}
 	}
 }
@@ -158,5 +214,22 @@ export function validatePairConfigs(
 				`pairs.${label}: provide a bid and/or ask price curve, or configure [vault.uniswapV4] positions for pool-based pricing`,
 			)
 		}
+	}
+
+	// Every pair's token0 sizes orders for the confirmation-depth curve, whose
+	// amount axis is USD — so every token0 must be priceable in USD from the
+	// declared curves alone. Fail at startup, not with miscalibrated (or
+	// unpriceable) reorg protection at fill time.
+	const unanchored = unanchoredToken0Symbols(
+		pairs.map((p) => ({
+			token0: p.token0,
+			token1: p.token1,
+			hasCurve: (p.bidPriceCurve?.length ?? 0) >= 1 || (p.askPriceCurve?.length ?? 0) >= 1,
+		})),
+	)
+	if (unanchored.length > 0) {
+		throw new Error(
+			`pairs: no USD anchor for ${unanchored.join(", ")} — confirmation depth is sized in USD using your own curves as the price feed. Add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset`,
+		)
 	}
 }

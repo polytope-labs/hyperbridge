@@ -40,9 +40,12 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 }
 
 /**
- * Symbols pegged to 1 USD, used to gate Uniswap venue pricing (a pool's
- * USD-per-token quote only inverts into a pair rate when token0 is a dollar).
- * Trade pricing never uses this as a price.
+ * Symbols pegged to 1 USD. Two roles: gating Uniswap venue pricing (a pool's
+ * USD-per-token quote only inverts into a pair rate when token0 is a dollar),
+ * and seeding the USD anchor graph at $1 — the roots from which every pair's
+ * token0 must be reachable so confirmation depth can be sized in USD (see
+ * `unanchoredToken0Symbols` and `FXFiller.usdFactors`). Trade pricing never
+ * uses this as a price.
  */
 export const USD_STABLE_SYMBOLS: ReadonlySet<string> = new Set(["USDC", "USDT", "DAI"])
 

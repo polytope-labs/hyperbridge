@@ -11,7 +11,7 @@ import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES, FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
@@ -118,40 +118,6 @@ interface VaultTomlConfig {
 }
 
 
-/** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
-const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
-	"1": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 15 },
-		],
-	}, // Ethereum (~12s blocks, ~24s–3min)
-	"56": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 3 },
-		],
-	}, // BNB Chain (~3s blocks, fast finality)
-	"137": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 32 },
-		],
-	}, // Polygon (~2s blocks, milestone finality)
-	"8453": {
-		points: [
-			{ amount: "1000", value: 2 },
-			{ amount: "100000", value: 90 },
-		],
-	}, // Base (~2s blocks, L2)
-	"42161": {
-		points: [
-			{ amount: "1000", value: 8 },
-			{ amount: "100000", value: 720 },
-		],
-	}, // Arbitrum (~0.25s blocks, L2)
-}
-
 const DEFAULT_ADMIN_PORT = 8686
 
 interface QueueConfig {
@@ -194,8 +160,10 @@ interface FillerTomlConfig {
 	pairs?: PairConfig[]
 	/**
 	 * Per-chain confirmation policies for cross-chain orders, keyed by chain id.
-	 * Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum). The
-	 * curve amount axis is the order's token0 notional.
+	 * Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum,
+	 * Unichain); every configured chain must be covered or startup fails. The
+	 * curve amount axis is the order's USD value, derived from the pair curves
+	 * via the USD anchors.
 	 */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
@@ -467,6 +435,10 @@ program
 					...DEFAULT_CONFIRMATION_POLICIES,
 					...(config.confirmationPolicies ?? {}),
 				})
+				// Orders can be sourced on any configured chain (watch-only ones
+				// included), so each needs a confirmation curve — fail at boot,
+				// not with silently dropped orders at fill time.
+				confirmationPolicy.assertCovers(resolvedChains.map((c) => c.chainId))
 
 				const fundingVenues: FundingVenue[] = []
 				// Vault first: source stablecoins from the idle-yield treasury before

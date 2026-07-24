@@ -87,7 +87,7 @@ askPriceCurve = [
 
 Simplex maintains the symbol → contract-address registry, so pairs reference assets purely by symbol — no address configuration. It ships **USDC, USDT, DAI, cNGN** (resolved per chain from the SDK chain registry, testnets included) plus a curated table of stablecoin deployments on the supported mainnets: **ZARP** (South African rand — Ethereum, Polygon, Base), **EURC** (Circle euro — Ethereum, Base), **XSGD** (StraitsX Singapore dollar — Ethereum, Polygon) and **TRYB** (BiLira Turkish lira — Ethereum). Curated addresses are taken from the issuer's official documentation and verified on-chain (`symbol()`/`decimals()`) before inclusion. Symbols are case-insensitive; a pair simply doesn't trade on chains where an asset isn't deployed.
 
-The registry holds addresses only — there are no reference prices anywhere. Every quantity that sizes a pair is denominated in the pair's own `token0`: the curve `amount` axis, the per-order `maxOrderSize` cap, and the order value fed to confirmation policies. The curves are the only price source.
+The registry holds addresses only — there are no reference prices anywhere. Every quantity that sizes a pair is denominated in the pair's own `token0`: the curve `amount` axis and the per-order `maxOrderSize` cap. The curves are the only price source — including for confirmation sizing, where the order's USD value is derived from them (see below).
 
 For assets the registry doesn't ship — or to override an address for your deployment — the optional **`[assets]`** table is the escape hatch, a bare symbol → chain → address map:
 
@@ -107,13 +107,13 @@ askPriceCurve = [ { amount = "0", price = "5.4" } ]
 
 Each **`[[pairs]]`** entry is one market: `token0`/`token1` symbols, a per-order **`maxOrderSize`** cap in token0 units, and bid/ask curves in **token1 per token0** keyed by token0 notional. Every pair is priced, capped, and sized independently — USDC/cNGN and USDT/cNGN can carry different rates, so a USDT depeg is handled by adjusting one pair's curves (live, via the admin server started with `--admin-port`) instead of being silently absorbed. Orders whose legs match no configured pair are rejected, so the pair list doubles as an allowlist of the markets the LP serves.
 
-Cross-chain confirmation policies are sized with the order's **token0 notional** (each leg converted through its pair's own curve) — for USD-quoted pairs that is a dollar amount; for others it is denominated in the quote asset, so tune the per-chain confirmation curves accordingly.
+Cross-chain confirmation policies are sized with the order's **USD value**, derived entirely from your own curves: USDC/USDT/DAI are $1 anchors, and every curve-priced cross-asset pair is an FX edge between its two symbols. That makes an anchor a startup requirement — every pair's `token0` must be a USD stable or connect to one through your curve-priced pairs, directly or transitively (USDC/cNGN plus ZARP/cNGN anchors ZARP through cNGN). A config with an unanchorable `token0` refuses to start.
 
 #### Same-token markets
 
 A pair may quote the **same symbol on both sides** — the same-asset cross-chain market (USDC on one chain in, USDC on another out). Same-token pairs are **ask-only** (both directions are one market) and their ask prices sit **at or below par**: the price is the fraction of the input paid back out, so `0.9995` keeps 5 bps of every fill. Prices above 1 are rejected at startup — they would pay out more than received.
 
-Same-token markets are **cross-chain only** — a same-chain order (source == destination) would be a pay-more-get-less self-swap and is rejected. Any registry asset works, USD-stable or not (e.g. a cNGN/cNGN transfer market across chains): the profit gate checks that each same-token leg comes out ahead **in its own asset** (a unit-independent sign check on input − output), and `order.fees` separately covers execution in the source fee token. So no USD price feed is needed for the asset itself.
+Same-token markets are **cross-chain only** — a same-chain order (source == destination) would be a pay-more-get-less self-swap and is rejected. Any registry asset works, USD-stable or not (e.g. a cNGN/cNGN transfer market across chains): the profit gate checks that each same-token leg comes out ahead **in its own asset** (a unit-independent sign check on input − output), and `order.fees` separately covers execution in the source fee token. The USD-anchor startup rule still applies, and a same-token pair contributes no FX edge of its own — a non-USD same-token market therefore needs a curve-priced USD pair for the asset alongside it (e.g. USDC/cNGN next to cNGN/cNGN) so confirmation depth can be sized in USD.
 
 Unlike cross-asset fills, the same-token spread is **realized in-kind on the fill itself**, so it counts toward the profitability gate: an order whose fees alone don't cover gas still fills when fees plus spread do. Pre-position the asset on each destination chain (optionally backed by the [`[vault]` treasury](#vault-treasury-erc-4626)).
 
@@ -416,7 +416,7 @@ Before processing a cross-chain order, Simplex waits for enough block confirmati
 
 #### Built-in Defaults
 
-Simplex ships with default confirmation policies for common chains. These apply automatically when no user-configured policy exists for a chain. User-configured policies override the default for that chain.
+Simplex ships with default confirmation policies for common chains. These apply automatically when no user-configured policy exists for a chain. User-configured policies override the default for that chain. Every configured chain must be covered by a built-in default or a custom entry — a chain with neither fails at startup rather than silently dropping that chain's cross-chain orders at fill time.
 
 | Chain | Chain ID | Min ($1,000) | Max ($100,000) | Block Time |
 |---|---|---|---|---|
@@ -425,12 +425,13 @@ Simplex ships with default confirmation policies for common chains. These apply 
 | Polygon | 137 | 2 blocks (~4s) | 32 blocks (~1m) | ~2s |
 | Base | 8453 | 2 blocks (~4s) | 90 blocks (~3m) | ~2s |
 | Arbitrum | 42161 | 8 blocks (~2s) | 720 blocks (~3m) | ~0.25s |
+| Unichain | 130 | 2 blocks (~2s) | 180 blocks (~3m) | ~1s |
 
 Values between the min and max order amounts are linearly interpolated.
 
 #### Custom Overrides
 
-Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's token0 notional (a dollar amount for USD-quoted pairs):
+Confirmation policies are configured at the top level under `[confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults. The curve's `amount` axis is the order's USD value, computed from your pair curves via the USD anchors — honest for non-USD pairs too, so one curve per chain is correctly calibrated for every market on it:
 
 ```toml lineNumbers
 [confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)

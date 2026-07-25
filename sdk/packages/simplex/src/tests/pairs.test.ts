@@ -760,7 +760,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				totalCostInSourceFeeToken: estimate.fillGas,
 				relayerFeeInSourceFeeToken: estimate.relayer,
 				dispatchFee: 0n,
-				nativeDispatchFee: 0n,
 				callGasLimit: 0n,
 			}),
 		} as any

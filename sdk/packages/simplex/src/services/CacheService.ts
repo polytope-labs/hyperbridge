@@ -6,7 +6,6 @@ interface GasEstimateCache {
 	totalCostInSourceFeeToken: string
 	relayerFeeInSourceFeeToken: string
 	dispatchFee: string
-	nativeDispatchFee: string
 	callGasLimit: string
 	verificationGasLimit: string
 	preVerificationGas: string
@@ -144,7 +143,6 @@ export class CacheService {
 		totalCostInSourceFeeToken: bigint
 		relayerFeeInSourceFeeToken: bigint
 		dispatchFee: bigint
-		nativeDispatchFee: bigint
 		callGasLimit: bigint
 		verificationGasLimit: bigint
 		preVerificationGas: bigint
@@ -160,7 +158,6 @@ export class CacheService {
 					totalCostInSourceFeeToken: BigInt(cache.totalCostInSourceFeeToken),
 					relayerFeeInSourceFeeToken: BigInt(cache.relayerFeeInSourceFeeToken ?? "0"),
 					dispatchFee: BigInt(cache.dispatchFee),
-					nativeDispatchFee: BigInt(cache.nativeDispatchFee),
 					callGasLimit: BigInt(cache.callGasLimit),
 					verificationGasLimit: BigInt(cache.verificationGasLimit),
 					preVerificationGas: BigInt(cache.preVerificationGas),
@@ -182,7 +179,6 @@ export class CacheService {
 		totalCostInSourceFeeToken: bigint,
 		relayerFeeInSourceFeeToken: bigint,
 		dispatchFee: bigint,
-		nativeDispatchFee: bigint,
 		callGasLimit: bigint,
 		verificationGasLimit: bigint,
 		preVerificationGas: bigint,
@@ -200,7 +196,6 @@ export class CacheService {
 				totalCostInSourceFeeToken: totalCostInSourceFeeToken.toString(),
 				relayerFeeInSourceFeeToken: relayerFeeInSourceFeeToken.toString(),
 				dispatchFee: dispatchFee.toString(),
-				nativeDispatchFee: nativeDispatchFee.toString(),
 				callGasLimit: callGasLimit.toString(),
 				verificationGasLimit: verificationGasLimit.toString(),
 				preVerificationGas: preVerificationGas.toString(),

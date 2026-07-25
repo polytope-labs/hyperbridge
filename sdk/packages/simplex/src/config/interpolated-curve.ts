@@ -157,6 +157,19 @@ export class InterpolatedCurve {
  * Manages confirmation block requirements per chain.
  * Each chain has its own curve mapping order value to required confirmations.
  */
+/**
+ * Parses a per-chain config key. Every other table in the config writes chains
+ * as state machine ids ("EVM-1"), so both "EVM-1" and bare "1" are accepted;
+ * anything else returns null and callers MUST fail loudly — a silently
+ * discarded chain key has meant committing capital on a chain configured as
+ * watch-only, or hardening a confirmation curve that never applied.
+ */
+export function parseChainKey(key: string): number | null {
+	const normalized = key.trim().replace(/^EVM-/i, "")
+	if (!/^\d+$/.test(normalized)) return null
+	return Number(normalized)
+}
+
 export class ConfirmationPolicy {
 	private policies: Map<number, InterpolatedCurve>
 
@@ -164,8 +177,17 @@ export class ConfirmationPolicy {
 		this.policies = new Map()
 
 		Object.entries(policyConfig).forEach(([chainId, config]) => {
-			const curve = new InterpolatedCurve(config, `Chain ${chainId} confirmation policy`)
-			this.policies.set(Number(chainId), curve)
+			const parsed = parseChainKey(chainId)
+			if (parsed === null) {
+				throw new Error(
+					`Confirmation policy key '${chainId}' is not a chain id — write [confirmationPolicies."EVM-<id>"] or [confirmationPolicies."<id>"]`,
+				)
+			}
+			const curve = new InterpolatedCurve(config, `Chain ${parsed} confirmation policy`)
+			// Later entries override earlier ones after normalization, so a user
+			// key "EVM-1" replaces the built-in default keyed "1" instead of
+			// sitting beside it as a dead entry.
+			this.policies.set(parsed, curve)
 		})
 	}
 

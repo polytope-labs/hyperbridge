@@ -355,6 +355,22 @@ describe("ConfirmationPolicy", () => {
 			expect(() => policy.assertCovers([1, 56, 137, 8453, 42161, 130])).not.toThrow()
 		})
 
+		it('accepts "EVM-<id>" keys and lets them override the bare-number default', () => {
+			// The natural key style everywhere else in the config must not become
+			// a dead entry sitting beside the default it was meant to replace.
+			const policy = new ConfirmationPolicy({
+				...DEFAULT_CONFIRMATION_POLICIES,
+				"EVM-1": { points: [{ amount: "0", value: 40 }, { amount: "1", value: 40 }] },
+			})
+			expect(policy.getConfirmationBlocks(1, new Decimal(1_000_000))).toBe(40)
+		})
+
+		it("rejects garbage chain keys loudly instead of discarding them", () => {
+			expect(
+				() => new ConfirmationPolicy({ ethereum: { points: [{ amount: "0", value: 1 }, { amount: "1", value: 1 }] } }),
+			).toThrow(/not a chain id/)
+		})
+
 		it("user entries override a default per chain without losing the rest", () => {
 			// Mirrors bin's startup merge: spread defaults, then user config.
 			const policy = new ConfirmationPolicy({

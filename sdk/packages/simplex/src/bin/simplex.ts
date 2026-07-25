@@ -11,7 +11,12 @@ import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES, FillerPricePolicy } from "@/config/interpolated-curve"
+import {
+	ConfirmationPolicy,
+	DEFAULT_CONFIRMATION_POLICIES,
+	FillerPricePolicy,
+	parseChainKey,
+} from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
@@ -295,10 +300,15 @@ program
 					// Per-chain configuration
 					watchOnlyConfig = {}
 					Object.entries(config.simplex.watchOnly).forEach(([chainIdStr, value]) => {
-						const chainId = Number.parseInt(chainIdStr, 10)
-						if (!Number.isNaN(chainId)) {
-							watchOnlyConfig![chainId] = value === true
+						const chainId = parseChainKey(chainIdStr)
+						if (chainId === null) {
+							// Never discard silently: a dropped key here means the
+							// filler commits capital on a chain meant to be observed.
+							throw new Error(
+								`simplex.watchOnly key '${chainIdStr}' is not a chain id — use "EVM-<id>" or "<id>"`,
+							)
 						}
+						watchOnlyConfig![chainId] = value === true
 					})
 				}
 			}
@@ -427,6 +437,7 @@ program
 							exotic: `${pair.token0}/${pair.token1}`,
 							bid: pair.bidPricePolicy,
 							ask: pair.askPricePolicy,
+							sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
 						})
 					}
 				}
@@ -545,14 +556,18 @@ program
 					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
 					// Collect exotic token addresses (the non-quote side of cross-asset
-					// pairs) via the asset registry; same-token pairs have no exotic side.
-					const token1: Record<string, string> = {}
+					// pairs) via the asset registry; same-token pairs have no exotic
+					// side. Every pair's token1 is tracked — keying one address per
+					// chain would silently drop all but the last pair's metrics.
+					const token1: Record<string, string[]> = {}
 					for (const pair of config.pairs ?? []) {
 						if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) continue
 						for (const chain of resolvedChains) {
 							const chainName = `EVM-${chain.chainId}`
 							const address = assetRegistry.getAddress(pair.token1, chainName)
-							if (address) token1[chainName] = address
+							if (!address) continue
+							const list = (token1[chainName] ??= [])
+							if (!list.includes(address)) list.push(address)
 						}
 					}
 					metrics = new MetricsService({
@@ -785,6 +800,11 @@ function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {
 
 	// Per-chain confirmation policies (merged over built-in defaults at startup).
 	for (const [chainId, policy] of Object.entries(config.confirmationPolicies ?? {})) {
+		if (parseChainKey(chainId) === null) {
+			throw new Error(
+				`Confirmation policy key '${chainId}' is not a chain id — write [confirmationPolicies."EVM-<id>"] or [confirmationPolicies."<id>"]`,
+			)
+		}
 		if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
 			throw new Error(
 				`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,

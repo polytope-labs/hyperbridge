@@ -509,7 +509,7 @@ services:
         image: polytopelabs/simplex:latest
         container_name: simplex
         restart: unless-stopped
-        command: ["--config", "/app/config.toml", "--data-dir", "/app", "--port", "9090"]
+        command: ["run", "--config", "/app/config.toml", "--data-dir", "/app", "--port", "9090"]
         ports:
             - "9090:9090"  # Prometheus metrics
         volumes:

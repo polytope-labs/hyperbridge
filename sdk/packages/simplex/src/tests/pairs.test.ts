@@ -98,6 +98,9 @@ describe("AssetRegistry", () => {
 	it("rejects malformed definitions", () => {
 		expect(() => validateAssetDefinitions({ FOO: { [CHAIN]: "0xnope" as HexString } })).toThrow(/invalid address/)
 		expect(() => validateAssetDefinitions({ FOO: {} })).toThrow(/at least one chain/)
+		// A typo'd chain key would otherwise silently mean "not deployed there".
+		expect(() => validateAssetDefinitions({ FOO: { EVM137: ZARP } })).toThrow(/chain key/)
+		expect(() => validateAssetDefinitions({ FOO: { "evm-137": ZARP } })).toThrow(/chain key/)
 		// Case-insensitive duplicate.
 		expect(() =>
 			validateAssetDefinitions({
@@ -834,6 +837,32 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
 			parseUnits("100", 6), // fees easily cover exec, but spread on the fill = 0
+		)
+		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("rounds the credited input DOWN — decimal dust cannot flip break-even to profitable", async () => {
+		// CNGN is 18-dec on the source and 6-dec on the destination. The input
+		// exceeds the requested output by one atto-unit: ceiling that credit to
+		// 6 decimals would fabricate "+1 unit" of spread and pass the gate.
+		const CNGN6 = "0x7777777777777777777777777777777777777777" as HexString
+		decimalsByAddr[CNGN6.toLowerCase()] = 6
+		const registry = new AssetRegistry(cfg, {
+			CNGN: { [SRC]: CNGN, [DST]: CNGN6 },
+		})
+		const filler = gateFiller(
+			[
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+				{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.999") },
+			],
+			registry,
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"floor-dust",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1000", 18) + 1n }, // 1000.000000000000000001
+			{ token: bytes20ToBytes32(CNGN6), amount: parseUnits("1000", 6) }, // demands full par payout
+			parseUnits("100", 6),
 		)
 		expect(await filler.calculateProfitability(o)).toBe(0)
 	})

@@ -134,6 +134,14 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
 			throw new Error(`assets.${symbol}: entry must map at least one chain to a token address`)
 		}
 		for (const [chain, address] of entries) {
+			// Lookups are exact-string matches against resolved chain names
+			// ("EVM-<id>"), so a typo'd key would silently mean "not deployed
+			// on this chain" and the pair would never trade there.
+			if (!/^EVM-\d+$/.test(chain)) {
+				throw new Error(
+					`assets.${symbol}: chain key '${chain}' must be "EVM-<chainId>" (e.g. "EVM-137")`,
+				)
+			}
 			if (!isAddress(address) || address.toLowerCase() === ZERO_ADDRESS) {
 				throw new Error(`assets.${symbol}: invalid address '${address}' for chain '${chain}'`)
 			}

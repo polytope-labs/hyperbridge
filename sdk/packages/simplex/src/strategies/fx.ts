@@ -3,7 +3,6 @@ import {
 	Order,
 	ExecutionResult,
 	HexString,
-	adjustDecimals,
 	bytes32ToBytes20,
 	type ERC7821Call,
 	TokenInfo,
@@ -54,6 +53,20 @@ export interface TradingPair {
 /** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
 function isSameTokenPair(pair: TradingPair): boolean {
 	return normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
+}
+
+/**
+ * Decimal rescale that truncates when precision is lost. The SDK's
+ * `adjustDecimals` rounds UP — correct for fees, where under-charging is the
+ * failure mode — but profit accounting must round against itself: a credit
+ * rounded up can turn an exactly break-even fill into "+1 unit profitable".
+ * Callers pass non-negative credits (spreads are gated per leg before any
+ * negative value could matter), where truncation equals flooring.
+ */
+function adjustDecimalsFloor(amount: bigint, fromDecimals: number, toDecimals: number): bigint {
+	if (fromDecimals === toDecimals) return amount
+	if (fromDecimals < toDecimals) return amount * BigInt(10 ** (toDecimals - fromDecimals))
+	return amount / BigInt(10 ** (fromDecimals - toDecimals))
 }
 
 /** Zero-notional mid of a pair's curves (token1 per token0), or null when curve-less. */
@@ -693,10 +706,10 @@ export class FXFiller implements FillerStrategy {
 					// output paid. Positive iff the filler nets the asset — a sign check
 					// that is valid for any asset (USD-stable or not), since it never
 					// crosses into another unit.
-					const convertedInput = adjustDecimals(input.amount, inputDecimals, outputDecimals)
+					const convertedInput = adjustDecimalsFloor(input.amount, inputDecimals, outputDecimals)
 					const spread = convertedInput - output.amount
 					if (spread <= 0n) sameTokenAllProfitable = false
-					realizedSpreadProfit += adjustDecimals(spread, outputDecimals, feeTokenDecimals)
+					realizedSpreadProfit += adjustDecimalsFloor(spread, outputDecimals, feeTokenDecimals)
 					hasSameTokenSpread = true
 					continue
 				}

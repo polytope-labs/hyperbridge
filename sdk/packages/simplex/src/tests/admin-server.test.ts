@@ -151,6 +151,51 @@ describe("AdminServer", () => {
 		expect(ask.getPoints()).toEqual(ASK_POINTS)
 	})
 
+	it("rejects a live edit that would cross the book (same invariants as startup)", async () => {
+		const { base, bid, ask } = await startServer()
+		const before = { bid: bid.getPoints(), ask: ask.getPoints() }
+		// Ask above the current bid → crossed. One curl must not recreate a
+		// config that boot refuses.
+		const crossed = await put(base, "/api/strategies/1/curves", {
+			askPriceCurve: [{ amount: "0", price: "1600" }],
+		})
+		expect(crossed.status).toBe(400)
+		expect(((await crossed.json()) as { error: string }).error).toMatch(/crossed/)
+		// Bid below the current ask is the same violation from the other side.
+		const bidBelow = await put(base, "/api/strategies/1/curves", {
+			bidPriceCurve: [{ amount: "0", price: "1500" }],
+		})
+		expect(bidBelow.status).toBe(400)
+		// Nothing was applied.
+		expect(bid.getPoints()).toEqual(before.bid)
+		expect(ask.getPoints()).toEqual(before.ask)
+		// A consistent two-sided update that stays uncrossed is fine.
+		const ok = await put(base, "/api/strategies/1/curves", {
+			bidPriceCurve: [{ amount: "0", price: "1600" }],
+			askPriceCurve: [{ amount: "0", price: "1590" }],
+		})
+		expect(ok.status).toBe(200)
+	})
+
+	it("rejects same-token live edits at or above par", async () => {
+		const sameTokenAsk = new FillerPricePolicy({ points: [{ amount: "0", price: "0.999" }] })
+		server = new AdminServer([{ index: 1, exotic: "USDC/USDC", ask: sameTokenAsk, sameToken: true }])
+		const port = await server.start(0)
+		const base = `http://127.0.0.1:${port}`
+
+		const atPar = await put(base, "/api/strategies/1/curves", {
+			askPriceCurve: [{ amount: "0", price: "1" }],
+		})
+		expect(atPar.status).toBe(400)
+		expect(((await atPar.json()) as { error: string }).error).toMatch(/strictly below 1/)
+		expect(sameTokenAsk.getPoints()).toEqual([{ amount: "0", price: "0.999" }])
+
+		const belowPar = await put(base, "/api/strategies/1/curves", {
+			askPriceCurve: [{ amount: "0", price: "0.995" }],
+		})
+		expect(belowPar.status).toBe(200)
+	})
+
 	it("returns 404 for unknown strategies and routes", async () => {
 		const { base } = await startServer()
 		expect((await put(base, "/api/strategies/9/curves", { bidPriceCurve: BID_POINTS })).status).toBe(404)

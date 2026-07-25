@@ -342,4 +342,56 @@ describe("QuorumPublicClient — tiered failure handling (stubbed clients)", () 
 		// tiered head = min(op 120, 2nd public 115) = 115 → 115-100+1 = 16.
 		await expect(c.getTransactionConfirmations({ hash: "0x1" as any })).resolves.toBe(16n)
 	})
+
+	// ── Early exit: reads resolve the moment the tiered quorum is met; a hung
+	// provider (30s timeout × 3 retries in production) must never stall the
+	// hot path once its vote can no longer change the outcome. ──
+
+	/** A provider whose requests never settle. */
+	const hungClient = () =>
+		({
+			getBlockNumber: () => new Promise(() => {}),
+			getTransactionReceipt: () => new Promise(() => {}),
+			getLogs: () => new Promise(() => {}),
+		}) as any
+	/** Fails crisply when early exit doesn't trigger, instead of a suite timeout. */
+	const within = <T>(promise: Promise<T>, ms = 2000): Promise<T> =>
+		Promise.race([
+			promise,
+			new Promise<T>((_, reject) =>
+				setTimeout(() => reject(new Error("no early exit: call blocked on the hung provider")), ms),
+			),
+		])
+
+	it("getBlockNumber resolves once the tiered quorum is met, ignoring hung providers", async () => {
+		const c = makeClient(1, 4)
+		c.clients[0] = okHead(120n) // operator
+		c.clients[1] = okHead(118n)
+		c.clients[2] = okHead(119n)
+		c.clients[3] = hungClient()
+		c.clients[4] = hungClient()
+		// op 120, two public witnesses {119, 118} → tiered head min(120, 118) = 118.
+		await expect(within(c.getBlockNumber())).resolves.toBe(118n)
+	})
+
+	it("confirmations resolve on a positive quorum without waiting for stragglers", async () => {
+		const c = makeClient(1, 4)
+		c.clients[0] = receiptClient(120n, "0xabc", 100n)
+		c.clients[1] = receiptClient(118n, "0xabc", 100n)
+		c.clients[2] = receiptClient(115n, "0xabc", 100n)
+		c.clients[3] = hungClient()
+		c.clients[4] = hungClient()
+		await expect(within(c.getTransactionConfirmations({ hash: "0x1" as any }))).resolves.toBe(16n)
+	})
+
+	it("getLogs returns the agreed result while stragglers are still pending", async () => {
+		const c = makeClient(1, 4)
+		const emptyLogs = () => ({ getLogs: async () => [] }) as any
+		c.clients[0] = emptyLogs()
+		c.clients[1] = emptyLogs()
+		c.clients[2] = emptyLogs()
+		c.clients[3] = hungClient()
+		c.clients[4] = hungClient()
+		await expect(within(c.getLogs({} as any))).resolves.toEqual([])
+	})
 })

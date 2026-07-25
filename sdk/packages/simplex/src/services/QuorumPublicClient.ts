@@ -170,28 +170,96 @@ export class QuorumPublicClient {
 	}
 
 	/**
+	 * Settles per-client tasks incrementally and resolves the moment the
+	 * evaluator can decide from the responses seen so far — the hot path never
+	 * blocks on the slowest provider (a hung endpoint with a 30s timeout × 3
+	 * retries would otherwise stall every confirmation poll). Stragglers settle
+	 * out of band and are ignored. `tryDecide` returns undefined to keep
+	 * waiting; once every task has settled, `finalize` must decide (it throws
+	 * the QuorumError when the full response set still has no quorum). Early
+	 * exit never weakens the trust model — a decision still requires the same
+	 * tiered quorum, it just doesn't wait for votes it no longer needs.
+	 */
+	private settleUntilQuorum<T, R>(
+		tasks: Promise<T>[],
+		tryDecide: (fulfilled: ReadonlyArray<{ idx: number; value: T }>) => R | undefined,
+		finalize: (
+			fulfilled: ReadonlyArray<{ idx: number; value: T }>,
+			failures: ReadonlyArray<{ idx: number; error: unknown }>,
+		) => R,
+	): Promise<R> {
+		return new Promise<R>((resolve, reject) => {
+			const fulfilled: Array<{ idx: number; value: T }> = []
+			const failures: Array<{ idx: number; error: unknown }> = []
+			let outstanding = tasks.length
+			let done = false
+
+			const evaluate = () => {
+				if (done) return
+				try {
+					const early = tryDecide(fulfilled)
+					if (early !== undefined) {
+						done = true
+						resolve(early)
+						return
+					}
+					if (outstanding === 0) {
+						done = true
+						resolve(finalize(fulfilled, failures))
+					}
+				} catch (error) {
+					done = true
+					reject(error)
+				}
+			}
+
+			if (outstanding === 0) {
+				evaluate()
+				return
+			}
+			tasks.forEach((task, idx) => {
+				task.then(
+					(value) => {
+						outstanding--
+						fulfilled.push({ idx, value })
+						evaluate()
+					},
+					(error) => {
+						outstanding--
+						failures.push({ idx, error })
+						evaluate()
+					},
+				)
+			})
+		})
+	}
+
+	/**
 	 * Highest block head backed by a full tiered quorum. Throws {@link QuorumError}
 	 * when the operator or public tier cannot be met from the responders.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const settled = await Promise.allSettled(this.clients.map((c) => c.getBlockNumber()))
+		const toHeads = (fulfilled: ReadonlyArray<{ idx: number; value: bigint }>) =>
+			fulfilled.map(({ idx, value }) => ({ idx, head: value }))
 
-		const heads: { idx: number; head: bigint }[] = []
-		const failures: { idx: number; error: unknown }[] = []
-		for (let idx = 0; idx < settled.length; idx++) {
-			const outcome = settled[idx]
-			if (outcome.status === "fulfilled") heads.push({ idx, head: outcome.value })
-			else failures.push({ idx, error: outcome.reason })
-		}
-
-		const head = this.tieredHead(heads)
-		if (head === null) {
-			throw new QuorumError(
-				`Quorum not reached for getBlockNumber: ${this.describeResponders(heads.map((h) => h.idx))}. ` +
-					this.formatFailures(failures),
-			)
-		}
-		return head
+		return this.settleUntilQuorum(
+			this.clients.map((c) => c.getBlockNumber()),
+			// Early exit as soon as a tiered quorum is satisfiable. Late voters
+			// could only raise the reported head; the earlier (lower) head is
+			// conservative for every consumer (fewer confirmations counted,
+			// smaller scan windows).
+			(fulfilled) => this.tieredHead(toHeads(fulfilled)) ?? undefined,
+			(fulfilled, failures) => {
+				const head = this.tieredHead(toHeads(fulfilled))
+				if (head === null) {
+					throw new QuorumError(
+						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.map((f) => f.idx))}. ` +
+							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
+					)
+				}
+				return head
+			},
+		)
 	}
 
 	/**
@@ -212,8 +280,23 @@ export class QuorumPublicClient {
 	 * endpoints.
 	 */
 	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
-		const settled = await Promise.allSettled(
-			this.clients.map(async (client, idx) => {
+		type ReceiptProbe = { head: bigint; receipt: { blockHash: string; blockNumber: bigint } | null }
+		const toViews = (fulfilled: ReadonlyArray<{ idx: number; value: ReceiptProbe }>): ReceiptView[] => {
+			const views: ReceiptView[] = []
+			for (const { idx, value } of fulfilled) {
+				if (!value.receipt) continue
+				views.push({
+					isOperator: this.isOperator(idx),
+					blockHash: value.receipt.blockHash,
+					blockNumber: value.receipt.blockNumber,
+					head: value.head,
+				})
+			}
+			return views
+		}
+
+		return this.settleUntilQuorum(
+			this.clients.map(async (client): Promise<ReceiptProbe> => {
 				// Head first: a failure here means the endpoint is unresponsive.
 				const head = await client.getBlockNumber()
 				let receipt: { blockHash: string; blockNumber: bigint } | null = null
@@ -224,39 +307,25 @@ export class QuorumPublicClient {
 					if (!isReceiptNotFound(error)) throw error
 					// not-found: a valid "no" vote — keep the endpoint as responsive.
 				}
-				return { idx, head, receipt }
+				return { head, receipt }
 			}),
+			// Early exit only on a POSITIVE quorum: an agreeing inclusion group can
+			// only grow, so the first satisfiable quorum is final. Not-found votes
+			// never decide early — "not confirmed" needs the full response set.
+			(fulfilled) => aggregateConfirmations(toViews(fulfilled), this.operatorQuorum, this.requiredPublic) ?? undefined,
+			(fulfilled, failures) => {
+				const confirmations = aggregateConfirmations(toViews(fulfilled), this.operatorQuorum, this.requiredPublic)
+				if (confirmations === null) {
+					throw new QuorumError(
+						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by an ` +
+							`operator quorum (${this.operatorQuorum}) plus ${this.requiredPublic} public witness(es). ` +
+							`${this.describeResponders(fulfilled.map((f) => f.idx))}. ` +
+							this.formatFailures(failures.map(({ error }) => ({ idx: -1, error }))),
+					)
+				}
+				return confirmations
+			},
 		)
-
-		const views: ReceiptView[] = []
-		const responders: number[] = []
-		const failures: { idx: number; error: unknown }[] = []
-		for (const outcome of settled) {
-			if (outcome.status !== "fulfilled") {
-				failures.push({ idx: -1, error: outcome.reason })
-				continue
-			}
-			const { idx, head, receipt } = outcome.value
-			responders.push(idx)
-			if (receipt) {
-				views.push({
-					isOperator: this.isOperator(idx),
-					blockHash: receipt.blockHash,
-					blockNumber: receipt.blockNumber,
-					head,
-				})
-			}
-		}
-
-		const confirmations = aggregateConfirmations(views, this.operatorQuorum, this.requiredPublic)
-		if (confirmations === null) {
-			throw new QuorumError(
-				`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by an ` +
-					`operator quorum (${this.operatorQuorum}) plus ${this.requiredPublic} public witness(es). ` +
-					`${this.describeResponders(responders)}. ${this.formatFailures(failures)}`,
-			)
-		}
-		return confirmations
 	}
 
 	/**
@@ -279,36 +348,43 @@ export class QuorumPublicClient {
 	): Promise<GetLogsReturnType<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>> {
 		type ResultType = GetLogsReturnType<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>
 
-		const settled = await Promise.allSettled(
-			this.clients.map((client) => client.getLogs<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>(params)),
-		)
-
-		const groups = new Map<string, { result: ResultType; providerIdxs: number[] }>()
-		const failures: { idx: number; error: unknown }[] = []
-		for (let idx = 0; idx < settled.length; idx++) {
-			const outcome = settled[idx]
-			if (outcome.status === "fulfilled") {
-				const result = outcome.value as ResultType
-				const key = canonicalizeLogs(result)
+		const groupOf = (fulfilled: ReadonlyArray<{ idx: number; value: ResultType }>) => {
+			const groups = new Map<string, { result: ResultType; providerIdxs: number[] }>()
+			for (const { idx, value } of fulfilled) {
+				const key = canonicalizeLogs(value)
 				const existing = groups.get(key)
 				if (existing) existing.providerIdxs.push(idx)
-				else groups.set(key, { result, providerIdxs: [idx] })
-			} else {
-				failures.push({ idx, error: outcome.reason })
+				else groups.set(key, { result: value, providerIdxs: [idx] })
 			}
+			return groups
 		}
 
-		// A quorum-meeting group is unique: it contains an operator BFT majority,
-		// and two disjoint groups can't both hold one.
-		for (const group of groups.values()) {
-			if (this.meetsQuorum(group.providerIdxs)) return group.result
-		}
-
-		const responders = [...groups.values()].flatMap((g) => g.providerIdxs)
-		throw new QuorumError(
-			`Quorum not reached for getLogs: no result agreed on by an operator quorum (${this.operatorQuorum}) ` +
-				`plus ${this.requiredPublic} public witness(es). ${this.describeResponders(responders)}. ` +
-				this.formatFailures(failures),
+		return this.settleUntilQuorum(
+			this.clients.map((client) =>
+				client.getLogs<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>(params),
+			) as Promise<ResultType>[],
+			// A quorum-meeting group is unique (it contains an operator BFT
+			// majority, and two disjoint groups can't both hold one), so the
+			// first satisfiable agreement is final — no need to wait out
+			// stragglers that could only join or lose.
+			(fulfilled) => {
+				for (const group of groupOf(fulfilled).values()) {
+					if (this.meetsQuorum(group.providerIdxs)) return group.result
+				}
+				return undefined
+			},
+			(fulfilled, failures) => {
+				const groups = groupOf(fulfilled)
+				for (const group of groups.values()) {
+					if (this.meetsQuorum(group.providerIdxs)) return group.result
+				}
+				const responders = [...groups.values()].flatMap((g) => g.providerIdxs)
+				throw new QuorumError(
+					`Quorum not reached for getLogs: no result agreed on by an operator quorum (${this.operatorQuorum}) ` +
+						`plus ${this.requiredPublic} public witness(es). ${this.describeResponders(responders)}. ` +
+						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
+				)
+			},
 		)
 	}
 

@@ -17,6 +17,8 @@ const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
+// Bid for two-sided books — bid must sit above ask (crossed/zero spread fails construction).
+const FLAT_BID = new FillerPricePolicy({ points: [{ amount: "0", price: "1520" }] })
 
 /** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
 function exoticPairs(
@@ -94,7 +96,7 @@ function makeOrder(id: string, input: HexString, output: HexString): Order {
 
 describe("FXFiller one-sided LP", () => {
 	it("fills both directions when both curves are set", async () => {
-		const filler = makeFiller({ bidPricePolicy: FLAT, askPricePolicy: FLAT })
+		const filler = makeFiller({ bidPricePolicy: FLAT_BID, askPricePolicy: FLAT })
 		// stable in, exotic out
 		expect(await filler.canFill(makeOrder("a", STABLE, EXOTIC))).toBe(true)
 		// exotic in, stable out
@@ -166,7 +168,7 @@ describe("FXFiller one-sided LP", () => {
 	// (intrinsic) classification for this order id under the shared cache.
 	it("enforces one-sided even when the classification is already cached by another strategy", async () => {
 		const shared = makeContractService()
-		const twoSided = makeFiller({ bidPricePolicy: FLAT, askPricePolicy: FLAT, contractService: shared })
+		const twoSided = makeFiller({ bidPricePolicy: FLAT_BID, askPricePolicy: FLAT, contractService: shared })
 		const askOnly = makeFiller({ askPricePolicy: FLAT, contractService: shared })
 
 		// Two-sided filler classifies and caches the exotic-in order.

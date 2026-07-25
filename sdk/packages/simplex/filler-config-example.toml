@@ -161,7 +161,8 @@ triggerPercentage = 0.5
 # rejected.
 
 # Same-asset cross-chain market (replaces the old "stable" strategy): ask-only,
-# prices at or below par — the gap to 1 is your spread, realized on every fill.
+# prices strictly below par — the gap to 1 is your spread, realized on every
+# fill (par or above is a zero-or-negative spread and fails startup).
 [[pairs]]
 token0 = "USDC"
 token1 = "USDC"

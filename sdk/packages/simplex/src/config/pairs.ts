@@ -1,5 +1,5 @@
 import { Decimal } from "decimal.js"
-import type { PriceCurvePoint } from "@/config/interpolated-curve"
+import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import {
 	isRegistrySymbol,
 	normalizeSymbol,
@@ -30,8 +30,10 @@ import {
  *
  * A pair may quote the **same symbol on both sides** (`token0 = token1 =
  * "USDC"`) — the same-asset cross-chain market. Such pairs are ask-only with
- * prices at or below par; the gap to 1 is the filler's spread (e.g. "0.9995"
- * keeps 5 bps of every fill).
+ * prices strictly below par; the gap to 1 is the filler's spread (e.g.
+ * "0.9995" keeps 5 bps of every fill). Two-sided cross-asset books must be
+ * uncrossed (bid above ask everywhere) — a crossed or zero spread can never
+ * fill and is rejected at startup.
  *
  * Users may declare any number of pairs; a single engine serves all of them.
  */
@@ -200,9 +202,9 @@ export function validatePairConfigs(
 				} catch {
 					throw new Error(`pairs.${label}: ask price must be a decimal string, got '${point.price}'`)
 				}
-				if (!price.isFinite() || price.lte(0) || price.gt(1)) {
+				if (!price.isFinite() || price.lte(0) || price.gte(1)) {
 					throw new Error(
-						`pairs.${label}: same-token ask prices must be in (0, 1] — '${point.price}' would pay out more than received`,
+						`pairs.${label}: same-token ask prices must be strictly below 1 — '${point.price}' gives back at least what was received (zero or negative spread never fills)`,
 					)
 				}
 			}
@@ -212,6 +214,17 @@ export function validatePairConfigs(
 		if (!hasAnyCurve && !hasVenuePricing) {
 			throw new Error(
 				`pairs.${label}: provide a bid and/or ask price curve, or configure [vault.uniswapV4] positions for pool-based pricing`,
+			)
+		}
+
+		// Two-sided cross-asset books must be uncrossed everywhere: bid ≤ ask
+		// makes every fill mark as a loss at the opposite curve, so the pair
+		// would silently reject all orders. Fail at startup instead.
+		if (token0 !== token1 && (pair.bidPriceCurve?.length ?? 0) >= 1 && (pair.askPriceCurve?.length ?? 0) >= 1) {
+			FillerPricePolicy.assertBookNotCrossed(
+				`pairs.${label}`,
+				new FillerPricePolicy({ points: pair.bidPriceCurve! }),
+				new FillerPricePolicy({ points: pair.askPriceCurve! }),
 			)
 		}
 	}

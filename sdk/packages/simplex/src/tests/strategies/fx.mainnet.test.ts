@@ -2191,6 +2191,7 @@ async function createFxOnlyIntentFiller(
 
 	// Bid: filler buys exotic from user → 1 USD = 10000 EXT (filler pays fewer USD per exotic)
 	// Ask: filler sells exotic to user → 1 USD = 9500 EXT (filler gives fewer exotic per USD = spread profit)
+	// The book must carry a real spread — bid ≤ ask is rejected at construction.
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: "10000" },
@@ -2199,8 +2200,8 @@ async function createFxOnlyIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "10000" },
-			{ amount: "10000", price: "10000" },
+			{ amount: "1", price: "9500" },
+			{ amount: "10000", price: "9500" },
 		],
 	})
 

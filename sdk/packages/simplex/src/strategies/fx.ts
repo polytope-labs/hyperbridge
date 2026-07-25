@@ -204,20 +204,31 @@ export class FXFiller implements FillerStrategy {
 				)
 			}
 			if (isSameTokenPair(pair)) {
-				// Same-asset market: ask-only, priced at or below par — above par
-				// pays out more than it receives on every fill.
+				// Same-asset market: ask-only, priced strictly below par — at or
+				// above par the spread is zero or negative, so every fill either
+				// loses or is rejected by the per-leg spread gate.
 				if (pair.bidPricePolicy || !pair.askPricePolicy) {
 					throw new Error(
 						`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
 					)
 				}
-				const abovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gt(1))
-				if (abovePar) {
+				const atOrAbovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gte(1))
+				if (atOrAbovePar) {
 					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must not exceed 1`,
+						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must be strictly below 1 (the gap to 1 is the spread; par or above never fills)`,
 					)
 				}
 				continue
+			}
+			// Two-sided cross-asset books must be uncrossed everywhere — bid ≤ ask
+			// marks every fill as a loss at the opposite curve and the pair goes
+			// silently dead behind the per-leg spread gate.
+			if (pair.bidPricePolicy && pair.askPricePolicy) {
+				FillerPricePolicy.assertBookNotCrossed(
+					`FXFiller pair ${pair.token0}/${pair.token1}`,
+					pair.bidPricePolicy,
+					pair.askPricePolicy,
+				)
 			}
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
 				if (!hasVenues) {

@@ -219,13 +219,23 @@ async function buildPhantomFiller(opts: {
 		new CacheService(),
 	)
 
-	const pricePolicy = new FillerPricePolicy({
+	// Phantom quoting uses the ask, so each filler's competitive rate stays
+	// exactly opts.cngnPerUsd; the bid sits 2% above it because a crossed or
+	// zero-spread book (bid ≤ ask) is rejected at construction.
+	const askPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: opts.cngnPerUsd },
 			{ amount: "10000", price: opts.cngnPerUsd },
 		],
 	})
-	const legacy = exoticPairs(configService, { [BASE_STATE_MACHINE]: CNGN_BASE }, 5000, pricePolicy, pricePolicy)
+	const bidPrice = (Number(opts.cngnPerUsd) * 1.02).toString()
+	const bidPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: bidPrice },
+			{ amount: "10000", price: bidPrice },
+		],
+	})
+	const legacy = exoticPairs(configService, { [BASE_STATE_MACHINE]: CNGN_BASE }, 5000, bidPricePolicy, askPricePolicy)
 	const fxStrategy = new FXFiller(
 		signer,
 		configService,

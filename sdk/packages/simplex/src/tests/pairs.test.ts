@@ -117,13 +117,57 @@ describe("validatePairConfigs", () => {
 		expect(() =>
 			validatePairConfigs(
 				[
-					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: CURVE, askPriceCurve: CURVE },
+					{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: [{ amount: "0", price: "1580" }], askPriceCurve: [{ amount: "0", price: "1550" }] },
 					{ token0: "USDT", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: CURVE },
 					{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", bidPriceCurve: CURVE },
 				],
 				assets,
 			),
 		).not.toThrow()
+	})
+
+	it("rejects crossed and zero-spread two-sided books", () => {
+		// bid below ask: every fill marks as a loss at the opposite curve.
+		expect(() =>
+			validatePairConfigs(
+				[
+					{
+						token0: "USDC",
+						token1: "CNGN",
+						maxOrderSize: SIZE,
+						bidPriceCurve: [{ amount: "0", price: "1540" }],
+						askPriceCurve: [{ amount: "0", price: "1550" }],
+					},
+				],
+				assets,
+			),
+		).toThrow(/crossed/)
+		// bid == ask: zero spread, equally unfillable.
+		expect(() =>
+			validatePairConfigs(
+				[{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: CURVE, askPriceCurve: CURVE }],
+				assets,
+			),
+		).toThrow(/crossed/)
+		// The check is pointwise across BOTH curves' breakpoints: healthy at the
+		// small end, crossed at size.
+		expect(() =>
+			validatePairConfigs(
+				[
+					{
+						token0: "USDC",
+						token1: "CNGN",
+						maxOrderSize: SIZE,
+						bidPriceCurve: [
+							{ amount: "0", price: "1600" },
+							{ amount: "5000", price: "1400" },
+						],
+						askPriceCurve: [{ amount: "0", price: "1500" }],
+					},
+				],
+				assets,
+			),
+		).toThrow(/crossed at amount 5000/)
 	})
 
 	it("accepts registry-shipped symbols with no [assets] config at all", () => {
@@ -164,7 +208,7 @@ describe("validatePairConfigs", () => {
 		).toThrow(/already declared/)
 	})
 
-	it("accepts same-token pairs that are ask-only with prices at or below par", () => {
+	it("accepts same-token pairs that are ask-only with prices below par", () => {
 		const PAR_CURVE = [
 			{ amount: "100", price: "0.99" },
 			{ amount: "100000", price: "0.999" },
@@ -178,12 +222,17 @@ describe("validatePairConfigs", () => {
 				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: PAR_CURVE, bidPriceCurve: PAR_CURVE },
 			]),
 		).toThrow(/ask-only/)
-		// Above par pays out more than received.
+		// At or above par the spread is zero or negative — never fillable.
 		expect(() =>
 			validatePairConfigs([
 				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1.01" }] },
 			]),
-		).toThrow(/more than received/)
+		).toThrow(/strictly below 1/)
+		expect(() =>
+			validatePairConfigs([
+				{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "1" }] },
+			]),
+		).toThrow(/strictly below 1/)
 		// Venue pricing cannot substitute for the curve on same-token pairs.
 		expect(() =>
 			validatePairConfigs([{ token0: "USDC", token1: "USDC", maxOrderSize: SIZE }], undefined, true),
@@ -202,7 +251,7 @@ describe("validatePairConfigs", () => {
 				assets,
 			),
 		).not.toThrow()
-		// The ask-only and at-or-below-par rules still apply to any same-token pair.
+		// The ask-only and below-par rules still apply to any same-token pair.
 		expect(() =>
 			validatePairConfigs(
 				[
@@ -211,7 +260,7 @@ describe("validatePairConfigs", () => {
 				],
 				assets,
 			),
-		).toThrow(/more than received/)
+		).toThrow(/strictly below 1/)
 	})
 
 	it("rejects any pair whose token0 has no USD anchor — direct or transitive", () => {
@@ -542,7 +591,11 @@ describe("FXFiller pairs engine", () => {
 		).toThrow(/ask-only/)
 		expect(() =>
 			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("1.5") }),
-		).toThrow(/must not exceed 1/)
+		).toThrow(/strictly below 1/)
+		// Par is a zero spread — the pair could never fill anything.
+		expect(() =>
+			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("1") }),
+		).toThrow(/strictly below 1/)
 	})
 
 	it("rejects orders whose legs match no configured pair", async () => {
@@ -761,19 +814,31 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	it("gate 2: rejects a same-token order whose spread is zero (ask == par)", async () => {
+	it("gate 2: rejects a same-token order whose realized spread is zero", async () => {
+		// The book is healthy (ask 0.999) but the ORDER demands a 1:1 payout —
+		// the realized spread on this fill is zero, so the per-leg gate refuses.
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("1") }],
+			[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") }],
 			new AssetRegistry(cfg),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
 		const o = order(
 			"g2-fail",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(USDC), amount: parseUnits("999", 6) },
-			parseUnits("100", 6), // fees easily cover exec, but spread = 0 at ask 1.0
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			parseUnits("100", 6), // fees easily cover exec, but spread on the fill = 0
 		)
 		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("rejects same-token pairs quoted at par at construction (zero spread never fills)", () => {
+		expect(() =>
+			gateFiller(
+				[{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("1") }],
+				new AssetRegistry(cfg),
+				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			),
+		).toThrow(/strictly below 1/)
 	})
 
 	it("gate 2: passes a same-token order with a below-par spread and covering fees", async () => {
@@ -824,23 +889,30 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	it("rejects a two-non-USD cross-asset pair with a crossed (inverted) book — FX margin negative", async () => {
-		// bid 90 < ask 95 → the filler would sell CNGN cheaper than it could rebuy → loss.
-		const filler = gateFiller(
-			[
-				usdcZarpAnchor(),
-				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("90"), askPricePolicy: flat("95") },
-			],
-			zarpCngnRegistry(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		const o = order(
-			"zc-cross",
-			{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) },
-			parseUnits("10", 6), // fees easily cover exec, but the swap itself loses
-		)
-		expect(await filler.calculateProfitability(o)).toBe(0)
+	it("rejects a crossed (inverted) book at construction — bid at or below ask never fills", () => {
+		// bid 90 < ask 95: every fill would mark as a loss at the opposite
+		// curve, so the pair would be silently dead. Refuse to start instead.
+		expect(() =>
+			gateFiller(
+				[
+					usdcZarpAnchor(),
+					{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("90"), askPricePolicy: flat("95") },
+				],
+				zarpCngnRegistry(),
+				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			),
+		).toThrow(/crossed/)
+		// Zero spread (bid == ask) is equally unfillable.
+		expect(() =>
+			gateFiller(
+				[
+					usdcZarpAnchor(),
+					{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("95"), askPricePolicy: flat("95") },
+				],
+				zarpCngnRegistry(),
+				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			),
+		).toThrow(/crossed/)
 	})
 
 	it("rejects construction when a pair's token0 has no USD anchor", () => {

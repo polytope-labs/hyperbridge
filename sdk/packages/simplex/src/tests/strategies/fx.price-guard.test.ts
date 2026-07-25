@@ -49,7 +49,8 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 		configService,
 		{ [CHAIN]: EXOTIC },
 		5000,
-		new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
+		// Bid above ask — a crossed/zero-spread book fails construction.
+		new FillerPricePolicy({ points: [{ amount: "0", price: "1590" }] }),
 		new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
 	)
 	return new FXFiller(signer, configService, clientManager, contractService, pairs, registry, {

@@ -51,9 +51,10 @@ import { CryptoUtils } from "./CryptoUtils"
  * TODO: replace this flat budget with a measured estimate via
  * `EvmChain.estimateGas(postRequest)` (a `handlePostRequests` simulation plus
  * its ~600k consensus-verification adder, as the TokenGateway flow does) —
- * `estimateCrossChainFees` already constructs the exact RedeemEscrow
- * postRequest it would need. A flat number can't track per-chain differences
- * like L1 data costs.
+ * the RedeemEscrow postRequest would need to be reconstructed in
+ * `estimateCrossChainFees` (`constructRedeemEscrowRequestBody` + host nonce),
+ * as the native-dispatch removal deleted that plumbing. A flat number can't
+ * track per-chain differences like L1 data costs.
  */
 export const RELAYER_MESSAGE_GAS = 1_000_000n
 

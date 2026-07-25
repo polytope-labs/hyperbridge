@@ -282,10 +282,11 @@ export class IntentGateway {
 	 *
 	 * **Yield/receive protocol:**
 	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and
-	 *    sets same-chain fees to twice the estimate. Cross-chain orders retain a
-	 *    1% buffer and add a settlement-message uplift of `RELAYER_MESSAGE_GAS`
-	 *    (the same gas budget the solver's relayer fee uses), while the wei cost
-	 *    used for the `value` field receives a 2% buffer.
+	 *    sets same-chain fees to twice the estimate. Cross-chain orders attach
+	 *    (fill gas + a settlement-message uplift of `RELAYER_MESSAGE_GAS`, the
+	 *    same gas budget the solver's relayer fee uses) with a 5% buffer over
+	 *    the whole sum — strictly above the solver's unpadded requirement. The
+	 *    wei cost used for the `value` field receives a 2% buffer.
 	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
@@ -345,11 +346,16 @@ export class IntentGateway {
 						this.source.config.stateMachineId,
 					)
 
-			// Same-chain fills need a larger solver fee margin. Keep cross-chain cost estimation
-			// unchanged for Simplex, and apply the user-order fee uplift only at placement.
+			// Same-chain fills need a larger solver fee margin. Cross-chain orders
+			// attach (fill gas + settlement uplift) with a 5% buffer over the WHOLE
+			// sum: the solver's requirement (fill gas + relayer fee) carries no
+			// padding of its own, so the buffer must cover the relayer component
+			// too — a buffer on fill gas alone is dwarfed whenever the source chain
+			// is expensive and the destination cheap (relayer fee >> fill gas), and
+			// every SDK-placed order would come up short and be refused.
 			executionOrder.fees = isSameChain
 				? estimate.totalGasInFeeToken * 2n
-				: estimate.totalGasInFeeToken + (crossChainFeeBump + (estimate.totalGasInFeeToken * 1n) / 100n)
+				: ((estimate.totalGasInFeeToken + crossChainFeeBump) * 105n) / 100n
 		}
 
 		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)

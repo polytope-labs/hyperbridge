@@ -382,8 +382,11 @@ export class GasEstimator {
 			convertGasToFeeToken(this.ctx, RELAYER_MESSAGE_GAS, "source", sourceChainId),
 			this.ctx.dest.getHostNonce(),
 		])
-		// 0.5% headroom over the raw estimate so the relayer fee stays deliverable.
-		const postRequestFeeInSourceFeeToken = (postRequestFeeInSourceFeeTokenRaw * 1005n) / 1000n
+		// No padding here: RELAYER_MESSAGE_GAS (1M) already carries generous
+		// headroom over actual delivery gas, and the placement side overpays by
+		// 5% — any padding on the solver's requirement would reopen the gap
+		// where SDK-placed orders attach less than solvers demand.
+		const postRequestFeeInSourceFeeToken = postRequestFeeInSourceFeeTokenRaw
 
 		let postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,

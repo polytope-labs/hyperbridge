@@ -736,7 +736,12 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	}
 
 	// contractService + clientManager mocked just enough to drive calculateProfitability.
-	function gateFiller(pairs: TradingPair[], registry: AssetRegistry, estimate: { fillGas: bigint; relayer: bigint }) {
+	function gateFiller(
+		pairs: TradingPair[],
+		registry: AssetRegistry,
+		estimate: { fillGas: bigint; relayer: bigint },
+		options?: { fundingVenues?: unknown[] },
+	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
 			cacheService: {
@@ -763,7 +768,9 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			readContract: async () => 10n ** 30n, // balanceOf: effectively unlimited
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
-		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry)
+		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
+			fundingVenues: (options?.fundingVenues ?? []) as any,
+		})
 	}
 
 	function order(id: string, input: TokenInfo, output: TokenInfo, fees: bigint): Order {
@@ -987,6 +994,32 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		)
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
 		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // 1000 − 94000/100 = +60 ZARP
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	it("venue-priced legs are directional — an exactly pool-fair fill passes the spread gate", async () => {
+		// A pool mid is one price, not a book: marking it against itself made
+		// the margin identically zero, so any venue fill whose amounts divided
+		// evenly was rejected on rounding dust. Directional legs skip gate 2;
+		// gate 1 and the price guard still apply.
+		const venueStub = {
+			walletReserveForToken: () => 0n,
+			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
+		} as any
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000") }], // curve-less → venue-priced
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+			{ fundingVenues: [venueStub] },
+		)
+		// Pool mid: 1500 CNGN per USD (USD per CNGN = 1/1500).
+		;(filler as any).getVenueUsdPrice = async () => new Decimal(1).div(new Decimal("1500"))
+		const o = order(
+			"venue-fair",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("100", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("150000", 18) }, // exactly 100 × 1500
+			parseUnits("10", 6),
+		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 

@@ -995,7 +995,14 @@ export class FXFiller implements FillerStrategy {
 		// Venue-priced pair: token0 is USD-stable (constructor invariant), so the
 		// venue's USD-per-token1 quote inverts straight into token1-per-token0.
 		const venueUsd = await venueUsdPrice(leg.token1Chain, leg.token1Address)
-		return venueUsd ? new Decimal(1).div(venueUsd) : null
+		if (!venueUsd) return null
+		const venueRate = new Decimal(1).div(venueUsd)
+		// Same guard as trade pricing: this rate sizes the order's USD notional
+		// for confirmation depth, and a manipulated pool understating the value
+		// would shrink the reorg protection — the exact attack the guard exists
+		// to stop. Refusing to size skips the order, consistent with pricing.
+		if (!this.checkPriceGuard(undefined, leg.token1Chain, venueRate)) return null
+		return venueRate
 	}
 
 	/**
@@ -1068,10 +1075,14 @@ export class FXFiller implements FillerStrategy {
 				if (!this.checkPriceGuard(orderId, leg.token1Chain, new Decimal(1).div(venueUsd))) {
 					return null
 				}
-				// The pool mid is used for both directions, mirroring the previous
-				// venue behaviour.
+				// A pool mid is ONE price, not a book: there is no opposite side to
+				// mark a round trip against, so venue legs are directional
+				// (gate-1-only), exactly like one-sided curve pairs. Marking the
+				// mid against itself would make the spread gate's outcome a
+				// rounding-dust lottery (margin ≡ 0 up to integer truncation).
+				// The price guard above is the venue-specific defense.
 				const venueRate = new Decimal(1).div(venueUsd)
-				return { rate: venueRate, oppositeRate: venueRate, priceSource: "venue" }
+				return { rate: venueRate, oppositeRate: null, priceSource: "venue" }
 			}
 		}
 

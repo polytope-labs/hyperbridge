@@ -93,3 +93,53 @@ describe("FXFiller Uniswap price guard", () => {
 		expect(check(filler, "5000")).toBe(true)
 	})
 })
+
+describe("FXFiller price guard on confirmation sizing (referenceRate)", () => {
+	// Venue-priced pair (no curves): referenceRate consults the pool quote,
+	// which sizes the order's USD notional for confirmation depth. The guard
+	// must run here exactly as on the trade-pricing path — a manipulated pool
+	// understating the value would otherwise shrink the reorg protection.
+	function makeVenueFiller(priceGuard?: Record<string, { referencePrice: string; maxDeviationBps: number }>) {
+		const configService = {
+			getUsdcAsset: () => "0x1111111111111111111111111111111111111111" as HexString,
+			getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+			getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
+			getCNgnAsset: () => undefined,
+			getMaxOverfillBps: () => 500n,
+			getMaxConsecutiveClamps: () => 3,
+		} as any
+		const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any
+		const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC }, 5000)
+		const filler = new FXFiller(signer, configService, {} as any, {} as any, pairs, registry, {
+			fundingVenues: [{} as any],
+			priceGuard,
+		})
+		return { filler, pair: pairs[0] }
+	}
+
+	const referenceRate = (filler: FXFiller, pair: TradingPair, exoticPerUsd: string) =>
+		(filler as any).referenceRate(
+			{ pair, inputIsToken0: true, token1Chain: CHAIN, token1Address: EXOTIC },
+			async () => new Decimal(1).div(new Decimal(exoticPerUsd)), // venue quote: USD per token1
+		)
+
+	it("sizes with the pool rate when the quote is inside the band", async () => {
+		const { filler, pair } = makeVenueFiller({ [CHAIN]: { referencePrice: REFERENCE, maxDeviationBps: 200 } })
+		const rate = await referenceRate(filler, pair, "1580")
+		expect(rate?.toFixed(0)).toBe("1580")
+	})
+
+	it("refuses to size when the pool quote breaches the guard band", async () => {
+		const { filler, pair } = makeVenueFiller({ [CHAIN]: { referencePrice: REFERENCE, maxDeviationBps: 200 } })
+		// ~11% below reference — a pool understating the exotic's value.
+		expect(await referenceRate(filler, pair, "1400")).toBeNull()
+		// ~8% above — overstating it (would inflate the notional instead).
+		expect(await referenceRate(filler, pair, "1700")).toBeNull()
+	})
+
+	it("sizes unguarded when no reference is configured (guard is optional)", async () => {
+		const { filler, pair } = makeVenueFiller()
+		const rate = await referenceRate(filler, pair, "1400")
+		expect(rate?.toFixed(0)).toBe("1400")
+	})
+})

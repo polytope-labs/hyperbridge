@@ -874,6 +874,50 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(value!.inputUsd.toFixed(6)).toBe("100.000000")
 	})
 
+	it("rejects an order when a winning leg in one currency masks a losing leg in another", async () => {
+		// Reviewer repro (mixed-unit gate): the USDC/CNGN leg loses ~66.7 USDC
+		// while the ZARP/CNGN leg gains 600 ZARP (~$33). Summing raw margins
+		// (−66.7 + 600 = +533) would call this profitable; the per-leg gate must
+		// reject because a leg loses money in its own quote asset.
+		const filler = gateFiller(
+			[
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+			],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"masked-loss",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1600000", 18) }, // 1000 − 1600000/1500 ≈ −66.7 USDC
+			parseUnits("100", 6),
+		)
+		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
+		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("40000", 18) }) // 1000 − 40000/100 = +600 ZARP
+		expect(await filler.calculateProfitability(o)).toBe(0)
+	})
+
+	it("fills a multi-pair order when every leg is profitable in its own quote asset", async () => {
+		const filler = gateFiller(
+			[
+				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
+				{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("100"), askPricePolicy: flat("95") },
+			],
+			zarpCngnRegistry(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"all-legs-win",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) }, // 1000 − 1400000/1500 ≈ +66.7 USDC
+			parseUnits("100", 6),
+		)
+		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
+		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // 1000 − 94000/100 = +60 ZARP
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
 	it("keeps USD stables pinned at $1 — a stable/stable curve contributes no FX edge", async () => {
 		// A (mis-set) USDC/USDT curve at 0.95 must never re-price USDT: both
 		// sides are $1 anchors, so 1000 USDT reads as $1000, not $950 or $1052.

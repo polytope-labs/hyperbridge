@@ -645,14 +645,19 @@ export class FXFiller implements FillerStrategy {
 			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
 			//    resale at ask), in token0 units. Only two-sided legs contribute; a
 			//    one-sided (directional) leg has no opposite curve to mark against.
+			//
+			// EVERY leg is gated individually, in its OWN unit — a sign check needs
+			// no common denominator, and margins from pairs with different token0s
+			// must never be summed for a decision (adding dollars to rand lets a
+			// winning leg in a cheap currency mask a losing leg in an expensive
+			// one). The USD-converted sum below is score/telemetry only.
 			let realizedSpreadProfit = 0n
-			let fxMarginQuote = new Decimal(0)
+			let fxMarginUsd = new Decimal(0)
 			let hasSameTokenSpread = false
-			// Every same-token leg must individually come out ahead in its OWN asset.
-			// Checked per leg (not on the summed total) because same-token legs of
-			// different assets aren't in a common unit.
 			let sameTokenAllProfitable = true
 			let hasFxMargin = false
+			let losingFxLeg: { leg: number; pair: string; marginToken0: string } | null = null
+			const usdFactorBySymbol = this.usdFactors()
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
 				const input = order.inputs[legIndex]
@@ -692,17 +697,27 @@ export class FXFiller implements FillerStrategy {
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
+				let legMarginToken0: Decimal
 				if (leg.inputIsToken0) {
 					// Sells token1: receives token0, gives token1 valued at bid (rebuy cost).
 					const inputToken0 = new Decimal(formatUnits(input.amount, token0Decimals))
 					const outputToken1 = new Decimal(formatUnits(output.amount, token1Decimals))
-					fxMarginQuote = fxMarginQuote.plus(inputToken0.minus(outputToken1.div(rates.oppositeRate)))
+					legMarginToken0 = inputToken0.minus(outputToken1.div(rates.oppositeRate))
 				} else {
 					// Buys token1: gives token0, receives token1 valued at ask (resale value).
 					const inputToken1 = new Decimal(formatUnits(input.amount, token1Decimals))
 					const outputToken0 = new Decimal(formatUnits(output.amount, token0Decimals))
-					fxMarginQuote = fxMarginQuote.plus(inputToken1.div(rates.oppositeRate).minus(outputToken0))
+					legMarginToken0 = inputToken1.div(rates.oppositeRate).minus(outputToken0)
 				}
+				if (legMarginToken0.lte(0) && !losingFxLeg) {
+					losingFxLeg = {
+						leg: legIndex,
+						pair: `${leg.pair.token0}/${leg.pair.token1}`,
+						marginToken0: legMarginToken0.toString(),
+					}
+				}
+				const usdFactor = usdFactorBySymbol.get(normalizeSymbol(leg.pair.token0))
+				if (usdFactor) fxMarginUsd = fxMarginUsd.plus(legMarginToken0.mul(usdFactor))
 			}
 
 			// Clamp is disabled, so a leg can never be clamped — the halt subsystem is
@@ -743,10 +758,10 @@ export class FXFiller implements FillerStrategy {
 				)
 				return 0
 			}
-			if (hasFxMargin && fxMarginQuote.lte(0)) {
+			if (hasFxMargin && losingFxLeg) {
 				this.logger.info(
-					{ orderId: order.id, fxMarginQuote: fxMarginQuote.toString() },
-					"Skipping order: FX spread margin is not positive",
+					{ orderId: order.id, ...losingFxLeg },
+					"Skipping order: a cross-asset leg's FX margin is not positive in its own quote asset",
 				)
 				return 0
 			}
@@ -755,11 +770,12 @@ export class FXFiller implements FillerStrategy {
 			// Both gates passed → the order is profitable. This number is only the
 			// ranking / >0 execute signal, never a funds gate (the two gates above
 			// already decided). It sums fee surplus (USD) with the realized same-token
-			// spread and the cross-asset FX margin — for a non-USD same-token asset
-			// the spread term is in that asset's units, so the magnitude is a rough
-			// signal rather than a true dollar figure; its sign is always correct.
+			// spread and the cross-asset FX margin converted to USD through the
+			// anchor factors — for a non-USD same-token asset the spread term is in
+			// that asset's units, so the magnitude is a rough signal rather than a
+			// true dollar figure; its sign is always correct.
 			const totalProfit =
-				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginQuote.toNumber()
+				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginUsd.toNumber()
 
 			this.logger.info(
 				{
@@ -779,7 +795,7 @@ export class FXFiller implements FillerStrategy {
 					executionCost: formatUnits(executionCost, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
 					realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals),
-					fxMarginQuote: fxMarginQuote.toString(),
+					fxMarginUsd: fxMarginUsd.toString(),
 					totalProfit,
 					profitable: totalProfit > 0,
 				},

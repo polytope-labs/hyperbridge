@@ -503,6 +503,13 @@ export class IntentFiller {
 				// so poll less aggressively to stay within their rate limits.
 				const confirmationPollMs = sourceQuorumClient.size > 1 ? 1000 : 300
 				const waitForConfirmations = async (): Promise<void> => {
+					// Nothing to wait for: same-chain orders (and zero-valued curve
+					// points) require no confirmations, and the quorum read they'd
+					// otherwise run gains nothing — it would only gate the fill on
+					// third-party RPC availability, where a transient QuorumError
+					// rejects the surrounding Promise.all and drops the order.
+					if (requiredConfirmations <= 0) return
+
 					let currentConfirmations = await retryPromise(
 						() =>
 							sourceQuorumClient.getTransactionConfirmations({

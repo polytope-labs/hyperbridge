@@ -159,7 +159,6 @@ impl pallet_ismp::Config for Runtime {
 		pallet_consensus_incentives::Pallet<Runtime>,
 		pallet_messaging_incentives::Pallet<Runtime>,
 	);
-	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

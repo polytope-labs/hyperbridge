@@ -239,7 +239,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 8_100,
+	spec_version: 8_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1414,7 +1414,7 @@ impl_runtime_apis! {
 
 		/// Return the timestamp this client was last updated in seconds
 		fn state_machine_update_time(height: StateMachineHeight) -> Option<u64> {
-			Ismp::state_machine_update_time(height)
+			Ismp::state_machine_update_time(height.id, height.height)
 		}
 
 		/// Return the latest height of the state machine

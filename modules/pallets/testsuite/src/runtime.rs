@@ -273,7 +273,6 @@ impl pallet_ismp::Config for Test {
 			true,
 		>,
 	);
-	type MigrationWeightInfo = ();
 }
 
 impl pallet_bandwidth::Config for Test {

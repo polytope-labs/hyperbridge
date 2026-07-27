@@ -225,8 +225,11 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Consensus state has not been initialized yet.
 		NotInitialized,
-		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
-		/// an unexpected authority set.
+		/// Proof is stale: the BEEFY verifier rejected its commitment as at or below
+		/// `latest_beefy_height`, or it is a messaging proof whose parachain height is
+		/// `≤ latest_state_machine_height`. Rotation proofs are exempt from the latter — see
+		/// [`Pallet::verify_and_apply`]. For SP1 proofs this is the legitimate-uncle case and
+		/// dispatch retries through [`Pallet::settle_uncle_proof`].
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
 		UnknownProofType,
@@ -823,7 +826,31 @@ pub mod pallet {
 			let coprocessor = T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?;
 			let latest_height = Self::latest_height()?;
 
-			if latest_height <= prev_height {
+			// Read post-update consensus state to derive the new set id.
+			let new_state_bytes = host
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
+				.map_err(|_| Error::<T>::VerificationFailed)?;
+			let new_state: beefy_verifier_primitives::ConsensusState =
+				Decode::decode(&mut &new_state_bytes[..])
+					.map_err(|_| Error::<T>::VerificationFailed)?;
+
+			// BEEFY invariant: `next` is always `current + 1`.
+			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
+				Err(Error::<T>::UnexpectedAuthoritySet)?;
+			}
+
+			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
+
+			// Messaging proofs must finalize a parachain head we haven't seen; one that doesn't
+			// carries no new work and is rejected. Rotation proofs are exempt: the session
+			// boundary justification carries whatever head the relay chain held at that block,
+			// and if the parachain stalled for a session it is byte-for-byte the head the
+			// previous proof already finalized. Failing here is a dispatch error, so it would
+			// roll back the authority-set rotation `handle_incoming_message` just applied,
+			// pinning the consensus state on the old set forever — the mandatory-block
+			// justification is the only one a prover can obtain for that session, so every
+			// retry fails identically.
+			if !rotated && latest_height <= prev_height {
 				Err(Error::<T>::StaleProof)?
 			}
 
@@ -842,20 +869,6 @@ pub mod pallet {
 				pallet_ismp::Pallet::<T>::deposit_event(ev.into());
 			}
 
-			// Read post-update consensus state to derive the new set id.
-			let new_state_bytes = host
-				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
-				.map_err(|_| Error::<T>::VerificationFailed)?;
-			let new_state: beefy_verifier_primitives::ConsensusState =
-				Decode::decode(&mut &new_state_bytes[..])
-					.map_err(|_| Error::<T>::VerificationFailed)?;
-
-			// BEEFY invariant: `next` is always `current + 1`.
-			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
-				Err(Error::<T>::UnexpectedAuthoritySet)?;
-			}
-
-			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
 			let child_trie_root =
 				state_commitment.overlay_root.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?;
 

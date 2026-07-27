@@ -116,15 +116,12 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.tokenDecimals?.EXT
 	}
 
-	/** Every configured exotic (non-USD) token on a chain, for selection UIs. */
+	/** Configured exotic (non-USD) tokens on a chain, for selection UIs. EXT is a test asset and is not offered. */
 	getKnownExoticTokens(chain: string): Array<{ symbol: string; address: HexString; decimals?: number }> {
 		const config = this.getConfig(chain)
 		const tokens: Array<{ symbol: string; address: HexString; decimals?: number }> = []
 		if (config?.assets?.cNGN) {
 			tokens.push({ symbol: "cNGN", address: config.assets.cNGN as HexString, decimals: config.tokenDecimals?.cNGN })
-		}
-		if (config?.assets?.EXT && config.assets.EXT !== config.assets?.cNGN) {
-			tokens.push({ symbol: "EXT", address: config.assets.EXT as HexString, decimals: config.tokenDecimals?.EXT })
 		}
 		return tokens
 	}

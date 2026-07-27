@@ -300,7 +300,7 @@ points = [
 # results. Any provider failure or divergence fails the batch. URLs must resolve to different
 # hostnames.
 #
-# On Ethereum, Arbitrum, Base, Polygon and BNB Chain, Simplex automatically appends its
+# On Ethereum, Arbitrum, Base and Polygon, Simplex automatically appends its
 # built-in registry of public endpoints (official gateway, PublicNode, dRPC, 1RPC) to the
 # quorum set — deduplicated by hostname, your URLs first — hardening order detection and
 # cross-chain confirmation counting even with a single configured endpoint. Public endpoints

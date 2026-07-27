@@ -28,13 +28,12 @@ export const PUBLIC_RPC_URLS: Record<number, readonly string[]> = {
 		"https://1rpc.io/eth",
 		"https://eth.meowrpc.com",
 	],
-	// BNB Smart Chain
-	56: [
-		"https://bsc-dataseed.bnbchain.org",
-		"https://bsc-rpc.publicnode.com",
-		"https://bsc.drpc.org",
-		"https://1rpc.io/bnb",
-	],
+	// BNB Smart Chain has NO public entries: its free endpoints structurally
+	// cannot serve `eth_getLogs` (bsc-dataseed caps the method, PublicNode
+	// requires a token for anything behind head, 1RPC exhausts its plan
+	// quota), so listing them made the public witness floor a liveness
+	// hazard — operator reads were discarded for lack of corroboration.
+	// BSC runs an operator-only quorum.
 	// Polygon PoS
 	137: [
 		"https://polygon-bor-rpc.publicnode.com",

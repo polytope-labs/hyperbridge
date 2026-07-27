@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.6.1
+
+### Patch Changes
+
+- `SubstrateChain.stateMachineUpdateTime` reads pallet-ismp's `BoundedStateMachineUpdateTime` storage map directly instead of the `ismp_queryStateMachineUpdateTime` RPC. An evicted height now surfaces as a `MissingConsensusUpdateTimeError` from the absent storage entry rather than from matching an RPC error message.
+
 ## 2.6.0
 
 ### Minor Changes

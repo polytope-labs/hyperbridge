@@ -134,6 +134,13 @@ export interface ChainConfigData {
 		USDT: string
 		cNGN?: string
 		EXT?: string
+		// Curated stablecoin deployments; addresses taken from the issuer's
+		// official documentation (ZARP Stablecoin, Circle, StraitsX, BiLira)
+		// and verified on-chain (symbol() + decimals()) before inclusion.
+		ZARP?: string
+		EURC?: string
+		XSGD?: string
+		TRYB?: string
 	}
 	tokenDecimals?: {
 		USDC: number
@@ -314,6 +321,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
 			cNGN: "0x17CDB2a01e7a34CbB3DD4b83260B05d0274C8dab",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+			XSGD: "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96",
+			TRYB: "0x2C537E5624e4af88A7ae4060C022609376C8D0EB",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -484,6 +495,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
 			EXT: "0x0e668E5127087e236578893a0e01E41837A28469",
 			cNGN: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -544,6 +557,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
 			cNGN: "0x52828daa48C1a9A06F37500882b42daf0bE04C3B",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			XSGD: "0xDC3326e71D45186F113a2F448984CA0e8D201995",
 		},
 		tokenDecimals: {
 			USDC: 6,

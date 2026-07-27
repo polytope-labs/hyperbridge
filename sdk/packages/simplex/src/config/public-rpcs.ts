@@ -8,9 +8,12 @@
  * Selection criteria: each chain lists endpoints operated by organisationally
  * independent providers (the network's official gateway where one exists, plus
  * PublicNode/Allnodes, dRPC and 1RPC), all reachable without an API key. The
- * quorum threshold is `floor(2N/3) + 1`, so four public endpoints on top of a
- * single operator endpoint (N=5, threshold 4) tolerate one faulty or lying
- * provider; every additional operator endpoint raises the tolerance further.
+ * quorum is two-tier (see `QuorumPublicClient`): a BFT quorum of the
+ * operator's own endpoints must agree — `floor(2·op/3) + 1` of them — plus
+ * `min(2, available)` of these public endpoints as corroborating witnesses.
+ * With a single operator endpoint that is 1 operator + 2 public witnesses
+ * agreeing (3 of 5); listing four public endpoints per chain leaves headroom
+ * for two of them to be down, throttled, or lagging at any moment.
  *
  * Public endpoints are only ever used for quorum-checked reads (`eth_getLogs`,
  * `eth_blockNumber`, `eth_getTransactionReceipt`). Latency-sensitive and

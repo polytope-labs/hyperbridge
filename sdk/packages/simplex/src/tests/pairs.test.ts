@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
-import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
-import { AssetRegistry, KNOWN_ASSETS, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
+import { bytes20ToBytes32, ChainConfigService, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import { AssetRegistry, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
 import { validatePairConfigs } from "@/config/pairs"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
@@ -28,6 +28,7 @@ const resolver: BuiltinAssetResolver = {
 		throw new Error("not configured")
 	},
 	getCNgnAsset: () => undefined,
+	getAssetBySymbol: () => undefined,
 }
 
 describe("AssetRegistry", () => {
@@ -56,11 +57,7 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
 	})
 
-	it("ships only curated addresses that pass the address validator", () => {
-		// Guards KNOWN_ASSETS itself against transcription slips (bad EIP-55
-		// checksums, zero addresses) — the validator otherwise only sees [assets].
-		expect(() => validateAssetDefinitions(KNOWN_ASSETS)).not.toThrow()
-	})
+
 
 	it("treats SDK sentinel values ('0x', zero address) as absent", () => {
 		// The SDK chain registry never throws for unknown chains/assets — it
@@ -71,6 +68,7 @@ describe("AssetRegistry", () => {
 			getUsdtAsset: () => "0x" as HexString,
 			getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 			getCNgnAsset: () => undefined,
+			getAssetBySymbol: () => undefined,
 		}
 		const registry = new AssetRegistry(sentinelResolver)
 		expect(registry.getAddress("USDC", CHAIN)).toBe(USDC)
@@ -84,13 +82,24 @@ describe("AssetRegistry", () => {
 		).toThrow(/invalid address/)
 	})
 
-	it("ships curated assets with zero user configuration", () => {
-		const registry = new AssetRegistry(resolver)
-		// Addresses verified on-chain before inclusion in KNOWN_ASSETS.
+	it("ships curated assets with zero user configuration, from the SDK chain registry", () => {
+		// One source of truth: the registry resolves through the SDK's chain.ts
+		// asset table, so these pins guard the shipped data itself. Addresses
+		// verified on-chain (symbol()/decimals()) before inclusion there.
+		const sdk = new ChainConfigService({})
+		const sdkResolver: BuiltinAssetResolver = {
+			getUsdcAsset: (chain) => sdk.getUsdcAsset(chain),
+			getUsdtAsset: (chain) => sdk.getUsdtAsset(chain),
+			getDaiAsset: (chain) => sdk.getDaiAsset(chain),
+			getCNgnAsset: (chain) => sdk.getCNgnAsset(chain),
+			getAssetBySymbol: (chain, symbol) => sdk.getAssetBySymbol(chain, symbol),
+		}
+		const registry = new AssetRegistry(sdkResolver)
 		expect(registry.getAddress("ZARP", "EVM-137")).toBe("0xb755506531786C8aC63B756BaB1ac387bACB0C04")
 		expect(registry.getAddress("zarp", "EVM-1")).toBe("0xb755506531786C8aC63B756BaB1ac387bACB0C04")
 		expect(registry.getAddress("EURC", "EVM-8453")).toBe("0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42")
 		expect(registry.getAddress("XSGD", "EVM-137")).toBe("0xDC3326e71D45186F113a2F448984CA0e8D201995")
+		expect(registry.getAddress("TRYB", "EVM-1")).toBe("0x2C537E5624e4af88A7ae4060C022609376C8D0EB")
 		// Not deployed there → absent, not an error.
 		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
 	})

@@ -22,6 +22,8 @@ export interface BuiltinAssetResolver {
 	getUsdtAsset(chain: string): HexString
 	getDaiAsset(chain: string): HexString
 	getCNgnAsset(chain: string): HexString | undefined
+	/** Generic per-chain lookup into the SDK chain registry's asset table. */
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined
 }
 
 interface BuiltinSpec {
@@ -29,14 +31,22 @@ interface BuiltinSpec {
 }
 
 /**
- * Symbols resolved per chain from the SDK chain registry (which maintains their
- * addresses across mainnets and testnets).
+ * Symbols resolved per chain from the SDK chain registry — the single source
+ * of truth for token addresses (`chain.ts`), shared with the rest of the SDK
+ * so a new asset is added there once and never in a parallel table here.
+ * ZARP/EURC/XSGD/TRYB are curated stablecoin deployments whose addresses were
+ * taken from the issuer's official documentation and verified on-chain
+ * (`symbol()`/`decimals()`) before inclusion in the SDK registry.
  */
 const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 	USDC: { resolve: (r, chain) => r.getUsdcAsset(chain) },
 	USDT: { resolve: (r, chain) => r.getUsdtAsset(chain) },
 	DAI: { resolve: (r, chain) => r.getDaiAsset(chain) },
 	CNGN: { resolve: (r, chain) => r.getCNgnAsset(chain) },
+	ZARP: { resolve: (r, chain) => r.getAssetBySymbol(chain, "ZARP") },
+	EURC: { resolve: (r, chain) => r.getAssetBySymbol(chain, "EURC") },
+	XSGD: { resolve: (r, chain) => r.getAssetBySymbol(chain, "XSGD") },
+	TRYB: { resolve: (r, chain) => r.getAssetBySymbol(chain, "TRYB") },
 }
 
 /**
@@ -49,39 +59,6 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
  */
 export const USD_STABLE_SYMBOLS: ReadonlySet<string> = new Set(["USDC", "USDT", "DAI"])
 
-/**
- * Curated registry of additional stablecoin deployments on the supported
- * mainnets, maintained here so operators reference assets purely by symbol —
- * no address configuration required. Every address below was taken from the
- * issuer's official documentation (Circle, ZARP Stablecoin, StraitsX, BiLira)
- * and verified on-chain (`symbol()` + `decimals()`) before inclusion.
- */
-export const KNOWN_ASSETS: Record<string, AssetDefinition> = {
-	// South African rand — same contract address on every EVM deployment.
-	ZARP: {
-		"EVM-1": "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
-		"EVM-137": "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
-		"EVM-8453": "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
-	},
-	// Circle euro stablecoin.
-	EURC: {
-		"EVM-1": "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
-		"EVM-8453": "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42",
-	},
-	// StraitsX Singapore dollar stablecoin.
-	XSGD: {
-		"EVM-1": "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96",
-		"EVM-137": "0xDC3326e71D45186F113a2F448984CA0e8D201995",
-	},
-	// BiLira Turkish lira stablecoin.
-	TRYB: {
-		"EVM-1": "0x2C537E5624e4af88A7ae4060C022609376C8D0EB",
-	},
-}
-// Frozen: the registry is shared, and `AssetRegistry` caches resolutions
-// permanently — a runtime mutation would leave lookups incoherent.
-for (const definition of Object.values(KNOWN_ASSETS)) Object.freeze(definition)
-Object.freeze(KNOWN_ASSETS)
 
 /** Normalises a symbol for lookups: trimmed, uppercased. "cNGN" ≡ "CNGN". */
 export function normalizeSymbol(symbol: string): string {
@@ -103,13 +80,13 @@ function isRealAddress(address: string | undefined): address is HexString {
 
 /** Every symbol the registry ships without user configuration. */
 export function registrySymbols(): string[] {
-	return [...new Set([...Object.keys(BUILTIN_ASSETS), ...Object.keys(KNOWN_ASSETS)])]
+	return Object.keys(BUILTIN_ASSETS)
 }
 
 /** Whether `symbol` ships with the registry (built-in or curated). Pure — no chain resolution. */
 export function isRegistrySymbol(symbol: string): boolean {
 	const normalized = normalizeSymbol(symbol)
-	return normalized in BUILTIN_ASSETS || normalized in KNOWN_ASSETS
+	return normalized in BUILTIN_ASSETS
 }
 
 /**
@@ -152,13 +129,14 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
 /**
  * Symbol → contract address registry backing the `[[pairs]]` configuration.
  *
- * Resolution merges three layers, most specific winning:
+ * Resolution merges two layers, most specific winning:
  *  1. the user's `[assets]` table — an *escape hatch* for assets the registry
  *     doesn't ship (or per-deployment overrides), never required for shipped
  *     symbols;
- *  2. the curated {@link KNOWN_ASSETS} table maintained in this repository;
- *  3. built-in symbols (USDC, USDT, DAI, CNGN) resolved per chain from the SDK
- *     chain registry (which also covers testnets).
+ *  2. shipped symbols (USDC, USDT, DAI, CNGN, ZARP, EURC, XSGD, TRYB)
+ *     resolved per chain from the SDK chain registry (`chain.ts`) — the single
+ *     source of truth shared with the rest of the SDK, so an address
+ *     correction there is never shadowed by a parallel table here.
  *
  * Address lookups are per `(symbol, chain)` — a chain where no layer knows the
  * asset simply doesn't trade pairs involving it. The registry holds addresses
@@ -185,8 +163,8 @@ export class AssetRegistry {
 
 	/**
 	 * Contract address of `symbol` on `chain`, or `null` when the asset is not
-	 * deployed/known there. User `[assets]` addresses win over the curated
-	 * table, which wins over the built-in SDK registry, per chain.
+	 * deployed/known there. User `[assets]` addresses win over the SDK chain
+	 * registry, per chain.
 	 */
 	getAddress(symbol: string, chain: string): HexString | null {
 		const normalized = normalizeSymbol(symbol)
@@ -194,8 +172,7 @@ export class AssetRegistry {
 		const cached = this.addressCache.get(cacheKey)
 		if (cached !== undefined) return cached
 
-		let address: string | undefined =
-			this.userAssets.get(normalized)?.[chain] ?? KNOWN_ASSETS[normalized]?.[chain]
+		let address: string | undefined = this.userAssets.get(normalized)?.[chain]
 		if (!address) {
 			const builtin = BUILTIN_ASSETS[normalized]
 			if (builtin) {

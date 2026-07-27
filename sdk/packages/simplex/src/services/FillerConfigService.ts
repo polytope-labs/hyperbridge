@@ -395,6 +395,10 @@ export class FillerConfigService {
 		return this.chainConfigService.getCNgnAsset(chain)
 	}
 
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
+		return this.chainConfigService.getAssetBySymbol(chain, symbol)
+	}
+
 	getCNgnDecimals(chain: string): number | undefined {
 		return this.chainConfigService.getCNgnDecimals(chain)
 	}

@@ -13,7 +13,6 @@ export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 export { PUBLIC_RPC_URLS, getPublicRpcUrls } from "@/config/public-rpcs"
 export {
 	AssetRegistry,
-	KNOWN_ASSETS,
 	USD_STABLE_SYMBOLS,
 	validateAssetDefinitions,
 	normalizeSymbol,

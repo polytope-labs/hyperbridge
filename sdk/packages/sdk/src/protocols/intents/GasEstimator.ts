@@ -7,8 +7,6 @@ import {
 	bytes20ToBytes32,
 	ERC20Method,
 	adjustDecimals,
-	constructRedeemEscrowRequestBody,
-	MOCK_ADDRESS,
 	getOrFetchStorageSlot,
 	EvmLanguage,
 	normalizeAddressForEvmBytes32,
@@ -20,7 +18,6 @@ import type {
 	EstimateFillOrderParams,
 	FillOrderEstimate,
 	FillOptions,
-	IPostRequest,
 	Order,
 } from "@/types"
 import type { HexString } from "@/types"
@@ -43,6 +40,24 @@ import { CryptoUtils } from "./CryptoUtils"
  * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
  * URL contains `alchemy.com`.
  */
+/**
+ * Gas budget assumed for delivering and executing the cross-chain RedeemEscrow
+ * POST message on the SOURCE chain (the message a cross-chain `fillOrder`
+ * dispatches back to release escrow to the filler). The relayer fee carried by
+ * that dispatch — and the amount a filler's `order.fees` must cover — is this
+ * gas priced on the source chain. Sized conservatively so the relayer is
+ * reliably incentivised to deliver.
+ *
+ * TODO: replace this flat budget with a measured estimate via
+ * `EvmChain.estimateGas(postRequest)` (a `handlePostRequests` simulation plus
+ * its ~600k consensus-verification adder, as the TokenGateway flow does) —
+ * the RedeemEscrow postRequest would need to be reconstructed in
+ * `estimateCrossChainFees` (`constructRedeemEscrowRequestBody` + host nonce),
+ * as the native-dispatch removal deleted that plumbing. A flat number can't
+ * track per-chain differences like L1 data costs.
+ */
+export const RELAYER_MESSAGE_GAS = 1_000_000n
+
 export class GasEstimator {
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
@@ -62,7 +77,12 @@ export class GasEstimator {
 	 *
 	 * **Cross-chain orders:** also estimates the ISMP POST request fee required
 	 * for the solver to trigger source-chain escrow redemption after filling, and
-	 * includes it in `fillOptions.relayerFee` and `fillOptions.nativeDispatchFee`.
+	 * includes it in `fillOptions.relayerFee`. The dispatch is always paid in the
+	 * fee token — `nativeDispatchFee` is fixed at 0. The native rail would draw
+	 * from the solver account's native balance, which nothing guarantees, and a
+	 * shortfall is invisible to estimation (the account balance is overridden
+	 * during simulation) — it would only surface as a reverted execution that
+	 * still bills the paymaster.
 	 *
 	 * **Bundler path:** constructs a mock `PackedUserOperation` signed by an
 	 * ephemeral keypair, applies state overrides, and calls
@@ -119,28 +139,23 @@ export class GasEstimator {
 				entryPointAddress,
 			}),
 			isSameChain
-				? Promise.resolve({ postRequestFee: 0n, protocolFee: 0n })
-				: this.estimateCrossChainFees(
-						sourceFeeToken,
-						destFeeToken,
-						souceStateMachineId,
-						destStateMachineId,
-						order,
-					),
+				? Promise.resolve({ postRequestFee: 0n, relayerFeeInSourceFeeToken: 0n })
+				: this.estimateCrossChainFees(sourceFeeToken, destFeeToken, souceStateMachineId),
 		])
 
 		const { viem: stateOverrides, bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
 			relayerFee: crossChainFees.postRequestFee,
-			nativeDispatchFee: crossChainFees.protocolFee,
+			// Always dispatch with the fee token (see the method docs).
+			nativeDispatchFee: 0n,
 			outputs: order.output.assets.map((asset) => ({
 				...asset,
 				token: normalizeAddressForEvmBytes32(asset.token),
 			})),
 		}
 
-		const totalNativeValue = totalEthValue + fillOptions.nativeDispatchFee
+		const totalNativeValue = totalEthValue
 
 		const priorityFeeBumpPercent = params.maxPriorityFeePerGasBumpPercent ?? 8
 		const maxFeeBumpPercent = params.maxFeePerGasBumpPercent ?? 10
@@ -345,53 +360,43 @@ export class GasEstimator {
 			maxPriorityFeePerGas,
 			totalGasCostWei,
 			totalGasInFeeToken: totalGasInSourceFeeToken,
+			relayerFeeInSourceFeeToken: crossChainFees.relayerFeeInSourceFeeToken,
 			fillOptions,
 		}
 	}
 
 	/**
-	 * Estimates cross-chain ISMP POST request fees by running the gas-to-fee-token
-	 * conversion and host nonce fetch in parallel, then quoting the native dispatch cost.
+	 * Estimates the cross-chain ISMP POST request fee (the relayer fee for the
+	 * RedeemEscrow message), in both the source and destination fee tokens.
+	 * The dispatch is always paid in the fee token — the native rail was
+	 * removed because it silently drew on a native balance nothing guarantees.
 	 */
 	private async estimateCrossChainFees(
 		sourceFeeToken: { address: HexString; decimals: number },
 		destFeeToken: { address: HexString; decimals: number },
 		sourceChainId: string,
-		destChainId: string,
-		order: Order,
-	): Promise<{ postRequestFee: bigint; protocolFee: bigint }> {
-		const postRequestGas = 400_000n
+	): Promise<{ postRequestFee: bigint; relayerFeeInSourceFeeToken: bigint }> {
+		// No padding here: RELAYER_MESSAGE_GAS (1M) already carries generous
+		// headroom over actual delivery gas, and the placement side overpays by
+		// 5% — any padding on the solver's requirement would reopen the gap
+		// where SDK-placed orders attach less than solvers demand.
+		const postRequestFeeInSourceFeeToken = await convertGasToFeeToken(
+			this.ctx,
+			RELAYER_MESSAGE_GAS,
+			"source",
+			sourceChainId,
+		)
 
-		const [postRequestFeeInSourceFeeToken, nonce] = await Promise.all([
-			convertGasToFeeToken(this.ctx, postRequestGas, "source", sourceChainId),
-			this.ctx.dest.getHostNonce(),
-		])
-
-		let postRequestFeeInDestFeeToken = adjustDecimals(
+		const postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,
 			sourceFeeToken.decimals,
 			destFeeToken.decimals,
 		)
 
-		const postRequest: IPostRequest = {
-			source: destChainId,
-			dest: sourceChainId,
-			body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
-			timeoutTimestamp: 0n,
-			nonce,
-			from: this.ctx.source.configService.getIntentGatewayAddress(destChainId),
-			to: this.ctx.source.configService.getIntentGatewayAddress(sourceChainId),
+		return {
+			postRequestFee: postRequestFeeInDestFeeToken,
+			relayerFeeInSourceFeeToken: postRequestFeeInSourceFeeToken,
 		}
-
-		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
-
-		let protocolFeeInNativeToken = await this.ctx.dest
-			.quoteNative(postRequest, postRequestFeeInDestFeeToken)
-			.catch(() => 0n)
-
-		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
-
-		return { postRequestFee: postRequestFeeInDestFeeToken, protocolFee: protocolFeeInNativeToken }
 	}
 
 	/**

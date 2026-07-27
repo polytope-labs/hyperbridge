@@ -45,7 +45,7 @@ export interface MetricsServiceOptions {
 	configService: FillerConfigService
 	fillerAddress: string
 	chains: number[]
-	token1: Record<string, string>
+	token1: Record<string, string[]>
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	dataDir?: string
@@ -451,11 +451,13 @@ export class MetricsService {
 	private async refreshBalances(): Promise<void> {
 		const chainIds = this.options.configService.getConfiguredChainIds()
 
-		// Collect FX strategy exotic token addresses keyed by chain ID
-		const fxExoticByChain = new Map<number, string>()
-		for (const [chainKey, addr] of Object.entries(this.options.token1)) {
+		// Collect FX strategy exotic token addresses keyed by chain ID. A chain
+		// can host several cross-asset pairs, so every token1 is tracked — the
+		// gauge is labeled (chain_id, symbol) and holds them all.
+		const fxExoticByChain = new Map<number, string[]>()
+		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
 			const id = parseInt(chainKey.replace("EVM-", ""), 10)
-			if (!isNaN(id)) fxExoticByChain.set(id, addr)
+			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}
 
 		await Promise.allSettled(
@@ -499,8 +501,7 @@ export class MetricsService {
 				} catch {}
 
 				// Exotic tokens
-				const fxAddr = fxExoticByChain.get(chainId)
-				if (fxAddr) {
+				for (const fxAddr of fxExoticByChain.get(chainId) ?? []) {
 					try {
 						let symbol = "EXOTIC"
 						try {

@@ -103,6 +103,22 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.assets?.cNGN as HexString | undefined
 	}
 
+	/**
+	 * Address of `symbol` on `chain` from the per-chain asset table, matched
+	 * case-insensitively ("cNGN" ≡ "CNGN"). This table is the single source of
+	 * truth for token addresses — the simplex asset registry resolves through
+	 * it, so a new asset is added once in `chain.ts` and nowhere else.
+	 */
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
+		const assets = this.getConfig(chain)?.assets
+		if (!assets) return undefined
+		const target = symbol.trim().toUpperCase()
+		for (const [key, address] of Object.entries(assets)) {
+			if (key.toUpperCase() === target) return address as HexString
+		}
+		return undefined
+	}
+
 	getCNgnDecimals(chain: string): number | undefined {
 		return this.getConfig(chain)?.tokenDecimals?.cNGN
 	}

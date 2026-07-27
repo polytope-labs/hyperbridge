@@ -158,8 +158,8 @@ export class ContractInteractionService {
 	 */
 	async estimateGasFillPost(order: Order): Promise<{
 		totalCostInSourceFeeToken: bigint
+		relayerFeeInSourceFeeToken: bigint
 		dispatchFee: bigint
-		nativeDispatchFee: bigint
 		callGasLimit: bigint
 	}> {
 		try {
@@ -168,8 +168,8 @@ export class ContractInteractionService {
 			if (cachedEstimate) {
 				return {
 					totalCostInSourceFeeToken: cachedEstimate.totalCostInSourceFeeToken,
+					relayerFeeInSourceFeeToken: cachedEstimate.relayerFeeInSourceFeeToken,
 					dispatchFee: cachedEstimate.dispatchFee,
-					nativeDispatchFee: cachedEstimate.nativeDispatchFee,
 					callGasLimit: cachedEstimate.callGasLimit,
 				}
 			}
@@ -211,8 +211,8 @@ export class ContractInteractionService {
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
+				estimate.relayerFeeInSourceFeeToken,
 				estimate.fillOptions.relayerFee,
-				estimate.fillOptions.nativeDispatchFee,
 				callGasLimit,
 				estimate.verificationGasLimit,
 				estimate.preVerificationGas,
@@ -223,8 +223,8 @@ export class ContractInteractionService {
 			)
 			return {
 				totalCostInSourceFeeToken: estimate.totalGasInFeeToken,
+				relayerFeeInSourceFeeToken: estimate.relayerFeeInSourceFeeToken,
 				dispatchFee: estimate.fillOptions.relayerFee,
-				nativeDispatchFee: estimate.fillOptions.nativeDispatchFee,
 				callGasLimit: estimate.callGasLimit,
 			}
 		} catch (error) {
@@ -573,12 +573,17 @@ export class ContractInteractionService {
 
 		const fillOptions: FillOptions = {
 			relayerFee: cachedEstimate.dispatchFee,
-			nativeDispatchFee: cachedEstimate.nativeDispatchFee,
+			// The dispatch is always paid in the fee token: the native rail drew
+			// on the solver account's native balance, which nothing guarantees,
+			// and a shortfall only surfaced as a reverted execution that still
+			// billed the paymaster (estimation overrides the balance, so it
+			// could never catch it).
+			nativeDispatchFee: 0n,
 			outputs: cachedFillerOutputs,
 		}
 
-		// dispatchWithFeeToken pulls relayerFee in fee token; native dispatch pulls none.
-		const dispatchFeeTokenAmount = fillOptions.nativeDispatchFee > 0n ? 0n : fillOptions.relayerFee
+		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.
+		const dispatchFeeTokenAmount = fillOptions.relayerFee
 		const callData = await this.buildApprovalAndFillCalldata(
 			order,
 			cachedFillerOutputs,
@@ -757,7 +762,7 @@ export class ContractInteractionService {
 
 		calls.push({
 			target: intentGatewayV2Address,
-			value: nativeOutputValue + fillOptions.nativeDispatchFee,
+			value: nativeOutputValue,
 			data: encodeFunctionData({
 				abi: INTENT_GATEWAY_V2_ABI,
 				functionName: "fillOrder",

@@ -1,5 +1,6 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
+import { getPublicRpcUrls } from "@/config/public-rpcs"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
@@ -13,6 +14,15 @@ export interface ResolvedChainConfig {
 	/** One or more RPC URLs for this chain. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
 	bundlerUrl?: string
+}
+
+/** Lowercased hostname of a URL, or null when the URL does not parse. */
+function hostnameOf(url: string): string | null {
+	try {
+		return new URL(url).hostname.toLowerCase()
+	} catch {
+		return null
+	}
 }
 
 /**
@@ -304,6 +314,34 @@ export class FillerConfigService {
 		return [this.chainConfigService.getRpcUrl(chain)]
 	}
 
+	/**
+	 * RPC URLs for quorum-checked reads (event scanning, cross-chain confirmation
+	 * counting): the operator's configured endpoints hardened with the public
+	 * registry for the chain. Public endpoints never replace operator endpoints —
+	 * they are appended, deduplicated by hostname with operator URLs taking
+	 * precedence — so adding them raises the quorum threshold instead of diluting
+	 * the operator's own providers. Chains without a registry entry return the
+	 * operator's URLs unchanged.
+	 */
+	getQuorumRpcUrls(chain: string): string[] {
+		const userUrls = this.getRpcUrls(chain)
+		const chainId = this.getChainIdFromStateMachineId(chain)
+
+		const merged = [...userUrls]
+		const seenHosts = new Set<string>()
+		for (const url of userUrls) {
+			const host = hostnameOf(url)
+			if (host) seenHosts.add(host)
+		}
+		for (const url of getPublicRpcUrls(chainId)) {
+			const host = hostnameOf(url)
+			if (!host || seenHosts.has(host)) continue
+			seenHosts.add(host)
+			merged.push(url)
+		}
+		return merged
+	}
+
 	private getChainIdFromStateMachineId(chain: string): number {
 		const raw = chain.includes("EVM") ? chain.slice(4) : chain
 		const id = Number.parseInt(raw, 10)
@@ -355,6 +393,10 @@ export class FillerConfigService {
 
 	getCNgnAsset(chain: string): HexString | undefined {
 		return this.chainConfigService.getCNgnAsset(chain)
+	}
+
+	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
+		return this.chainConfigService.getAssetBySymbol(chain, symbol)
 	}
 
 	getCNgnDecimals(chain: string): number | undefined {

@@ -18,6 +18,51 @@ export interface CurveConfig {
 }
 
 /**
+ * Built-in per-chain confirmation curves for the supported mainnets, merged
+ * under any user-supplied `[confirmationPolicies]` entries at startup. The
+ * curve amount axis is the order's USD value (derived from the pair curves
+ * via the USD anchors); the value is the confirmation depth in blocks.
+ */
+export const DEFAULT_CONFIRMATION_POLICIES: Record<string, CurveConfig> = {
+	"1": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 15 },
+		],
+	}, // Ethereum (~12s blocks, ~24s–3min)
+	"56": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 3 },
+		],
+	}, // BNB Chain (~3s blocks, fast finality)
+	"137": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 32 },
+		],
+	}, // Polygon (~2s blocks, milestone finality)
+	"8453": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 90 },
+		],
+	}, // Base (~2s blocks, L2)
+	"42161": {
+		points: [
+			{ amount: "1000", value: 8 },
+			{ amount: "100000", value: 720 },
+		],
+	}, // Arbitrum (~0.25s blocks, L2)
+	"130": {
+		points: [
+			{ amount: "1000", value: 2 },
+			{ amount: "100000", value: 180 },
+		],
+	}, // Unichain (~1s blocks, OP-stack L2 — time-equivalent to Base's curve)
+}
+
+/**
  * A coordinate point on a price curve
  * @property amount - The input threshold (e.g., USD amount)
  * @property price - The exotic tokens per 1 USD at this threshold
@@ -112,6 +157,19 @@ export class InterpolatedCurve {
  * Manages confirmation block requirements per chain.
  * Each chain has its own curve mapping order value to required confirmations.
  */
+/**
+ * Parses a per-chain config key. Every other table in the config writes chains
+ * as state machine ids ("EVM-1"), so both "EVM-1" and bare "1" are accepted;
+ * anything else returns null and callers MUST fail loudly — a silently
+ * discarded chain key has meant committing capital on a chain configured as
+ * watch-only, or hardening a confirmation curve that never applied.
+ */
+export function parseChainKey(key: string): number | null {
+	const normalized = key.trim().replace(/^EVM-/i, "")
+	if (!/^\d+$/.test(normalized)) return null
+	return Number(normalized)
+}
+
 export class ConfirmationPolicy {
 	private policies: Map<number, InterpolatedCurve>
 
@@ -119,8 +177,17 @@ export class ConfirmationPolicy {
 		this.policies = new Map()
 
 		Object.entries(policyConfig).forEach(([chainId, config]) => {
-			const curve = new InterpolatedCurve(config, `Chain ${chainId} confirmation policy`)
-			this.policies.set(Number(chainId), curve)
+			const parsed = parseChainKey(chainId)
+			if (parsed === null) {
+				throw new Error(
+					`Confirmation policy key '${chainId}' is not a chain id — write [confirmationPolicies."EVM-<id>"] or [confirmationPolicies."<id>"]`,
+				)
+			}
+			const curve = new InterpolatedCurve(config, `Chain ${parsed} confirmation policy`)
+			// Later entries override earlier ones after normalization, so a user
+			// key "EVM-1" replaces the built-in default keyed "1" instead of
+			// sitting beside it as a dead entry.
+			this.policies.set(parsed, curve)
 		})
 	}
 
@@ -128,6 +195,20 @@ export class ConfirmationPolicy {
 		const curve = this.policies.get(chainId)
 		if (!curve) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 		return curve.getValue(amountUsd)
+	}
+
+	/**
+	 * Startup guard: every configured chain must have a confirmation curve.
+	 * Without this, a missing policy only surfaces as a per-order throw at
+	 * fill time — cross-chain orders sourced on that chain silently dropped.
+	 */
+	assertCovers(chainIds: number[]): void {
+		const missing = chainIds.filter((id) => !this.policies.has(id))
+		if (missing.length > 0) {
+			throw new Error(
+				`No confirmation policy for chain(s) ${missing.join(", ")} — add [confirmationPolicies."<chainId>"] entries for them (built-in defaults cover Ethereum, BSC, Polygon, Base, Arbitrum and Unichain)`,
+			)
+		}
 	}
 }
 
@@ -195,6 +276,32 @@ export class FillerPricePolicy {
 	/** Replaces all curve points with a single flat price. */
 	updatePrice(newPrice: Decimal): void {
 		this.replacePoints({ points: [{ amount: "0", price: newPrice.toString() }] })
+	}
+
+	/**
+	 * Startup guard for two-sided books: the bid must exceed the ask at every
+	 * point of both curves' amount domains. A crossed or zero-spread book can
+	 * never fill — the per-leg FX margin marks every fill at the opposite
+	 * curve, so bid ≤ ask makes every round trip non-positive and the profit
+	 * gate rejects all orders. Reject the config loudly instead of letting the
+	 * pair go silently dead. Both curves are piecewise-linear, so checking
+	 * every breakpoint of the combined amount grid covers the whole domain
+	 * (clamped tails included).
+	 */
+	static assertBookNotCrossed(label: string, bid: FillerPricePolicy, ask: FillerPricePolicy): void {
+		const amounts = [...new Set([...bid.getPoints(), ...ask.getPoints()].map((p) => p.amount))]
+		for (const amount of amounts) {
+			const at = new Decimal(amount)
+			const bidPrice = bid.getPrice(at)
+			const askPrice = ask.getPrice(at)
+			if (bidPrice.lte(askPrice)) {
+				throw new Error(
+					`${label}: book is crossed at amount ${amount} — bid ${bidPrice.toString()} ≤ ask ${askPrice.toString()}. ` +
+						`A non-positive spread can never fill (every fill marks as a loss at the opposite curve); ` +
+						`skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
+				)
+			}
+		}
 	}
 
 	/** Current curve points, sorted by amount. */

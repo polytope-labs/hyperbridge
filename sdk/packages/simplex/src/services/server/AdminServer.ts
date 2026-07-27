@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { Decimal } from "decimal.js"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { getLogger } from "../Logger"
 import { ADMIN_UI_HTML } from "./ui/admin-ui"
@@ -16,6 +17,8 @@ export interface AdminStrategy {
 	exotic?: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
+	/** Same-asset market (token0 == token1): live edits must keep ask prices strictly below par. */
+	sameToken?: boolean
 }
 
 const MAX_BODY_BYTES = 1_048_576
@@ -126,6 +129,23 @@ export class AdminServer {
 			for (const side of sides) {
 				// Constructing a throwaway policy runs full validation without mutating.
 				void new FillerPricePolicy({ points: side.points })
+			}
+			// Live edits obey the same book invariants as startup — one curl must
+			// not recreate the configs boot refuses. Candidate curves are judged
+			// together with the untouched side.
+			const nextBid = update.bidPriceCurve ? new FillerPricePolicy({ points: update.bidPriceCurve }) : strategy.bid
+			const nextAsk = update.askPriceCurve ? new FillerPricePolicy({ points: update.askPriceCurve }) : strategy.ask
+			if (strategy.sameToken && nextAsk) {
+				for (const point of nextAsk.getPoints()) {
+					if (new Decimal(point.price).gte(1)) {
+						throw new Error(
+							`same-token ask prices must be strictly below 1 — '${point.price}' would fill at or above par`,
+						)
+					}
+				}
+			}
+			if (!strategy.sameToken && nextBid && nextAsk) {
+				FillerPricePolicy.assertBookNotCrossed(`strategy ${index}`, nextBid, nextAsk)
 			}
 		} catch (err) {
 			return this.json(res, 400, { error: err instanceof Error ? err.message : String(err) })

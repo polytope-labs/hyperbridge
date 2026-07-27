@@ -197,6 +197,21 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
+	it("rejects a curve-less venue-priced pair whose quote asset is not a USD stable", () => {
+		const config = minimalConfig()
+		config.pairs!.push(
+			{
+				token0: "USDC",
+				token1: "CNGN",
+				referenceOnly: true,
+				askPriceCurve: [{ amount: "0", price: "1565" }],
+			},
+			{ token0: "CNGN", token1: "ZARP", maxOrderSize: "5000" },
+		)
+		config.vault = { uniswapV4: { positions: [{ chain: "EVM-8453", tokenId: "123" }] } }
+		expect(() => validateConfig(config)).toThrow(/venue pricing needs a USD-stable token0/)
+	})
+
 	it("rejects malformed confirmation policy keys and short point lists", () => {
 		const badKey = minimalConfig()
 		badKey.confirmationPolicies = { ethereum: { points: [{ amount: "1", value: 1 }, { amount: "2", value: 2 }] } }

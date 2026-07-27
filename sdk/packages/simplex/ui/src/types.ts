@@ -38,6 +38,8 @@ export interface SetupDefaults {
 	chains: ChainDefault[]
 	hyperbridgeWs: Record<Network, string>
 	usdStables: string[]
+	/** Every symbol the registry ships, chain-independent — custom assets must not shadow these. */
+	registrySymbols: string[]
 	sameAssetAskCurve: PricePoint[]
 	confirmationPolicies: Record<string, { points: CurvePoint[] }>
 	testnetConfirmationPoints: CurvePoint[]
@@ -141,6 +143,7 @@ export interface AdminStrategyDto {
 	exotic?: string
 	pricingMode: "static" | "venue"
 	sameToken?: boolean
+	referenceOnly?: boolean
 	bid?: PricePoint[]
 	ask?: PricePoint[]
 }

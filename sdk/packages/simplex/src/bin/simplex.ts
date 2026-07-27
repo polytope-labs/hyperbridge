@@ -231,6 +231,7 @@ program
 						runtime = await bootFiller(config, {
 							configPath: path,
 							dataDir: options.dataDir,
+							watchOnlyOverride: options.watchOnly,
 							metricsBind,
 						})
 						server.enterOperatorMode(await operatorContextFrom(runtime))

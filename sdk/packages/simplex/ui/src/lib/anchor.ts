@@ -1,6 +1,8 @@
 // Hand-mirrored from src/config/pairs.ts `unanchoredToken0Symbols` — the ui
 // bundle cannot import src modules. Keep the two in sync; the server preview
 // gate re-runs the real check, so drift shows up as a late error, not a wrong fill.
+// One deliberate divergence: empty token0 symbols (a custom token mid-typing)
+// are not reported — the step validation blocks empty symbols separately.
 
 export interface AnchorPair {
 	token0: string

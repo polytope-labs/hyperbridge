@@ -78,6 +78,9 @@ export async function handleSetupRequest(
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
 			usdStables: [...USD_STABLE_SYMBOLS],
+			// Full shipped symbol list (chain-independent) so the wizard can refuse
+			// custom [assets] entries that would shadow a registry symbol.
+			registrySymbols: registrySymbols(),
 			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
 			confirmationPolicies: DEFAULT_CONFIRMATION_POLICIES,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,

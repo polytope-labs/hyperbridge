@@ -1,7 +1,7 @@
 import { isAddress } from "viem"
 import { HexString } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
-import { validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
@@ -235,6 +235,20 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	const hasVenuePricing = (config.vault?.uniswapV4?.positions?.length ?? 0) > 0
 	if (hasPairs) {
 		validatePairConfigs(config.pairs!, config.assets, hasVenuePricing)
+		// The engine only venue-prices pairs whose quote side is a dollar (a
+		// pool's USD quote must invert into a pair rate). validatePairConfigs
+		// accepts curve-less pairs whenever venues exist, so enforce the
+		// stable-quote rule here — at the gate, not first at boot.
+		if (hasVenuePricing) {
+			for (const pair of config.pairs!) {
+				const curveless = (pair.bidPriceCurve?.length ?? 0) === 0 && (pair.askPriceCurve?.length ?? 0) === 0
+				if (curveless && !USD_STABLE_SYMBOLS.has(pair.token0.trim().toUpperCase())) {
+					throw new Error(
+						`pairs.${pair.token0}/${pair.token1}: venue pricing needs a USD-stable token0 — add bid/ask curves or quote against USDC/USDT/DAI`,
+					)
+				}
+			}
+		}
 	}
 
 	// Per-chain confirmation policies (merged over built-in defaults at startup).

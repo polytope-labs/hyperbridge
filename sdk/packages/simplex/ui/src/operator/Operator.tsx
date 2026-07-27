@@ -232,11 +232,14 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 	const [message, setMessage] = useState<string>()
 	const [error, setError] = useState<string>()
 
-	// The label is "TOKEN0/TOKEN1"; curves are token1 per token0, sized in token0.
-	const [token0 = "token0", token1 = "token1"] = (strategy.exotic ?? "").split("/")
-	const title = strategy.sameToken
-		? `Market #${strategy.index} · ${strategy.exotic} — same-asset transfers`
-		: `Market #${strategy.index} ${strategy.exotic ? `· ${strategy.exotic}` : ""}`
+	// The label is "TOKEN0/TOKEN1" (reference pairs carry a " (reference)" suffix).
+	const pairLabel = (strategy.exotic ?? "").replace(" (reference)", "")
+	const [token0 = "token0", token1 = "token1"] = pairLabel.split("/")
+	const title = strategy.referenceOnly
+		? `Market #${strategy.index} · ${pairLabel} — reference price feed`
+		: strategy.sameToken
+			? `Market #${strategy.index} · ${strategy.exotic} — same-asset transfers`
+			: `Market #${strategy.index} ${strategy.exotic ? `· ${strategy.exotic}` : ""}`
 
 	if (strategy.pricingMode === "venue") {
 		return (
@@ -273,6 +276,12 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 					the gap to 1 is the spread on each fill.
 				</p>
 			)}
+			{strategy.referenceOnly && (
+				<p className="hint">
+					Price feed only: edits update the USD anchor rate for confirmation sizing. This market never fills
+					orders.
+				</p>
+			)}
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
 				{(strategy.bid || enableBid) && (
 					<div>
@@ -301,7 +310,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 					</div>
 				)}
 			</div>
-			{!strategy.sameToken && !strategy.bid && !enableBid && (
+			{!strategy.sameToken && !strategy.referenceOnly && !strategy.bid && !enableBid && (
 				<button
 					type="button"
 					onClick={() => {
@@ -312,7 +321,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 					Enable bid side (one-sided LP → both directions)
 				</button>
 			)}
-			{!strategy.sameToken && !strategy.ask && !enableAsk && (
+			{!strategy.sameToken && !strategy.referenceOnly && !strategy.ask && !enableAsk && (
 				<button
 					type="button"
 					style={{ marginLeft: "0.5rem" }}

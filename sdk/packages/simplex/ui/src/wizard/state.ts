@@ -45,6 +45,9 @@ export interface PairDraft {
 	maxOrderSize: string
 	/** Price feed only: anchors token1 in USD without opening a market. */
 	referenceOnly?: boolean
+	/** UI mode of the symbol pickers — lives on the draft so it survives row reordering. */
+	custom0?: boolean
+	custom1?: boolean
 	bidEnabled: boolean
 	askEnabled: boolean
 	bid: EditorPoint[]
@@ -104,18 +107,36 @@ function sameAssetPrefabs(defaults: SetupDefaults): PairDraft[] {
 	}))
 }
 
-export function newCrossAssetDraft(): PairDraft {
+export function newCrossAssetDraft(token1: string): PairDraft {
 	return {
 		kind: "crossAsset",
 		enabled: true,
 		token0: "USDC",
-		token1: "CNGN",
+		token1,
 		maxOrderSize: "5000",
 		bidEnabled: true,
 		askEnabled: true,
 		bid: [{ amount: "100", value: "" }],
 		ask: [{ amount: "100", value: "" }],
 	}
+}
+
+/** A curve editor whose filled points parse into a policy the engine accepts. */
+export function curveFilled(points: EditorPoint[], check: (v: number) => boolean = (v) => v > 0): boolean {
+	const filled = points.filter((p) => p.amount.trim() && p.value.trim())
+	return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && check(Number(p.value)))
+}
+
+/**
+ * Whether a draft will contribute a curve edge to the emitted config —
+ * mirrors what assembleConfig emits, so the anchor check and the step
+ * validation agree with the server by construction.
+ */
+export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4"): boolean {
+	if (draft.referenceOnly) return curveFilled(draft.ask)
+	if (draft.kind === "sameAsset" || isSameTokenDraft(draft)) return curveFilled(draft.ask)
+	if (pricing !== "curves") return false
+	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
 }
 
 /** A reference-only USDC/<symbol> price feed, inserted by the anchor helper. */
@@ -250,11 +271,14 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		}
 	})
 
-	// Only [assets] entries actually referenced by a pair are emitted.
+	// Only [assets] entries actually referenced by a pair are emitted — and
+	// never for registry symbols: an accidental override would silently repoint
+	// e.g. USDC at an arbitrary contract. The wizard refuses shadowing outright.
 	const usedSymbols = new Set(pairs.flatMap((p) => [p.token0, p.token1]))
+	const shipped = new Set(defaults.registrySymbols.map((s) => normSymbol(s)))
 	const assets = Object.fromEntries(
 		Object.entries(state.customAssets)
-			.filter(([symbol]) => usedSymbols.has(symbol))
+			.filter(([symbol]) => usedSymbols.has(symbol) && !shipped.has(normSymbol(symbol)))
 			.map(([symbol, byChain]) => [
 				symbol,
 				Object.fromEntries(Object.entries(byChain).filter(([, address]) => address.trim())),
@@ -269,7 +293,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				)
 			: undefined
 
-	const uniswapV4 = usingPool
+	const uniswapV4 = usingPool && state.fxPositions.length > 0
 		? {
 				positions: state.fxPositions.map((p) => ({
 					chain: p.chain,

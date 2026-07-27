@@ -281,8 +281,11 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				bid: pair.bidPricePolicy,
 				ask: pair.askPricePolicy,
 				sameToken,
+				referenceOnly: pair.referenceOnly === true,
 			}
-			if (!sameToken) {
+			// Reference pairs never fill, so opening a side is a no-op; same-token
+			// markets are ask-only by engine rule.
+			if (!sameToken && !pair.referenceOnly) {
 				// The engine reads curve presence live on every order, so
 				// assigning a policy onto the pair opens that direction.
 				adminStrategy.enableSide = (side, policy) => {

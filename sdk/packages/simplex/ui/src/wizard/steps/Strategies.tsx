@@ -3,7 +3,9 @@ import { api } from "../../api"
 import { CurveEditor, fromPricePoints, type EditorPoint } from "../../components/CurveEditor"
 import { PillTabs } from "../../components/PillTabs"
 import { unanchoredToken0Symbols } from "../../lib/anchor"
+import { bookCrossedAt } from "../../lib/book"
 import {
+	draftHasCurve,
 	enabledChains,
 	isSameTokenDraft,
 	newCrossAssetDraft,
@@ -13,7 +15,6 @@ import {
 	removeAt,
 	type ChainDraft,
 	type PairDraft,
-	type WizardState,
 } from "../state"
 import type { StepProps } from "../Wizard"
 
@@ -27,7 +28,11 @@ function untouched(points: EditorPoint[]): boolean {
 	return points.every((p) => !p.value.trim())
 }
 
-/** Sensible starting curves when a market's shape becomes known from its symbols. */
+/**
+ * Sensible starting curves when a market's shape becomes known from its
+ * symbols. Applied ONLY on symbol changes — never while curves are being
+ * edited, so clearing a field to retype cannot trigger an overwrite.
+ */
 function prefillCurves(draft: PairDraft, usdStables: string[], sameAssetAsk: EditorPoint[]): Partial<PairDraft> {
 	if (isSameTokenDraft(draft)) {
 		return untouched(draft.ask) ? { ask: sameAssetAsk.map((p) => ({ ...p })) } : {}
@@ -73,19 +78,16 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 			seen.add(key)
 		}
 	}
+	// Same predicate the step validation and assembleConfig use — and same-token
+	// markets are included: their token0 must itself be anchored.
 	const unanchored = unanchoredToken0Symbols(
-		enabled
-			.filter((p) => !(p.kind === "sameAsset" || isSameTokenDraft(p)))
-			.map((p) => ({
-				token0: p.token0,
-				token1: p.token1,
-				hasCurve:
-					state.fxPricing === "curves" &&
-					((p.bidEnabled && p.bid.some((pt) => pt.value.trim())) ||
-						((p.askEnabled || Boolean(p.referenceOnly)) && p.ask.some((pt) => pt.value.trim()))),
-			})),
+		enabled.map((p) => ({ token0: p.token0, token1: p.token1, hasCurve: draftHasCurve(p, state.fxPricing) })),
 		defaults.usdStables,
 	)
+	const shippedSymbols = new Set(defaults.registrySymbols.map((s) => normSymbol(s)))
+	// The default base asset for a new market: first exotic actually deployed
+	// on an enabled chain, else USDT (a stable-stable market always works).
+	const defaultToken1 = availableSymbols.find((s) => !defaults.usdStables.includes(s)) ?? "USDT"
 
 	return (
 		<div>
@@ -160,11 +162,15 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						pair={pair}
 						symbols={availableSymbols}
 						usdStables={defaults.usdStables}
+						registrySymbols={shippedSymbols}
 						chains={chains}
 						pricing={state.fxPricing}
 						duplicate={duplicateKeys.has(`${normSymbol(pair.token0)}/${normSymbol(pair.token1)}`)}
 						customAssets={state.customAssets}
-						onPatch={(patch) => {
+						onPatch={(patch) => patchPair(index, patch)}
+						onSymbolChange={(patch) => {
+							// Prefills apply only here — on symbol changes — so mid-edit
+							// curve fields are never overwritten.
 							const next = { ...pair, ...patch }
 							patchPair(index, {
 								...patch,
@@ -173,27 +179,43 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						}}
 						onRenameAsset={(from, to) =>
 							setState((s) => {
+								// Move the address map with the rename, but never clobber
+								// another row still using the old symbol, and never create
+								// an entry that shadows a registry symbol.
 								const customAssets = { ...s.customAssets }
-								if (from && customAssets[from] && from !== to) {
-									customAssets[to] = customAssets[from]
+								const stillUsed = s.pairs.some(
+									(p, i) => i !== index && (p.token0 === from || p.token1 === from),
+								)
+								if (from && customAssets[from] && from !== to && !stillUsed) {
+									if (to && !shippedSymbols.has(normSymbol(to))) {
+										customAssets[to] = customAssets[from]
+									}
 									delete customAssets[from]
 								}
 								return { ...s, customAssets }
 							})
 						}
 						onCustomAddress={(symbol, chain, address) =>
-							setState((s) => ({
-								...s,
-								customAssets: {
-									...s.customAssets,
-									[symbol]: { ...(s.customAssets[symbol] ?? {}), [chain]: address },
-								},
-							}))
+							setState((s) =>
+								// Never record addresses under a registry symbol.
+								shippedSymbols.has(normSymbol(symbol))
+									? s
+									: {
+											...s,
+											customAssets: {
+												...s.customAssets,
+												[symbol]: { ...(s.customAssets[symbol] ?? {}), [chain]: address },
+											},
+										},
+							)
 						}
 						onRemove={() => setState((s) => ({ ...s, pairs: removeAt(s.pairs, index) }))}
 					/>
 				))}
-				<button type="button" onClick={() => setState((s) => ({ ...s, pairs: [...s.pairs, newCrossAssetDraft()] }))}>
+				<button
+					type="button"
+					onClick={() => setState((s) => ({ ...s, pairs: [...s.pairs, newCrossAssetDraft(defaultToken1)] }))}
+				>
 					+ Add market
 				</button>
 
@@ -325,6 +347,12 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 								/>
 							</label>
 						</div>
+						{state.fxSide !== "" && enabled.some((p) => draftHasCurve(p, state.fxPricing)) && (
+							<p className="error">
+								A one-sided Direction requires every market to be pool-priced, but same-asset transfer
+								markets and reference feeds carry curves — remove them or set Direction to both.
+							</p>
+						)}
 					</div>
 				)}
 			</div>
@@ -377,22 +405,44 @@ function MarketRow(props: {
 	pair: PairDraft
 	symbols: string[]
 	usdStables: string[]
+	registrySymbols: Set<string>
 	chains: ChainDraft[]
 	pricing: "curves" | "uniswapV4"
 	duplicate: boolean
 	customAssets: Record<string, Record<string, string>>
 	onPatch: (patch: Partial<PairDraft>) => void
+	onSymbolChange: (patch: Partial<PairDraft>) => void
 	onRenameAsset: (from: string, to: string) => void
 	onCustomAddress: (symbol: string, chain: string, address: string) => void
 	onRemove: () => void
 }) {
-	const { pair, symbols, usdStables, chains, pricing, duplicate, customAssets, onPatch, onRenameAsset, onCustomAddress, onRemove } = props
-	const [custom0, setCustom0] = useState(() => Boolean(pair.token0) && !symbols.includes(pair.token0))
-	const [custom1, setCustom1] = useState(
-		() => Boolean(pair.token1) && !symbols.includes(pair.token1) && pair.token1 !== "CNGN",
-	)
+	const {
+		pair,
+		symbols,
+		usdStables,
+		registrySymbols,
+		chains,
+		pricing,
+		duplicate,
+		customAssets,
+		onPatch,
+		onSymbolChange,
+		onRenameAsset,
+		onCustomAddress,
+		onRemove,
+	} = props
+	// Picker mode lives on the draft (not component state) so it survives row deletion/reordering.
+	const custom0 = pair.custom0 ?? false
+	const custom1 = pair.custom1 ?? false
 	const sameToken = isSameTokenDraft(pair)
 	const venueNeedsStable = pricing === "uniswapV4" && !sameToken && !usdStables.includes(normSymbol(pair.token0))
+	const shadowed = [pair.token0, pair.token1].filter(
+		(symbol, i) => (i === 0 ? custom0 : custom1) && symbol && registrySymbols.has(normSymbol(symbol)),
+	)
+	const crossedAt =
+		!sameToken && pricing === "curves" && pair.bidEnabled && pair.askEnabled
+			? bookCrossedAt(pair.bid, pair.ask)
+			: null
 
 	if (pair.referenceOnly) {
 		return (
@@ -416,6 +466,12 @@ function MarketRow(props: {
 						✕
 					</button>
 				</div>
+				{duplicate && (
+					<p className="error">
+						This market is already declared (a pair and its reverse are the same market) — remove this feed
+						or the duplicate row.
+					</p>
+				)}
 				<p className="hint" style={{ margin: "0.3rem 0 0" }}>
 					Anchors {pair.token1} in USD for confirmation sizing without opening a {pair.token0}/{pair.token1}{" "}
 					market. Keep the price roughly current — it never prices fills.
@@ -433,17 +489,13 @@ function MarketRow(props: {
 					symbols={symbols}
 					custom={custom0}
 					onSelect={(symbol) => {
-						setCustom0(false)
 						onRenameAsset(pair.token0, symbol)
-						onPatch({ token0: symbol })
+						onSymbolChange({ token0: symbol, custom0: false })
 					}}
-					onCustom={() => {
-						setCustom0(true)
-						onPatch({ token0: "" })
-					}}
+					onCustom={() => onSymbolChange({ token0: "", custom0: true })}
 					onCustomSymbol={(symbol) => {
 						onRenameAsset(pair.token0, symbol)
-						onPatch({ token0: symbol })
+						onSymbolChange({ token0: symbol })
 					}}
 				/>
 				<SymbolPicker
@@ -452,17 +504,13 @@ function MarketRow(props: {
 					symbols={symbols}
 					custom={custom1}
 					onSelect={(symbol) => {
-						setCustom1(false)
 						onRenameAsset(pair.token1, symbol)
-						onPatch({ token1: symbol })
+						onSymbolChange({ token1: symbol, custom1: false })
 					}}
-					onCustom={() => {
-						setCustom1(true)
-						onPatch({ token1: "" })
-					}}
+					onCustom={() => onSymbolChange({ token1: "", custom1: true })}
 					onCustomSymbol={(symbol) => {
 						onRenameAsset(pair.token1, symbol)
-						onPatch({ token1: symbol })
+						onSymbolChange({ token1: symbol })
 					}}
 				/>
 				<label className="field" style={{ margin: 0, maxWidth: "12rem" }}>
@@ -483,6 +531,18 @@ function MarketRow(props: {
 				<p className="error">
 					Pool pricing only quotes markets with a USD-stable quote asset — pick USDC/USDT/DAI as token0 or
 					switch this market to static curves.
+				</p>
+			)}
+			{shadowed.length > 0 && (
+				<p className="error">
+					{shadowed.join(", ")} ships with the registry — pick it from the dropdown instead of entering it as
+					a custom token (a custom address here would silently repoint the real asset).
+				</p>
+			)}
+			{crossedAt !== null && (
+				<p className="error">
+					The book is crossed at order size {crossedAt}: the bid must stay strictly above the ask everywhere,
+					or every fill marks as a loss and nothing trades.
 				</p>
 			)}
 

@@ -36,6 +36,8 @@ export interface AdminStrategy {
 	ask?: FillerPricePolicy
 	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
 	sameToken?: boolean
+	/** Price feed only — the pair never fills; curves stay editable, sides are never opened. */
+	referenceOnly?: boolean
 	/**
 	 * Opens a direction configured as one-sided LP with a fresh policy. Present
 	 * only for cross-asset curve-priced pairs — same-token markets stay
@@ -789,6 +791,7 @@ function serializeStrategy(strategy: AdminStrategy) {
 		exotic: strategy.exotic,
 		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
 		sameToken: strategy.sameToken ?? false,
+		referenceOnly: strategy.referenceOnly ?? false,
 		bid: strategy.bid?.getPoints(),
 		ask: strategy.ask?.getPoints(),
 	}

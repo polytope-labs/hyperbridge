@@ -247,17 +247,18 @@ describe("UiServer (operator mode)", () => {
 		expect(res.status).toBe(200)
 		expect(await res.json()).toEqual({
 			strategies: [
-				{ index: 0, exotic: "USDC/USDC", pricingMode: "static", sameToken: true, ask: SAME_ASSET_POINTS },
+				{ index: 0, exotic: "USDC/USDC", pricingMode: "static", sameToken: true, referenceOnly: false, ask: SAME_ASSET_POINTS },
 				{
 					index: 1,
 					exotic: "USDC/CNGN",
 					pricingMode: "static",
 					sameToken: false,
+					referenceOnly: false,
 					bid: BID_POINTS,
 					ask: ASK_POINTS,
 				},
-				{ index: 2, pricingMode: "venue", sameToken: false },
-				{ index: 3, exotic: "USDC/ZARP", pricingMode: "static", sameToken: false, ask: ASK_POINTS },
+				{ index: 2, pricingMode: "venue", sameToken: false, referenceOnly: false },
+				{ index: 3, exotic: "USDC/ZARP", pricingMode: "static", sameToken: false, referenceOnly: false, ask: ASK_POINTS },
 			],
 		})
 	})
@@ -275,6 +276,7 @@ describe("UiServer (operator mode)", () => {
 			exotic: "USDC/CNGN",
 			pricingMode: "static",
 			sameToken: false,
+			referenceOnly: false,
 			bid: BID_POINTS,
 			ask: newAsk,
 			persisted: true,

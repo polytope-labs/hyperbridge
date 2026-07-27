@@ -105,6 +105,17 @@ pub enum Error {
 	/// Asked to serve a state machine the client doesn't support.
 	#[error("Unsupported state machine: {0:?}")]
 	UnsupportedStateMachine(StateMachine),
+	/// The proof envelope the submitter chose does not match the class of
+	/// state machine the trusted consensus state tracks.
+	///
+	/// The envelope is attacker-selected while the state machine is trusted, and
+	/// each arm labels the header it verified with the trusted identity. Without
+	/// this check a relay-chain finality proof submitted under `StandaloneChain`
+	/// would record the relay's global state root under a tracked parachain's
+	/// identity — the signatures verify, because a parachain tracker's authority
+	/// set *is* the relay's GRANDPA set.
+	#[error("Consensus message envelope does not match the tracked state machine: {0:?}")]
+	ConsensusMessageStateMachineMismatch(StateMachine),
 
 	// -- forwarding for ismp client --
 	/// An ISMP-level error surfaced from a nested call (kept as-is

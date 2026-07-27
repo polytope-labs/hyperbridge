@@ -220,6 +220,23 @@ askPriceCurve = [
 # USDC/CNGN prices CNGN in USD, and ZARP/CNGN's curve prices ZARP through CNGN.
 # A config whose token0 cannot be anchored fails at startup.
 #
+# To anchor an asset WITHOUT opening a market for it, declare the anchoring
+# pair referenceOnly: it contributes its rate to the anchor graph but never
+# fills orders (maxOrderSize not needed). E.g. a lone cNGN/cNGN transfer
+# market anchored by a reference USDC/CNGN quote:
+#
+# [[pairs]]
+# token0 = "USDC"
+# token1 = "CNGN"
+# referenceOnly = true        # price feed only — no USDC/CNGN market opened
+# askPriceCurve = [ { amount = "0", price = "1565" } ]
+#
+# [[pairs]]
+# token0 = "CNGN"
+# token1 = "CNGN"
+# maxOrderSize = "5000000"
+# askPriceCurve = [ { amount = "0", price = "0.995" } ]
+#
 # [assets] is an OPTIONAL escape hatch: only needed for assets the registry
 # does not ship, or to override a shipped address for your deployment.
 # [assets.BRZ]

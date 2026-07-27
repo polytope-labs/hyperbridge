@@ -422,7 +422,9 @@ program
 				const tradingPairs: TradingPair[] = config.pairs.map((pair) => ({
 					token0: pair.token0,
 					token1: pair.token1,
-					maxOrderSize: new Decimal(pair.maxOrderSize),
+					// Reference-only pairs never fill, so the cap is never consulted.
+					maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
+					referenceOnly: pair.referenceOnly === true,
 					bidPricePolicy: pair.bidPriceCurve?.length
 						? new FillerPricePolicy({ points: pair.bidPriceCurve })
 						: undefined,
@@ -434,7 +436,7 @@ program
 					if (pair.bidPricePolicy || pair.askPricePolicy) {
 						adminStrategies.push({
 							index: adminStrategies.length,
-							exotic: `${pair.token0}/${pair.token1}`,
+							exotic: `${pair.token0}/${pair.token1}${pair.referenceOnly ? " (reference)" : ""}`,
 							bid: pair.bidPricePolicy,
 							ask: pair.askPricePolicy,
 							sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
@@ -562,6 +564,7 @@ program
 					const token1: Record<string, string[]> = {}
 					for (const pair of config.pairs ?? []) {
 						if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) continue
+						if (pair.referenceOnly) continue // price feed only — never holds fill inventory
 						for (const chain of resolvedChains) {
 							const chainName = `EVM-${chain.chainId}`
 							const address = assetRegistry.getAddress(pair.token1, chainName)

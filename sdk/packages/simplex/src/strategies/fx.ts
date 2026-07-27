@@ -44,10 +44,15 @@ import type { SigningAccount } from "@/services/wallet"
 export interface TradingPair {
 	token0: string
 	token1: string
-	/** Maximum token0 notional this pair fills per order. */
+	/** Maximum token0 notional this pair fills per order. Ignored for reference-only pairs. */
 	maxOrderSize: Decimal
 	bidPricePolicy?: FillerPricePolicy
 	askPricePolicy?: FillerPricePolicy
+	/**
+	 * Pure price feed: contributes its FX edge to the USD anchor graph but
+	 * never matches order legs — no market is opened for it.
+	 */
+	referenceOnly?: boolean
 }
 
 /** Whether a pair quotes the same asset on both sides (same-asset cross-chain market). */
@@ -211,10 +216,24 @@ export class FXFiller implements FillerStrategy {
 				)
 			}
 			seenPairs.add(label)
-			if (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0)) {
+			if (!pair.referenceOnly && (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))) {
 				throw new Error(
 					`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
 				)
+			}
+			if (pair.referenceOnly) {
+				// A reference pair is only its curve: same-token pairs carry no FX
+				// rate to reference, and without a curve there is no reference.
+				if (isSameTokenPair(pair)) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: referenceOnly applies to cross-asset pairs — a same-token pair carries no FX rate to reference`,
+					)
+				}
+				if (!pair.bidPricePolicy && !pair.askPricePolicy) {
+					throw new Error(
+						`FXFiller pair ${pair.token0}/${pair.token1}: a referenceOnly pair needs a bid and/or ask policy — the curve IS the reference`,
+					)
+				}
 			}
 			if (isSameTokenPair(pair)) {
 				// Same-asset market: ask-only, priced strictly below par — at or
@@ -269,7 +288,7 @@ export class FXFiller implements FillerStrategy {
 		)
 		if (unanchored.length > 0) {
 			throw new Error(
-				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset`,
+				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset; mark it referenceOnly to anchor without opening that market`,
 			)
 		}
 
@@ -1165,6 +1184,9 @@ export class FXFiller implements FillerStrategy {
 		outputAddress: string,
 	): ResolvedLeg | null {
 		for (const pair of this.pairs) {
+			// Reference-only pairs are price feeds for the anchor graph, never
+			// markets — they match no legs.
+			if (pair.referenceOnly) continue
 			// Same-token pairs are the same-asset CROSS-chain market only. A
 			// same-chain leg (source == dest) would be a pay-more-get-less self
 			// swap on one chain — never fill it.

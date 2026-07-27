@@ -299,6 +299,37 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 	})
 
+	it("referenceOnly pairs anchor without opening a market and need no maxOrderSize", () => {
+		// A lone CNGN/CNGN transfer market anchored by a reference USDC/CNGN quote.
+		expect(() =>
+			validatePairConfigs(
+				[
+					{ token0: "USDC", token1: "CNGN", referenceOnly: true, askPriceCurve: [{ amount: "0", price: "1565" }] },
+					{ token0: "CNGN", token1: "CNGN", maxOrderSize: SIZE, askPriceCurve: [{ amount: "0", price: "0.995" }] },
+				],
+				assets,
+			),
+		).not.toThrow()
+		// A reference pair without a curve has nothing to reference.
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", referenceOnly: true }], assets, true),
+		).toThrow(/the curve IS the reference/)
+		// Same-token pairs carry no FX rate to reference.
+		expect(() =>
+			validatePairConfigs(
+				[
+					{
+						token0: "USDC",
+						token1: "USDC",
+						referenceOnly: true,
+						askPriceCurve: [{ amount: "0", price: "0.99" }],
+					},
+				],
+				assets,
+			),
+		).toThrow(/carries no FX rate/)
+	})
+
 	it("rejects non-positive curve prices (they would poison the USD anchor math)", () => {
 		expect(() =>
 			validatePairConfigs(
@@ -1058,6 +1089,43 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			parseUnits("10", 6),
 		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
+	it("referenceOnly pairs feed the anchor graph but never match orders", async () => {
+		const filler = gateFiller(
+			[
+				// Reference quote: anchors CNGN at $1/1565 (mid of 1580/1550), no market.
+				{
+					token0: "USDC",
+					token1: "CNGN",
+					maxOrderSize: size("0"),
+					referenceOnly: true,
+					bidPricePolicy: flat("1580"),
+					askPricePolicy: flat("1550"),
+				},
+				{ token0: "CNGN", token1: "CNGN", maxOrderSize: size("5000000"), askPricePolicy: flat("0.995") },
+			],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		// A USDC→CNGN order would match the reference pair if it were a market — it must not.
+		const fx = order(
+			"ref-no-market",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.canFill(fx)).toBe(false)
+		// The same-token market fills, and its confirmation notional is priced
+		// through the reference edge: 1,565,000 CNGN ÷ 1565 = $1000.
+		const transfer = order(
+			"ref-anchored",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1565000", 18) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.canFill(transfer)).toBe(true)
+		expect((await filler.getOrderUsdValue(transfer))?.inputUsd.toFixed(4)).toBe("1000.0000")
 	})
 
 	it("keeps USD stables pinned at $1 — a stable/stable curve contributes no FX edge", async () => {

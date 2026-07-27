@@ -42,8 +42,16 @@ export interface PairConfig {
 	token0: string
 	/** Base-side symbol (e.g. "CNGN"). Any symbol in the registry. */
 	token1: string
-	/** Maximum token0 notional this pair fills per order. */
-	maxOrderSize: string
+	/** Maximum token0 notional this pair fills per order. Optional for reference-only pairs. */
+	maxOrderSize?: string
+	/**
+	 * A pure price feed: the pair contributes its FX edge to the USD anchor
+	 * graph (so confirmation depth can price its assets) but never matches
+	 * order legs — no market is opened. Lets an operator run e.g. a lone
+	 * CNGN/CNGN transfer market anchored by a reference USDC/CNGN quote
+	 * without offering to trade USDC/CNGN.
+	 */
+	referenceOnly?: boolean
 	/** token1 per token0 when the filler buys token1. Omit for ask-only (one-sided) LP. */
 	bidPriceCurve?: PriceCurvePoint[]
 	/** token1 per token0 when the filler sells token1. Omit for bid-only (one-sided) LP. */
@@ -164,21 +172,39 @@ export function validatePairConfigs(
 			}
 		}
 
-		if (pair.maxOrderSize === undefined) {
+		if (pair.maxOrderSize === undefined && !pair.referenceOnly) {
 			throw new Error(`pairs.${label}: 'maxOrderSize' is required (per-order cap in ${token0} units)`)
 		}
-		let maxOrderSize: Decimal
-		try {
-			maxOrderSize = new Decimal(pair.maxOrderSize)
-		} catch {
-			throw new Error(`pairs.${label}: 'maxOrderSize' must be a decimal string, got '${pair.maxOrderSize}'`)
-		}
-		if (!maxOrderSize.isFinite() || maxOrderSize.lte(0)) {
-			throw new Error(`pairs.${label}: 'maxOrderSize' must be a positive number, got '${pair.maxOrderSize}'`)
+		if (pair.maxOrderSize !== undefined) {
+			let maxOrderSize: Decimal
+			try {
+				maxOrderSize = new Decimal(pair.maxOrderSize)
+			} catch {
+				throw new Error(`pairs.${label}: 'maxOrderSize' must be a decimal string, got '${pair.maxOrderSize}'`)
+			}
+			if (!maxOrderSize.isFinite() || maxOrderSize.lte(0)) {
+				throw new Error(`pairs.${label}: 'maxOrderSize' must be a positive number, got '${pair.maxOrderSize}'`)
+			}
 		}
 
 		validateCurve(label, "bidPriceCurve", pair.bidPriceCurve)
 		validateCurve(label, "askPriceCurve", pair.askPriceCurve)
+
+		// Reference-only pairs are pure price feeds for the USD anchor graph:
+		// they need a curve to carry a rate, and a same-token pair has no FX
+		// edge to contribute, so reference-only is cross-asset by definition.
+		if (pair.referenceOnly) {
+			if (token0 === token1) {
+				throw new Error(
+					`pairs.${label}: 'referenceOnly' applies to cross-asset pairs — a same-token pair carries no FX rate to reference`,
+				)
+			}
+			if ((pair.bidPriceCurve?.length ?? 0) < 1 && (pair.askPriceCurve?.length ?? 0) < 1) {
+				throw new Error(
+					`pairs.${label}: a referenceOnly pair needs a bid and/or ask price curve — the curve IS the reference`,
+				)
+			}
+		}
 
 		// Same-token pairs (token0 == token1) are the same-asset cross-chain
 		// market (the former "stable" strategy): both directions are one market,
@@ -242,7 +268,7 @@ export function validatePairConfigs(
 	)
 	if (unanchored.length > 0) {
 		throw new Error(
-			`pairs: no USD anchor for ${unanchored.join(", ")} — confirmation depth is sized in USD using your own curves as the price feed. Add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset`,
+			`pairs: no USD anchor for ${unanchored.join(", ")} — confirmation depth is sized in USD using your own curves as the price feed. Add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset; declare it 'referenceOnly = true' to anchor without opening that market`,
 		)
 	}
 }

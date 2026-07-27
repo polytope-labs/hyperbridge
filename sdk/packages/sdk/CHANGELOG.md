@@ -1,5 +1,14 @@
 # @hyperbridge/sdk
 
+## 2.6.0
+
+### Minor Changes
+
+- Cross-chain `order.fees` now attaches (fill gas + a `RELAYER_MESSAGE_GAS` (1M) settlement uplift) with a 5% buffer over the whole sum, while the solver-side requirement carries no padding — SDK-placed orders always clear a solver's fee gate, including expensive-source/cheap-destination routes that were previously refused. `RELAYER_MESSAGE_GAS` is exported.
+- The cross-chain dispatch is always paid in the fee token: `estimateFillOrder` fixes `fillOptions.nativeDispatchFee` at 0 (the native rail drew on a solver native balance nothing guaranteed) and returns a new `relayerFeeInSourceFeeToken` field for solver-side cost accounting.
+- `ChainConfigService.getAssetBySymbol(chain, symbol)`: case-insensitive lookup into the per-chain asset table, which now ships curated mainnet deployments of ZARP, EURC, XSGD and TRYB (issuer-documented addresses, verified on-chain).
+
+
 ## 2.5.0
 
 ### Minor Changes

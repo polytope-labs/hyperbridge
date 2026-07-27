@@ -20,7 +20,7 @@ tracing = "0.1.40"
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
-features = ["sp-core"]
+features = ["sp-core", "sp-crypto-hashing"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }

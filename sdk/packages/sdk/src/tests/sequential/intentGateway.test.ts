@@ -2,7 +2,7 @@ import "log-timestamp"
 
 import { strict as assert } from "node:assert"
 import type { PublicClient } from "viem"
-import type { HexString, Order, TokenInfo } from "@/types"
+import type { AvailableLiquiditySnapshot, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { createQueryClient } from "@/queryClient"
@@ -81,6 +81,51 @@ describe("Intent quote helper", () => {
 		assert.equal(deductProtocolFee(1_000_000n, 0n), 1_000_000n)
 		assert.equal(grossUpForProtocolFee(1_000_000n, 0n), 1_000_000n)
 	})
+
+	it("queries live USDC to cNGN liquidity", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
+
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+
+		const intentGateway = await createLiveBaseIntentGateway(configService)
+
+		const liquidity = await intentGateway.queryAvailableLiquidity({
+			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
+			tokenOut: cNgnAddress,
+		})
+
+		assertAndLogLiquidity("USDC → cNGN", liquidity, cNgnAddress)
+	}, 120_000)
+
+	it("queries live cNGN to USDC liquidity", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
+		const usdcAddress = configService.getUsdcAsset(BASE_CHAIN)
+
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		const intentGateway = await createLiveBaseIntentGateway(configService)
+		const liquidity = await intentGateway.queryAvailableLiquidity({
+			tokenIn: cNgnAddress,
+			tokenOut: usdcAddress,
+		})
+
+		assertAndLogLiquidity("cNGN → USDC", liquidity, usdcAddress)
+	}, 120_000)
+
+	it("resolves Base USDT to the canonical USDC to cNGN liquidity snapshot", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
+
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		const intentGateway = await createLiveBaseIntentGateway(configService)
+		const liquidity = await intentGateway.queryAvailableLiquidity({
+			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
+			tokenOut: cNgnAddress,
+		})
+
+		assertAndLogLiquidity("USDT → cNGN (canonical USDC snapshot)", liquidity, cNgnAddress)
+	}, 120_000)
 
 	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
 		const configService = new ChainConfigService()
@@ -247,6 +292,41 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 		rpcUrl: process.env[chain.rpcEnvVar] ?? configService.getRpcUrl(chain.id),
 		bundlerUrl,
 	})
+}
+
+async function createLiveBaseIntentGateway(configService: ChainConfigService): Promise<IntentGateway> {
+	const baseChain = makeEvmChain(CHAINS.base, configService)
+	return (await IntentGateway.create(baseChain, baseChain)).withQueryClient(
+		createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
+	)
+}
+
+function assertAndLogLiquidity(
+	pair: string,
+	liquidity: AvailableLiquiditySnapshot | undefined,
+	expectedTokenAddress: HexString,
+): asserts liquidity is AvailableLiquiditySnapshot {
+	assert(liquidity, `Expected a live ${pair} Phantom liquidity snapshot from Nexus`)
+	console.log(`Live ${pair} liquidity snapshot from Nexus`)
+	console.log({
+		totalLiquidity: liquidity.totalLiquidity,
+		providerCount: liquidity.providerCount,
+		tokenAddress: liquidity.tokenAddress,
+		snapshotTime: liquidity.snapshotTime.toISOString(),
+		liquidityByChain: liquidity.liquidityByChain,
+	})
+	assert.notEqual(liquidity.totalLiquidity, "0")
+	assert(liquidity.providerCount > 0)
+	assert.equal(liquidity.tokenAddress.toLowerCase(), expectedTokenAddress.toLowerCase())
+	assert(!Number.isNaN(liquidity.snapshotTime.getTime()))
+	assert(liquidity.liquidityByChain.length > 0)
+	assert(
+		liquidity.liquidityByChain.some(
+			(group) =>
+				group.chain === CHAINS.base.id &&
+				group.tokenAddress.toLowerCase() === expectedTokenAddress.toLowerCase(),
+		),
+	)
 }
 
 function buildOrder(

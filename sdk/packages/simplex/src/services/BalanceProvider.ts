@@ -25,7 +25,7 @@ export interface ChainBalanceRow {
 	native?: { symbol: string; amount: number }
 	usdc?: number
 	usdt?: number
-	exotic?: { symbol: string; amount: number }
+	exotics?: Array<{ symbol: string; amount: number }>
 }
 
 export interface HyperbridgeBalance {
@@ -45,8 +45,8 @@ export interface BalanceProviderOptions {
 	chainClientManager: ChainClientManager
 	configService: FillerConfigService
 	fillerAddress: string
-	/** Exotic token address per state machine id, merged across hyperfx strategies. */
-	token1: Record<string, string>
+	/** Exotic token addresses per state machine id — every cross-asset pair's token1 on that chain. */
+	token1: Record<string, string[]>
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	refreshIntervalMs?: number
@@ -101,10 +101,10 @@ export class BalanceProvider {
 	async refresh(): Promise<BalanceSnapshot> {
 		const chainIds = this.options.configService.getConfiguredChainIds()
 
-		const fxExoticByChain = new Map<number, string>()
-		for (const [chainKey, addr] of Object.entries(this.options.token1)) {
+		const fxExoticByChain = new Map<number, string[]>()
+		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
 			const id = parseInt(chainKey.replace("EVM-", ""), 10)
-			if (!isNaN(id)) fxExoticByChain.set(id, addr)
+			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}
 
 		const rows = await Promise.all(chainIds.map((chainId) => this.collectChain(chainId, fxExoticByChain)))
@@ -118,7 +118,7 @@ export class BalanceProvider {
 		return this.snapshot
 	}
 
-	private async collectChain(chainId: number, fxExoticByChain: Map<number, string>): Promise<ChainBalanceRow> {
+	private async collectChain(chainId: number, fxExoticByChain: Map<number, string[]>): Promise<ChainBalanceRow> {
 		const chain = `EVM-${chainId}`
 		const client = this.options.chainClientManager.getPublicClient(chain)
 		const fillerAddr = this.options.fillerAddress as `0x${string}`
@@ -154,8 +154,7 @@ export class BalanceProvider {
 			row.usdt = parseFloat(formatUnits(balance as bigint, usdtDecimals))
 		} catch {}
 
-		const fxAddr = fxExoticByChain.get(chainId)
-		if (fxAddr) {
+		for (const fxAddr of fxExoticByChain.get(chainId) ?? []) {
 			try {
 				let symbol = "EXOTIC"
 				try {
@@ -181,7 +180,7 @@ export class BalanceProvider {
 					functionName: "balanceOf",
 					args: [fillerAddr],
 				})
-				row.exotic = { symbol, amount: parseFloat(formatUnits(balance as bigint, decimals)) }
+				;(row.exotics ??= []).push({ symbol, amount: parseFloat(formatUnits(balance as bigint, decimals)) })
 			} catch {}
 		}
 

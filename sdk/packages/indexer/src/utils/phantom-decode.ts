@@ -1,6 +1,13 @@
 import { Interface, defaultAbiCoder } from "@ethersproject/abi"
 import { ethers } from "ethers"
-import { FILL_ORDER_ABI, type FillData, type HexString, type RecoverBidSigner } from "@hyperbridge/sdk/intents-helpers"
+import {
+	FILL_ORDER_ABI,
+	type BidNonceKeyFn,
+	type FillData,
+	type HexString,
+	type OrderCommitmentFn,
+	type RecoverBidSigner,
+} from "@hyperbridge/sdk/intents-helpers"
 
 // VM2-safe decoding and signature recovery for a phantom bid, for the SubQuery substrate sandbox.
 //
@@ -79,6 +86,27 @@ export const recoverBidSignerVm2: RecoverBidSigner = async (userOp, entryPoint, 
 			},
 		)
 		return ethers.utils.recoverAddress(userOpHash, solverSignature) as HexString
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Drop-in for the SDK's CryptoUtils.bidNonceKey (VM2-safe). Must stay bit-identical to it and to
+ * SolverAccount's `uint192(keccak256(abi.encodePacked(commitment, sessionKey)))`, or every bid fails
+ * the nonce binding. solidityKeccak256 is ethers' encodePacked-then-keccak.
+ */
+export const bidNonceKeyVm2: BidNonceKeyFn = (commitment, sessionKey) =>
+	BigInt(ethers.utils.solidityKeccak256(["bytes32", "address"], [commitment, sessionKey])) & ((1n << 192n) - 1n)
+
+/**
+ * Drop-in for the SDK's orderCommitmentFromDecoded (VM2-safe). Re-encodes the contract-shaped order
+ * that came out of `fillOrder`'s ABI decode, reproducing IntentGatewayV2's keccak256(abi.encode(order)).
+ */
+export const orderCommitmentVm2: OrderCommitmentFn = (order) => {
+	try {
+		const orderParam = fillIface.getFunction("fillOrder").inputs[0]
+		return ethers.utils.keccak256(defaultAbiCoder.encode([orderParam], [order])) as HexString
 	} catch {
 		return null
 	}

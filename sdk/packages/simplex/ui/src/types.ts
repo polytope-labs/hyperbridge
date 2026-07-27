@@ -37,12 +37,14 @@ export interface KnownVault {
 export interface SetupDefaults {
 	chains: ChainDefault[]
 	hyperbridgeWs: Record<Network, string>
-	stableBpsCurve: CurvePoint[]
+	usdStables: string[]
+	sameAssetAskCurve: PricePoint[]
 	confirmationPolicies: Record<string, { points: CurvePoint[] }>
 	testnetConfirmationPoints: CurvePoint[]
 	queue: { maxRechecks: number; recheckDelayMs: number }
 	maxConcurrentOrders: number
 	configPath: string
+	/** Registry symbols resolvable per chain (state machine id), addresses included. */
 	knownTokens: Record<string, KnownToken[]>
 	knownVaults: Record<string, KnownVault[]>
 }
@@ -52,21 +54,13 @@ export interface SignerConfig {
 	[key: string]: string | undefined
 }
 
-export interface StrategyConfig {
-	type: "stable" | "hyperfx"
-	bpsCurve?: CurvePoint[]
-	confirmationPolicies?: Record<string, { points: CurvePoint[] }>
-	maxOrderUsd?: number
-	token1?: Record<string, string>
+export interface PairConfig {
+	token0: string
+	token1: string
+	maxOrderSize?: string
+	referenceOnly?: boolean
 	bidPriceCurve?: PricePoint[]
 	askPriceCurve?: PricePoint[]
-	spreadBps?: number
-	vault?: {
-		uniswapV4?: {
-			positions?: Array<{ chain: string; tokenId: string; referencePrice?: string; maxDeviationBps?: number }>
-			side?: "bid" | "ask"
-		}
-	}
 }
 
 export interface ChainEntry {
@@ -86,7 +80,9 @@ export interface FillerConfig {
 		gasFeeBump?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number }
 		overfillProtection?: { maxOverfillBps?: number; maxConsecutiveClamps?: number }
 	}
-	strategies: StrategyConfig[]
+	assets?: Record<string, Record<string, string>>
+	pairs?: PairConfig[]
+	confirmationPolicies?: Record<string, { points: CurvePoint[] }>
 	chains: ChainEntry[]
 	rebalancing?: {
 		triggerPercentage: number
@@ -95,7 +91,12 @@ export interface FillerConfig {
 	binance?: { apiKey: string; apiSecret: string }
 	vault?: {
 		sweepIntervalMs?: number
-		vaults: Array<{ chain: string; vault: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }>
+		vaults?: Array<{ chain: string; vault: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }>
+		uniswapV4?: {
+			positions?: Array<{ chain: string; tokenId: string; referencePrice?: string; maxDeviationBps?: number }>
+			side?: "bid" | "ask"
+			spreadBps?: number
+		}
 	}
 	allowlist?: { users?: string[] }
 }
@@ -130,7 +131,7 @@ export interface BalanceSnapshot {
 		native?: { symbol: string; amount: number }
 		usdc?: number
 		usdt?: number
-		exotic?: { symbol: string; amount: number }
+		exotics?: Array<{ symbol: string; amount: number }>
 	}>
 	hyperbridge?: { address: string; free: number; reserved: number }
 }
@@ -139,6 +140,7 @@ export interface AdminStrategyDto {
 	index: number
 	exotic?: string
 	pricingMode: "static" | "venue"
+	sameToken?: boolean
 	bid?: PricePoint[]
 	ask?: PricePoint[]
 }

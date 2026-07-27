@@ -16,7 +16,8 @@ use ismp::{
 use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use primitive_types::U256;
-use sp_core::{Bytes, H160, H256, hashing, storage::ChildInfo};
+use sp_core::{Bytes, H160, H256, storage::ChildInfo};
+use sp_crypto_hashing::{blake2_256, twox_128};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use subxt::{
 	OnlineClient,
@@ -72,13 +73,13 @@ where
 	}
 
 	pub fn storage_key(&self, slot: H256) -> Vec<u8> {
-		hashing::blake2_256(slot.as_bytes()).to_vec()
+		blake2_256(slot.as_bytes()).to_vec()
 	}
 
 	pub fn contract_info_key(&self, address: H160) -> Vec<u8> {
 		let mut key = Vec::new();
-		key.extend_from_slice(&hashing::twox_128(b"Revive"));
-		key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
+		key.extend_from_slice(&twox_128(b"Revive"));
+		key.extend_from_slice(&twox_128(b"AccountInfoOf"));
 		key.extend_from_slice(address.as_bytes());
 		key
 	}

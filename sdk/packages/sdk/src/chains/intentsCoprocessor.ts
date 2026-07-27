@@ -95,6 +95,24 @@ export interface PhantomOrderEvent {
 	standardAmount: bigint
 }
 
+export interface PollPhantomOrdersOptions {
+	/** How often to check for a new head. Defaults to 6s, roughly one block. */
+	intervalMs?: number
+	/**
+	 * Most blocks scanned in a single poll, so a long outage catches up over several ticks instead of
+	 * one unbounded scan. Defaults to 500.
+	 */
+	maxBlocksPerPoll?: number
+	/**
+	 * How many blocks before the current head to start from on the first poll. Defaults to 0 (start
+	 * at the head). Set this to the runtime's bid window to have a restarting process pick up orders
+	 * whose window is still open.
+	 */
+	lookbackBlocks?: number
+	/** Notified when a poll fails; polling continues regardless. */
+	onError?: (err: unknown) => void
+}
+
 /**
  * Service for interacting with Hyperbridge's pallet-intents coprocessor.
  * Handles bid submission and retrieval for the IntentGatewayV2 protocol.
@@ -607,26 +625,89 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Subscribes to PhantomOrderRegistered events from the intents coprocessor pallet.
-	 * Calls the callback for each new phantom order as blocks arrive.
-	 * Returns an unsubscribe function to stop the subscription.
+	 * Reads the PhantomOrderRegistered events emitted in a single block.
 	 */
-	async subscribePhantomOrders(callback: (event: PhantomOrderEvent) => void): Promise<() => void> {
+	async getPhantomOrdersInBlock(blockNumber: number): Promise<PhantomOrderEvent[]> {
+		const blockHash = await this.api.rpc.chain.getBlockHash(blockNumber)
+		const apiAt = await this.api.at(blockHash)
+		const records = await apiAt.query.system.events()
+
+		const orders: PhantomOrderEvent[] = []
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const unsub = await (this.api.query.system.events as any)((records: any[]) => {
-			for (const { event } of records) {
-				if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
-				const [commitment, chain, createdAt, tokenA, tokenB, standardAmount] = event.data
-				callback({
-					commitment: commitment.toHex() as HexString,
-					chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
-					createdAt: createdAt.toNumber(),
-					tokenA: tokenA.toHex() as HexString,
-					tokenB: tokenB.toHex() as HexString,
-					standardAmount: BigInt(standardAmount.toString()),
-				})
+		for (const { event } of records as unknown as Array<{ event: any }>) {
+			if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
+			const [commitment, chain, createdAt, tokenA, tokenB, standardAmount] = event.data
+			orders.push({
+				commitment: commitment.toHex() as HexString,
+				chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
+				createdAt: createdAt.toNumber(),
+				tokenA: tokenA.toHex() as HexString,
+				tokenB: tokenB.toHex() as HexString,
+				standardAmount: BigInt(standardAmount.toString()),
+			})
+		}
+		return orders
+	}
+
+	/**
+	 * Polls for newly registered phantom orders, invoking the callback once per order.
+	 *
+	 * Each tick reads the current head and scans every block between the last one processed and that
+	 * head, so the block cursor — not the connection — determines what has been seen. This replaced a
+	 * system.events subscription, which was only as reliable as its socket: polkadot-js reconnects
+	 * the transport but does not reliably re-establish storage subscriptions, and anything emitted
+	 * while disconnected was lost silently. With a bid window measured in a handful of blocks, that
+	 * meant silently missed bids.
+	 *
+	 * Scanning a block range is gap-free rather than merely self-healing: an outage delays orders but
+	 * cannot drop them, because the cursor only advances past a block whose events were actually
+	 * read. Recovery replays the backlog.
+	 *
+	 * Returns a function that stops polling.
+	 */
+	pollPhantomOrders(callback: (event: PhantomOrderEvent) => void, options: PollPhantomOrdersOptions = {}): () => void {
+		const { intervalMs = 6_000, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
+
+		// Last block whose events have been delivered. Null until the first successful head read.
+		let cursor: number | null = null
+		let inFlight = false
+		let stopped = false
+
+		const tick = async (): Promise<void> => {
+			// A scan slower than the interval must not stack up behind itself.
+			if (inFlight || stopped) return
+			inFlight = true
+			try {
+				const head = (await this.api.rpc.chain.getHeader()).number.toNumber()
+
+				if (cursor === null) {
+					// Start just below the head so the head itself is scanned, less any lookback.
+					cursor = Math.max(head - 1 - lookbackBlocks, -1)
+				}
+				if (head <= cursor) return
+
+				const to = Math.min(head, cursor + maxBlocksPerPoll)
+				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) {
+					if (stopped) return
+					const orders = await this.getPhantomOrdersInBlock(blockNumber)
+					for (const order of orders) callback(order)
+					// Advance per block, not per range: a failure partway through re-scans only the
+					// blocks that were never read, and never re-delivers ones that were.
+					cursor = blockNumber
+				}
+			} catch (err) {
+				onError?.(err)
+			} finally {
+				inFlight = false
 			}
-		})
-		return unsub as () => void
+		}
+
+		void tick()
+		const timer = setInterval(() => void tick(), intervalMs)
+
+		return () => {
+			stopped = true
+			clearInterval(timer)
+		}
 	}
 }

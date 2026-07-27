@@ -5,6 +5,7 @@ import { parse } from "toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { fetchChainId } from "@/services/FillerConfigService"
 import { guard, withTimeout, PROBE_TIMEOUT_MS } from "./prompt-utils"
+import { migrateLegacyConfig } from "./migrate-legacy"
 import { newWizardState, type Prefill } from "./state"
 import { stepChains } from "./steps/chains"
 import { stepBundlers } from "./steps/bundlers"
@@ -62,6 +63,16 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	let invalidReason: string | undefined
 	try {
 		config = parse(readFileSync(outputPath, "utf-8")) as FillerTomlConfig
+		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
+		// update run offers the old values as prefills instead of failing.
+		if ("strategies" in config) {
+			const notes = migrateLegacyConfig(config)
+			if (notes.length > 0) {
+				log.warn(
+					`This config predates the pair engine — migrated for the update run:\n${notes.map((n) => `  - ${n}`).join("\n")}\nReview the pair prompts before writing.`,
+				)
+			}
+		}
 		validateConfig(config)
 	} catch (error) {
 		invalidReason = error instanceof Error ? error.message : String(error)

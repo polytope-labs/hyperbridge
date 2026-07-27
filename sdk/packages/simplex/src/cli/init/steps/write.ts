@@ -65,6 +65,18 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 		? JSON.parse(JSON.stringify(state.prefillConfig))
 		: {}
 
+	// A legacy [[strategies]] array must never survive into the output — the
+	// pair engine rejects it at startup (the wizard migrates it to prefills).
+	delete (base as Record<string, unknown>).strategies
+
+	// The pairs step owns [vault.uniswapV4] wholesale: the block it configured
+	// this run replaces whatever the prefill had (or drops it when the operator
+	// switched to curve pricing).
+	const vault: NonNullable<FillerTomlConfig["vault"]> = { ...(state.vault ?? {}) }
+	delete vault.uniswapV4
+	if (state.vaultUniswapV4) vault.uniswapV4 = state.vaultUniswapV4
+	const hasVault = Boolean(vault.vaults?.length || vault.uniswapV4 || vault.sweepIntervalMs !== undefined)
+
 	return {
 		...base,
 		simplex: {
@@ -80,13 +92,15 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 				? { overfillProtection: state.overfillProtection }
 				: { overfillProtection: undefined }),
 		},
-		strategies: state.strategies,
+		pairs: state.pairs,
+		assets: state.assets ?? (base.assets as FillerTomlConfig["assets"]),
+		confirmationPolicies: state.confirmationPolicies,
 		chains: [
 			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
 			...state.passthroughChains,
 		],
 		rebalancing: state.rebalancing,
-		vault: state.vault,
+		vault: hasVault ? vault : undefined,
 		allowlist: state.allowlist,
 	}
 }
@@ -112,7 +126,7 @@ function showSummary(state: WizardState, outputPath: string): void {
 	lines.push(`Signer: ${state.signer?.type}`)
 	lines.push(`Substrate key: ${maskSecret(state.substratePrivateKey ?? "")}`)
 	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl}`)
-	lines.push(`Strategies: ${state.strategies.map((s) => s.type).join(", ")}`)
+	lines.push(`Pairs: ${state.pairs.map((p) => `${p.token0}/${p.token1}`).join(", ")}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
 }

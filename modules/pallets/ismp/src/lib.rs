@@ -31,47 +31,11 @@ pub mod migrations;
 pub mod offchain;
 mod utils;
 pub mod weights;
-
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
 use crate::offchain::Leaf;
 use offchain::OffchainDBProvider;
 use polkadot_sdk::*;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-
-/// State of one of the multi-block legacy storage drains. `Active(None)` is the
-/// initial state and means the next call should pass `None` as the `clear()`
-/// cursor. `Active(Some(cursor))` carries the cursor returned by the previous
-/// call so the next one resumes from where it stopped. `Done` is set when
-/// `clear()` returns `None`, meaning the prefix has been fully cleared; subsequent
-/// `on_idle` calls become a single cheap read for that target.
-#[derive(
-	codec::Encode,
-	codec::Decode,
-	codec::DecodeWithMemTracking,
-	codec::MaxEncodedLen,
-	scale_info::TypeInfo,
-	core::fmt::Debug,
-	Clone,
-	PartialEq,
-	Eq,
-)]
-pub enum LegacyDrainState {
-	/// Drain in progress. `None` starts from the beginning of the prefix;
-	/// `Some(cursor)` resumes from `cursor`.
-	Active(
-		Option<polkadot_sdk::frame_support::BoundedVec<u8, polkadot_sdk::sp_core::ConstU32<1024>>>,
-	),
-	/// Drain complete; nothing left to clear.
-	Done,
-}
-
-impl Default for LegacyDrainState {
-	fn default() -> Self {
-		Self::Active(None)
-	}
-}
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
 // `construct_runtime`.
@@ -80,9 +44,7 @@ pub mod pallet {
 	use super::*;
 
 	use crate::{
-		child_trie::{
-			RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX, STATE_COMMITMENTS_KEY,
-		},
+		child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
 		errors::HandlingError,
 		fee_handler::FeeHandler,
 	};
@@ -215,9 +177,6 @@ pub mod pallet {
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
 		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
-
-		/// Weight functions for legacy storage drain migrations.
-		type MigrationWeightInfo: crate::weights::MigrationWeightInfo;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -225,13 +184,6 @@ pub mod pallet {
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
-
-	/// Holds a map of state machine heights to their verified state commitments. These state
-	/// commitments end up here after they are successfully verified by a `ConsensusClient`
-	#[pallet::storage]
-	#[pallet::getter(fn state_commitments)]
-	pub type StateCommitments<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineHeight, StateCommitment, OptionQuery>;
 
 	/// Holds a map of consensus state identifiers to their consensus state.
 	#[pallet::storage]
@@ -281,19 +233,12 @@ pub mod pallet {
 	pub type ConsensusClientUpdateTime<T: Config> =
 		StorageMap<_, Twox64Concat, ConsensusClientId, u64, OptionQuery>;
 
-	/// Holds the timestamp at which a state machine height was updated.
-	/// Used in ensuring that the configured challenge period elapses.
+	/// Holds a map of state machine heights to their verified state commitments. These state
+	/// commitments end up here after they are successfully verified by a `ConsensusClient`.
+	/// Keyed by `(StateMachineId, height)` so we can cap entries per chain at
+	/// [`StateMachineCommitmentCap`] (default [`MAX_STATE_MACHINE_COMMITMENTS`]).
 	#[pallet::storage]
-	#[pallet::getter(fn state_machine_update_time)]
-	pub type StateMachineUpdateTime<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachineHeight, u64, OptionQuery>;
-
-	/// Bounded map of state machine commitments. Keyed by
-	/// `(StateMachineId, height)` so we can cap entries per chain at
-	/// [`StateMachineCommitmentCap`] (default
-	/// [`MAX_STATE_MACHINE_COMMITMENTS`]). Writes go here; the legacy
-	/// [`StateCommitments`] map is drained gradually.
-	#[pallet::storage]
+	#[pallet::getter(fn state_commitments)]
 	pub type BoundedStateCommitments<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
@@ -304,10 +249,11 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Bounded map of state machine update timestamps. Same per-chain cap
-	/// as [`BoundedStateCommitments`]. The legacy [`StateMachineUpdateTime`]
-	/// is drained gradually.
+	/// Holds the timestamp at which a state machine height was updated. Used in ensuring
+	/// that the configured challenge period elapses. Same per-chain cap as
+	/// [`BoundedStateCommitments`].
 	#[pallet::storage]
+	#[pallet::getter(fn state_machine_update_time)]
 	pub type BoundedStateMachineUpdateTime<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
@@ -351,26 +297,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type StateMachineCommitmentCap<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, u32, OptionQuery>;
-
-	/// State of the multi-block drain of the legacy [`StateCommitments`] map.
-	/// See [`super::LegacyDrainState`].
-	#[pallet::storage]
-	pub type LegacyStateCommitmentsDrainState<T: Config> =
-		StorageValue<_, super::LegacyDrainState, ValueQuery>;
-
-	/// State of the multi-block drain of the legacy [`StateMachineUpdateTime`] map.
-	/// See [`super::LegacyDrainState`].
-	#[pallet::storage]
-	pub type LegacyStateMachineUpdateTimeDrainState<T: Config> =
-		StorageValue<_, super::LegacyDrainState, ValueQuery>;
-
-	/// State of the multi-block drain of the legacy state-commitment entries
-	/// stored in the ISMP child trie. The cursor is the last child-trie key we
-	/// processed; on the next call we resume with `next_key(last)`. `Done` short-
-	/// circuits subsequent `on_idle` calls.
-	#[pallet::storage]
-	pub type LegacyChildTrieDrainState<T: Config> =
-		StorageValue<_, super::LegacyDrainState, ValueQuery>;
 
 	/// Tracks requests that have been responded to
 	/// The key is the request commitment
@@ -426,200 +352,6 @@ pub mod pallet {
 				timestamp_log.encode(),
 			);
 			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
-		}
-
-		/// Drains the legacy [`StateCommitments`], [`StateMachineUpdateTime`], and child
-		/// trie state commitment entries using leftover block weight. Runs after all
-		/// extrinsics, so it never blocks user transactions.
-		///
-		/// Each drain target persists its `clear()` cursor in storage between blocks
-		/// so the next call resumes where the previous one stopped. Once `clear()`
-		/// returns no cursor (or no more child-trie keys exist) we mark that target
-		/// as `Done`, which short-circuits subsequent `on_idle` calls to a single
-		/// cheap storage read.
-		fn on_idle(_n: BlockNumberFor<T>, remaining: Weight) -> Weight {
-			use crate::weights::MigrationWeightInfo;
-			// We charge weight for `STATE_BATCH`/`CHILD_TRIE_BATCH` up front but only
-			// remove `*_BATCH - SAFETY_BUFFER` entries per call. The buffer absorbs
-			// any imprecision in the benchmarked weights so a single step never
-			// exceeds its charged budget.
-			const SAFETY_BUFFER: u32 = 10;
-			const STATE_BATCH: u32 = 500;
-			const STATE_DRAIN: u32 = STATE_BATCH - SAFETY_BUFFER;
-			const CHILD_TRIE_BATCH: u32 = 200;
-			const CHILD_TRIE_DRAIN: u32 = CHILD_TRIE_BATCH - SAFETY_BUFFER;
-
-			let mut consumed = Weight::zero();
-			let mut budget = remaining;
-
-			// ── Drain StateCommitments ────────────────────────────────────
-			let sc_state = LegacyStateCommitmentsDrainState::<T>::get();
-			if let super::LegacyDrainState::Active(cursor) = sc_state {
-				let sc_required =
-					<T as Config>::MigrationWeightInfo::drain_state_commitments_step(STATE_BATCH);
-				if !budget.all_gte(sc_required) {
-					log::trace!(
-						target: "ismp",
-						"Skipping StateCommitments drain: insufficient weight",
-					);
-				} else {
-					let result = StateCommitments::<T>::clear(
-						STATE_DRAIN,
-						cursor.as_ref().map(|v| v.as_slice()),
-					);
-					let new_state = match result.maybe_cursor {
-						Some(c) => {
-							if result.unique > 0 {
-								log::info!(
-									target: "ismp",
-									"Draining legacy StateCommitments: removed {} entries, continuing",
-									result.unique,
-								);
-							}
-							match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
-								Ok(b) => super::LegacyDrainState::Active(Some(b)),
-								Err(_) => super::LegacyDrainState::Active(None),
-							}
-						},
-						None => {
-							log::info!(
-								target: "ismp",
-								"Legacy StateCommitments drain complete (final batch removed {} entries)",
-								result.unique,
-							);
-							super::LegacyDrainState::Done
-						},
-					};
-					LegacyStateCommitmentsDrainState::<T>::put(new_state);
-					let used = <T as Config>::MigrationWeightInfo::drain_state_commitments_step(
-						result.unique,
-					);
-					consumed = consumed.saturating_add(used);
-					budget = budget.saturating_sub(used);
-				}
-			}
-
-			// ── Drain StateMachineUpdateTime ──────────────────────────────
-			let smu_state = LegacyStateMachineUpdateTimeDrainState::<T>::get();
-			if let super::LegacyDrainState::Active(cursor) = smu_state {
-				let smu_required =
-					<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
-						STATE_BATCH,
-					);
-				if !budget.all_gte(smu_required) {
-					log::trace!(
-						target: "ismp",
-						"Skipping StateMachineUpdateTime drain: insufficient weight",
-					);
-				} else {
-					let result = StateMachineUpdateTime::<T>::clear(
-						STATE_DRAIN,
-						cursor.as_ref().map(|v| v.as_slice()),
-					);
-					let new_state = match result.maybe_cursor {
-						Some(c) => {
-							if result.unique > 0 {
-								log::info!(
-									target: "ismp",
-									"Draining legacy StateMachineUpdateTime: removed {} entries, continuing",
-									result.unique,
-								);
-							}
-							match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
-								Ok(b) => super::LegacyDrainState::Active(Some(b)),
-								Err(_) => super::LegacyDrainState::Active(None),
-							}
-						},
-						None => {
-							log::info!(
-								target: "ismp",
-								"Legacy StateMachineUpdateTime drain complete (final batch removed {} entries)",
-								result.unique,
-							);
-							super::LegacyDrainState::Done
-						},
-					};
-					LegacyStateMachineUpdateTimeDrainState::<T>::put(new_state);
-					let used =
-						<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
-							result.unique,
-						);
-					consumed = consumed.saturating_add(used);
-					budget = budget.saturating_sub(used);
-				}
-			}
-
-			// ── Drain child trie state commitment entries ─────────────────
-			// `next_key(last_key)` resumes iteration just past `last_key`, so we
-			// store the most recently processed key as the cursor. When iteration
-			// runs out of keys with the `STATE_COMMITMENTS_KEY` prefix we mark the
-			// drain as Done.
-			let ct_state = LegacyChildTrieDrainState::<T>::get();
-			if let super::LegacyDrainState::Active(cursor) = ct_state {
-				let ct_required =
-					<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
-						CHILD_TRIE_BATCH,
-					);
-				if !budget.all_gte(ct_required) {
-					log::trace!(
-						target: "ismp",
-						"Skipping child trie StateCommitments drain: insufficient weight",
-					);
-				} else {
-					let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
-					let mut removed = 0u32;
-					let mut last_key: alloc::vec::Vec<u8> = match cursor {
-						Some(c) => c.into_inner(),
-						None => STATE_COMMITMENTS_KEY.to_vec(),
-					};
-					let mut exhausted = false;
-					for _ in 0..CHILD_TRIE_DRAIN {
-						match sp_io::default_child_storage::next_key(
-							child_info.storage_key(),
-							&last_key,
-						) {
-							Some(key) if key.starts_with(STATE_COMMITMENTS_KEY) => {
-								sp_io::default_child_storage::clear(child_info.storage_key(), &key);
-								last_key = key;
-								removed += 1;
-							},
-							_ => {
-								exhausted = true;
-								break;
-							},
-						}
-					}
-
-					let new_state = if exhausted {
-						if removed > 0 {
-							log::info!(
-								target: "ismp",
-								"Legacy child trie StateCommitments drain complete (final batch removed {} entries)",
-								removed,
-							);
-						}
-						super::LegacyDrainState::Done
-					} else {
-						log::info!(
-							target: "ismp",
-							"Draining legacy child trie StateCommitments: removed {} entries, continuing",
-							removed,
-						);
-						match polkadot_sdk::frame_support::BoundedVec::try_from(last_key) {
-							Ok(b) => super::LegacyDrainState::Active(Some(b)),
-							Err(_) => super::LegacyDrainState::Active(None),
-						}
-					};
-					LegacyChildTrieDrainState::<T>::put(new_state);
-					let used =
-						<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
-							removed,
-						);
-					consumed = consumed.saturating_add(used);
-				}
-			}
-
-			consumed
 		}
 	}
 

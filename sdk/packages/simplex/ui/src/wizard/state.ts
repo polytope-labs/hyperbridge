@@ -1,5 +1,5 @@
-import { toCurvePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
-import type { ChainDefault, CurvePoint, FillerConfig, Network, SetupDefaults, StrategyConfig } from "../types"
+import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
+import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
 
 export interface ChainDraft {
 	meta: ChainDefault
@@ -12,9 +12,6 @@ export interface ChainDraft {
 	rpcError?: string
 	bundlerWarning?: string
 	bundlerOk?: boolean
-	token1: string
-	tokenSymbol?: string
-	tokenError?: string
 }
 
 export interface VaultDraft {
@@ -34,6 +31,22 @@ export interface V4PositionDraft {
 	maxDeviationBps: string
 }
 
+/**
+ * One trading market. Same-asset transfer markets (token0 == token1) are fixed
+ * prefab rows toggled by `enabled`; cross-asset rows are user-added.
+ */
+export interface PairDraft {
+	kind: "sameAsset" | "crossAsset"
+	enabled: boolean
+	token0: string
+	token1: string
+	maxOrderSize: string
+	bidEnabled: boolean
+	askEnabled: boolean
+	bid: EditorPoint[]
+	ask: EditorPoint[]
+}
+
 export interface WizardState {
 	network: Network
 	signerType: SignerType
@@ -50,13 +63,11 @@ export interface WizardState {
 	alchemyStatus?: "ok" | "err"
 	alchemyError?: string
 	chains: ChainDraft[]
-	fxEnabled: boolean
-	fxMaxOrderUsd: string
+	pairs: PairDraft[]
+	/** `[assets]` entries for custom token symbols: symbol → state machine id → address. */
+	customAssets: Record<string, Record<string, string>>
+	/** Price source for the cross-asset pairs; same-asset markets always use their ask curve. */
 	fxPricing: "curves" | "uniswapV4"
-	fxBidEnabled: boolean
-	fxAskEnabled: boolean
-	fxBid: EditorPoint[]
-	fxAsk: EditorPoint[]
 	fxSpreadBps: string
 	fxPositions: V4PositionDraft[]
 	fxSide: "" | "ask" | "bid"
@@ -66,6 +77,34 @@ export interface WizardState {
 	maxRechecks: string
 	recheckDelayMs: string
 	logging: string
+}
+
+function sameAssetPrefabs(defaults: SetupDefaults): PairDraft[] {
+	return ["USDC", "USDT"].map((symbol) => ({
+		kind: "sameAsset" as const,
+		enabled: symbol === "USDC",
+		token0: symbol,
+		token1: symbol,
+		maxOrderSize: "100000",
+		bidEnabled: false,
+		askEnabled: true,
+		bid: [],
+		ask: fromPricePoints(defaults.sameAssetAskCurve),
+	}))
+}
+
+export function newCrossAssetDraft(): PairDraft {
+	return {
+		kind: "crossAsset",
+		enabled: true,
+		token0: "USDC",
+		token1: "CNGN",
+		maxOrderSize: "5000",
+		bidEnabled: true,
+		askEnabled: true,
+		bid: [{ amount: "100", value: "" }],
+		ask: [{ amount: "100", value: "" }],
+	}
 }
 
 export function initialState(defaults: SetupDefaults): WizardState {
@@ -87,15 +126,10 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				bundlerUrl: "",
 				viaAlchemy: false,
 				watchOnly: false,
-				token1: "",
 			})),
-		fxEnabled: true,
-		fxMaxOrderUsd: "5000",
+		pairs: sameAssetPrefabs(defaults),
+		customAssets: {},
 		fxPricing: "curves",
-		fxBidEnabled: true,
-		fxAskEnabled: true,
-		fxBid: [{ amount: "100", value: "" }],
-		fxAsk: [{ amount: "100", value: "" }],
 		fxSpreadBps: "",
 		fxPositions: [],
 		fxSide: "",
@@ -122,9 +156,10 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 				bundlerUrl: "",
 				viaAlchemy: false,
 				watchOnly: false,
-				token1: "",
 			})),
 		// Everything keyed by the previous network's chain ids must reset with it.
+		pairs: sameAssetPrefabs(defaults),
+		customAssets: {},
 		vaults: [],
 		fxPositions: [],
 		alchemyStatus: undefined,
@@ -134,6 +169,10 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 
 export function enabledChains(state: WizardState): ChainDraft[] {
 	return state.chains.filter((c) => c.enabled)
+}
+
+export function enabledPairs(state: WizardState): PairDraft[] {
+	return state.pairs.filter((p) => p.enabled)
 }
 
 /** Users paste keys with and without the 0x prefix; normalize instead of nagging. */
@@ -160,8 +199,31 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
 	const chains = enabledChains(state)
+	const usingPool = state.fxPricing === "uniswapV4"
 
-	const strategies: StrategyConfig[] = []
+	const pairs: PairConfig[] = enabledPairs(state).map((draft) => {
+		const sameAsset = draft.kind === "sameAsset"
+		const withBid = !sameAsset && !usingPool && draft.bidEnabled
+		const withAsk = sameAsset || (!usingPool && draft.askEnabled)
+		return {
+			token0: draft.token0,
+			token1: draft.token1,
+			maxOrderSize: draft.maxOrderSize.trim(),
+			...(withBid ? { bidPriceCurve: toPricePoints(draft.bid) } : {}),
+			...(withAsk ? { askPriceCurve: toPricePoints(draft.ask) } : {}),
+		}
+	})
+
+	// Only [assets] entries actually referenced by a pair are emitted.
+	const usedSymbols = new Set(pairs.flatMap((p) => [p.token0, p.token1]))
+	const assets = Object.fromEntries(
+		Object.entries(state.customAssets)
+			.filter(([symbol]) => usedSymbols.has(symbol))
+			.map(([symbol, byChain]) => [
+				symbol,
+				Object.fromEntries(Object.entries(byChain).filter(([, address]) => address.trim())),
+			]),
+	)
 
 	// Testnet chain ids have no built-in confirmation defaults; write explicit ones.
 	const confirmationPolicies: Record<string, { points: CurvePoint[] }> | undefined =
@@ -171,36 +233,29 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				)
 			: undefined
 
-	if (state.fxEnabled) {
-		const token1 = Object.fromEntries(
-			chains.filter((c) => c.token1.trim()).map((c) => [c.meta.stateMachineId, c.token1.trim()]),
-		)
-		const usingPool = state.fxPricing === "uniswapV4"
-		strategies.push({
-			type: "hyperfx",
-			maxOrderUsd: Number(state.fxMaxOrderUsd),
-			token1,
-			...(!usingPool && state.fxBidEnabled ? { bidPriceCurve: toPricePoints(state.fxBid) } : {}),
-			...(!usingPool && state.fxAskEnabled ? { askPriceCurve: toPricePoints(state.fxAsk) } : {}),
-			...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
-			...(usingPool
-				? {
-						vault: {
-							uniswapV4: {
-								positions: state.fxPositions.map((p) => ({
-									chain: p.chain,
-									tokenId: p.tokenId.trim(),
-									...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
-									...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
-								})),
-								...(state.fxSide ? { side: state.fxSide } : {}),
-							},
-						},
-					}
-				: {}),
-			...(confirmationPolicies ? { confirmationPolicies } : {}),
-		})
-	}
+	const uniswapV4 = usingPool
+		? {
+				positions: state.fxPositions.map((p) => ({
+					chain: p.chain,
+					tokenId: p.tokenId.trim(),
+					...(p.referencePrice.trim() ? { referencePrice: p.referencePrice.trim() } : {}),
+					...(p.maxDeviationBps.trim() ? { maxDeviationBps: Number(p.maxDeviationBps) } : {}),
+				})),
+				...(state.fxSide ? { side: state.fxSide } : {}),
+				...(state.fxSpreadBps.trim() ? { spreadBps: Number(state.fxSpreadBps) } : {}),
+			}
+		: undefined
+
+	const vaults =
+		state.vaults.length > 0
+			? state.vaults.map((v) => ({
+					chain: v.chain,
+					vault: v.vault.trim(),
+					...(v.threshold.trim() ? { threshold: v.threshold.trim() } : {}),
+					...(v.minBalance.trim() ? { minBalance: v.minBalance.trim() } : {}),
+					...(v.redeemOnShutdown ? { redeemOnShutdown: true } : {}),
+				}))
+			: undefined
 
 	const watchOnlyEntries = chains.filter((c) => c.watchOnly).map((c) => [String(c.meta.chainId), true] as const)
 
@@ -239,21 +294,18 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			substratePrivateKey: state.substrateKey.trim(),
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
 		},
-		strategies,
+		...(Object.keys(assets).length > 0 ? { assets } : {}),
+		pairs,
+		...(confirmationPolicies ? { confirmationPolicies } : {}),
 		chains: chains.map((c) => ({
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
 			bundlerUrl: c.bundlerUrl.trim(),
 		})),
-		...(state.vaults.length > 0
+		...(vaults || uniswapV4
 			? {
 					vault: {
-						vaults: state.vaults.map((v) => ({
-							chain: v.chain,
-							vault: v.vault.trim(),
-							...(v.threshold.trim() ? { threshold: v.threshold.trim() } : {}),
-							...(v.minBalance.trim() ? { minBalance: v.minBalance.trim() } : {}),
-							...(v.redeemOnShutdown ? { redeemOnShutdown: true } : {}),
-						})),
+						...(vaults ? { vaults } : {}),
+						...(uniswapV4 ? { uniswapV4 } : {}),
 					},
 				}
 			: {}),

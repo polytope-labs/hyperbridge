@@ -19,7 +19,7 @@ use polkadot_sdk::*;
 use codec::{Decode, Encode};
 use ismp::router::{GetResponse, Request};
 use scale_info::TypeInfo;
-use sp_core::{RuntimeDebug, H256};
+use sp_core::H256;
 use sp_mmr_primitives::NodeIndex;
 use sp_std::prelude::*;
 
@@ -42,7 +42,7 @@ pub struct LeafIndexQuery {
 	PartialEq,
 	Clone,
 	Copy,
-	RuntimeDebug,
+	Debug,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexAndPos {
@@ -81,7 +81,7 @@ impl FullLeaf for Leaf {
 	PartialEq,
 	Clone,
 	Copy,
-	RuntimeDebug,
+	Debug,
 	Default,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
@@ -178,7 +178,7 @@ pub enum ProofKeys {
 }
 
 /// An MMR proof data for a group of leaves.
-#[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, PartialEq, Eq, TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof<Hash> {
 	/// The indices and positions of the leaves in the proof.

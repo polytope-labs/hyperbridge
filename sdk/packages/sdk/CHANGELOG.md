@@ -1,5 +1,27 @@
 # @hyperbridge/sdk
 
+## 2.6.1
+
+### Patch Changes
+
+- `SubstrateChain.stateMachineUpdateTime` reads pallet-ismp's `BoundedStateMachineUpdateTime` storage map directly instead of the `ismp_queryStateMachineUpdateTime` RPC. An evicted height now surfaces as a `MissingConsensusUpdateTimeError` from the absent storage entry rather than from matching an RPC error message.
+
+## 2.6.0
+
+### Minor Changes
+
+- Cross-chain `order.fees` now attaches (fill gas + a `RELAYER_MESSAGE_GAS` (1M) settlement uplift) with a 5% buffer over the whole sum, while the solver-side requirement carries no padding — SDK-placed orders always clear a solver's fee gate, including expensive-source/cheap-destination routes that were previously refused. `RELAYER_MESSAGE_GAS` is exported.
+- The cross-chain dispatch is always paid in the fee token: `estimateFillOrder` no longer quotes the native payment rail and always sets `fillOptions.nativeDispatchFee = 0` (the field remains in the on-chain struct; the native rail drew on a solver native balance nothing guaranteed). The estimate gains a `relayerFeeInSourceFeeToken` field for solver-side cost accounting.
+- `ChainConfigService.getAssetBySymbol(chain, symbol)`: case-insensitive lookup into the per-chain asset table, which now ships curated mainnet deployments of ZARP, EURC, XSGD and TRYB (issuer-documented addresses, verified on-chain).
+
+
+## 2.5.0
+
+### Minor Changes
+
+- `ORDER_PLACED` now returns the finalized canonical order without changing the order object passed to `execute()` or `placeOrder()`. Store and use `update.order` for the commitment, nonce, and session key; do not read those fields from the submitted object after placement.
+- Source-side GET cancellation recovery now automatically clears stale recovery state and retries once with fresh proofs when Hyperbridge has pruned a required consensus update.
+
 ## 1.6.3
 
 ### Patch Changes

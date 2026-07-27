@@ -99,20 +99,4 @@ impl<T: frame_system::Config> ismp_parachain::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
-	/// Storage: `IsmpParachain::RelayChainStateCommitments` (r:999 w:999)
-	/// Proof: `IsmpParachain::RelayChainStateCommitments` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
-	/// The range of component `n` is `[1, 1000]`.
-	fn drain_relay_state_commitments_step(n: u32, ) -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `95 + n * (56 ±0)`
-		//  Estimated: `990 + n * (2527 ±0)`
-		// Minimum execution time: 5_410_000 picoseconds.
-		Weight::from_parts(5_541_000, 0)
-			.saturating_add(Weight::from_parts(0, 990))
-			// Standard Error: 1_221
-			.saturating_add(Weight::from_parts(1_033_902, 0).saturating_mul(n.into()))
-			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 2527).saturating_mul(n.into()))
-	}
 }

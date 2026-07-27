@@ -10,6 +10,7 @@ import type {
 	IndexerQueryClient,
 	OrderStatus,
 	OrderWithStatus,
+	AvailableLiquiditySnapshot,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -33,21 +34,22 @@ import { OrderPlacer } from "./OrderPlacer"
 import { OrderExecutor } from "./OrderExecutor"
 import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
-import { GasEstimator } from "./GasEstimator"
+import { GasEstimator, RELAYER_MESSAGE_GAS } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
+import { LiquidityEngine } from "./LiquidityEngine"
 import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
 	PhantomSnapshotIntentQuoteStrategy,
 	UniswapV4IntentQuoteStrategy,
+	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
+import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
 import { convertGasToFeeToken } from "./utils"
-
-const CROSS_CHAIN_ORDER_FEE_GAS_BUMP = 600_000n
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -100,6 +102,8 @@ export class IntentGateway {
 	private readonly gasEstimator: GasEstimator
 	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
 	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
+	/** Resolves order tokens to canonical Phantom snapshot market pairs. */
+	private readonly phantomSnapshotPairResolver: PhantomSnapshotPairResolver
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -148,6 +152,7 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
+		this.phantomSnapshotPairResolver = new PhantomSnapshotPairResolver(dest.configService)
 		this.quoteStrategies = {
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
@@ -238,14 +243,50 @@ export class IntentGateway {
 	}
 
 	/**
+	 * Returns the output-token liquidity measured in the latest directional
+	 * Phantom snapshot for this gateway's source and destination.
+	 *
+	 * Pair resolution uses the same canonical Base market as {@link quoteIntent}.
+	 * The snapshot itself determines the output token and chain to aggregate. The
+	 * amount is in the token's smallest unit and reflects the indexer's
+	 * `snapshotTime`; it is not a live reservation or fill guarantee.
+	 *
+	 * Requires a prior call to {@link withQueryClient}.
+	 */
+	async queryAvailableLiquidity(
+		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
+	): Promise<AvailableLiquiditySnapshot | undefined> {
+		const { queryClient } = this.requireIndexer()
+		const sourceStateMachineId = this.source.config.stateMachineId
+		const destinationStateMachineId = this.dest.config.stateMachineId
+		const pair = this.phantomSnapshotPairResolver.resolve(params, sourceStateMachineId, destinationStateMachineId)
+		if (!pair) {
+			throw new UnsupportedIntentQuotePairError({
+				source: sourceStateMachineId,
+				destination: destinationStateMachineId,
+				tokenIn: params.tokenIn,
+				tokenOut: params.tokenOut,
+				quoteSource: "Phantom snapshot pair",
+			})
+		}
+
+		return new LiquidityEngine(queryClient, this.dest.configService).getAvailableLiquiditySnapshot({
+			tokenIn: pair.tokenA,
+			tokenOut: pair.tokenB,
+		})
+	}
+
+	/**
 	 * Bidirectional async generator that orchestrates the full order lifecycle:
 	 * placement, fee estimation, bid collection, and execution.
 	 *
 	 * **Yield/receive protocol:**
-	 * 1. If `order.fees` is unset or zero, estimates gas and sets same-chain
-	 *    `order.fees` to twice the estimate. Cross-chain orders retain a 1% buffer
-	 *    and include an additional 600k-gas fee uplift, while the wei cost used for
-	 *    the `value` field receives a 2% buffer.
+	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and
+	 *    sets same-chain fees to twice the estimate. Cross-chain orders attach
+	 *    (fill gas + a settlement-message uplift of `RELAYER_MESSAGE_GAS`, the
+	 *    same gas budget the solver's relayer fee uses) with a 5% buffer over
+	 *    the whole sum — strictly above the solver's unpadded requirement. The
+	 *    wei cost used for the `value` field receives a 2% buffer.
 	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
@@ -253,8 +294,8 @@ export class IntentGateway {
 	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
 	 *    subsequent status updates until the order is filled, exhausted, or fails.
 	 *
-	 * @param order - The order to place and execute. `order.fees` may be 0; it
-	 *   will be estimated automatically if so.
+	 * @param order - The order to place and execute. It is not mutated. `order.fees`
+	 *   may be 0; fees are estimated automatically if so.
 	 * @param graffiti - Optional bytes32 tag for orderflow attribution /
 	 *   revenue share. Defaults to {@link DEFAULT_GRAFFITI}.
 	 * @param options - Optional tuning parameters:
@@ -277,11 +318,12 @@ export class IntentGateway {
 			solver?: { address: HexString; timeoutMs: number }
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
+		const executionOrder: Order = { ...order }
 		let value: bigint | undefined
 
-		if (!order.fees || order.fees === 0n) {
+		if (!executionOrder.fees || executionOrder.fees === 0n) {
 			const estimate = await this.gasEstimator.estimateFillOrder({
-				order,
+				order: executionOrder,
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			})
@@ -292,24 +334,31 @@ export class IntentGateway {
 
 			const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
 			value = estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n
+			// Cover the cross-chain settlement (RedeemEscrow) message with the SAME
+			// gas budget the solver's relayer fee is sized against, so a user placing
+			// via the SDK attaches exactly what a solver requires to fill.
 			const crossChainFeeBump = isSameChain
 				? 0n
 				: await convertGasToFeeToken(
 						this.ctx,
-						CROSS_CHAIN_ORDER_FEE_GAS_BUMP,
+						RELAYER_MESSAGE_GAS,
 						"source",
 						this.source.config.stateMachineId,
 					)
 
-			// Same-chain fills need a larger solver fee margin. Keep cross-chain cost estimation
-			// unchanged for Simplex, and apply the user-order fee uplift only at placement.
-			order.fees = isSameChain
+			// Same-chain fills need a larger solver fee margin. Cross-chain orders
+			// attach (fill gas + settlement uplift) with a 5% buffer over the WHOLE
+			// sum: the solver's requirement (fill gas + relayer fee) carries no
+			// padding of its own, so the buffer must cover the relayer component
+			// too — a buffer on fill gas alone is dwarfed whenever the source chain
+			// is expensive and the destination cheap (relayer fee >> fill gas), and
+			// every SDK-placed order would come up short and be refused.
+			executionOrder.fees = isSameChain
 				? estimate.totalGasInFeeToken * 2n
-				: estimate.totalGasInFeeToken +
-					(crossChainFeeBump + (estimate.totalGasInFeeToken * 1n) / 100n)
+				: ((estimate.totalGasInFeeToken + crossChainFeeBump) * 105n) / 100n
 		}
 
-		const placeOrderGen = this.orderPlacer.placeOrder(order, graffiti)
+		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)
 		const placeOrderFirst = await placeOrderGen.next()
 		if (placeOrderFirst.done) {
 			throw new Error("placeOrder generator completed without yielding")
@@ -452,14 +501,21 @@ export class IntentGateway {
 		const gen = this.execute(order, graffiti, options)
 		try {
 			let input: HexString | SelectBidResult | undefined
+			let finalizedOrder: Order | undefined
 			while (true) {
 				const { value, done } = await gen.next(input)
 				input = undefined
 				if (done) break
 
-				if (value.status === "BIDS_RECEIVED") {
+				if (value.status === "ORDER_PLACED") {
+					finalizedOrder = value.order
 					yield value
-					input = await this.autoSelect(order, value.bids)
+				} else if (value.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) {
+						throw new Error("Received bids before the order was finalized")
+					}
+					yield value
+					input = await this.autoSelect(finalizedOrder, value.bids)
 				} else if (value.status === "AWAITING_PLACE_ORDER") {
 					input = yield value
 				} else {

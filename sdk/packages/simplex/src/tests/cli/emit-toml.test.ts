@@ -4,7 +4,7 @@ import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 
-const minimalStable: FillerTomlConfig = {
+const minimalSameAsset: FillerTomlConfig = {
 	simplex: {
 		signer: {
 			type: SignerType.PrivateKey,
@@ -15,13 +15,15 @@ const minimalStable: FillerTomlConfig = {
 		substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 	},
-	strategies: [
+	pairs: [
 		{
-			type: "stable",
-			bpsCurve: [
-				{ amount: "100", value: 100 },
-				{ amount: "1000", value: 50 },
-				{ amount: "100000", value: 10 },
+			token0: "USDC",
+			token1: "USDC",
+			maxOrderSize: "100000",
+			askPriceCurve: [
+				{ amount: "100", price: "0.99" },
+				{ amount: "1000", price: "0.995" },
+				{ amount: "100000", price: "0.999" },
 			],
 		},
 	],
@@ -37,7 +39,7 @@ const minimalStable: FillerTomlConfig = {
 	],
 }
 
-const hyperfxWithCurves: FillerTomlConfig = {
+const crossAssetWithCurves: FillerTomlConfig = {
 	simplex: {
 		signer: {
 			type: SignerType.Turnkey,
@@ -52,11 +54,11 @@ const hyperfxWithCurves: FillerTomlConfig = {
 		hyperbridgeWsUrl: "wss://gargantua.rpc.polytope.technology",
 		logging: "info",
 	},
-	strategies: [
+	pairs: [
 		{
-			type: "hyperfx",
-			maxOrderUsd: 5000,
-			spreadBps: 50,
+			token0: "USDC",
+			token1: "CNGN",
+			maxOrderSize: "5000",
 			bidPriceCurve: [
 				{ amount: "100", price: "1580" },
 				{ amount: "5000", price: "1570" },
@@ -65,26 +67,24 @@ const hyperfxWithCurves: FillerTomlConfig = {
 				{ amount: "100", price: "1560" },
 				{ amount: "5000", price: "1550" },
 			],
-			token1: {
-				"EVM-56": "0x1111111111111111111111111111111111111111",
-				"EVM-137": "0x3333333333333333333333333333333333333333",
-			},
-			confirmationPolicies: {
-				"56": {
-					points: [
-						{ amount: "1", value: 3 },
-						{ amount: "5000", value: 15 },
-					],
-				},
-			},
 		},
 	],
+	confirmationPolicies: {
+		"EVM-56": {
+			points: [
+				{ amount: "1", value: 3 },
+				{ amount: "5000", value: 15 },
+			],
+		},
+	},
 	chains: [
 		{ rpcUrls: ["https://bsc.example/rpc"], bundlerUrl: "https://api.pimlico.io/v2/56/rpc?apikey=k" },
 		{ rpcUrls: ["https://polygon.example/rpc"], bundlerUrl: "https://api.pimlico.io/v2/137/rpc?apikey=k" },
 	],
 }
 
+// `side` requires pool pricing with no static curves, so this pair is curve-less
+// and priced by the Uniswap V4 venue.
 const kitchenSink: FillerTomlConfig = {
 	simplex: {
 		signer: {
@@ -105,36 +105,24 @@ const kitchenSink: FillerTomlConfig = {
 		gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 		overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 	},
-	strategies: [
+	assets: {
+		BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" },
+	},
+	pairs: [
 		{
-			type: "stable",
-			bpsCurve: [
-				{ amount: "100", value: 100 },
-				{ amount: "100000", value: 10 },
-			],
-			confirmationPolicies: {
-				"1": {
-					points: [
-						{ amount: "5", value: 3 },
-						{ amount: "5000", value: 12 },
-					],
-				},
-			},
-		},
-		{
-			type: "hyperfx",
-			maxOrderUsd: 10000,
-			token1: { "EVM-8453": "0x5555555555555555555555555555555555555555" },
-			vault: {
-				uniswapV4: {
-					side: "ask",
-					positions: [
-						{ chain: "EVM-8453", tokenId: "123456789", referencePrice: "1575", maxDeviationBps: 200 },
-					],
-				},
-			},
+			token0: "USDC",
+			token1: "CNGN",
+			maxOrderSize: "10000",
 		},
 	],
+	confirmationPolicies: {
+		"EVM-1": {
+			points: [
+				{ amount: "5", value: 3 },
+				{ amount: "5000", value: 12 },
+			],
+		},
+	},
 	chains: [
 		{
 			rpcUrls: ["https://eth.example/rpc", "https://eth-two.example/rpc"],
@@ -159,6 +147,13 @@ const kitchenSink: FillerTomlConfig = {
 				redeemOnShutdown: true,
 			},
 		],
+		uniswapV4: {
+			side: "ask",
+			spreadBps: 75,
+			positions: [
+				{ chain: "EVM-8453", tokenId: "123456789", referencePrice: "1575", maxDeviationBps: 200 },
+			],
+		},
 	},
 	allowlist: {
 		users: ["0x1111111111111111111111111111111111111111"],
@@ -170,8 +165,8 @@ const kitchenSink: FillerTomlConfig = {
 
 describe("emitFillerToml", () => {
 	const fixtures: Array<[string, FillerTomlConfig]> = [
-		["minimal stable", minimalStable],
-		["hyperfx with curves", hyperfxWithCurves],
+		["minimal same-asset", minimalSameAsset],
+		["cross-asset with curves", crossAssetWithCurves],
 		["kitchen sink", kitchenSink],
 	]
 
@@ -179,7 +174,7 @@ describe("emitFillerToml", () => {
 		it(`round-trips the ${name} config through the run parser`, () => {
 			const emitted = emitFillerToml(fixture)
 			const parsed = parse(emitted) as FillerTomlConfig
-			expect(parsed).toEqual(fixture)
+			expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(fixture)))
 			expect(() => validateConfig(parsed)).not.toThrow()
 		})
 	}
@@ -189,24 +184,23 @@ describe("emitFillerToml", () => {
 		const parsed = parse(emitted) as FillerTomlConfig
 		expect(parsed.chains[0].bundlerUrl).toBe("https://api.pimlico.io/v2/1/rpc?apikey=k")
 		expect(parsed.rebalancing?.baseBalances.USDC?.["8453"]).toBe("10000")
-		const fx = parsed.strategies[1]
-		if (fx.type !== "hyperfx") throw new Error("expected hyperfx strategy")
-		expect(fx.token1["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
+		expect(parsed.assets?.BRZ["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
+		expect(parsed.confirmationPolicies?.["EVM-1"].points).toHaveLength(2)
 
-		const mnemonic = emitFillerToml(minimalStable)
+		const mnemonic = emitFillerToml(minimalSameAsset)
 		expect((parse(mnemonic) as FillerTomlConfig).simplex.substratePrivateKey).toBe(
 			"bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 		)
 	})
 
 	it("renders chain comments above each [[chains]] entry", () => {
-		const emitted = emitFillerToml(minimalStable, { chainComments: ["Ethereum (1)", "Base (8453)"] })
+		const emitted = emitFillerToml(minimalSameAsset, { chainComments: ["Ethereum (1)", "Base (8453)"] })
 		expect(emitted).toContain("# Ethereum (1)\n[[chains]]")
 		expect(emitted).toContain("# Base (8453)\n[[chains]]")
 	})
 
 	it("shows commented defaults for omitted optional sections", () => {
-		const emitted = emitFillerToml(minimalStable)
+		const emitted = emitFillerToml(minimalSameAsset)
 		expect(emitted).toContain("# maxPriorityFeePerGasBumpPercent = 8")
 		expect(emitted).toContain("# maxOverfillBps = 500")
 	})

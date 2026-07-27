@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import { Decimal } from "decimal.js"
 import { writeConfigFileAtomic } from "@/config/write-config"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { ChainConfigService } from "@hyperbridge/sdk"
@@ -18,21 +20,26 @@ import { serveStatic } from "./static"
 import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
 
 /**
- * An FX strategy's editable price curves. The policies are the same instances
- * the running strategy prices with, so `replacePoints` takes effect on the next
- * order evaluation. A side is absent when it cannot be edited: disabled
- * (one-sided LP) or venue-priced (both sides absent).
+ * One curve-priced trading pair's editable price curves. The policies are the
+ * same instances the running engine prices with, so `replacePoints` takes
+ * effect on the next order evaluation. A side is absent when it cannot be
+ * edited: disabled (one-sided LP) or venue-priced (both sides absent).
  */
 export interface AdminStrategy {
-	/** Position in the TOML `strategies` array; stable identifier for the API. */
+	/** Position among curve-priced pairs; stable identifier for the API. */
 	index: number
-	/** Exotic token symbol, display-only; distinguishes strategies when several FX markets run at once. */
+	/** Position in the TOML `[[pairs]]` array — where curve edits are persisted. */
+	pairIndex: number
+	/** Pair label, e.g. "USDC/CNGN" (display-only). */
 	exotic?: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
+	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
+	sameToken?: boolean
 	/**
 	 * Opens a direction configured as one-sided LP with a fresh policy. Present
-	 * only for curve-priced strategies — venue-priced sides stay uneditable.
+	 * only for cross-asset curve-priced pairs — same-token markets stay
+	 * ask-only and venue-priced sides stay uneditable.
 	 */
 	enableSide?: (side: "bid" | "ask", policy: FillerPricePolicy) => void
 }
@@ -468,13 +475,17 @@ export class UiServer {
 		}
 		const update = body as { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] }
 
-		// A curve on a disabled side of a curve-priced strategy *enables* that side
-		// (one-sided LP opened by the operator). Venue-priced strategies expose no
-		// enableSide, so their sides remain uneditable.
+		// A curve on a disabled side of a curve-priced pair *enables* that side
+		// (one-sided LP opened by the operator). Venue-priced pairs expose no
+		// enableSide, and same-token markets are ask-only by construction.
 		const enabling: Array<{ side: "bid" | "ask"; points: PriceCurvePoint[] }> = []
 		if (update.bidPriceCurve && !strategy.bid) {
 			if (!strategy.enableSide) {
-				return sendJson(res, 409, { error: "The bid side of this strategy is not editable (venue-priced)" })
+				return sendJson(res, 409, {
+					error: strategy.sameToken
+						? "Same-token markets are ask-only — the bid side cannot be enabled"
+						: "The bid side of this strategy is not editable (venue-priced)",
+				})
 			}
 			enabling.push({ side: "bid", points: update.bidPriceCurve })
 		}
@@ -498,6 +509,24 @@ export class UiServer {
 			for (const enable of enabling) {
 				enabled.push({ side: enable.side, policy: new FillerPricePolicy({ points: enable.points }) })
 			}
+
+			// Live edits keep the same book invariants as startup. Judge the
+			// proposed side against the untouched other side, so a one-sided
+			// edit cannot cross the book or push a same-token ask to par.
+			const nextBid = update.bidPriceCurve ? new FillerPricePolicy({ points: update.bidPriceCurve }) : strategy.bid
+			const nextAsk = update.askPriceCurve ? new FillerPricePolicy({ points: update.askPriceCurve }) : strategy.ask
+			if (strategy.sameToken && nextAsk) {
+				for (const point of nextAsk.getPoints()) {
+					if (new Decimal(point.price).gte(1)) {
+						throw new Error(
+							`same-token ask prices must be strictly below 1 — '${point.price}' would fill at or above par`,
+						)
+					}
+				}
+			}
+			if (!strategy.sameToken && nextBid && nextAsk) {
+				FillerPricePolicy.assertBookNotCrossed(`strategy ${index}`, nextBid, nextAsk)
+			}
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -520,7 +549,7 @@ export class UiServer {
 			)
 		}
 
-		const persisted = this.persistCurveUpdate(index, update)
+		const persisted = this.persistCurveUpdate(strategy, update)
 		sendJson(res, 200, { ...serializeStrategy(strategy), persisted })
 	}
 
@@ -530,14 +559,14 @@ export class UiServer {
 	 * replaced by the generated ones, values are preserved.
 	 */
 	private persistCurveUpdate(
-		index: number,
+		strategy: AdminStrategy,
 		update: { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] },
 	): boolean {
 		const op = this.operator!
-		const strategy = op.config.strategies[index]
-		if (!strategy || strategy.type !== "hyperfx") return false
-		if (update.bidPriceCurve) strategy.bidPriceCurve = update.bidPriceCurve
-		if (update.askPriceCurve) strategy.askPriceCurve = update.askPriceCurve
+		const pair = op.config.pairs?.[strategy.pairIndex]
+		if (!pair) return false
+		if (update.bidPriceCurve) pair.bidPriceCurve = update.bidPriceCurve
+		if (update.askPriceCurve) pair.askPriceCurve = update.askPriceCurve
 		return this.persistConfig()
 	}
 
@@ -579,21 +608,22 @@ export class UiServer {
 	private sendTokenOptions(
 		op: OperatorContext,
 	): Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> {
-		const configService = new ChainConfigService({})
+		// The same symbol registry the trading engine resolves pairs with:
+		// built-ins from the SDK chain registry plus the config's [assets] table.
+		const registry = new AssetRegistry(new ChainConfigService({}), op.config.assets)
+		const symbols = [
+			...registrySymbols(),
+			...Object.keys(op.config.assets ?? {}).filter((s) => !registrySymbols().includes(s.trim().toUpperCase())),
+		]
 		const options: Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> = {}
 		for (const chainId of op.chains) {
 			const stateMachineId = `EVM-${chainId}`
 			const tokens: Array<{ symbol: string; address: string; vaultShare?: boolean }> = [
 				{ symbol: "native", address: "native" },
 			]
-			try {
-				tokens.push({ symbol: "USDC", address: configService.getUsdcAsset(stateMachineId) })
-				tokens.push({ symbol: "USDT", address: configService.getUsdtAsset(stateMachineId) })
-				for (const exotic of configService.getKnownExoticTokens(stateMachineId)) {
-					tokens.push({ symbol: exotic.symbol, address: exotic.address })
-				}
-			} catch {
-				// chain missing from the SDK registry — native + vault shares only
+			for (const symbol of symbols) {
+				const address = registry.getAddress(symbol, stateMachineId)
+				if (address) tokens.push({ symbol, address })
 			}
 			for (const vault of op.config.vault?.vaults ?? []) {
 				if (vault.chain === stateMachineId) {
@@ -758,6 +788,7 @@ function serializeStrategy(strategy: AdminStrategy) {
 		index: strategy.index,
 		exotic: strategy.exotic,
 		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
+		sameToken: strategy.sameToken ?? false,
 		bid: strategy.bid?.getPoints(),
 		ask: strategy.ask?.getPoints(),
 	}

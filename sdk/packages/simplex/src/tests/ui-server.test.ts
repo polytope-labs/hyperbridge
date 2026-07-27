@@ -39,6 +39,11 @@ const ASK_POINTS = [
 	{ amount: "100", price: "1560" },
 	{ amount: "5000", price: "1550" },
 ]
+// Same-token transfer market: ask prices strictly below par.
+const SAME_ASSET_POINTS = [
+	{ amount: "100", price: "0.99" },
+	{ amount: "100000", price: "0.999" },
+]
 
 const CSRF = { "X-Simplex-UI": "1" }
 
@@ -73,7 +78,7 @@ function fakeHaltControl(index: number, halted = false): HaltControl & { halted:
 	}
 }
 
-/** strategies[] indices line up with the AdminStrategy indices used in the tests. */
+/** pairs[] indices line up with the AdminStrategy pairIndex values used in the tests. */
 function fakeConfig(): FillerTomlConfig {
 	return {
 		simplex: {
@@ -83,32 +88,19 @@ function fakeConfig(): FillerTomlConfig {
 			substratePrivateKey: "seed",
 			hyperbridgeWsUrl: "wss://example",
 		},
-		strategies: [
+		pairs: [
+			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
 			{
-				type: "stable",
-				bpsCurve: [
-					{ amount: "100", value: 100 },
-					{ amount: "100000", value: 10 },
-				],
-			},
-			{
-				type: "hyperfx",
-				maxOrderUsd: 5000,
-				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
+				token0: "USDC",
+				token1: "CNGN",
+				maxOrderSize: "5000",
 				bidPriceCurve: BID_POINTS,
 				askPriceCurve: ASK_POINTS,
 			},
-			{
-				type: "hyperfx",
-				maxOrderUsd: 5000,
-				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
-			},
-			{
-				type: "hyperfx",
-				maxOrderUsd: 5000,
-				token1: { "EVM-56": "0x1111111111111111111111111111111111111111" },
-				askPriceCurve: ASK_POINTS,
-			},
+			// venue-priced: no curves
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000" },
+			// one-sided LP
+			{ token0: "USDC", token1: "ZARP", maxOrderSize: "5000", askPriceCurve: ASK_POINTS },
 		],
 		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
 	}
@@ -130,7 +122,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
 		chains: [8453, 56],
-		strategyTypes: ["hyperfx"],
+		strategyTypes: ["USDC/CNGN"],
 		dataDir,
 		...overrides,
 	}
@@ -186,15 +178,17 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	async function startServer(overrides: Partial<OperatorContext> = {}) {
+		const sameAsset = new FillerPricePolicy({ points: SAME_ASSET_POINTS })
 		const bid = new FillerPricePolicy({ points: BID_POINTS })
 		const ask = new FillerPricePolicy({ points: ASK_POINTS })
 		const askOnly = new FillerPricePolicy({ points: ASK_POINTS })
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 1, exotic: "cNGN", bid, ask },
-				{ index: 2 }, // venue-priced: no editable curves
-				{ index: 3, ask: askOnly }, // one-sided LP
+				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", ask: sameAsset, sameToken: true },
+				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", bid, ask, sameToken: false },
+				{ index: 2, pairIndex: 2, sameToken: false }, // venue-priced: no editable curves
+				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", ask: askOnly, sameToken: false }, // one-sided LP
 			],
 			filler,
 			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
@@ -204,6 +198,7 @@ describe("UiServer (operator mode)", () => {
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
+			sameAsset,
 			bid,
 			ask,
 			askOnly,
@@ -233,7 +228,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.paused).toBe(false)
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
-		expect(payload.strategyTypes).toEqual(["hyperfx"])
+		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -252,9 +247,17 @@ describe("UiServer (operator mode)", () => {
 		expect(res.status).toBe(200)
 		expect(await res.json()).toEqual({
 			strategies: [
-				{ index: 1, exotic: "cNGN", pricingMode: "static", bid: BID_POINTS, ask: ASK_POINTS },
-				{ index: 2, pricingMode: "venue" },
-				{ index: 3, pricingMode: "static", ask: ASK_POINTS },
+				{ index: 0, exotic: "USDC/USDC", pricingMode: "static", sameToken: true, ask: SAME_ASSET_POINTS },
+				{
+					index: 1,
+					exotic: "USDC/CNGN",
+					pricingMode: "static",
+					sameToken: false,
+					bid: BID_POINTS,
+					ask: ASK_POINTS,
+				},
+				{ index: 2, pricingMode: "venue", sameToken: false },
+				{ index: 3, exotic: "USDC/ZARP", pricingMode: "static", sameToken: false, ask: ASK_POINTS },
 			],
 		})
 	})
@@ -269,8 +272,9 @@ describe("UiServer (operator mode)", () => {
 		expect(res.status).toBe(200)
 		expect(await res.json()).toEqual({
 			index: 1,
-			exotic: "cNGN",
+			exotic: "USDC/CNGN",
 			pricingMode: "static",
+			sameToken: false,
 			bid: BID_POINTS,
 			ask: newAsk,
 			persisted: true,
@@ -281,10 +285,37 @@ describe("UiServer (operator mode)", () => {
 		// restarts keep the change: the config file now carries the new curve
 		expect(existsSync(operator.configPath)).toBe(true)
 		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
-		const fx = written.strategies[1]
-		if (fx.type !== "hyperfx") throw new Error("expected hyperfx at index 1")
-		expect(fx.askPriceCurve).toEqual(newAsk)
-		expect(fx.bidPriceCurve).toEqual(BID_POINTS)
+		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
+		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
+	})
+
+	it("rejects same-token ask prices at or above par, judged against the live invariants", async () => {
+		const { base, sameAsset } = await startServer()
+		const res = await put(base, "/api/strategies/0/curves", {
+			askPriceCurve: [{ amount: "0", price: "1" }],
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain("below 1")
+		expect(sameAsset.getPoints()).toEqual(SAME_ASSET_POINTS)
+	})
+
+	it("rejects enabling a bid on a same-token market", async () => {
+		const { base } = await startServer()
+		const res = await put(base, "/api/strategies/0/curves", { bidPriceCurve: [{ amount: "0", price: "0.9" }] })
+		expect(res.status).toBe(409)
+		expect((await res.json()).error).toContain("ask-only")
+	})
+
+	it("rejects an edit that would cross the book against the untouched side", async () => {
+		const { base, bid, ask } = await startServer()
+		// New ask above the existing bid at every size: the book would cross.
+		const res = await put(base, "/api/strategies/1/curves", {
+			askPriceCurve: [{ amount: "0", price: "1650" }],
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toMatch(/crossed|bid/i)
+		expect(bid.getPoints()).toEqual(BID_POINTS)
+		expect(ask.getPoints()).toEqual(ASK_POINTS)
 	})
 
 	it("rejects malformed bodies with 400", async () => {

@@ -34,7 +34,9 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	ChainConfigService,
@@ -49,6 +51,26 @@ import {
 	decodeUserOpScale,
 	extractFillData,
 } from "@hyperbridge/sdk/intents-helpers"
+
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: FillerConfigService,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 const ANVIL_URL = process.env.ANVIL_URL || "http://127.0.0.1:8545"
@@ -197,20 +219,30 @@ async function buildPhantomFiller(opts: {
 		new CacheService(),
 	)
 
-	const pricePolicy = new FillerPricePolicy({
+	// Phantom quoting uses the ask, so each filler's competitive rate stays
+	// exactly opts.cngnPerUsd; the bid sits 2% above it because a crossed or
+	// zero-spread book (bid ≤ ask) is rejected at construction.
+	const askPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: opts.cngnPerUsd },
 			{ amount: "10000", price: opts.cngnPerUsd },
 		],
 	})
+	const bidPrice = (Number(opts.cngnPerUsd) * 1.02).toString()
+	const bidPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: bidPrice },
+			{ amount: "10000", price: bidPrice },
+		],
+	})
+	const legacy = exoticPairs(configService, { [BASE_STATE_MACHINE]: CNGN_BASE }, 5000, bidPricePolicy, askPricePolicy)
 	const fxStrategy = new FXFiller(
 		signer,
 		configService,
 		chainClientManager,
 		contractService,
-		5000,
-		{ [BASE_STATE_MACHINE]: CNGN_BASE },
-		{ bidPricePolicy: pricePolicy, askPricePolicy: pricePolicy },
+		legacy.pairs,
+		legacy.registry,
 	)
 
 	const filler = new IntentFiller(

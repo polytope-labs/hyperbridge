@@ -12,14 +12,14 @@ export const WHY = {
 	substrateKey:
 		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
-	strategies:
-		"Strategies decide which orders are profitable to fill. 'stable' fills same-token stablecoin transfers across chains; 'hyperfx' market-makes between stablecoins and one exotic token (e.g. cNGN).",
-	bpsCurve:
-		"Your profit margin: minimum basis points charged as a function of order size. Points are interpolated into a smooth curve — high bps keeps small orders worthwhile, low bps keeps large orders competitive.",
-	maxOrderUsd: "Caps your exposure per order. Larger orders are partially filled up to this cap.",
-	token1: "The exotic (non-USD) token the hyperfx strategy trades, per chain it exists on.",
+	pairs: "Every market you serve is a pair. A same-asset pair (USDC/USDC) fills cross-chain transfers — ask prices sit just below 1 and the gap is your spread. A cross-asset pair (USDC/CNGN) market-makes between two tokens with your own bid/ask curves. Assets are referenced by symbol; addresses come from the built-in registry.",
+	sameAssetCurve:
+		"Ask prices are the fraction of the input you pay back out, by order size. 0.995 keeps 0.5% of every fill; prices at or above 1 can never profit and are rejected.",
+	maxOrderSize: "Caps your exposure per order, in units of the pair's quote asset (token0). Larger orders are partially filled up to this cap.",
+	crossAssetCurves:
+		"Curves price token1 per 1 token0 by order size. The bid curve is what you pay when buying token1 from users; the ask is what you charge selling it. Bid must stay above ask everywhere (uncrossed book). Omit one side for one-sided LP.",
 	fxPricing:
-		"hyperfx needs a price source for the exotic token: static bid/ask curves you maintain, or a Uniswap V4 LP position whose pool price acts as the oracle (and doubles as liquidity).",
+		"A cross-asset pair needs a price source: static bid/ask curves you maintain, or a Uniswap V4 LP position whose pool price acts as the oracle (and doubles as liquidity).",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",

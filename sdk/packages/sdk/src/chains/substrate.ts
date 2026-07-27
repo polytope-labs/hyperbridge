@@ -25,7 +25,11 @@ import {
 	replaceWebsocketWithHttp,
 	parseStateMachineId,
 } from "@/utils"
-import { ExpectedError } from "@/utils/exceptions"
+import {
+	ExpectedError,
+	MissingConsensusUpdateTimeError,
+	MISSING_CONSENSUS_UPDATE_TIME_MESSAGE,
+} from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { ISMP_PREFIX } from "@/configs/constants"
 
@@ -387,25 +391,32 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Get the state machine update time for a given state machine height.
+	 * Get the state machine update time for a given state machine height. Reads the
+	 * `BoundedStateMachineUpdateTime` map in pallet-ismp directly, so the height is either
+	 * still retained on-chain or it has been evicted — there's no intermediate RPC to
+	 * reinterpret the absence.
 	 * @param {StateMachineHeight} stateMachineHeight - The state machine height.
 	 * @returns {Promise<bigint>} The statemachine update time in seconds.
 	 */
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
-		const state_id = convertStateIdToStateMachineId(stateMachineHeight.id.stateId)
+		if (!this.api) throw new Error("API not initialized")
 
-		const stateMachineId = {
-			state_id,
-			consensus_state_id: stateMachineHeight.id.consensusStateId,
+		const id = {
+			stateId: stateMachineHeight.id.stateId,
+			// on-chain StateMachineId encodes consensusStateId as [u8; 4]
+			consensusStateId: toHex(toBytes(stateMachineHeight.id.consensusStateId)),
 		}
 
-		const payload = {
-			id: stateMachineId,
-			height: Number(stateMachineHeight.height),
+		const updateTime = await this.api.query.ismp.boundedStateMachineUpdateTime(
+			id,
+			Number(stateMachineHeight.height),
+		)
+
+		if ((updateTime as any).isNone) {
+			throw new MissingConsensusUpdateTimeError(MISSING_CONSENSUS_UPDATE_TIME_MESSAGE)
 		}
 
-		const updateTime: number = await this.rpcClient.call("ismp_queryStateMachineUpdateTime", [payload])
-		return BigInt(updateTime)
+		return BigInt((updateTime as any).unwrap().toString())
 	}
 
 	/**

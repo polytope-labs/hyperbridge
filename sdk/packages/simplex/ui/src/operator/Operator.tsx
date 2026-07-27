@@ -94,7 +94,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				</div>
 			</div>
 			<p className="hint">
-				Config: <span className="mono">{status.configPath}</span> · chains {status.chains.join(", ")} · strategies{" "}
+				Config: <span className="mono">{status.configPath}</span> · chains {status.chains.join(", ")} · markets{" "}
 				{status.strategyTypes.join(", ")}
 			</p>
 			{status.addresses && (
@@ -176,7 +176,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 								<th>Native</th>
 								<th>USDC</th>
 								<th>USDT</th>
-								<th>Exotic</th>
+								<th>Exotics</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -186,7 +186,11 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 									<td>{row.native ? `${row.native.amount.toFixed(4)} ${row.native.symbol}` : "—"}</td>
 									<td>{row.usdc?.toLocaleString() ?? "—"}</td>
 									<td>{row.usdt?.toLocaleString() ?? "—"}</td>
-									<td>{row.exotic ? `${row.exotic.amount.toLocaleString()} ${row.exotic.symbol}` : "—"}</td>
+									<td>
+										{row.exotics?.length
+											? row.exotics.map((e) => `${e.amount.toLocaleString()} ${e.symbol}`).join(", ")
+											: "—"}
+									</td>
 								</tr>
 							))}
 						</tbody>
@@ -203,10 +207,10 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<h2>Price curves</h2>
 				<p className="hint">
-					Edits apply to the running strategies immediately and are persisted to the config file (which is
+					Edits apply to the running markets immediately and are persisted to the config file (which is
 					regenerated with standard comments).
 				</p>
-				{strategies.length === 0 && <p className="hint">No FX strategies configured.</p>}
+				{strategies.length === 0 && <p className="hint">No curve-priced markets configured.</p>}
 				{strategies.map((strategy) => (
 					<StrategyCurves key={strategy.index} strategy={strategy} onApplied={load} />
 				))}
@@ -221,19 +225,23 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 	const { strategy, onApplied } = props
 	const [bid, setBid] = useState<EditorPoint[]>(() => fromPricePoints(strategy.bid))
 	const [ask, setAsk] = useState<EditorPoint[]>(() => fromPricePoints(strategy.ask))
-	// One-sided LP: an absent side of a curve-priced strategy can be opened by
-	// submitting a curve for it.
+	// One-sided LP: an absent side of a curve-priced cross-asset market can be
+	// opened by submitting a curve for it. Same-token markets stay ask-only.
 	const [enableBid, setEnableBid] = useState(false)
 	const [enableAsk, setEnableAsk] = useState(false)
 	const [message, setMessage] = useState<string>()
 	const [error, setError] = useState<string>()
 
+	// The label is "TOKEN0/TOKEN1"; curves are token1 per token0, sized in token0.
+	const [token0 = "token0", token1 = "token1"] = (strategy.exotic ?? "").split("/")
+	const title = strategy.sameToken
+		? `Market #${strategy.index} · ${strategy.exotic} — same-asset transfers`
+		: `Market #${strategy.index} ${strategy.exotic ? `· ${strategy.exotic}` : ""}`
+
 	if (strategy.pricingMode === "venue") {
 		return (
 			<div>
-				<h2 style={{ fontSize: "0.95rem" }}>
-					Strategy #{strategy.index} {strategy.exotic && `· ${strategy.exotic}`}
-				</h2>
+				<h2 style={{ fontSize: "0.95rem" }}>{title}</h2>
 				<p className="hint">Prices derive from on-chain venues (Uniswap V4) and cannot be edited here.</p>
 			</div>
 		)
@@ -258,24 +266,42 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 
 	return (
 		<div style={{ marginBottom: "1rem" }}>
-			<h2 style={{ fontSize: "0.95rem" }}>
-				Strategy #{strategy.index} {strategy.exotic && `· ${strategy.exotic}`}
-			</h2>
+			<h2 style={{ fontSize: "0.95rem" }}>{title}</h2>
+			{strategy.sameToken && (
+				<p className="hint">
+					Ask-only: the price is the fraction of the input paid back out. Keep every point strictly below 1 —
+					the gap to 1 is the spread on each fill.
+				</p>
+			)}
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
 				{(strategy.bid || enableBid) && (
 					<div>
-						<p className="hint">Bid — filler buys exotic{!strategy.bid && " (enabling this side)"}</p>
-						<CurveEditor points={bid} onChange={setBid} amountLabel="USD" valueLabel="Exotic/USD" />
+						<p className="hint">Bid — filler buys {token1}{!strategy.bid && " (enabling this side)"}</p>
+						<CurveEditor
+							points={bid}
+							onChange={setBid}
+							amountLabel={`Order size (${token0})`}
+							valueLabel={`${token1} per ${token0}`}
+						/>
 					</div>
 				)}
 				{(strategy.ask || enableAsk) && (
 					<div>
-						<p className="hint">Ask — filler sells exotic{!strategy.ask && " (enabling this side)"}</p>
-						<CurveEditor points={ask} onChange={setAsk} amountLabel="USD" valueLabel="Exotic/USD" />
+						<p className="hint">
+							{strategy.sameToken
+								? "Ask — fraction paid out (below 1)"
+								: `Ask — filler sells ${token1}${!strategy.ask ? " (enabling this side)" : ""}`}
+						</p>
+						<CurveEditor
+							points={ask}
+							onChange={setAsk}
+							amountLabel={`Order size (${token0})`}
+							valueLabel={strategy.sameToken ? "Price (below 1)" : `${token1} per ${token0}`}
+						/>
 					</div>
 				)}
 			</div>
-			{!strategy.bid && !enableBid && (
+			{!strategy.sameToken && !strategy.bid && !enableBid && (
 				<button
 					type="button"
 					onClick={() => {
@@ -286,7 +312,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 					Enable bid side (one-sided LP → both directions)
 				</button>
 			)}
-			{!strategy.ask && !enableAsk && (
+			{!strategy.sameToken && !strategy.ask && !enableAsk && (
 				<button
 					type="button"
 					style={{ marginLeft: "0.5rem" }}

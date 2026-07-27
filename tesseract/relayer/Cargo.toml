@@ -30,6 +30,7 @@ hex = "0.4"
 pallet-beefy-consensus-proofs = { workspace = true, default-features = true }
 sp-consensus-beefy = { workspace = true }
 sp-core = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true }
 subxt = { workspace = true }
 subxt-utils = { workspace = true }
 tesseract-beefy = { workspace = true }

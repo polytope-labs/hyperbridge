@@ -1,4 +1,5 @@
-import type { FillerTomlConfig, StrategyConfig, ChainConfirmationPolicy } from "@/config/filler-toml"
+import type { FillerTomlConfig, ChainConfirmationPolicy } from "@/config/filler-toml"
+import type { PairConfig } from "@/config/pairs"
 
 export interface EmitOptions {
 	/** Comment shown above each [[chains]] entry, aligned with config.chains. */
@@ -133,12 +134,33 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		if (config.vault.sweepIntervalMs !== undefined) {
 			push(kv("sweepIntervalMs", config.vault.sweepIntervalMs))
 		}
-		push("vaults = [")
-		for (const vault of config.vault.vaults) {
-			push(`    ${inlineTable(vault)},`)
+		if (config.vault.vaults?.length) {
+			push("vaults = [")
+			for (const vault of config.vault.vaults) {
+				push(`    ${inlineTable(vault)},`)
+			}
+			push("]")
 		}
-		push("]")
 		push()
+		if (config.vault.uniswapV4) {
+			push("# Uniswap V4 positions used for pool-based pricing and on-demand liquidity withdrawal.")
+			push("[vault.uniswapV4]")
+			if (config.vault.uniswapV4.side !== undefined) {
+				push(kv("side", config.vault.uniswapV4.side))
+			}
+			if (config.vault.uniswapV4.spreadBps !== undefined) {
+				push("# Slippage tolerance (bps) for LP redemptions; also the spread around pool mid.")
+				push(kv("spreadBps", config.vault.uniswapV4.spreadBps))
+			}
+			if (config.vault.uniswapV4.positions?.length) {
+				push("positions = [")
+				for (const position of config.vault.uniswapV4.positions) {
+					push(`    ${inlineTable(position)},`)
+				}
+				push("]")
+			}
+			push()
+		}
 	}
 
 	if (config.allowlist) {
@@ -158,9 +180,22 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push()
 	}
 
-	for (const strategy of config.strategies) {
-		emitStrategy(push, strategy)
+	if (config.assets && Object.keys(config.assets).length > 0) {
+		push("# Extra assets the built-in registry does not ship (or per-deployment address overrides).")
+		for (const [symbol, definition] of Object.entries(config.assets)) {
+			push(`[assets.${/^[A-Za-z0-9_-]+$/.test(symbol) ? symbol : JSON.stringify(symbol)}]`)
+			for (const [chain, address] of Object.entries(definition)) {
+				push(kv(chain, address, true))
+			}
+			push()
+		}
 	}
+
+	for (const pair of config.pairs ?? []) {
+		emitPair(push, pair)
+	}
+
+	emitConfirmationPolicies(push, config.confirmationPolicies)
 
 	config.chains.forEach((chain, index) => {
 		const comment = options.chainComments?.[index]
@@ -176,82 +211,53 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 	return `${out.join("\n").trimEnd()}\n`
 }
 
-function emitStrategy(push: (line?: string) => void, strategy: StrategyConfig): void {
-	if (strategy.type === "stable") {
-		push("# Stable strategy: fills same-token cross-chain transfers (USDC->USDC, USDT->USDT).")
-		push("[[strategies]]")
-		push(kv("type", "stable"))
-		push("# Minimum margin (basis points) by order size; points are interpolated into a smooth curve.")
-		push("# High bps keeps small orders worthwhile, low bps keeps large orders competitive.")
-		push("bpsCurve = [")
-		for (const point of strategy.bpsCurve) {
-			push(`    ${inlineTable(point)},`)
-		}
-		push("]")
-		push()
-		emitConfirmationPolicies(push, strategy.confirmationPolicies)
-		return
+function emitPair(push: (line?: string) => void, pair: PairConfig): void {
+	const sameToken = pair.token0.trim().toUpperCase() === pair.token1.trim().toUpperCase()
+	if (sameToken) {
+		push(`# Same-asset cross-chain market: ${pair.token0} on one chain for ${pair.token1} on another.`)
+		push("# Ask prices are the fraction paid back out — strictly below 1; the gap to par is the spread.")
+	} else {
+		push(`# Cross-asset market: curves price ${pair.token1} per 1 ${pair.token0}; maxOrderSize caps`)
+		push(`# the per-order ${pair.token0} notional. Omit one curve for one-sided LP.`)
 	}
-
-	push("# HyperFX strategy: fills swaps between stablecoins and one exotic token (e.g. cNGN).")
-	push("[[strategies]]")
-	push(kv("type", "hyperfx"))
-	push("# Maximum USD exposure per order; larger orders are partially filled up to this cap.")
-	push(kv("maxOrderUsd", strategy.maxOrderUsd))
-	if (strategy.spreadBps !== undefined) {
-		push("# Spread (basis points) around the Uniswap V4 pool mid when pool pricing is active.")
-		push(kv("spreadBps", strategy.spreadBps))
+	push("[[pairs]]")
+	push(kv("token0", pair.token0))
+	push(kv("token1", pair.token1))
+	if (pair.referenceOnly !== undefined) {
+		push("# Price feed only — contributes its rate to USD anchoring but never fills orders.")
+		push(kv("referenceOnly", pair.referenceOnly))
 	}
-	if (strategy.bidPriceCurve) {
-		push("# Exotic tokens per USD when the filler *buys* exotic from a user (exotic -> stable leg).")
+	if (pair.maxOrderSize !== undefined) {
+		push(kv("maxOrderSize", pair.maxOrderSize))
+	}
+	if (pair.bidPriceCurve) {
+		push(`# ${pair.token1} per ${pair.token0} when the filler *buys* ${pair.token1} from a user.`)
 		push("bidPriceCurve = [")
-		for (const point of strategy.bidPriceCurve) {
+		for (const point of pair.bidPriceCurve) {
 			push(`    ${inlineTable(point)},`)
 		}
 		push("]")
 	}
-	if (strategy.askPriceCurve) {
-		push("# Exotic tokens per USD when the filler *sells* exotic to a user (stable -> exotic leg).")
+	if (pair.askPriceCurve) {
+		if (!sameToken) push(`# ${pair.token1} per ${pair.token0} when the filler *sells* ${pair.token1} to a user.`)
 		push("askPriceCurve = [")
-		for (const point of strategy.askPriceCurve) {
+		for (const point of pair.askPriceCurve) {
 			push(`    ${inlineTable(point)},`)
 		}
 		push("]")
 	}
 	push()
-	push("# Exotic token contract per chain, keyed by state machine id.")
-	push("[strategies.token1]")
-	for (const [chain, address] of Object.entries(strategy.token1)) {
-		push(kv(chain, address, true))
-	}
-	push()
-	if (strategy.vault?.uniswapV4) {
-		push("# Uniswap V4 positions used for pool-based pricing and on-demand liquidity withdrawal.")
-		push("[strategies.vault.uniswapV4]")
-		if (strategy.vault.uniswapV4.side !== undefined) {
-			push(kv("side", strategy.vault.uniswapV4.side))
-		}
-		if (strategy.vault.uniswapV4.positions) {
-			push("positions = [")
-			for (const position of strategy.vault.uniswapV4.positions) {
-				push(`    ${inlineTable(position)},`)
-			}
-			push("]")
-		}
-		push()
-	}
-	emitConfirmationPolicies(push, strategy.confirmationPolicies)
 }
 
 function emitConfirmationPolicies(
 	push: (line?: string) => void,
 	policies: Record<string, ChainConfirmationPolicy> | undefined,
 ): void {
-	if (!policies) return
+	if (!policies || Object.keys(policies).length === 0) return
 	push("# Block confirmations to wait before filling, by order USD value (reorg protection).")
 	push("# Chains not listed here use the built-in defaults.")
 	for (const [chainId, policy] of Object.entries(policies)) {
-		push(`[strategies.confirmationPolicies."${chainId}"]`)
+		push(`[confirmationPolicies."${chainId}"]`)
 		push("points = [")
 		for (const point of policy.points) {
 			push(`    ${inlineTable(point)},`)

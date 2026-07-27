@@ -324,8 +324,8 @@ export class MetricsService {
 			}
 			if (row.usdc !== undefined) this.balanceUsdc.set({ chain_id: chainLabel }, row.usdc)
 			if (row.usdt !== undefined) this.balanceUsdt.set({ chain_id: chainLabel }, row.usdt)
-			if (row.exotic) {
-				this.balanceExotic.set({ chain_id: chainLabel, symbol: row.exotic.symbol }, row.exotic.amount)
+			for (const exotic of row.exotics ?? []) {
+				this.balanceExotic.set({ chain_id: chainLabel, symbol: exotic.symbol }, exotic.amount)
 			}
 		}
 		if (snapshot.hyperbridge) {

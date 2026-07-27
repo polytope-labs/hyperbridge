@@ -101,7 +101,7 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
-		strategyTypes: runtime.config.strategies.map((s) => s.type),
+		strategyTypes: (runtime.config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
 		dataDir: runtime.dataDir,
 	}
 }
@@ -182,7 +182,7 @@ program
 			if (configPath) {
 				const tomlContent = readFileSync(configPath, "utf-8")
 				const config = parse(tomlContent) as FillerTomlConfig
-				validateConfig(config)
+				validateConfig(config, options.watchOnly === true)
 
 				runtime = await bootFiller(config, {
 					configPath,

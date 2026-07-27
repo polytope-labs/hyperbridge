@@ -53,12 +53,14 @@ describe("setup API", () => {
 				substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 				hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			},
-			strategies: [
+			pairs: [
 				{
-					type: "stable",
-					bpsCurve: [
-						{ amount: "100", value: 100 },
-						{ amount: "100000", value: 10 },
+					token0: "USDC",
+					token1: "USDC",
+					maxOrderSize: "100000",
+					askPriceCurve: [
+						{ amount: "100", price: "0.99" },
+						{ amount: "100000", price: "0.999" },
 					],
 				},
 			],
@@ -72,7 +74,11 @@ describe("setup API", () => {
 		const body = await res.json()
 		expect(body.chains.length).toBeGreaterThan(5)
 		expect(body.hyperbridgeWs.mainnet).toContain("wss://")
-		expect(body.stableBpsCurve.length).toBeGreaterThanOrEqual(2)
+		expect(body.usdStables).toContain("USDC")
+		expect(body.sameAssetAskCurve.length).toBeGreaterThanOrEqual(2)
+		expect(body.knownTokens["EVM-8453"]).toContainEqual(
+			expect.objectContaining({ symbol: "USDC", address: expect.stringMatching(/^0x/) }),
+		)
 		expect(body.maxConcurrentOrders).toBe(5)
 	})
 
@@ -172,10 +178,10 @@ describe("setup API", () => {
 	it("rejects an invalid config at preview with the validation message", async () => {
 		const { base } = await startInitServer()
 		const config = minimalConfig("http://127.0.0.1:1")
-		config.strategies = []
+		config.pairs = []
 		const res = await post(base, "preview", { config })
 		expect(res.status).toBe(400)
-		expect((await res.json()).error).toContain("At least one strategy")
+		expect((await res.json()).error).toContain("At least one [[pairs]]")
 	})
 
 	it("save-and-start writes the config 0600, calls the boot callback and flips to operator", async () => {
@@ -197,7 +203,7 @@ describe("setup API", () => {
 		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
 		const [bootedConfig, toml, path] = onSaveAndStart.mock.calls[0]
 		expect(path).toBe(configPath)
-		expect(toml).toContain("[[strategies]]")
+		expect(toml).toContain("[[pairs]]")
 		expect(JSON.parse(JSON.stringify(bootedConfig))).toEqual(JSON.parse(JSON.stringify(config)))
 	})
 

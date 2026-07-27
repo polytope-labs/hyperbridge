@@ -1,6 +1,7 @@
 import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
-import { DEFAULT_CONFIRMATION_POLICIES, type ChainConfirmationPolicy, type VaultToml } from "@/config/filler-toml"
+import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
+import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { guard, why, askNumber, askAddress } from "../prompt-utils"
 import { editPoints, nonNegativeIntegerValue } from "../points-editor"
 import { WHY } from "../help-text"
@@ -79,7 +80,11 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	state.gasFeeBump = config.simplex.gasFeeBump
 	state.overfillProtection = config.simplex.overfillProtection
 	state.rebalancing = config.rebalancing
-	state.vault = config.vault
+	// The pairs step owns [vault.uniswapV4]; only the treasury half is carried.
+	if (config.vault) {
+		const { uniswapV4: _dropped, ...treasury } = config.vault
+		state.vault = Object.keys(treasury).length > 0 ? treasury : undefined
+	}
 	state.allowlist = config.allowlist
 }
 
@@ -132,29 +137,27 @@ async function tuneOverfill(state: WizardState): Promise<void> {
 
 async function tuneConfirmations(state: WizardState): Promise<void> {
 	why(WHY.confirmations)
-	for (const strategy of state.strategies) {
-		for (const chain of state.chains) {
-			const chainId = String(chain.meta.chainId)
-			const current = strategy.confirmationPolicies?.[chainId] ?? DEFAULT_CONFIRMATION_POLICIES[chainId]
-			note(
-				current
-					? current.points.map((p) => `$${p.amount} -> ${p.value} confirmations`).join("\n")
-					: "No built-in default for this chain — one should be set.",
-				`${chain.meta.label} (${strategy.type})`,
-			)
-			const customize = guard(
-				await confirm({ message: `Customize confirmations for ${chain.meta.label}?`, initialValue: !current }),
-			)
-			if (!customize) continue
+	for (const chain of state.chains) {
+		const chainId = String(chain.meta.chainId)
+		const current = state.confirmationPolicies?.[chainId] ?? DEFAULT_CONFIRMATION_POLICIES[chainId]
+		note(
+			current
+				? current.points.map((p) => `$${p.amount} -> ${p.value} confirmations`).join("\n")
+				: "No built-in default for this chain — one should be set.",
+			chain.meta.label,
+		)
+		const customize = guard(
+			await confirm({ message: `Customize confirmations for ${chain.meta.label}?`, initialValue: !current }),
+		)
+		if (!customize) continue
 
-			const points: ChainConfirmationPolicy["points"] = await editPoints({
-				prompt: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
-				minPoints: 2,
-				checkValue: nonNegativeIntegerValue,
-				toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
-			})
-			strategy.confirmationPolicies = { ...(strategy.confirmationPolicies ?? {}), [chainId]: { points } }
-		}
+		const points: ChainConfirmationPolicy["points"] = await editPoints({
+			prompt: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
+			minPoints: 2,
+			checkValue: nonNegativeIntegerValue,
+			toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
+		})
+		state.confirmationPolicies = { ...(state.confirmationPolicies ?? {}), [chainId]: { points } }
 	}
 }
 

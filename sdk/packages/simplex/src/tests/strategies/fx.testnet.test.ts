@@ -9,7 +9,9 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { FXFiller } from "@/strategies/fx"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -40,6 +42,26 @@ import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+
+/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
+function exoticPairs(
+	resolver: FillerConfigService,
+	token1: Record<string, HexString>,
+	maxOrderSize: number,
+	bidPricePolicy?: FillerPricePolicy,
+	askPricePolicy?: FillerPricePolicy,
+): { pairs: TradingPair[]; registry: AssetRegistry } {
+	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
+	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
+		token0,
+		token1: "EXOTIC",
+		maxOrderSize: new Decimal(maxOrderSize),
+		bidPricePolicy,
+		askPricePolicy,
+	}))
+	return { pairs, registry }
+}
+
 
 // ============================================================================
 // Test Suites
@@ -143,9 +165,13 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
+		let finalizedOrder: Order | undefined
 		while (!result.done) {
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
@@ -166,9 +192,11 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		}
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
@@ -272,16 +300,21 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
 		let inspectedBid = false
+		let finalizedOrder: Order | undefined
 
 		while (!result.done) {
 			let feedback: SelectBidResult | undefined
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 
 				if (status.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) throw new Error("Order was not finalized")
 					expect(status.bids.length).toBeGreaterThan(0)
 
-					const ranked = await userSdkHelper.sortBids(order, status.bids)
+					const ranked = await userSdkHelper.sortBids(finalizedOrder, status.bids)
 					expect(ranked.length).toBeGreaterThan(0)
 					const chosen = ranked[0]
 
@@ -323,9 +356,11 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		expect(inspectedBid).toBe(true)
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
@@ -352,7 +387,10 @@ async function createFxIntentFiller(
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	// Exotic ≈ $1 (Polygon USDC stand-in), so price is 1 exotic token per USD.
+	// Exotic ≈ $1 (Polygon USDC stand-in). The book must carry a real spread:
+	// the profit gate requires the FX margin to be strictly positive, so a
+	// bid == ask (zero-spread) config makes the filler refuse to bid and the
+	// E2E flow time out. 50 bps: buy exotic at 1, sell at 0.995 per USD.
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: "1" },
@@ -361,8 +399,8 @@ async function createFxIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "1" },
-			{ amount: "10000", price: "1" },
+			{ amount: "1", price: "0.995" },
+			{ amount: "10000", price: "0.995" },
 		],
 	})
 
@@ -385,10 +423,9 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
+	const legacy = exoticPairs(chainConfigService, token1, 5000, bidPricePolicy, askPricePolicy)
 	const strategies = [
-		new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
-			bidPricePolicy,
-			askPricePolicy,
+		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
 			confirmationPolicy,
 		}),
 	]

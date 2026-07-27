@@ -44,7 +44,7 @@ struct TestHost;
 
 impl Keccak256 for TestHost {
 	fn keccak256(bytes: &[u8]) -> H256 {
-		sp_core::hashing::keccak_256(bytes).into()
+		sp_io::hashing::keccak_256(bytes).into()
 	}
 }
 

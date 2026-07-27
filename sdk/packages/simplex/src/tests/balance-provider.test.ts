@@ -37,7 +37,7 @@ function makeProvider(client = fakeClient()) {
 		chainClientManager,
 		configService,
 		fillerAddress: "0x1111111111111111111111111111111111111111",
-		token1: { "EVM-8453": EXOTIC },
+		token1: { "EVM-8453": [EXOTIC] },
 	})
 }
 
@@ -54,7 +54,7 @@ describe("BalanceProvider", () => {
 				native: { symbol: "ETH", amount: 2 },
 				usdc: 1500,
 				usdt: 2500,
-				exotic: { symbol: "cNGN", amount: 10 },
+				exotics: [{ symbol: "cNGN", amount: 10 }],
 			},
 		])
 		expect(provider.getSnapshot()).toBe(snapshot)

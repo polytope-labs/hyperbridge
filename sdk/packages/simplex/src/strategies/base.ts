@@ -1,9 +1,6 @@
 import { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
 import { Decimal } from "decimal.js"
 
-/** Supported token types for same-token execution */
-export type SupportedTokenType = "USDT" | "USDC"
-
 export interface FillerStrategy {
 	name: string
 

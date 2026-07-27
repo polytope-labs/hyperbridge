@@ -1,4 +1,5 @@
-import type { FillerTomlConfig, StrategyConfig, QueueConfig } from "@/config/filler-toml"
+import type { FillerTomlConfig, QueueConfig } from "@/config/filler-toml"
+import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"
 import type { InitChainMeta, InitNetwork } from "./chains"
@@ -23,7 +24,17 @@ export interface WizardState {
 	signer?: SignerConfig
 	substratePrivateKey?: string
 	hyperbridgeWsUrl?: string
-	strategies: StrategyConfig[]
+	pairs: PairConfig[]
+	/** `[assets]` escape hatch entries created for custom exotic tokens. */
+	assets?: FillerTomlConfig["assets"]
+	/** Top-level per-chain confirmation policies. */
+	confirmationPolicies?: FillerTomlConfig["confirmationPolicies"]
+	/**
+	 * Uniswap V4 venue block chosen in the pairs step. Owned by the wizard:
+	 * assembleConfig replaces any prefill `[vault.uniswapV4]` with this (or
+	 * drops it when the operator switched to curve pricing).
+	 */
+	vaultUniswapV4?: NonNullable<FillerTomlConfig["vault"]>["uniswapV4"]
 	maxConcurrentOrders: number
 	queue: QueueConfig
 	logging?: string
@@ -44,11 +55,12 @@ export interface Prefill {
 export const DEFAULT_MAX_CONCURRENT_ORDERS = 5
 export const DEFAULT_QUEUE: QueueConfig = { maxRechecks: 10, recheckDelayMs: 30000 }
 
-export const DEFAULT_STABLE_BPS_CURVE = [
-	{ amount: "100", value: 100 },
-	{ amount: "1000", value: 50 },
-	{ amount: "10000", value: 25 },
-	{ amount: "100000", value: 10 },
+/** Ask prices below par by order size — the gap to 1 is the spread on every fill. */
+export const DEFAULT_SAME_ASSET_ASK_CURVE = [
+	{ amount: "100", price: "0.99" },
+	{ amount: "1000", price: "0.995" },
+	{ amount: "10000", price: "0.9975" },
+	{ amount: "100000", price: "0.999" },
 ]
 
 /** Low-value testnet default; testnet chain ids have no built-in confirmation policy. */
@@ -62,7 +74,7 @@ export function newWizardState(): WizardState {
 		network: "mainnet",
 		chains: [],
 		passthroughChains: [],
-		strategies: [],
+		pairs: [],
 		maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 		queue: { ...DEFAULT_QUEUE },
 	}

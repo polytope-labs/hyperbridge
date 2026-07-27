@@ -181,7 +181,6 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type AssetTrap = PolkadotXcm;
 	type AssetLocker = ();
 	type AssetExchanger = ();
-	type AssetClaims = PolkadotXcm;
 	type SubscriptionService = PolkadotXcm;
 	type PalletInstancesInfo = AllPalletsWithSystem;
 	type MaxAssetsIntoHolding = MaxAssetsIntoHolding;

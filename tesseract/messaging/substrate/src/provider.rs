@@ -1038,8 +1038,8 @@ where
 
 // The storage key needed to access events.
 pub fn system_events_key() -> StorageKey {
-	let mut storage_key = sp_core::twox_128(b"System").to_vec();
-	storage_key.extend(sp_core::twox_128(b"Events").to_vec());
+	let mut storage_key = sp_crypto_hashing::twox_128(b"System").to_vec();
+	storage_key.extend(sp_crypto_hashing::twox_128(b"Events").to_vec());
 	StorageKey(storage_key)
 }
 

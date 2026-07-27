@@ -27,7 +27,7 @@ describe("BinanceRebalancer - CEX integration", () => {
 
 	const configService = new FillerConfigService(chainConfigs)
 	let signer: SigningAccount
-	let chainClientManager: ChainClientManager
+	let chainClientManager!: ChainClientManager
 
 	beforeAll(async () => {
 		signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })

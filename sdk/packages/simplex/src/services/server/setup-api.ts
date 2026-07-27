@@ -3,7 +3,9 @@ import { writeConfigFileAtomic } from "@/config/write-config"
 import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
-import { validateConfig, DEFAULT_CONFIRMATION_POLICIES, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
+import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
@@ -15,7 +17,7 @@ import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-uti
 import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
 	DEFAULT_QUEUE,
-	DEFAULT_STABLE_BPS_CURVE,
+	DEFAULT_SAME_ASSET_ASK_CURVE,
 	TESTNET_CONFIRMATION_POINTS,
 } from "@/cli/init/state"
 import { getLogger } from "../Logger"
@@ -59,19 +61,24 @@ export async function handleSetupRequest(
 
 	if (endpoint === "defaults") {
 		if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-		// Known exotic tokens and treasury vaults come from the SDK's chain registry
+		// Registry symbols and treasury vaults come from the SDK's chain registry
 		// so selection UIs offer curated entries instead of requiring pasted addresses.
-		const registry = new ChainConfigService({})
-		const knownTokens: Record<string, ReturnType<ChainConfigService["getKnownExoticTokens"]>> = {}
+		const chainRegistry = new ChainConfigService({})
+		const assetRegistry = new AssetRegistry(chainRegistry)
+		const knownTokens: Record<string, Array<{ symbol: string; address: string }>> = {}
 		const knownVaults: Record<string, ReturnType<ChainConfigService["getKnownVaults"]>> = {}
 		for (const meta of INIT_CHAINS) {
-			knownTokens[meta.stateMachineId] = registry.getKnownExoticTokens(meta.stateMachineId)
-			knownVaults[meta.stateMachineId] = registry.getKnownVaults(meta.stateMachineId)
+			knownTokens[meta.stateMachineId] = registrySymbols().flatMap((symbol) => {
+				const address = assetRegistry.getAddress(symbol, meta.stateMachineId)
+				return address ? [{ symbol, address }] : []
+			})
+			knownVaults[meta.stateMachineId] = chainRegistry.getKnownVaults(meta.stateMachineId)
 		}
 		return sendJson(res, 200, {
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
-			stableBpsCurve: DEFAULT_STABLE_BPS_CURVE,
+			usdStables: [...USD_STABLE_SYMBOLS],
+			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
 			confirmationPolicies: DEFAULT_CONFIRMATION_POLICIES,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
 			queue: DEFAULT_QUEUE,

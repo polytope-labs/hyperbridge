@@ -27,12 +27,6 @@ pub trait WeightInfo {
 	fn on_finalize_bound_relay_state_commitments() -> Weight {
 		RocksDbWeight::get().reads_writes(68, 4)
 	}
-
-	/// Weight of one migration step that clears n entries from
-	/// `RelayChainStateCommitments`.
-	fn drain_relay_state_commitments_step(n: u32) -> Weight {
-		RocksDbWeight::get().reads_writes(n as u64, n as u64)
-	}
 }
 
 /// No-op `WeightInfo` impl for tests.

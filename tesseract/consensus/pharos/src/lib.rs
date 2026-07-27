@@ -157,7 +157,7 @@ impl ismp::messaging::Keccak256 for KeccakHasher {
 	where
 		Self: Sized,
 	{
-		sp_core::keccak_256(bytes).into()
+		sp_crypto_hashing::keccak_256(bytes).into()
 	}
 }
 

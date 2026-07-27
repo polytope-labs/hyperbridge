@@ -158,6 +158,8 @@ export interface RetryConfig {
 	backoffMs: number
 	logMessage?: string
 	logger?: ConsolaInstance
+	/** Return false to stop retrying and immediately rethrow the error. */
+	shouldRetry?: (error: unknown) => boolean
 }
 
 export interface IsmpRequest {
@@ -1116,6 +1118,28 @@ export interface PhantomOrderPriceSnapshotsResponse {
 	}
 }
 
+/**
+ * Total solver liquidity measured at one immutable Phantom price snapshot.
+ *
+ * Liquidity amounts are decimal strings formatted with the configured decimals
+ * for their respective `tokenAddress` and chain.
+ */
+export interface AvailableLiquiditySnapshot {
+	totalLiquidity: string
+	providerCount: number
+	tokenAddress: HexString
+	snapshotTime: Date
+	liquidityByChain: AvailableLiquidityByChain[]
+}
+
+/** Liquidity for one chain/token balance group in an availability snapshot. */
+export interface AvailableLiquidityByChain {
+	chain: string
+	tokenAddress: HexString
+	totalLiquidity: string
+	providerCount: number
+}
+
 export interface TokenPrice {
 	symbol: string
 	address?: string
@@ -1297,6 +1321,13 @@ export interface FillOrderEstimate {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
+	/**
+	 * Relayer fee for the cross-chain settlement message, denominated in the
+	 * SOURCE fee token (same unit as `Order.fees`). This is `RELAYER_MESSAGE_GAS`
+	 * priced on the source chain; it is 0 for same-chain fills. A filler's
+	 * `order.fees` must cover `totalGasInFeeToken + relayerFeeInSourceFeeToken`.
+	 */
+	relayerFeeInSourceFeeToken: bigint
 }
 
 /**

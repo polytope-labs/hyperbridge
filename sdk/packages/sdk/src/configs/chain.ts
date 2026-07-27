@@ -143,6 +143,13 @@ export interface ChainConfigData {
 		USDT: string
 		cNGN?: string
 		EXT?: string
+		// Curated stablecoin deployments; addresses taken from the issuer's
+		// official documentation (ZARP Stablecoin, Circle, StraitsX, BiLira)
+		// and verified on-chain (symbol() + decimals()) before inclusion.
+		ZARP?: string
+		EURC?: string
+		XSGD?: string
+		TRYB?: string
 	}
 	tokenDecimals?: {
 		USDC: number
@@ -325,6 +332,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
 			cNGN: "0x17CDB2a01e7a34CbB3DD4b83260B05d0274C8dab",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+			XSGD: "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96",
+			TRYB: "0x2C537E5624e4af88A7ae4060C022609376C8D0EB",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -355,6 +366,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0xD4340d7466e040626383cb9cda9307ba8E081149",
 			Usdt0Oft: "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee",
 		},
 		rpcEnvKey: "ETH_MAINNET",
@@ -413,7 +425,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0xCcE8B5f5C453e1Ff1acd227585d9e680c012462c",
+			SimplexPaymaster: "0xeD02f9f0df8F562B89cC5b25867Ad3C2d61252A9",
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
@@ -475,6 +487,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x7281Bccb4f0BCE44F3B8542d1fC5e51c2F5fC08C",
 			Usdt0Oft: "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
@@ -505,6 +518,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
 			EXT: "0x0e668E5127087e236578893a0e01E41837A28469",
 			cNGN: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			EURC: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -533,7 +548,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
-			SimplexPaymaster: "0x18654D0319ffDC18c200c90C1A666AcbDf0E3762",
+			SimplexPaymaster: "0x15b3B03C870c7ef252029c35A12d3b339F5c8d7f",
 			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
 			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
 			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
@@ -569,6 +584,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
 			cNGN: "0x52828daa48C1a9A06F37500882b42daf0bE04C3B",
+			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
+			XSGD: "0xDC3326e71D45186F113a2F448984CA0e8D201995",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -600,6 +617,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095",
 			Usdt0Oft: "0x6BA10300f0DC58B7a1e4c0e41f5daBb7D7829e13",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",

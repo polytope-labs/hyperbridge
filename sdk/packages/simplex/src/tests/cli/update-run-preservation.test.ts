@@ -4,7 +4,7 @@ import { assembleConfig } from "@/cli/init/steps/write"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
-import { newWizardState, DEFAULT_STABLE_BPS_CURVE } from "@/cli/init/state"
+import { newWizardState, DEFAULT_SAME_ASSET_ASK_CURVE } from "@/cli/init/state"
 import { INIT_CHAINS } from "@/cli/init/chains"
 
 /**
@@ -28,12 +28,14 @@ describe("CLI wizard update run", () => {
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
-		strategies: [
+		pairs: [
 			{
-				type: "stable",
-				bpsCurve: [
-					{ amount: "100", value: 100 },
-					{ amount: "100000", value: 10 },
+				token0: "USDC",
+				token1: "USDC",
+				maxOrderSize: "100000",
+				askPriceCurve: [
+					{ amount: "100", price: "0.99" },
+					{ amount: "100000", price: "0.999" },
 				],
 			},
 		],
@@ -43,17 +45,34 @@ describe("CLI wizard update run", () => {
 		allowlist: { users: ["0x1111111111111111111111111111111111111111"] },
 	}
 
+	const wizardPairs = [
+		{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: DEFAULT_SAME_ASSET_ASK_CURVE },
+	]
+	const wizardAssets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" as const } }
+	const wizardConfirmationPolicies = {
+		"EVM-1": {
+			points: [
+				{ amount: "100", value: 2 },
+				{ amount: "10000", value: 6 },
+			],
+		},
+	}
+
 	function simulateUpdateRun(): FillerTomlConfig {
 		// Mirrors runInit: prefillConfig stored, then each step overwrites its
 		// managed fields (here with the same values, as if the user pressed Enter
 		// through every prompt), then carryPrefillExtras seeds the finetune state.
 		const state = newWizardState()
-		state.prefillConfig = JSON.parse(JSON.stringify(existing))
+		// A pre-pairs config may still carry a legacy [[strategies]] array —
+		// assembleConfig must strip it, the pair engine rejects it at startup.
+		state.prefillConfig = JSON.parse(JSON.stringify({ ...existing, strategies: [{ type: "stable" }] }))
 		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.strategies = [{ type: "stable", bpsCurve: DEFAULT_STABLE_BPS_CURVE }]
+		state.pairs = wizardPairs
+		state.assets = wizardAssets
+		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
 		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders
 		state.queue = existing.simplex.queue
@@ -75,6 +94,19 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
+	})
+
+	it("writes the wizard-managed pairs, assets and confirmation policies", () => {
+		const assembled = simulateUpdateRun()
+
+		expect(assembled.pairs).toEqual(wizardPairs)
+		expect(assembled.assets).toEqual(wizardAssets)
+		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
+	})
+
+	it("drops a legacy [[strategies]] array from the prefill", () => {
+		const assembled = simulateUpdateRun()
+		expect("strategies" in assembled).toBe(false)
 	})
 
 	it("survives the emit round-trip with unmanaged sections intact", () => {

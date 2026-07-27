@@ -48,33 +48,43 @@ const STEPS: Array<{ id: string; title: string; component: React.ComponentType<S
 	},
 	{
 		id: "strategies",
-		title: "Strategies",
+		title: "Markets",
 		component: StepStrategies,
 		valid: (s) => {
-			if (!s.fxEnabled) return false
-			if (s.fxEnabled) {
-				const hasToken = s.chains.some((c) => c.enabled && c.token1.trim())
-				if (!hasToken || !(Number(s.fxMaxOrderUsd) > 0)) return false
-				if (s.fxPricing === "uniswapV4") {
-					const positionsOk =
-						s.fxPositions.length > 0 &&
-						s.fxPositions.every(
-							(p) =>
-								/^\d+$/.test(p.tokenId.trim()) &&
-								// price guard fields must be set together
-								Boolean(p.referencePrice.trim()) === Boolean(p.maxDeviationBps.trim()),
-						)
-					if (!positionsOk) return false
-				} else {
-					// Mirrors FillerPricePolicy: strictly positive prices
-					const validCurve = (points: typeof s.fxBid) => {
-						const filled = points.filter((p) => p.amount.trim() && p.value.trim())
-						return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && Number(p.value) > 0)
-					}
-					const hasCurve =
-						(s.fxBidEnabled && validCurve(s.fxBid)) || (s.fxAskEnabled && validCurve(s.fxAsk))
-					if (!hasCurve) return false
+			const enabled = s.pairs.filter((p) => p.enabled)
+			if (enabled.length === 0) return false
+			// Mirrors FillerPricePolicy / validatePairConfigs; the server gate is authoritative.
+			const validCurve = (points: (typeof s.pairs)[number]["ask"], check: (v: number) => boolean) => {
+				const filled = points.filter((p) => p.amount.trim() && p.value.trim())
+				return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && check(Number(p.value)))
+			}
+			for (const pair of enabled) {
+				if (!(Number(pair.maxOrderSize) > 0)) return false
+				if (pair.kind === "sameAsset") {
+					// Same-token asks must sit strictly below par — the gap is the spread.
+					if (!validCurve(pair.ask, (v) => v > 0 && v < 1)) return false
+					continue
 				}
+				if (!pair.token1.trim()) return false
+				const customAddresses = s.customAssets[pair.token1]
+				if (customAddresses && !Object.values(customAddresses).some((a) => a.trim())) return false
+				if (s.fxPricing === "curves") {
+					if (!pair.bidEnabled && !pair.askEnabled) return false
+					if (pair.bidEnabled && !validCurve(pair.bid, (v) => v > 0)) return false
+					if (pair.askEnabled && !validCurve(pair.ask, (v) => v > 0)) return false
+				}
+			}
+			const hasCrossAsset = enabled.some((p) => p.kind === "crossAsset")
+			if (hasCrossAsset && s.fxPricing === "uniswapV4") {
+				const positionsOk =
+					s.fxPositions.length > 0 &&
+					s.fxPositions.every(
+						(p) =>
+							/^\d+$/.test(p.tokenId.trim()) &&
+							// price guard fields must be set together
+							Boolean(p.referencePrice.trim()) === Boolean(p.maxDeviationBps.trim()),
+					)
+				if (!positionsOk) return false
 			}
 			return true
 		},

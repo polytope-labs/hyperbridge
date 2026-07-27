@@ -8,7 +8,9 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
-import { StableFiller } from "@/strategies/stable"
+import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { AssetRegistry } from "@/config/asset-registry"
+import { Decimal } from "decimal.js"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import {
@@ -25,7 +27,7 @@ import {
 	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy, FillerBpsPolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	formatUnits,
 	getContract,
@@ -42,6 +44,17 @@ import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+
+/** Same-token USDC/USDC + USDT/USDT pairs at a flat 50 bps spread (ask price 0.995). */
+function sameTokenPairs(maxOrderSize: number): TradingPair[] {
+	return ["USDC", "USDT"].map((symbol) => ({
+		token0: symbol,
+		token1: symbol,
+		maxOrderSize: new Decimal(maxOrderSize),
+		askPricePolicy: new FillerPricePolicy({ points: [{ amount: "0", price: "0.995" }] }),
+	}))
+}
+
 
 // ============================================================================
 // StreamingYieldVault deployments (ERC-4626, owner = test wallet)
@@ -153,13 +166,18 @@ describe("Vault funding venue - testnet", () => {
 		}
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
+		let finalizedOrder: Order | undefined
 		while (!result.done) {
 			let feedback: SelectBidResult | undefined
 			if (result.value && "status" in result.value) {
 				const status = result.value
+				if (status.status === "ORDER_PLACED") {
+					finalizedOrder = status.order
+				}
 				if (status.status === "BIDS_RECEIVED") {
+					if (!finalizedOrder) throw new Error("Order was not finalized")
 					expect(status.bids.length).toBeGreaterThan(0)
-					const ranked = await userSdkHelper.sortBids(order, status.bids)
+					const ranked = await userSdkHelper.sortBids(finalizedOrder, status.bids)
 					const chosen = ranked[0]
 					await chosen.simulate()
 					feedback = await chosen.execute()
@@ -180,9 +198,11 @@ describe("Vault funding venue - testnet", () => {
 		}
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		const finalizedOrderId = finalizedOrder?.id
+		expect(finalizedOrderId).toBeDefined()
 
 		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
+			finalizedOrderId as HexString,
 			polygonAmoyPublicClient,
 			chainConfigService.getIntentGatewayAddress(polygonAmoyId),
 		)
@@ -351,19 +371,12 @@ async function createIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	fundingVenues: VaultFundingPlanner[],
-): Promise<{ intentFiller: IntentFiller; strategy: StableFiller }> {
+): Promise<{ intentFiller: IntentFiller; strategy: FXFiller }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
-
-	const bpsPolicy = new FillerBpsPolicy({
-		points: [
-			{ amount: "1", value: 50 },
-			{ amount: "10000", value: 50 },
-		],
-	})
 
 	const confirmationPolicy = new ConfirmationPolicy({
 		"97": {
@@ -380,14 +393,14 @@ async function createIntentFiller(
 		},
 	})
 
-	const strategy = new StableFiller(
+	const strategy = new FXFiller(
 		signer,
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		bpsPolicy,
-		confirmationPolicy,
-		fundingVenues,
+		sameTokenPairs(10000),
+		new AssetRegistry(chainConfigService),
+		{ confirmationPolicy, fundingVenues },
 	)
 
 	const intentFiller = new IntentFiller(

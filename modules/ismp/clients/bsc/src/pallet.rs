@@ -63,7 +63,7 @@ pub mod pallet {
 		scale_info::TypeInfo,
 		PartialEq,
 		Eq,
-		RuntimeDebug,
+		Debug,
 	)]
 	pub struct UpdateParams {
 		pub epoch_length: u64,

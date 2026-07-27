@@ -134,11 +134,7 @@ export function StepChains({ state, setState }: StepProps) {
 							{chain.rpcUrls.map((url, index) => (
 								// biome-ignore lint/suspicious/noArrayIndexKey: positional quorum rows
 								<label className="field" key={index}>
-									<span>
-										{index === 0
-											? "RPC URL (scans order events, reads balances, simulates fills)"
-											: "Additional RPC for quorum scanning (must be a different provider)"}
-									</span>
+									<span>{index === 0 ? "RPC URL" : "Additional RPC (different provider)"}</span>
 									<div className="row">
 										<input
 											type="text"
@@ -170,18 +166,15 @@ export function StepChains({ state, setState }: StepProps) {
 							<div className="row">
 								<button
 									type="button"
+									title="2+ independent providers make order scans tamper-resistant: one lying RPC fails the batch instead of feeding you fake orders."
 									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
 								>
 									+ quorum RPC
 								</button>
-								<span className="hint">
-									2+ organisationally independent providers make event scans Byzantine-fault-tolerant: one lying
-									RPC fails the batch instead of feeding you fake orders.
-								</span>
 							</div>
 
 							<label className="field">
-								<span>ERC-4337 bundler URL (fills are submitted through it as UserOperations)</span>
+								<span>Bundler URL</span>
 								<input
 									type="text"
 									value={chain.bundlerUrl}

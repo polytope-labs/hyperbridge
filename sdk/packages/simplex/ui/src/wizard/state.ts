@@ -50,8 +50,6 @@ export interface WizardState {
 	alchemyStatus?: "ok" | "err"
 	alchemyError?: string
 	chains: ChainDraft[]
-	stableEnabled: boolean
-	stableBps: EditorPoint[]
 	fxEnabled: boolean
 	fxMaxOrderUsd: string
 	fxPricing: "curves" | "uniswapV4"
@@ -91,9 +89,7 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				watchOnly: false,
 				token1: "",
 			})),
-		stableEnabled: true,
-		stableBps: defaults.stableBpsCurve.map((p) => ({ amount: p.amount, value: String(p.value) })),
-		fxEnabled: false,
+		fxEnabled: true,
 		fxMaxOrderUsd: "5000",
 		fxPricing: "curves",
 		fxBidEnabled: true,
@@ -175,13 +171,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 				)
 			: undefined
 
-	if (state.stableEnabled) {
-		strategies.push({
-			type: "stable",
-			bpsCurve: toCurvePoints(state.stableBps),
-			...(confirmationPolicies ? { confirmationPolicies } : {}),
-		})
-	}
 	if (state.fxEnabled) {
 		const token1 = Object.fromEntries(
 			chains.filter((c) => c.token1.trim()).map((c) => [c.meta.stateMachineId, c.token1.trim()]),

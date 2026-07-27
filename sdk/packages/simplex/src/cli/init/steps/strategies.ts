@@ -1,70 +1,31 @@
-import { confirm, log, multiselect, note, select } from "@clack/prompts"
+import { confirm, log, select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
-import type {
-	FxStrategyConfig,
-	StableStrategyConfig,
-	StrategyConfig,
-	ChainConfirmationPolicy,
-} from "@/config/filler-toml"
+import type { FxStrategyConfig, StrategyConfig, ChainConfirmationPolicy } from "@/config/filler-toml"
 import type { UniswapV4PositionToml } from "@/config/filler-toml"
 import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
-import { editPoints, nonNegativeIntegerValue, positiveValue } from "../points-editor"
+import { editPoints, positiveValue } from "../points-editor"
 import { WHY } from "../help-text"
-import { DEFAULT_STABLE_BPS_CURVE, TESTNET_CONFIRMATION_POINTS, type Prefill, type WizardState } from "../state"
+import { TESTNET_CONFIRMATION_POINTS, type Prefill, type WizardState } from "../state"
 
 export async function stepStrategies(state: WizardState, prefill?: Prefill): Promise<void> {
 	why(WHY.strategies)
-	const existingTypes = new Set(prefill?.config.strategies.map((s) => s.type) ?? [])
+	// The wizard only configures HyperFX. Strategies of other types in an
+	// existing config (e.g. stable) are carried through update runs verbatim.
+	const carried = prefill?.config.strategies.filter((s) => s.type !== "hyperfx") ?? []
+	state.strategies = [...carried]
 
-	const selected = guard(
-		await multiselect<"stable" | "hyperfx">({
-			message: "Which strategies do you want to run?",
-			options: [
-				{ value: "stable", label: "Stable", hint: "USDC->USDC / USDT->USDT across chains" },
-				{ value: "hyperfx", label: "HyperFX", hint: "stablecoin <-> exotic token (e.g. cNGN)" },
-			],
-			initialValues: existingTypes.size > 0 ? [...existingTypes] : ["stable"],
-			required: true,
-		}),
-	)
-
-	state.strategies = []
-	if (selected.includes("stable")) {
-		state.strategies.push(await buildStableStrategy(state, prefill))
-	}
-	if (selected.includes("hyperfx")) {
+	const configureFx =
+		carried.length === 0
+			? true
+			: guard(
+					await confirm({
+						message: "Configure the HyperFX strategy (stablecoin <-> exotic token, e.g. cNGN)?",
+						initialValue: prefill?.config.strategies.some((s) => s.type === "hyperfx") ?? true,
+					}),
+				)
+	if (configureFx) {
 		state.strategies.push(await buildFxStrategy(state, prefill))
 	}
-}
-
-async function buildStableStrategy(state: WizardState, prefill?: Prefill): Promise<StableStrategyConfig> {
-	const existing = prefill?.config.strategies.find((s): s is StableStrategyConfig => s.type === "stable")
-	const defaultCurve = existing?.bpsCurve ?? DEFAULT_STABLE_BPS_CURVE
-
-	why(WHY.bpsCurve)
-	note(
-		defaultCurve.map((point) => `$${point.amount} orders -> ${point.value} bps (${point.value / 100}%)`).join("\n"),
-		"Margin curve",
-	)
-	const useDefault = guard(
-		await confirm({ message: "Use this margin curve? (you can edit points instead)", initialValue: true }),
-	)
-
-	const bpsCurve = useDefault
-		? defaultCurve
-		: await editPoints({
-				prompt: "Curve point as `orderUsd,bps` (e.g. `1000,50`); empty line to finish",
-				minPoints: 2,
-				checkValue: nonNegativeIntegerValue,
-				toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
-			})
-
-	const strategy: StableStrategyConfig = { type: "stable", bpsCurve }
-	applyTestnetConfirmationPolicies(state, strategy)
-	if (existing?.confirmationPolicies) {
-		strategy.confirmationPolicies = { ...existing.confirmationPolicies, ...strategy.confirmationPolicies }
-	}
-	return strategy
 }
 
 async function buildFxStrategy(state: WizardState, prefill?: Prefill): Promise<FxStrategyConfig> {

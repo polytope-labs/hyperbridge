@@ -38,53 +38,8 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 
 	return (
 		<div>
-			<p className="hint">
-				Strategies decide which orders are profitable to fill. Enable one or both; every order is evaluated by all
-				enabled strategies and the most profitable fill wins.
-			</p>
-
 			<div className="card">
-				<div className="spread">
-					<h2>Stable — same-token transfers across chains (USDC→USDC, USDT→USDT)</h2>
-					<label className="row">
-						<input
-							type="checkbox"
-							checked={state.stableEnabled}
-							onChange={(e) => setState((s) => ({ ...s, stableEnabled: e.target.checked }))}
-						/>
-						enabled
-					</label>
-				</div>
-				{state.stableEnabled && (
-					<div>
-						<p className="hint">
-							Your margin: the minimum basis points charged as a function of order size. Points are interpolated
-							into a smooth curve — high bps keeps small orders worthwhile, low bps keeps large orders
-							competitive. Needs at least 2 points.
-						</p>
-						<CurveEditor
-							points={state.stableBps}
-							onChange={(points) => setState((s) => ({ ...s, stableBps: points }))}
-							amountLabel="Order size (USD)"
-							valueLabel="Margin (bps)"
-							minPoints={2}
-						/>
-					</div>
-				)}
-			</div>
-
-			<div className="card">
-				<div className="spread">
-					<h2>HyperFX — stablecoin ↔ exotic token market making (e.g. cNGN)</h2>
-					<label className="row">
-						<input
-							type="checkbox"
-							checked={state.fxEnabled}
-							onChange={(e) => setState((s) => ({ ...s, fxEnabled: e.target.checked }))}
-						/>
-						enabled
-					</label>
-				</div>
+				<h2>HyperFX — stablecoin ↔ exotic token market making (e.g. cNGN)</h2>
 				{state.fxEnabled && (
 					<div>
 						<label className="field" style={{ maxWidth: "16rem" }}>

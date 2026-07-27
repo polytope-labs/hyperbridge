@@ -132,7 +132,7 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 						onClick={() =>
 							setVaultRows((rows) => [
 								...(rows ?? []),
-								{ chain: `EVM-${props.chains[0] ?? ""}`, vault: "", threshold: "", minBalance: "", redeemOnShutdown: false },
+								{ chain: `EVM-${props.chains[0] ?? ""}`, vault: "", threshold: "5000", minBalance: "3000", redeemOnShutdown: false },
 							])
 						}
 					>

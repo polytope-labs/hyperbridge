@@ -51,15 +51,7 @@ const STEPS: Array<{ id: string; title: string; component: React.ComponentType<S
 		title: "Strategies",
 		component: StepStrategies,
 		valid: (s) => {
-			if (!s.stableEnabled && !s.fxEnabled) return false
-			if (s.stableEnabled) {
-				// Mirrors FillerBpsPolicy: >= 2 points, non-negative integer bps
-				const filled = s.stableBps.filter((p) => p.amount.trim() && p.value.trim())
-				if (filled.length < 2) return false
-				if (!filled.every((p) => Number(p.amount) >= 0 && Number.isInteger(Number(p.value)) && Number(p.value) >= 0)) {
-					return false
-				}
-			}
+			if (!s.fxEnabled) return false
 			if (s.fxEnabled) {
 				const hasToken = s.chains.some((c) => c.enabled && c.token1.trim())
 				if (!hasToken || !(Number(s.fxMaxOrderUsd) > 0)) return false

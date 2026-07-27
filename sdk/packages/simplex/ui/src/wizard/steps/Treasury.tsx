@@ -11,16 +11,13 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 			<div className="card">
 				<h2>ERC-4626 treasury vaults</h2>
 				<p className="hint">
-					Fills can source missing stablecoin balance from a vault position atomically, and idle wallet balance
-					above a threshold is swept in to earn yield (e.g. Aave stataUSDC). Threshold and min balance are
-					USD-denominated: 1 means $1 (stablecoins counted at $1). The underlying asset is resolved
-					on-chain from the vault address. One vault per asset per chain — a second same-asset vault would
-					shadow the first.
+					Idle balance above the sweep threshold earns yield in the vault; fills pull it back out when needed.
+					Amounts are in USD. One vault per asset per chain.
 				</p>
 
 				{chains.some((c) => (defaults.knownVaults[c.meta.stateMachineId] ?? []).length > 0) && (
 					<div style={{ marginBottom: "0.8rem" }}>
-						<p className="hint">Known vaults — tick to add (thresholds are edited in the rows below):</p>
+						<p className="hint">Known vaults — tick to add:</p>
 						{chains.map((chain) =>
 							(defaults.knownVaults[chain.meta.stateMachineId] ?? []).map((known) => {
 								const selected = state.vaults.some(
@@ -42,8 +39,8 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 																{
 																	chain: chain.meta.stateMachineId,
 																	vault: known.address,
-																	threshold: "",
-																	minBalance: "",
+																	threshold: "5000",
+																	minBalance: "3000",
 																	redeemOnShutdown: false,
 																},
 															]
@@ -155,8 +152,8 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 								{
 									chain: chains[0]?.meta.stateMachineId ?? "",
 									vault: "",
-									threshold: "",
-									minBalance: "",
+									threshold: "5000",
+									minBalance: "3000",
 									redeemOnShutdown: false,
 								},
 							],

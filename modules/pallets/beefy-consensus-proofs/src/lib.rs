@@ -225,8 +225,9 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Consensus state has not been initialized yet.
 		NotInitialized,
-		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
-		/// an unexpected authority set.
+		/// The BEEFY verifier rejected the proof as stale: its commitment is at or below
+		/// `latest_beefy_height` in the trusted consensus state. For SP1 proofs this is the
+		/// legitimate-uncle case and dispatch retries through [`Pallet::settle_uncle_proof`].
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
 		UnknownProofType,
@@ -823,10 +824,15 @@ pub mod pallet {
 			let coprocessor = T::Coprocessor::get().ok_or(Error::<T>::NotInitialized)?;
 			let latest_height = Self::latest_height()?;
 
-			if latest_height <= prev_height {
-				Err(Error::<T>::StaleProof)?
-			}
-
+			// No parachain-progress check here. A rotation proof carries whatever parachain head
+			// the relay chain held at the session boundary, and that head does not have to be
+			// newer than the one the previous proof finalized — if the parachain stalls for a
+			// session, it is byte-for-byte the same head. Rejecting on `latest_height <=
+			// prev_height` used to revert the whole extrinsic, discarding the authority-set
+			// rotation that `handle_incoming_message` had already applied, which pinned the
+			// consensus state on the old set forever: every retry of the only justification the
+			// prover can obtain for that session hit the same check. The no-op case is caught
+			// below by `NoNewWork`, which is rotation-aware.
 			let state_commitment = host
 				.state_machine_commitment(StateMachineHeight {
 					height: latest_height,

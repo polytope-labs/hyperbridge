@@ -32,8 +32,10 @@ export interface V4PositionDraft {
 }
 
 /**
- * One trading market. Same-asset transfer markets (token0 == token1) are fixed
- * prefab rows toggled by `enabled`; cross-asset rows are user-added.
+ * One trading market. The USDC/USDT transfer markets are fixed prefab rows
+ * toggled by `enabled`; user-added rows may pair any two registry symbols —
+ * picking the same symbol on both sides makes the row a same-token transfer
+ * market (ask-only, prices below par), exactly as the engine treats it.
  */
 export interface PairDraft {
 	kind: "sameAsset" | "crossAsset"
@@ -41,10 +43,19 @@ export interface PairDraft {
 	token0: string
 	token1: string
 	maxOrderSize: string
+	/** Price feed only: anchors token1 in USD without opening a market. */
+	referenceOnly?: boolean
 	bidEnabled: boolean
 	askEnabled: boolean
 	bid: EditorPoint[]
 	ask: EditorPoint[]
+}
+
+export const normSymbol = (symbol: string): string => symbol.trim().toUpperCase()
+
+/** Whether a draft quotes the same asset on both sides (transfer market: ask-only, below par). */
+export function isSameTokenDraft(draft: PairDraft): boolean {
+	return normSymbol(draft.token0) !== "" && normSymbol(draft.token0) === normSymbol(draft.token1)
 }
 
 export interface WizardState {
@@ -104,6 +115,22 @@ export function newCrossAssetDraft(): PairDraft {
 		askEnabled: true,
 		bid: [{ amount: "100", value: "" }],
 		ask: [{ amount: "100", value: "" }],
+	}
+}
+
+/** A reference-only USDC/<symbol> price feed, inserted by the anchor helper. */
+export function newReferenceDraft(token1: string): PairDraft {
+	return {
+		kind: "crossAsset",
+		enabled: true,
+		token0: "USDC",
+		token1,
+		maxOrderSize: "",
+		referenceOnly: true,
+		bidEnabled: false,
+		askEnabled: true,
+		bid: [],
+		ask: [{ amount: "0", value: "" }],
 	}
 }
 
@@ -202,9 +229,18 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 	const usingPool = state.fxPricing === "uniswapV4"
 
 	const pairs: PairConfig[] = enabledPairs(state).map((draft) => {
-		const sameAsset = draft.kind === "sameAsset"
-		const withBid = !sameAsset && !usingPool && draft.bidEnabled
-		const withAsk = sameAsset || (!usingPool && draft.askEnabled)
+		if (draft.referenceOnly) {
+			return {
+				token0: draft.token0,
+				token1: draft.token1,
+				referenceOnly: true,
+				askPriceCurve: toPricePoints(draft.ask),
+			}
+		}
+		// Same-token markets (prefab or user-built) are ask-only by engine rule.
+		const sameToken = draft.kind === "sameAsset" || isSameTokenDraft(draft)
+		const withBid = !sameToken && !usingPool && draft.bidEnabled
+		const withAsk = sameToken || (!usingPool && draft.askEnabled)
 		return {
 			token0: draft.token0,
 			token1: draft.token1,

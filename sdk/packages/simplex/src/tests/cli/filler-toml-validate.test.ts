@@ -127,6 +127,18 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(unknown)).not.toThrow()
 	})
 
+	it("accepts a stable-to-stable market with near-par uncrossed curves", () => {
+		const config = minimalConfig()
+		config.pairs!.push({
+			token0: "USDC",
+			token1: "USDT",
+			maxOrderSize: "100000",
+			bidPriceCurve: [{ amount: "0", price: "1.001" }],
+			askPriceCurve: [{ amount: "0", price: "0.999" }],
+		})
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
 	it("rejects a crossed cross-asset book", () => {
 		const crossed = minimalConfig()
 		crossed.pairs!.push({

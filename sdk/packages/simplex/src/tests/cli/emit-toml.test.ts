@@ -68,6 +68,13 @@ const crossAssetWithCurves: FillerTomlConfig = {
 				{ amount: "5000", price: "1550" },
 			],
 		},
+		// Anchors ZARP through CNGN without opening a ZARP/CNGN market.
+		{
+			token0: "ZARP",
+			token1: "CNGN",
+			referenceOnly: true,
+			askPriceCurve: [{ amount: "0", price: "85" }],
+		},
 	],
 	confirmationPolicies: {
 		"EVM-56": {

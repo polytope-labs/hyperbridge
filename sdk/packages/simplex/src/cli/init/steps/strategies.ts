@@ -1,7 +1,7 @@
 import { confirm, log, select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type { UniswapV4PositionToml, ChainConfirmationPolicy } from "@/config/filler-toml"
-import type { PairConfig } from "@/config/pairs"
+import { unanchoredToken0Symbols, type PairConfig } from "@/config/pairs"
 import { normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
@@ -14,8 +14,15 @@ import {
 	type WizardState,
 } from "../state"
 
-/** Registry symbols that are not USD stables — the built-in cross-asset candidates. */
-const EXOTIC_SYMBOLS = registrySymbols().filter((symbol) => !USD_STABLE_SYMBOLS.has(symbol))
+/** Registry symbols with USD stables first — the built-in candidates for either side. */
+const SYMBOL_OPTIONS = [
+	...registrySymbols().filter((symbol) => USD_STABLE_SYMBOLS.has(symbol)),
+	...registrySymbols().filter((symbol) => !USD_STABLE_SYMBOLS.has(symbol)),
+]
+
+/** Near-par two-sided defaults for stable-to-stable markets. */
+const STABLE_SWAP_BID = [{ amount: "0", price: "1.001" }]
+const STABLE_SWAP_ASK = [{ amount: "0", price: "0.999" }]
 
 const belowParPrice = (value: number): string | undefined =>
 	value > 0 && value < 1 ? undefined : "Must be between 0 and 1 (exclusive) — the gap to 1 is your spread"
@@ -57,20 +64,35 @@ export async function stepStrategies(state: WizardState, prefill?: Prefill): Pro
 		state.pairs.push({ token0: symbol, token1: symbol, maxOrderSize: String(maxOrderSize), askPriceCurve })
 	}
 
-	// Cross-asset FX markets.
+	// Further markets: any pair of assets (stable/exotic, stable/stable, exotic/exotic).
 	const existingCross = prefillPairs.filter((p) => normalizeSymbol(p.token0) !== normalizeSymbol(p.token1))
 	let crossIndex = 0
 	let addCross = guard(
 		await confirm({
-			message: "Add a cross-asset FX market (e.g. USDC/CNGN)?",
+			message: "Add another market (any asset pair, e.g. USDC/CNGN, USDC/USDT, ZARP/CNGN)?",
 			initialValue: existingCross.length > 0,
 		}),
 	)
 	while (addCross) {
-		state.pairs.push(await buildCrossAssetPair(state, existingCross[crossIndex], prefill))
+		const pair = await buildMarketPair(state, existingCross[crossIndex], prefill)
+		// A market has one orientation — the reverse is the same book from the other side.
+		const clashes = state.pairs.some(
+			(p) =>
+				(normalizeSymbol(p.token0) === normalizeSymbol(pair.token0) &&
+					normalizeSymbol(p.token1) === normalizeSymbol(pair.token1)) ||
+				(normalizeSymbol(p.token0) === normalizeSymbol(pair.token1) &&
+					normalizeSymbol(p.token1) === normalizeSymbol(pair.token0)),
+		)
+		if (clashes) {
+			log.error(
+				`${pair.token0}/${pair.token1} is already declared (a pair and its reverse are the same market) — skipping.`,
+			)
+		} else {
+			state.pairs.push(pair)
+		}
 		crossIndex += 1
 		addCross = guard(
-			await confirm({ message: "Add another cross-asset market?", initialValue: crossIndex < existingCross.length }),
+			await confirm({ message: "Add another market?", initialValue: crossIndex < existingCross.length }),
 		)
 	}
 
@@ -84,33 +106,81 @@ export async function stepStrategies(state: WizardState, prefill?: Prefill): Pro
 		})
 	}
 
+	await ensureUsdAnchors(state)
 	applyTestnetConfirmationPolicies(state, prefill)
 }
 
-async function buildCrossAssetPair(
+/**
+ * Every pair's token0 must reach a USD anchor through the declared curves —
+ * the engine refuses the config otherwise. Offer a reference-only USDC price
+ * feed for each unanchored symbol; declining leaves the config as-is (the
+ * write gate will reject it with the engine's own message).
+ */
+async function ensureUsdAnchors(state: WizardState): Promise<void> {
+	for (;;) {
+		const unanchored = unanchoredToken0Symbols(
+			state.pairs.map((p) => ({
+				token0: p.token0,
+				token1: p.token1,
+				hasCurve: (p.bidPriceCurve?.length ?? 0) >= 1 || (p.askPriceCurve?.length ?? 0) >= 1,
+			})),
+		)
+		if (unanchored.length === 0) return
+
+		const symbol = unanchored[0]
+		why(WHY.anchor)
+		const addFeed = guard(
+			await confirm({
+				message: `No USD anchor for ${symbol} — add a reference-only USDC/${symbol} price feed? (anchors it without opening that market)`,
+				initialValue: true,
+			}),
+		)
+		if (!addFeed) {
+			log.warn(
+				`Without an anchor for ${symbol} the filler will refuse this config at startup — add a curve-priced pair against a USD stable by hand.`,
+			)
+			return
+		}
+		const price = await askText(`Reference price (${symbol} per USDC, roughly current)`, {
+			required: "Reference price is required",
+			validate: (value) => (Number(value) > 0 ? undefined : "Enter a positive number"),
+		})
+		state.pairs.push({
+			token0: "USDC",
+			token1: symbol,
+			referenceOnly: true,
+			askPriceCurve: [{ amount: "0", price }],
+		})
+	}
+}
+
+async function buildMarketPair(
 	state: WizardState,
 	existing: PairConfig | undefined,
 	prefill?: Prefill,
 ): Promise<PairConfig> {
-	const token0 = guard(
+	const symbolOptions = [
+		...SYMBOL_OPTIONS.map((symbol) => ({ value: symbol, label: symbol })),
+		{ value: "custom", label: "Custom token…", hint: "an asset the registry doesn't ship" },
+	]
+
+	const token0Choice = guard(
 		await select({
 			message: "Quote asset (token0) — curves and the order cap are denominated in it",
 			initialValue: existing ? normalizeSymbol(existing.token0) : "USDC",
-			options: [...USD_STABLE_SYMBOLS].map((symbol) => ({ value: symbol, label: symbol })),
+			options: symbolOptions,
 		}),
 	)
+	const token0 = token0Choice === "custom" ? await addCustomAsset(state) : token0Choice
 
 	const token1Choice = guard(
 		await select({
 			message: "Base asset (token1) — the token you market-make against the quote",
 			initialValue:
-				existing && EXOTIC_SYMBOLS.includes(normalizeSymbol(existing.token1))
+				existing && SYMBOL_OPTIONS.includes(normalizeSymbol(existing.token1))
 					? normalizeSymbol(existing.token1)
-					: EXOTIC_SYMBOLS[0],
-			options: [
-				...EXOTIC_SYMBOLS.map((symbol) => ({ value: symbol, label: symbol })),
-				{ value: "custom", label: "Custom token…", hint: "an asset the registry doesn't ship" },
-			],
+					: "CNGN",
+			options: symbolOptions,
 		}),
 	)
 	const token1 = token1Choice === "custom" ? await addCustomAsset(state) : token1Choice
@@ -124,21 +194,42 @@ async function buildCrossAssetPair(
 
 	const pair: PairConfig = { token0, token1, maxOrderSize: String(maxOrderSize) }
 
+	// Same asset on both sides: a cross-chain transfer market, ask-only below par.
+	if (normalizeSymbol(token0) === normalizeSymbol(token1)) {
+		why(WHY.sameAssetCurve)
+		pair.askPriceCurve = await editPoints<PriceCurvePoint>({
+			prompt: `Ask point as \`orderSize,price\` (price below 1, e.g. \`1000,0.995\`); empty line to finish`,
+			minPoints: 1,
+			checkValue: belowParPrice,
+			initial: existing?.askPriceCurve ?? DEFAULT_SAME_ASSET_ASK_CURVE,
+			toPoint: ({ first, second }) => ({ amount: first, price: second }),
+		})
+		return pair
+	}
+
+	// Pool pricing only quotes markets with a USD-stable quote asset.
+	const venueAllowed = USD_STABLE_SYMBOLS.has(normalizeSymbol(token0))
 	why(WHY.fxPricing)
-	const pricingSource = guard(
-		await select({
-			message: `Price source for ${token0}/${token1}`,
-			initialValue: prefill?.config.vault?.uniswapV4?.positions?.length && !existing?.bidPriceCurve ? "uniswapV4" : "curves",
-			options: [
-				{ value: "curves", label: "Static bid/ask curves", hint: "you maintain the prices" },
-				{
-					value: "uniswapV4",
-					label: "Uniswap V4 LP positions",
-					hint: "pool price is the oracle; also funds fills",
-				},
-			],
-		}),
-	)
+	const pricingSource = venueAllowed
+		? guard(
+				await select({
+					message: `Price source for ${token0}/${token1}`,
+					initialValue:
+						prefill?.config.vault?.uniswapV4?.positions?.length && !existing?.bidPriceCurve ? "uniswapV4" : "curves",
+					options: [
+						{ value: "curves", label: "Static bid/ask curves", hint: "you maintain the prices" },
+						{
+							value: "uniswapV4",
+							label: "Uniswap V4 LP positions",
+							hint: "pool price is the oracle; also funds fills",
+						},
+					],
+				}),
+			)
+		: "curves"
+	if (!venueAllowed) {
+		log.info(`Pool pricing needs a USD-stable quote asset — ${token0}/${token1} uses static curves.`)
+	}
 
 	if (pricingSource === "curves") {
 		await editCrossAssetCurves(pair, existing)
@@ -150,6 +241,12 @@ async function buildCrossAssetPair(
 
 /** Prompts for bid/ask curves until the book is valid (uncrossed, ≥1 side). */
 async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Promise<void> {
+	// Stable-to-stable markets get near-par starting points; buy at a premium,
+	// sell at a discount, book uncrossed by construction.
+	const bothStable =
+		USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0)) && USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token1))
+	const bidInitial = existing?.bidPriceCurve ?? (bothStable ? STABLE_SWAP_BID : undefined)
+	const askInitial = existing?.askPriceCurve ?? (bothStable ? STABLE_SWAP_ASK : undefined)
 	for (;;) {
 		why(WHY.crossAssetCurves)
 		const withBid = guard(
@@ -163,7 +260,7 @@ async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Pr
 				prompt: `Bid point as \`orderSize,price\` (${pair.token1} per ${pair.token0} when buying); empty line to finish`,
 				minPoints: 1,
 				checkValue: positiveValue,
-				initial: existing?.bidPriceCurve,
+				initial: bidInitial,
 				toPoint: ({ first, second }) => ({ amount: first, price: second }),
 			})
 		} else {
@@ -180,7 +277,7 @@ async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Pr
 				prompt: `Ask point as \`orderSize,price\` (${pair.token1} per ${pair.token0} when selling); empty line to finish`,
 				minPoints: 1,
 				checkValue: positiveValue,
-				initial: existing?.askPriceCurve,
+				initial: askInitial,
 				toPoint: ({ first, second }) => ({ amount: first, price: second }),
 			})
 		} else {

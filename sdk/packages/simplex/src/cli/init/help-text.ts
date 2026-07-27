@@ -12,7 +12,8 @@ export const WHY = {
 	substrateKey:
 		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
-	pairs: "Every market you serve is a pair. A same-asset pair (USDC/USDC) fills cross-chain transfers — ask prices sit just below 1 and the gap is your spread. A cross-asset pair (USDC/CNGN) market-makes between two tokens with your own bid/ask curves. Assets are referenced by symbol; addresses come from the built-in registry.",
+	pairs: "Every market you serve is a pair of assets. Same asset on both sides (USDC/USDC) fills cross-chain transfers — ask prices sit just below 1 and the gap is your spread; same-chain same-asset swaps are never filled. Different assets (USDC/CNGN, USDC/USDT, ZARP/CNGN) market-make both directions with your bid/ask curves, same-chain and cross-chain. Assets are referenced by symbol; addresses come from the built-in registry.",
+	anchor: "Confirmation depth is sized in USD and your curves are the only price feed, so every quote asset must connect to a USD stable through some curve-priced pair. A reference-only pair contributes its rate without opening a market.",
 	sameAssetCurve:
 		"Ask prices are the fraction of the input you pay back out, by order size. 0.995 keeps 0.5% of every fill; prices at or above 1 can never profit and are rejected.",
 	maxOrderSize: "Caps your exposure per order, in units of the pair's quote asset (token0). Larger orders are partially filled up to this cap.",

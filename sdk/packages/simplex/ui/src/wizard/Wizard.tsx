@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react"
+import { unanchoredToken0Symbols } from "../lib/anchor"
 import type { SetupDefaults } from "../types"
-import { initialState, type WizardState } from "./state"
+import { initialState, isSameTokenDraft, normSymbol, type WizardState } from "./state"
 import { StepSigner } from "./steps/Signer"
 import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
@@ -15,7 +16,12 @@ export interface StepProps {
 	defaults: SetupDefaults
 }
 
-const STEPS: Array<{ id: string; title: string; component: React.ComponentType<StepProps>; valid: (s: WizardState) => boolean }> = [
+const STEPS: Array<{
+	id: string
+	title: string
+	component: React.ComponentType<StepProps>
+	valid: (s: WizardState, defaults: SetupDefaults) => boolean
+}> = [
 	{
 		id: "signer",
 		title: "Signer",
@@ -50,7 +56,7 @@ const STEPS: Array<{ id: string; title: string; component: React.ComponentType<S
 		id: "strategies",
 		title: "Markets",
 		component: StepStrategies,
-		valid: (s) => {
+		valid: (s, defaults) => {
 			const enabled = s.pairs.filter((p) => p.enabled)
 			if (enabled.length === 0) return false
 			// Mirrors FillerPricePolicy / validatePairConfigs; the server gate is authoritative.
@@ -58,23 +64,57 @@ const STEPS: Array<{ id: string; title: string; component: React.ComponentType<S
 				const filled = points.filter((p) => p.amount.trim() && p.value.trim())
 				return filled.length > 0 && filled.every((p) => Number(p.amount) >= 0 && check(Number(p.value)))
 			}
+			// A market has one orientation: declaring the reverse (or a duplicate) is rejected at startup.
+			const orientations = new Set<string>()
 			for (const pair of enabled) {
+				if (!pair.token0.trim() || !pair.token1.trim()) return false
+				const key = `${normSymbol(pair.token0)}/${normSymbol(pair.token1)}`
+				const reverse = `${normSymbol(pair.token1)}/${normSymbol(pair.token0)}`
+				if (orientations.has(key) || orientations.has(reverse)) return false
+				orientations.add(key)
+			}
+			// Non-registry symbols need an [assets] entry with at least one address.
+			const registrySymbols = new Set(
+				Object.values(defaults.knownTokens).flatMap((tokens) => tokens.map((t) => normSymbol(t.symbol))),
+			)
+			for (const pair of enabled) {
+				for (const symbol of [pair.token0, pair.token1]) {
+					if (registrySymbols.has(normSymbol(symbol))) continue
+					const customAddresses = s.customAssets[symbol]
+					if (!customAddresses || !Object.values(customAddresses).some((a) => a.trim())) return false
+				}
+				if (pair.referenceOnly) {
+					if (!validCurve(pair.ask, (v) => v > 0)) return false
+					continue
+				}
 				if (!(Number(pair.maxOrderSize) > 0)) return false
-				if (pair.kind === "sameAsset") {
+				if (pair.kind === "sameAsset" || isSameTokenDraft(pair)) {
 					// Same-token asks must sit strictly below par — the gap is the spread.
 					if (!validCurve(pair.ask, (v) => v > 0 && v < 1)) return false
 					continue
 				}
-				if (!pair.token1.trim()) return false
-				const customAddresses = s.customAssets[pair.token1]
-				if (customAddresses && !Object.values(customAddresses).some((a) => a.trim())) return false
 				if (s.fxPricing === "curves") {
 					if (!pair.bidEnabled && !pair.askEnabled) return false
 					if (pair.bidEnabled && !validCurve(pair.bid, (v) => v > 0)) return false
 					if (pair.askEnabled && !validCurve(pair.ask, (v) => v > 0)) return false
+				} else if (!defaults.usdStables.includes(normSymbol(pair.token0))) {
+					// Venue pricing only quotes pairs with a USD-stable token0.
+					return false
 				}
 			}
-			const hasCrossAsset = enabled.some((p) => p.kind === "crossAsset")
+			// Every token0 must reach a USD anchor through the declared curves.
+			const anchorInput = enabled
+				.filter((p) => !(p.kind === "sameAsset" || isSameTokenDraft(p)))
+				.map((p) => ({
+					token0: p.token0,
+					token1: p.token1,
+					hasCurve:
+						s.fxPricing === "curves" &&
+						((p.bidEnabled && validCurve(p.bid, (v) => v > 0)) ||
+							((p.askEnabled || Boolean(p.referenceOnly)) && validCurve(p.ask, (v) => v > 0))),
+				}))
+			if (unanchoredToken0Symbols(anchorInput, defaults.usdStables).length > 0) return false
+			const hasCrossAsset = enabled.some((p) => p.kind === "crossAsset" && !p.referenceOnly && !isSameTokenDraft(p))
 			if (hasCrossAsset && s.fxPricing === "uniswapV4") {
 				const positionsOk =
 					s.fxPositions.length > 0 &&
@@ -100,7 +140,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component
-	const canNext = step.valid(state)
+	const canNext = step.valid(state, props.defaults)
 
 	return (
 		<div>

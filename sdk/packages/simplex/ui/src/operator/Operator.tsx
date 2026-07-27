@@ -98,21 +98,32 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				{status.strategyTypes.join(", ")}
 			</p>
 			{status.addresses && (
-				<p className="hint">
-					Filler wallet: <CopyHash value={status.addresses.evm} chars={42} />
+				<div className="card" style={{ padding: "0.7rem 1rem" }}>
+					<div className="row" style={{ flexWrap: "wrap", columnGap: "0.6rem" }}>
+						<span className="hint" style={{ minWidth: "8rem" }}>
+							Filler wallet
+						</span>
+						<span className="mono" style={{ fontSize: "1rem" }}>
+							<CopyHash value={status.addresses.evm} chars={42} />
+						</span>
+					</div>
 					{status.addresses.substrate && (
-						<>
-							{" "}
-							· Hyperbridge: <CopyHash value={status.addresses.substrate} chars={16} />
-						</>
+						<div className="row" style={{ flexWrap: "wrap", columnGap: "0.6rem" }}>
+							<span className="hint" style={{ minWidth: "8rem" }}>
+								Hyperbridge
+							</span>
+							<span className="mono" style={{ fontSize: "1rem" }}>
+								<CopyHash value={status.addresses.substrate} chars={64} />
+							</span>
+						</div>
 					)}
-				</p>
+				</div>
 			)}
 
 			<PillTabs options={PAGE_TABS} value={tab} onChange={setTab} />
 
 			{tab === "activity" && <Activity />}
-			{tab === "operations" && <Operations chains={status.chains} />}
+			{tab === "operations" && <Operations chains={status.chains} chainLabels={status.chainLabels} />}
 
 			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
 				<div className="spread">

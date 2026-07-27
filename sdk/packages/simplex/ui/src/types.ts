@@ -118,6 +118,7 @@ export interface StatusOperator {
 	strategyTypes: string[]
 	configPath: string
 	addresses?: { evm: string; substrate?: string }
+	chainLabels?: Record<string, string>
 }
 
 export type Status = StatusInit | StatusOperator
@@ -172,13 +173,6 @@ export interface BidStatsDto {
 	failed: number
 	retracted: number
 	pendingRetraction: number
-}
-
-export interface RebalancingDto {
-	configured: boolean
-	triggerPercentage?: number
-	baseBalances?: { USDC?: Record<string, string>; USDT?: Record<string, string> }
-	triggers?: unknown
 }
 
 export interface ConfigDto {

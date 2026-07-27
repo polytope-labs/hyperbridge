@@ -90,27 +90,36 @@ export function StepReview({ state, defaults }: StepProps) {
 			<div className="card">
 				<h2>Your accounts — fund these</h2>
 				{evmAddress && (
-					<p className="hint">
-						Filler wallet (EVM): <CopyHash value={evmAddress} chars={42} /> — needs stablecoins (USDC/USDT) on
-						every enabled chain; gas is covered by the paymaster, paid in USDC/USDT — whichever is available.
-					</p>
+					<div style={{ marginBottom: "0.9rem" }}>
+						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
+							Filler wallet (EVM) — needs stablecoins (USDC/USDT) on every enabled chain; gas is covered by the
+							paymaster, paid in USDC/USDT — whichever is available.
+						</p>
+						<div className="mono" style={{ fontSize: "1.05rem" }}>
+							<CopyHash value={evmAddress} chars={42} />
+						</div>
+					</div>
 				)}
 				{state.substrateAddress && (
-					<p className="hint">
-						Hyperbridge account: <CopyHash value={state.substrateAddress} chars={16} /> — needs BRIDGE tokens for
-						bid fees (claimed back automatically).
-					</p>
+					<div>
+						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
+							Hyperbridge account — needs BRIDGE tokens for bid fees (claimed back automatically).
+						</p>
+						<div className="mono" style={{ fontSize: "1.05rem" }}>
+							<CopyHash value={state.substrateAddress} chars={64} />
+						</div>
+					</div>
 				)}
 			</div>
 
 			<div className="card">
-				<h2>Config preview (secrets masked)</h2>
+				<h2>Config file</h2>
 				<p className="hint">
-					Written to {defaults.configPath} with permissions 600. The file on disk contains the real secrets — keep
-					it private and out of version control.
+					Written to <span className="mono">{defaults.configPath}</span> with permissions 600. It contains your
+					secrets — keep it private and out of version control. Safe to edit by hand later; re-run the wizard to
+					update it interactively.
 				</p>
 				{previewError && <p className="error">{previewError}</p>}
-				{toml && <pre className="toml">{toml}</pre>}
 			</div>
 
 			{phase === "failed" && (

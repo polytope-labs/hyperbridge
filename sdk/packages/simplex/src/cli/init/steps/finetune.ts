@@ -11,7 +11,6 @@ type Area =
 	| "gasFeeBump"
 	| "overfill"
 	| "confirmations"
-	| "rebalancing"
 	| "vault"
 	| "allowlist"
 	| "logging"
@@ -36,7 +35,6 @@ export async function stepFineTune(state: WizardState, prefill?: Prefill): Promi
 				{ value: "gasFeeBump", label: "Gas fee bump", hint: "win more fill races" },
 				{ value: "overfill", label: "Overfill protection", hint: "pricing-bug safety clamp" },
 				{ value: "confirmations", label: "Confirmation policies", hint: "reorg protection per chain" },
-				{ value: "rebalancing", label: "Rebalancing", hint: "auto top-up chains from richer ones" },
 				{ value: "vault", label: "ERC-4626 treasury", hint: "earn yield on idle float" },
 				{ value: "allowlist", label: "User allowlist", hint: "fill only for specific users" },
 				{ value: "logging", label: "Log level" },
@@ -57,9 +55,6 @@ export async function stepFineTune(state: WizardState, prefill?: Prefill): Promi
 				break
 			case "confirmations":
 				await tuneConfirmations(state)
-				break
-			case "rebalancing":
-				await tuneRebalancing(state)
 				break
 			case "vault":
 				await tuneVault(state)
@@ -161,45 +156,6 @@ async function tuneConfirmations(state: WizardState): Promise<void> {
 			strategy.confirmationPolicies = { ...(strategy.confirmationPolicies ?? {}), [chainId]: { points } }
 		}
 	}
-}
-
-async function tuneRebalancing(state: WizardState): Promise<void> {
-	why(WHY.rebalancing)
-	const triggerPercentage = await askNumber(
-		"Trigger fraction (0.5 = rebalance when a chain drops to 50% of its base)",
-		state.rebalancing?.triggerPercentage ?? 0.5,
-		(n) => (n > 0 && n < 1 ? undefined : "Between 0 and 1 (exclusive)"),
-	)
-	const baseBalances: { USDC?: Record<string, string>; USDT?: Record<string, string> } = {}
-	for (const symbol of ["USDC", "USDT"] as const) {
-		const include = guard(
-			await confirm({ message: `Set base balances for ${symbol}?`, initialValue: symbol === "USDC" }),
-		)
-		if (!include) continue
-		const perChain: Record<string, string> = {}
-		for (const chain of state.chains) {
-			const amount = guard(
-				await text({
-					message: `${symbol} base balance on ${chain.meta.label} (USD, empty to skip)`,
-					initialValue: state.rebalancing?.baseBalances[symbol]?.[String(chain.meta.chainId)] ?? "10000",
-					defaultValue: "",
-					validate: (value) => {
-						const trimmed = (value ?? "").trim()
-						if (!trimmed) return undefined
-						return Number(trimmed) > 0 ? undefined : "Enter a positive number or leave empty"
-					},
-				}),
-			)
-			if ((amount ?? "").trim()) perChain[String(chain.meta.chainId)] = amount.trim()
-		}
-		if (Object.keys(perChain).length > 0) baseBalances[symbol] = perChain
-	}
-	if (Object.keys(baseBalances).length === 0) {
-		log.warn("No base balances set — skipping rebalancing.")
-		state.rebalancing = undefined
-		return
-	}
-	state.rebalancing = { triggerPercentage, baseBalances }
 }
 
 async function tuneVault(state: WizardState): Promise<void> {

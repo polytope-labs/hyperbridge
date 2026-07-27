@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { writeConfigFileAtomic } from "@/config/write-config"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
+import { INIT_CHAINS } from "@/cli/init/chains"
 import type { FillerTomlConfig, VaultToml } from "@/config/filler-toml"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
@@ -429,6 +430,9 @@ export class UiServer {
 			strategyTypes: op.strategyTypes,
 			configPath: op.configPath,
 			addresses: op.addresses,
+			chainLabels: Object.fromEntries(
+				op.chains.map((id) => [id, INIT_CHAINS.find((c) => c.chainId === id)?.label ?? `chain ${id}`]),
+			),
 		})
 	}
 

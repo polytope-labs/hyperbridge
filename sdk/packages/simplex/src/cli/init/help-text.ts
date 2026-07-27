@@ -27,8 +27,6 @@ export const WHY = {
 		"Percentages added on top of the base gas price for your fill UserOperations. Higher values win more fill races but cost more gas.",
 	overfill:
 		"Safety clamp against pricing bugs: output is capped at maxOverfillBps above what the user asked for, and the strategy halts after maxConsecutiveClamps consecutive clamped orders.",
-	rebalancing:
-		"Automatically tops up a chain's stablecoin balance from richer chains when it drops below a fraction of its base level.",
 	vault: "ERC-4626 treasury (e.g. Aave stataUSDC): fills pull missing balance from the vault atomically, and idle wallet balance above a threshold is swept in to earn yield.",
 	allowlist: "Restricts filling to orders placed by specific user addresses. Leave off to fill for everyone.",
 	logging: "Log verbosity. 'info' for normal operation, 'debug' when troubleshooting.",

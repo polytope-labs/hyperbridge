@@ -62,11 +62,6 @@ export interface WizardState {
 	fxSpreadBps: string
 	fxPositions: V4PositionDraft[]
 	fxSide: "" | "ask" | "bid"
-	rebalancingEnabled: boolean
-	rebalancingTrigger: string
-	rebalancingUsdc: Record<string, string>
-	binanceKey: string
-	binanceSecret: string
 	vaults: VaultDraft[]
 	allowlistUsers: string[]
 	maxConcurrentOrders: string
@@ -108,11 +103,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		fxSpreadBps: "",
 		fxPositions: [],
 		fxSide: "",
-		rebalancingEnabled: false,
-		rebalancingTrigger: "0.5",
-		rebalancingUsdc: {},
-		binanceKey: "",
-		binanceSecret: "",
 		vaults: [],
 		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
@@ -141,7 +131,6 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 		// Everything keyed by the previous network's chain ids must reset with it.
 		vaults: [],
 		fxPositions: [],
-		rebalancingUsdc: {},
 		alchemyStatus: undefined,
 		alchemyError: undefined,
 	}
@@ -226,10 +215,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 
 	const watchOnlyEntries = chains.filter((c) => c.watchOnly).map((c) => [String(c.meta.chainId), true] as const)
 
-	const usdcBalances = Object.fromEntries(
-		Object.entries(state.rebalancingUsdc).filter(([, amount]) => amount.trim()),
-	)
-
 	const allowlistUsers = state.allowlistUsers
 
 	const signer =
@@ -270,17 +255,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
 			bundlerUrl: c.bundlerUrl.trim(),
 		})),
-		...(state.rebalancingEnabled && Object.keys(usdcBalances).length > 0
-			? {
-					rebalancing: {
-						triggerPercentage: Number(state.rebalancingTrigger),
-						baseBalances: { USDC: usdcBalances },
-					},
-				}
-			: {}),
-		...(state.binanceKey.trim() && state.binanceSecret.trim()
-			? { binance: { apiKey: state.binanceKey.trim(), apiSecret: state.binanceSecret.trim() } }
-			: {}),
 		...(state.vaults.length > 0
 			? {
 					vault: {

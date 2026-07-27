@@ -49,6 +49,15 @@ ismp-parachain = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
+ismp-beacon-kit = { workspace = true, default-features = true }
+tendermint-prover = { workspace = true, default-features = true }
+tendermint-primitives = { workspace = true, default-features = true }
+tesseract-beaconkit = { path = "../../../tesseract/consensus/beaconkit" }
+tendermint-verifier = { workspace = true, default-features = true }
+cometbft = { workspace = true, default-features = false, features = ["rust-crypto"] }
+sha2 = "0.10"
+base64 = "0.21"
+blst = "0.3.11"
 ismp-pharos = { workspace = true, default-features = true }
 pharos-primitives = { workspace = true, default-features = true }
 pharos-prover = { workspace = true, default-features = true }

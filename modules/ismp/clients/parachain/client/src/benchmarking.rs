@@ -102,22 +102,4 @@ mod benchmarks {
 
 		Ok(())
 	}
-
-	/// One v1 → v2 `SteppedMigration::step` that removes a single
-	/// `RelayChainStateCommitments` entry.
-	#[benchmark]
-	fn migrate_relay_state_commitments_step() -> Result<(), BenchmarkError> {
-		for i in 0u32..16u32 {
-			RelayChainStateCommitments::<T>::insert(i, H256::repeat_byte(0xef));
-		}
-
-		#[block]
-		{
-			let _ = RelayChainStateCommitments::<T>::clear(1, None);
-		}
-
-		assert!(RelayChainStateCommitments::<T>::iter_values().count() < 16);
-
-		Ok(())
-	}
 }

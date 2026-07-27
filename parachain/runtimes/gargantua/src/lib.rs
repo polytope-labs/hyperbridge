@@ -1247,7 +1247,7 @@ impl_runtime_apis! {
 
 		/// Return the timestamp this client was last updated in seconds
 		fn state_machine_update_time(height: StateMachineHeight) -> Option<u64> {
-			Ismp::state_machine_update_time(height)
+			Ismp::state_machine_update_time(height.id, height.height)
 		}
 
 		/// Return the latest height of the state machine

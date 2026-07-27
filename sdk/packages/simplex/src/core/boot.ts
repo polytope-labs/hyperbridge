@@ -6,6 +6,7 @@ import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/fundi
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
+import { TokenSender } from "@/services/TokenSender"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -71,6 +72,8 @@ export interface FillerRuntime {
 	 * duplicates, non-vault address — surface before the set is persisted.
 	 */
 	vaultPreflight(vaults: VaultToml[]): Promise<void>
+	/** Operator-initiated outbound transfers (dashboard Send). */
+	tokenSender: TokenSender
 	dataDir?: string
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
@@ -484,6 +487,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configPath: options.configPath,
 		dataDir: options.dataDir,
 		startedAt: Date.now(),
+		tokenSender: new TokenSender(
+			chainClientManager,
+			runtimeSigner.account.address as HexString,
+			() => config.vault?.vaults ?? [],
+			userOpSender,
+		),
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}
 			for (const row of vaults) {

@@ -175,6 +175,12 @@ export interface BidStatsDto {
 	pendingRetraction: number
 }
 
+export interface SendTokenOption {
+	symbol: string
+	address: string
+	vaultShare?: boolean
+}
+
 export interface ConfigDto {
 	configPath: string
 	toml: string
@@ -182,4 +188,5 @@ export interface ConfigDto {
 	vaultConfigured: boolean
 	allowlistUsers: string[]
 	vaults: Array<{ chain: string; vault: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }>
+	sendTokens: Record<string, SendTokenOption[]>
 }

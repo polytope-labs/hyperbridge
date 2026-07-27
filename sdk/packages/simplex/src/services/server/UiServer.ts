@@ -3,6 +3,7 @@ import { writeConfigFileAtomic } from "@/config/write-config"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { INIT_CHAINS } from "@/cli/init/chains"
+import { ChainConfigService } from "@hyperbridge/sdk"
 import type { FillerTomlConfig, VaultToml } from "@/config/filler-toml"
 import { emitFillerToml } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
@@ -80,6 +81,12 @@ export interface OperatorContext {
 	 * same-asset duplicates, non-vault address) without touching any live venue.
 	 */
 	vaultPreflight?: (vaults: VaultToml[]) => Promise<void>
+	/** Outbound transfer from the filler wallet; vault shares are redeemed to the recipient. */
+	send?: (params: { chain: string; token: string; amount: string; to: `0x${string}` }) => Promise<{
+		txHash: string
+		sponsored: boolean
+		redeemed: boolean
+	}>
 	version: string
 	startedAt: number
 	configPath: string
@@ -317,6 +324,7 @@ export class UiServer {
 				vaultConfigured: Boolean(op.vault),
 				allowlistUsers: op.config.allowlist?.users ?? [],
 				vaults: op.config.vault?.vaults ?? [],
+				sendTokens: this.sendTokenOptions(op),
 			})
 		}
 
@@ -330,6 +338,11 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleAllowlist(req, res)
+		}
+
+		if (path === "/api/send" && method === "POST") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			return this.handleSend(req, res)
 		}
 
 		if (path === "/api/vault" && method === "PUT") {
@@ -556,6 +569,72 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")
 		return sendJson(res, 200, { level, persisted })
+	}
+
+	/**
+	 * Token choices for the dashboard Send card, per state machine id: native,
+	 * the chain's stablecoins/exotics from the SDK registry, and configured
+	 * vault share tokens (marked so the UI can explain redeem-on-send).
+	 */
+	private sendTokenOptions(
+		op: OperatorContext,
+	): Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> {
+		const configService = new ChainConfigService({})
+		const options: Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> = {}
+		for (const chainId of op.chains) {
+			const stateMachineId = `EVM-${chainId}`
+			const tokens: Array<{ symbol: string; address: string; vaultShare?: boolean }> = [
+				{ symbol: "native", address: "native" },
+			]
+			try {
+				tokens.push({ symbol: "USDC", address: configService.getUsdcAsset(stateMachineId) })
+				tokens.push({ symbol: "USDT", address: configService.getUsdtAsset(stateMachineId) })
+				for (const exotic of configService.getKnownExoticTokens(stateMachineId)) {
+					tokens.push({ symbol: exotic.symbol, address: exotic.address })
+				}
+			} catch {
+				// chain missing from the SDK registry — native + vault shares only
+			}
+			for (const vault of op.config.vault?.vaults ?? []) {
+				if (vault.chain === stateMachineId) {
+					tokens.push({ symbol: `vault shares (${vault.vault.slice(0, 8)}…)`, address: vault.vault, vaultShare: true })
+				}
+			}
+			options[stateMachineId] = tokens
+		}
+		return options
+	}
+
+	private async handleSend(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const op = this.operator!
+		if (!op.send) return sendJson(res, 501, { error: "Sending is not available on this filler" })
+		let body: { chain?: string; token?: string; amount?: string; to?: string }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!body.chain || !body.token || !body.amount || !body.to) {
+			return sendJson(res, 400, { error: "chain, token, amount and to are required" })
+		}
+		if (!/^0x[0-9a-fA-F]{40}$/.test(body.to)) {
+			return sendJson(res, 400, { error: `Invalid recipient address: ${body.to}` })
+		}
+		if (!(Number(body.amount) > 0)) {
+			return sendJson(res, 400, { error: `Invalid amount: ${body.amount}` })
+		}
+		try {
+			const result = await op.send({
+				chain: body.chain,
+				token: body.token,
+				amount: body.amount,
+				to: body.to as `0x${string}`,
+			})
+			this.logger.warn({ ...body, ...result }, "Operator send submitted from the UI")
+			return sendJson(res, 200, result)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
 	}
 
 	private async handleVaultUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -96,6 +96,7 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
 		applyRebalancing: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
 		vaultPreflight: (vaults) => runtime.vaultPreflight(vaults),
+		send: (params) => runtime.tokenSender.send(params),
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,

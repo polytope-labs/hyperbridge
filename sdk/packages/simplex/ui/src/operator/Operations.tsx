@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react"
 import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
+import { CopyHash } from "../components/CopyHash"
 import { useAction, usePolling } from "../lib/hooks"
-import type { ConfigDto } from "../types"
+import type { ConfigDto, SendTokenOption } from "../types"
 
 interface VaultRow {
 	chain: string
@@ -57,6 +58,8 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 
 	return (
 		<div>
+			<SendCard chains={props.chains} chainLabel={chainLabel} sendTokens={config?.sendTokens} />
+
 			<div className="card">
 				<h2>Vault treasury</h2>
 				<p className="hint">
@@ -176,6 +179,120 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 			)}
 
 			{message && <p className="hint">✓ {message}</p>}
+			{error && <p className="error">{error}</p>}
+		</div>
+	)
+}
+
+function SendCard(props: {
+	chains: number[]
+	chainLabel: (id: number | string) => string
+	sendTokens?: Record<string, SendTokenOption[]>
+}) {
+	const [chain, setChain] = useState<string>()
+	const [token, setToken] = useState("native")
+	const [customToken, setCustomToken] = useState("")
+	const [amount, setAmount] = useState("")
+	const [to, setTo] = useState("")
+	const [result, setResult] = useState<{ txHash: string; redeemed: boolean }>()
+	const [sending, setSending] = useState(false)
+	const { run: act, message, error } = useAction()
+
+	const selectedChain = chain ?? `EVM-${props.chains[0] ?? ""}`
+	const options = props.sendTokens?.[selectedChain] ?? [{ symbol: "native", address: "native" }]
+	const tokenAddress = token === "custom" ? customToken.trim() : token
+	const selected = options.find((o) => o.address === token)
+	const symbol = selected?.symbol ?? (token === "custom" ? "tokens" : token)
+	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
+
+	const send = () => {
+		const what = selected?.vaultShare
+			? `${amount} vault shares (redeemed — the recipient receives the underlying asset)`
+			: `${amount} ${symbol}`
+		if (!window.confirm(`Send ${what} on ${props.chainLabel(selectedChain.replace("EVM-", ""))} to ${to.trim()}?`)) {
+			return
+		}
+		setResult(undefined)
+		setSending(true)
+		return act(async () => {
+			try {
+				const res = await api.post<{ txHash: string; redeemed: boolean }>("/api/send", {
+					chain: selectedChain,
+					token: tokenAddress,
+					amount: amount.trim(),
+					to: to.trim(),
+				})
+				setResult(res)
+				setAmount("")
+			} finally {
+				setSending(false)
+			}
+		}, "Sent")
+	}
+
+	return (
+		<div className="card">
+			<h2>Send</h2>
+			<p className="hint">
+				Send tokens out of the filler wallet. Vault share tokens are redeemed on the way out — the recipient
+				receives the underlying asset. Gas is covered by the paymaster where available.
+			</p>
+			<div className="row" style={{ flexWrap: "wrap" }}>
+				<select
+					value={selectedChain}
+					onChange={(e) => {
+						setChain(e.target.value)
+						setToken("native")
+					}}
+				>
+					{props.chains.map((id) => (
+						<option key={id} value={`EVM-${id}`}>
+							{props.chainLabel(id)}
+						</option>
+					))}
+				</select>
+				<select value={token} onChange={(e) => setToken(e.target.value)}>
+					{options.map((o) => (
+						<option key={o.address} value={o.address}>
+							{o.symbol}
+						</option>
+					))}
+					<option value="custom">custom address…</option>
+				</select>
+				{token === "custom" && (
+					<input
+						type="text"
+						placeholder="token address 0x…"
+						style={{ minWidth: "22rem" }}
+						value={customToken}
+						onChange={(e) => setCustomToken(e.target.value)}
+					/>
+				)}
+				<input
+					type="text"
+					placeholder="amount"
+					style={{ maxWidth: "9rem" }}
+					value={amount}
+					onChange={(e) => setAmount(e.target.value)}
+				/>
+				<input
+					type="text"
+					placeholder="recipient 0x…"
+					style={{ minWidth: "22rem", flex: 1 }}
+					value={to}
+					onChange={(e) => setTo(e.target.value)}
+				/>
+				<button type="button" className="primary" disabled={!ready || sending} onClick={send}>
+					{sending ? "Sending…" : "Send"}
+				</button>
+			</div>
+			{result && (
+				<p className="hint">
+					✓ Sent{result.redeemed && " (vault shares redeemed to the underlying)"} — tx{" "}
+					<CopyHash value={result.txHash} chars={18} />
+				</p>
+			)}
+			{message && !result && <p className="hint">✓ {message}</p>}
 			{error && <p className="error">{error}</p>}
 		</div>
 	)

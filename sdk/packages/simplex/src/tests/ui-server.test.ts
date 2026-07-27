@@ -589,6 +589,48 @@ describe("UiServer (operator mode)", () => {
 		expect(config.vaults[0].redeemOnShutdown).toBe(true)
 	})
 
+	it("executes an operator send and surfaces the tx hash", async () => {
+		const send = vi.fn().mockResolvedValue({ txHash: "0xabc123", sponsored: true, redeemed: false })
+		const { base } = await startServer({ send })
+
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+		expect(res.status).toBe(200)
+		expect(await res.json()).toEqual({ txHash: "0xabc123", sponsored: true, redeemed: false })
+		expect(send).toHaveBeenCalledWith(body)
+
+		// invalid inputs rejected before reaching the sender
+		for (const bad of [
+			{ ...body, to: "0x123" },
+			{ ...body, amount: "0" },
+			{ ...body, amount: "" },
+			{ chain: "EVM-8453" },
+		]) {
+			const rejected = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(bad) })
+			expect(rejected.status).toBe(400)
+		}
+		expect(send).toHaveBeenCalledTimes(1)
+
+		// sender errors surface as 400 with the message
+		send.mockRejectedValueOnce(new Error("Insufficient token balance"))
+		const failed = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+		expect(failed.status).toBe(400)
+		expect((await failed.json()).error).toContain("Insufficient")
+	})
+
+	it("serves send token options keyed by state machine id", async () => {
+		const { base } = await startServer()
+		const config = await (await fetch(`${base}/api/config`)).json()
+		const tokens = config.sendTokens["EVM-8453"]
+		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
+		expect(tokens.some((t: { symbol: string }) => t.symbol === "USDC")).toBe(true)
+	})
+
 	it("updates rebalancing settings at runtime and persists them", async () => {
 		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
 		const { base, operator } = await startServer({ rebalancing: { checkTriggers } })

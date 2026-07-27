@@ -118,8 +118,13 @@ program
 	.description("Interactively create a filler-config.toml (and optionally start the filler)")
 	.option("-o, --output <path>", "Where to write the config", "filler-config.toml")
 	.action(async (options: { output: string }) => {
-		const { runInit } = await import("@/cli/init")
-		await runInit(options)
+		try {
+			const { runInit } = await import("@/cli/init")
+			await runInit(options)
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : String(error))
+			process.exit(1)
+		}
 	})
 
 program

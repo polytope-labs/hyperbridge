@@ -14,7 +14,7 @@ export interface EditPointsOptions<P> {
 	minPoints: number
 	initial?: P[]
 	toPoint: (pair: { first: string; second: string }) => P
-	/** Constraint on the second value (bps/price/confirmations), mirroring the runtime policy. */
+	/** Constraint on the second value (price/confirmations/…), mirroring the runtime policy. */
 	checkValue?: (value: number) => string | undefined
 }
 
@@ -22,7 +22,7 @@ export interface EditPointsOptions<P> {
 export const positiveValue = (value: number): string | undefined =>
 	value > 0 ? undefined : "Must be a positive number"
 
-/** Bps and confirmation curves require non-negative integers. */
+/** Integer-valued curves (e.g. confirmations) require non-negative integers. */
 export const nonNegativeIntegerValue = (value: number): string | undefined =>
 	Number.isInteger(value) && value >= 0 ? undefined : "Must be a non-negative integer"
 

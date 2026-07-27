@@ -10,7 +10,13 @@ export async function stepBundlers(state: WizardState, prefill?: Prefill): Promi
 	why(WHY.bundler)
 
 	// Alchemy RPCs double as ERC-4337 bundlers — one confirm covers all of them.
-	const alchemyChains = state.chains.filter((chain) => !chain.bundlerUrl && isAlchemyUrl(chain.rpcUrls[0]))
+	// A chain whose prefilled bundler is a dedicated provider (differs from its
+	// RPC) keeps that as the default instead of the Alchemy shortcut.
+	const alchemyChains = state.chains.filter((chain) => {
+		if (chain.bundlerUrl || !isAlchemyUrl(chain.rpcUrls[0])) return false
+		const existing = prefillBundlerFor(chain.meta.chainId, prefill)
+		return !existing || existing === chain.rpcUrls[0]
+	})
 	if (alchemyChains.length > 0) {
 		const reuse = guard(
 			await confirm({

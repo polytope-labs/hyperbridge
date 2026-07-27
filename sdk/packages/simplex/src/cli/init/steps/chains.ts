@@ -134,22 +134,24 @@ async function collectRpcUrls(state: WizardState, prefill?: Prefill): Promise<vo
 			remaining.map((c) => c.meta.label),
 		)
 
-		await maybeAddQuorumUrls(chain)
+		await maybeAddQuorumUrls(chain, existing?.slice(1))
 	}
 }
 
-async function maybeAddQuorumUrls(chain: WizardChain): Promise<void> {
+async function maybeAddQuorumUrls(chain: WizardChain, existingExtras?: string[]): Promise<void> {
 	const addQuorum = guard(
 		await confirm({
 			message: `Add a second RPC provider for ${chain.meta.label} (quorum log scanning)?`,
-			initialValue: false,
+			// Defaulting to false here would silently drop prefilled quorum URLs.
+			initialValue: (existingExtras?.length ?? 0) > 0,
 		}),
 	)
 	if (!addQuorum) return
 	why(WHY.quorum)
 
-	for (;;) {
+	for (let index = 0; ; index++) {
 		const url = await askUrl(`Additional RPC URL for ${chain.meta.label} (must be a different provider)`, {
+			initial: existingExtras?.[index],
 			required: "RPC URL is required",
 			validate: (candidate) => {
 				const mismatch = alchemyMismatch(candidate, chain.meta)
@@ -163,7 +165,10 @@ async function maybeAddQuorumUrls(chain: WizardChain): Promise<void> {
 		chain.rpcUrls.push(url)
 
 		const more = guard(
-			await confirm({ message: `Add another RPC provider for ${chain.meta.label}?`, initialValue: false }),
+			await confirm({
+				message: `Add another RPC provider for ${chain.meta.label}?`,
+				initialValue: index + 1 < (existingExtras?.length ?? 0),
+			}),
 		)
 		if (!more) return
 	}
@@ -228,7 +233,9 @@ async function verifyRpcUrls(state: WizardState): Promise<void> {
 
 	if (dropped.length > 0) {
 		state.chains = state.chains.filter((chain) => !dropped.includes(chain))
-		if (state.chains.length === 0 && state.passthroughChains.length === 0) {
+		// Passthrough chains alone don't help — later steps (custom assets, V4
+		// positions, vaults) prompt against the managed chains only.
+		if (state.chains.length === 0) {
 			log.error("All chains were dropped — at least one chain is required. Let's pick RPCs again.")
 			for (const chain of dropped) chain.rpcUrls = []
 			state.chains = dropped

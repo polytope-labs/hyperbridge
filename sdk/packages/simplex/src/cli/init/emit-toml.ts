@@ -47,13 +47,15 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 	}
 	push()
 
-	push("# Wallet that signs fills and holds the stablecoin float on every chain.")
-	push("# WARNING: contains secrets - keep this file private (chmod 600) and never commit it.")
-	push("[simplex.signer]")
-	for (const [key, value] of Object.entries(config.simplex.signer ?? {})) {
-		if (value !== undefined) push(kv(key, value))
+	if (config.simplex.signer) {
+		push("# Wallet that signs fills and holds the stablecoin float on every chain.")
+		push("# WARNING: contains secrets - keep this file private (chmod 600) and never commit it.")
+		push("[simplex.signer]")
+		for (const [key, value] of Object.entries(config.simplex.signer)) {
+			if (value !== undefined) push(kv(key, value))
+		}
+		push()
 	}
-	push()
 
 	if (config.simplex.gasFeeBump) {
 		push("# Percentages added on top of the base gasPrice for UserOperations.")
@@ -98,10 +100,9 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push("[rebalancing]")
 		push(kv("triggerPercentage", config.rebalancing.triggerPercentage))
 		push()
-		for (const symbol of ["USDC", "USDT"] as const) {
-			const balances = config.rebalancing.baseBalances[symbol]
+		for (const [symbol, balances] of Object.entries(config.rebalancing.baseBalances)) {
 			if (!balances) continue
-			push(`[rebalancing.baseBalances.${symbol}]`)
+			push(`[rebalancing.baseBalances.${/^[A-Za-z0-9_-]+$/.test(symbol) ? symbol : JSON.stringify(symbol)}]`)
 			for (const [chainId, amount] of Object.entries(balances)) {
 				push(kv(chainId, amount, true))
 			}

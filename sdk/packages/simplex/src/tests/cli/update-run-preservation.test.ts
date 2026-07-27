@@ -104,6 +104,34 @@ describe("CLI wizard update run", () => {
 		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
 	})
 
+	it("merges wizard assets over the prefilled [assets] entries", () => {
+		const state = newWizardState()
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({
+				...existing,
+				assets: {
+					XYZ: { "EVM-1": "0x7777777777777777777777777777777777777777" },
+					BRZ: { "EVM-8453": "0x6666666666666666666666666666666666666666" },
+				},
+			}),
+		)
+		state.chains = [
+			{
+				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
+				rpcUrls: ["https://eth.example/rpc"],
+				bundlerUrl: "https://bundler.example",
+			},
+		]
+		state.pairs = wizardPairs
+		state.assets = wizardAssets
+		const assembled = assembleConfig(state)
+		// Prefilled entries survive; the wizard's entry wins on a symbol clash.
+		expect(assembled.assets).toEqual({
+			XYZ: { "EVM-1": "0x7777777777777777777777777777777777777777" },
+			BRZ: wizardAssets.BRZ,
+		})
+	})
+
 	it("drops a legacy [[strategies]] array from the prefill", () => {
 		const assembled = simulateUpdateRun()
 		expect("strategies" in assembled).toBe(false)

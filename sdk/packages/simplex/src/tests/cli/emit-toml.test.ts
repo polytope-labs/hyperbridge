@@ -200,6 +200,18 @@ describe("emitFillerToml", () => {
 		)
 	})
 
+	it("round-trips a signer-less watch-only config without a [simplex.signer] header", () => {
+		const signerless: FillerTomlConfig = JSON.parse(JSON.stringify(minimalSameAsset))
+		delete signerless.simplex.signer
+		signerless.simplex.watchOnly = true
+
+		const emitted = emitFillerToml(signerless)
+		expect(emitted).not.toContain("[simplex.signer]")
+		const parsed = parse(emitted) as FillerTomlConfig
+		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(signerless)))
+		expect(() => validateConfig(parsed)).not.toThrow()
+	})
+
 	it("renders chain comments above each [[chains]] entry", () => {
 		const emitted = emitFillerToml(minimalSameAsset, { chainComments: ["Ethereum (1)", "Base (8453)"] })
 		expect(emitted).toContain("# Ethereum (1)\n[[chains]]")

@@ -6,14 +6,15 @@ import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
 import { emitFillerToml } from "../emit-toml"
 import { guard, maskSecret, askText } from "../prompt-utils"
 import { FUNDING_CHECKLIST } from "../help-text"
-import type { WizardState } from "../state"
+import type { Prefill, WizardState } from "../state"
 
-export async function stepWrite(state: WizardState, outputPath: string): Promise<void> {
+export async function stepWrite(state: WizardState, outputPath: string, prefill?: Prefill): Promise<void> {
 	const config = assembleConfig(state)
 
 	// Hard gate: the wizard must never write a config `simplex run` would reject.
@@ -29,6 +30,7 @@ export async function stepWrite(state: WizardState, outputPath: string): Promise
 	}
 
 	showSummary(state, outputPath)
+	warnUncoveredPassthroughChains(state, prefill)
 
 	let path = outputPath
 	if (existsSync(path)) {
@@ -69,13 +71,26 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 	// pair engine rejects it at startup (the wizard migrates it to prefills).
 	delete (base as Record<string, unknown>).strategies
 
+	// Empty-but-present collections don't survive the TOML emit (there is no
+	// section to write), so they must not survive assembly either — the
+	// round-trip gate would trip on them.
+	if (base.assets && Object.keys(base.assets).length === 0) delete base.assets
+
 	// The pairs step owns [vault.uniswapV4] wholesale: the block it configured
 	// this run replaces whatever the prefill had (or drops it when the operator
 	// switched to curve pricing).
 	const vault: NonNullable<FillerTomlConfig["vault"]> = { ...(state.vault ?? {}) }
 	delete vault.uniswapV4
-	if (state.vaultUniswapV4) vault.uniswapV4 = state.vaultUniswapV4
+	if (vault.vaults && vault.vaults.length === 0) delete vault.vaults
+	if (state.vaultUniswapV4) {
+		vault.uniswapV4 = { ...state.vaultUniswapV4 }
+		if (vault.uniswapV4.positions && vault.uniswapV4.positions.length === 0) delete vault.uniswapV4.positions
+	}
 	const hasVault = Boolean(vault.vaults?.length || vault.uniswapV4 || vault.sweepIntervalMs !== undefined)
+
+	// Merge, prefill first: a custom token added this run must not drop the
+	// existing [assets] entries.
+	const assets = { ...(base.assets ?? {}), ...(state.assets ?? {}) }
 
 	return {
 		...base,
@@ -93,11 +108,13 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 				: { overfillProtection: undefined }),
 		},
 		pairs: state.pairs,
-		assets: state.assets ?? (base.assets as FillerTomlConfig["assets"]),
+		assets: Object.keys(assets).length > 0 ? assets : undefined,
 		confirmationPolicies: state.confirmationPolicies,
+		// Passthrough chains first: a chain that also got re-selected as managed
+		// would otherwise shadow the fresh entry (last [[chains]] wins at load).
 		chains: [
-			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
 			...state.passthroughChains,
+			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
 		],
 		rebalancing: state.rebalancing,
 		vault: hasVault ? vault : undefined,
@@ -107,8 +124,8 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 
 function chainComments(state: WizardState): string[] {
 	return [
-		...state.chains.map((chain) => `${chain.meta.label} (chainId ${chain.meta.chainId})`),
 		...state.passthroughChains.map(() => "Kept from the previous configuration"),
+		...state.chains.map((chain) => `${chain.meta.label} (chainId ${chain.meta.chainId})`),
 	]
 }
 
@@ -129,6 +146,28 @@ function showSummary(state: WizardState, outputPath: string): void {
 	lines.push(`Pairs: ${state.pairs.map((p) => `${p.token0}/${p.token1}`).join(", ")}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
+}
+
+/**
+ * Boot requires a confirmation policy for every chain, passthrough ones
+ * included — the wizard never prompts for those, so it can only warn.
+ */
+function warnUncoveredPassthroughChains(state: WizardState, prefill?: Prefill): void {
+	if (!prefill) return
+	const covered = new Set<number>()
+	for (const source of [DEFAULT_CONFIRMATION_POLICIES, state.confirmationPolicies ?? {}]) {
+		for (const key of Object.keys(source)) {
+			const chainId = parseChainKey(key)
+			if (chainId !== null) covered.add(chainId)
+		}
+	}
+	prefill.config.chains.forEach((chain, index) => {
+		const chainId = prefill.chainIds[index]
+		if (chainId === null || !state.passthroughChains.includes(chain) || covered.has(chainId)) return
+		log.warn(
+			`No confirmation policy covers the kept chain ${chainId} (${chain.rpcUrls[0]}) — \`simplex run\` will refuse to start until a [confirmationPolicies."${chainId}"] entry is added.`,
+		)
+	})
 }
 
 /**

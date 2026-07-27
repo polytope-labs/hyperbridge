@@ -4,6 +4,7 @@ import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
 import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { guard, why, askNumber, askAddress } from "../prompt-utils"
 import { editPoints, nonNegativeIntegerValue } from "../points-editor"
+import { normalizeConfirmationPolicyKeys } from "../confirmation-keys"
 import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
@@ -137,6 +138,9 @@ async function tuneOverfill(state: WizardState): Promise<void> {
 
 async function tuneConfirmations(state: WizardState): Promise<void> {
 	why(WHY.confirmations)
+	if (state.confirmationPolicies) {
+		state.confirmationPolicies = normalizeConfirmationPolicyKeys(state.confirmationPolicies)
+	}
 	for (const chain of state.chains) {
 		const chainId = String(chain.meta.chainId)
 		const current = state.confirmationPolicies?.[chainId] ?? DEFAULT_CONFIRMATION_POLICIES[chainId]
@@ -183,13 +187,17 @@ async function tuneVault(state: WizardState): Promise<void> {
 		)
 		const entry: VaultToml = { chain, vault }
 		if (sweep) {
+			// The values are stored as decimal strings via String(n) — exponent
+			// notation (1e21) would not survive as a valid TOML decimal.
+			const plainDecimal = (n: number): string | undefined =>
+				/^\d+(\.\d+)?$/.test(String(n)) ? undefined : "Enter a plain decimal number"
 			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
-				n > 0 ? undefined : "Must be positive",
+				n > 0 ? plainDecimal(n) : "Must be positive",
 			)
 			const minBalance = await askNumber(
 				"Sweep down to (USD; cover fill float + gas spend)",
-				Math.min(3000, threshold - 1),
-				(n) => (n > 0 && n < threshold ? undefined : `Must be positive and below ${threshold}`),
+				Math.max(1, Math.min(3000, threshold - 1)),
+				(n) => (n > 0 && n < threshold ? plainDecimal(n) : `Must be positive and below ${threshold}`),
 			)
 			entry.threshold = String(threshold)
 			entry.minBalance = String(minBalance)

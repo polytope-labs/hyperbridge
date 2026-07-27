@@ -49,9 +49,27 @@ export async function runInit(options: InitOptions): Promise<void> {
 	await stepBundlers(state, prefill)
 	await stepSigner(state, prefill)
 	await stepHyperbridge(state, prefill)
-	await stepStrategies(state, prefill)
-	await stepFineTune(state, prefill)
-	await stepWrite(state, outputPath)
+
+	// Salvage loop: a failure at the write gate must not lose everything the
+	// operator typed — offer to redo the markets steps with the same state.
+	for (;;) {
+		try {
+			await stepStrategies(state, prefill)
+			await stepFineTune(state, prefill)
+			await stepWrite(state, outputPath, prefill)
+			return
+		} catch (error) {
+			log.error(error instanceof Error ? error.message : String(error))
+			const goBack = guard(
+				await confirm({ message: "Go back and fix the markets configuration?", initialValue: true }),
+			)
+			if (!goBack) {
+				log.info("Nothing was written.")
+				process.exit(1)
+			}
+			state.pairs = []
+		}
+	}
 }
 
 /**
@@ -61,19 +79,31 @@ export async function runInit(options: InitOptions): Promise<void> {
 async function handleExistingConfig(outputPath: string): Promise<Prefill | undefined> {
 	let config: FillerTomlConfig | undefined
 	let invalidReason: string | undefined
+	let degraded = false
 	try {
 		config = parse(readFileSync(outputPath, "utf-8")) as FillerTomlConfig
 		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {
-			const notes = migrateLegacyConfig(config)
-			if (notes.length > 0) {
+			try {
+				const notes = migrateLegacyConfig(config)
+				if (notes.length > 0) {
+					log.warn(
+						`This config predates the pair engine — migrated for the update run:\n${notes.map((n) => `  - ${n}`).join("\n")}\nReview the pair prompts before writing.`,
+					)
+				}
+			} catch (error) {
+				// A failed migration must not discard the whole prefill: chains,
+				// signer, substrate and vault values still carry over; the markets
+				// are configured fresh. Skip validation — this prefill has no pairs.
 				log.warn(
-					`This config predates the pair engine — migrated for the update run:\n${notes.map((n) => `  - ${n}`).join("\n")}\nReview the pair prompts before writing.`,
+					`Legacy strategy migration failed (${error instanceof Error ? error.message : String(error)}) — the old markets can't be prefilled; everything else still is.`,
 				)
+				delete (config as Record<string, unknown>).strategies
+				degraded = true
 			}
 		}
-		validateConfig(config)
+		if (!degraded) validateConfig(config)
 	} catch (error) {
 		invalidReason = error instanceof Error ? error.message : String(error)
 	}

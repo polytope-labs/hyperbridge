@@ -62,7 +62,7 @@ describe("migrateLegacyConfig", () => {
 				vault: { uniswapV4: { positions: [{ chain: "EVM-8453", tokenId: "42" }], side: "ask" } },
 			},
 		])
-		migrateLegacyConfig(config)
+		const notes = migrateLegacyConfig(config)
 		const pair = config.pairs?.find((p) => p.token1 === "CNGN")
 		expect(pair).toBeDefined()
 		expect(pair?.token0).toBe("USDC")
@@ -70,6 +70,40 @@ describe("migrateLegacyConfig", () => {
 		expect(config.confirmationPolicies?.["8453"]).toBeDefined()
 		expect(config.vault?.uniswapV4?.positions?.[0]?.tokenId).toBe("42")
 		expect(config.vault?.uniswapV4?.spreadBps).toBe(40)
+		// The pair has static curves, so the migrated `side` must be dropped —
+		// the engine rejects the combination.
+		expect(config.vault?.uniswapV4?.side).toBeUndefined()
+		expect(notes.some((n) => n.includes("dropped [vault.uniswapV4].side"))).toBe(true)
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("clamps out-of-range bps margins into the valid ask-price range", () => {
+		const config = legacyConfig([
+			{
+				type: "stable",
+				bpsCurve: [
+					{ amount: "100", value: 0 },
+					{ amount: "100000", value: 10_000 },
+				],
+			},
+		])
+		const notes = migrateLegacyConfig(config)
+		// 0 bps maps to par (rejected: must be < 1); 10000 bps maps to 0.
+		expect(config.pairs?.[0].askPriceCurve).toEqual([
+			{ amount: "100", price: "0.9999" },
+			{ amount: "100000", price: "0.0001" },
+		])
+		expect(notes.some((n) => n.includes("clamped"))).toBe(true)
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("respects a legacy maxOrderUsd on the stable strategy", () => {
+		const config = legacyConfig([
+			{ type: "stable", maxOrderUsd: 25_000, bpsCurve: [{ amount: "100", value: 50 }] },
+		])
+		const notes = migrateLegacyConfig(config)
+		expect(config.pairs?.map((p) => p.maxOrderSize)).toEqual(["25000", "25000"])
+		expect(notes.some((n) => n.includes("order cap 25000 from the legacy maxOrderUsd"))).toBe(true)
 	})
 
 	it("keeps an unmatched exotic address map as an [assets] escape hatch", () => {
@@ -86,6 +120,49 @@ describe("migrateLegacyConfig", () => {
 		expect(notes.some((n) => n.includes("[assets.TOKEN1]"))).toBe(true)
 		expect(config.assets?.TOKEN1).toEqual({ "EVM-8453": "0x9999999999999999999999999999999999999999" })
 		expect(config.pairs?.some((p) => p.token1 === "TOKEN1")).toBe(true)
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("numbers a second unresolvable exotic TOKEN2 instead of colliding", () => {
+		const config = legacyConfig([
+			{
+				type: "hyperfx",
+				maxOrderUsd: 1000,
+				token1: { "EVM-8453": "0x9999999999999999999999999999999999999999" },
+				askPriceCurve: [{ amount: "0", price: "5.8" }],
+			},
+			{
+				type: "hyperfx",
+				maxOrderUsd: 2000,
+				token1: { "EVM-8453": "0x8888888888888888888888888888888888888888" },
+				askPriceCurve: [{ amount: "0", price: "3.1" }],
+			},
+		])
+		migrateLegacyConfig(config)
+		expect(config.assets?.TOKEN1).toEqual({ "EVM-8453": "0x9999999999999999999999999999999999999999" })
+		expect(config.assets?.TOKEN2).toEqual({ "EVM-8453": "0x8888888888888888888888888888888888888888" })
+		expect(config.pairs?.map((p) => `${p.token0}/${p.token1}`)).toEqual(["USDC/TOKEN1", "USDC/TOKEN2"])
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("skips a hyperfx strategy whose USDC pair is already declared", () => {
+		const config = legacyConfig([
+			{
+				type: "hyperfx",
+				maxOrderUsd: 1000,
+				token1: { "EVM-8453": CNGN_ON_BASE },
+				askPriceCurve: [{ amount: "0", price: "1550" }],
+			},
+			{
+				type: "hyperfx",
+				maxOrderUsd: 2000,
+				token1: { "EVM-8453": CNGN_ON_BASE },
+				askPriceCurve: [{ amount: "0", price: "1560" }],
+			},
+		])
+		const notes = migrateLegacyConfig(config)
+		expect(config.pairs?.filter((p) => p.token1 === "CNGN")).toHaveLength(1)
+		expect(notes.some((n) => n.includes("skipped"))).toBe(true)
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 })

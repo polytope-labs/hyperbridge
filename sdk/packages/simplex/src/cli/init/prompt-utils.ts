@@ -68,7 +68,11 @@ export async function askNumber(
 export async function askAddress(message: string, options: AskTextOptions = {}): Promise<string> {
 	return askText(message, {
 		...options,
-		validate: (trimmed) => (isAddress(trimmed) ? options.validate?.(trimmed) : "Enter a valid EVM address"),
+		validate: (trimmed) => {
+			if (!isAddress(trimmed)) return "Enter a valid EVM address"
+			if (/^0x0{40}$/i.test(trimmed)) return "The zero address cannot be used here"
+			return options.validate?.(trimmed)
+		},
 	})
 }
 

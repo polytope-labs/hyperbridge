@@ -69,46 +69,53 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 				</p>
 				{(vaultRows ?? []).map((row, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: positional rows
-					<div className="row" key={index} style={{ margin: "0.4rem 0" }}>
-						<select
-							value={row.chain}
-							onChange={(e) =>
-								setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, chain: e.target.value } : r)))
-							}
-						>
-							{props.chains.map((id) => (
-								<option key={id} value={`EVM-${id}`}>
-									{chainLabel(id)}
-								</option>
-							))}
-						</select>
-						<input
-							type="text"
-							placeholder="vault address 0x…"
-							style={{ flex: 1 }}
-							value={row.vault}
-							onChange={(e) =>
-								setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, vault: e.target.value } : r)))
-							}
-						/>
-						<input
-							type="text"
-							placeholder="sweep threshold (USD)"
-							style={{ maxWidth: "10rem" }}
-							value={row.threshold}
-							onChange={(e) =>
-								setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, threshold: e.target.value } : r)))
-							}
-						/>
-						<input
-							type="text"
-							placeholder="min balance (USD)"
-							style={{ maxWidth: "10rem" }}
-							value={row.minBalance}
-							onChange={(e) =>
-								setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, minBalance: e.target.value } : r)))
-							}
-						/>
+					<div className="row" key={index} style={{ margin: "0.4rem 0", alignItems: "flex-end" }}>
+						<label className="field" style={{ margin: 0 }}>
+							<span>Chain</span>
+							<select
+								value={row.chain}
+								onChange={(e) =>
+									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, chain: e.target.value } : r)))
+								}
+							>
+								{props.chains.map((id) => (
+									<option key={id} value={`EVM-${id}`}>
+										{chainLabel(id)}
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="field" style={{ flex: 1, margin: 0 }}>
+							<span>Vault address</span>
+							<input
+								type="text"
+								placeholder="0x…"
+								value={row.vault}
+								onChange={(e) =>
+									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, vault: e.target.value } : r)))
+								}
+							/>
+						</label>
+						<label className="field" style={{ maxWidth: "10rem", margin: 0 }}>
+							<span>Sweep threshold ($)</span>
+							<input
+								type="text"
+								value={row.threshold}
+								onChange={(e) =>
+									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, threshold: e.target.value } : r)))
+								}
+							/>
+						</label>
+						<label className="field" style={{ maxWidth: "10rem", margin: 0 }}>
+							<span>Min balance ($)</span>
+							<input
+								type="text"
+								value={row.minBalance}
+								onChange={(e) =>
+									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, minBalance: e.target.value } : r)))
+								}
+							/>
+						</label>
 						<label className="row" style={{ whiteSpace: "nowrap" }} title="Redeem this position to the wallet on graceful shutdown">
 							<input
 								type="checkbox"

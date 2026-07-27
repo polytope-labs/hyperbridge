@@ -11,7 +11,8 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 			<div className="card">
 				<h2>ERC-4626 treasury vaults</h2>
 				<p className="hint">
-					Idle balance above the sweep threshold earns yield in the vault; fills pull it back out when needed.
+					When the wallet holds more than the sweep threshold, the excess is deposited into the vault to earn
+					yield, keeping min balance liquid for gas and small fills; fills pull funds back out when needed.
 					Amounts are in USD. One vault per asset per chain.
 				</p>
 
@@ -65,58 +66,65 @@ export function StepTreasury({ state, setState, defaults }: StepProps) {
 
 				{state.vaults.map((vault, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: positional rows
-					<div className="row" key={index} style={{ marginBottom: "0.5rem" }}>
-						<select
-							value={vault.chain}
-							onChange={(e) =>
-								setState((s) => ({
-									...s,
-									vaults: patchAt(s.vaults, index, { chain: e.target.value }),
-								}))
-							}
-						>
-							{chains.map((c) => (
-								<option key={c.meta.stateMachineId} value={c.meta.stateMachineId}>
-									{c.meta.label}
-								</option>
-							))}
-						</select>
-						<input
-							type="text"
-							placeholder="vault address 0x…"
-							style={{ flex: 1 }}
-							value={vault.vault}
-							onChange={(e) =>
-								setState((s) => ({
-									...s,
-									vaults: patchAt(s.vaults, index, { vault: e.target.value }),
-								}))
-							}
-						/>
-						<input
-							type="text"
-							placeholder="sweep threshold (USD)"
-							style={{ maxWidth: "9rem" }}
-							value={vault.threshold}
-							onChange={(e) =>
-								setState((s) => ({
-									...s,
-									vaults: patchAt(s.vaults, index, { threshold: e.target.value }),
-								}))
-							}
-						/>
-						<input
-							type="text"
-							placeholder="min balance (USD)"
-							style={{ maxWidth: "9rem" }}
-							value={vault.minBalance}
-							onChange={(e) =>
-								setState((s) => ({
-									...s,
-									vaults: patchAt(s.vaults, index, { minBalance: e.target.value }),
-								}))
-							}
-						/>
+					<div className="row" key={index} style={{ marginBottom: "0.5rem", alignItems: "flex-end" }}>
+						<label className="field" style={{ margin: 0 }}>
+							<span>Chain</span>
+							<select
+								value={vault.chain}
+								onChange={(e) =>
+									setState((s) => ({
+										...s,
+										vaults: patchAt(s.vaults, index, { chain: e.target.value }),
+									}))
+								}
+							>
+								{chains.map((c) => (
+									<option key={c.meta.stateMachineId} value={c.meta.stateMachineId}>
+										{c.meta.label}
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="field" style={{ flex: 1, margin: 0 }}>
+							<span>Vault address</span>
+							<input
+								type="text"
+								placeholder="0x…"
+								value={vault.vault}
+								onChange={(e) =>
+									setState((s) => ({
+										...s,
+										vaults: patchAt(s.vaults, index, { vault: e.target.value }),
+									}))
+								}
+							/>
+						</label>
+						<label className="field" style={{ maxWidth: "9rem", margin: 0 }}>
+							<span>Sweep threshold ($)</span>
+							<input
+								type="text"
+								value={vault.threshold}
+								onChange={(e) =>
+									setState((s) => ({
+										...s,
+										vaults: patchAt(s.vaults, index, { threshold: e.target.value }),
+									}))
+								}
+							/>
+						</label>
+						<label className="field" style={{ maxWidth: "9rem", margin: 0 }}>
+							<span>Min balance ($)</span>
+							<input
+								type="text"
+								value={vault.minBalance}
+								onChange={(e) =>
+									setState((s) => ({
+										...s,
+										vaults: patchAt(s.vaults, index, { minBalance: e.target.value }),
+									}))
+								}
+							/>
+						</label>
 						<label
 							className="row"
 							style={{ whiteSpace: "nowrap" }}

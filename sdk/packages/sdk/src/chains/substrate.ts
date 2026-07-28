@@ -487,23 +487,40 @@ export class SubstrateChain implements IChain {
 
 		const proofs: HexString[] = []
 
-		// The rotation map is keyed by the epoch that was current when the proof
-		// was generated — the proof itself is signed by set (key + 1). The handler's
-		// currentEpoch equals the destination's nextAuthoritySet.id. We start from
-		// currentEpoch - 1 (the destination's currentAuthoritySet.id) so the first
-		// proof is signed by a set the destination already knows.
-		let epoch = currentEpoch - 1n
+		// The map is keyed by the set each proof rotated *to*, and HandlerV2 records
+		// `nextAuthoritySetId - 1`, so `currentEpoch` is the destination's current set. The
+		// first proof it still needs is therefore the one rotating to currentEpoch + 1. This
+		// matches `rotation_proofs_from`, which walks from `from_set_id + 1`.
+		let epoch = currentEpoch + 1n
 		while (rotationMap.has(epoch)) {
 			const key = rotationOffchainKey(epoch)
-			const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+			let proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+			if (!proof) {
+				// Rotations recorded before the namespace split are still under the messaging
+				// key at their height. Drop this once every destination is past the upgrade.
+				const legacyKey = messagingOffchainKey(rotationMap.get(epoch)!)
+				proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", legacyKey])
+			}
 			if (!proof) return undefined
 			proofs.push(proof as HexString)
 			epoch++
 		}
 
-		// Fetch the final messaging proof at lastProvenHeight
+		// Fetch the final messaging proof at lastProvenHeight. A rotation advances the proven
+		// height without writing a messaging blob, so when nothing is there, resolve the
+		// height through the rotation index instead.
 		const messagingKey = messagingOffchainKey(lastProvenHeight)
-		const messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
+		let messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
+		if (!messagingProof) {
+			for (const [setId, height] of rotationMap) {
+				if (height !== lastProvenHeight) continue
+				messagingProof = await this.rpcClient.call("offchain_localStorageGet", [
+					"PERSISTENT",
+					rotationOffchainKey(setId),
+				])
+				break
+			}
+		}
 		if (!messagingProof) return undefined
 		proofs.push(messagingProof as HexString)
 

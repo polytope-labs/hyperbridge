@@ -15589,6 +15589,7 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-bandwidth",
+ "pallet-beefy-consensus-proofs",
  "pallet-call-decompressor",
  "pallet-collator-manager",
  "pallet-consensus-incentives",

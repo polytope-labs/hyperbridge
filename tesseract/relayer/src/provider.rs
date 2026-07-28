@@ -37,14 +37,54 @@ impl OffchainProofSource {
 	}
 }
 
-/// SCALE storage key for `pallet_beefy_consensus_proofs::RotationProofs`
-/// (`twox_128("BeefyConsensusProofs") ++ twox_128("RotationProofs")`). Computed
-/// at call time rather than once-at-startup because it's only used on the
-/// rotation-catch-up path, which runs at most once per accepted proof.
-fn rotation_proofs_storage_key() -> Vec<u8> {
+/// SCALE storage key for a `pallet_beefy_consensus_proofs` item
+/// (`twox_128("BeefyConsensusProofs") ++ twox_128(item)`). Computed at call time rather
+/// than once-at-startup because it's only used on the rotation-catch-up path, which runs
+/// at most once per accepted proof.
+fn storage_key(item: &[u8]) -> Vec<u8> {
 	let mut key = twox_128(b"BeefyConsensusProofs").to_vec();
-	key.extend_from_slice(&twox_128(b"RotationProofs"));
+	key.extend_from_slice(&twox_128(item));
 	key
+}
+
+impl OffchainProofSource {
+	/// Raw read from the node's persistent offchain store. `None` when nothing was ever
+	/// written under `storage_key` on this node.
+	async fn read_offchain(&self, storage_key: &[u8]) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		let hex_key = format!("0x{}", hex::encode(storage_key));
+		let result: Option<String> = self
+			.rpc_client
+			.request("offchain_localStorageGet", rpc_params!["PERSISTENT", hex_key])
+			.await
+			.map_err(|err| anyhow!("offchain_localStorageGet failed: {err:?}"))?;
+
+		result
+			.map(|hex_bytes| {
+				let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes.as_str());
+				hex::decode(stripped)
+					.map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))
+			})
+			.transpose()
+	}
+
+	/// The pallet's `set_id → parachain height` rotation index. Empty when the storage item
+	/// was never written, which is normal on a fresh chain.
+	async fn rotation_proofs(&self) -> Result<BTreeMap<u64, u64>, anyhow::Error> {
+		let hex_key = format!("0x{}", hex::encode(storage_key(b"RotationProofs")));
+		let raw: Option<String> = self
+			.rpc_client
+			.request("state_getStorage", rpc_params![hex_key])
+			.await
+			.map_err(|err| anyhow!("state_getStorage(RotationProofs) failed: {err:?}"))?;
+
+		let Some(hex_value) = raw else { return Ok(BTreeMap::new()) };
+		let stripped = hex_value.strip_prefix("0x").unwrap_or(hex_value.as_str());
+		let bytes = hex::decode(stripped)
+			.map_err(|err| anyhow!("RotationProofs storage not valid hex: {err:?}"))?;
+		// `BoundedBTreeMap` encodes exactly like `BTreeMap`, so we skip the bound generic.
+		Decode::decode(&mut &bytes[..])
+			.map_err(|err| anyhow!("decode RotationProofs BTreeMap: {err:?}"))
+	}
 }
 
 #[async_trait::async_trait]
@@ -54,59 +94,52 @@ impl ConsensusProofSource for OffchainProofSource {
 			ProofKey::Messaging(height) => messaging_offchain_key(height),
 			ProofKey::Rotation(set_id) => rotation_offchain_key(set_id),
 		};
-		let hex_key = format!("0x{}", hex::encode(&storage_key));
-		tracing::debug!(target: crate::LOG_TARGET, ?key, storage_key = %hex_key, "offchain proof fetch");
-		let params = rpc_params!["PERSISTENT", hex_key];
+		tracing::debug!(target: crate::LOG_TARGET, ?key, "offchain proof fetch");
 
-		let result: Option<String> = self
-			.rpc_client
-			.request("offchain_localStorageGet", params)
-			.await
-			.map_err(|err| anyhow!("offchain_localStorageGet failed: {err:?}"))?;
+		if let Some(bytes) = self.read_offchain(&storage_key).await? {
+			tracing::debug!(target: crate::LOG_TARGET, ?key, bytes = bytes.len(), "proof fetched");
+			return Ok(bytes);
+		}
 
-		let hex_bytes = result.ok_or_else(|| {
-			tracing::warn!(target: crate::LOG_TARGET, ?key, "proof missing from HB offchain storage");
-			anyhow!(
-				"proof missing from HB offchain storage ({key:?}). \
-				 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
-			)
-		})?;
+		// A mandatory proof advances the proven height but writes no messaging blob, so a
+		// caller holding only that height finds nothing here. Resolve the height through the
+		// rotation index and read it out of the namespace it actually landed in.
+		if let ProofKey::Messaging(height) = key {
+			let rotated = self
+				.rotation_proofs()
+				.await?
+				.into_iter()
+				.find_map(|(set_id, at)| (at == height).then_some(set_id));
 
-		let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes.as_str());
-		let bytes = hex::decode(stripped)
-			.map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))?;
-		tracing::debug!(target: crate::LOG_TARGET, ?key, bytes = bytes.len(), "proof fetched");
-		Ok(bytes)
+			if let Some(set_id) = rotated {
+				if let Some(bytes) = self.read_offchain(&rotation_offchain_key(set_id)).await? {
+					tracing::debug!(
+						target: crate::LOG_TARGET,
+						height,
+						set_id,
+						"height belongs to a rotation proof",
+					);
+					return Ok(bytes);
+				}
+			}
+		}
+
+		tracing::warn!(target: crate::LOG_TARGET, ?key, "proof missing from HB offchain storage");
+		Err(anyhow!(
+			"proof missing from HB offchain storage ({key:?}). \
+			 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
+		))
 	}
 
 	async fn rotation_proofs_from(
 		&self,
 		from_set_id: u64,
 	) -> Result<Vec<RotationProof>, anyhow::Error> {
-		// Read the `BoundedBTreeMap<u64, u64, MaxStoredProofs>` storage value
-		// via `state_getStorage`. SCALE encoding for `BoundedBTreeMap` is the
-		// same as `BTreeMap` (a length-prefixed sequence of `(K, V)`), so we
-		// decode straight into `BTreeMap<u64, u64>` and avoid bringing the
-		// `MaxStoredProofs` generic into scope here.
-		let hex_key = format!("0x{}", hex::encode(rotation_proofs_storage_key()));
-		let params = rpc_params![hex_key];
-		let raw: Option<String> = self
-			.rpc_client
-			.request("state_getStorage", params)
-			.await
-			.map_err(|err| anyhow!("state_getStorage(RotationProofs) failed: {err:?}"))?;
-
-		let Some(hex_value) = raw else {
-			// Storage not yet written → no rotations recorded yet. Normal on
-			// a fresh HB — nothing to catch up to.
+		// An empty map means no rotations are recorded yet, which is normal on a fresh HB.
+		let map = self.rotation_proofs().await?;
+		if map.is_empty() {
 			return Ok(Vec::new());
-		};
-
-		let stripped = hex_value.strip_prefix("0x").unwrap_or(hex_value.as_str());
-		let bytes = hex::decode(stripped)
-			.map_err(|err| anyhow!("RotationProofs storage not valid hex: {err:?}"))?;
-		let map: BTreeMap<u64, u64> = Decode::decode(&mut &bytes[..])
-			.map_err(|err| anyhow!("decode RotationProofs BTreeMap: {err:?}"))?;
+		}
 
 		let next_set_id = from_set_id + 1;
 		if !map.contains_key(&next_set_id) {

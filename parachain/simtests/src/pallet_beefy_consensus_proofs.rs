@@ -656,9 +656,9 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 	};
 
 	eprintln!("[stage] proof stored in the {bucket} namespace at height {height}");
-	let stored = fetch_offchain(&rpc_client, &proof_key).await?.ok_or_else(|| {
-		anyhow!("proof blob missing under the {bucket} key at height {height}")
-	})?;
+	let stored = fetch_offchain(&rpc_client, &proof_key)
+		.await?
+		.ok_or_else(|| anyhow!("proof blob missing under the {bucket} key at height {height}"))?;
 	assert_eq!(stored, wire_proof, "blob under the {bucket} key must be the submitted proof");
 
 	// A mandatory proof may finalize a head a messaging proof already covered, so the thing
@@ -682,8 +682,9 @@ async fn fetch_offchain(
 	key: &[u8],
 ) -> Result<Option<Vec<u8>>, anyhow::Error> {
 	let hex_key = format!("0x{}", hex::encode(key));
-	let raw: Option<String> =
-		rpc_client.request("offchain_localStorageGet", rpc_params!["PERSISTENT", hex_key]).await?;
+	let raw: Option<String> = rpc_client
+		.request("offchain_localStorageGet", rpc_params!["PERSISTENT", hex_key])
+		.await?;
 	raw.map(|value| hex::decode(value.strip_prefix("0x").unwrap_or(&value)).map_err(Into::into))
 		.transpose()
 }

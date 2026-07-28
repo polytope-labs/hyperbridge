@@ -60,14 +60,21 @@ pub fn rotation_offchain_key(set_id: u64) -> Vec<u8> {
 mod tests {
 	use super::*;
 
-	/// The rotation prefix extends the messaging one, so what actually keeps a rotation blob
-	/// off a messaging key is the length, not the leading bytes. Offchain lookups are exact
-	/// key, so no height and set id can ever alias.
+	/// No height and set id may ever produce the same key, whatever the two ids are. Compare
+	/// the built keys across a spread of pairs rather than asserting anything about the
+	/// prefixes, so that making the two namespaces identical fails this outright.
 	#[test]
 	fn messaging_and_rotation_keys_cannot_alias() {
-		assert!(ROTATION_OFFCHAIN_PREFIX.starts_with(MESSAGING_OFFCHAIN_PREFIX));
-		assert_eq!(messaging_offchain_key(u64::MAX).len(), MESSAGING_OFFCHAIN_PREFIX.len() + 8);
-		assert_eq!(rotation_offchain_key(u64::MAX).len(), ROTATION_OFFCHAIN_PREFIX.len() + 8);
+		let ids = [0u64, 1, 2, 512, 9_812_059, u64::MAX];
+		for height in ids {
+			for set_id in ids {
+				assert_ne!(
+					messaging_offchain_key(height),
+					rotation_offchain_key(set_id),
+					"messaging height {height} aliased rotation set {set_id}",
+				);
+			}
+		}
 	}
 
 	/// The SDK rebuilds both keys from hardcoded strings and big-endian ids, so pin the

@@ -817,7 +817,7 @@ interface Order {
   user: HexString      // Address of the order creator
   source: HexString    // State-machine ID of the source chain (e.g. "EVM-1")
   destination: HexString // State-machine ID of the destination chain (e.g. "EVM-42161")
-  deadline: bigint     // Unix timestamp after which the order can be cancelled
+  deadline: bigint     // Destination-chain block number after which the order can be cancelled
   nonce: bigint        // Unique order nonce (set by contract on placement)
   fees: bigint         // Protocol fee in fee-token units
   session: HexString   // Ephemeral session key address (set during placement)

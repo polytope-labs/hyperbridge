@@ -40,6 +40,8 @@ subxt-core = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
+# Aggregate BLS verification prototype (Option B): the same double-scheme BLS as substrate BEEFY.
+w3f-bls = { version = "0.1.9", default-features = true }
 
 [dev-dependencies.polkadot-sdk]
 workspace = true
@@ -49,6 +51,10 @@ features = ["sp-io"]
 
 [features]
 default = ["std"]
+# Runs `test_verify_consensus_bls` against a local BLS-BEEFY relay (paired ecdsa_bls_crypto
+# authorities). Pulls the prover's `bls` decode path and `local` storage keys (the local relay
+# names its pallet `MmrLeaf`). Enable with `--features bls` when running that test.
+bls = ["beefy-prover/bls", "beefy-prover/local"]
 std = [
     "log/std",
     "anyhow/std",

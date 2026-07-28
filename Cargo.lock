@@ -2943,6 +2943,7 @@ dependencies = [
  "subxt-utils",
  "thiserror 2.0.18",
  "tokio",
+ "w3f-bls",
 ]
 
 [[package]]

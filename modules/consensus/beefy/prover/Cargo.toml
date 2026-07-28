@@ -50,3 +50,8 @@ features = [
 
 [features]
 local = []
+# Prove a relay chain whose BEEFY authorities use the paired (ECDSA, BLS12-381) `ecdsa_bls_crypto`
+# key type. On the wire such a chain carries 177-byte paired signatures and 177-byte authority
+# public keys; with this feature the prover keeps only the ECDSA half of each (the keccak-ECDSA
+# recoverable signature / compressed secp256k1 key), so the existing ECDSA verifier is unchanged.
+bls = []

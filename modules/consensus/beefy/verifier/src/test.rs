@@ -458,3 +458,371 @@ fn rejects_sp1_proof_carrying_a_stale_mmr_leaf() {
 	});
 	assert!(matches!(stale, Err(Error::StaleMmrLeaf { .. })), "got {stale:?}");
 }
+
+/// End-to-end verification against a relay chain whose BEEFY authorities use the paired
+/// (ECDSA, BLS12-381) `ecdsa_bls_crypto` key type. Requires the `beefy-prover/bls` feature, which
+/// makes the prover keep the ECDSA half of each 177-byte paired signature and authority key. The
+/// verifier itself is unchanged: this is "Option A" — a BLS-BEEFY relay is verified through the
+/// existing ECDSA path.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9977 \
+///     cargo test -p beefy-verifier test_verify_consensus_bls -- --ignored --nocapture
+#[cfg(feature = "bls")]
+#[tokio::test]
+#[ignore]
+async fn test_verify_consensus_bls() {
+	let max_rpc_payload_size = 15 * 1024 * 1024;
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+
+	let (relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+	// Relay-only: point the "para" client at the same relay; `para_ids` is empty so no parachain
+	// headers are proven (our local relay has no registered parachains).
+	let (para_client, para_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let para_rpc = LegacyRpcMethods::<PolkadotConfig>::new(para_rpc_client.clone());
+
+	let prover = Prover {
+		beefy_activation_block: 0,
+		relay: relay_client,
+		relay_rpc: relay_rpc.clone(),
+		relay_rpc_client: relay_rpc_client.clone(),
+		para: para_client,
+		para_rpc,
+		para_rpc_client,
+		para_ids: vec![],
+		query_batch_size: Some(100),
+	};
+
+	let engine_id = polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID;
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+
+	// Walk back to the previous BEEFY-justified block to seed the trusted state.
+	let mut previous = H256::default();
+	let mut cursor = latest;
+	for _ in 0..2000 {
+		let header = relay_rpc.chain_get_header(Some(cursor.into())).await.unwrap().unwrap();
+		let parent: H256 = header.parent_hash.into();
+		if parent.is_zero() {
+			panic!("reached genesis without a previous beefy block");
+		}
+		let block = relay_rpc.chain_get_block(Some(parent.into())).await.unwrap().unwrap();
+		if block.justifications.map(|js| js.iter().any(|j| j.0 == engine_id)).unwrap_or(false) {
+			previous = parent;
+			break;
+		}
+		cursor = parent;
+	}
+	assert!(!previous.is_zero(), "no previous beefy block found");
+
+	// Initial trusted state via the prover — exercises the folded BLS justification decode.
+	let trusted_state = prover.get_initial_consensus_state(Some(previous)).await.unwrap();
+
+	// Latest justification -> signed commitment with ECDSA-half signatures (folded BLS decode).
+	let latest_block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let latest_just = latest_block
+		.justifications
+		.expect("latest beefy block must have justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == engine_id).then_some(j.1))
+		.expect("latest beefy block must have a beefy justification");
+	let signed = beefy_prover::relay::decode_beefy_justification(&latest_just).unwrap();
+	let block_number = signed.commitment.block_number;
+	let signed_count = signed.signatures.iter().filter(|s| s.is_some()).count();
+
+	let signatures = signed
+		.signatures
+		.iter()
+		.enumerate()
+		.filter_map(|(index, s)| {
+			s.as_ref().map(|sig| {
+				let slice: &[u8] = sig.as_ref();
+				let signature: [u8; 65] = slice.try_into().expect("ecdsa half is 65 bytes");
+				SignatureWithAuthorityIndex { index: index as u32, signature }
+			})
+		})
+		.collect::<Vec<_>>();
+
+	let (mmr_leaf_proof, latest_leaf) =
+		fetch_mmr_proof(&prover.relay_rpc, block_number, None).await.unwrap();
+
+	// Folded BLS-aware authorities: the ECDSA halves of the paired keys.
+	let current_authorities = prover.beefy_authorities(Some(latest)).await.unwrap();
+	let authority_address_hashes =
+		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
+			.unwrap();
+
+	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
+	let authority_tree = MerkleTree::<MerkleHasher>::from_leaves(&authority_address_hashes);
+	let authority_proof = authority_tree.proof(&authority_indices).proof_hashes().to_vec();
+
+	let signed_commitment = SignedCommitment { commitment: signed.commitment.clone(), signatures };
+	let mmr = MmrProof {
+		signed_commitment,
+		latest_mmr_leaf: latest_leaf.clone(),
+		mmr_proof: mmr_leaf_proof,
+		authority_proof,
+	};
+	// Relay-only: `verify_parachain_headers` short-circuits to `Ok(vec![])` on empty parachains.
+	let parachain_proof = ParachainProof { parachains: vec![], proof: vec![], total_leaves: 0 };
+	let consensus_proof = ConsensusMessage { mmr, parachain: parachain_proof };
+
+	let result = sp_io::TestExternalities::default()
+		.execute_with(|| verify_consensus::<TestHost>(trusted_state, consensus_proof));
+
+	assert!(result.is_ok(), "BLS BEEFY verification failed: {:?}", result.err());
+	println!("BLS BEEFY verify OK: verified {signed_count} paired signatures for beefy block #{block_number}");
+}
+
+/// Option B prototype: actually verify the BLS signatures, aggregated into a single pairing check.
+///
+/// This reads the validators' paired keys straight from `Beefy.Authorities` and the paired
+/// signatures from the latest justification, extracts the BLS halves (G2 public key, G1 signature),
+/// and does two things:
+///   1. Per-signature Chaum-Pedersen verification via w3f-bls (proves our byte extraction and the
+///      message hash-to-curve are correct).
+///   2. The aggregate pairing check `e(gen, sum(sig)) == e(sum(pubkey), H(commitment))` by summing
+///      the signer G1 signatures and G2 public keys and verifying the sums as one signature.
+///
+/// If step 2 passes, plain aggregation over the on-chain-committed key set is sound and we do not
+/// need delinearization, which makes the eventual Solidity/EIP-2537 path much simpler.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9977 \
+///     cargo test -p beefy-verifier --features bls test_bls_aggregate_verify -- --ignored --nocapture
+#[cfg(feature = "bls")]
+#[tokio::test]
+#[ignore]
+async fn test_bls_aggregate_verify() {
+	use w3f_bls::{
+		DoublePublicKey, DoubleSignature, Message, PublicKey, SerializableToBytes, Signature,
+		TinyBLS381,
+	};
+
+	/// A 177-byte paired signature exactly as SCALE-encoded on the wire.
+	#[derive(Clone)]
+	struct Sig177([u8; 177]);
+	impl codec::Decode for Sig177 {
+		fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+			let mut bytes = [0u8; 177];
+			input.read(&mut bytes)?;
+			Ok(Sig177(bytes))
+		}
+	}
+
+	let max_rpc_payload_size = 15 * 1024 * 1024;
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+	let (_relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+	let engine_id = polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID;
+
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+	let latest_block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let latest_just = latest_block
+		.justifications
+		.expect("justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == engine_id).then_some(j.1))
+		.expect("beefy justification");
+
+	let VersionedFinalityProof::V1(sc) =
+		VersionedFinalityProof::<u32, Sig177>::decode(&mut &*latest_just).unwrap();
+	let commitment_encoded = sc.commitment.encode();
+	// The BLS half signs the SCALE-encoded commitment with an empty context (see sp-core
+	// `bls381::Pair::sign` -> `Message::new(b"", message)`), hashed to G1 by w3f-bls.
+	let message = Message::new(b"", &commitment_encoded);
+
+	// Validator keys are the 177-byte paired keys; the BLS DoublePublicKey is bytes [33..177].
+	let raw_auth = relay_rpc
+		.state_get_storage(beefy_prover::BEEFY_AUTHORITIES.as_slice(), Some(latest.into()))
+		.await
+		.unwrap()
+		.expect("beefy authorities storage");
+	let authorities = Vec::<[u8; 177]>::decode(&mut raw_auth.as_ref()).unwrap();
+
+	let mut agg_sig: Option<<TinyBLS381 as w3f_bls::EngineBLS>::SignatureGroup> = None;
+	let mut agg_pub: Option<<TinyBLS381 as w3f_bls::EngineBLS>::PublicKeyGroup> = None;
+	let mut count = 0u32;
+
+	for (i, maybe_sig) in sc.signatures.iter().enumerate() {
+		let Some(sig) = maybe_sig else { continue };
+		// DoublePublicKey = G1(48) || G2(96); it lives at bytes [33..177] of the paired key.
+		let dpk = DoublePublicKey::<TinyBLS381>::from_bytes(&authorities[i][33..177])
+			.expect("double public key");
+		// DoubleSignature = G1 sig(48) || SchnorrProof(64); at bytes [65..177] of the paired sig.
+		let dsig =
+			DoubleSignature::<TinyBLS381>::from_bytes(&sig.0[65..177]).expect("double signature");
+
+		// 1. Per-signature Chaum-Pedersen verification.
+		assert!(dpk.verify(&message, &dsig), "per-signature BLS verify failed for validator {i}");
+
+		// 2. Accumulate for the aggregate pairing check.
+		agg_sig = Some(agg_sig.map_or(dsig.0, |acc| acc + dsig.0));
+		agg_pub = Some(agg_pub.map_or(dpk.1, |acc| acc + dpk.1));
+		count += 1;
+	}
+
+	let agg_sig = agg_sig.expect("at least one signer");
+	let agg_pub = agg_pub.expect("at least one signer");
+
+	let aggregate_ok =
+		Signature::<TinyBLS381>(agg_sig).verify(&message, &PublicKey::<TinyBLS381>(agg_pub));
+
+	assert!(aggregate_ok, "aggregate BLS pairing check failed");
+	println!(
+		"Aggregate BLS verify OK: {count} BLS signatures aggregated into ONE pairing check; \
+		 per-signature Chaum-Pedersen also verified. Plain aggregation over the committed key set \
+		 is sound (no delinearization needed)."
+	);
+}
+
+/// Phase 1 (trustless): the full aggregate-BLS verification flow a light client would run.
+///
+/// Unlike `test_bls_aggregate_verify` (which trusts the keys read from storage), this proves the
+/// signing keys against the on-chain keyset commitment. The runtime's `BeefyBls381G2ToKeysetLeaf`
+/// converter commits `keccak(g2_pubkey)` leaves, so the flow is:
+///   1. build the merkle tree of all validators' G2 keys and check its root equals the on-chain
+///      `keyset_commitment` (confirms the runtime commits G2 keys as expected),
+///   2. check the signer count meets the >2/3 threshold,
+///   3. prove the signers' keys are committed (merkle multi-proof at the signer indices),
+///   4. aggregate the signers' G2 keys and G1 signatures and verify one pairing check.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9977 \
+///     cargo test -p beefy-verifier --features bls test_bls_trustless_verify -- --ignored --nocapture
+#[cfg(feature = "bls")]
+#[tokio::test]
+#[ignore]
+async fn test_bls_trustless_verify() {
+	use beefy_prover::rs_merkle::MerkleProof;
+	use w3f_bls::{Message, PublicKey, SerializableToBytes, Signature, TinyBLS381};
+
+	#[derive(Clone)]
+	struct Sig177([u8; 177]);
+	impl codec::Decode for Sig177 {
+		fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+			let mut bytes = [0u8; 177];
+			input.read(&mut bytes)?;
+			Ok(Sig177(bytes))
+		}
+	}
+
+	let max_rpc_payload_size = 15 * 1024 * 1024;
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+	let (_relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+	let engine_id = polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID;
+
+	// Latest justification -> commitment + per-validator signature slots.
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+	let latest_block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let latest_just = latest_block
+		.justifications
+		.expect("justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == engine_id).then_some(j.1))
+		.expect("beefy justification");
+	let VersionedFinalityProof::V1(sc) =
+		VersionedFinalityProof::<u32, Sig177>::decode(&mut &*latest_just).unwrap();
+	let commitment_encoded = sc.commitment.encode();
+	let message = Message::new(b"", &commitment_encoded);
+
+	// All validators' G2 public keys, in authority-set order, from `Beefy.Authorities`.
+	let raw_auth = relay_rpc
+		.state_get_storage(beefy_prover::BEEFY_AUTHORITIES.as_slice(), Some(latest.into()))
+		.await
+		.unwrap()
+		.expect("beefy authorities");
+	let paired = Vec::<[u8; 177]>::decode(&mut raw_auth.as_ref()).unwrap();
+	let g2_keys: Vec<[u8; 96]> = paired
+		.iter()
+		.map(|k| {
+			let mut g2 = [0u8; 96];
+			g2.copy_from_slice(&k[81..177]);
+			g2
+		})
+		.collect();
+	let total = g2_keys.len();
+
+	// The on-chain keyset commitment (root of keccak(g2_pubkey) leaves) from the MmrLeaf pallet.
+	let raw_set = relay_rpc
+		.state_get_storage(
+			beefy_prover::BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(),
+			Some(latest.into()),
+		)
+		.await
+		.unwrap()
+		.expect("mmr leaf beefy authorities");
+	let authority_set = BeefyAuthoritySet::<H256>::decode(&mut raw_set.as_ref()).unwrap();
+	let keyset_commitment: [u8; 32] = authority_set.keyset_commitment.into();
+
+	// 1. Rebuild the tree and confirm its root matches the on-chain commitment.
+	let leaves: Vec<[u8; 32]> = g2_keys.iter().map(|k| keccak_256(k)).collect();
+	let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	assert_eq!(
+		tree.root().expect("root"),
+		keyset_commitment,
+		"rebuilt keyset root does not match on-chain keyset_commitment (runtime converter mismatch)"
+	);
+
+	// 2. Signer set from the bitfield + the >2/3 threshold check.
+	let signer_indices: Vec<usize> = sc
+		.signatures
+		.iter()
+		.enumerate()
+		.filter_map(|(i, s)| s.as_ref().map(|_| i))
+		.collect();
+	assert!(
+		signer_indices.len() * 3 > total * 2,
+		"below supermajority: {} of {}",
+		signer_indices.len(),
+		total
+	);
+
+	// 3. Prove the signers' keys are committed (merkle multi-proof).
+	let signer_leaves: Vec<[u8; 32]> = signer_indices.iter().map(|&i| leaves[i]).collect();
+	let proof = tree.proof(&signer_indices);
+	assert!(
+		MerkleProof::<MerkleHasher>::new(proof.proof_hashes().to_vec()).verify(
+			keyset_commitment,
+			&signer_indices,
+			&signer_leaves,
+			total,
+		),
+		"merkle multi-proof of signer keys against keyset_commitment failed"
+	);
+
+	// 4. Aggregate the signers' G2 keys and G1 signatures, one pairing check.
+	let mut agg_sig: Option<<TinyBLS381 as w3f_bls::EngineBLS>::SignatureGroup> = None;
+	let mut agg_pub: Option<<TinyBLS381 as w3f_bls::EngineBLS>::PublicKeyGroup> = None;
+	for &i in &signer_indices {
+		let sig = sc.signatures[i].as_ref().unwrap();
+		let g1 = Signature::<TinyBLS381>::from_bytes(&sig.0[65..113]).expect("g1 signature");
+		let pk = PublicKey::<TinyBLS381>::from_bytes(&g2_keys[i]).expect("g2 public key");
+		agg_sig = Some(agg_sig.map_or(g1.0, |acc| acc + g1.0));
+		agg_pub = Some(agg_pub.map_or(pk.0, |acc| acc + pk.0));
+	}
+	let aggregate_ok = Signature::<TinyBLS381>(agg_sig.unwrap())
+		.verify(&message, &PublicKey::<TinyBLS381>(agg_pub.unwrap()));
+	assert!(aggregate_ok, "aggregate BLS pairing check failed");
+
+	println!(
+		"Trustless aggregate BLS verify OK: {}/{} signers proven against the on-chain \
+		 keyset_commitment (merkle multi-proof), >2/3 threshold met, aggregated into ONE pairing \
+		 check.",
+		signer_indices.len(),
+		total
+	);
+}

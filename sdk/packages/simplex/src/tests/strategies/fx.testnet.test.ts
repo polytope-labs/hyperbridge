@@ -43,7 +43,7 @@ import {
 	keccak256,
 	toHex,
 } from "viem"
-import { bscTestnet } from "viem/chains"
+import { bscTestnet, polygonAmoy } from "viem/chains"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
@@ -72,60 +72,82 @@ function exoticPairs(
 
 // ── Self-funding ─────────────────────────────────────────────────────────────
 //
-// Each run burns ~0.1 USD.h from the CI wallet placing orders on BSC Chapel.
-// The current-generation TokenFaucet (CREATE2-deployed at the same address on
-// Sepolia, BSC Chapel, Base/Arbitrum/OP Sepolia and Gnosis Chiado) mints 1000
-// USD.h per address per day, so the suite tops itself up instead of dying at
-// placeOrder with an opaque "ERC20: transfer amount exceeds balance".
-const TOKEN_FAUCET = "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString
-const SOURCE_CHAIN_ID = "EVM-97"
-/** Refill when below ~100 runs' worth. */
-const MIN_SOURCE_BALANCE = parseUnits("10", 18)
-/** Below one run's worth, a failed drip is fatal — the suite cannot pass. */
-const MIN_RUNNABLE_BALANCE = parseUnits("1", 18)
+// Each run burns USD.h from the CI wallet on BOTH sides of the trade: ~0.1 on
+// BSC Chapel placing the order (fees + escrow) and ~0.006 on Polygon Amoy
+// paying the exotic output. Both tokens are per-chain USD.h deployments with a
+// TokenFaucet holding their MINTER role — note the faucet GENERATION differs
+// per chain (Chapel runs the current faucet, Amoy still the previous one; both
+// verified on-chain). Each faucet mints 1000 USD.h per address per day, so the
+// suite tops itself up instead of dying mid-flow with an opaque ERC20 revert
+// ("transfer amount exceeds balance" at placeOrder, or a silent skip with
+// "insufficient balance for full fill" on the fill side).
+const FUNDING_TARGETS = [
+	{
+		chainId: "EVM-97",
+		viemChain: bscTestnet,
+		rpcEnvKey: "BSC_CHAPEL",
+		faucet: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString,
+		/** Refill threshold — ~100 runs' worth of placements. */
+		min: parseUnits("10", 18),
+		/** Below one run's worth, a failed drip is fatal. */
+		runnable: parseUnits("1", 18),
+	},
+	{
+		chainId: "EVM-80002",
+		viemChain: polygonAmoy,
+		rpcEnvKey: "POLYGON_AMOY",
+		faucet: "0x5DB219e4A535E211a70DA94BaFa291Fc1a51f865" as HexString,
+		min: parseUnits("10", 18),
+		runnable: parseUnits("0.01", 18),
+	},
+] as const
 
 beforeAll(async () => {
 	const key = process.env.PRIVATE_KEY as HexString | undefined
-	const rpcUrl = process.env.BSC_CHAPEL
-	if (!key || !rpcUrl) return // env-less runs surface their own errors below
-
+	if (!key) return // env-less runs surface their own errors below
 	const account = privateKeyToAccount(key)
-	const feeToken = new ChainConfigService(process.env).getUsdcAsset(SOURCE_CHAIN_ID)
-	const transport = http(rpcUrl)
-	const publicClient = createPublicClient({ chain: bscTestnet, transport })
-	const balance = (await publicClient.readContract({
-		address: feeToken,
-		abi: ERC20_ABI,
-		functionName: "balanceOf",
-		args: [account.address],
-	})) as bigint
-	if (balance >= MIN_SOURCE_BALANCE) return
+	const configService = new ChainConfigService(process.env)
 
-	try {
-		const walletClient = createWalletClient({ chain: bscTestnet, transport, account })
-		const hash = await walletClient.writeContract({
-			chain: bscTestnet,
-			account,
-			address: TOKEN_FAUCET,
-			abi: parseAbi(["function drip(address token)"]),
-			functionName: "drip",
-			args: [feeToken],
-		})
-		await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 })
-		console.log(`[self-funding] dripped 1000 USD.h to ${account.address} on ${SOURCE_CHAIN_ID} (${hash})`)
-	} catch (err) {
-		// The faucet drips once per address per day — a cooldown revert is fine
-		// as long as the balance still covers this run.
-		if (balance < MIN_RUNNABLE_BALANCE) {
-			throw new Error(
-				`CI wallet ${account.address} holds ${formatUnits(balance, 18)} USD.h on ${SOURCE_CHAIN_ID} and the ` +
-					`faucet drip failed (daily cooldown?). Fund it manually: drip(${feeToken}) on TokenFaucet ` +
-					`${TOKEN_FAUCET}. Cause: ${err instanceof Error ? err.message : String(err)}`,
-			)
+	for (const target of FUNDING_TARGETS) {
+		const rpcUrl = process.env[target.rpcEnvKey]
+		if (!rpcUrl) continue
+		const token = configService.getUsdcAsset(target.chainId)
+		const transport = http(rpcUrl)
+		const publicClient = createPublicClient({ chain: target.viemChain, transport })
+		const balance = (await publicClient.readContract({
+			address: token,
+			abi: ERC20_ABI,
+			functionName: "balanceOf",
+			args: [account.address],
+		})) as bigint
+		if (balance >= target.min) continue
+
+		try {
+			const walletClient = createWalletClient({ chain: target.viemChain, transport, account })
+			const hash = await walletClient.writeContract({
+				chain: target.viemChain,
+				account,
+				address: target.faucet,
+				abi: parseAbi(["function drip(address token)"]),
+				functionName: "drip",
+				args: [token],
+			})
+			await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 })
+			console.log(`[self-funding] dripped 1000 USD.h to ${account.address} on ${target.chainId} (${hash})`)
+		} catch (err) {
+			// Each faucet drips once per address per day — a cooldown revert is
+			// fine as long as the balance still covers this run.
+			if (balance < target.runnable) {
+				throw new Error(
+					`CI wallet ${account.address} holds ${formatUnits(balance, 18)} USD.h on ${target.chainId} and the ` +
+						`faucet drip failed (daily cooldown?). Fund it manually: drip(${token}) on TokenFaucet ` +
+						`${target.faucet}. Cause: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+			console.warn(`[self-funding] drip unavailable on ${target.chainId}; existing balance still covers this run`)
 		}
-		console.warn("[self-funding] drip unavailable; existing balance still covers this run")
 	}
-}, 120_000)
+}, 240_000)
 
 // ============================================================================
 // Test Suites

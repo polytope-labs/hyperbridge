@@ -161,7 +161,7 @@
 			"solverAccount": "0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3",
 			"yieldVaults": {
 				"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
-					"description": "USDC \u2192 stataUSDC (Aave v3 Base; no USDT market on Base)",
+					"description": "USDC \u2192 stataUSDC (Aave v3 Base)",
 					"vaults": [
 						"0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
 					]
@@ -171,6 +171,10 @@
 					"vaults": [
 						"0xa82a3531021317240fb32e67f9c7bc091f737d3b"
 					]
+				},
+				"0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": {
+					"description": "USDT \u2014 no ERC-4626 market on Base; listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {

@@ -82,6 +82,13 @@ where
 			codec::Decode::decode(&mut &trusted_consensus_state[..])
 				.map_err(|e| GrandpaError::DecodeConsensusState(format!("{e:?}")))?;
 
+		// Reject before any arm runs; see `envelope_matches_state_machine`.
+		if !envelope_matches_state_machine(&consensus_state.state_machine, &consensus_message) {
+			Err(GrandpaError::ConsensusMessageStateMachineMismatch(
+				consensus_state.state_machine,
+			))?
+		}
+
 		let mut intermediates = BTreeMap::new();
 
 		// match over the message
@@ -384,5 +391,118 @@ where
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
 		GRANDPA_CONSENSUS_ID
+	}
+}
+
+/// Whether the proof envelope a submitter chose is valid for the class of state
+/// machine the trusted consensus state tracks.
+///
+/// The envelope is attacker-selected; the state machine is trusted. Every arm of
+/// `verify_consensus` labels the header it just verified with that trusted identity, so
+/// an unchecked pairing is a type confusion rather than a mere decoding quirk: a
+/// parachain tracker's authority set *is* the relay's GRANDPA set, so a genuine
+/// relay-chain finality proof submitted under `StandaloneChain` passes signature
+/// verification and its **global** state root is then recorded under the parachain's
+/// identity, at a relay height.
+///
+/// The accepted pairings mirror the mapping the honest producer already uses in
+/// `tesseract/consensus/grandpa/src/host.rs`.
+pub(crate) fn envelope_matches_state_machine(
+	state_machine: &StateMachine,
+	message: &ConsensusMessage,
+) -> bool {
+	matches!(
+		(state_machine, message),
+		(StateMachine::Polkadot(_) | StateMachine::Kusama(_), ConsensusMessage::Polkadot(_)) |
+			(StateMachine::Relay { .. }, ConsensusMessage::Relaychain(_)) |
+			(StateMachine::Substrate(_), ConsensusMessage::StandaloneChain(_))
+	)
+}
+
+#[cfg(test)]
+mod envelope_binding_tests {
+	use super::*;
+	use crate::messages::{RelayChainMessage, StandaloneChainMessage};
+	use alloc::collections::BTreeMap;
+
+	fn finality_proof() -> FinalityProof<SubstrateHeader> {
+		FinalityProof {
+			block: Default::default(),
+			justification: Default::default(),
+			unknown_headers: Default::default(),
+		}
+	}
+
+	fn standalone() -> ConsensusMessage {
+		ConsensusMessage::StandaloneChain(StandaloneChainMessage { finality_proof: finality_proof() })
+	}
+
+	fn relay_message() -> RelayChainMessage {
+		RelayChainMessage {
+			finality_proof: finality_proof(),
+			parachain_headers: BTreeMap::new(),
+		}
+	}
+
+	#[test]
+	fn accepts_the_pairings_the_honest_producer_emits() {
+		assert!(envelope_matches_state_machine(
+			&StateMachine::Polkadot(3367),
+			&ConsensusMessage::Polkadot(relay_message())
+		));
+		assert!(envelope_matches_state_machine(
+			&StateMachine::Kusama(3367),
+			&ConsensusMessage::Polkadot(relay_message())
+		));
+		assert!(envelope_matches_state_machine(
+			&StateMachine::Relay { relay: *b"rely", para_id: 2000 },
+			&ConsensusMessage::Relaychain(relay_message())
+		));
+		assert!(envelope_matches_state_machine(
+			&StateMachine::Substrate(*b"para"),
+			&standalone()
+		));
+	}
+
+	/// The reported attack: a relay finality proof wrapped as `StandaloneChain` while the
+	/// trusted state tracks a parachain. Signatures would verify, so this pairing is the
+	/// only thing standing between a relay global state root and a parachain's identity.
+	#[test]
+	fn rejects_relay_proof_smuggled_as_standalone_for_a_parachain_tracker() {
+		assert!(!envelope_matches_state_machine(&StateMachine::Polkadot(3367), &standalone()));
+		assert!(!envelope_matches_state_machine(&StateMachine::Kusama(3367), &standalone()));
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Relay { relay: *b"rely", para_id: 2000 },
+			&standalone()
+		));
+	}
+
+	#[test]
+	fn rejects_every_other_cross_pairing() {
+		// Parachain trackers must not accept the standalone-relaychain envelope.
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Polkadot(3367),
+			&ConsensusMessage::Relaychain(relay_message())
+		));
+		// A standalone chain must not accept relay-to-parachain envelopes.
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Substrate(*b"para"),
+			&ConsensusMessage::Polkadot(relay_message())
+		));
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Substrate(*b"para"),
+			&ConsensusMessage::Relaychain(relay_message())
+		));
+		// An alternative-relaychain parachain must not accept the Polkadot envelope.
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Relay { relay: *b"rely", para_id: 2000 },
+			&ConsensusMessage::Polkadot(relay_message())
+		));
+		// Non-GRANDPA state machines have no valid envelope at all.
+		assert!(!envelope_matches_state_machine(&StateMachine::Evm(1), &standalone()));
+		assert!(!envelope_matches_state_machine(
+			&StateMachine::Evm(1),
+			&ConsensusMessage::Polkadot(relay_message())
+		));
 	}
 }

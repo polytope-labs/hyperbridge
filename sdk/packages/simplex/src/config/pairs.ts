@@ -31,9 +31,9 @@ import {
  * A pair may quote the **same symbol on both sides** (`token0 = token1 =
  * "USDC"`) — the same-asset cross-chain market. Such pairs are ask-only with
  * prices strictly below par; the gap to 1 is the filler's spread (e.g.
- * "0.9995" keeps 5 bps of every fill). Two-sided cross-asset books must be
- * uncrossed (bid above ask everywhere) — a crossed or zero spread can never
- * fill and is rejected at startup.
+ * "0.9995" keeps 5 bps of every fill). Cross-asset books quote bid and ask
+ * independently — each side fills at its own curve. A crossed book (bid at or
+ * below ask) is allowed; it just means a full round trip loses money.
  *
  * Users may declare any number of pairs; a single engine serves all of them.
  */
@@ -301,9 +301,9 @@ export function validatePairConfigs(
 			)
 		}
 
-		// A crossed book (bid ≤ ask) is allowed: each side is quoted
-		// independently, and the per-fill margin marking simply never fills the
-		// crossed region. The wizards surface it as a warning, not an error.
+		// A crossed book (bid ≤ ask) is allowed: each side is quoted and filled
+		// independently at its own curve — crossing only means a full round trip
+		// loses money. The wizards surface it as a warning, not an error.
 	}
 
 	// Every pair's token0 sizes orders for the confirmation-depth curve, whose

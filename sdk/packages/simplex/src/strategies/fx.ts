@@ -96,7 +96,7 @@ interface ResolvedLeg {
 	token1Chain: string
 }
 
-/** Rate context resolved for a leg: pricing rate plus the opposite side for margin marking. */
+/** Rate context resolved for a leg: pricing rate plus the opposite side for margin telemetry. */
 interface LegRates {
 	/** token1 per token0 used to price this leg's output. */
 	rate: Decimal
@@ -238,7 +238,7 @@ export class FXFiller implements FillerStrategy {
 			if (isSameTokenPair(pair)) {
 				// Same-asset market: ask-only, priced strictly below par — at or
 				// above par the spread is zero or negative, so every fill either
-				// loses or is rejected by the per-leg spread gate.
+				// loses or is rejected by the same-token spread gate.
 				if (pair.bidPricePolicy || !pair.askPricePolicy) {
 					throw new Error(
 						`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
@@ -252,9 +252,9 @@ export class FXFiller implements FillerStrategy {
 				}
 				continue
 			}
-			// A crossed book (bid ≤ ask) is accepted: each side is quoted
-			// independently, and the per-leg spread gate simply never fills the
-			// crossed region.
+			// A crossed book (bid ≤ ask) is accepted: each side is quoted and
+			// filled independently at its own curve — crossing only means a
+			// full round trip loses money.
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
 				if (!hasVenues) {
 					throw new Error(
@@ -673,26 +673,20 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Per-leg P&L accounting over the surviving legs, feeding the SPREAD gate
-			// (the filler's margin on the swap itself, independent of order.fees):
+			// Per-leg P&L accounting over the surviving legs:
 			//  - Same-token legs realize their spread in-kind (input − output of the
-			//    SAME asset), in fee-token (USD) units — deterministic.
-			//  - Cross-asset legs are half a round-trip: the open side is marked at
-			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
-			//    resale at ask), in token0 units. Only two-sided legs contribute; a
-			//    one-sided (directional) leg has no opposite curve to mark against.
-			//
-			// EVERY leg is gated individually, in its OWN unit — a sign check needs
-			// no common denominator, and margins from pairs with different token0s
-			// must never be summed for a decision (adding dollars to rand lets a
-			// winning leg in a cheap currency mask a losing leg in an expensive
-			// one). The USD-converted sum below is score/telemetry only.
+			//    SAME asset), in fee-token (USD) units — deterministic, and gated:
+			//    a fill that nets a loss of the asset is refused.
+			//  - Cross-asset legs are priced on their own side's curve — the
+			//    operator's declared price, so a fill at it is acceptable by
+			//    definition. Bid and ask are independent books; the FX margin below
+			//    (open side marked at the opposite curve, a mark-to-model round-trip
+			//    value) is REPORT-ONLY telemetry and never rejects an order or
+			//    feeds the execute score.
 			let realizedSpreadProfit = 0n
 			let fxMarginUsd = new Decimal(0)
 			let hasSameTokenSpread = false
 			let sameTokenAllProfitable = true
-			let hasFxMargin = false
-			let losingFxLeg: { leg: number; pair: string; marginToken0: string } | null = null
 			const usdFactorBySymbol = this.usdFactors()
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
@@ -728,7 +722,6 @@ export class FXFiller implements FillerStrategy {
 
 				const rates = legRatesByIndex.get(legIndex)
 				if (!rates?.oppositeRate) continue
-				hasFxMargin = true
 
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
@@ -744,13 +737,6 @@ export class FXFiller implements FillerStrategy {
 					const inputToken1 = new Decimal(formatUnits(input.amount, token1Decimals))
 					const outputToken0 = new Decimal(formatUnits(output.amount, token0Decimals))
 					legMarginToken0 = inputToken1.div(rates.oppositeRate).minus(outputToken0)
-				}
-				if (legMarginToken0.lte(0) && !losingFxLeg) {
-					losingFxLeg = {
-						leg: legIndex,
-						pair: `${leg.pair.token0}/${leg.pair.token1}`,
-						marginToken0: legMarginToken0.toString(),
-					}
 				}
 				const usdFactor = usdFactorBySymbol.get(normalizeSymbol(leg.pair.token0))
 				if (usdFactor) fxMarginUsd = fxMarginUsd.plus(legMarginToken0.mul(usdFactor))
@@ -783,21 +769,14 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			// GATE 2 — swap profit (independent). The fill must make the filler money
-			// on the swap itself, measured per category present. One-sided (directional)
-			// legs produce no spread signal and are not gated here — the operator opted
-			// into that position by configuring one-sided pricing.
+			// GATE 2 — same-token spread (independent). A same-token fill must net
+			// the filler the asset. Cross-asset and one-sided legs are not gated:
+			// they fill at the operator's own curve, which is the price the operator
+			// declared acceptable.
 			if (hasSameTokenSpread && !sameTokenAllProfitable) {
 				this.logger.info(
 					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
 					"Skipping order: a same-token leg does not net a positive spread",
-				)
-				return 0
-			}
-			if (hasFxMargin && losingFxLeg) {
-				this.logger.info(
-					{ orderId: order.id, ...losingFxLeg },
-					"Skipping order: a cross-asset leg's FX margin is not positive in its own quote asset",
 				)
 				return 0
 			}
@@ -806,12 +785,11 @@ export class FXFiller implements FillerStrategy {
 			// Both gates passed → the order is profitable. This number is only the
 			// ranking / >0 execute signal, never a funds gate (the two gates above
 			// already decided). It sums fee surplus (USD) with the realized same-token
-			// spread and the cross-asset FX margin converted to USD through the
-			// anchor factors — for a non-USD same-token asset the spread term is in
-			// that asset's units, so the magnitude is a rough signal rather than a
-			// true dollar figure; its sign is always correct.
-			const totalProfit =
-				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginUsd.toNumber()
+			// spread — for a non-USD same-token asset the spread term is in that
+			// asset's units, so the magnitude is a rough signal rather than a true
+			// dollar figure; its sign is always correct. fxMarginUsd is reported in
+			// the log below but never summed in.
+			const totalProfit = parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -1112,12 +1090,9 @@ export class FXFiller implements FillerStrategy {
 				if (!this.checkPriceGuard(orderId, leg.token1Chain, new Decimal(1).div(venueUsd))) {
 					return null
 				}
-				// A pool mid is ONE price, not a book: there is no opposite side to
-				// mark a round trip against, so venue legs are directional
-				// (gate-1-only), exactly like one-sided curve pairs. Marking the
-				// mid against itself would make the spread gate's outcome a
-				// rounding-dust lottery (margin ≡ 0 up to integer truncation).
-				// The price guard above is the venue-specific defense.
+				// A pool mid is ONE price, not a book: there is no opposite side
+				// to report a round-trip margin against. The price guard above is
+				// the venue-specific defense.
 				const venueRate = new Decimal(1).div(venueUsd)
 				return { rate: venueRate, oppositeRate: null, priceSource: "venue" }
 			}

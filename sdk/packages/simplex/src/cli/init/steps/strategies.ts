@@ -356,7 +356,7 @@ async function buildMarketPair(
 	return pair
 }
 
-/** Prompts for bid/ask curves until the book is valid (uncrossed, ≥1 side). */
+/** Prompts for bid/ask curves until at least one side is set; warns on a crossed book. */
 async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Promise<void> {
 	// Stable-to-stable markets get near-par starting points; buy at a premium,
 	// sell at a discount, book uncrossed by construction.
@@ -415,7 +415,7 @@ async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Pr
 			const crossed = bookCrossedAt(pair.bidPriceCurve, pair.askPriceCurve)
 			if (crossed) {
 				log.warn(
-					`${pair.token0}/${pair.token1}: book is crossed at amount ${crossed.amount} (bid ${crossed.bid} ≤ ask ${crossed.ask}) — fills in that range will never execute. Leave it only if deliberate.`,
+					`${pair.token0}/${pair.token1}: book is crossed at amount ${crossed.amount} (bid ${crossed.bid} ≤ ask ${crossed.ask}) — both sides still fill at their own curve, but a full round trip at these prices loses money. Leave it only if deliberate.`,
 				)
 			}
 		}

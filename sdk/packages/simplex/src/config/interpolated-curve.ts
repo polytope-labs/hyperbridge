@@ -120,9 +120,9 @@ function evaluatePriceCurve(curve: ParsedPricePoint[], x: Decimal): Decimal {
 }
 
 /**
- * The first amount where bid ≤ ask (a crossed or zero-spread book can never
- * fill — every fill marks as a loss at the opposite curve), or null when the
- * book is uncrossed. Both curves are piecewise-linear with flat-clamped tails,
+ * The first amount where bid ≤ ask (a crossed or zero-spread book — each side
+ * still fills at its own curve, but a full round trip there loses money), or
+ * null when the book is uncrossed. Both curves are piecewise-linear with flat-clamped tails,
  * so checking every breakpoint of the combined amount grid covers the whole
  * domain. Tolerant of partially-typed points; shared by the config gate, the
  * live curve-edit endpoint and both wizards.

@@ -570,8 +570,8 @@ function MarketRow(props: {
 			)}
 			{crossedAt !== null && (
 				<p className="hint">
-					⚠ The book is crossed at order size {crossedAt} (bid at or below ask) — fills in that range will
-					never execute. Leave it only if deliberate.
+					⚠ The book is crossed at order size {crossedAt} (bid at or below ask) — both sides still fill at
+					their own curve, but a full round trip at these prices loses money. Leave it only if deliberate.
 				</p>
 			)}
 

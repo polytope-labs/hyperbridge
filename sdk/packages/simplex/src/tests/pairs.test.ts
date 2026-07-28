@@ -139,8 +139,8 @@ describe("validatePairConfigs", () => {
 	})
 
 	it("accepts crossed and zero-spread two-sided books — sides are quoted independently", () => {
-		// The crossed region simply never fills (per-fill marking at the
-		// opposite curve); the wizards warn instead of rejecting.
+		// Each side fills at its own curve; crossing only makes a full round
+		// trip lose money. The wizards warn instead of rejecting.
 		expect(() =>
 			validatePairConfigs(
 				[
@@ -839,7 +839,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			"g1-pass",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
 			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
-			parseUnits("10", 6), // fees $10 > $5 exec cost; bid 1500 > ask 1450 → positive FX margin
+			parseUnits("10", 6), // fees $10 > $5 exec cost; 1.4M CNGN within the 1450 ask curve
 		)
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
@@ -914,8 +914,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	})
 
 	// Two arbitrary NON-USD tokens: ZARP/CNGN. token0=ZARP, curves in CNGN-per-ZARP.
-	// Pricing, sizing, and the spread gate all work in the pair's own units; the
-	// USDC/ZARP anchor pair exists so confirmation depth can price ZARP in USD.
+	// Pricing and sizing work in the pair's own units; the USDC/ZARP anchor
+	// pair exists so confirmation depth can price ZARP in USD.
 	const zarpCngnRegistry = () =>
 		new AssetRegistry(cfg, { ZARP: { [SRC]: ZARP, [DST]: ZARP }, CNGN: { [SRC]: CNGN, [DST]: CNGN } })
 	const usdcZarpAnchor = (): TradingPair => ({
@@ -926,8 +926,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
 	})
 
-	it("fills a two-non-USD cross-asset pair (ZARP/CNGN) when fees cover exec and the FX margin is positive", async () => {
-		// bid 100 > ask 95 (CNGN per ZARP) → positive round-trip margin in ZARP terms.
+	it("fills a two-non-USD cross-asset pair (ZARP/CNGN) when fees cover exec and the order is within the ask curve", async () => {
+		// 94,000 CNGN requested for 1000 ZARP, within the 95 CNGN-per-ZARP ask.
 		const filler = gateFiller(
 			[
 				usdcZarpAnchor(),
@@ -945,9 +945,9 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	it("accepts a crossed (inverted) book at construction — the crossed region just never fills", () => {
-		// bid 90 < ask 95: every fill marks as a loss at the opposite curve, so
-		// the spread gate rejects orders in that range — but the config is the
+	it("accepts a crossed (inverted) book at construction — sides are independent", () => {
+		// bid 90 < ask 95: a crossed book only means a full round trip loses
+		// money; each side still fills at its own curve, so the config is the
 		// operator's call, not a boot error.
 		expect(() =>
 			gateFiller(
@@ -959,6 +959,24 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 			),
 		).not.toThrow()
+	})
+
+	it("fills inside a crossed book when the order is within its own side's curve", async () => {
+		// bid 1392 / ask 1400 CNGN per USDC (crossed). The user wants 1396.3 CNGN
+		// for 1 USDC — within the 1400 the ask curve pays, so the filler bids.
+		// The negative round-trip FX margin is report-only and never gates.
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1392"), askPricePolicy: flat("1400") }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"crossed-fill",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1396.3015", 18) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
 	it("rejects construction when a pair's token0 has no USD anchor", () => {
@@ -992,11 +1010,10 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(value!.inputUsd.toFixed(6)).toBe("100.000000")
 	})
 
-	it("rejects an order when a winning leg in one currency masks a losing leg in another", async () => {
-		// Reviewer repro (mixed-unit gate): the USDC/CNGN leg loses ~66.7 USDC
-		// while the ZARP/CNGN leg gains 600 ZARP (~$33). Summing raw margins
-		// (−66.7 + 600 = +533) would call this profitable; the per-leg gate must
-		// reject because a leg loses money in its own quote asset.
+	it("rejects an order when a leg demands more than its own ask curve yields", async () => {
+		// The USDC/CNGN leg demands 1.6M CNGN but the 1450 ask pays at most
+		// 1.45M for 1000 USDC. Each leg is checked against its own curve only —
+		// the comfortably-within-curve ZARP/CNGN leg cannot rescue the order.
 		const filler = gateFiller(
 			[
 				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
@@ -1006,17 +1023,17 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 		)
 		const o = order(
-			"masked-loss",
+			"beyond-curve",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1600000", 18) }, // 1000 − 1600000/1500 ≈ −66.7 USDC
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1600000", 18) }, // > 1000 × 1450
 			parseUnits("100", 6),
 		)
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
-		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("40000", 18) }) // 1000 − 40000/100 = +600 ZARP
+		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("40000", 18) }) // ≤ 1000 × 95
 		expect(await filler.calculateProfitability(o)).toBe(0)
 	})
 
-	it("fills a multi-pair order when every leg is profitable in its own quote asset", async () => {
+	it("fills a multi-pair order when every leg is within its own curve", async () => {
 		const filler = gateFiller(
 			[
 				{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1450") },
@@ -1028,19 +1045,18 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		const o = order(
 			"all-legs-win",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
-			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) }, // 1000 − 1400000/1500 ≈ +66.7 USDC
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) }, // ≤ 1000 × 1450
 			parseUnits("100", 6),
 		)
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
-		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // 1000 − 94000/100 = +60 ZARP
+		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("94000", 18) }) // ≤ 1000 × 95
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	it("venue-priced legs are directional — an exactly pool-fair fill passes the spread gate", async () => {
-		// A pool mid is one price, not a book: marking it against itself made
-		// the margin identically zero, so any venue fill whose amounts divided
-		// evenly was rejected on rounding dust. Directional legs skip gate 2;
-		// gate 1 and the price guard still apply.
+	it("venue-priced legs fill at the pool mid — gated by fees and the price guard only", async () => {
+		// A pool mid is one price, not a book. Like curve legs, venue legs are
+		// gated by execution cost (gate 1) and the price guard, never by a
+		// cross-curve margin.
 		const venueStub = {
 			walletReserveForToken: () => 0n,
 			planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),

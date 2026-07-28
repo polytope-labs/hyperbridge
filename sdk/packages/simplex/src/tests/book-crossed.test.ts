@@ -27,7 +27,7 @@ describe("bookCrossedAt", () => {
 		expect(new Decimal(crossed!.bid).lte(crossed!.ask)).toBe(true)
 	})
 
-	it("treats an exact bid == ask touch as crossed (zero spread never fills)", () => {
+	it("treats an exact bid == ask touch as crossed (a round trip breaks even at best)", () => {
 		const bid = [{ amount: "0", price: "1560" }]
 		const ask = [{ amount: "0", price: "1560" }]
 		expect(bookCrossedAt(bid, ask)).toEqual({ amount: "0", bid: "1560", ask: "1560" })

@@ -345,7 +345,7 @@ describe("UiServer (operator mode)", () => {
 	it("accepts an edit that crosses the book — sides are quoted independently", async () => {
 		const { base, bid, ask } = await startServer()
 		// New ask above the existing bid at every size: crossed, but allowed —
-		// the crossed region simply never fills.
+		// each side fills at its own curve.
 		const res = await put(base, "/api/strategies/1/curves", {
 			askPriceCurve: [{ amount: "0", price: "1650" }],
 		})

@@ -37,7 +37,10 @@ const TRANSFER_EVENT = parseAbiItem(
 	"event Transfer(address indexed from, address indexed to, uint256 value)",
 )
 
-const BLOCK_WINDOW = 100n
+// Small enough that a window of Base USDC transfers stays under the official
+// gateway's response-size cap ("backend response too large" at 100 blocks
+// during busy periods), large enough to always contain at least one transfer.
+const BLOCK_WINDOW = 10n
 
 describe("quorumThreshold", () => {
 	it.each<[number, number]>([

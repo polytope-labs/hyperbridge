@@ -24,12 +24,18 @@ import {
 	IntentGateway,
 	IntentsCoprocessor,
 	DEFAULT_GRAFFITI,
+	ChainConfigService,
 } from "@hyperbridge/sdk"
-import { describe, it, expect } from "vitest"
+import { beforeAll, describe, it, expect } from "vitest"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
+	createPublicClient,
+	createWalletClient,
+	formatUnits,
 	getContract,
+	http,
 	maxUint256,
+	parseAbi,
 	parseUnits,
 	type PublicClient,
 	type WalletClient,
@@ -37,6 +43,7 @@ import {
 	keccak256,
 	toHex,
 } from "viem"
+import { bscTestnet } from "viem/chains"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
@@ -62,6 +69,63 @@ function exoticPairs(
 	return { pairs, registry }
 }
 
+
+// ── Self-funding ─────────────────────────────────────────────────────────────
+//
+// Each run burns ~0.1 USD.h from the CI wallet placing orders on BSC Chapel.
+// The current-generation TokenFaucet (CREATE2-deployed at the same address on
+// Sepolia, BSC Chapel, Base/Arbitrum/OP Sepolia and Gnosis Chiado) mints 1000
+// USD.h per address per day, so the suite tops itself up instead of dying at
+// placeOrder with an opaque "ERC20: transfer amount exceeds balance".
+const TOKEN_FAUCET = "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString
+const SOURCE_CHAIN_ID = "EVM-97"
+/** Refill when below ~100 runs' worth. */
+const MIN_SOURCE_BALANCE = parseUnits("10", 18)
+/** Below one run's worth, a failed drip is fatal — the suite cannot pass. */
+const MIN_RUNNABLE_BALANCE = parseUnits("1", 18)
+
+beforeAll(async () => {
+	const key = process.env.PRIVATE_KEY as HexString | undefined
+	const rpcUrl = process.env.BSC_CHAPEL
+	if (!key || !rpcUrl) return // env-less runs surface their own errors below
+
+	const account = privateKeyToAccount(key)
+	const feeToken = new ChainConfigService(process.env).getUsdcAsset(SOURCE_CHAIN_ID)
+	const transport = http(rpcUrl)
+	const publicClient = createPublicClient({ chain: bscTestnet, transport })
+	const balance = (await publicClient.readContract({
+		address: feeToken,
+		abi: ERC20_ABI,
+		functionName: "balanceOf",
+		args: [account.address],
+	})) as bigint
+	if (balance >= MIN_SOURCE_BALANCE) return
+
+	try {
+		const walletClient = createWalletClient({ chain: bscTestnet, transport, account })
+		const hash = await walletClient.writeContract({
+			chain: bscTestnet,
+			account,
+			address: TOKEN_FAUCET,
+			abi: parseAbi(["function drip(address token)"]),
+			functionName: "drip",
+			args: [feeToken],
+		})
+		await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 })
+		console.log(`[self-funding] dripped 1000 USD.h to ${account.address} on ${SOURCE_CHAIN_ID} (${hash})`)
+	} catch (err) {
+		// The faucet drips once per address per day — a cooldown revert is fine
+		// as long as the balance still covers this run.
+		if (balance < MIN_RUNNABLE_BALANCE) {
+			throw new Error(
+				`CI wallet ${account.address} holds ${formatUnits(balance, 18)} USD.h on ${SOURCE_CHAIN_ID} and the ` +
+					`faucet drip failed (daily cooldown?). Fund it manually: drip(${feeToken}) on TokenFaucet ` +
+					`${TOKEN_FAUCET}. Cause: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+		console.warn("[self-funding] drip unavailable; existing balance still covers this run")
+	}
+}, 120_000)
 
 // ============================================================================
 // Test Suites

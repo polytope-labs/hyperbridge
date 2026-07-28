@@ -6,14 +6,20 @@ import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 // Unit tests for the public RPC registry and how FillerConfigService merges it
 // into the quorum provider set. No network access required.
 
-const SUPPORTED_CHAIN_IDS = [1, 56, 137, 8453, 42161]
+// BSC (56) is deliberately absent: its free endpoints cannot serve
+// eth_getLogs (method caps, archive-token walls, plan quotas), so public
+// witnesses there blocked reads instead of corroborating them.
+const SUPPORTED_CHAIN_IDS = [1, 137, 8453, 42161]
 
 describe("PUBLIC_RPC_URLS registry", () => {
-	it("covers every supported EVM mainnet", () => {
+	it("covers every supported EVM mainnet except BSC", () => {
 		for (const chainId of SUPPORTED_CHAIN_IDS) {
 			expect(PUBLIC_RPC_URLS[chainId], `chain ${chainId}`).toBeDefined()
 			expect(PUBLIC_RPC_URLS[chainId].length).toBeGreaterThanOrEqual(3)
 		}
+		// BSC runs an operator-only quorum.
+		expect(PUBLIC_RPC_URLS[56]).toBeUndefined()
+		expect(getPublicRpcUrls(56)).toEqual([])
 	})
 
 	it("lists only well-formed https URLs with distinct hostnames per chain", () => {

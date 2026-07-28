@@ -1,5 +1,12 @@
 # @hyperbridge/filler
 
+## 0.8.1
+
+### Patch Changes
+
+- BSC is removed from the public RPC registry and runs an operator-only quorum: its free endpoints structurally cannot serve `eth_getLogs` (method caps, archive-token requirements, plan quotas), so the two-witness floor was rejecting reads the operator's endpoint had answered correctly and the BSC block scanner deadlocked on `QuorumError`. Ethereum, Arbitrum, Base and Polygon keep their public witnesses.
+
+
 ## 0.8.0
 
 ### Minor Changes

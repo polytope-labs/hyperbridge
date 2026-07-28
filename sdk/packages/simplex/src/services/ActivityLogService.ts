@@ -24,6 +24,21 @@ export interface ActivityEvent {
 
 export type ActivityInsert = Partial<Omit<ActivityEvent, "id" | "ts" | "type">> & { type: ActivityType }
 
+export type WalletTxKind = "send" | "sweep" | "redeem"
+
+/** One outbound transaction from the filler wallet (operator send, vault sweep/redeem). */
+export interface WalletTx {
+	id: number
+	ts: number
+	kind: WalletTxKind
+	chainId: number | null
+	token: string | null
+	amount: string | null
+	to: string | null
+	txHash: string
+	sponsored: boolean | null
+}
+
 const MAX_ROWS = 10_000
 const PRUNE_EVERY = 500
 
@@ -60,6 +75,17 @@ export class ActivityLogService extends EventEmitter {
 				tx_hash TEXT
 			);
 			CREATE INDEX IF NOT EXISTS idx_events_id ON events(id);
+			CREATE TABLE IF NOT EXISTS wallet_txs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				ts INTEGER NOT NULL,
+				kind TEXT NOT NULL,
+				chain_id INTEGER,
+				token TEXT,
+				amount TEXT,
+				to_address TEXT,
+				tx_hash TEXT NOT NULL,
+				sponsored INTEGER
+			);
 		`)
 	}
 
@@ -152,11 +178,74 @@ export class ActivityLogService extends EventEmitter {
 				this.db
 					.prepare("DELETE FROM events WHERE id <= (SELECT MAX(id) FROM events) - ?")
 					.run(MAX_ROWS)
+				this.db
+					.prepare("DELETE FROM wallet_txs WHERE id <= (SELECT MAX(id) FROM wallet_txs) - ?")
+					.run(MAX_ROWS)
 			} catch (err) {
 				this.logger.warn({ err }, "Activity log prune failed")
 			}
 		}
 		return row
+	}
+
+	recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): void {
+		this.db
+			.prepare(`
+				INSERT INTO wallet_txs (ts, kind, chain_id, token, amount, to_address, tx_hash, sponsored)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`)
+			.run(
+				Date.now(),
+				tx.kind,
+				tx.chainId,
+				tx.token,
+				tx.amount,
+				tx.to,
+				tx.txHash,
+				tx.sponsored === null ? null : tx.sponsored ? 1 : 0,
+			)
+	}
+
+	/** Newest first. */
+	getWalletTxs(limit = 100): WalletTx[] {
+		const capped = Math.min(Math.max(limit, 1), 500)
+		const rows = this.db.prepare("SELECT * FROM wallet_txs ORDER BY id DESC LIMIT ?").all(capped)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => ({
+			id: row.id,
+			ts: row.ts,
+			kind: row.kind,
+			chainId: row.chain_id,
+			token: row.token,
+			amount: row.amount,
+			to: row.to_address,
+			txHash: row.tx_hash,
+			sponsored: row.sponsored === null ? null : row.sponsored === 1,
+		}))
+	}
+
+	/** Fill events that carry a transaction hash and chain, newest first — for the wallet history view. */
+	getFillTxs(limit = 100): ActivityEvent[] {
+		const capped = Math.min(Math.max(limit, 1), 500)
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM events WHERE type = 'filled' AND tx_hash IS NOT NULL AND chain_id IS NOT NULL ORDER BY id DESC LIMIT ?",
+			)
+			.all(capped)
+		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
+		return (rows as any[]).map((row) => ({
+			id: row.id,
+			ts: row.ts,
+			type: row.type,
+			orderId: row.order_id,
+			chainId: row.chain_id,
+			strategy: row.strategy,
+			success: row.success === null ? null : row.success === 1,
+			reason: row.reason,
+			volumeUsd: row.volume_usd,
+			profitUsd: row.profit_usd,
+			txHash: row.tx_hash,
+		}))
 	}
 
 	/** Newest first; pass `beforeId` for older pages. */

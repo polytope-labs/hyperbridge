@@ -19,4 +19,5 @@ export type {
 	Status,
 	StatusInit,
 	StatusOperator,
+	WalletTxDto,
 } from "@/services/server/dto"

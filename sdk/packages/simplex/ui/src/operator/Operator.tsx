@@ -7,12 +7,14 @@ import { useAction, usePolling } from "../lib/hooks"
 import type { AdminStrategyDto, BalanceSnapshot, StatusOperator } from "../types"
 import { Activity } from "./Activity"
 import { Operations } from "./Operations"
+import { Wallet } from "./Wallet"
 
-type Tab = "overview" | "activity" | "operations"
+type Tab = "overview" | "activity" | "wallet" | "operations"
 
 const PAGE_TABS = [
 	{ value: "overview", label: "overview" },
 	{ value: "activity", label: "activity" },
+	{ value: "wallet", label: "wallet" },
 	{ value: "operations", label: "operations" },
 ] as const
 
@@ -123,6 +125,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			<PillTabs options={PAGE_TABS} value={tab} onChange={setTab} />
 
 			{tab === "activity" && <Activity />}
+			{tab === "wallet" && <Wallet chainLabels={status.chainLabels} />}
 			{tab === "operations" && <Operations chains={status.chains} chainLabels={status.chainLabels} />}
 
 			<div className="card" style={tab !== "overview" ? { display: "none" } : undefined}>
@@ -281,6 +284,13 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 					orders.
 				</p>
 			)}
+			{!strategy.sameToken && !strategy.referenceOnly && (
+				<p className="hint">
+					Prices are {token1} per {token0}: the bid is the {token1} you receive per {token0} paid out when
+					buying, the ask is the {token1} you pay out per {token0} received when selling. Keep the bid above
+					the ask everywhere — the gap is your spread.
+				</p>
+			)}
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
 				{(strategy.bid || enableBid) && (
 					<div>
@@ -289,7 +299,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 							points={bid}
 							onChange={setBid}
 							amountLabel={`Order size (${token0})`}
-							valueLabel={`${token1} per ${token0}`}
+							valueLabel={`${token1} received per ${token0}`}
 						/>
 					</div>
 				)}
@@ -304,7 +314,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 							points={ask}
 							onChange={setAsk}
 							amountLabel={`Order size (${token0})`}
-							valueLabel={strategy.sameToken ? "Price (below 1)" : `${token1} per ${token0}`}
+							valueLabel={strategy.sameToken ? "Price (below 1)" : `${token1} paid per ${token0}`}
 						/>
 					</div>
 				)}

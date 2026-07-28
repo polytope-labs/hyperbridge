@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { Decimal } from "decimal.js"
 import { writeConfigFileAtomic } from "@/config/write-config"
-import { FillerPricePolicy, formatChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { INIT_CHAINS } from "@/cli/init/chains"
@@ -18,7 +18,15 @@ import { configureLogger, getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost } from "./http-util"
 import { serveStatic } from "./static"
 import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
-import { LOG_LEVELS, type AdminStrategyDto, type ConfigDto, type SendTokenOption, type StatusInit, type StatusOperator } from "./dto"
+import {
+	LOG_LEVELS,
+	type AdminStrategyDto,
+	type ConfigDto,
+	type SendTokenOption,
+	type StatusInit,
+	type StatusOperator,
+	type WalletTxDto,
+} from "./dto"
 
 /**
  * One curve-priced trading pair's editable price curves. The policies are the
@@ -75,7 +83,7 @@ export interface OperatorContext {
 	config: FillerTomlConfig
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityLogService, "getRecent" | "on" | "off">
+	activity: Pick<ActivityLogService, "getRecent" | "on" | "off" | "recordWalletTx" | "getWalletTxs" | "getFillTxs">
 	bids?: Pick<BidStorageService, "getRecentBids" | "getStats">
 	vault?: {
 		sweepNow(): Promise<void>
@@ -297,6 +305,31 @@ export class UiServer {
 			const limit = Number(params.get("limit") ?? 100)
 			const before = params.get("before") ? Number(params.get("before")) : undefined
 			return sendJson(res, 200, { events: this.operator!.activity.getRecent(limit, before) })
+		}
+
+		if (path === "/api/wallet/history") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const limit = Math.min(Math.max(Number(params.get("limit") ?? 100), 1), 500)
+			const activity = this.operator!.activity
+			const txs: WalletTxDto[] = [
+				...activity.getWalletTxs(limit).map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
+				...activity.getFillTxs(limit).map((event) => ({
+					id: `fill-${event.id}`,
+					ts: event.ts,
+					kind: "fill" as const,
+					chainId: event.chainId,
+					token: null,
+					amount: null,
+					to: null,
+					txHash: event.txHash as string,
+					sponsored: null,
+				})),
+			]
+				.sort((a, b) => b.ts - a.ts)
+				.slice(0, limit)
+			return sendJson(res, 200, { txs })
 		}
 
 		if (path === "/api/activity/bids") {
@@ -609,9 +642,10 @@ export class UiServer {
 	}
 
 	/**
-	 * Token choices for the dashboard Send card, per state machine id: native,
-	 * the chain's stablecoins/exotics from the SDK registry, and configured
-	 * vault share tokens (marked so the UI can explain redeem-on-send).
+	 * Token choices for the dashboard Send card, per state machine id: native
+	 * plus the chain's stablecoins/exotics from the SDK registry. Vault shares
+	 * are not listed — sends of the underlying draw on the vault when the
+	 * wallet balance falls short.
 	 */
 	private sendTokenOptions(op: OperatorContext): Record<string, SendTokenOption[]> {
 		// The same symbol registry the trading engine resolves pairs with:
@@ -628,11 +662,6 @@ export class UiServer {
 			for (const symbol of symbols) {
 				const address = registry.getAddress(symbol, stateMachineId)
 				if (address) tokens.push({ symbol, address })
-			}
-			for (const vault of op.config.vault?.vaults ?? []) {
-				if (vault.chain === stateMachineId) {
-					tokens.push({ symbol: `vault shares (${vault.vault.slice(0, 8)}…)`, address: vault.vault, vaultShare: true })
-				}
 			}
 			options[stateMachineId] = tokens
 		}
@@ -665,6 +694,23 @@ export class UiServer {
 				to: body.to as `0x${string}`,
 			})
 			this.logger.warn({ ...body, ...result }, "Operator send submitted from the UI")
+			const symbol =
+				(this.sendTokenOptions(op)[body.chain] ?? []).find(
+					(option) => option.address.toLowerCase() === body.token!.toLowerCase(),
+				)?.symbol ?? body.token
+			try {
+				op.activity.recordWalletTx({
+					kind: "send",
+					chainId: parseChainKey(body.chain),
+					token: symbol,
+					amount: body.amount,
+					to: body.to,
+					txHash: result.txHash,
+					sponsored: result.sponsored,
+				})
+			} catch (err) {
+				this.logger.warn({ err }, "Failed to record send in wallet history")
+			}
 			return sendJson(res, 200, result)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })

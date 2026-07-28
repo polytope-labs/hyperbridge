@@ -49,6 +49,9 @@ export class VaultFundingPlanner implements FundingVenue {
 		private readonly userOpSender?: UserOpSender,
 	) {}
 
+	/** Invoked after each submitted sweep/redeem batch so wallet history can record it. */
+	onTx?: (tx: { chain: string; kind: "sweep" | "redeem"; txHash: HexString; sponsored: boolean }) => void
+
 	/**
 	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
 	 * with every strategy's funding-venue list, so an in-place swap takes effect
@@ -317,6 +320,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
+			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
 		})
 	}
 
@@ -430,6 +434,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
+			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
 		})
 	}
 }

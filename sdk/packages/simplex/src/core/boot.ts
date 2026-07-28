@@ -389,6 +389,23 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Persistent order-activity feed for the operator UI
 	const activityLog = new ActivityLogService(options.dataDir)
 	activityLog.attach(intentFiller.monitor)
+	if (vaultVenue) {
+		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
+			try {
+				activityLog.recordWalletTx({
+					kind,
+					chainId: parseChainKey(chain),
+					token: null,
+					amount: null,
+					to: null,
+					txHash,
+					sponsored,
+				})
+			} catch (err) {
+				logger.warn({ err }, "Failed to record vault tx in wallet history")
+			}
+		}
+	}
 
 	// Collect exotic token addresses (the non-quote side of cross-asset pairs)
 	// via the asset registry; same-token pairs have no exotic side. Every

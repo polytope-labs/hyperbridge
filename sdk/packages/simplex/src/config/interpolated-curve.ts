@@ -366,8 +366,9 @@ export class FillerPricePolicy {
 		if (crossed) {
 			throw new Error(
 				`${label}: book is crossed at amount ${crossed.amount} — bid ${crossed.bid} ≤ ask ${crossed.ask}. ` +
-					`A non-positive spread can never fill (every fill marks as a loss at the opposite curve); ` +
-					`skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
+					`Prices are token1 per token0, so the bid (token1 received per token0 when buying) must stay above ` +
+					`the ask (token1 paid out per token0 when selling); a non-positive spread can never fill. ` +
+					`Skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
 			)
 		}
 	}

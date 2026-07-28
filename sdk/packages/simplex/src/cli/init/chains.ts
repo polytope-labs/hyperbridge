@@ -7,6 +7,8 @@ export interface InitChainMeta {
 	network: InitNetwork
 	/** Subdomain of `<subdomain>.g.alchemy.com`; undefined when Alchemy doesn't serve the chain. */
 	alchemySubdomain?: string
+	/** Block explorer base URL (no trailing slash) for transaction links. */
+	explorerUrl?: string
 	/** Extra caveat surfaced next to the chain in prompts. */
 	note?: string
 }
@@ -18,6 +20,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Ethereum",
 		network: "mainnet",
 		alchemySubdomain: "eth-mainnet",
+		explorerUrl: "https://etherscan.io",
 	},
 	{
 		chainId: 42161,
@@ -25,6 +28,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Arbitrum",
 		network: "mainnet",
 		alchemySubdomain: "arb-mainnet",
+		explorerUrl: "https://arbiscan.io",
 	},
 	{
 		chainId: 8453,
@@ -32,6 +36,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Base",
 		network: "mainnet",
 		alchemySubdomain: "base-mainnet",
+		explorerUrl: "https://basescan.org",
 	},
 	{
 		chainId: 137,
@@ -39,6 +44,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Polygon",
 		network: "mainnet",
 		alchemySubdomain: "polygon-mainnet",
+		explorerUrl: "https://polygonscan.com",
 	},
 	{
 		chainId: 56,
@@ -46,6 +52,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "BNB Chain",
 		network: "mainnet",
 		alchemySubdomain: "bnb-mainnet",
+		explorerUrl: "https://bscscan.com",
 		note: "no Circle paymaster — the filler wallet also needs native BNB for gas",
 	},
 	{
@@ -54,6 +61,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Sepolia",
 		network: "testnet",
 		alchemySubdomain: "eth-sepolia",
+		explorerUrl: "https://sepolia.etherscan.io",
 	},
 	{
 		chainId: 421614,
@@ -61,6 +69,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Arbitrum Sepolia",
 		network: "testnet",
 		alchemySubdomain: "arb-sepolia",
+		explorerUrl: "https://sepolia.arbiscan.io",
 	},
 	{
 		chainId: 84532,
@@ -68,6 +77,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Base Sepolia",
 		network: "testnet",
 		alchemySubdomain: "base-sepolia",
+		explorerUrl: "https://sepolia.basescan.org",
 	},
 	{
 		chainId: 80002,
@@ -75,6 +85,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "Polygon Amoy",
 		network: "testnet",
 		alchemySubdomain: "polygon-amoy",
+		explorerUrl: "https://amoy.polygonscan.com",
 	},
 	{
 		chainId: 97,
@@ -82,6 +93,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		label: "BSC Chapel",
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
+		explorerUrl: "https://testnet.bscscan.com",
 		note: "no Circle paymaster — the filler wallet also needs native tBNB for gas",
 	},
 ]

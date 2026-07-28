@@ -200,10 +200,7 @@ function SendCard(props: {
 	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
 
 	const send = () => {
-		const what = selected?.vaultShare
-			? `${amount} vault shares (redeemed — the recipient receives the underlying asset)`
-			: `${amount} ${symbol}`
-		if (!window.confirm(`Send ${what} on ${props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)} to ${to.trim()}?`)) {
+		if (!window.confirm(`Send ${amount} ${symbol} on ${props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)} to ${to.trim()}?`)) {
 			return
 		}
 		setResult(undefined)
@@ -228,8 +225,8 @@ function SendCard(props: {
 		<div className="card">
 			<h2>Send</h2>
 			<p className="hint">
-				Send tokens out of the filler wallet. Vault share tokens are redeemed on the way out — the recipient
-				receives the underlying asset. Gas is covered by the paymaster where available.
+				Send tokens out of the filler wallet. When the wallet balance falls short, vault holdings of the asset
+				are redeemed to cover the difference. Gas is covered by the paymaster where available.
 			</p>
 			<div className="row" style={{ flexWrap: "wrap" }}>
 				<select
@@ -282,7 +279,7 @@ function SendCard(props: {
 			</div>
 			{result && (
 				<p className="hint">
-					✓ Sent{result.redeemed && " (vault shares redeemed to the underlying)"} — tx{" "}
+					✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
 					<CopyHash value={result.txHash} chars={18} />
 				</p>
 			)}

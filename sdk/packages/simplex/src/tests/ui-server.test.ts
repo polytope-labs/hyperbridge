@@ -686,6 +686,48 @@ describe("UiServer (operator mode)", () => {
 		expect(tokens.some((t: { symbol: string }) => t.symbol === "USDC")).toBe(true)
 	})
 
+	it("does not list vault shares among send token options", async () => {
+		const vaultAddress = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
+		const config = fakeConfig()
+		config.vault = { vaults: [{ chain: "EVM-8453", vault: vaultAddress }] }
+		const { base } = await startServer({ config })
+		const configDto = await (await fetch(`${base}/api/config`)).json()
+		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string }>
+		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
+	})
+
+	it("records operator sends in the wallet history and merges fill txs", async () => {
+		const send = vi.fn().mockResolvedValue({ txHash: "0xabc123", sponsored: true, redeemed: true })
+		const { base, operator } = await startServer({ send })
+		const activity = operator.activity as ActivityLogService
+		activity.record({ type: "filled", orderId: "0xorder", txHash: "0xf1", chainId: 56 })
+		activity.record({ type: "skipped", orderId: "0xother", reason: "unprofitable" }) // no tx hash — not history
+
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+		expect(res.status).toBe(200)
+
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toHaveLength(2)
+		expect(history.txs.find((t: { kind: string }) => t.kind === "send")).toMatchObject({
+			chainId: 8453,
+			token: "USDC",
+			amount: "25",
+			to: body.to,
+			txHash: "0xabc123",
+			sponsored: true,
+		})
+		expect(history.txs.find((t: { kind: string }) => t.kind === "fill")).toMatchObject({
+			chainId: 56,
+			txHash: "0xf1",
+		})
+	})
+
 	it("updates rebalancing settings at runtime and persists them", async () => {
 		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
 		const { base, operator } = await startServer({ rebalancing: { checkTriggers } })

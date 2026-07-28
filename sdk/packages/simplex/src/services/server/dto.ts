@@ -125,7 +125,20 @@ export interface BidStatsDto {
 export interface SendTokenOption {
 	symbol: string
 	address: string
-	vaultShare?: boolean
+}
+
+/** GET /api/wallet/history rows: operator sends, vault sweeps/redeems and order fills. */
+export interface WalletTxDto {
+	/** Source-qualified ("wallet-3", "fill-17") — the two backing tables have overlapping ids. */
+	id: string
+	ts: number
+	kind: "send" | "sweep" | "redeem" | "fill"
+	chainId: number | null
+	token: string | null
+	amount: string | null
+	to: string | null
+	txHash: string
+	sponsored: boolean | null
 }
 
 /** GET /api/config */

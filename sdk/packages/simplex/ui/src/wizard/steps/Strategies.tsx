@@ -592,9 +592,11 @@ function MarketRow(props: {
 			{!sameToken && pricing === "curves" && (
 				<div>
 					<p className="hint">
-						Prices are {pair.token1 || "base"} per {pair.token0 || "quote"}. Disabling one side is one-sided
-						LP: bid-only keeps buying (accumulates {pair.token1 || "the base token"}), ask-only keeps selling
-						(accumulates {pair.token0 || "the quote"}). The bid must stay above the ask everywhere.
+						Prices are {pair.token1 || "base"} per {pair.token0 || "quote"}: the bid is what you receive per{" "}
+						{pair.token0 || "quote"} when buying, the ask is what you pay out per {pair.token0 || "quote"}{" "}
+						when selling — keep the bid above the ask everywhere. Disabling one side is one-sided LP:
+						bid-only keeps buying (accumulates {pair.token1 || "the base token"}), ask-only keeps selling
+						(accumulates {pair.token0 || "the quote"}).
 					</p>
 					<label className="row">
 						<input
@@ -609,7 +611,7 @@ function MarketRow(props: {
 							points={pair.bid}
 							onChange={(points) => onPatch({ bid: points })}
 							amountLabel={`Order size (${pair.token0})`}
-							valueLabel={`${pair.token1 || "Base"} per ${pair.token0 || "quote"}`}
+							valueLabel={`${pair.token1 || "Base"} received per ${pair.token0 || "quote"}`}
 						/>
 					)}
 					<label className="row" style={{ marginTop: "0.5rem" }}>
@@ -625,7 +627,7 @@ function MarketRow(props: {
 							points={pair.ask}
 							onChange={(points) => onPatch({ ask: points })}
 							amountLabel={`Order size (${pair.token0})`}
-							valueLabel={`${pair.token1 || "Base"} per ${pair.token0 || "quote"}`}
+							valueLabel={`${pair.token1 || "Base"} paid per ${pair.token0 || "quote"}`}
 						/>
 					)}
 					{!pair.bidEnabled && !pair.askEnabled && <p className="error">Enable at least one direction.</p>}

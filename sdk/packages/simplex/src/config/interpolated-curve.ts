@@ -79,6 +79,74 @@ export interface PriceCurveConfig {
 	points: PriceCurvePoint[]
 }
 
+interface ParsedPricePoint {
+	amount: Decimal
+	price: Decimal
+}
+
+/** Parses to Decimal, dropping unparseable/non-finite points (a wizard editor mid-typing). */
+function parseFinitePricePoints(points: PriceCurvePoint[]): ParsedPricePoint[] {
+	const parsed: ParsedPricePoint[] = []
+	for (const point of points) {
+		let amount: Decimal
+		let price: Decimal
+		try {
+			amount = new Decimal(point.amount)
+			price = new Decimal(point.price)
+		} catch {
+			continue
+		}
+		if (!amount.isFinite() || !price.isFinite()) continue
+		parsed.push({ amount, price })
+	}
+	return parsed.sort((a, b) => a.amount.comparedTo(b.amount))
+}
+
+/** Flat-clamped piecewise-linear evaluation; on duplicate amounts the later point wins. */
+function evaluatePriceCurve(curve: ParsedPricePoint[], x: Decimal): Decimal {
+	if (x.lte(curve[0].amount)) return curve[0].price
+	const last = curve[curve.length - 1]
+	if (x.gte(last.amount)) return last.price
+	for (let i = 1; i < curve.length; i++) {
+		if (x.lte(curve[i].amount)) {
+			const a = curve[i - 1]
+			const b = curve[i]
+			if (b.amount.eq(a.amount)) return b.price
+			const t = x.minus(a.amount).div(b.amount.minus(a.amount))
+			return a.price.plus(t.mul(b.price.minus(a.price)))
+		}
+	}
+	return last.price
+}
+
+/**
+ * The first amount where bid ≤ ask (a crossed or zero-spread book can never
+ * fill — every fill marks as a loss at the opposite curve), or null when the
+ * book is uncrossed. Both curves are piecewise-linear with flat-clamped tails,
+ * so checking every breakpoint of the combined amount grid covers the whole
+ * domain. Tolerant of partially-typed points; shared by the config gate, the
+ * live curve-edit endpoint and both wizards.
+ */
+export function bookCrossedAt(
+	bid: PriceCurvePoint[],
+	ask: PriceCurvePoint[],
+): { amount: string; bid: string; ask: string } | null {
+	const bidCurve = parseFinitePricePoints(bid)
+	const askCurve = parseFinitePricePoints(ask)
+	if (bidCurve.length === 0 || askCurve.length === 0) return null
+	const amounts = [...new Set([...bidCurve, ...askCurve].map((p) => p.amount.toString()))]
+		.map((amount) => new Decimal(amount))
+		.sort((a, b) => a.comparedTo(b))
+	for (const amount of amounts) {
+		const bidPrice = evaluatePriceCurve(bidCurve, amount)
+		const askPrice = evaluatePriceCurve(askCurve, amount)
+		if (bidPrice.lte(askPrice)) {
+			return { amount: amount.toString(), bid: bidPrice.toString(), ask: askPrice.toString() }
+		}
+	}
+	return null
+}
+
 interface ParsedPoint {
 	amount: number
 	value: number
@@ -168,6 +236,11 @@ export function parseChainKey(key: string): number | null {
 	const normalized = key.trim().replace(/^EVM-/i, "")
 	if (!/^\d+$/.test(normalized)) return null
 	return Number(normalized)
+}
+
+/** The canonical "EVM-<id>" state machine id `parseChainKey` accepts. */
+export function formatChainKey(chainId: number | string): string {
+	return `EVM-${chainId}`
 }
 
 export class ConfirmationPolicy {
@@ -289,18 +362,13 @@ export class FillerPricePolicy {
 	 * (clamped tails included).
 	 */
 	static assertBookNotCrossed(label: string, bid: FillerPricePolicy, ask: FillerPricePolicy): void {
-		const amounts = [...new Set([...bid.getPoints(), ...ask.getPoints()].map((p) => p.amount))]
-		for (const amount of amounts) {
-			const at = new Decimal(amount)
-			const bidPrice = bid.getPrice(at)
-			const askPrice = ask.getPrice(at)
-			if (bidPrice.lte(askPrice)) {
-				throw new Error(
-					`${label}: book is crossed at amount ${amount} — bid ${bidPrice.toString()} ≤ ask ${askPrice.toString()}. ` +
-						`A non-positive spread can never fill (every fill marks as a loss at the opposite curve); ` +
-						`skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
-				)
-			}
+		const crossed = bookCrossedAt(bid.getPoints(), ask.getPoints())
+		if (crossed) {
+			throw new Error(
+				`${label}: book is crossed at amount ${crossed.amount} — bid ${crossed.bid} ≤ ask ${crossed.ask}. ` +
+					`A non-positive spread can never fill (every fill marks as a loss at the opposite curve); ` +
+					`skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
+			)
 		}
 	}
 
@@ -323,10 +391,13 @@ export class FillerPricePolicy {
 			return lastPoint.price
 		}
 
-		// Piecewise linear interpolation between surrounding points
+		// Piecewise linear interpolation between surrounding points; duplicate
+		// amounts would divide by zero, so skip zero-width segments (the later
+		// point wins via the following segment or the clamped-tail checks above)
 		for (let i = 0; i < this.points.length - 1; i++) {
 			const p1 = this.points[i]
 			const p2 = this.points[i + 1]
+			if (p2.amount.eq(p1.amount)) continue
 
 			if (amount.gte(p1.amount) && amount.lte(p2.amount)) {
 				const t = amount.minus(p1.amount).div(p2.amount.minus(p1.amount))

@@ -10,7 +10,10 @@
 		"skipLibCheck": true,
 		"isolatedModules": true,
 		"esModuleInterop": true,
-		"forceConsistentCasingInFileNames": true
+		"forceConsistentCasingInFileNames": true,
+		"paths": {
+			"@/*": ["../src/*"]
+		}
 	},
 	"include": ["src", "vite.config.ts"]
 }

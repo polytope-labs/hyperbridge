@@ -232,11 +232,10 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 	const [message, setMessage] = useState<string>()
 	const [error, setError] = useState<string>()
 
-	// The label is "TOKEN0/TOKEN1" (reference pairs carry a " (reference)" suffix).
-	const pairLabel = (strategy.exotic ?? "").replace(" (reference)", "")
-	const [token0 = "token0", token1 = "token1"] = pairLabel.split("/")
+	const token0 = strategy.token0 || "token0"
+	const token1 = strategy.token1 || "token1"
 	const title = strategy.referenceOnly
-		? `Market #${strategy.index} · ${pairLabel} — reference price feed`
+		? `Market #${strategy.index} · ${token0}/${token1} — reference price feed`
 		: strategy.sameToken
 			? `Market #${strategy.index} · ${strategy.exotic} — same-asset transfers`
 			: `Market #${strategy.index} ${strategy.exotic ? `· ${strategy.exotic}` : ""}`

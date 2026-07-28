@@ -3,8 +3,8 @@ import { HexString } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
-import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
-import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
+import { validateUniswapV4Positions } from "@/config/v4-validate"
+import { validateVaultToml } from "@/config/vault-validate"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
@@ -221,7 +221,7 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	}
 
 	if (config.vault?.vaults?.length) {
-		VaultFundingPlanner.validateConfig(config.vault.vaults)
+		validateVaultToml(config.vault.vaults)
 	}
 
 	// Asset registry and trading pairs — the entire trading configuration.
@@ -276,7 +276,7 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// one-sided switch, redemption slippage.
 	const uniswapV4 = config.vault?.uniswapV4
 	if (uniswapV4?.positions?.length) {
-		UniswapV4FundingPlanner.validateConfig(uniswapV4.positions)
+		validateUniswapV4Positions(uniswapV4.positions)
 	}
 
 	if (uniswapV4?.spreadBps !== undefined) {

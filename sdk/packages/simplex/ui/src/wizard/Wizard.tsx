@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react"
-import { unanchoredToken0Symbols } from "../lib/anchor"
-import { bookCrossedAt } from "../lib/book"
+import { bookCrossedAt } from "@/config/interpolated-curve"
+import { unanchoredToken0Symbols } from "@/config/pairs"
+import { toPricePoints } from "../components/CurveEditor"
 import type { SetupDefaults } from "../types"
 import { curveFilled, draftHasCurve, initialState, isSameTokenDraft, normSymbol, type WizardState } from "./state"
 import { StepSigner } from "./steps/Signer"
@@ -110,7 +111,13 @@ const STEPS: Array<{
 					if (pair.bidEnabled && !curveFilled(pair.bid)) return false
 					if (pair.askEnabled && !curveFilled(pair.ask)) return false
 					// A crossed (or zero-spread) book can never fill.
-					if (pair.bidEnabled && pair.askEnabled && bookCrossedAt(pair.bid, pair.ask) !== null) return false
+					if (
+						pair.bidEnabled &&
+						pair.askEnabled &&
+						bookCrossedAt(toPricePoints(pair.bid), toPricePoints(pair.ask)) !== null
+					) {
+						return false
+					}
 				} else if (!defaults.usdStables.includes(normSymbol(pair.token0))) {
 					// Venue pricing only quotes pairs with a USD-stable token0.
 					return false
@@ -118,12 +125,15 @@ const STEPS: Array<{
 			}
 			// Every token0 must reach a USD anchor through the declared curves —
 			// including same-token markets, whose token0 must itself be anchored.
-			const anchorInput = enabled.map((p) => ({
-				token0: p.token0,
-				token1: p.token1,
-				hasCurve: draftHasCurve(p, s.fxPricing),
-			}))
-			if (unanchoredToken0Symbols(anchorInput, defaults.usdStables).length > 0) return false
+			// Rows with a symbol still being typed are gated above, not here.
+			const anchorInput = enabled
+				.filter((p) => p.token0.trim() && p.token1.trim())
+				.map((p) => ({
+					token0: p.token0,
+					token1: p.token1,
+					hasCurve: draftHasCurve(p, s.fxPricing),
+				}))
+			if (unanchoredToken0Symbols(anchorInput).length > 0) return false
 			const hasCrossAsset = enabled.some((p) => p.kind === "crossAsset" && !p.referenceOnly && !isSameTokenDraft(p))
 			if (hasCrossAsset && s.fxPricing === "uniswapV4") {
 				const positionsOk =

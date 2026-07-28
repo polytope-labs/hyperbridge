@@ -1,22 +1,16 @@
 import { useCallback, useState } from "react"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
 import { CopyHash } from "../components/CopyHash"
 import { useAction, usePolling } from "../lib/hooks"
+import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ConfigDto, SendTokenOption } from "../types"
-
-interface VaultRow {
-	chain: string
-	vault: string
-	threshold: string
-	minBalance: string
-	redeemOnShutdown: boolean
-}
 
 export function Operations(props: { chains: number[]; chainLabels?: Record<string, string> }) {
 	const [config, setConfig] = useState<ConfigDto>()
 	const [allowlist, setAllowlist] = useState<string[]>([])
-	const [vaultRows, setVaultRows] = useState<VaultRow[]>()
+	const [vaultRows, setVaultRows] = useState<VaultRowDraft[]>()
 	const { run: act, message, error } = useAction()
 
 	const chainLabel = (id: number | string) => props.chainLabels?.[String(id)] ?? `chain ${id}`
@@ -42,15 +36,8 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 
 	const saveVaults = () =>
 		act(async () => {
-			const rows = (vaultRows ?? []).filter((r) => r.vault.trim())
 			const res = await api.put<{ applied: boolean; restartNeeded: boolean }>("/api/vault", {
-				vaults: rows.map((r) => ({
-					chain: r.chain,
-					vault: r.vault.trim(),
-					...(r.threshold.trim() ? { threshold: r.threshold.trim() } : {}),
-					...(r.minBalance.trim() ? { minBalance: r.minBalance.trim() } : {}),
-					redeemOnShutdown: r.redeemOnShutdown,
-				})),
+				vaults: vaultRowsToToml(vaultRows ?? []),
 			})
 			await load()
 			if (res.restartNeeded) throw new Error("Saved to config — restart the filler to activate the vault treasury")
@@ -79,7 +66,7 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 								}
 							>
 								{props.chains.map((id) => (
-									<option key={id} value={`EVM-${id}`}>
+									<option key={id} value={formatChainKey(id)}>
 										{chainLabel(id)}
 									</option>
 								))}
@@ -139,7 +126,7 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 						onClick={() =>
 							setVaultRows((rows) => [
 								...(rows ?? []),
-								{ chain: `EVM-${props.chains[0] ?? ""}`, vault: "", threshold: "5000", minBalance: "3000", redeemOnShutdown: false },
+								{ chain: formatChainKey(props.chains[0] ?? ""), vault: "", threshold: "5000", minBalance: "3000", redeemOnShutdown: false },
 							])
 						}
 					>
@@ -205,7 +192,7 @@ function SendCard(props: {
 	const [sending, setSending] = useState(false)
 	const { run: act, message, error } = useAction()
 
-	const selectedChain = chain ?? `EVM-${props.chains[0] ?? ""}`
+	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
 	const options = props.sendTokens?.[selectedChain] ?? [{ symbol: "native", address: "native" }]
 	const tokenAddress = token === "custom" ? customToken.trim() : token
 	const selected = options.find((o) => o.address === token)
@@ -216,7 +203,7 @@ function SendCard(props: {
 		const what = selected?.vaultShare
 			? `${amount} vault shares (redeemed — the recipient receives the underlying asset)`
 			: `${amount} ${symbol}`
-		if (!window.confirm(`Send ${what} on ${props.chainLabel(selectedChain.replace("EVM-", ""))} to ${to.trim()}?`)) {
+		if (!window.confirm(`Send ${what} on ${props.chainLabel(parseChainKey(selectedChain) ?? selectedChain)} to ${to.trim()}?`)) {
 			return
 		}
 		setResult(undefined)
@@ -253,7 +240,7 @@ function SendCard(props: {
 					}}
 				>
 					{props.chains.map((id) => (
-						<option key={id} value={`EVM-${id}`}>
+						<option key={id} value={formatChainKey(id)}>
 							{props.chainLabel(id)}
 						</option>
 					))}

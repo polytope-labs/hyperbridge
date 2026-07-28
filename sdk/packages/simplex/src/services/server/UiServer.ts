@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { Decimal } from "decimal.js"
 import { writeConfigFileAtomic } from "@/config/write-config"
-import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { FillerPricePolicy, formatChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { INIT_CHAINS } from "@/cli/init/chains"
@@ -18,6 +18,7 @@ import { configureLogger, getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost } from "./http-util"
 import { serveStatic } from "./static"
 import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
+import { LOG_LEVELS, type AdminStrategyDto, type ConfigDto, type SendTokenOption, type StatusInit, type StatusOperator } from "./dto"
 
 /**
  * One curve-priced trading pair's editable price curves. The policies are the
@@ -32,6 +33,8 @@ export interface AdminStrategy {
 	pairIndex: number
 	/** Pair label, e.g. "USDC/CNGN" (display-only). */
 	exotic?: string
+	token0: string
+	token1: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
 	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
@@ -326,7 +329,7 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 			const op = this.operator!
-			return sendJson(res, 200, {
+			const configDto: ConfigDto = {
 				configPath: op.configPath,
 				toml: maskToml(op.config),
 				logLevel: op.config.simplex.logging ?? "info",
@@ -334,7 +337,8 @@ export class UiServer {
 				allowlistUsers: op.config.allowlist?.users ?? [],
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
-			})
+			}
+			return sendJson(res, 200, configDto)
 		}
 
 		if (path === "/api/log-level") {
@@ -433,14 +437,15 @@ export class UiServer {
 
 	private handleStatus(res: ServerResponse): void {
 		if (this.mode === "init" || !this.operator) {
-			return sendJson(res, 200, {
+			const status: StatusInit = {
 				mode: "init",
 				starting: this.startState === "starting",
 				startError: this.startError,
-			})
+			}
+			return sendJson(res, 200, status)
 		}
 		const op = this.operator
-		return sendJson(res, 200, {
+		const status: StatusOperator = {
 			mode: "operator",
 			version: op.version,
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
@@ -455,7 +460,8 @@ export class UiServer {
 			chainLabels: Object.fromEntries(
 				op.chains.map((id) => [id, INIT_CHAINS.find((c) => c.chainId === id)?.label ?? `chain ${id}`]),
 			),
-		})
+		}
+		return sendJson(res, 200, status)
 	}
 
 	private async handleCurveUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
@@ -592,8 +598,8 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		const level = body.level
-		if (!level || !["trace", "debug", "info", "warn", "error"].includes(level)) {
-			return sendJson(res, 400, { error: "level must be one of trace, debug, info, warn, error" })
+		if (!level || !(LOG_LEVELS as readonly string[]).includes(level)) {
+			return sendJson(res, 400, { error: `level must be one of ${LOG_LEVELS.join(", ")}` })
 		}
 		configureLogger(level as LogLevel)
 		this.operator!.config.simplex.logging = level
@@ -607,9 +613,7 @@ export class UiServer {
 	 * the chain's stablecoins/exotics from the SDK registry, and configured
 	 * vault share tokens (marked so the UI can explain redeem-on-send).
 	 */
-	private sendTokenOptions(
-		op: OperatorContext,
-	): Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> {
+	private sendTokenOptions(op: OperatorContext): Record<string, SendTokenOption[]> {
 		// The same symbol registry the trading engine resolves pairs with:
 		// built-ins from the SDK chain registry plus the config's [assets] table.
 		const registry = new AssetRegistry(new ChainConfigService({}), op.config.assets)
@@ -617,12 +621,10 @@ export class UiServer {
 			...registrySymbols(),
 			...Object.keys(op.config.assets ?? {}).filter((s) => !registrySymbols().includes(s.trim().toUpperCase())),
 		]
-		const options: Record<string, Array<{ symbol: string; address: string; vaultShare?: boolean }>> = {}
+		const options: Record<string, SendTokenOption[]> = {}
 		for (const chainId of op.chains) {
-			const stateMachineId = `EVM-${chainId}`
-			const tokens: Array<{ symbol: string; address: string; vaultShare?: boolean }> = [
-				{ symbol: "native", address: "native" },
-			]
+			const stateMachineId = formatChainKey(chainId)
+			const tokens: SendTokenOption[] = [{ symbol: "native", address: "native" }]
 			for (const symbol of symbols) {
 				const address = registry.getAddress(symbol, stateMachineId)
 				if (address) tokens.push({ symbol, address })
@@ -785,10 +787,12 @@ export class UiServer {
 	}
 }
 
-function serializeStrategy(strategy: AdminStrategy) {
+function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 	return {
 		index: strategy.index,
 		exotic: strategy.exotic,
+		token0: strategy.token0,
+		token1: strategy.token1,
 		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
 		sameToken: strategy.sameToken ?? false,
 		referenceOnly: strategy.referenceOnly ?? false,

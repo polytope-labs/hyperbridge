@@ -185,10 +185,10 @@ describe("UiServer (operator mode)", () => {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", ask: sameAsset, sameToken: true },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", bid, ask, sameToken: false },
-				{ index: 2, pairIndex: 2, sameToken: false }, // venue-priced: no editable curves
-				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", ask: askOnly, sameToken: false }, // one-sided LP
+				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true },
+				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false },
+				{ index: 2, pairIndex: 2, token0: "USDC", token1: "CNGN", sameToken: false }, // venue-priced: no editable curves
+				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false }, // one-sided LP
 			],
 			filler,
 			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
@@ -247,18 +247,38 @@ describe("UiServer (operator mode)", () => {
 		expect(res.status).toBe(200)
 		expect(await res.json()).toEqual({
 			strategies: [
-				{ index: 0, exotic: "USDC/USDC", pricingMode: "static", sameToken: true, referenceOnly: false, ask: SAME_ASSET_POINTS },
+				{
+					index: 0,
+					exotic: "USDC/USDC",
+					token0: "USDC",
+					token1: "USDC",
+					pricingMode: "static",
+					sameToken: true,
+					referenceOnly: false,
+					ask: SAME_ASSET_POINTS,
+				},
 				{
 					index: 1,
 					exotic: "USDC/CNGN",
+					token0: "USDC",
+					token1: "CNGN",
 					pricingMode: "static",
 					sameToken: false,
 					referenceOnly: false,
 					bid: BID_POINTS,
 					ask: ASK_POINTS,
 				},
-				{ index: 2, pricingMode: "venue", sameToken: false, referenceOnly: false },
-				{ index: 3, exotic: "USDC/ZARP", pricingMode: "static", sameToken: false, referenceOnly: false, ask: ASK_POINTS },
+				{ index: 2, token0: "USDC", token1: "CNGN", pricingMode: "venue", sameToken: false, referenceOnly: false },
+				{
+					index: 3,
+					exotic: "USDC/ZARP",
+					token0: "USDC",
+					token1: "ZARP",
+					pricingMode: "static",
+					sameToken: false,
+					referenceOnly: false,
+					ask: ASK_POINTS,
+				},
 			],
 		})
 	})
@@ -274,6 +294,8 @@ describe("UiServer (operator mode)", () => {
 		expect(await res.json()).toEqual({
 			index: 1,
 			exotic: "USDC/CNGN",
+			token0: "USDC",
+			token1: "CNGN",
 			pricingMode: "static",
 			sameToken: false,
 			referenceOnly: false,

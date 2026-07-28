@@ -278,6 +278,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				index: adminStrategies.length,
 				pairIndex,
 				exotic: `${pair.token0}/${pair.token1}${pair.referenceOnly ? " (reference)" : ""}`,
+				token0: pair.token0,
+				token1: pair.token1,
 				bid: pair.bidPricePolicy,
 				ask: pair.askPricePolicy,
 				sameToken,

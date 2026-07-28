@@ -1,9 +1,9 @@
 import { useState } from "react"
+import { bookCrossedAt } from "@/config/interpolated-curve"
+import { unanchoredToken0Symbols } from "@/config/pairs"
 import { api } from "../../api"
-import { CurveEditor, fromPricePoints, type EditorPoint } from "../../components/CurveEditor"
+import { CurveEditor, fromPricePoints, toPricePoints, type EditorPoint } from "../../components/CurveEditor"
 import { PillTabs } from "../../components/PillTabs"
-import { unanchoredToken0Symbols } from "../../lib/anchor"
-import { bookCrossedAt } from "../../lib/book"
 import {
 	draftHasCurve,
 	enabledChains,
@@ -79,10 +79,12 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 		}
 	}
 	// Same predicate the step validation and assembleConfig use — and same-token
-	// markets are included: their token0 must itself be anchored.
+	// markets are included: their token0 must itself be anchored. Rows with a
+	// symbol still being typed are excluded until both symbols exist.
 	const unanchored = unanchoredToken0Symbols(
-		enabled.map((p) => ({ token0: p.token0, token1: p.token1, hasCurve: draftHasCurve(p, state.fxPricing) })),
-		defaults.usdStables,
+		enabled
+			.filter((p) => p.token0.trim() && p.token1.trim())
+			.map((p) => ({ token0: p.token0, token1: p.token1, hasCurve: draftHasCurve(p, state.fxPricing) })),
 	)
 	const shippedSymbols = new Set(defaults.registrySymbols.map((s) => normSymbol(s)))
 	// The default base asset for a new market: first exotic actually deployed
@@ -441,7 +443,7 @@ function MarketRow(props: {
 	)
 	const crossedAt =
 		!sameToken && pricing === "curves" && pair.bidEnabled && pair.askEnabled
-			? bookCrossedAt(pair.bid, pair.ask)
+			? bookCrossedAt(toPricePoints(pair.bid), toPricePoints(pair.ask))?.amount ?? null
 			: null
 
 	if (pair.referenceOnly) {

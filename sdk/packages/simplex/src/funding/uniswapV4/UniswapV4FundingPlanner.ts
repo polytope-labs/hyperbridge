@@ -1,4 +1,5 @@
 import { UNISWAP_V4_POSITION_MANAGER_ABI } from "@/config/abis/UniswapV4"
+import { validateUniswapV4Positions } from "@/config/v4-validate"
 import type {
 	FundingPlanResult,
 	FundingVenue,
@@ -59,14 +60,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * Throws on missing/invalid required fields.
 	 */
 	static validateConfig(positions: { chain?: string; tokenId?: string }[]): void {
-		for (const pos of positions) {
-			if (!pos.chain?.trim()) {
-				throw new Error("Each UniswapV4 vault position must have a non-empty 'chain' (e.g. EVM-8453)")
-			}
-			if (!pos.tokenId) {
-				throw new Error("Each UniswapV4 position must include a 'tokenId'")
-			}
-		}
+		validateUniswapV4Positions(positions)
 	}
 
 	// =========================================================================

@@ -1,4 +1,6 @@
+import { normalizeSymbol } from "@/config/asset-registry"
 import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
+import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
 
 export interface ChainDraft {
@@ -14,13 +16,7 @@ export interface ChainDraft {
 	bundlerOk?: boolean
 }
 
-export interface VaultDraft {
-	chain: string
-	vault: string
-	threshold: string
-	minBalance: string
-	redeemOnShutdown: boolean
-}
+export type VaultDraft = VaultRowDraft
 
 export type SignerType = "privateKey" | "mpcVault" | "turnkey"
 
@@ -54,7 +50,7 @@ export interface PairDraft {
 	ask: EditorPoint[]
 }
 
-export const normSymbol = (symbol: string): string => symbol.trim().toUpperCase()
+export const normSymbol = normalizeSymbol
 
 /** Whether a draft quotes the same asset on both sides (transfer market: ask-only, below par). */
 export function isSameTokenDraft(draft: PairDraft): boolean {
@@ -306,16 +302,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			}
 		: undefined
 
-	const vaults =
-		state.vaults.length > 0
-			? state.vaults.map((v) => ({
-					chain: v.chain,
-					vault: v.vault.trim(),
-					...(v.threshold.trim() ? { threshold: v.threshold.trim() } : {}),
-					...(v.minBalance.trim() ? { minBalance: v.minBalance.trim() } : {}),
-					...(v.redeemOnShutdown ? { redeemOnShutdown: true } : {}),
-				}))
-			: undefined
+	const vaultRows = vaultRowsToToml(state.vaults)
+	const vaults = vaultRows.length > 0 ? vaultRows : undefined
 
 	const watchOnlyEntries = chains.filter((c) => c.watchOnly).map((c) => [String(c.meta.chainId), true] as const)
 
@@ -343,7 +331,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 
 	return {
 		simplex: {
-			signer,
+			// The form collects plain strings; the config type wants the signer union / hex addresses.
+			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: Number(state.maxConcurrentOrders) || defaults.maxConcurrentOrders,
 			queue: {
 				maxRechecks: Number(state.maxRechecks) || defaults.queue.maxRechecks,
@@ -354,7 +343,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			substratePrivateKey: state.substrateKey.trim(),
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
 		},
-		...(Object.keys(assets).length > 0 ? { assets } : {}),
+		...(Object.keys(assets).length > 0 ? { assets: assets as FillerConfig["assets"] } : {}),
 		pairs,
 		...(confirmationPolicies ? { confirmationPolicies } : {}),
 		chains: chains.map((c) => ({

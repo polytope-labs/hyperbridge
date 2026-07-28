@@ -4,7 +4,6 @@ import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
-import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
@@ -22,6 +21,7 @@ import {
 } from "@/cli/init/state"
 import { getLogger } from "../Logger"
 import { readBody, sendJson } from "./http-util"
+import type { SetupDefaults } from "./dto"
 import type { SetupContext, UiServer } from "./UiServer"
 
 
@@ -65,8 +65,8 @@ export async function handleSetupRequest(
 		// so selection UIs offer curated entries instead of requiring pasted addresses.
 		const chainRegistry = new ChainConfigService({})
 		const assetRegistry = new AssetRegistry(chainRegistry)
-		const knownTokens: Record<string, Array<{ symbol: string; address: string }>> = {}
-		const knownVaults: Record<string, ReturnType<ChainConfigService["getKnownVaults"]>> = {}
+		const knownTokens: SetupDefaults["knownTokens"] = {}
+		const knownVaults: SetupDefaults["knownVaults"] = {}
 		for (const meta of INIT_CHAINS) {
 			knownTokens[meta.stateMachineId] = registrySymbols().flatMap((symbol) => {
 				const address = assetRegistry.getAddress(symbol, meta.stateMachineId)
@@ -74,7 +74,7 @@ export async function handleSetupRequest(
 			})
 			knownVaults[meta.stateMachineId] = chainRegistry.getKnownVaults(meta.stateMachineId)
 		}
-		return sendJson(res, 200, {
+		const defaults: SetupDefaults = {
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
 			usdStables: [...USD_STABLE_SYMBOLS],
@@ -82,14 +82,14 @@ export async function handleSetupRequest(
 			// custom [assets] entries that would shadow a registry symbol.
 			registrySymbols: registrySymbols(),
 			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
-			confirmationPolicies: DEFAULT_CONFIRMATION_POLICIES,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
 			queue: DEFAULT_QUEUE,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
 			knownTokens,
 			knownVaults,
-		})
+		}
+		return sendJson(res, 200, defaults)
 	}
 
 	if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })

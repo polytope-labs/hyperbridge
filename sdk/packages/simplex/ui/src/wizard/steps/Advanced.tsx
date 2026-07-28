@@ -1,3 +1,4 @@
+import { LOG_LEVELS } from "@/services/server/dto"
 import { AddressListEditor } from "../../components/AddressListEditor"
 import { Field } from "../../components/Field"
 import type { StepProps } from "../Wizard"
@@ -15,7 +16,7 @@ export function StepAdvanced({ state, setState }: StepProps) {
 				<label className="field" style={{ maxWidth: "10rem" }}>
 					<span>Log level</span>
 					<select value={state.logging} onChange={(e) => setState((s) => ({ ...s, logging: e.target.value }))}>
-						{["trace", "debug", "info", "warn", "error"].map((level) => (
+						{LOG_LEVELS.map((level) => (
 							<option key={level}>{level}</option>
 						))}
 					</select>

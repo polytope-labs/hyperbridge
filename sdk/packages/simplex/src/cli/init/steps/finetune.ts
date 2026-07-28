@@ -2,6 +2,7 @@ import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
 import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
+import { LOG_LEVELS } from "@/services/server/dto"
 import { guard, why, askNumber, askAddress } from "../prompt-utils"
 import { editPoints, nonNegativeIntegerValue } from "../points-editor"
 import { normalizeConfirmationPolicyKeys } from "../confirmation-keys"
@@ -230,7 +231,7 @@ async function tuneLogging(state: WizardState): Promise<void> {
 		await select({
 			message: "Log level",
 			initialValue: state.logging ?? "info",
-			options: ["trace", "debug", "info", "warn", "error"].map((level) => ({ value: level, label: level })),
+			options: LOG_LEVELS.map((level) => ({ value: level as string, label: level })),
 		}),
 	)
 }

@@ -100,7 +100,7 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push("[rebalancing]")
 		push(kv("triggerPercentage", config.rebalancing.triggerPercentage))
 		push()
-		for (const [symbol, balances] of Object.entries(config.rebalancing.baseBalances)) {
+		for (const [symbol, balances] of Object.entries(config.rebalancing.baseBalances ?? {})) {
 			if (!balances) continue
 			push(`[rebalancing.baseBalances.${/^[A-Za-z0-9_-]+$/.test(symbol) ? symbol : JSON.stringify(symbol)}]`)
 			for (const [chainId, amount] of Object.entries(balances)) {

@@ -301,16 +301,9 @@ export function validatePairConfigs(
 			)
 		}
 
-		// Two-sided cross-asset books must be uncrossed everywhere: bid ≤ ask
-		// makes every fill mark as a loss at the opposite curve, so the pair
-		// would silently reject all orders. Fail at startup instead.
-		if (token0 !== token1 && (pair.bidPriceCurve?.length ?? 0) >= 1 && (pair.askPriceCurve?.length ?? 0) >= 1) {
-			FillerPricePolicy.assertBookNotCrossed(
-				`pairs.${label}`,
-				new FillerPricePolicy({ points: pair.bidPriceCurve! }),
-				new FillerPricePolicy({ points: pair.askPriceCurve! }),
-			)
-		}
+		// A crossed book (bid ≤ ask) is allowed: each side is quoted
+		// independently, and the per-fill margin marking simply never fills the
+		// crossed region. The wizards surface it as a warning, not an error.
 	}
 
 	// Every pair's token0 sizes orders for the confirmation-depth curve, whose

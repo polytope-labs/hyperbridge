@@ -145,4 +145,39 @@ describe("CLI wizard update run", () => {
 		expect(parsed.keeper).toEqual(existing.keeper)
 		expect(parsed.binance).toEqual(existing.binance)
 	})
+
+	it("scrubs a carried empty [allowlist.bySource] so the round-trip gate cannot trip", () => {
+		const state = newWizardState()
+		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.signer = existing.simplex.signer
+		state.substratePrivateKey = existing.simplex.substratePrivateKey
+		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
+		state.pairs = wizardPairs
+		// A bare [allowlist.bySource] header parses to an empty table; emit
+		// drops it, so assembly must too.
+		state.allowlist = { bySource: {} }
+		const assembled = assembleConfig(state)
+		expect(assembled.allowlist).toBeUndefined()
+		const parsed = parse(emitFillerToml(assembled)) as FillerTomlConfig
+		expect(JSON.parse(JSON.stringify(parsed)).allowlist).toEqual(JSON.parse(JSON.stringify(assembled)).allowlist)
+	})
+
+	it("drops a carried [rebalancing] without baseBalances instead of crashing the emit", () => {
+		const state = newWizardState()
+		state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }]
+		state.signer = existing.simplex.signer
+		state.substratePrivateKey = existing.simplex.substratePrivateKey
+		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
+		state.pairs = wizardPairs
+		state.rebalancing = { triggerPercentage: 0.2 } as FillerTomlConfig["rebalancing"]
+		const assembled = assembleConfig(state)
+		expect(assembled.rebalancing).toBeUndefined()
+		expect(() => emitFillerToml(assembled)).not.toThrow()
+	})
+
+	it("emits a degenerate hand-written [rebalancing] without crashing", () => {
+		const config = JSON.parse(JSON.stringify(existing)) as FillerTomlConfig
+		config.rebalancing = { triggerPercentage: 0.2 } as FillerTomlConfig["rebalancing"]
+		expect(() => emitFillerToml(config)).not.toThrow()
+	})
 })

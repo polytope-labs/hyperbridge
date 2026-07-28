@@ -569,9 +569,9 @@ function MarketRow(props: {
 				</p>
 			)}
 			{crossedAt !== null && (
-				<p className="error">
-					The book is crossed at order size {crossedAt}: the bid must stay strictly above the ask everywhere,
-					or every fill marks as a loss and nothing trades.
+				<p className="hint">
+					⚠ The book is crossed at order size {crossedAt} (bid at or below ask) — fills in that range will
+					never execute. Leave it only if deliberate.
 				</p>
 			)}
 

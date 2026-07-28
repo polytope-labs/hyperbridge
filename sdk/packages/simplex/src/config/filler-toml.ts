@@ -1,6 +1,6 @@
 import { isAddress } from "viem"
 import { HexString } from "@hyperbridge/sdk"
-import { ConfirmationPolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { validateUniswapV4Positions } from "@/config/v4-validate"
@@ -157,6 +157,25 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+}
+
+/**
+ * Boot-parity confirmation coverage: every configured chain id needs a
+ * confirmation curve (built-in defaults or [confirmationPolicies]), or orders
+ * sourced on it would be silently dropped. Boot and both wizard write gates
+ * run the same construction; the gates know the chain ids the wizard selected,
+ * boot the ids resolved from the RPCs.
+ */
+export function assertConfirmationCoverage(
+	confirmationPolicies: FillerTomlConfig["confirmationPolicies"],
+	chainIds: number[],
+): ConfirmationPolicy {
+	const policy = new ConfirmationPolicy({
+		...DEFAULT_CONFIRMATION_POLICIES,
+		...(confirmationPolicies ?? {}),
+	})
+	policy.assertCovers(chainIds)
+	return policy
 }
 
 export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {

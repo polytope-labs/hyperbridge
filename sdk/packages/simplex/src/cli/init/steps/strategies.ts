@@ -4,7 +4,7 @@ import type { UniswapV4PositionToml, ChainConfirmationPolicy } from "@/config/fi
 import { unanchoredToken0Symbols, type PairConfig } from "@/config/pairs"
 import { pickAnchorStable } from "@/config/wizard-guards"
 import { isRegistrySymbol, normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
-import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { bookCrossedAt, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
 import { editPoints, positiveValue } from "../points-editor"
 import { normalizeConfirmationPolicyKeys } from "../confirmation-keys"
@@ -412,15 +412,11 @@ async function editCrossAssetCurves(pair: PairConfig, existing?: PairConfig): Pr
 			log.warn(`One-sided LP: the filler only sells ${pair.token1} and accumulates ${pair.token0}.`)
 		}
 		if (pair.bidPriceCurve?.length && pair.askPriceCurve?.length) {
-			try {
-				FillerPricePolicy.assertBookNotCrossed(
-					`${pair.token0}/${pair.token1}`,
-					new FillerPricePolicy({ points: pair.bidPriceCurve }),
-					new FillerPricePolicy({ points: pair.askPriceCurve }),
+			const crossed = bookCrossedAt(pair.bidPriceCurve, pair.askPriceCurve)
+			if (crossed) {
+				log.warn(
+					`${pair.token0}/${pair.token1}: book is crossed at amount ${crossed.amount} (bid ${crossed.bid} ≤ ask ${crossed.ask}) — fills in that range will never execute. Leave it only if deliberate.`,
 				)
-			} catch (err) {
-				log.error(`${err instanceof Error ? err.message : err}\nRe-enter the curves.`)
-				continue
 			}
 		}
 		return

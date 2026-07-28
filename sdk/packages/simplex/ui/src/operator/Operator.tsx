@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react"
+import { bookCrossedAt } from "@/config/interpolated-curve"
 import { api } from "../api"
 import { CopyHash } from "../components/CopyHash"
 import { CurveEditor, fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
@@ -237,6 +238,10 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 
 	const token0 = strategy.token0 || "token0"
 	const token1 = strategy.token1 || "token1"
+	const crossedAt =
+		!strategy.sameToken && !strategy.referenceOnly && (strategy.bid || enableBid) && (strategy.ask || enableAsk)
+			? (bookCrossedAt(toPricePoints(bid), toPricePoints(ask))?.amount ?? null)
+			: null
 	const title = strategy.referenceOnly
 		? `Market #${strategy.index} · ${token0}/${token1} — reference price feed`
 		: strategy.sameToken
@@ -288,7 +293,14 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 				<p className="hint">
 					Prices are {token1} per {token0}: the bid is the {token1} you receive per {token0} paid out when
 					buying, the ask is the {token1} you pay out per {token0} received when selling. Keep the bid above
-					the ask everywhere — the gap is your spread.
+					the ask everywhere — the gap is your spread. Delete every point on a side and Apply to close that
+					direction (one-sided LP).
+				</p>
+			)}
+			{crossedAt !== null && (
+				<p className="hint">
+					⚠ The book is crossed at order size {crossedAt} (bid at or below ask) — fills in that range will
+					never execute. Leave it only if deliberate.
 				</p>
 			)}
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
@@ -300,6 +312,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 							onChange={setBid}
 							amountLabel={`Order size (${token0})`}
 							valueLabel={`${token1} received per ${token0}`}
+							minPoints={strategy.sameToken || strategy.referenceOnly ? 1 : 0}
 						/>
 					</div>
 				)}
@@ -315,6 +328,7 @@ function StrategyCurves(props: { strategy: AdminStrategyDto; onApplied: () => vo
 							onChange={setAsk}
 							amountLabel={`Order size (${token0})`}
 							valueLabel={strategy.sameToken ? "Price (below 1)" : `${token1} paid per ${token0}`}
+							minPoints={strategy.sameToken || strategy.referenceOnly ? 1 : 0}
 						/>
 					</div>
 				)}

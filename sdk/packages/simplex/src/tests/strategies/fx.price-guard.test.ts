@@ -49,7 +49,7 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 		configService,
 		{ [CHAIN]: EXOTIC },
 		5000,
-		// Bid above ask — a crossed/zero-spread book fails construction.
+		// Bid above ask — an uncrossed book so fills clear the spread gate.
 		new FillerPricePolicy({ points: [{ amount: "0", price: "1590" }] }),
 		new FillerPricePolicy({ points: [{ amount: "0", price: REFERENCE }] }),
 	)

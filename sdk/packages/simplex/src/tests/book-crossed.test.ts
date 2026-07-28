@@ -13,13 +13,6 @@ describe("bookCrossedAt", () => {
 			{ amount: "5000", price: "1550" },
 		]
 		expect(bookCrossedAt(bid, ask)).toBeNull()
-		expect(() =>
-			FillerPricePolicy.assertBookNotCrossed(
-				"test",
-				new FillerPricePolicy({ points: bid }),
-				new FillerPricePolicy({ points: ask }),
-			),
-		).not.toThrow()
 	})
 
 	it("reports the first crossing amount with both prices", () => {

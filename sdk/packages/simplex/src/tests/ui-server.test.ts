@@ -12,11 +12,11 @@ import { join } from "path"
 import { parse } from "toml"
 import Decimal from "decimal.js"
 
-/** fetch() normalizes `..` out of URLs, so traversal tests need a raw socket. */
-function rawRequest(port: number, path: string): Promise<string> {
+/** fetch() normalizes `..` out of URLs and forbids Host, so these tests need a raw socket. */
+function rawRequest(port: number, path: string, host = "127.0.0.1"): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(port, "127.0.0.1", () => {
-			socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`)
+			socket.write(`GET ${path} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`)
 		})
 		let data = ""
 		socket.on("data", (chunk) => {
@@ -241,6 +241,18 @@ describe("UiServer (operator mode)", () => {
 		expect(pause.status).toBe(403)
 	})
 
+	it("rejects DNS-name Host headers (DNS rebinding) and serves loopback Hosts", async () => {
+		const { base } = await startServer()
+		const port = Number(new URL(base).port)
+		// A rebound attacker origin presents its own domain in Host.
+		expect(await rawRequest(port, "/api/status", "evil.example.com")).toContain("403")
+		expect(await rawRequest(port, "/api/status", "evil.example.com:1234")).toContain("403")
+		expect(await rawRequest(port, "/health", "evil.example.com")).toContain("403")
+		// Legitimate local access keeps working.
+		expect(await rawRequest(port, "/api/status", `127.0.0.1:${port}`)).toContain("200")
+		expect(await rawRequest(port, "/api/status", "localhost")).toContain("200")
+	})
+
 	it("lists strategies with their curves", async () => {
 		const { base } = await startServer()
 		const res = await fetch(`${base}/api/strategies`)
@@ -330,23 +342,22 @@ describe("UiServer (operator mode)", () => {
 		expect((await res.json()).error).toContain("ask-only")
 	})
 
-	it("rejects an edit that would cross the book against the untouched side", async () => {
+	it("accepts an edit that crosses the book — sides are quoted independently", async () => {
 		const { base, bid, ask } = await startServer()
-		// New ask above the existing bid at every size: the book would cross.
+		// New ask above the existing bid at every size: crossed, but allowed —
+		// the crossed region simply never fills.
 		const res = await put(base, "/api/strategies/1/curves", {
 			askPriceCurve: [{ amount: "0", price: "1650" }],
 		})
-		expect(res.status).toBe(400)
-		expect((await res.json()).error).toMatch(/crossed|bid/i)
+		expect(res.status).toBe(200)
 		expect(bid.getPoints()).toEqual(BID_POINTS)
-		expect(ask.getPoints()).toEqual(ASK_POINTS)
+		expect(ask.getPoints()).toEqual([{ amount: "0", price: "1650" }])
 	})
 
 	it("rejects malformed bodies with 400", async () => {
 		const { base } = await startServer()
 		expect((await put(base, "/api/strategies/1/curves", {})).status).toBe(400)
 		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: "flat" })).status).toBe(400)
-		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: [] })).status).toBe(400)
 		expect((await put(base, "/api/strategies/1/curves", { bidPriceCurve: [{ amount: 5, price: "1" }] })).status).toBe(
 			400,
 		)
@@ -567,6 +578,52 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer()
 		// strategy 2 is venue-priced: no policies and no enableSide
 		expect((await put(base, "/api/strategies/2/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
+	})
+
+	it("disables a side with an empty curve and persists the removal (one-sided LP)", async () => {
+		const { base, operator } = await startServer()
+		const strategy1 = operator.strategies.find((s) => s.index === 1)!
+		const disableSide = vi.fn()
+		strategy1.disableSide = disableSide
+
+		const res = await put(base, "/api/strategies/1/curves", { askPriceCurve: [] })
+		expect(res.status).toBe(200)
+		const bodyJson = await res.json()
+		expect(bodyJson.ask).toBeUndefined()
+		expect(bodyJson.bid).toEqual(BID_POINTS)
+		expect(disableSide).toHaveBeenCalledWith("ask")
+		expect(strategy1.ask).toBeUndefined()
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.pairs?.[1]?.askPriceCurve).toBeUndefined()
+		expect(written.pairs?.[1]?.bidPriceCurve).toBeDefined()
+	})
+
+	it("rejects disabling the only remaining side", async () => {
+		const { base, operator } = await startServer()
+		const strategy3 = operator.strategies.find((s) => s.index === 3)! // ask-only
+		strategy3.disableSide = vi.fn()
+		const res = await put(base, "/api/strategies/3/curves", { askPriceCurve: [] })
+		expect(res.status).toBe(409)
+		expect((await res.json()).error).toContain("at least one side")
+		expect(strategy3.disableSide).not.toHaveBeenCalled()
+	})
+
+	it("rejects deleting the ask of a same-token market", async () => {
+		const { base } = await startServer()
+		const res = await put(base, "/api/strategies/0/curves", { askPriceCurve: [] })
+		expect(res.status).toBe(409)
+		expect((await res.json()).error).toContain("ask-only")
+	})
+
+	it("treats an empty curve on an already-absent side as a no-op", async () => {
+		const { base } = await startServer()
+		// strategy 3 is ask-only: empty bid does nothing, the ask update applies.
+		const res = await put(base, "/api/strategies/3/curves", {
+			bidPriceCurve: [],
+			askPriceCurve: [{ amount: "0", price: "1500" }],
+		})
+		expect(res.status).toBe(200)
+		expect((await res.json()).bid).toBeUndefined()
 	})
 
 	it("updates the vault set at runtime and persists it", async () => {

@@ -7,12 +7,7 @@ import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPla
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
-import {
-	ConfirmationPolicy,
-	DEFAULT_CONFIRMATION_POLICIES,
-	FillerPricePolicy,
-	parseChainKey,
-} from "@/config/interpolated-curve"
+import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
@@ -22,7 +17,7 @@ import {
 	FillerConfig as FillerServiceConfig,
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
-import { validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { UserOpSender } from "@/services/UserOpSender"
@@ -273,18 +268,33 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 						"Trading direction enabled by operator with a new price curve",
 					)
 				}
+				// Clearing the policy closes the direction on the next order —
+				// the operator's path back to one-sided LP.
+				adminStrategy.disableSide = (side) => {
+					if (side === "bid") {
+						pair.bidPricePolicy = undefined
+						adminStrategy.bid = undefined
+					} else {
+						pair.askPricePolicy = undefined
+						adminStrategy.ask = undefined
+					}
+					logger.warn(
+						{ pair: `${pair.token0}/${pair.token1}`, side },
+						"Trading direction disabled by operator (one-sided LP)",
+					)
+				}
 			}
 			adminStrategies.push(adminStrategy)
 		})
 
-		const confirmationPolicy = new ConfirmationPolicy({
-			...DEFAULT_CONFIRMATION_POLICIES,
-			...(config.confirmationPolicies ?? {}),
-		})
 		// Orders can be sourced on any configured chain (watch-only ones
 		// included), so each needs a confirmation curve — fail at boot,
-		// not with silently dropped orders at fill time.
-		confirmationPolicy.assertCovers(resolvedChains.map((c) => c.chainId))
+		// not with silently dropped orders at fill time. Same construction the
+		// wizard write gates run against the selected chain ids.
+		const confirmationPolicy = assertConfirmationCoverage(
+			config.confirmationPolicies,
+			resolvedChains.map((c) => c.chainId),
+		)
 
 		const fundingVenues: FundingVenue[] = []
 		// Vault first: source stablecoins from the idle-yield treasury before

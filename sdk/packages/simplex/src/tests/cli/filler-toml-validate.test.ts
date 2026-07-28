@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { parse } from "toml"
 import { readFileSync } from "fs"
 import { resolve } from "path"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { SignerType } from "@/services/wallet"
 
@@ -139,7 +139,7 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a crossed cross-asset book", () => {
+	it("accepts a crossed cross-asset book — sides are quoted independently", () => {
 		const crossed = minimalConfig()
 		crossed.pairs!.push({
 			token0: "USDC",
@@ -148,7 +148,7 @@ describe("validateConfig", () => {
 			bidPriceCurve: [{ amount: "100", price: "1550" }],
 			askPriceCurve: [{ amount: "100", price: "1560" }],
 		})
-		expect(() => validateConfig(crossed)).toThrow(/crossed|bid/i)
+		expect(() => validateConfig(crossed)).not.toThrow()
 	})
 
 	it("rejects an unanchored token0", () => {
@@ -257,6 +257,24 @@ describe("validateConfig", () => {
 			},
 		}
 		expect(() => validateConfig(config)).toThrow(/non-negative integer/)
+	})
+
+	it("gates confirmation coverage like boot: defaults cover mainnets, testnets need entries", () => {
+		expect(() => assertConfirmationCoverage(undefined, [1, 8453, 56])).not.toThrow()
+		expect(() => assertConfirmationCoverage(undefined, [11155111])).toThrow(/No confirmation policy/)
+		expect(() =>
+			assertConfirmationCoverage(
+				{
+					"11155111": {
+						points: [
+							{ amount: "100", value: 1 },
+							{ amount: "10000", value: 2 },
+						],
+					},
+				},
+				[11155111],
+			),
+		).not.toThrow()
 	})
 
 	it("rejects invalid curve amounts at the gate, like the price policy does", () => {

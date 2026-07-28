@@ -351,28 +351,6 @@ export class FillerPricePolicy {
 		this.replacePoints({ points: [{ amount: "0", price: newPrice.toString() }] })
 	}
 
-	/**
-	 * Startup guard for two-sided books: the bid must exceed the ask at every
-	 * point of both curves' amount domains. A crossed or zero-spread book can
-	 * never fill — the per-leg FX margin marks every fill at the opposite
-	 * curve, so bid ≤ ask makes every round trip non-positive and the profit
-	 * gate rejects all orders. Reject the config loudly instead of letting the
-	 * pair go silently dead. Both curves are piecewise-linear, so checking
-	 * every breakpoint of the combined amount grid covers the whole domain
-	 * (clamped tails included).
-	 */
-	static assertBookNotCrossed(label: string, bid: FillerPricePolicy, ask: FillerPricePolicy): void {
-		const crossed = bookCrossedAt(bid.getPoints(), ask.getPoints())
-		if (crossed) {
-			throw new Error(
-				`${label}: book is crossed at amount ${crossed.amount} — bid ${crossed.bid} ≤ ask ${crossed.ask}. ` +
-					`Prices are token1 per token0, so the bid (token1 received per token0 when buying) must stay above ` +
-					`the ask (token1 paid out per token0 when selling); a non-positive spread can never fill. ` +
-					`Skew both curves without crossing them, or use a one-sided pair for a deliberate directional position`,
-			)
-		}
-	}
-
 	/** Current curve points, sorted by amount. */
 	getPoints(): PriceCurvePoint[] {
 		return this.points.map((p) => ({ amount: p.amount.toString(), price: p.price.toString() }))

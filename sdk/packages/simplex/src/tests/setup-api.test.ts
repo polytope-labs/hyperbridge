@@ -184,6 +184,30 @@ describe("setup API", () => {
 		expect((await res.json()).error).toContain("At least one [[pairs]]")
 	})
 
+	it("rejects a chain without confirmation coverage at preview, like boot does", async () => {
+		rpc = await startMockRpc({ chainId: 1 })
+		const { base } = await startInitServer()
+		const config = minimalConfig(rpc.url)
+		// Resolve the pair symbols on Sepolia so the coverage gate is what fires.
+		config.assets = { USDC: { "EVM-11155111": "0x1111111111111111111111111111111111111111" } }
+
+		// Sepolia has no built-in confirmation defaults and none configured.
+		const uncovered = await post(base, "preview", { config, chainIds: [11155111] })
+		expect(uncovered.status).toBe(400)
+		expect((await uncovered.json()).error).toContain("No confirmation policy")
+
+		config.confirmationPolicies = {
+			"11155111": {
+				points: [
+					{ amount: "100", value: 1 },
+					{ amount: "10000", value: 2 },
+				],
+			},
+		}
+		const covered = await post(base, "preview", { config, chainIds: [11155111] })
+		expect(covered.status).toBe(200)
+	})
+
 	it("save-and-start writes the config 0600, calls the boot callback and flips to operator", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base, configPath, onSaveAndStart } = await startInitServer()

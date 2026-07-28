@@ -29,3 +29,19 @@ export function isLoopbackHost(host: string): boolean {
 	const normalized = host.toLowerCase()
 	return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.")
 }
+
+/**
+ * DNS-rebinding defense: a rebound attacker origin always presents a DNS name
+ * in the Host header, so only IP literals (and localhost) are accepted. When
+ * the server is bound to loopback, the Host must itself be loopback.
+ */
+export function hostHeaderAllowed(hostHeader: string | undefined, boundLoopback: boolean): boolean {
+	if (!hostHeader) return false
+	// Strip the port: "[::1]:8686" and "127.0.0.1:8686" both carry one.
+	const bracketed = hostHeader.match(/^\[([^\]]+)\](?::\d+)?$/)
+	const hostname = (bracketed ? bracketed[1] : hostHeader.replace(/:\d+$/, "")).toLowerCase()
+	if (boundLoopback) return isLoopbackHost(hostname)
+	const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)
+	const isIpv6 = hostname.includes(":")
+	return hostname === "localhost" || isIpv4 || isIpv6
+}

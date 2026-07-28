@@ -3,7 +3,7 @@ import { writeConfigFileAtomic } from "@/config/write-config"
 import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
@@ -302,6 +302,9 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 				new AssetRegistry(new ChainConfigService({}), config.assets),
 				chainIds.map(formatChainKey),
 			)
+		}
+		if (chainIds.length > 0) {
+			assertConfirmationCoverage(config.confirmationPolicies, chainIds)
 		}
 		const toml = emitFillerToml(config, { chainComments: chainLabels })
 		return { config, toml, chainLabels }

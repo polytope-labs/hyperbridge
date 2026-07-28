@@ -138,8 +138,9 @@ describe("validatePairConfigs", () => {
 		).not.toThrow()
 	})
 
-	it("rejects crossed and zero-spread two-sided books", () => {
-		// bid below ask: every fill marks as a loss at the opposite curve.
+	it("accepts crossed and zero-spread two-sided books — sides are quoted independently", () => {
+		// The crossed region simply never fills (per-fill marking at the
+		// opposite curve); the wizards warn instead of rejecting.
 		expect(() =>
 			validatePairConfigs(
 				[
@@ -153,33 +154,13 @@ describe("validatePairConfigs", () => {
 				],
 				assets,
 			),
-		).toThrow(/crossed/)
-		// bid == ask: zero spread, equally unfillable.
+		).not.toThrow()
 		expect(() =>
 			validatePairConfigs(
 				[{ token0: "USDC", token1: "CNGN", maxOrderSize: SIZE, bidPriceCurve: CURVE, askPriceCurve: CURVE }],
 				assets,
 			),
-		).toThrow(/crossed/)
-		// The check is pointwise across BOTH curves' breakpoints: healthy at the
-		// small end, crossed at size.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{
-						token0: "USDC",
-						token1: "CNGN",
-						maxOrderSize: SIZE,
-						bidPriceCurve: [
-							{ amount: "0", price: "1600" },
-							{ amount: "5000", price: "1400" },
-						],
-						askPriceCurve: [{ amount: "0", price: "1500" }],
-					},
-				],
-				assets,
-			),
-		).toThrow(/crossed at amount 5000/)
+		).not.toThrow()
 	})
 
 	it("accepts registry-shipped symbols with no [assets] config at all", () => {
@@ -964,9 +945,10 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	it("rejects a crossed (inverted) book at construction — bid at or below ask never fills", () => {
-		// bid 90 < ask 95: every fill would mark as a loss at the opposite
-		// curve, so the pair would be silently dead. Refuse to start instead.
+	it("accepts a crossed (inverted) book at construction — the crossed region just never fills", () => {
+		// bid 90 < ask 95: every fill marks as a loss at the opposite curve, so
+		// the spread gate rejects orders in that range — but the config is the
+		// operator's call, not a boot error.
 		expect(() =>
 			gateFiller(
 				[
@@ -976,18 +958,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				zarpCngnRegistry(),
 				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 			),
-		).toThrow(/crossed/)
-		// Zero spread (bid == ask) is equally unfillable.
-		expect(() =>
-			gateFiller(
-				[
-					usdcZarpAnchor(),
-					{ token0: "ZARP", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: flat("95"), askPricePolicy: flat("95") },
-				],
-				zarpCngnRegistry(),
-				{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-			),
-		).toThrow(/crossed/)
+		).not.toThrow()
 	})
 
 	it("rejects construction when a pair's token0 has no USD anchor", () => {

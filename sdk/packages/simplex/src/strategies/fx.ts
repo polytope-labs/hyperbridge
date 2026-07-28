@@ -252,16 +252,9 @@ export class FXFiller implements FillerStrategy {
 				}
 				continue
 			}
-			// Two-sided cross-asset books must be uncrossed everywhere — bid ≤ ask
-			// marks every fill as a loss at the opposite curve and the pair goes
-			// silently dead behind the per-leg spread gate.
-			if (pair.bidPricePolicy && pair.askPricePolicy) {
-				FillerPricePolicy.assertBookNotCrossed(
-					`FXFiller pair ${pair.token0}/${pair.token1}`,
-					pair.bidPricePolicy,
-					pair.askPricePolicy,
-				)
-			}
+			// A crossed book (bid ≤ ask) is accepted: each side is quoted
+			// independently, and the per-leg spread gate simply never fills the
+			// crossed region.
 			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
 				if (!hasVenues) {
 					throw new Error(

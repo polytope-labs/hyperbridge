@@ -15,7 +15,7 @@ import type { ActivityLogService, ActivityEvent } from "../ActivityLogService"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BidStorageService } from "../BidStorageService"
 import { configureLogger, getLogger, type LogLevel } from "../Logger"
-import { readBody, sendJson, isLoopbackHost } from "./http-util"
+import { readBody, sendJson, isLoopbackHost, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
 import {
@@ -55,6 +55,8 @@ export interface AdminStrategy {
 	 * ask-only and venue-priced sides stay uneditable.
 	 */
 	enableSide?: (side: "bid" | "ask", policy: FillerPricePolicy) => void
+	/** Closes a direction (back to one-sided LP); same availability as enableSide. */
+	disableSide?: (side: "bid" | "ask") => void
 }
 
 export type UiMode = "init" | "operator"
@@ -152,6 +154,7 @@ export class UiServer {
 	private startError?: string
 	private sseClients = new Set<ServerResponse>()
 	private activityListener?: (event: ActivityEvent) => void
+	private boundLoopback = true
 
 	constructor(opts: { mode: UiMode; uiDistDir?: string; setup?: SetupContext; operator?: OperatorContext }) {
 		this.mode = opts.mode
@@ -183,6 +186,7 @@ export class UiServer {
 				"UI server binding a non-loopback address — it is unauthenticated, make sure the network is trusted",
 			)
 		}
+		this.boundLoopback = isLoopbackHost(host)
 		return new Promise((resolve, reject) => {
 			this.server.once("error", reject)
 			this.server.listen(port, host, () => {
@@ -243,6 +247,14 @@ export class UiServer {
 	private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const path = (req.url ?? "/").split("?")[0]
 		const method = req.method ?? "GET"
+
+		// DNS-rebinding defense: an attacker page resolving its own domain to
+		// this address becomes same-origin and could drive every endpoint,
+		// including /api/send. A rebound origin always carries its DNS name in
+		// Host, so only IP-literal/localhost Hosts are served.
+		if (!hostHeaderAllowed(req.headers.host, this.boundLoopback)) {
+			return sendJson(res, 403, { error: "Host header is not allowed" })
+		}
 
 		// CSRF hygiene: a cross-origin page can't set this header without a
 		// preflight, and no CORS headers are ever emitted.
@@ -516,31 +528,55 @@ export class UiServer {
 		}
 		const update = body as { bidPriceCurve?: PriceCurvePoint[]; askPriceCurve?: PriceCurvePoint[] }
 
-		// A curve on a disabled side of a curve-priced pair *enables* that side
-		// (one-sided LP opened by the operator). Venue-priced pairs expose no
-		// enableSide, and same-token markets are ask-only by construction.
+		// Per provided side: a non-empty curve on an absent side *enables* it
+		// (one-sided LP opened by the operator), an empty curve on a present
+		// side *disables* it (back to one-sided LP), an empty curve on an
+		// absent side is a no-op. Venue-priced pairs expose neither hook, and
+		// same-token markets are ask-only by construction.
 		const enabling: Array<{ side: "bid" | "ask"; points: PriceCurvePoint[] }> = []
-		if (update.bidPriceCurve && !strategy.bid) {
-			if (!strategy.enableSide) {
-				return sendJson(res, 409, {
-					error: strategy.sameToken
-						? "Same-token markets are ask-only — the bid side cannot be enabled"
-						: "The bid side of this strategy is not editable (venue-priced)",
-				})
+		const disabling: Array<"bid" | "ask"> = []
+		for (const side of ["bid", "ask"] as const) {
+			const points = side === "bid" ? update.bidPriceCurve : update.askPriceCurve
+			const current = side === "bid" ? strategy.bid : strategy.ask
+			if (points === undefined) continue
+			if (points.length === 0) {
+				if (!current) continue
+				if (!strategy.disableSide) {
+					return sendJson(res, 409, {
+						error: strategy.sameToken
+							? "Same-token markets are ask-only — deleting the ask would remove the market; remove the pair from the config instead"
+							: strategy.referenceOnly
+								? "The curve is the reference price feed — remove the pair from the config to retire it"
+								: `The ${side} side of this strategy is not editable (venue-priced)`,
+					})
+				}
+				disabling.push(side)
+			} else if (!current) {
+				if (!strategy.enableSide) {
+					return sendJson(res, 409, {
+						error:
+							strategy.sameToken && side === "bid"
+								? "Same-token markets are ask-only — the bid side cannot be enabled"
+								: `The ${side} side of this strategy is not editable (venue-priced)`,
+					})
+				}
+				enabling.push({ side, points })
 			}
-			enabling.push({ side: "bid", points: update.bidPriceCurve })
 		}
-		if (update.askPriceCurve && !strategy.ask) {
-			if (!strategy.enableSide) {
-				return sendJson(res, 409, { error: "The ask side of this strategy is not editable (venue-priced)" })
-			}
-			enabling.push({ side: "ask", points: update.askPriceCurve })
+		const bidAfter = disabling.includes("bid") ? false : Boolean(strategy.bid) || enabling.some((e) => e.side === "bid")
+		const askAfter = disabling.includes("ask") ? false : Boolean(strategy.ask) || enabling.some((e) => e.side === "ask")
+		if (!bidAfter && !askAfter) {
+			return sendJson(res, 409, {
+				error: "A market needs at least one side — remove the pair from the config to retire it",
+			})
 		}
 
 		// Apply all-or-nothing: validate every curve before touching any policy.
 		const sides: Array<{ label: "bid" | "ask"; policy: FillerPricePolicy; points: PriceCurvePoint[] }> = []
-		if (update.bidPriceCurve && strategy.bid) sides.push({ label: "bid", policy: strategy.bid, points: update.bidPriceCurve })
-		if (update.askPriceCurve && strategy.ask) sides.push({ label: "ask", policy: strategy.ask, points: update.askPriceCurve })
+		if (update.bidPriceCurve?.length && strategy.bid)
+			sides.push({ label: "bid", policy: strategy.bid, points: update.bidPriceCurve })
+		if (update.askPriceCurve?.length && strategy.ask)
+			sides.push({ label: "ask", policy: strategy.ask, points: update.askPriceCurve })
 		const enabled: Array<{ side: "bid" | "ask"; policy: FillerPricePolicy }> = []
 		try {
 			for (const side of sides) {
@@ -551,11 +587,12 @@ export class UiServer {
 				enabled.push({ side: enable.side, policy: new FillerPricePolicy({ points: enable.points }) })
 			}
 
-			// Live edits keep the same book invariants as startup. Judge the
-			// proposed side against the untouched other side, so a one-sided
-			// edit cannot cross the book or push a same-token ask to par.
-			const nextBid = update.bidPriceCurve ? new FillerPricePolicy({ points: update.bidPriceCurve }) : strategy.bid
-			const nextAsk = update.askPriceCurve ? new FillerPricePolicy({ points: update.askPriceCurve }) : strategy.ask
+			// Live edits keep the same startup invariants. A crossed book is
+			// allowed (the sides are quoted independently; the crossed region
+			// never fills), but a same-token ask must stay strictly below par.
+			const nextAsk = update.askPriceCurve?.length
+				? new FillerPricePolicy({ points: update.askPriceCurve })
+				: strategy.ask
 			if (strategy.sameToken && nextAsk) {
 				for (const point of nextAsk.getPoints()) {
 					if (new Decimal(point.price).gte(1)) {
@@ -564,9 +601,6 @@ export class UiServer {
 						)
 					}
 				}
-			}
-			if (!strategy.sameToken && nextBid && nextAsk) {
-				FillerPricePolicy.assertBookNotCrossed(`strategy ${index}`, nextBid, nextAsk)
 			}
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
@@ -589,6 +623,12 @@ export class UiServer {
 				"One-sided LP direction enabled from the UI",
 			)
 		}
+		for (const side of disabling) {
+			strategy.disableSide!(side)
+			if (side === "bid") strategy.bid = undefined
+			else strategy.ask = undefined
+			this.logger.warn({ strategy: index, side }, "Trading direction disabled from the UI (one-sided LP)")
+		}
 
 		const persisted = this.persistCurveUpdate(strategy, update)
 		sendJson(res, 200, { ...serializeStrategy(strategy), persisted })
@@ -606,8 +646,14 @@ export class UiServer {
 		const op = this.operator!
 		const pair = op.config.pairs?.[strategy.pairIndex]
 		if (!pair) return false
-		if (update.bidPriceCurve) pair.bidPriceCurve = update.bidPriceCurve
-		if (update.askPriceCurve) pair.askPriceCurve = update.askPriceCurve
+		if (update.bidPriceCurve !== undefined) {
+			if (update.bidPriceCurve.length) pair.bidPriceCurve = update.bidPriceCurve
+			else delete pair.bidPriceCurve
+		}
+		if (update.askPriceCurve !== undefined) {
+			if (update.askPriceCurve.length) pair.askPriceCurve = update.askPriceCurve
+			else delete pair.askPriceCurve
+		}
 		return this.persistConfig()
 	}
 
@@ -864,8 +910,9 @@ function validateCurveUpdateShape(body: unknown): string | null {
 		["askPriceCurve", askPriceCurve],
 	] as const) {
 		if (curve === undefined) continue
-		if (!Array.isArray(curve) || curve.length === 0) {
-			return `${name} must be a non-empty array of points`
+		// An empty array is meaningful: it disables that side (one-sided LP).
+		if (!Array.isArray(curve)) {
+			return `${name} must be an array of points`
 		}
 		for (const point of curve) {
 			if (

@@ -6,7 +6,7 @@ import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { AssetRegistry } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
@@ -35,6 +35,12 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 			state.chains.map((chain) => chain.meta.stateMachineId),
 		)
 	}
+	// Boot-parity confirmation coverage for the selected chains; passthrough
+	// chains keep the softer warnUncoveredPassthroughChains treatment.
+	assertConfirmationCoverage(
+		config.confirmationPolicies,
+		state.chains.map((chain) => chain.meta.chainId),
+	)
 
 	const emitted = emitFillerToml(config, { chainComments: chainComments(state) })
 	// JSON-normalize both sides: strips undefined keys and the parser's null prototypes.
@@ -89,6 +95,14 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 	// section to write), so they must not survive assembly either — the
 	// round-trip gate would trip on them.
 	if (base.assets && Object.keys(base.assets).length === 0) delete base.assets
+	const allowlist = state.allowlist ? { ...state.allowlist } : undefined
+	if (allowlist?.bySource && Object.keys(allowlist.bySource).length === 0) delete allowlist.bySource
+	const scrubbedAllowlist = allowlist && Object.keys(allowlist).length > 0 ? allowlist : undefined
+	// [rebalancing] without base balances can neither trigger nor emit.
+	const rebalancing =
+		state.rebalancing?.baseBalances && Object.keys(state.rebalancing.baseBalances).length > 0
+			? state.rebalancing
+			: undefined
 
 	// The pairs step owns [vault.uniswapV4] wholesale: the block it configured
 	// this run replaces whatever the prefill had (or drops it when the operator
@@ -130,9 +144,9 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 			...state.passthroughChains,
 			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
 		],
-		rebalancing: state.rebalancing,
+		rebalancing,
 		vault: hasVault ? vault : undefined,
-		allowlist: state.allowlist,
+		allowlist: scrubbedAllowlist,
 	}
 }
 

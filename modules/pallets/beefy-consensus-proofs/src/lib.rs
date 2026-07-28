@@ -176,7 +176,7 @@ pub mod pallet {
 	/// strictly increasing because every accepted proof advances the proven height,
 	/// so `vec[0]` is always the oldest — FIFO eviction via `remove(0)` when full.
 	/// The proof bytes live in offchain storage under
-	/// [`offchain_key(latest_height)`](types::offchain_key).
+	/// [`messaging_offchain_key(latest_height)`](types::messaging_offchain_key).
 	#[pallet::storage]
 	pub type MessagingProofs<T: Config> =
 		StorageValue<_, BoundedVec<u64, T::MaxStoredProofs>, ValueQuery>;
@@ -184,8 +184,8 @@ pub mod pallet {
 	/// Map of `set_id → latest_height` for rotation proofs. Lets relayers catch a lagging
 	/// EVM destination up across multiple epochs: given the last-known authority set id,
 	/// walk entries forward, fetching each rotation proof from offchain storage under
-	/// [`offchain_key(latest_height)`](types::offchain_key). BEEFY set ids are monotone,
-	/// so `iter().next()` gives FIFO eviction on overflow.
+	/// [`rotation_offchain_key(set_id)`](types::rotation_offchain_key). BEEFY set ids are
+	/// monotone, so `iter().next()` gives FIFO eviction on overflow.
 	#[pallet::storage]
 	pub type RotationProofs<T: Config> =
 		StorageValue<_, BoundedBTreeMap<u64, u64, T::MaxStoredProofs>, ValueQuery>;
@@ -541,27 +541,41 @@ pub mod pallet {
 
 			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
 
-			sp_io::offchain_index::set(&types::offchain_key(outcome.latest_height), &proof);
-			let evicted_height = if outcome.rotated {
+			// Mandatory proofs are keyed by the set id they rotated to, messaging proofs by the
+			// height they advanced to, so the two never write over each other even when a
+			// rotation lands on a head an earlier messaging proof already finalized.
+			let evicted = if outcome.rotated {
+				sp_io::offchain_index::set(
+					&types::rotation_offchain_key(outcome.current_set_id),
+					&proof,
+				);
 				RotationProofs::<T>::mutate(|map| {
 					let evicted = (map.len() as u32 == T::MaxStoredProofs::get())
-						.then(|| map.iter().next().map(|(k, _)| *k))
+						.then(|| map.keys().next().copied())
 						.flatten()
-						.and_then(|set_id| map.remove(&set_id));
+						.and_then(|set_id| {
+							map.remove(&set_id)
+								.map(|height| (types::rotation_offchain_key(set_id), height))
+						});
 					let _ = map.try_insert(outcome.current_set_id, outcome.latest_height);
 					evicted
 				})
 			} else {
+				sp_io::offchain_index::set(
+					&types::messaging_offchain_key(outcome.latest_height),
+					&proof,
+				);
 				MessagingProofs::<T>::mutate(|vec| {
-					let evicted =
-						(vec.len() as u32 == T::MaxStoredProofs::get()).then(|| vec.remove(0));
+					let evicted = (vec.len() as u32 == T::MaxStoredProofs::get())
+						.then(|| vec.remove(0))
+						.map(|height| (types::messaging_offchain_key(height), height));
 					let _ = vec.try_push(outcome.latest_height);
 					evicted
 				})
 			};
 
-			if let Some(height) = evicted_height {
-				sp_io::offchain_index::clear(&types::offchain_key(height));
+			if let Some((key, height)) = evicted {
+				sp_io::offchain_index::clear(&key);
 				ProofContext::<T>::remove(height);
 				ProverCount::<T>::remove(height);
 				AcceptedProvers::<T>::remove(height);

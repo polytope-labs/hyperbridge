@@ -66,6 +66,7 @@ use beefy_verifier_primitives::{
 use ismp_abi::ecdsa_beefy::{
 	BeefyConsensusProof as SolBeefyConsensusProof, BeefyConsensusState as SolBeefyConsensusState,
 };
+use pallet_beefy_consensus_proofs::types::{messaging_offchain_key, rotation_offchain_key};
 use primitive_types::H256;
 
 const PROOF_TYPE_NAIVE: u8 = 0;
@@ -630,25 +631,64 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 	// a parachain commitment, and ran ring-buffer eviction. Combined with
 	// `wait_for_finalized_success` having returned ok, that's sufficient
 	// evidence the naive happy path works end-to-end.
-	if will_rotate {
+	//
+	// The proof bytes themselves land in offchain storage under a key that depends on the
+	// kind, so also read the blob back under the key its kind implies and check that the
+	// other namespace didn't receive it.
+	let (proof_key, height, bucket) = if will_rotate {
 		let rotation_proofs: BTreeMap<u64, u64> =
 			fetch_storage::<BTreeMap<u64, u64>>(&client, "RotationProofs")
 				.await?
 				.unwrap_or_default();
-		assert!(
-			!rotation_proofs.is_empty(),
-			"RotationProofs must contain the rotation height after a successful rotating proof",
-		);
+		let (set_id, height) = rotation_proofs
+			.into_iter()
+			.next_back()
+			.ok_or_else(|| anyhow!("RotationProofs empty after a successful rotating proof"))?;
+		(rotation_offchain_key(set_id), height, "rotation")
 	} else {
 		let messaging_proofs: Vec<u64> =
 			fetch_storage::<Vec<u64>>(&client, "MessagingProofs").await?.unwrap_or_default();
-		assert!(
-			!messaging_proofs.is_empty(),
-			"MessagingProofs must contain the proven height after a successful first proof",
+		let height = messaging_proofs
+			.last()
+			.copied()
+			.ok_or_else(|| anyhow!("MessagingProofs empty after a successful first proof"))?;
+		(messaging_offchain_key(height), height, "messaging")
+	};
+
+	eprintln!("[stage] proof stored in the {bucket} namespace at height {height}");
+	let stored = fetch_offchain(&rpc_client, &proof_key).await?.ok_or_else(|| {
+		anyhow!(
+			"proof blob missing under the {bucket} key; \
+			 is the node running with --enable-offchain-indexing true?"
+		)
+	})?;
+	assert_eq!(stored, wire_proof, "blob under the {bucket} key must be the submitted proof");
+
+	// A mandatory proof may finalize a head a messaging proof already covered, so the thing
+	// worth pinning is that it stays out of the messaging namespace at that height.
+	if will_rotate {
+		let aliased = fetch_offchain(&rpc_client, &messaging_offchain_key(height)).await?;
+		assert_ne!(
+			aliased.as_ref(),
+			Some(&wire_proof),
+			"rotation proof must not be reachable under the messaging key for height {height}",
 		);
 	}
 
 	Ok(())
+}
+
+/// Read a raw value out of the node's persistent offchain store. Returns `None` when the key
+/// was never written, which on a node without offchain indexing is every key.
+async fn fetch_offchain(
+	rpc_client: &RpcClient,
+	key: &[u8],
+) -> Result<Option<Vec<u8>>, anyhow::Error> {
+	let hex_key = format!("0x{}", hex::encode(key));
+	let raw: Option<String> =
+		rpc_client.request("offchain_localStorageGet", rpc_params!["PERSISTENT", hex_key]).await?;
+	raw.map(|value| hex::decode(value.strip_prefix("0x").unwrap_or(&value)).map_err(Into::into))
+		.transpose()
 }
 
 /// Tier-3 SP1 uncle dispatch path. Mirrors the bench in

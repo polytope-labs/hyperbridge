@@ -494,8 +494,7 @@ export class SubstrateChain implements IChain {
 		// proof is signed by a set the destination already knows.
 		let epoch = currentEpoch - 1n
 		while (rotationMap.has(epoch)) {
-			const height = rotationMap.get(epoch)!
-			const key = beefyOffchainKey(height)
+			const key = rotationOffchainKey(epoch)
 			const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
 			if (!proof) return undefined
 			proofs.push(proof as HexString)
@@ -503,7 +502,7 @@ export class SubstrateChain implements IChain {
 		}
 
 		// Fetch the final messaging proof at lastProvenHeight
-		const messagingKey = beefyOffchainKey(lastProvenHeight)
+		const messagingKey = messagingOffchainKey(lastProvenHeight)
 		const messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
 		if (!messagingProof) return undefined
 		proofs.push(messagingProof as HexString)
@@ -527,16 +526,29 @@ export class SubstrateChain implements IChain {
 	}
 }
 
+function beefyOffchainKey(prefix: string, id: bigint): HexString {
+	const prefixBytes = new TextEncoder().encode(prefix)
+	const idBytes = new Uint8Array(8)
+	new DataView(idBytes.buffer).setBigUint64(0, id, false)
+	return toHex(new Uint8Array([...prefixBytes, ...idBytes]))
+}
+
 /**
- * Constructs the offchain storage key for a verified consensus proof keyed by
- * proven parachain height. Matches Rust's `offchain_key(proven_height)` in
- * pallet-beefy-consensus-proofs: `OFFCHAIN_PREFIX || u64_be(proven_height)`.
+ * Offchain key for a messaging proof, keyed by the parachain height it advanced to.
+ * Mirrors `messaging_offchain_key` in pallet-beefy-consensus-proofs.
  */
-function beefyOffchainKey(provenHeight: bigint): HexString {
-	const prefix = new TextEncoder().encode("beefy_consensus_proofs::")
-	const heightBytes = new Uint8Array(8)
-	new DataView(heightBytes.buffer).setBigUint64(0, provenHeight, false)
-	return toHex(new Uint8Array([...prefix, ...heightBytes]))
+function messagingOffchainKey(provenHeight: bigint): HexString {
+	return beefyOffchainKey("beefy_consensus_proofs::", provenHeight)
+}
+
+/**
+ * Offchain key for a mandatory proof, keyed by the authority set id it rotated to.
+ * Mirrors `rotation_offchain_key` in pallet-beefy-consensus-proofs. Mandatory proofs sit in
+ * their own namespace because a rotation can finalize a head a messaging proof already
+ * covered, so height alone would let one overwrite the other.
+ */
+function rotationOffchainKey(setId: bigint): HexString {
+	return beefyOffchainKey("beefy_consensus_proofs::rotation::", setId)
 }
 
 function requestCommitmentStorageKey(key: HexString): number[] {

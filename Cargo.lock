@@ -24437,6 +24437,7 @@ dependencies = [
  "mmr-primitives",
  "mockito",
  "nexus-runtime",
+ "pallet-beefy-consensus-proofs",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",

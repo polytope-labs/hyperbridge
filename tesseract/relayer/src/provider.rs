@@ -21,11 +21,11 @@
 
 use anyhow::anyhow;
 use codec::Decode;
-use pallet_beefy_consensus_proofs::types::offchain_key;
+use pallet_beefy_consensus_proofs::types::{messaging_offchain_key, rotation_offchain_key};
 use sp_crypto_hashing::twox_128;
 use std::collections::BTreeMap;
 use subxt::ext::subxt_rpcs::{rpc_params, RpcClient};
-pub use tesseract_primitives::{ConsensusProofSource, RotationProof};
+pub use tesseract_primitives::{ConsensusProofSource, ProofKey, RotationProof};
 
 pub struct OffchainProofSource {
 	rpc_client: RpcClient,
@@ -49,10 +49,13 @@ fn rotation_proofs_storage_key() -> Vec<u8> {
 
 #[async_trait::async_trait]
 impl ConsensusProofSource for OffchainProofSource {
-	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error> {
-		let key = offchain_key(height);
-		let hex_key = format!("0x{}", hex::encode(&key));
-		tracing::debug!(target: crate::LOG_TARGET, height, key = %hex_key, "offchain proof fetch");
+	async fn fetch(&self, key: ProofKey) -> Result<Vec<u8>, anyhow::Error> {
+		let storage_key = match key {
+			ProofKey::Messaging(height) => messaging_offchain_key(height),
+			ProofKey::Rotation(set_id) => rotation_offchain_key(set_id),
+		};
+		let hex_key = format!("0x{}", hex::encode(&storage_key));
+		tracing::debug!(target: crate::LOG_TARGET, ?key, storage_key = %hex_key, "offchain proof fetch");
 		let params = rpc_params!["PERSISTENT", hex_key];
 
 		let result: Option<String> = self
@@ -62,9 +65,9 @@ impl ConsensusProofSource for OffchainProofSource {
 			.map_err(|err| anyhow!("offchain_localStorageGet failed: {err:?}"))?;
 
 		let hex_bytes = result.ok_or_else(|| {
-			tracing::warn!(target: crate::LOG_TARGET, height, "proof missing from HB offchain storage");
+			tracing::warn!(target: crate::LOG_TARGET, ?key, "proof missing from HB offchain storage");
 			anyhow!(
-				"proof missing from HB offchain storage (h={height}). \
+				"proof missing from HB offchain storage ({key:?}). \
 				 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
 			)
 		})?;
@@ -72,7 +75,7 @@ impl ConsensusProofSource for OffchainProofSource {
 		let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes.as_str());
 		let bytes = hex::decode(stripped)
 			.map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))?;
-		tracing::debug!(target: crate::LOG_TARGET, height, bytes = bytes.len(), "proof fetched");
+		tracing::debug!(target: crate::LOG_TARGET, ?key, bytes = bytes.len(), "proof fetched");
 		Ok(bytes)
 	}
 
@@ -112,12 +115,19 @@ impl ConsensusProofSource for OffchainProofSource {
 			));
 		}
 
-		// Walk ascending so the caller can submit rotations in order.
+		// Walk ascending so the caller can submit rotations in order. The blob for each
+		// rotation lives under its set id, which is the key we are already iterating.
+		// Rotations recorded before the namespace split still sit under the messaging key at
+		// their recorded height, so fall back there rather than strand a lagging destination.
+		// Drop the fallback once every live destination is past the upgrade.
 		let mut out = Vec::new();
 		for (set_id, height) in map.into_iter().filter(|(set_id, _)| *set_id > from_set_id) {
-			let proof = self.fetch(height).await.map_err(|err| {
-				anyhow!("rotation proof missing from offchain storage (set_id={set_id}, height={height}): {err:?}")
-			})?;
+			let proof = match self.fetch(ProofKey::Rotation(set_id)).await {
+				Ok(proof) => proof,
+				Err(_) => self.fetch(ProofKey::Messaging(height)).await.map_err(|err| {
+					anyhow!("rotation proof missing from offchain storage (set_id={set_id}, height={height}): {err:?}")
+				})?,
+			};
 			out.push(RotationProof { set_id, height, proof });
 		}
 		Ok(out)

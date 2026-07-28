@@ -234,13 +234,18 @@ describe("Vault funding venue - testnet", () => {
 			args: [solver],
 		})) as bigint
 
-		// Threshold = current balance minus 50 USDC, so exactly ~50 gets swept.
-		const sweepable = parseUnits("50", decimals)
+		// The sweep deposits everything down to `minBalance` once the balance
+		// reaches the `threshold` trigger — omitting minBalance means a floor of
+		// zero and the ENTIRE wallet gets parked in the vault (which then starves
+		// every other testnet suite if redeemAll flakes). Floor at balance - 10
+		// so exactly ~10 tokens are deposited.
+		const sweepable = parseUnits("10", decimals)
 		expect(balance).toBeGreaterThan(sweepable)
-		const threshold = formatUnits(balance - sweepable, decimals)
+		const minBalance = formatUnits(balance - sweepable, decimals)
+		const threshold = formatUnits(balance - sweepable / 2n, decimals)
 
 		const venue = new VaultFundingPlanner(chainClientManager, {
-			vaultsByChain: { [bscChapelId]: [{ vault: CHAPEL_VAULT, threshold }] },
+			vaultsByChain: { [bscChapelId]: [{ vault: CHAPEL_VAULT, threshold, minBalance }] },
 		})
 		await venue.initialise(solver as HexString)
 
@@ -255,7 +260,7 @@ describe("Vault funding venue - testnet", () => {
 		})) as bigint
 		const sharesAfter = await vaultShares(chapelClient, CHAPEL_VAULT, solver)
 
-		expect(balanceAfter).toBe(parseUnits(threshold, decimals))
+		expect(balanceAfter).toBe(parseUnits(minBalance, decimals))
 		expect(sharesAfter).toBeGreaterThan(sharesBefore)
 	}, 300_000)
 

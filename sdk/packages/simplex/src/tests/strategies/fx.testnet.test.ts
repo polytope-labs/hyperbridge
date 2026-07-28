@@ -86,18 +86,24 @@ const FUNDING_TARGETS = [
 		chainId: "EVM-97",
 		viemChain: bscTestnet,
 		rpcEnvKey: "BSC_CHAPEL",
-		faucet: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString,
+		faucet: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as HexString | undefined,
 		/** Refill threshold — ~100 runs' worth of placements. */
 		min: parseUnits("10", 18),
 		/** Below one run's worth, a failed drip is fatal. */
 		runnable: parseUnits("1", 18),
 	},
 	{
+		// The Amoy USD.h (the fill-side exotic) has NO public mint path: no
+		// deployed faucet holds its MINTER role and the Amoy TokenGateway does
+		// not register the USD.h asset, so it cannot be teleported in either.
+		// It was seeded by an admin key — when it runs dry, only a manual
+		// top-up helps, so fail fast with a pointed message instead of letting
+		// the filler silently skip every order for ten minutes.
 		chainId: "EVM-80002",
 		viemChain: polygonAmoy,
 		rpcEnvKey: "POLYGON_AMOY",
-		faucet: "0x5DB219e4A535E211a70DA94BaFa291Fc1a51f865" as HexString,
-		min: parseUnits("10", 18),
+		faucet: undefined,
+		min: parseUnits("0.1", 18),
 		runnable: parseUnits("0.01", 18),
 	},
 ] as const
@@ -121,6 +127,15 @@ beforeAll(async () => {
 			args: [account.address],
 		})) as bigint
 		if (balance >= target.min) continue
+
+		if (!target.faucet) {
+			const message =
+				`CI wallet ${account.address} holds ${formatUnits(balance, 18)} USD.h on ${target.chainId}, which has ` +
+				`no public faucet or bridge route for this token — it must be topped up manually by the token admin.`
+			if (balance < target.runnable) throw new Error(message)
+			console.warn(`[self-funding] ${message}`)
+			continue
+		}
 
 		try {
 			const walletClient = createWalletClient({ chain: target.viemChain, transport, account })

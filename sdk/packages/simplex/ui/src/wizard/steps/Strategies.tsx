@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { isRegistrySymbol } from "@/config/asset-registry"
 import { bookCrossedAt } from "@/config/interpolated-curve"
 import { unanchoredToken0Symbols } from "@/config/pairs"
@@ -92,55 +92,27 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 	// on an enabled chain, else USDT (a stable-stable market always works).
 	const defaultToken1 = availableSymbols.find((s) => !defaults.usdStables.includes(s)) ?? "USDT"
 
+	// FX is the flagship market, so the first visit starts with one selected;
+	// deleting it sticks (fxSeeded), and switching networks reseeds.
+	useEffect(() => {
+		setState((s) => {
+			if (s.fxSeeded) return s
+			const draft = newCrossAssetDraft(defaultToken1)
+			return {
+				...s,
+				fxSeeded: true,
+				pairs: [
+					...s.pairs,
+					{ ...draft, ...prefillCurves(draft, defaults.usdStables, fromPricePoints(defaults.sameAssetAskCurve)) },
+				],
+			}
+		})
+	}, [])
+
 	return (
 		<div>
 			<div className="card">
-				<h2>Cross-chain transfer markets</h2>
-				<p className="hint">
-					Fill same-asset transfers between chains (e.g. USDC on Base for USDC on Arbitrum). The ask price is
-					the fraction of the input you pay back out — keep it below 1; the gap to 1 is your spread on every
-					fill. Same-chain same-asset swaps are pay-more-get-less, so the filler never fills them: these
-					markets are cross-chain only.
-				</p>
-				{sameAssetRows.map(({ pair, index }) => (
-					<div key={pair.token0} style={{ marginBottom: "0.8rem" }}>
-						<label className="row">
-							<input
-								type="checkbox"
-								checked={pair.enabled}
-								onChange={(e) => patchPair(index, { enabled: e.target.checked })}
-							/>
-							<strong>
-								{pair.token0} → {pair.token1}
-							</strong>
-						</label>
-						{pair.enabled && (
-							<div style={{ marginLeft: "1.4rem" }}>
-								<label className="field" style={{ maxWidth: "16rem" }}>
-									<span>Max {pair.token0} per order (larger orders partially fill)</span>
-									<input
-										type="text"
-										value={pair.maxOrderSize}
-										onChange={(e) => patchPair(index, { maxOrderSize: e.target.value })}
-									/>
-								</label>
-								<CurveEditor
-									points={pair.ask}
-									onChange={(points) => patchPair(index, { ask: points })}
-									amountLabel={`Order size (${pair.token0})`}
-									valueLabel="Price (below 1)"
-								/>
-								{pair.ask.some((p) => p.value.trim() && Number(p.value) >= 1) && (
-									<p className="error">Prices at or above 1 give back at least what was received — no spread.</p>
-								)}
-							</div>
-						)}
-					</div>
-				))}
-			</div>
-
-			<div className="card">
-				<h2>More markets — any asset pair</h2>
+				<h2>Markets — any asset pair</h2>
 				<p className="hint">
 					Each market prices its base token (token1) in units of its quote (token0) with your own curves:
 					stablecoin to exotic (USDC/CNGN), stable to stable (USDC/USDT — fills same-chain and cross-chain
@@ -369,6 +341,51 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						)}
 					</div>
 				)}
+			</div>
+
+			<div className="card">
+				<h2>Cross-chain transfer markets</h2>
+				<p className="hint">
+					Fill same-asset transfers between chains (e.g. USDC on Base for USDC on Arbitrum). The ask price is
+					the fraction of the input you pay back out — keep it below 1; the gap to 1 is your spread on every
+					fill. Same-chain same-asset swaps are pay-more-get-less, so the filler never fills them: these
+					markets are cross-chain only.
+				</p>
+				{sameAssetRows.map(({ pair, index }) => (
+					<div key={pair.token0} style={{ marginBottom: "0.8rem" }}>
+						<label className="row">
+							<input
+								type="checkbox"
+								checked={pair.enabled}
+								onChange={(e) => patchPair(index, { enabled: e.target.checked })}
+							/>
+							<strong>
+								{pair.token0} → {pair.token1}
+							</strong>
+						</label>
+						{pair.enabled && (
+							<div style={{ marginLeft: "1.4rem" }}>
+								<label className="field" style={{ maxWidth: "16rem" }}>
+									<span>Max {pair.token0} per order (larger orders partially fill)</span>
+									<input
+										type="text"
+										value={pair.maxOrderSize}
+										onChange={(e) => patchPair(index, { maxOrderSize: e.target.value })}
+									/>
+								</label>
+								<CurveEditor
+									points={pair.ask}
+									onChange={(points) => patchPair(index, { ask: points })}
+									amountLabel={`Order size (${pair.token0})`}
+									valueLabel="Price (below 1)"
+								/>
+								{pair.ask.some((p) => p.value.trim() && Number(p.value) >= 1) && (
+									<p className="error">Prices at or above 1 give back at least what was received — no spread.</p>
+								)}
+							</div>
+						)}
+					</div>
+				))}
 			</div>
 		</div>
 	)

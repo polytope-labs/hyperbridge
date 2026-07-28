@@ -74,6 +74,8 @@ export interface WizardState {
 	alchemyError?: string
 	chains: ChainDraft[]
 	pairs: PairDraft[]
+	/** The markets step seeds one FX market draft on first visit; removal must stick. */
+	fxSeeded?: boolean
 	/** `[assets]` entries for custom token symbols: symbol → state machine id → address. */
 	customAssets: Record<string, Record<string, string>>
 	/** Price source for the cross-asset pairs; same-asset markets always use their ask curve. */
@@ -92,7 +94,7 @@ export interface WizardState {
 function sameAssetPrefabs(defaults: SetupDefaults): PairDraft[] {
 	return ["USDC", "USDT"].map((symbol) => ({
 		kind: "sameAsset" as const,
-		enabled: symbol === "USDC",
+		enabled: false,
 		token0: symbol,
 		token1: symbol,
 		maxOrderSize: "100000",
@@ -203,6 +205,7 @@ export function switchNetwork(state: WizardState, defaults: SetupDefaults, netwo
 			})),
 		// Everything keyed by the previous network's chain ids must reset with it.
 		pairs: sameAssetPrefabs(defaults),
+		fxSeeded: false,
 		customAssets: {},
 		vaults: [],
 		fxPositions: [],

@@ -657,10 +657,7 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 
 	eprintln!("[stage] proof stored in the {bucket} namespace at height {height}");
 	let stored = fetch_offchain(&rpc_client, &proof_key).await?.ok_or_else(|| {
-		anyhow!(
-			"proof blob missing under the {bucket} key; \
-			 is the node running with --enable-offchain-indexing true?"
-		)
+		anyhow!("proof blob missing under the {bucket} key at height {height}")
 	})?;
 	assert_eq!(stored, wire_proof, "blob under the {bucket} key must be the submitted proof");
 

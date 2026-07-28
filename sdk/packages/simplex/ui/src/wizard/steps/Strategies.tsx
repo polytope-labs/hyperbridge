@@ -1,6 +1,8 @@
 import { useState } from "react"
+import { isRegistrySymbol } from "@/config/asset-registry"
 import { bookCrossedAt } from "@/config/interpolated-curve"
 import { unanchoredToken0Symbols } from "@/config/pairs"
+import { pickAnchorStable } from "@/config/wizard-guards"
 import { api } from "../../api"
 import { CurveEditor, fromPricePoints, toPricePoints, type EditorPoint } from "../../components/CurveEditor"
 import { PillTabs } from "../../components/PillTabs"
@@ -86,7 +88,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 			.filter((p) => p.token0.trim() && p.token1.trim())
 			.map((p) => ({ token0: p.token0, token1: p.token1, hasCurve: draftHasCurve(p, state.fxPricing) })),
 	)
-	const shippedSymbols = new Set(defaults.registrySymbols.map((s) => normSymbol(s)))
 	// The default base asset for a new market: first exotic actually deployed
 	// on an enabled chain, else USDT (a stable-stable market always works).
 	const defaultToken1 = availableSymbols.find((s) => !defaults.usdStables.includes(s)) ?? "USDT"
@@ -164,7 +165,6 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						pair={pair}
 						symbols={availableSymbols}
 						usdStables={defaults.usdStables}
-						registrySymbols={shippedSymbols}
 						chains={chains}
 						pricing={state.fxPricing}
 						duplicate={duplicateKeys.has(`${normSymbol(pair.token0)}/${normSymbol(pair.token1)}`)}
@@ -189,7 +189,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 									(p, i) => i !== index && (p.token0 === from || p.token1 === from),
 								)
 								if (from && customAssets[from] && from !== to && !stillUsed) {
-									if (to && !shippedSymbols.has(normSymbol(to))) {
+									if (to && !isRegistrySymbol(to)) {
 										customAssets[to] = customAssets[from]
 									}
 									delete customAssets[from]
@@ -200,7 +200,7 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						onCustomAddress={(symbol, chain, address) =>
 							setState((s) =>
 								// Never record addresses under a registry symbol.
-								shippedSymbols.has(normSymbol(symbol))
+								isRegistrySymbol(symbol)
 									? s
 									: {
 											...s,
@@ -228,15 +228,27 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 							are the only price feed, so every quote asset must connect to a dollar through some curve-priced
 							pair. Add a reference-only price feed — it anchors the asset without opening a market.
 						</p>
-						{unanchored.map((symbol) => (
-							<button
-								key={symbol}
-								type="button"
-								onClick={() => setState((s) => ({ ...s, pairs: [...s.pairs, newReferenceDraft(symbol)] }))}
-							>
-								+ Add USDC/{symbol} reference price feed
-							</button>
-						))}
+						{unanchored.map((symbol) => {
+							// The feed needs a stable with no existing market against the
+							// symbol — a pair and its reverse are the same market.
+							const stable = pickAnchorStable(enabled, symbol)
+							return stable ? (
+								<button
+									key={symbol}
+									type="button"
+									onClick={() =>
+										setState((s) => ({ ...s, pairs: [...s.pairs, newReferenceDraft(symbol, stable)] }))
+									}
+								>
+									+ Add {stable}/{symbol} reference price feed
+								</button>
+							) : (
+								<p className="hint" key={symbol}>
+									Every USD stable already has a market against {symbol}, but none carries a curve — give one
+									of those markets a price curve instead of adding a feed.
+								</p>
+							)
+						})}
 					</div>
 				)}
 
@@ -407,7 +419,6 @@ function MarketRow(props: {
 	pair: PairDraft
 	symbols: string[]
 	usdStables: string[]
-	registrySymbols: Set<string>
 	chains: ChainDraft[]
 	pricing: "curves" | "uniswapV4"
 	duplicate: boolean
@@ -422,7 +433,6 @@ function MarketRow(props: {
 		pair,
 		symbols,
 		usdStables,
-		registrySymbols,
 		chains,
 		pricing,
 		duplicate,
@@ -439,7 +449,7 @@ function MarketRow(props: {
 	const sameToken = isSameTokenDraft(pair)
 	const venueNeedsStable = pricing === "uniswapV4" && !sameToken && !usdStables.includes(normSymbol(pair.token0))
 	const shadowed = [pair.token0, pair.token1].filter(
-		(symbol, i) => (i === 0 ? custom0 : custom1) && symbol && registrySymbols.has(normSymbol(symbol)),
+		(symbol, i) => (i === 0 ? custom0 : custom1) && symbol && isRegistrySymbol(symbol),
 	)
 	const crossedAt =
 		!sameToken && pricing === "curves" && pair.bidEnabled && pair.askEnabled

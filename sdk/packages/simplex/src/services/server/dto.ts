@@ -26,8 +26,6 @@ export interface SetupDefaults {
 	chains: InitChainMeta[]
 	hyperbridgeWs: Record<InitNetwork, string>
 	usdStables: string[]
-	/** Every symbol the registry ships, chain-independent — custom assets must not shadow these. */
-	registrySymbols: string[]
 	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
 	queue: QueueConfig

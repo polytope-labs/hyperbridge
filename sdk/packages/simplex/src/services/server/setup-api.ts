@@ -4,6 +4,8 @@ import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertPairSymbolsResolve } from "@/config/pairs"
+import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
@@ -78,9 +80,6 @@ export async function handleSetupRequest(
 			chains: INIT_CHAINS,
 			hyperbridgeWs: HYPERBRIDGE_WS_DEFAULTS,
 			usdStables: [...USD_STABLE_SYMBOLS],
-			// Full shipped symbol list (chain-independent) so the wizard can refuse
-			// custom [assets] entries that would shadow a registry symbol.
-			registrySymbols: registrySymbols(),
 			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
 			queue: DEFAULT_QUEUE,
@@ -288,11 +287,22 @@ interface GatedConfig {
 function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; error: string } {
 	const config = body.config as FillerTomlConfig | undefined
 	const chainLabels = Array.isArray(body.chainLabels) ? body.chainLabels.map(String) : undefined
+	// Enabled chain ids, sent by the wizard so boot-parity symbol resolution can
+	// run offline. Advisory for early feedback — boot re-checks against the
+	// chains actually resolved from the RPCs.
+	const chainIds = Array.isArray(body.chainIds) ? body.chainIds.map(Number).filter(Number.isFinite) : []
 	if (!config || typeof config !== "object") return { ok: false, error: "Missing config object" }
 	try {
 		validateSignerConfig(config.simplex?.signer as SignerConfig)
 		for (const chain of config.chains ?? []) validateRpcUrls(chain.rpcUrls)
 		validateConfig(config)
+		if (chainIds.length > 0 && config.pairs?.length) {
+			assertPairSymbolsResolve(
+				config.pairs,
+				new AssetRegistry(new ChainConfigService({}), config.assets),
+				chainIds.map(formatChainKey),
+			)
+		}
 		const toml = emitFillerToml(config, { chainComments: chainLabels })
 		return { config, toml, chainLabels }
 	} catch (err) {

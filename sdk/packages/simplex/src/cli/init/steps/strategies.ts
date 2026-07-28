@@ -2,7 +2,8 @@ import { confirm, log, select } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type { UniswapV4PositionToml, ChainConfirmationPolicy } from "@/config/filler-toml"
 import { unanchoredToken0Symbols, type PairConfig } from "@/config/pairs"
-import { normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import { pickAnchorStable } from "@/config/wizard-guards"
+import { isRegistrySymbol, normalizeSymbol, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { guard, why, askText, askNumber, askAddress } from "../prompt-utils"
 import { editPoints, positiveValue } from "../points-editor"
@@ -66,12 +67,23 @@ export async function stepStrategies(state: WizardState, prefill?: Prefill): Pro
 	}
 
 	// Reference-only pairs are price feeds, not markets — re-offering them
-	// through the market prompts would drop the flag; carry them verbatim.
+	// through the market prompts would drop the flag; carry them, but through
+	// the same checks market pairs get, so a broken prefill feed is dropped
+	// here with a reason instead of failing the write gate and wiping the step.
 	const referencePairs = prefillPairs.filter((p) => p.referenceOnly === true)
-	if (referencePairs.length > 0) {
-		state.pairs.push(...referencePairs.map((p) => ({ ...p })))
+	const kept: PairConfig[] = []
+	for (const pair of referencePairs) {
+		const issue = referencePairIssue(state.pairs.concat(kept), pair)
+		if (issue) {
+			log.warn(`Dropping reference-only ${pair.token0}/${pair.token1} from the existing config: ${issue}`)
+			continue
+		}
+		kept.push({ ...pair })
+	}
+	if (kept.length > 0) {
+		state.pairs.push(...kept)
 		log.info(
-			`Keeping ${referencePairs.length} reference-only price feed${referencePairs.length > 1 ? "s" : ""}: ${referencePairs.map((p) => `${p.token0}/${p.token1}`).join(", ")}`,
+			`Keeping ${kept.length} reference-only price feed${kept.length > 1 ? "s" : ""}: ${kept.map((p) => `${p.token0}/${p.token1}`).join(", ")}`,
 		)
 	}
 
@@ -174,8 +186,24 @@ async function chooseVenueSide(state: WizardState, prefill?: Prefill): Promise<v
 	else venue.side = side as "bid" | "ask"
 }
 
-/** USD stables tried as reference-feed quote sides, in preference order. */
-const USD_ANCHOR_ORDER = ["USDC", "USDT", "DAI"]
+/** Why a prefilled reference-only pair cannot be carried, or null when it can. */
+function referencePairIssue(existing: PairConfig[], pair: PairConfig): string | null {
+	if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) {
+		return "a same-token pair carries no FX rate to reference"
+	}
+	if ((pair.bidPriceCurve?.length ?? 0) < 1 && (pair.askPriceCurve?.length ?? 0) < 1) {
+		return "it has no price curve (the curve IS the reference)"
+	}
+	const clashes = existing.some(
+		(p) =>
+			(normalizeSymbol(p.token0) === normalizeSymbol(pair.token0) &&
+				normalizeSymbol(p.token1) === normalizeSymbol(pair.token1)) ||
+			(normalizeSymbol(p.token0) === normalizeSymbol(pair.token1) &&
+				normalizeSymbol(p.token1) === normalizeSymbol(pair.token0)),
+	)
+	if (clashes) return "that market is already declared (a pair and its reverse are the same market)"
+	return null
+}
 
 /**
  * Every pair's token0 must reach a USD anchor through the declared curves —
@@ -196,16 +224,7 @@ async function ensureUsdAnchors(state: WizardState): Promise<void> {
 		if (unanchored.length === 0) return
 
 		const symbol = unanchored[0]
-		// A pair and its reverse are the same market, so the feed must use a
-		// stable with no existing orientation against the symbol at all.
-		const stable = USD_ANCHOR_ORDER.find(
-			(candidate) =>
-				!state.pairs.some(
-					(p) =>
-						(normalizeSymbol(p.token0) === candidate && normalizeSymbol(p.token1) === symbol) ||
-						(normalizeSymbol(p.token0) === symbol && normalizeSymbol(p.token1) === candidate),
-				),
-		)
+		const stable = pickAnchorStable(state.pairs, symbol)
 		if (!stable) {
 			log.warn(
 				`${symbol} cannot be auto-anchored: every USD stable already has a pair against it, but none carries a curve (a venue-priced pair has no rate to anchor with). Add a curve-priced pair against a USD stable by hand — until then the config is rejected at the final check and you'll be brought back to this step.`,
@@ -417,7 +436,15 @@ async function addCustomAsset(state: WizardState): Promise<string> {
 	const symbol = normalizeSymbol(
 		await askText("Token symbol (used in the config, e.g. BRZ)", {
 			required: "Symbol is required",
-			validate: (value) => (/^[A-Za-z0-9_-]+$/.test(value.trim()) ? undefined : "Letters/digits only"),
+			validate: (value) => {
+				if (!/^[A-Za-z0-9_-]+$/.test(value.trim())) return "Letters/digits only"
+				// A custom address under a shipped symbol would silently repoint
+				// the real asset — the same block the web wizard applies.
+				if (isRegistrySymbol(value)) {
+					return `${normalizeSymbol(value)} ships with the registry — pick it from the list instead of redefining its address`
+				}
+				return undefined
+			},
 		}),
 	)
 	const addresses: Record<string, HexString> = {}

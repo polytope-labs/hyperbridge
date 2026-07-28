@@ -1,6 +1,6 @@
 import { isAddress } from "viem"
 import { HexString } from "@hyperbridge/sdk"
-import { parseChainKey } from "@/config/interpolated-curve"
+import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { validateUniswapV4Positions } from "@/config/v4-validate"
@@ -251,25 +251,11 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 	}
 
-	// Per-chain confirmation policies (merged over built-in defaults at startup).
-	for (const [chainId, policy] of Object.entries(config.confirmationPolicies ?? {})) {
-		if (parseChainKey(chainId) === null) {
-			throw new Error(
-				`Confirmation policy key '${chainId}' is not a chain id — write [confirmationPolicies."EVM-<id>"] or [confirmationPolicies."<id>"]`,
-			)
-		}
-		if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
-			throw new Error(
-				`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,
-			)
-		}
-		for (const point of policy.points) {
-			if (point.amount === undefined || point.value === undefined) {
-				throw new Error(
-					`Each point in confirmation policy for chain ${chainId} must have 'amount' and 'value'`,
-				)
-			}
-		}
+	// Per-chain confirmation policies (merged over built-in defaults at
+	// startup). Constructing the real policy runs the exact boot-time
+	// validation — chain-id keys, ≥ 2 points, non-negative integer values.
+	if (config.confirmationPolicies) {
+		void new ConfirmationPolicy(config.confirmationPolicies)
 	}
 
 	// Uniswap V4 venue config ([vault.uniswapV4]): positions, price guards,

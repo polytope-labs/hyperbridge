@@ -14,6 +14,7 @@ import {
 	parseChainKey,
 } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { assertPairSymbolsResolve } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -218,43 +219,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// SDK chain registry, extended/overridden by the user's [assets] table.
 	const assetRegistry = new AssetRegistry(configService, config.assets)
 
-	// Every pair symbol must resolve to a real deployment on at least one
-	// configured chain. This catches assets the registry marks absent (the
-	// SDK stores zero-address sentinels for undeployed assets) before the
-	// engine can match a zero address — which doubles as the native-token
-	// sentinel in the fill path — against an order leg.
+	// Symbols must resolve to real, distinct deployments on the configured
+	// chains — the same checks the wizard gates run, re-run here against the
+	// chains actually resolved from the RPCs.
 	const configuredChainNames = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
-	const pairSymbols = new Set((config.pairs ?? []).flatMap((p) => [p.token0, p.token1]))
-	for (const pair of config.pairs ?? []) {
-		for (const symbol of [pair.token0, pair.token1]) {
-			const resolvesSomewhere = configuredChainNames.some(
-				(chainName) => assetRegistry.getAddress(symbol, chainName) !== null,
-			)
-			if (!resolvesSomewhere) {
-				throw new Error(
-					`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
-				)
-			}
-		}
-	}
-
-	// No two distinct symbols may resolve to the SAME contract on a chain
-	// (e.g. an [assets] alias of USDC's address). Aliasing collapses a
-	// cross-asset pair into a same-asset market — bypassing the same-token
-	// safeguards — and makes leg matching order-dependent.
-	for (const chainName of configuredChainNames) {
-		const addressOwner = new Map<string, string>()
-		for (const symbol of pairSymbols) {
-			const address = assetRegistry.getAddress(symbol, chainName)?.toLowerCase()
-			if (!address) continue
-			const owner = addressOwner.get(address)
-			if (owner && normalizeSymbol(owner) !== normalizeSymbol(symbol)) {
-				throw new Error(
-					`assets: '${symbol}' and '${owner}' both resolve to ${address} on ${chainName} — symbols must map to distinct contracts`,
-				)
-			}
-			addressOwner.set(address, symbol)
-		}
+	if (config.pairs?.length) {
+		assertPairSymbolsResolve(config.pairs, assetRegistry, configuredChainNames)
 	}
 
 	// Editable price curves for the UI server, collected at construction so the

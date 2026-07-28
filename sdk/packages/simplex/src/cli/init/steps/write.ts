@@ -5,7 +5,10 @@ import { writeConfigFileAtomic } from "@/config/write-config"
 import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
+import { ChainConfigService } from "@hyperbridge/sdk"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { AssetRegistry } from "@/config/asset-registry"
+import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { validateRpcUrls } from "@/services/FillerConfigService"
@@ -21,6 +24,17 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 	validateSignerConfig(state.signer as SignerConfig)
 	for (const chain of config.chains) validateRpcUrls(chain.rpcUrls)
 	validateConfig(config)
+	// Boot-parity symbol resolution — a registry symbol not deployed on any
+	// selected chain fails here, not first on `simplex run`. Skipped when
+	// passthrough chains exist: their chain ids are unknown offline and a
+	// symbol may resolve only there (boot still enforces).
+	if (state.passthroughChains.length === 0 && config.pairs?.length) {
+		assertPairSymbolsResolve(
+			config.pairs,
+			new AssetRegistry(new ChainConfigService({}), config.assets),
+			state.chains.map((chain) => chain.meta.stateMachineId),
+		)
+	}
 
 	const emitted = emitFillerToml(config, { chainComments: chainComments(state) })
 	// JSON-normalize both sides: strips undefined keys and the parser's null prototypes.

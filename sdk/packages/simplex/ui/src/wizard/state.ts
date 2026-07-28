@@ -1,4 +1,4 @@
-import { normalizeSymbol } from "@/config/asset-registry"
+import { isRegistrySymbol, normalizeSymbol } from "@/config/asset-registry"
 import { fromPricePoints, toPricePoints, type EditorPoint } from "../components/CurveEditor"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, CurvePoint, FillerConfig, Network, PairConfig, SetupDefaults } from "../types"
@@ -135,12 +135,12 @@ export function draftHasCurve(draft: PairDraft, pricing: "curves" | "uniswapV4")
 	return (draft.bidEnabled && curveFilled(draft.bid)) || (draft.askEnabled && curveFilled(draft.ask))
 }
 
-/** A reference-only USDC/<symbol> price feed, inserted by the anchor helper. */
-export function newReferenceDraft(token1: string): PairDraft {
+/** A reference-only <stable>/<symbol> price feed, inserted by the anchor helper. */
+export function newReferenceDraft(token1: string, token0: string): PairDraft {
 	return {
 		kind: "crossAsset",
 		enabled: true,
-		token0: "USDC",
+		token0,
 		token1,
 		maxOrderSize: "",
 		referenceOnly: true,
@@ -271,10 +271,9 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 	// never for registry symbols: an accidental override would silently repoint
 	// e.g. USDC at an arbitrary contract. The wizard refuses shadowing outright.
 	const usedSymbols = new Set(pairs.flatMap((p) => [p.token0, p.token1]))
-	const shipped = new Set(defaults.registrySymbols.map((s) => normSymbol(s)))
 	const assets = Object.fromEntries(
 		Object.entries(state.customAssets)
-			.filter(([symbol]) => usedSymbols.has(symbol) && !shipped.has(normSymbol(symbol)))
+			.filter(([symbol]) => usedSymbols.has(symbol) && !isRegistrySymbol(symbol))
 			.map(([symbol, byChain]) => [
 				symbol,
 				Object.fromEntries(Object.entries(byChain).filter(([, address]) => address.trim())),

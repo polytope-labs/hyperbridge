@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { api } from "../../api"
 import { CopyHash } from "../../components/CopyHash"
-import { assembleConfig, chainLabels } from "../state"
+import { assembleConfig, chainLabels, enabledChains } from "../state"
 import type { StepProps } from "../Wizard"
 
 type Phase = "review" | "starting" | "failed"
@@ -18,6 +18,7 @@ export function StepReview({ state, defaults }: StepProps) {
 		api.post<{ ok: boolean; toml?: string; error?: string }>("/api/setup/preview", {
 			config,
 			chainLabels: chainLabels(state),
+			chainIds: enabledChains(state).map((c) => c.meta.chainId),
 		})
 			.then((res) => {
 				if (cancelled) return
@@ -58,6 +59,7 @@ export function StepReview({ state, defaults }: StepProps) {
 			await api.post("/api/setup/save-and-start", {
 				config: assembleConfig(state, defaults),
 				chainLabels: chainLabels(state),
+				chainIds: enabledChains(state).map((c) => c.meta.chainId),
 			})
 			setPhase("starting")
 		} catch (err) {

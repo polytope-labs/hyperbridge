@@ -42,8 +42,8 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 		state.signer = { type: SignerType.PrivateKey, key: (key.startsWith("0x") ? key : `0x${key}`) as HexString }
 	} else if (type === SignerType.MpcVault) {
 		const prev = existing?.type === SignerType.MpcVault ? existing : undefined
-		state.signer = {
-			type: SignerType.MpcVault,
+		const signer = {
+			type: SignerType.MpcVault as const,
 			apiToken: await askSecret("MPCVault API token", prev?.apiToken),
 			vaultUuid: await askText("Vault UUID", { initial: prev?.vaultUuid, required: "Vault UUID is required" }),
 			accountAddress: (await askAddress("Wallet address in the vault (0x...)", {
@@ -54,6 +54,11 @@ export async function stepSigner(state: WizardState, prefill?: Prefill): Promise
 				required: "Public key is required",
 			}),
 		}
+		const grpcTarget = await askText("gRPC target (empty for api.mpcvault.com:443)", {
+			initial: prev?.grpcTarget,
+			required: false,
+		})
+		state.signer = { ...signer, ...(grpcTarget ? { grpcTarget } : {}) }
 	} else {
 		const prev = existing?.type === SignerType.Turnkey ? existing : undefined
 		state.signer = {

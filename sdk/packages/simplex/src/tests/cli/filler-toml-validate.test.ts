@@ -243,4 +243,32 @@ describe("validateConfig", () => {
 			["1", "137", "42161", "56", "8453", "130"].sort(),
 		)
 	})
+
+	// The gate constructs the same policies boot does, so anything boot rejects
+	// fails at config time — not first on `simplex run`.
+	it("rejects fractional confirmation values at the gate, like boot does", () => {
+		const config = minimalConfig()
+		config.confirmationPolicies = {
+			"1": {
+				points: [
+					{ amount: "1", value: 1.5 },
+					{ amount: "100", value: 3 },
+				],
+			},
+		}
+		expect(() => validateConfig(config)).toThrow(/non-negative integer/)
+	})
+
+	it("rejects invalid curve amounts at the gate, like the price policy does", () => {
+		const config = minimalConfig()
+		config.pairs = [
+			{
+				token0: "USDC",
+				token1: "CNGN",
+				maxOrderSize: "1000",
+				askPriceCurve: [{ amount: "-5", price: "1550" }],
+			},
+		]
+		expect(() => validateConfig(config)).toThrow(/askPriceCurve — .*invalid amount/)
+	})
 })

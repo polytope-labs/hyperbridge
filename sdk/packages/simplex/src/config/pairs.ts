@@ -124,6 +124,64 @@ function validateCurve(pairLabel: string, name: string, curve: PriceCurvePoint[]
 			throw new Error(`pairs.${pairLabel}: ${name} prices must be positive, got '${point.price}'`)
 		}
 	}
+	// Backstop: the exact validation the engine's policy runs at boot (amounts
+	// included), so the gate can never pass a curve boot would reject.
+	try {
+		void new FillerPricePolicy({ points: curve })
+	} catch (err) {
+		throw new Error(`pairs.${pairLabel}: ${name} — ${err instanceof Error ? err.message : err}`)
+	}
+}
+
+/** Resolves a symbol to its contract address on a chain, or null when not deployed there. */
+export interface PairAddressResolver {
+	getAddress(symbol: string, chain: string): string | null
+}
+
+/**
+ * Boot-parity resolution checks over `[[pairs]]` symbols, shared by the boot
+ * path and the wizard gates so a config is rejected where it is written, not
+ * first on `simplex run`:
+ *  1. every symbol must resolve to a real deployment on at least one of the
+ *     given chains — the SDK stores zero-address sentinels for undeployed
+ *     assets, and the zero address doubles as the native-token sentinel in the
+ *     fill path;
+ *  2. no two distinct symbols may resolve to the SAME contract on a chain
+ *     (an [assets] alias of USDC's address): aliasing collapses a cross-asset
+ *     pair into a same-asset market — bypassing the same-token safeguards —
+ *     and makes leg matching order-dependent.
+ */
+export function assertPairSymbolsResolve(
+	pairs: PairConfig[],
+	registry: PairAddressResolver,
+	chainNames: string[],
+): void {
+	const pairSymbols = new Set(pairs.flatMap((pair) => [pair.token0, pair.token1]))
+	for (const pair of pairs) {
+		for (const symbol of [pair.token0, pair.token1]) {
+			const resolvesSomewhere = chainNames.some((chainName) => registry.getAddress(symbol, chainName) !== null)
+			if (!resolvesSomewhere) {
+				throw new Error(
+					`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
+				)
+			}
+		}
+	}
+
+	for (const chainName of chainNames) {
+		const addressOwner = new Map<string, string>()
+		for (const symbol of pairSymbols) {
+			const address = registry.getAddress(symbol, chainName)?.toLowerCase()
+			if (!address) continue
+			const owner = addressOwner.get(address)
+			if (owner && normalizeSymbol(owner) !== normalizeSymbol(symbol)) {
+				throw new Error(
+					`assets: '${symbol}' and '${owner}' both resolve to ${address} on ${chainName} — symbols must map to distinct contracts`,
+				)
+			}
+			addressOwner.set(address, symbol)
+		}
+	}
 }
 
 /**

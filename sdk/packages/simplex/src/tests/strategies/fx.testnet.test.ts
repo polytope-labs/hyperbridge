@@ -102,7 +102,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destExotic),
-				amount: parseUnits("0.006", destExoticDecimals),
+				amount: parseUnits("0.0000000001", destExoticDecimals),
 			},
 		]
 
@@ -235,7 +235,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destExotic),
-				amount: parseUnits("0.006", destExoticDecimals),
+				amount: parseUnits("0.0000000001", destExoticDecimals),
 			},
 		]
 
@@ -387,8 +387,10 @@ async function createFxIntentFiller(
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
-	// Exotic ≈ $1 (Polygon USDC stand-in). 50 bps spread: buy exotic at 1,
-	// sell at 0.995 per USD.
+	// The overfill clamp is disabled, so the filler always pays the full curve
+	// output for the 0.1 USDC input. The ask is microscopic on purpose: it
+	// yields 0.0000000002 exotic per fill — just above the 0.0000000001 the
+	// order requests — so test runs don't drain the shared testnet wallet.
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
 			{ amount: "1", price: "1" },
@@ -397,8 +399,8 @@ async function createFxIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "0.995" },
-			{ amount: "10000", price: "0.995" },
+			{ amount: "1", price: "0.000000002" },
+			{ amount: "10000", price: "0.000000002" },
 		],
 	})
 

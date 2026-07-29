@@ -218,7 +218,7 @@ const order: Order = {
   // This is always a DESTINATION-chain block number.
   deadline: (await destChain.client.getBlockNumber()) + 200n,
   nonce: 0n,
-  // Filled in the "Fund order.fees" step below.
+  // Leave at 0n: executeBest() quotes and sets the solver fee automatically.
   fees: 0n,
   session: zeroAddress,
   predispatch: { assets: [], call: "0x" },
@@ -259,15 +259,29 @@ If your input is the native token rather than an ERC-20, do not approve it. Incl
 </Step>
 <Step>
 
-### Fund `order.fees`
+### Decide how `order.fees` is paid
 
 `order.fees` is the gas cost the solver spends on filling the order, denominated in the source chain's Hyperbridge fee token. For a cross-chain order it also covers the relayer that delivers the `RedeemEscrow` settlement message back to the source chain. It is not the protocol fee and it is not your wallet's transaction gas.
 
-There are two ways to pay it.
+**You do not need to compute or set it yourself.** With `fees: 0n`, `executeBest()` quotes it, writes it into the `placeOrder` calldata, and attaches the native `value` the gateway swaps for the fee token through its configured router (unused native is refunded). This step only decides how that fee gets paid, and lets you check the user can afford it before they sign.
 
-#### Pay in the fee token
+#### Default: pay in the native token
 
-Get the fee from `quoteOrderFees()`, check the user's fee-token balance and allowance, then set `order.fees`:
+Leave `fees: 0n` and do nothing — the SDK handles it. To display the fee or pre-check the user's balance, quote it yourself with `quoteOrderFees()`:
+
+```typescript title="fees-native.ts" lineNumbers
+// The native value executeBest() will attach to the placement transaction.
+const { nativeValue } = await gateway.quoteOrderFees(order)
+
+const balance = await sourceChain.client.getBalance({ address: account.address })
+if (balance < nativeValue) throw new Error("Insufficient native balance for the solver fee")
+```
+
+The wallet still pays normal transaction gas for the approval and placement transactions on top of this value.
+
+#### Alternative: pay in the fee token
+
+Use this when the wallet already holds the fee token or you are batching exact approvals from a smart account. The SDK cannot pull an ERC-20 without an allowance, so this rail is manual: get the fee from `quoteOrderFees()`, check the user's fee-token balance and allowance, then set `order.fees`:
 
 ```typescript title="fees-fee-token.ts" lineNumbers
 import { erc20Abi } from "viem"
@@ -306,21 +320,7 @@ if (allowance < fees) {
 order.fees = fees
 ```
 
-The gateway transfers exactly `order.fees` of the fee token at placement. If the order is cancelled before a full fill, that amount is refunded with the remaining escrow; if the order fills, it is released to the solver.
-
-#### Pay in the native token
-
-Leave `fees: 0n`. Before yielding the placement transaction, `executeBest()` runs the same quote, writes the computed fee into the `placeOrder` calldata, and attaches the native `value` the gateway swaps for the fee token through its configured router (unused native is refunded). Check the user's native balance against the same quote:
-
-```typescript title="fees-native.ts" lineNumbers
-// The native value executeBest() will attach to the placement transaction.
-const { nativeValue } = await gateway.quoteOrderFees(order)
-
-const balance = await sourceChain.client.getBalance({ address: account.address })
-if (balance < nativeValue) throw new Error("Insufficient native balance for the solver fee")
-```
-
-The wallet still pays normal transaction gas for the approval and placement transactions on top of this value.
+Because `order.fees` is now non-zero, `executeBest()` skips its own estimation and attaches no native value — the gateway transfers exactly `order.fees` of the approved fee token at placement. If the order is cancelled before a full fill, that amount is refunded with the remaining escrow; if the order fills, it is released to the solver.
 
 <Callout type="info">
 You may set `order.fees` higher than this policy to make the order more attractive to solvers. A smaller fee can leave the order with no viable bids; the SDK cannot guarantee a fill at any fee level.

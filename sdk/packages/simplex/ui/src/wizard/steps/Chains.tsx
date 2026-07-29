@@ -166,7 +166,7 @@ export function StepChains({ state, setState }: StepProps) {
 							<div className="row">
 								<button
 									type="button"
-									title="Order scans require a quorum of providers to agree, so one lying RPC can't feed you fake orders. On the major mainnets Simplex already adds built-in public endpoints as witnesses; every URL you add here must also agree, tightening the check. On testnets your URLs are the only redundancy."
+									title="Order scans require a quorum of providers to agree, so one lying RPC can't feed you fake orders. The quorum is exactly the URLs you list here — add at least two organisationally independent providers; four or more to tolerate a faulty one."
 									onClick={() => patch(chain.meta.chainId, { rpcUrls: [...chain.rpcUrls, ""] })}
 								>
 									+ quorum RPC

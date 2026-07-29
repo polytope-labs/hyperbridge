@@ -484,9 +484,9 @@ export class IntentFiller {
 				}
 
 				// Confirmations are counted with BFT-quorum semantics across the
-				// operator's endpoints plus the public RPC registry, so a single
-				// compromised or reorged provider cannot vouch for inclusion depth
-				// on cross-chain orders.
+				// operator's configured endpoints, so with independent providers a
+				// single compromised or reorged provider cannot vouch for inclusion
+				// depth on cross-chain orders.
 				const sourceQuorumClient = this.chainClientManager.getQuorumClient(order.source)
 				// Base layer: stable-only USD value from ContractInteractionService
 				const baseInputUsd = await this.contractService.getInputUsdValue(order)
@@ -556,8 +556,8 @@ export class IntentFiller {
 				const confirmStartMs = Date.now()
 
 				// Single-provider setups keep the tight 300ms poll; quorum setups
-				// fan every poll out to all providers (including public endpoints),
-				// so poll less aggressively to stay within their rate limits.
+				// fan every poll out to all providers, so poll less aggressively
+				// to stay within their rate limits.
 				const confirmationPollMs = sourceQuorumClient.size > 1 ? 1000 : 300
 				const waitForConfirmations = async (): Promise<void> => {
 					// Nothing to wait for: same-chain orders (and zero-valued curve

@@ -149,6 +149,19 @@ struct DispatchInfo {
 
 ```
 
+### Deadline
+
+`order.deadline` is a **block number on the destination chain**. Calculate it from the destination chain's current block number, because fills and expiry are checked there. This applies to every order; for a same-chain order the source and destination are simply the same chain.
+
+```typescript lineNumbers title="deadline.ts" icon="typescript"
+// Choose a window appropriate for the destination chain's block time.
+const deadline = BigInt(await destChain.client.getBlockNumber()) + 200n
+```
+
+<Callout type="warn">
+For cross-chain orders, do not calculate `deadline` from `sourceChain`. Source and destination block heights are independent, and the destination gateway compares `order.deadline` with its own `block.number` when a solver fills the order.
+</Callout>
+
 ### Protocol fees
 
 Before escrowing, the contract deducts a protocol fee from each input amount:
@@ -463,12 +476,14 @@ Set `destination` to the source chain's state machine ID. The contract verifies 
 import { toHex, parseUnits } from "viem"
 
 const USDC = "0xYourUsdcAddress" as `0x${string}`
+const sourceChain = chain
+const destChain = chain // Same EvmChain instance for a same-chain order
 
 const order: Order = {
   user: "0x",                                                   // set by contract (msg.sender)
   source: "0x",                                                 // set by contract (host().host())
-  destination: toHex(sourceChain.config.stateMachineId),           // same as source → same-chain
-  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n, // ~40 min on Ethereum
+  destination: toHex(destChain.config.stateMachineId),             // same as source → same-chain
+  deadline: BigInt(await destChain.client.getBlockNumber()) + 200n, // source and destination are the same chain
   nonce: 0n,                                                    // set by contract (_nonce++)
   fees: 0n,                                                     // auto-estimated by SDK
   session: "0x",                                                // set by SDK (generated keypair)
@@ -519,7 +534,7 @@ const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),                     // Arbitrum
-  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  deadline: BigInt(await destChain.client.getBlockNumber()) + 200n, // destination-chain block number
   nonce: 0n,
   fees: 0n,
   session: "0x",
@@ -596,7 +611,7 @@ const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),
-  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  deadline: BigInt(await destChain.client.getBlockNumber()) + 200n, // destination-chain block number
   nonce: 0n,
   fees: 0n,
   session: "0x",
@@ -665,7 +680,7 @@ const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),
-  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  deadline: BigInt(await destChain.client.getBlockNumber()) + 200n, // destination-chain block number
   nonce: 0n,
   fees: 0n,
   session: "0x",

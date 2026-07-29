@@ -12,6 +12,18 @@
 - `pause()`/`resume()` on the filler, persisted across restarts
 - Fixed: one-sided bid-only hyperfx configs crashed config validation
 
+## 0.8.2
+
+### Patch Changes
+
+- The public RPC registry is removed entirely: the quorum is now exactly the operator's configured `rpcUrls` on every chain, with a flat BFT threshold (`floor(2N/3) + 1`) — no more two-tier operator/witness split. What 0.8.1 did for BSC (whose free endpoints structurally cannot serve `eth_getLogs`) applies everywhere: public endpoints proved to be a liveness liability (rate limits, response-size caps, archive gaps) without adding integrity beyond what independent operator endpoints already provide. Configure at least two organisationally independent providers per source chain; four or more to tolerate a faulty one. `PUBLIC_RPC_URLS`/`getPublicRpcUrls` exports and `FillerConfigService.getQuorumRpcUrls` are gone; `QuorumPublicClient` drops its `operatorCount` constructor parameter.
+
+## 0.8.1
+
+### Patch Changes
+
+- BSC is removed from the public RPC registry and runs an operator-only quorum: its free endpoints structurally cannot serve `eth_getLogs` (method caps, archive-token requirements, plan quotas), so the two-witness floor was rejecting reads the operator's endpoint had answered correctly and the BSC block scanner deadlocked on `QuorumError`. Ethereum, Arbitrum, Base and Polygon keep their public witnesses.
+
 ## 0.8.0
 
 ### Minor Changes

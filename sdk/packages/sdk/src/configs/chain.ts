@@ -674,7 +674,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		assets: {
 			WETH: "0x360ad4f9a9A8EFe9A8DCB5f461c4Cc1047E1Dcf9", //wmatic, change it to wpol
 			DAI: "0x0000000000000000000000000000000000000000",
-			USDC: "0x693b854d6965ffeaae21c74049dea644b56fcacb",
+			USDC: "0xBE97E73126D66188d72fbF99029126D0340a7f18",
 			USDT: "0x0000000000000000000000000000000000000000",
 		},
 		tokenDecimals: {
@@ -683,7 +683,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
-			USDC: { balanceSlot: 1, allowanceSlot: 2 },
+			USDC: { balanceSlot: 0, allowanceSlot: 1 },
 		},
 		addresses: {
 			IntentGateway: "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA",

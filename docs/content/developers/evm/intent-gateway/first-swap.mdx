@@ -1,0 +1,424 @@
+---
+title: Placing Your First Swap
+description: Place and complete your first same-chain or cross-chain Intent Gateway swap with the Hyperbridge SDK.
+---
+
+# Placing Your First Swap
+
+This guide places a USDC → cNGN order from start to finish. It uses the SDK's `executeBest()` flow: you approve the input token, sign one `placeOrder` transaction, and the SDK runs the solver auction and submits the selected solver's fill.
+
+Use the same flow for other supported token pairs. The only difference between the two modes is the destination chain:
+
+| Mode | `sourceChain` | `destChain` | Settlement |
+| --- | --- | --- | --- |
+| Same-chain | Base, for example | The same Base chain instance | Atomic on one chain; partial fills are possible |
+| Cross-chain | Ethereum, for example | Arbitrum, for example | The solver fills on the destination, then Hyperbridge releases the source-chain escrow; fills are all-or-nothing |
+
+## Before you begin
+
+You need:
+
+- An RPC URL for the source chain, and one for the destination chain if this is cross-chain.
+- An ERC-4337 bundler URL for the destination chain. This is required in both modes because solvers submit fills as UserOperations.
+- A source-chain wallet with the USDC input amount and enough native token for transaction gas and the SDK's automatically quoted solver fee.
+- A Hyperbridge-supported source and destination chain. `EvmChain.create()` rejects an RPC for a chain without a known Hyperbridge deployment.
+
+Install the SDK and viem:
+
+```bash
+npm install @hyperbridge/sdk viem
+```
+
+<Callout type="info">
+This example uses the SDK's built-in Phantom quote for USDC/cNGN. It is the recommended way to get the input and output amounts for that pair. For another pair, obtain a quote from your pricing source and put its amounts in the same order shape.
+</Callout>
+
+## 1. Connect the chains and your wallet
+
+Choose one of the following setups. Keep the two `EvmChain` instances and the wallet client for the later steps.
+
+### Same-chain
+
+```typescript title="same-chain-setup.ts" lineNumbers
+import { EvmChain, IntentGateway, IntentsCoprocessor } from "@hyperbridge/sdk"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+const RPC_URL = "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY"
+const BUNDLER_URL = "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY"
+
+const chain = await EvmChain.create(RPC_URL, BUNDLER_URL)
+const sourceChain = chain
+const destChain = chain
+
+const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
+const gateway = await IntentGateway.create(sourceChain, destChain, coprocessor)
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const walletClient = createWalletClient({ account, transport: http(RPC_URL) })
+```
+
+### Cross-chain
+
+```typescript title="cross-chain-setup.ts" lineNumbers
+import { EvmChain, IntentGateway, IntentsCoprocessor } from "@hyperbridge/sdk"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+const SOURCE_RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
+const DEST_RPC_URL = "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY"
+const DEST_BUNDLER_URL = "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY"
+
+// The user signs on the source chain. The solver fills on the destination chain.
+const sourceChain = await EvmChain.create(SOURCE_RPC_URL)
+const destChain = await EvmChain.create(DEST_RPC_URL, DEST_BUNDLER_URL)
+
+const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
+const gateway = await IntentGateway.create(sourceChain, destChain, coprocessor)
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const walletClient = createWalletClient({ account, transport: http(SOURCE_RPC_URL) })
+```
+
+## 2. Quote the swap and create the order
+
+Attach the Hyperbridge indexer before calling `quoteIntent()`. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver.
+
+```typescript title="create-order.ts" lineNumbers
+import { createQueryClient, type Order } from "@hyperbridge/sdk"
+import { parseUnits, zeroAddress, zeroHash } from "viem"
+
+const queryClient = createQueryClient({
+  url: "https://nexus.indexer.polytope.technology",
+})
+
+const quotedGateway = gateway.withQueryClient(queryClient)
+const sourceId = sourceChain.config.stateMachineId
+const destId = destChain.config.stateMachineId
+
+// These resolve the configured USDC and cNGN deployments for each chain.
+// Do not reuse a source-chain token address on the destination chain.
+const usdcSource = sourceChain.configService.getUsdcAsset(sourceId)
+const cngnDestination = destChain.configService.getCNgnAsset(destId)
+if (!cngnDestination) throw new Error(`cNGN is not configured on ${destId}`)
+
+const quote = await quotedGateway.quoteIntent({
+  tokenIn: usdcSource,
+  tokenOut: cngnDestination,
+  amountIn: parseUnits("100", 6), // 100 USDC
+})
+
+const order: Order = {
+  // The gateway stamps user, source, and nonce; the SDK creates a one-time session key.
+  user: zeroHash,
+  source: sourceId,
+  destination: destId,
+  // This is always a DESTINATION-chain block number.
+  deadline: (await destChain.client.getBlockNumber()) + 200n,
+  nonce: 0n,
+  // Leave this at zero: executeBest() estimates and attaches the solver fee.
+  fees: 0n,
+  session: zeroAddress,
+  predispatch: { assets: [], call: "0x" },
+  inputs: [{ token: usdcSource, amount: quote.amountIn }],
+  output: {
+    beneficiary: account.address,
+    assets: [{ token: cngnDestination, amount: quote.amountOut }],
+    call: "0x",
+  },
+}
+```
+
+The quote already accounts for the gateway protocol fee. The contract deducts that fee from `order.inputs` when it escrows the USDC, so use `quote.amountIn` and `quote.amountOut` exactly as returned. Do not deduct the protocol fee again.
+
+### Protocol fee: 5 bps, charged when you place the order
+
+Intent Gateway charges a **5 bps (0.05%) protocol fee** on every order input when `placeOrder` succeeds. This is independent of `order.fees`, which pays the solver and (for a cross-chain order) the settlement relayer.
+
+For a 100 USDC input:
+
+| Item | Amount |
+| --- | ---: |
+| USDC transferred from your wallet | 100.000000 USDC |
+| Protocol fee: `100 × 5 / 10,000` | 0.050000 USDC |
+| Amount actually escrowed and offered to solvers | 99.950000 USDC |
+
+The 5 bps is deducted immediately at placement and retained by the protocol. **It is not refunded if the order expires, receives no bids, or is cancelled.** A cancellation returns the remaining 99.95 USDC escrow (less any same-chain partial fills) and refunds `order.fees`; it cannot return the 0.05 USDC protocol fee. Treat the protocol fee and the source-chain gas for the placement transaction as sunk once the transaction succeeds.
+
+<Callout type="warn">
+Do not build an order by reducing the input yourself to account for 5 bps. Send the gross input amount and use the amounts returned by `quoteIntent()`. The quote prices the fee-reduced escrow amount; reducing it again would make the order smaller than intended.
+</Callout>
+
+## 3. Approve the input token
+
+The source-chain gateway needs permission to transfer the ERC-20 input. Approve the gross input amount before starting the order. You can skip this step only if the wallet has already granted a sufficient allowance.
+
+```typescript title="approve-usdc.ts" lineNumbers
+import { parseAbi } from "viem"
+
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+])
+
+const sourceGateway = sourceChain.configService.getIntentGatewayAddress(sourceId)
+const approvalHash = await walletClient.writeContract({
+  address: usdcSource,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [sourceGateway, quote.amountIn],
+})
+
+await sourceChain.client.waitForTransactionReceipt({ hash: approvalHash })
+```
+
+If your input is the native token rather than an ERC-20, do not approve it. Include the input amount in the placement transaction's `value` in addition to any fee value supplied by the SDK; this guide intentionally uses USDC to keep the two payments unambiguous.
+
+## 4. Choose how to fund `order.fees`
+
+`order.fees` is denominated in the **source-chain Hyperbridge fee token**. It is not the 5 bps protocol fee and it is not your wallet's transaction gas. It is the amount held by the gateway to compensate the solver for filling the order; for cross-chain orders it also funds delivery of the `RedeemEscrow` settlement message back to the source chain.
+
+Choose one of these funding approaches before placing the order:
+
+| Approach | Set `order.fees` | Payment at placement | Best for |
+| --- | --- | --- | --- |
+| Automatic SDK fee (recommended) | `0n` | Native token in the `value` yielded by `executeBest()` | Most applications and wallets |
+| Inspect the estimate, then use the SDK policy | Computed fee-token amount | Fee-token approval | A UI that shows the fee before the user signs |
+| Custom fee-token budget | Your chosen fee-token amount | Fee-token approval | Integrators with their own solver economics or fee policy |
+| Manual native-token conversion | Your chosen fee-token amount | Native token, quoted through the gateway's Uniswap V2 router | Advanced integrations that deliberately pay the fee in native token |
+
+### Option A: automatic SDK fee (recommended)
+
+Keep `fees: 0n`, as in the order above, and call `executeBest()`. Before it yields `AWAITING_PLACE_ORDER`, the SDK:
+
+1. Simulates the solver's destination-chain UserOperation with `estimateFillOrder()`.
+2. Converts the fill cost to the source-chain fee token.
+3. Adds its safety margin: 2× estimated fill gas for same-chain orders; for cross-chain orders, fill gas plus the settlement-relayer fee with a 5% buffer over the combined amount.
+4. Writes that result into the calldata's `order.fees`.
+5. Returns native `value` for the gateway to swap into the exact fee-token amount. Any unused native amount is refunded by the gateway.
+
+This is the route used in the main tutorial. It needs only the USDC approval above; you do not need to discover or approve the fee token yourself.
+
+### Option B: show the estimate and pay the fee token directly
+
+Use this when your UI needs to disclose a fee before the user reaches the placement-signature step, or when the wallet already holds the Hyperbridge fee token. The estimate does **not** include the 5 bps protocol fee; that fee remains a deduction from `inputs` at placement.
+
+```typescript title="set-fees-from-estimate.ts" lineNumbers
+import { parseAbi } from "viem"
+
+const estimate = await gateway.estimateFillOrder({ order })
+const sameChain = sourceId === destId
+
+// This matches executeBest()'s current fee policy.
+const solverFee = sameChain
+  ? estimate.totalGasInFeeToken * 2n
+  : ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n) / 100n
+
+const orderWithFee = { ...order, fees: solverFee }
+const { address: sourceFeeToken } = await sourceChain.getFeeTokenWithDecimals()
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+])
+
+// This is a second, exact-amount approval in addition to the USDC input approval.
+const feeApprovalHash = await walletClient.writeContract({
+  address: sourceFeeToken,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [sourceGateway, solverFee],
+})
+await sourceChain.client.waitForTransactionReceipt({ hash: feeApprovalHash })
+```
+
+Use `orderWithFee` in the execution step. Because the fee token is approved, submit the placement call with `value: 0n` for this USDC-input example. The placement transaction still needs native token for its own EVM gas.
+
+The estimate fields have separate meanings:
+
+| Field | Meaning | Include in `order.fees`? |
+| --- | --- | --- |
+| `totalGasInFeeToken` | Estimated destination solver UserOperation gas, expressed in the source fee token | Yes |
+| `relayerFeeInSourceFeeToken` | Source-chain RedeemEscrow delivery cost | Only for cross-chain orders |
+| `totalGasCostWei` | Native-value estimate used by the automatic path | Do not use this alone as a cross-chain `order.fees` value |
+
+You may choose a larger fee than this policy if your order needs to be more attractive to solvers. A smaller fee can leave the order with no viable bids; the SDK cannot guarantee a fill at any fee level.
+
+### Option C: set a custom fee budget
+
+An integrator can set `order.fees` to a policy-controlled amount without calling `estimateFillOrder()`. For example, a backend could use a fixed fee-token budget or a price-aware solver incentive. In that case, approve exactly that amount of the source fee token to `sourceGateway`, just as in Option B.
+
+The gateway transfers exactly `order.fees` of the fee token at placement. If the order is cancelled before a full fill, that amount is refunded with the remaining escrow. If the order fills, it is released to the solver. This is different from the non-refundable 5 bps protocol fee.
+
+### Option D: pay a known fee in native token
+
+The gateway can acquire the fee token by calling its configured Uniswap V2 router with native token. Set a non-zero `order.fees`, then provide enough native token as the placement call's `value`. The router buys the exact fee-token amount and the gateway refunds unused native token.
+
+This route is useful only when you own the native-fee quote and can add a slippage buffer between quoting and mining. For standard SDK use, prefer Option A: it performs the estimation and supplies the native `value` for you. Do not set `order.fees` manually and then expect `executeBest()` to calculate the required native `value`; automatic native funding only runs when `fees` is `0n`.
+
+## 5. Place the order and let the SDK execute it
+
+`executeBest()` is a bidirectional async generator. Its first update contains the exact `placeOrder` calldata and native value. Sign that transaction, return the signed transaction to the generator, then process the remaining updates.
+
+```typescript title="place-and-execute.ts" lineNumbers
+import { DEFAULT_GRAFFITI, IntentOrderStatus } from "@hyperbridge/sdk"
+
+// Option A: `order` still has fees: 0n and uses automatic native funding.
+// Options B/C: replace this with `orderWithFee` after its fee-token approval.
+const orderToExecute = order
+const run = gateway.executeBest(orderToExecute, DEFAULT_GRAFFITI, {
+  auctionTimeMs: 15_000,
+  pollIntervalMs: 5_000,
+})
+
+// With Option A, the SDK has estimated order.fees and prepared native fee funding.
+const first = await run.next()
+if (first.done || first.value.status !== IntentOrderStatus.AWAITING_PLACE_ORDER) {
+  throw new Error("Expected placement transaction")
+}
+
+const signedPlacementTx = await walletClient.signTransaction({
+  to: first.value.to,
+  data: first.value.data,
+  // Exact fee-token approvals in Options B/C mean no native fee value is needed.
+  // Option D supplies its separately quoted native value here instead.
+  value: orderToExecute.fees === 0n ? first.value.value : 0n,
+  type: "eip1559",
+})
+
+// This waits for OrderPlaced and returns the canonical, finalized order.
+const placed = await run.next(signedPlacementTx)
+if (placed.done || placed.value.status !== IntentOrderStatus.ORDER_PLACED) {
+  throw new Error("Order was not placed")
+}
+
+const finalizedOrder = placed.value.order
+console.log("Placement transaction:", placed.value.receipt.transactionHash)
+console.log("Order commitment:", finalizedOrder.id)
+// Persist finalizedOrder: it is required to resume or cancel later.
+
+for await (const update of run) {
+  switch (update.status) {
+    case IntentOrderStatus.AWAITING_BIDS:
+      console.log("Waiting for solver bids")
+      break
+    case IntentOrderStatus.BID_SELECTED:
+      console.log("Solver fill submitted:", update.transactionHash)
+      break
+    case IntentOrderStatus.PARTIAL_FILL:
+      // Same-chain only. The SDK automatically seeks a fill for the remainder.
+      console.log("Partial fill; remaining:", update.remainingAssets)
+      break
+    case IntentOrderStatus.FILLED:
+      console.log("Swap complete:", update.transactionHash)
+      break
+    case IntentOrderStatus.EXPIRED:
+      console.warn("Order was not fully filled; cancel it to reclaim its remaining escrow.")
+      break
+    case IntentOrderStatus.FAILED:
+      // Informational: the SDK continues polling and retrying until filled or expired.
+      console.warn("Retryable fill failure:", update.error)
+      break
+  }
+}
+```
+
+## 6. Smart-account flow: batch the exact approvals and placement
+
+Smart accounts can turn the normal two-transaction ERC-20 path (approve input, then place) into one atomic UserOperation. This has two useful properties:
+
+- **No standing unlimited allowance.** Approve exactly `quote.amountIn` for the input and, when paying the fee token directly, exactly `order.fees` for the fee token.
+- **No approval front-running window.** If the account batches the approvals and `placeOrder`, the gateway can use each allowance only in that same atomic operation.
+- **One user confirmation.** The user signs one smart-account operation rather than separately approving and placing.
+
+Start the generator first so the SDK has created the final placement calldata. Then add the approval call(s) immediately before that placement call in your smart account's batch API:
+
+```typescript title="smart-account-batch.ts" lineNumbers
+import { encodeFunctionData, parseAbi } from "viem"
+
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+])
+
+const run = gateway.executeBest(order, DEFAULT_GRAFFITI, {
+  auctionTimeMs: 15_000,
+  pollIntervalMs: 5_000,
+})
+const first = await run.next()
+if (first.done || first.value.status !== IntentOrderStatus.AWAITING_PLACE_ORDER) {
+  throw new Error("Expected placement transaction")
+}
+
+const exactInputApproval = {
+  to: usdcSource,
+  value: 0n,
+  data: encodeFunctionData({
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [sourceGateway, quote.amountIn],
+  }),
+}
+
+const placementCall = {
+  to: first.value.to,
+  value: first.value.value,
+  data: first.value.data,
+}
+
+// Adapt this one line to your smart-account provider:
+// - EIP-5792 wallets: wallet_sendCalls / walletClient.sendCalls
+// - ERC-4337 SDKs: sendUserOperation({ calls: [...] })
+const { transactionHash } = await smartAccount.executeBatch([
+  exactInputApproval,
+  placementCall,
+])
+
+// Give the SDK the EVM transaction hash that contains placeOrder, not only a UserOp hash.
+const placed = await run.next(transactionHash)
+```
+
+`smartAccount.executeBatch` is intentionally adapter-shaped pseudocode: smart-account providers name the method differently, but the two calls and their order are the same. An EIP-5792 `wallet_sendCalls` integration should wait for the batch status and pass the transaction hash from the receipt containing `placeOrder` to `run.next()`.
+
+If you use Option B or C above, insert a second exact fee-token approval immediately before `placementCall`:
+
+```typescript title="smart-account-fee-token-approval.ts" lineNumbers
+const exactFeeApproval = {
+  to: sourceFeeToken,
+  value: 0n,
+  data: encodeFunctionData({
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [sourceGateway, solverFee],
+  }),
+}
+
+await smartAccount.executeBatch([
+  exactInputApproval,
+  exactFeeApproval,
+  placementCall,
+])
+```
+
+Some ERC-20s require an allowance to be reset to zero before changing a non-zero allowance. For those tokens, add `approve(sourceGateway, 0n)` before the exact approval in the same batch. Do not use this reset on tokens that do not require it unless your token integration specifies it.
+
+## What you pay
+
+The placement transaction has four distinct costs. The SDK handles the third automatically when `order.fees` is `0n`.
+
+| Cost | Paid by | How it is handled |
+| --- | --- | --- |
+| Input amount | You, on the source chain | `quote.amountIn` USDC is transferred into escrow after approval. |
+| Protocol fee | You, from the input amount | 5 bps is deducted at successful placement. It is not returned on expiry or cancellation. The quote already accounts for it. |
+| Solver and settlement fee | You, in the Hyperbridge fee token | `executeBest()` estimates it, sets `order.fees`, and returns `first.value.value` so the gateway can swap native token for the fee token. For cross-chain orders this includes the source-chain RedeemEscrow relayer fee. |
+| Source-chain transaction gas | You, in native token | Paid by the wallet when it submits the approval and placement transactions. |
+
+Do not manually add the protocol fee to `order.fees`: they are different charges. `order.fees` pays the solver and, cross-chain, the settlement relayer; the 5 bps protocol fee is deducted from the input before the order commitment is created.
+
+<Callout type="warn">
+The `value` returned in `AWAITING_PLACE_ORDER` is part of the placement transaction. Do not replace it with `0n`: it funds the SDK's automatic conversion to the protocol fee token. If you set a non-zero `order.fees` yourself instead, approve the source-chain fee token to the gateway and provide the required native value only when paying that fee in native token.
+</Callout>
+
+## Completion and recovery
+
+For a same-chain swap, `FILLED` means the output was delivered and the input escrow released to the solver. Partial fills can occur before the final update.
+
+For a cross-chain swap, `BID_SELECTED` means the solver fill was submitted on the destination. Hyperbridge then delivers the settlement message and releases the source escrow asynchronously; cross-chain fills cannot be partial. Persist `finalizedOrder`, and if the deadline expires before the order completes, reclaim unfilled escrow with the [cancellation guide](./cancelling-orders).
+
+For advanced order fields, custom bid selection, native-token inputs, and pre/post-dispatch calls, refer to the SDK API reference or contact the Hyperbridge team.

@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.6.2
+
+### Patch Changes
+
+- Mandatory (rotation) BEEFY proofs are read from their own offchain namespace, keyed by the authority set the proof rotated to rather than by parachain height. A rotation that finalizes a head an earlier messaging proof already covered no longer resolves to the wrong blob. The rotation walk now starts at the destination's current authority set id + 1 (it previously started two epochs low), and a proven height produced by a rotation is resolved through the rotation index instead of returning no proof. Proofs written under the previous shared key are still readable via a legacy fallback, so this requires no coordinated upgrade.
+
 ## 2.6.1
 
 ### Patch Changes

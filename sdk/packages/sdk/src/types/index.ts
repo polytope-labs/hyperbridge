@@ -1331,6 +1331,29 @@ export interface FillOrderEstimate {
 }
 
 /**
+ * Solver-fee quote for an order, priced with the same policy `execute()` /
+ * `executeBest()` apply when `order.fees` is `0n`.
+ */
+export interface OrderFeesQuote {
+	/**
+	 * The amount to set as `Order.fees`, denominated in the source-chain fee
+	 * token. Same-chain fills carry a 2x margin over the estimated fill gas;
+	 * cross-chain fills add the settlement relayer fee and a 5% buffer over
+	 * the whole sum.
+	 */
+	fees: bigint
+	/**
+	 * The native value attached to the placement transaction when the fee is
+	 * paid in the native token: the estimated fill gas cost in source-chain
+	 * wei plus a 2% buffer. The gateway swaps it for the fee token and refunds
+	 * any unused amount.
+	 */
+	nativeValue: bigint
+	/** The underlying gas estimate the quote was derived from. */
+	estimate: FillOrderEstimate
+}
+
+/**
  * Result of submitting a bid to Hyperbridge
  */
 export interface BidSubmissionResult {

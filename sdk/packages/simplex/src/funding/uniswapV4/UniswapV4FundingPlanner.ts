@@ -1,5 +1,5 @@
 import { UNISWAP_V4_POSITION_MANAGER_ABI } from "@/config/abis/UniswapV4"
-import { validateUniswapV4Positions } from "@/config/v4-validate"
+import { validateUniswapV4Positions } from "@/config/filler-toml"
 import type {
 	FundingPlanResult,
 	FundingVenue,

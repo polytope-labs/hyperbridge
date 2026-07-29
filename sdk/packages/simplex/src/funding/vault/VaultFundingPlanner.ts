@@ -1,6 +1,6 @@
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
-import { validateVaultToml } from "@/config/vault-validate"
+import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"

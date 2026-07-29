@@ -1,9 +1,9 @@
 ---
-title: Cancelling Your Order
+title: Cancelling Orders
 description: Cancel same-chain and cross-chain Intent Gateway orders end to end, including contract rules, fees, and indexer tracking.
 ---
 
-# Cancelling Your Order
+# Cancelling Orders
 
 An Intent Gateway order can be cancelled to reclaim unfilled escrow. The route depends on whether the order is same-chain or cross-chain, and, for cross-chain orders, whether cancellation starts on the source or destination chain. This guide shows every route, the on-chain rules that control it, the transaction you need to sign, and how to track the refund through the Hyperbridge indexer.
 
@@ -75,33 +75,52 @@ This explains the trade-off:
 - Choose the **source route** only after expiry when the user controls the source wallet and prefers proving that no destination fill occurred.
 - A same-chain order has no messaging or deadline precondition, but the original user must always call it.
 
-## 1. Set up the gateway, indexer, and wallets
+### `CancelOptions`
 
-## Setup
+```solidity
+struct CancelOptions {
+    uint256 relayerFee;  // Fee paid to the Hyperbridge relayer (cross-chain cancels only)
+    uint256 height;      // Proof height for source-side cancels; must be > order.deadline
+}
+```
+
+`height` is only meaningful for source-side cross-chain cancels. It must point to a block after the order deadline, ensuring the proof captures a state where no fill could have occurred. The SDK selects this value automatically. For same-chain and destination-side cancels, `height` is ignored.
+
+### The `EscrowRefunded` event
+
+```solidity
+// Emitted on the source chain when escrowed tokens are returned to the user.
+event EscrowRefunded(bytes32 indexed commitment);
+```
+
+For same-chain cancels, `EscrowRefunded` is emitted in the same transaction. For source-side cross-chain cancels, it is emitted once Hyperbridge delivers the destination proof back to the source chain and the refund is processed. For destination-side cancels, it is emitted on the source chain once the refund message from Hyperbridge is received and settled.
+
+## Set up the gateway, indexer, and wallets
 
 ```typescript lineNumbers title="setup.ts" icon="typescript"
 import { EvmChain, IntentsCoprocessor, IntentGateway, IsmpClient, createQueryClient } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
-const sourceChain = await EvmChain.create("https://eth-mainnet.g.alchemy.com/v2/demo")
-const destChain   = await EvmChain.create("https://arbitrum-one.public.blastapi.io")
+const SOURCE_RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
+const DEST_RPC_URL = "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY"
+
+const sourceChain = await EvmChain.create(SOURCE_RPC_URL)
+const destChain   = await EvmChain.create(DEST_RPC_URL)
 
 const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
-const intentGateway   = await IntentGateway.create(sourceChain, destChain, coprocessor)
-
-const queryClient   = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
-intentGateway.withQueryClient(queryClient)
+const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
+const intentGateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withQueryClient(queryClient)
 const indexerClient = new IsmpClient({ queryClient, source: sourceChain, dest: destChain })
 
 const account      = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
-const sourceWallet = createWalletClient({ account, transport: http("https://eth-mainnet.g.alchemy.com/v2/demo") })
-const destWallet   = createWalletClient({ account, transport: http("https://arbitrum-one.public.blastapi.io") })
+const sourceWallet = createWalletClient({ account, transport: http(SOURCE_RPC_URL) })
+const destWallet   = createWalletClient({ account, transport: http(DEST_RPC_URL) })
 ```
 
 ---
 
-## 2. Preflight: use the finalized order and check on-chain state
+## Preflight: use the finalized order and check on-chain state
 
 Run these checks immediately before starting any route. `isOrderFilled()` means the commitment is settled, but it cannot distinguish a completed fill from a destination-side cancellation because both set the same settled marker. `isOrderRefunded()` is the definitive confirmation that escrow made it back to the user.
 
@@ -120,44 +139,6 @@ await assertCancellable(finalizedOrder)
 ```
 
 For a destination-side cancel before expiry, ensure the signer is the same address as `finalizedOrder.user`. After expiry, a keeper or relayer may pay for the destination cancellation, but the `RefundEscrow` message still names `order.user` as beneficiary. An outside caller cannot redirect the refund.
-
-## How `cancelOrder` Works
-
-Understanding what happens on-chain helps you construct cancellations correctly.
-
-```solidity
-function cancelOrder(Order calldata order, CancelOptions calldata options) public payable;
-```
-
-The contract hashes the order to derive a unique commitment, verifies the order has not already been settled, then selects the appropriate refund path based on where the call originates.
-
-### Data structures
-
-```solidity
-struct CancelOptions {
-    uint256 relayerFee;  // Fee paid to the Hyperbridge relayer (cross-chain cancels only)
-    uint256 height;      // Proof height for source-side cancels; must be > order.deadline
-}
-```
-
-`height` is only meaningful for source-side cross-chain cancels. It must point to a block after the order deadline, ensuring the proof captures a state where no fill could have occurred. The SDK selects this value automatically. For same-chain and destination-side cancels, `height` is ignored.
-
-### Access control
-
-| Route | Before deadline | After deadline |
-|---|---|---|
-| Same-chain | Order creator only | Order creator only (no deadline restriction; cancel any time) |
-| Source-side cross-chain | Not available; proof height must exceed deadline | Order creator only |
-| Destination-side cross-chain | Order creator only, including the deadline block | Anyone from the first destination block after expiry (relayers may act on behalf of expired orders) |
-
-### Events
-
-```solidity
-// Emitted on the source chain when escrowed tokens are returned to the user.
-event EscrowRefunded(bytes32 indexed commitment);
-```
-
-For same-chain cancels, `EscrowRefunded` is emitted in the same transaction. For source-side cross-chain cancels, it is emitted once Hyperbridge delivers the destination proof back to the source chain and the refund is processed. For destination-side cancels, it is emitted on the source chain once the refund message from Hyperbridge is received and settled.
 
 ---
 
@@ -458,5 +439,3 @@ const refunded = await intentGateway.isOrderRefunded(order)
 <Callout type="info">
 For a source-initiated cancellation, `HYPERBRIDGE_FINALIZED` means the proof round has completed. Continue tracking the order until its indexer status is `REFUNDED` or `isOrderRefunded(order)` is true; that is the user-visible completion point.
 </Callout>
-
----

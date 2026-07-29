@@ -123,8 +123,11 @@ async *execute(
 ```typescript lineNumbers
 const signer = createWalletClient({ ... })
 
+// Your integrator tag, for orderflow attribution/revenue share
+const MY_GRAFFITI = padHex(stringToHex("my-app"), { size: 32, dir: "right" })
+
 // execute is a bidirectional generator — hold a reference to pass values back
-const gen = gateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
+const gen = gateway.execute(order, MY_GRAFFITI, { auctionTimeMs: 15_000 })
 
 let input: HexString | SelectBidResult | undefined
 while (true) {
@@ -294,7 +297,7 @@ async *executeBest(
 **Example:**
 
 ```typescript lineNumbers
-const gen = gateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
+const gen = gateway.executeBest(order, MY_GRAFFITI, { auctionTimeMs: 15_000 })
 for await (const update of gen) {
   if (update.status === "AWAITING_PLACE_ORDER") {
     const txHash = await signer.sendTransaction({ to: update.to, data: update.data, value: update.value })
@@ -571,6 +574,39 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 | `params.maxFeePerGasBumpPercent` | `number` | Optional bump percentage for max fee |
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
+
+---
+
+### quoteOrderFees(order, options?)
+
+Quotes the solver fee for an order using the same policy [`execute`](#executeorder-graffiti-options) / [`executeBest`](#executebestorder-graffiti-options) apply when `order.fees` is `0n`: same-chain fills carry a 2× margin over the estimated fill gas; cross-chain fills add the settlement relayer fee and a 5% buffer over the whole sum.
+
+Use it before placing to display the fee, or to check what the user can afford: pay `fees` in the source-chain fee token (check balance and allowance, set `order.fees`, submit with `value: 0`), or leave `order.fees` at `0n` and let the SDK attach `nativeValue` to the placement transaction (check the native balance).
+
+```typescript lineNumbers
+async quoteOrderFees(
+  order: Order,
+  options?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number },
+): Promise<OrderFeesQuote>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | Order to quote. `order.fees` is ignored and not mutated |
+| `options.maxPriorityFeePerGasBumpPercent` | `number` | Optional bump percentage for priority fee |
+| `options.maxFeePerGasBumpPercent` | `number` | Optional bump percentage for max fee |
+
+**Returns:** `Promise<OrderFeesQuote>`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fees` | `bigint` | Amount to set as `order.fees`, in the source-chain fee token |
+| `nativeValue` | `bigint` | Native value attached to the placement transaction on the native rail (fill gas cost in source-chain wei + 2% buffer) |
+| `estimate` | `FillOrderEstimate` | The underlying gas estimate |
+
+Throws if gas estimation returns zero.
 
 ---
 

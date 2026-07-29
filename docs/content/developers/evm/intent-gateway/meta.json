@@ -1,10 +1,5 @@
 {
-  "title": "Intent Gateway",
-  "pages": [
-    "overview",
-    "first-swap",
-    "cancelling-orders",
-    "simplex"
-  ],
-  "defaultOpen": false
+    "title": "Intent Gateway",
+    "pages": ["overview", "placing-orders", "cancelling-orders", "simplex"],
+    "defaultOpen": false
 }

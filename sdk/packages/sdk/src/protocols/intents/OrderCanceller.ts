@@ -49,6 +49,12 @@ export class OrderCanceller {
 	private static readonly DEFAULT_MAX_RECOVERY_RESTARTS = 1
 	private static readonly PROOF_FRESHNESS_MAX_RETRIES = 3
 	private static readonly PROOF_FRESHNESS_BACKOFF_MS = 500
+	/**
+	 * Gas budget used to size the relayer fee for a cross-chain cancellation
+	 * message (the GET response or RefundEscrow POST executed on the source
+	 * chain), priced at the source chain's gas price.
+	 */
+	private static readonly CANCEL_MESSAGE_GAS = 800_000n
 
 	private readonly logger = createConsola({
 		level: LogLevels.info,
@@ -121,7 +127,12 @@ export class OrderCanceller {
 			context,
 		}
 
-		const feeInSourceFeeToken = await convertGasToFeeToken(this.ctx, 400_000n, "source", sourceStateMachine)
+		const feeInSourceFeeToken = await convertGasToFeeToken(
+			this.ctx,
+			OrderCanceller.CANCEL_MESSAGE_GAS,
+			"source",
+			sourceStateMachine,
+		)
 		const relayerFee = (feeInSourceFeeToken * 1005n) / 1000n
 
 		const nativeValue = await this.ctx.source.quoteNative(getRequest, relayerFee)
@@ -815,9 +826,12 @@ export class OrderCanceller {
 	 * Converts estimated gas on the source chain into the dest chain's fee token.
 	 */
 	private async estimateRelayerFee(sourceChainId: string, destChainId: string): Promise<bigint> {
-		const POST_REQUEST_GAS = 400_000n
-
-		const feeInSourceFeeToken = await convertGasToFeeToken(this.ctx, POST_REQUEST_GAS, "source", sourceChainId)
+		const feeInSourceFeeToken = await convertGasToFeeToken(
+			this.ctx,
+			OrderCanceller.CANCEL_MESSAGE_GAS,
+			"source",
+			sourceChainId,
+		)
 
 		const sourceFeeToken = await getFeeToken(this.ctx, sourceChainId, this.ctx.source)
 		const destFeeToken = await getFeeToken(this.ctx, destChainId, this.ctx.dest)

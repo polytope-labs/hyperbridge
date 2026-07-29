@@ -5,6 +5,7 @@
 ### Minor Changes
 
 - `IntentGateway.quoteOrderFees(order, options?)`: public quote for the solver fee, using the same policy `execute()`/`executeBest()` apply when `order.fees` is `0n`. Returns `{ fees, nativeValue, estimate }` (`OrderFeesQuote` is exported) so integrators can check a user's fee-token balance and allowance, or native balance, before placing — instead of re-implementing the fee formula from `estimateFillOrder` components. `execute()` now derives its automatic fee from the same method.
+- Cross-chain cancellation relayer fees (source and destination routes) are now sized from an 800k source-chain gas budget, up from 400k, so refund deliveries clear on expensive source chains. Same-chain cancellations remain free of relayer fees.
 
 ## 2.6.1
 

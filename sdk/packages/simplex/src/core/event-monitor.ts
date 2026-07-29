@@ -139,9 +139,8 @@ export class EventMonitor extends EventEmitter {
 			this.chains.set(config.chainId, chain as IEvmChain)
 			this.scanningMutexes.set(config.chainId, new Mutex())
 
-			// Shared quorum client: operator endpoints + the public RPC registry
-			// (see FillerConfigService.getQuorumRpcUrls), also used by the
-			// cross-chain confirmation waiter in the filler core.
+			// Shared quorum client over the operator's configured endpoints, also
+			// used by the cross-chain confirmation waiter in the filler core.
 			const quorumClient = clientManager.getQuorumClient(chainName)
 			this.quorumClients.set(config.chainId, quorumClient)
 			if (quorumClient.size > 1) {

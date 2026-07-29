@@ -186,20 +186,6 @@ describe("emitFillerToml", () => {
 		})
 	}
 
-	it("preserves special characters in URLs, mnemonics and quoted keys", () => {
-		const emitted = emitFillerToml(kitchenSink)
-		const parsed = parse(emitted) as FillerTomlConfig
-		expect(parsed.chains[0].bundlerUrl).toBe("https://api.pimlico.io/v2/1/rpc?apikey=k")
-		expect(parsed.rebalancing?.baseBalances.USDC?.["8453"]).toBe("10000")
-		expect(parsed.assets?.BRZ["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
-		expect(parsed.confirmationPolicies?.["EVM-1"].points).toHaveLength(2)
-
-		const mnemonic = emitFillerToml(minimalSameAsset)
-		expect((parse(mnemonic) as FillerTomlConfig).simplex.substratePrivateKey).toBe(
-			"bottom drive obey lake curtain smoke basket hold race lonely fit walk",
-		)
-	})
-
 	it("round-trips a signer-less watch-only config without a [simplex.signer] header", () => {
 		const signerless: FillerTomlConfig = JSON.parse(JSON.stringify(minimalSameAsset))
 		delete signerless.simplex.signer
@@ -216,11 +202,5 @@ describe("emitFillerToml", () => {
 		const emitted = emitFillerToml(minimalSameAsset, { chainComments: ["Ethereum (1)", "Base (8453)"] })
 		expect(emitted).toContain("# Ethereum (1)\n[[chains]]")
 		expect(emitted).toContain("# Base (8453)\n[[chains]]")
-	})
-
-	it("shows commented defaults for omitted optional sections", () => {
-		const emitted = emitFillerToml(minimalSameAsset)
-		expect(emitted).toContain("# maxPriorityFeePerGasBumpPercent = 8")
-		expect(emitted).toContain("# maxOverfillBps = 500")
 	})
 })

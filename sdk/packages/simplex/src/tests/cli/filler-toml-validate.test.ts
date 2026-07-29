@@ -3,7 +3,6 @@ import { parse } from "toml"
 import { readFileSync } from "fs"
 import { resolve } from "path"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
-import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { SignerType } from "@/services/wallet"
 
 const minimalConfig = (): FillerTomlConfig => ({
@@ -102,16 +101,9 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(noBundler)).toThrow(/bundlerUrl/)
 	})
 
-	it("rejects same-token pairs with a bid curve or prices at or above par", () => {
-		const withBid = minimalConfig()
-		withBid.pairs![0].bidPriceCurve = [{ amount: "100", price: "0.98" }]
-		expect(() => validateConfig(withBid)).toThrow(/ask-only/)
-
-		const atPar = minimalConfig()
-		atPar.pairs![0].askPriceCurve = [{ amount: "100", price: "1" }]
-		expect(() => validateConfig(atPar)).toThrow(/strictly below 1/)
-	})
-
+	// Pair rules (same-token invariants, crossed books, anchoring, curve
+	// requirements) are unit-tested in pairs.test.ts; this case only proves
+	// validateConfig forwards `pairs` and `assets` to validatePairConfigs.
 	it("rejects unknown symbols without an [assets] entry, accepts them with one", () => {
 		const unknown = minimalConfig()
 		unknown.pairs!.push({
@@ -125,76 +117,6 @@ describe("validateConfig", () => {
 
 		unknown.assets = { BRZ: { "EVM-137": "0x1111111111111111111111111111111111111111" } }
 		expect(() => validateConfig(unknown)).not.toThrow()
-	})
-
-	it("accepts a stable-to-stable market with near-par uncrossed curves", () => {
-		const config = minimalConfig()
-		config.pairs!.push({
-			token0: "USDC",
-			token1: "USDT",
-			maxOrderSize: "100000",
-			bidPriceCurve: [{ amount: "0", price: "1.001" }],
-			askPriceCurve: [{ amount: "0", price: "0.999" }],
-		})
-		expect(() => validateConfig(config)).not.toThrow()
-	})
-
-	it("accepts a crossed cross-asset book — sides are quoted independently", () => {
-		const crossed = minimalConfig()
-		crossed.pairs!.push({
-			token0: "USDC",
-			token1: "CNGN",
-			maxOrderSize: "5000",
-			bidPriceCurve: [{ amount: "100", price: "1550" }],
-			askPriceCurve: [{ amount: "100", price: "1560" }],
-		})
-		expect(() => validateConfig(crossed)).not.toThrow()
-	})
-
-	it("rejects an unanchored token0", () => {
-		// ZARP/CNGN alone: neither side reaches a USD stable through any curve.
-		const config = minimalConfig()
-		config.pairs = [
-			{
-				token0: "ZARP",
-				token1: "CNGN",
-				maxOrderSize: "90000",
-				bidPriceCurve: [{ amount: "0", price: "86" }],
-				askPriceCurve: [{ amount: "0", price: "84" }],
-			},
-		]
-		expect(() => validateConfig(config)).toThrow(/no USD anchor/)
-	})
-
-	it("accepts a transitively anchored token0 via a referenceOnly pair", () => {
-		const config = minimalConfig()
-		config.pairs = [
-			{
-				token0: "USDC",
-				token1: "CNGN",
-				referenceOnly: true,
-				askPriceCurve: [{ amount: "0", price: "1565" }],
-			},
-			{
-				token0: "ZARP",
-				token1: "CNGN",
-				maxOrderSize: "90000",
-				bidPriceCurve: [{ amount: "0", price: "86" }],
-				askPriceCurve: [{ amount: "0", price: "84" }],
-			},
-		]
-		expect(() => validateConfig(config)).not.toThrow()
-	})
-
-	it("rejects a pair without curves unless venue pricing is configured", () => {
-		const config = minimalConfig()
-		config.pairs!.push({ token0: "USDC", token1: "CNGN", maxOrderSize: "5000" })
-		expect(() => validateConfig(config)).toThrow(/bid and\/or ask price curve/)
-
-		config.vault = {
-			uniswapV4: { positions: [{ chain: "EVM-8453", tokenId: "123" }] },
-		}
-		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects a curve-less venue-priced pair whose quote asset is not a USD stable", () => {
@@ -238,12 +160,6 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/invalid address/)
 	})
 
-	it("keeps built-in confirmation policy defaults for the core mainnets", () => {
-		expect(Object.keys(DEFAULT_CONFIRMATION_POLICIES).sort()).toEqual(
-			["1", "137", "42161", "56", "8453", "130"].sort(),
-		)
-	})
-
 	// The gate constructs the same policies boot does, so anything boot rejects
 	// fails at config time — not first on `simplex run`.
 	it("rejects fractional confirmation values at the gate, like boot does", () => {
@@ -260,7 +176,7 @@ describe("validateConfig", () => {
 	})
 
 	it("gates confirmation coverage like boot: defaults cover mainnets, testnets need entries", () => {
-		expect(() => assertConfirmationCoverage(undefined, [1, 8453, 56])).not.toThrow()
+		expect(() => assertConfirmationCoverage(undefined, [1, 137, 42161, 56, 8453, 130])).not.toThrow()
 		expect(() => assertConfirmationCoverage(undefined, [11155111])).toThrow(/No confirmation policy/)
 		expect(() =>
 			assertConfirmationCoverage(

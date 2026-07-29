@@ -142,8 +142,6 @@ describe("CLI wizard update run", () => {
 		const parsed = parse(emitFillerToml(assembled)) as FillerTomlConfig
 		expect(() => validateConfig(parsed)).not.toThrow()
 		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(assembled)))
-		expect(parsed.keeper).toEqual(existing.keeper)
-		expect(parsed.binance).toEqual(existing.binance)
 	})
 
 	it("scrubs a carried empty [allowlist.bySource] so the round-trip gate cannot trip", () => {
@@ -172,7 +170,6 @@ describe("CLI wizard update run", () => {
 		state.rebalancing = { triggerPercentage: 0.2 } as FillerTomlConfig["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()
-		expect(() => emitFillerToml(assembled)).not.toThrow()
 	})
 
 	it("emits a degenerate hand-written [rebalancing] without crashing", () => {

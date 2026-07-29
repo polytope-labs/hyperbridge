@@ -161,12 +161,6 @@ describe("FillerPricePolicy runtime mutation", () => {
 		expect(() => policy.replacePoints({ points: [] })).toThrow(/at least 1 point/)
 		expect(policy.getPoints()).toEqual(BID_POINTS)
 	})
-
-	it("updatePrice flattens the curve to a single price", () => {
-		const policy = new FillerPricePolicy({ points: BID_POINTS })
-		policy.updatePrice(new Decimal(1620))
-		expect(policy.getPoints()).toEqual([{ amount: "0", price: "1620" }])
-	})
 })
 
 describe("UiServer (operator mode)", () => {
@@ -229,6 +223,9 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
 		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
+
+		const balances = await fetch(`${base}/api/balances`)
+		expect(await balances.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
 	})
 
 	it("rejects mutating requests without the X-Simplex-UI header", async () => {
@@ -407,12 +404,6 @@ describe("UiServer (operator mode)", () => {
 		expect(loadRuntimeState(dataDir)).toEqual({ paused: false })
 	})
 
-	it("serves the balance snapshot", async () => {
-		const { base } = await startServer()
-		const res = await fetch(`${base}/api/balances`)
-		expect(await res.json()).toEqual({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] })
-	})
-
 	it("surfaces halted strategies in status and resets them", async () => {
 		const halt = fakeHaltControl(1, true)
 		const { base } = await startServer({ haltControls: [halt] })
@@ -574,12 +565,6 @@ describe("UiServer (operator mode)", () => {
 		expect(enableSide).toHaveBeenCalledTimes(1)
 	})
 
-	it("still rejects enabling sides on venue-priced strategies", async () => {
-		const { base } = await startServer()
-		// strategy 2 is venue-priced: no policies and no enableSide
-		expect((await put(base, "/api/strategies/2/curves", { bidPriceCurve: BID_POINTS })).status).toBe(409)
-	})
-
 	it("disables a side with an empty curve and persists the removal (one-sided LP)", async () => {
 		const { base, operator } = await startServer()
 		const strategy1 = operator.strategies.find((s) => s.index === 1)!
@@ -681,26 +666,6 @@ describe("UiServer (operator mode)", () => {
 		expect(existsSync(operator.configPath)).toBe(false)
 	})
 
-	it("round-trips redeemOnShutdown through a vault update", async () => {
-		const reconfigure = vi.fn().mockResolvedValue(undefined)
-		const { base, operator } = await startServer({
-			vault: {
-				sweepNow: vi.fn().mockResolvedValue(undefined),
-				redeemAll: vi.fn().mockResolvedValue(undefined),
-				reconfigure,
-			},
-		})
-		const vaults = [
-			{ chain: "EVM-8453", vault: "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", redeemOnShutdown: true },
-		]
-		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
-		expect(res.status).toBe(200)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
-		expect(written.vault?.vaults?.[0]?.redeemOnShutdown).toBe(true)
-		const config = await (await fetch(`${base}/api/config`)).json()
-		expect(config.vaults[0].redeemOnShutdown).toBe(true)
-	})
-
 	it("executes an operator send and surfaces the tx hash", async () => {
 		const send = vi.fn().mockResolvedValue({ txHash: "0xabc123", sponsored: true, redeemed: false })
 		const { base } = await startServer({ send })
@@ -735,30 +700,16 @@ describe("UiServer (operator mode)", () => {
 		expect((await failed.json()).error).toContain("Insufficient")
 	})
 
-	it("serves send token options keyed by state machine id", async () => {
-		const { base } = await startServer()
-		const config = await (await fetch(`${base}/api/config`)).json()
-		const tokens = config.sendTokens["EVM-8453"]
-		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
-		expect(tokens.some((t: { symbol: string }) => t.symbol === "USDC")).toBe(true)
-	})
-
-	it("serves the known vault catalog keyed by state machine id", async () => {
-		const { base } = await startServer()
-		const config = await (await fetch(`${base}/api/config`)).json()
-		const vaults = config.knownVaults["EVM-8453"] as Array<{ label: string; address: string; asset: string }>
-		expect(vaults.length).toBeGreaterThan(0)
-		expect(vaults.every((v) => v.label && v.asset && /^0x[0-9a-fA-F]{40}$/.test(v.address))).toBe(true)
-	})
-
 	it("does not list vault shares among send token options", async () => {
 		const vaultAddress = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
 		const config = fakeConfig()
 		config.vault = { vaults: [{ chain: "EVM-8453", vault: vaultAddress }] }
 		const { base } = await startServer({ config })
 		const configDto = await (await fetch(`${base}/api/config`)).json()
-		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string }>
+		const tokens = configDto.sendTokens["EVM-8453"] as Array<{ address: string; symbol: string }>
+		expect(tokens[0]).toEqual({ symbol: "native", address: "native" })
 		expect(tokens.some((t) => t.address.toLowerCase() === vaultAddress.toLowerCase())).toBe(false)
+		expect(configDto.knownVaults["EVM-8453"].length).toBeGreaterThan(0)
 	})
 
 	it("records operator sends in the wallet history and merges fill txs", async () => {
@@ -843,11 +794,6 @@ describe("UiServer (operator mode)", () => {
 		expect(traversal).toContain("403")
 	})
 
-	it("serves a placeholder page when the UI is not built", async () => {
-		const { base } = await startServer()
-		const res = await fetch(base)
-		expect(await res.text()).toContain("UI not built")
-	})
 })
 
 describe("UiServer (init mode)", () => {

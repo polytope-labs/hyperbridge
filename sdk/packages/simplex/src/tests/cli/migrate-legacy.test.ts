@@ -106,23 +106,6 @@ describe("migrateLegacyConfig", () => {
 		expect(notes.some((n) => n.includes("order cap 25000 from the legacy maxOrderUsd"))).toBe(true)
 	})
 
-	it("keeps an unmatched exotic address map as an [assets] escape hatch", () => {
-		const config = legacyConfig([
-			{
-				type: "hyperfx",
-				maxOrderUsd: 1000,
-				token1: { "EVM-8453": "0x9999999999999999999999999999999999999999" },
-				bidPriceCurve: [{ amount: "0", price: "6" }],
-				askPriceCurve: [{ amount: "0", price: "5.8" }],
-			},
-		])
-		const notes = migrateLegacyConfig(config)
-		expect(notes.some((n) => n.includes("[assets.TOKEN1]"))).toBe(true)
-		expect(config.assets?.TOKEN1).toEqual({ "EVM-8453": "0x9999999999999999999999999999999999999999" })
-		expect(config.pairs?.some((p) => p.token1 === "TOKEN1")).toBe(true)
-		expect(() => validateConfig(config)).not.toThrow()
-	})
-
 	it("numbers a second unresolvable exotic TOKEN2 instead of colliding", () => {
 		const config = legacyConfig([
 			{

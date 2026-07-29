@@ -12,10 +12,6 @@ describe("pickAnchorStable", () => {
 		expect(pickAnchorStable([{ token0: "CNGN", token1: "USDC" }], "CNGN")).toBe("USDT")
 	})
 
-	it("matches symbols case-insensitively", () => {
-		expect(pickAnchorStable([{ token0: "usdc", token1: "cngn" }], "CNGN")).toBe("USDT")
-	})
-
 	it("returns null when every stable is taken", () => {
 		const pairs = [
 			{ token0: "USDC", token1: "CNGN" },

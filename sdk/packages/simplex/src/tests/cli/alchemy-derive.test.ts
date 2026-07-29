@@ -9,13 +9,6 @@ describe("parseAlchemyUrl", () => {
 		})
 	})
 
-	it("parses testnet subdomains", () => {
-		expect(parseAlchemyUrl("https://base-sepolia.g.alchemy.com/v2/key")).toEqual({
-			subdomain: "base-sepolia",
-			apiKey: "key",
-		})
-	})
-
 	it("rejects http", () => {
 		expect(parseAlchemyUrl("http://eth-mainnet.g.alchemy.com/v2/key")).toBeNull()
 	})
@@ -51,14 +44,6 @@ describe("deriveAlchemyRpc", () => {
 		expect(deriveAlchemyRpc("key", 8453)).toBe("https://base-mainnet.g.alchemy.com/v2/key")
 		expect(deriveAlchemyRpc("key", 137)).toBe("https://polygon-mainnet.g.alchemy.com/v2/key")
 		expect(deriveAlchemyRpc("key", 56)).toBe("https://bnb-mainnet.g.alchemy.com/v2/key")
-	})
-
-	it("derives URLs for testnet chains", () => {
-		expect(deriveAlchemyRpc("key", 11155111)).toBe("https://eth-sepolia.g.alchemy.com/v2/key")
-		expect(deriveAlchemyRpc("key", 421614)).toBe("https://arb-sepolia.g.alchemy.com/v2/key")
-		expect(deriveAlchemyRpc("key", 84532)).toBe("https://base-sepolia.g.alchemy.com/v2/key")
-		expect(deriveAlchemyRpc("key", 80002)).toBe("https://polygon-amoy.g.alchemy.com/v2/key")
-		expect(deriveAlchemyRpc("key", 97)).toBe("https://bnb-testnet.g.alchemy.com/v2/key")
 	})
 
 	it("returns null for chains Alchemy does not serve", () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
+import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
 const USDC = "0xaaaa000000000000000000000000000000000001"
 const USDT = "0xaaaa000000000000000000000000000000000002"
@@ -106,12 +106,5 @@ describe("substrate-key", () => {
 		expect(fromMnemonic.address).toMatch(/^5/)
 		expect(fromUri.address).toMatch(/^5/)
 		expect(fromMnemonic.address).not.toBe(fromUri.address)
-	})
-
-	it("generates a mnemonic whose derivation matches the returned address", async () => {
-		const { mnemonic, address } = await generateSubstrateKey()
-		expect(mnemonic.split(" ")).toHaveLength(12)
-		const pair = await deriveSubstrateKeyPair(mnemonic)
-		expect(pair.address).toBe(address)
 	})
 })

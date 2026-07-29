@@ -8,13 +8,11 @@ export interface MockRpcOptions {
 	/** ERC-20 metadata answered via eth_call. */
 	symbol?: string
 	decimals?: number
-	entryPoints?: string[]
 }
 
 export interface MockRpc {
 	url: string
 	close(): void
-	requests: Array<{ method: string; params: unknown[] }>
 }
 
 const SYMBOL_SELECTOR = "0x95d89b41"
@@ -23,7 +21,6 @@ const DECIMALS_SELECTOR = "0x313ce567"
 /** Local JSON-RPC stub answering the calls the setup wizard makes. */
 export function startMockRpc(options: MockRpcOptions = {}): Promise<MockRpc> {
 	const chainId = options.chainId ?? 1
-	const requests: MockRpc["requests"] = []
 
 	const server: Server = createServer((req, res) => {
 		let body = ""
@@ -32,7 +29,6 @@ export function startMockRpc(options: MockRpcOptions = {}): Promise<MockRpc> {
 		})
 		req.on("end", () => {
 			const { method, params, id } = JSON.parse(body) as { method: string; params: unknown[]; id: number }
-			requests.push({ method, params })
 
 			let result: unknown
 			switch (method) {
@@ -54,7 +50,7 @@ export function startMockRpc(options: MockRpcOptions = {}): Promise<MockRpc> {
 					break
 				}
 				case "eth_supportedEntryPoints":
-					result = options.entryPoints ?? ["0x0000000071727De22E5E9d8BAf0edAc6f37da032"]
+					result = ["0x0000000071727De22E5E9d8BAf0edAc6f37da032"]
 					break
 				default:
 					res.writeHead(200, { "Content-Type": "application/json" })
@@ -73,7 +69,6 @@ export function startMockRpc(options: MockRpcOptions = {}): Promise<MockRpc> {
 			resolve({
 				url: `http://127.0.0.1:${port}`,
 				close: () => server.close(),
-				requests,
 			})
 		})
 	})

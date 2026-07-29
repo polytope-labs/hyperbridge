@@ -12,23 +12,16 @@ import {
 } from "viem"
 import { getViemChain } from "@hyperbridge/sdk"
 import { validateRpcUrls } from "./FillerConfigService"
-import { getLogger } from "./Logger"
 
 /**
  * Standard BFT threshold for a set of `n` equal peers: `floor(2n/3) + 1`, i.e.
  * strictly more than two thirds, tolerating up to `floor((n-1)/3)` faults.
  *
  *  - n=1: 1   n=2: 2   n=3: 3   n=4: 3   n=5: 4   n=7: 5
- *
- * Used here for the *operator* tier only (see {@link QuorumPublicClient}); the
- * public tier uses a flat witness floor, not a BFT fraction.
  */
 export function quorumThreshold(numProviders: number): number {
 	return Math.floor((2 * numProviders) / 3) + 1
 }
-
-/** Public registry endpoints that must corroborate the operator's view per call. */
-const REQUIRED_PUBLIC_WITNESSES = 2
 
 /** JSON-RPC error codes providers use to signal rate limiting (HTTP 200 body). */
 const RATE_LIMIT_RPC_CODES = new Set([-32005, -32097, -32016, 429])
@@ -67,28 +60,17 @@ function isReceiptNotFound(error: unknown): boolean {
 }
 
 /**
- * Wraps multiple `PublicClient`s — one per configured RPC URL — and runs selected
- * read paths (`getLogs`, `getBlockNumber`, `getTransactionConfirmations`) as a
- * **weighted quorum with two tiers**.
+ * Wraps multiple viem `PublicClient`s — one per configured RPC URL — and runs
+ * selected read paths (`getLogs`, `getBlockNumber`, `getTransactionConfirmations`)
+ * as a **BFT quorum**: a result is accepted only when `quorumThreshold(n)` of the
+ * operator's endpoints agree on it.
  *
- * The first `operatorCount` URLs are the *operator's own* endpoints; the rest are
- * public-registry endpoints. Operator endpoints are load-bearing and public ones
- * are corroborating witnesses, so a result is accepted only when:
- *
- *  1. a BFT quorum of the operator set agrees on it — `quorumThreshold(operatorCount)`
- *     operator endpoints returning the same value — AND
- *  2. at least `min(2, publicCount)` public endpoints agree with them.
- *
- * This makes operator failures **intolerable** (if the operator endpoints can't
- * form their own quorum the call fails loudly, never proceeding on public
- * endpoints alone) while public failures are **tolerable** (any two agreeing
- * witnesses suffice; the rest may be down, throttled, or lagging). A provider
- * that *answers with divergent data* is never special-cased away — it simply
- * fails to join the agreeing group, which is what makes a lying or reorged
+ * A provider that *answers with divergent data* is never special-cased away — it
+ * simply fails to join the agreeing group, which is what makes a lying or reorged
  * endpoint detectable rather than authoritative.
  *
  * There is no pausing/ejection state: each call independently queries every
- * endpoint and forms the quorum from whoever answers. A chronically slow public
+ * endpoint and forms the quorum from whoever answers. A chronically slow
  * endpoint costs one failed sub-request per call, never a shrunk quorum.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
@@ -97,26 +79,12 @@ function isReceiptNotFound(error: unknown): boolean {
 export class QuorumPublicClient {
 	public readonly clients: PublicClient[]
 	public readonly rpcUrls: string[]
-	/** Number of leading URLs that are the operator's own endpoints. */
-	public readonly operatorCount: number
-	/** Number of trailing URLs that are public-registry endpoints. */
-	public readonly publicCount: number
-	/** Operator endpoints that must agree on any result (BFT over the operator set). */
-	public readonly operatorQuorum: number
-	/** Public endpoints that must corroborate: `min(2, publicCount)`. */
-	public readonly requiredPublic: number
-	/** Minimum agreeing endpoints for any call (operatorQuorum + requiredPublic). Diagnostic. */
+	/** Endpoints that must agree on any result: `quorumThreshold(n)`. */
 	public readonly threshold: number
 
-	private logger = getLogger("quorum")
-
-	constructor(chainId: number, rpcUrls: string[], operatorCount?: number) {
+	constructor(chainId: number, rpcUrls: string[]) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
-		this.operatorCount = Math.min(Math.max(operatorCount ?? rpcUrls.length, 1), this.rpcUrls.length)
-		this.publicCount = this.rpcUrls.length - this.operatorCount
-		this.operatorQuorum = quorumThreshold(this.operatorCount)
-		this.requiredPublic = Math.min(REQUIRED_PUBLIC_WITNESSES, this.publicCount)
-		this.threshold = this.operatorQuorum + this.requiredPublic
+		this.threshold = quorumThreshold(this.rpcUrls.length)
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
@@ -134,39 +102,15 @@ export class QuorumPublicClient {
 		return this.clients.length
 	}
 
-	private isOperator(idx: number): boolean {
-		return idx < this.operatorCount
-	}
-
 	/**
-	 * Whether a set of endpoints that agree on some value satisfies both tiers:
-	 * a BFT quorum of operators plus the public witness floor.
+	 * Highest block a quorum of endpoints have all indexed: the highest B such
+	 * that `threshold` endpoints report head ≥ B. Returns null when fewer than
+	 * `threshold` endpoints have responded.
 	 */
-	private meetsQuorum(agreeingIdxs: readonly number[]): boolean {
-		let op = 0
-		let pub = 0
-		for (const idx of agreeingIdxs) {
-			if (this.isOperator(idx)) op++
-			else pub++
-		}
-		return op >= this.operatorQuorum && pub >= this.requiredPublic
-	}
-
-	/**
-	 * Highest block a valid quorum of endpoints have all indexed: the highest B
-	 * such that `operatorQuorum` operators AND `requiredPublic` public endpoints
-	 * report head ≥ B. Returns null when either tier can't be met.
-	 */
-	private tieredHead(heads: readonly { idx: number; head: bigint }[]): bigint | null {
+	private quorumHead(heads: readonly bigint[]): bigint | null {
+		if (heads.length < this.threshold) return null
 		const desc = (a: bigint, b: bigint) => (a > b ? -1 : a < b ? 1 : 0)
-		const opHeads = heads.filter((h) => this.isOperator(h.idx)).map((h) => h.head).sort(desc)
-		const pubHeads = heads.filter((h) => !this.isOperator(h.idx)).map((h) => h.head).sort(desc)
-		if (opHeads.length < this.operatorQuorum) return null
-		if (pubHeads.length < this.requiredPublic) return null
-		const bOp = opHeads[this.operatorQuorum - 1]
-		if (this.requiredPublic === 0) return bOp
-		const bPub = pubHeads[this.requiredPublic - 1]
-		return bOp < bPub ? bOp : bPub
+		return [...heads].sort(desc)[this.threshold - 1]
 	}
 
 	/**
@@ -178,7 +122,7 @@ export class QuorumPublicClient {
 	 * waiting; once every task has settled, `finalize` must decide (it throws
 	 * the QuorumError when the full response set still has no quorum). Early
 	 * exit never weakens the trust model — a decision still requires the same
-	 * tiered quorum, it just doesn't wait for votes it no longer needs.
+	 * quorum, it just doesn't wait for votes it no longer needs.
 	 */
 	private settleUntilQuorum<T, R>(
 		tasks: Promise<T>[],
@@ -235,25 +179,22 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Highest block head backed by a full tiered quorum. Throws {@link QuorumError}
-	 * when the operator or public tier cannot be met from the responders.
+	 * Highest block head backed by a full quorum. Throws {@link QuorumError}
+	 * when fewer than `threshold` endpoints respond.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const toHeads = (fulfilled: ReadonlyArray<{ idx: number; value: bigint }>) =>
-			fulfilled.map(({ idx, value }) => ({ idx, head: value }))
-
 		return this.settleUntilQuorum(
 			this.clients.map((c) => c.getBlockNumber()),
-			// Early exit as soon as a tiered quorum is satisfiable. Late voters
-			// could only raise the reported head; the earlier (lower) head is
+			// Early exit as soon as a quorum is satisfiable. Late voters could
+			// only raise the reported head; the earlier (lower) head is
 			// conservative for every consumer (fewer confirmations counted,
 			// smaller scan windows).
-			(fulfilled) => this.tieredHead(toHeads(fulfilled)) ?? undefined,
+			(fulfilled) => this.quorumHead(fulfilled.map((f) => f.value)) ?? undefined,
 			(fulfilled, failures) => {
-				const head = this.tieredHead(toHeads(fulfilled))
+				const head = this.quorumHead(fulfilled.map((f) => f.value))
 				if (head === null) {
 					throw new QuorumError(
-						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.map((f) => f.idx))}. ` +
+						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.length)}. ` +
 							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 					)
 				}
@@ -263,30 +204,26 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Confirmation count for a transaction under the tiered quorum.
+	 * Confirmation count for a transaction under the quorum.
 	 *
 	 * Every endpoint is asked for the receipt and its head. A "receipt not found"
 	 * answer is a valid **no** vote — the endpoint is responsive but does not see
 	 * the transaction (not yet propagated, or reorged out) — so it counts toward
 	 * responsiveness but joins no inclusion group. The transaction is confirmed
-	 * only when a tiered quorum (operator BFT quorum + public witness floor) agree
-	 * on the same `(blockHash, blockNumber)`; the depth is then the tiered head of
-	 * that agreeing group. A minority still serving a reorged/fabricated receipt
-	 * can neither reach the quorum nor, because operator agreement is mandatory,
-	 * substitute for the operator's own view.
+	 * only when a quorum agrees on the same `(blockHash, blockNumber)`; the depth
+	 * is then the quorum head of that agreeing group. A minority still serving a
+	 * reorged/fabricated receipt can never reach the quorum.
 	 *
-	 * Throws {@link QuorumError} when no inclusion reaches the tiered quorum —
-	 * including the ordinary window where the tx is not yet mined on enough
-	 * endpoints.
+	 * Throws {@link QuorumError} when no inclusion reaches the quorum — including
+	 * the ordinary window where the tx is not yet mined on enough endpoints.
 	 */
 	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
 		type ReceiptProbe = { head: bigint; receipt: { blockHash: string; blockNumber: bigint } | null }
 		const toViews = (fulfilled: ReadonlyArray<{ idx: number; value: ReceiptProbe }>): ReceiptView[] => {
 			const views: ReceiptView[] = []
-			for (const { idx, value } of fulfilled) {
+			for (const { value } of fulfilled) {
 				if (!value.receipt) continue
 				views.push({
-					isOperator: this.isOperator(idx),
 					blockHash: value.receipt.blockHash,
 					blockNumber: value.receipt.blockNumber,
 					head: value.head,
@@ -312,14 +249,13 @@ export class QuorumPublicClient {
 			// Early exit only on a POSITIVE quorum: an agreeing inclusion group can
 			// only grow, so the first satisfiable quorum is final. Not-found votes
 			// never decide early — "not confirmed" needs the full response set.
-			(fulfilled) => aggregateConfirmations(toViews(fulfilled), this.operatorQuorum, this.requiredPublic) ?? undefined,
+			(fulfilled) => aggregateConfirmations(toViews(fulfilled), this.threshold) ?? undefined,
 			(fulfilled, failures) => {
-				const confirmations = aggregateConfirmations(toViews(fulfilled), this.operatorQuorum, this.requiredPublic)
+				const confirmations = aggregateConfirmations(toViews(fulfilled), this.threshold)
 				if (confirmations === null) {
 					throw new QuorumError(
-						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by an ` +
-							`operator quorum (${this.operatorQuorum}) plus ${this.requiredPublic} public witness(es). ` +
-							`${this.describeResponders(fulfilled.map((f) => f.idx))}. ` +
+						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by a ` +
+							`quorum (${this.threshold}). ${this.describeResponders(fulfilled.length)}. ` +
 							this.formatFailures(failures.map(({ error }) => ({ idx: -1, error }))),
 					)
 				}
@@ -330,7 +266,7 @@ export class QuorumPublicClient {
 
 	/**
 	 * Fetches logs from every endpoint in parallel and returns the result once a
-	 * tiered quorum agrees. Fails with {@link QuorumError} otherwise.
+	 * quorum agrees. Fails with {@link QuorumError} otherwise.
 	 *
 	 * Generics mirror `PublicClient.getLogs` so caller-side inference (event decoding,
 	 * strict mode, pending vs mined) is preserved end-to-end.
@@ -363,40 +299,33 @@ export class QuorumPublicClient {
 			this.clients.map((client) =>
 				client.getLogs<TAbiEvent, TAbiEvents, TStrict, TFromBlock, TToBlock>(params),
 			) as Promise<ResultType>[],
-			// A quorum-meeting group is unique (it contains an operator BFT
-			// majority, and two disjoint groups can't both hold one), so the
-			// first satisfiable agreement is final — no need to wait out
-			// stragglers that could only join or lose.
+			// A quorum-meeting group is unique (it contains a BFT majority, and
+			// two disjoint groups can't both hold one), so the first satisfiable
+			// agreement is final — no need to wait out stragglers that could
+			// only join or lose.
 			(fulfilled) => {
 				for (const group of groupOf(fulfilled).values()) {
-					if (this.meetsQuorum(group.providerIdxs)) return group.result
+					if (group.providerIdxs.length >= this.threshold) return group.result
 				}
 				return undefined
 			},
 			(fulfilled, failures) => {
 				const groups = groupOf(fulfilled)
 				for (const group of groups.values()) {
-					if (this.meetsQuorum(group.providerIdxs)) return group.result
+					if (group.providerIdxs.length >= this.threshold) return group.result
 				}
-				const responders = [...groups.values()].flatMap((g) => g.providerIdxs)
+				const responders = [...groups.values()].reduce((n, g) => n + g.providerIdxs.length, 0)
 				throw new QuorumError(
-					`Quorum not reached for getLogs: no result agreed on by an operator quorum (${this.operatorQuorum}) ` +
-						`plus ${this.requiredPublic} public witness(es). ${this.describeResponders(responders)}. ` +
+					`Quorum not reached for getLogs: no result agreed on by a quorum (${this.threshold}). ` +
+						`${this.describeResponders(responders)}. ` +
 						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 				)
 			},
 		)
 	}
 
-	/** Human-readable split of which responders were operator vs public. */
-	private describeResponders(idxs: readonly number[]): string {
-		let op = 0
-		let pub = 0
-		for (const idx of idxs) {
-			if (this.isOperator(idx)) op++
-			else pub++
-		}
-		return `responders: ${op}/${this.operatorCount} operator, ${pub}/${this.publicCount} public`
+	private describeResponders(count: number): string {
+		return `responders: ${count}/${this.size}`
 	}
 
 	private formatFailures(failures: readonly { idx: number; error: unknown }[]): string {
@@ -411,32 +340,25 @@ export class QuorumPublicClient {
 	}
 }
 
-/** One endpoint's receipt answer, tagged with its tier, for {@link aggregateConfirmations}. */
+/** One endpoint's receipt answer for {@link aggregateConfirmations}. */
 export interface ReceiptView {
-	isOperator: boolean
 	blockHash: string
 	blockNumber: bigint
 	head: bigint
 }
 
 /**
- * Tiered BFT aggregation for {@link QuorumPublicClient.getTransactionConfirmations}.
+ * BFT aggregation for {@link QuorumPublicClient.getTransactionConfirmations}.
  *
  * Groups the receipt-holders by `(blockHash, blockNumber)` and looks for a group
- * satisfying both tiers — `operatorQuorum` operator endpoints and `requiredPublic`
- * public endpoints agreeing on that inclusion. The depth is then the group's
- * *tiered head*: the highest block that `operatorQuorum` operators and
- * `requiredPublic` public members of the group have all indexed (mirroring
- * {@link QuorumPublicClient.getBlockNumber}), so the count never advances on
- * fewer endpoints than the quorum bound.
+ * of at least `quorum` endpoints agreeing on that inclusion. The depth is then
+ * the group's *quorum head*: the highest block that `quorum` members of the
+ * group have all indexed (mirroring {@link QuorumPublicClient.getBlockNumber}),
+ * so the count never advances on fewer endpoints than the quorum bound.
  *
- * Returns `null` when no inclusion reaches the tiered quorum. Exported for tests.
+ * Returns `null` when no inclusion reaches the quorum. Exported for tests.
  */
-export function aggregateConfirmations(
-	views: readonly ReceiptView[],
-	operatorQuorum: number,
-	requiredPublic: number,
-): bigint | null {
+export function aggregateConfirmations(views: readonly ReceiptView[], quorum: number): bigint | null {
 	const groups = new Map<string, ReceiptView[]>()
 	for (const view of views) {
 		const key = `${view.blockHash}:${view.blockNumber}`
@@ -447,13 +369,9 @@ export function aggregateConfirmations(
 
 	const desc = (a: bigint, b: bigint) => (a > b ? -1 : a < b ? 1 : 0)
 	for (const group of groups.values()) {
-		const opHeads = group.filter((v) => v.isOperator).map((v) => v.head).sort(desc)
-		const pubHeads = group.filter((v) => !v.isOperator).map((v) => v.head).sort(desc)
-		if (opHeads.length < operatorQuorum || pubHeads.length < requiredPublic) continue
-
-		const bOp = opHeads[operatorQuorum - 1]
-		const bPub = requiredPublic > 0 ? pubHeads[requiredPublic - 1] : null
-		const head = bPub === null ? bOp : bOp < bPub ? bOp : bPub
+		if (group.length < quorum) continue
+		const heads = group.map((v) => v.head).sort(desc)
+		const head = heads[quorum - 1]
 		const receiptBlock = group[0].blockNumber
 		const confirmations = head - receiptBlock + 1n
 		return confirmations > 0n ? confirmations : 0n

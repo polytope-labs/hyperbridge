@@ -113,19 +113,15 @@ export class ChainClientManager {
 
 	/**
 	 * Quorum client for consensus-critical reads (event scanning, cross-chain
-	 * confirmation counting). Built from the operator's endpoints plus the public
-	 * RPC registry (`FillerConfigService.getQuorumRpcUrls`) and cached per chain,
-	 * so the event monitor and the confirmation waiter share one provider set.
+	 * confirmation counting). Built from the operator's configured endpoints and
+	 * cached per chain, so the event monitor and the confirmation waiter share
+	 * one provider set.
 	 */
 	getQuorumClient(chain: string): QuorumPublicClient {
 		const config = this.configService.getChainConfig(chain)
 		let client = this.quorumClients.get(config.chainId)
 		if (!client) {
-			// getQuorumRpcUrls puts the operator's endpoints first, then the public
-			// registry — the operator count tells the quorum client which endpoints
-			// are load-bearing (their agreement is mandatory) vs. corroborating.
-			const operatorCount = this.configService.getRpcUrls(chain).length
-			client = new QuorumPublicClient(config.chainId, this.configService.getQuorumRpcUrls(chain), operatorCount)
+			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain))
 			this.quorumClients.set(config.chainId, client)
 		}
 		return client

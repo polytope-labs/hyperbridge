@@ -109,26 +109,25 @@ describe("isRateLimited against real HTTP responses (local server)", () => {
 		expect(isRateLimited(thrown)).toBe(false)
 	}, 30_000)
 
-	it("end-to-end: a really-429ing (or really-broken) public endpoint is excluded; the tiered quorum still succeeds", async () => {
-		// operator + 3 public (operatorQuorum=1, requiredPublic=2). One public
-		// genuinely 429s and one genuinely 500s — both excluded — but the operator
-		// plus the two healthy publics still form the quorum.
-		const [operator, pubOk1, pubOk2, pubBad] = await Promise.all([
+	it("end-to-end: a really-429ing (or really-broken) endpoint is excluded; the quorum still succeeds", async () => {
+		// 4 endpoints, threshold 3. One genuinely 429s — excluded — but the three
+		// healthy endpoints still form the quorum.
+		const [ok1, ok2, ok3, bad] = await Promise.all([
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
 			rpcServer(HOSTS[2], "ok"),
 			rpcServer(HOSTS[3], "limited"),
 		])
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubOk2, pubBad], 1)
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
 
-		// With the 500 endpoint too: still one healthy operator + 2 healthy publics.
-		const pubBroken = await rpcServer(HOSTS[3], "broken")
-		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubOk2, pubBroken], 1)
+		// With a 500 endpoint instead: still three healthy endpoints.
+		const broken = await rpcServer(HOSTS[3], "broken")
+		const client2 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, broken])
 		await expect(client2.getBlockNumber()).resolves.toBe(100n)
 
-		// But if a 429 drops one healthy public below the 2-witness floor, the call fails.
-		const client3 = new QuorumPublicClient(BASE_CHAIN_ID, [operator, pubOk1, pubBad], 1)
+		// But if a 429 drops the responders below the threshold, the call fails.
+		const client3 = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, bad])
 		await expect(client3.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 	}, 60_000)
 })

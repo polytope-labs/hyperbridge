@@ -10,7 +10,6 @@ export { FXFiller } from "@/strategies/fx"
 // Configuration exports
 export { InterpolatedCurve, ConfirmationPolicy, FillerBpsPolicy } from "@/config/interpolated-curve"
 export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
-export { PUBLIC_RPC_URLS, getPublicRpcUrls } from "@/config/public-rpcs"
 export {
 	AssetRegistry,
 	USD_STABLE_SYMBOLS,

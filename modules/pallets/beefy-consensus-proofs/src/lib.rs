@@ -560,7 +560,25 @@ pub mod pallet {
 				}
 			}
 
-			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
+			// Same reasoning as the uncle bookkeeping above: the caller has already applied the
+			// authority-set rotation, so a hard error here rolls it back, and since the mandatory
+			// justification is the only one obtainable for that session every retry fails
+			// identically until someone tops the treasury up — leaving the consensus state on the
+			// old set in the meantime. A missed reward is the cheaper loss, so log and carry on.
+			// Messaging proofs keep the hard error: reverting one is recoverable, because the work
+			// is re-attempted by the next proof once the treasury can pay.
+			let reward_paid = match Self::pay_position_reward(&submitter, 0) {
+				Ok(reward) => reward,
+				Err(e) if outcome.rotated => {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] reward skipped for rotation to set {}: {e:?}",
+						outcome.current_set_id,
+					);
+					BalanceOf::<T>::default()
+				},
+				Err(e) => Err(e)?,
+			};
 
 			// Mandatory proofs are keyed by the set id they rotated to, messaging proofs by the
 			// height they advanced to, so the two never write over each other even when a

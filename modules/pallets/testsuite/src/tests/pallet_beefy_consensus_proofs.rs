@@ -26,7 +26,7 @@ use crate::runtime::{new_test_ext, Test};
 use pallet_beefy_consensus_proofs::{
 	pallet::VerifyOutcome,
 	types::{messaging_offchain_key, rotation_offchain_key, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1},
-	AcceptedProvers, MessagingProofs, ProverCount, RotationProofs,
+	AcceptedProvers, MessagingProofs, ProofReward, ProverCount, RotationProofs,
 };
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -181,6 +181,62 @@ fn a_full_uncle_slate_cannot_block_a_rotation() {
 			RotationProofs::<Test>::get().get(&20).copied(),
 			Some(height),
 			"the rotation must be recorded despite the uncle bookkeeping being full",
+		);
+	});
+}
+
+/// Same hazard, different source: an unpayable reward. `pay_position_reward` runs after the
+/// caller has applied the rotation, so propagating `RewardTransferFailed` rolls it back — and
+/// since the mandatory justification is the only one obtainable for that session, every retry
+/// fails identically until the treasury is topped up, leaving consensus on the old set. The
+/// reward is the cheaper thing to drop. Messaging proofs deliberately keep the hard error.
+#[test]
+fn an_unpayable_reward_cannot_block_a_rotation() {
+	let mut ext = new_test_ext();
+	let height = 800u64;
+
+	ext.execute_with(|| {
+		// The BEEFY proofs treasury holds nothing in genesis, so any non-zero reward makes the
+		// transfer fail with `RewardTransferFailed`.
+		ProofReward::<Test>::put(1_000_000u128);
+
+		pallet_beefy_consensus_proofs::Pallet::<Test>::settle_first_proof(
+			submitter(11),
+			vec![PROOF_TYPE_SP1, 0xab],
+			Some(H256::repeat_byte(11)),
+			PROOF_TYPE_SP1,
+			Vec::new(),
+			rotation_outcome(height, 30),
+		)
+		.expect("an unpayable reward must not reject the rotation");
+
+		assert_eq!(
+			RotationProofs::<Test>::get().get(&30).copied(),
+			Some(height),
+			"the rotation must be recorded even though the reward could not be paid",
+		);
+
+		// The asymmetry is deliberate: reverting a messaging proof is recoverable, because the
+		// next proof re-attempts the same work once the treasury can pay.
+		assert!(
+			pallet_beefy_consensus_proofs::Pallet::<Test>::settle_first_proof(
+				submitter(12),
+				vec![PROOF_TYPE_SP1, 0xac],
+				Some(H256::repeat_byte(12)),
+				PROOF_TYPE_SP1,
+				Vec::new(),
+				messaging_outcome(height + 1, 30),
+			)
+			.is_err(),
+			"a messaging proof must still fail hard when the reward cannot be paid",
+		);
+	});
+	ext.persist_offchain_overlay();
+
+	ext.execute_with(|| {
+		assert!(
+			read_offchain(&rotation_offchain_key(30)).is_some(),
+			"the rotation blob must still be written",
 		);
 	});
 }

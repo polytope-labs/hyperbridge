@@ -382,6 +382,7 @@ export class UiServer {
 				allowlistUsers: op.config.allowlist?.users ?? [],
 				vaults: op.config.vault?.vaults ?? [],
 				sendTokens: this.sendTokenOptions(op),
+				knownVaults: this.knownVaultCatalog(op),
 			}
 			return sendJson(res, 200, configDto)
 		}
@@ -712,6 +713,17 @@ export class UiServer {
 			options[stateMachineId] = tokens
 		}
 		return options
+	}
+
+	/** Registry vault catalog for the running chains, same source as the setup wizard's. */
+	private knownVaultCatalog(op: OperatorContext): ConfigDto["knownVaults"] {
+		const chainRegistry = new ChainConfigService({})
+		const catalog: ConfigDto["knownVaults"] = {}
+		for (const chainId of op.chains) {
+			const stateMachineId = formatChainKey(chainId)
+			catalog[stateMachineId] = chainRegistry.getKnownVaults(stateMachineId)
+		}
+		return catalog
 	}
 
 	private async handleSend(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -150,4 +150,6 @@ export interface ConfigDto {
 	allowlistUsers: string[]
 	vaults: VaultToml[]
 	sendTokens: Record<string, SendTokenOption[]>
+	/** Registry vault catalog per running chain (state machine id), for selection UIs. */
+	knownVaults: Record<string, KnownVault[]>
 }

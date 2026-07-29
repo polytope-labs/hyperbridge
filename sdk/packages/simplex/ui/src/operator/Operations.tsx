@@ -3,6 +3,7 @@ import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
 import { CopyHash } from "../components/CopyHash"
+import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ConfigDto, SendTokenOption } from "../types"
@@ -54,84 +55,13 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 					re-hydrate the running venue{config && !config.vaultConfigured && " after a restart"} and are saved to
 					the config.
 				</p>
-				{(vaultRows ?? []).map((row, index) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: positional rows
-					<div className="row" key={index} style={{ margin: "0.4rem 0", alignItems: "flex-end" }}>
-						<label className="field" style={{ margin: 0 }}>
-							<span>Chain</span>
-							<select
-								value={row.chain}
-								onChange={(e) =>
-									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, chain: e.target.value } : r)))
-								}
-							>
-								{props.chains.map((id) => (
-									<option key={id} value={formatChainKey(id)}>
-										{chainLabel(id)}
-									</option>
-								))}
-							</select>
-						</label>
-						<label className="field" style={{ flex: 1, margin: 0 }}>
-							<span>Vault address</span>
-							<input
-								type="text"
-								placeholder="0x…"
-								value={row.vault}
-								onChange={(e) =>
-									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, vault: e.target.value } : r)))
-								}
-							/>
-						</label>
-						<label className="field" style={{ maxWidth: "10rem", margin: 0 }}>
-							<span>Sweep threshold ($)</span>
-							<input
-								type="text"
-								value={row.threshold}
-								onChange={(e) =>
-									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, threshold: e.target.value } : r)))
-								}
-							/>
-						</label>
-						<label className="field" style={{ maxWidth: "10rem", margin: 0 }}>
-							<span>Min balance ($)</span>
-							<input
-								type="text"
-								value={row.minBalance}
-								onChange={(e) =>
-									setVaultRows((rows) => (rows ?? []).map((r, i) => (i === index ? { ...r, minBalance: e.target.value } : r)))
-								}
-							/>
-						</label>
-						<label className="row" style={{ whiteSpace: "nowrap" }} title="Redeem this position to the wallet on graceful shutdown">
-							<input
-								type="checkbox"
-								checked={row.redeemOnShutdown}
-								onChange={(e) =>
-									setVaultRows((rows) =>
-										(rows ?? []).map((r, i) => (i === index ? { ...r, redeemOnShutdown: e.target.checked } : r)),
-									)
-								}
-							/>
-							redeem on shutdown
-						</label>
-						<button type="button" onClick={() => setVaultRows((rows) => (rows ?? []).filter((_, i) => i !== index))}>
-							✕
-						</button>
-					</div>
-				))}
-				<div className="row">
-					<button
-						type="button"
-						onClick={() =>
-							setVaultRows((rows) => [
-								...(rows ?? []),
-								{ chain: formatChainKey(props.chains[0] ?? ""), vault: "", threshold: "5000", minBalance: "3000", redeemOnShutdown: false },
-							])
-						}
-					>
-						+ Add vault
-					</button>
+				<VaultRowsEditor
+					chains={props.chains.map((id) => ({ key: formatChainKey(id), label: chainLabel(id) }))}
+					knownVaults={config?.knownVaults ?? {}}
+					rows={vaultRows ?? []}
+					onChange={setVaultRows}
+				/>
+				<div className="row" style={{ marginTop: "0.5rem" }}>
 					<button type="button" className="primary" disabled={vaultRows === undefined} onClick={saveVaults}>
 						Save vaults
 					</button>

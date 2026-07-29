@@ -743,6 +743,14 @@ describe("UiServer (operator mode)", () => {
 		expect(tokens.some((t: { symbol: string }) => t.symbol === "USDC")).toBe(true)
 	})
 
+	it("serves the known vault catalog keyed by state machine id", async () => {
+		const { base } = await startServer()
+		const config = await (await fetch(`${base}/api/config`)).json()
+		const vaults = config.knownVaults["EVM-8453"] as Array<{ label: string; address: string; asset: string }>
+		expect(vaults.length).toBeGreaterThan(0)
+		expect(vaults.every((v) => v.label && v.asset && /^0x[0-9a-fA-F]{40}$/.test(v.address))).toBe(true)
+	})
+
 	it("does not list vault shares among send token options", async () => {
 		const vaultAddress = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
 		const config = fakeConfig()

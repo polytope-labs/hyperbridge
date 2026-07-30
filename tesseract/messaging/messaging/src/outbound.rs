@@ -31,8 +31,8 @@ use ismp::{
 use primitive_types::H256;
 use tesseract_primitives::{
 	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpHost, IsmpProvider, NewEpochEvent,
-	PendingRequestDeliveryClaim, ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt,
-	BEEFY_CONSENSUS_STATE_ID,
+	PendingRequestDeliveryClaim, ProofAccepted, ProofKey, RotationProof, StateMachineUpdated,
+	TxReceipt, BEEFY_CONSENSUS_STATE_ID,
 };
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::Sender;
@@ -169,7 +169,8 @@ pub async fn run(
 			},
 		};
 
-		let proof_bytes = match proof_source.fetch(new_height).await {
+		let proof_key = new_set_id.map_or(ProofKey::Messaging(new_height), ProofKey::Rotation);
+		let proof_bytes = match proof_source.fetch(proof_key).await {
 			Ok(bytes) => bytes,
 			Err(err) => {
 				tracing::error!(
@@ -994,7 +995,7 @@ mod tests {
 	struct NoopProofSource;
 	#[async_trait::async_trait]
 	impl ConsensusProofSource for NoopProofSource {
-		async fn fetch(&self, _height: u64) -> Result<Vec<u8>, anyhow::Error> {
+		async fn fetch(&self, _key: ProofKey) -> Result<Vec<u8>, anyhow::Error> {
 			Ok(vec![0xcc])
 		}
 	}

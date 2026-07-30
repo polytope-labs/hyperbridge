@@ -27,7 +27,7 @@ use sp_core::U256;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	config::RelayerConfig, ConsensusProofSource, Cost, Hasher, HyperbridgeClaim, IsmpProvider,
-	Query, WithdrawFundsResult, BEEFY_CONSENSUS_STATE_ID,
+	ProofKey, Query, WithdrawFundsResult, BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio_stream::wrappers::IntervalStream;
 use tracing::{instrument, Instrument};
@@ -273,6 +273,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 				None => {
 					let mut latest_height =
 						hyperbridge.query_latest_height(hb_state_machine_id).await? as u64;
+					let mut proof_key = ProofKey::Messaging(latest_height);
 
 					if max_block > latest_height {
 						tracing::info!(
@@ -282,7 +283,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 						);
 						let mut stream = hyperbridge.proof_accepted_notification().await?;
 
-						latest_height = loop {
+						(latest_height, proof_key) = loop {
 							match stream.next().await {
 								Some(Ok(event)) =>
 									if event.height < max_block {
@@ -293,7 +294,11 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 											height = event.height,
 											"proof accepted",
 										);
-										break event.height;
+										let key = event.new_set_id.map_or(
+											ProofKey::Messaging(event.height),
+											ProofKey::Rotation,
+										);
+										break (event.height, key);
 									},
 								Some(Err(_)) => {
 									tracing::error!(
@@ -307,7 +312,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 						};
 					}
 
-					let consensus_proof = proof_source.fetch(latest_height).await?;
+					let consensus_proof = proof_source.fetch(proof_key).await?;
 					let msg = ConsensusMessage {
 						consensus_proof,
 						consensus_state_id: BEEFY_CONSENSUS_STATE_ID,

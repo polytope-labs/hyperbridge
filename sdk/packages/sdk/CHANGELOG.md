@@ -6,6 +6,11 @@
 
 - `IntentGateway.quoteOrderFees(order, options?)`: public quote for the solver fee, using the same policy `execute()`/`executeBest()` apply when `order.fees` is `0n`. Returns `{ fees, nativeValue, estimate }` (`OrderFeesQuote` is exported) so integrators can check a user's fee-token balance and allowance, or native balance, before placing — instead of re-implementing the fee formula from `estimateFillOrder` components. `execute()` now derives its automatic fee from the same method.
 - Cross-chain cancellation relayer fees (source and destination routes) are now sized from an 800k source-chain gas budget, up from 400k, so refund deliveries clear on expensive source chains. Same-chain cancellations remain free of relayer fees.
+## 2.6.2
+
+### Patch Changes
+
+- Mandatory (rotation) BEEFY proofs are read from their own offchain namespace, keyed by the authority set the proof rotated to rather than by parachain height. A rotation that finalizes a head an earlier messaging proof already covered no longer resolves to the wrong blob. The rotation walk now starts at the destination's current authority set id + 1 (it previously started two epochs low), and a proven height produced by a rotation is resolved through the rotation index instead of returning no proof. Proofs written under the previous shared key are still readable via a legacy fallback, so this requires no coordinated upgrade.
 
 ## 2.6.1
 

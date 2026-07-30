@@ -1,5 +1,33 @@
+import { useState } from "react"
+import { INIT_CHAINS } from "@/cli/init/chains"
 import type { VaultRowDraft } from "../lib/vault-rows"
 import type { KnownVault } from "../types"
+
+const EXPLORER_BY_CHAIN = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId, meta.explorerUrl]))
+
+/** Icon-only copy control with a transient ✓ acknowledgment. */
+function CopyAddressButton(props: { address: string }) {
+	const [copied, setCopied] = useState(false)
+	const copy = async () => {
+		try {
+			await navigator.clipboard.writeText(props.address)
+			setCopied(true)
+			setTimeout(() => setCopied(false), 1200)
+		} catch {
+			// clipboard unavailable — nothing to acknowledge
+		}
+	}
+	return (
+		<button
+			type="button"
+			title="Copy vault address"
+			onClick={copy}
+			style={{ padding: "0 0.4rem", fontSize: "0.75rem", lineHeight: "1.4" }}
+		>
+			{copied ? "✓" : "⧉"}
+		</button>
+	)
+}
 
 export interface VaultChainOption {
 	/** State machine id, e.g. "EVM-8453" — the value stored in the row's `chain`. */
@@ -93,23 +121,39 @@ export function VaultRowsEditor(props: {
 					</label>
 					{catalog.map(({ chain, known }) => {
 						const index = rowIndexOf(chain.key, known.address)
+						const explorer = EXPLORER_BY_CHAIN.get(chain.key)
 						return (
 							<div key={`${chain.key}-${known.address}`}>
-								<label className="row">
-									<input
-										type="checkbox"
-										checked={index >= 0}
-										onChange={(e) =>
-											onChange(
-												e.target.checked
-													? [...rows, { chain: chain.key, vault: known.address, ...ROW_DEFAULTS }]
-													: withoutRow(rows, chain.key, known.address),
-											)
-										}
-									/>
-									{chain.label}: {known.label} ({known.asset}){" "}
-									<span className="mono">{known.address.slice(0, 10)}…</span>
-								</label>
+								<div className="row">
+									{/* Buttons live outside the label so clicking them never toggles the checkbox. */}
+									<label className="row" style={{ margin: 0 }}>
+										<input
+											type="checkbox"
+											checked={index >= 0}
+											onChange={(e) =>
+												onChange(
+													e.target.checked
+														? [...rows, { chain: chain.key, vault: known.address, ...ROW_DEFAULTS }]
+														: withoutRow(rows, chain.key, known.address),
+												)
+											}
+										/>
+										{chain.label}: {known.label} ({known.asset})
+									</label>
+									<CopyAddressButton address={known.address} />
+									{explorer && (
+										<button
+											type="button"
+											title="Open the vault address on the block explorer"
+											onClick={() =>
+												window.open(`${explorer}/address/${known.address}`, "_blank", "noopener")
+											}
+											style={{ padding: "0 0.4rem", fontSize: "0.75rem", lineHeight: "1.4" }}
+										>
+											↗
+										</button>
+									)}
+								</div>
 								{index >= 0 && (
 									<div
 										className="row"

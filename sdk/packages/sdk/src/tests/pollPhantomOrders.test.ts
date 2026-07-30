@@ -26,9 +26,13 @@ function registeredEvent(commitment: string) {
 				{ toHex: () => commitment },
 				{ toHex: () => CHAIN_HEX },
 				{ toNumber: () => 7 },
-				{ toHex: () => TOKEN_A },
-				{ toHex: () => TOKEN_B },
-				{ toString: () => "1000000" },
+				[
+					{
+						tokenA: { toHex: () => TOKEN_A },
+						tokenB: { toHex: () => TOKEN_B },
+						standardAmount: { toString: () => "1000000" },
+					},
+				],
 			],
 		},
 	}
@@ -108,9 +112,7 @@ describe("pollPhantomOrders", () => {
 				commitment: COMMITMENT_A,
 				chain: CHAIN,
 				createdAt: 7,
-				tokenA: TOKEN_A,
-				tokenB: TOKEN_B,
-				standardAmount: 1000000n,
+				pairs: [{ tokenA: TOKEN_A, tokenB: TOKEN_B, standardAmount: 1000000n }],
 			},
 		])
 	})

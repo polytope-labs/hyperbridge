@@ -21,7 +21,7 @@ use crate::{self as pallet_intents, *};
 use alloc::vec;
 use frame_support::{
 	assert_noop, assert_ok, parameter_types,
-	traits::{ConstU32, Everything},
+	traits::{ConstU32, Everything, Hooks},
 	BoundedVec,
 };
 use frame_system::EnsureRoot;
@@ -590,17 +590,27 @@ fn multiple_fillers_can_bid_on_same_order() {
 	});
 }
 
-fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
+fn phantom_pair(token_a: u8, token_b: u8) -> types::PhantomTokenPair {
+	types::PhantomTokenPair {
+		token_a: H160::repeat_byte(token_a),
+		token_b: H160::repeat_byte(token_b),
+		standard_amount: 1_000_000,
+	}
+}
+
+fn phantom_config_with(
+	interval_blocks: u32,
+	pairs: alloc::vec::Vec<types::PhantomTokenPair>,
+) -> types::PhantomOrderConfiguration {
 	types::PhantomOrderConfiguration {
 		chain: StateMachineId { state_id: StateMachine::Evm(1), consensus_state_id: *b"ETH0" },
-		token_pairs: BoundedVec::try_from(vec![types::PhantomTokenPair {
-			token_a: H160::repeat_byte(1),
-			token_b: H160::repeat_byte(2),
-			standard_amount: 1_000_000,
-		}])
-		.unwrap(),
+		token_pairs: BoundedVec::try_from(pairs).unwrap(),
 		interval_blocks,
 	}
+}
+
+fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
+	phantom_config_with(interval_blocks, vec![phantom_pair(1, 2)])
 }
 
 #[test]
@@ -652,6 +662,101 @@ fn set_phantom_bid_window_allows_any_window_when_no_config() {
 	new_test_ext().execute_with(|| {
 		// With no active config there is no interval to violate.
 		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 1_000_000));
+	});
+}
+
+#[test]
+fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_with(200, vec![])
+			),
+			Error::<Test>::EmptyPhantomTokenPairs
+		);
+
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_with(
+					200,
+					vec![phantom_pair(1, 2), phantom_pair(3, 4), phantom_pair(1, 2)]
+				)
+			),
+			Error::<Test>::DuplicatePhantomTokenPair
+		);
+
+		// The reverse direction prices the other side of the pair, so it is not a duplicate.
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(2, 1)])
+		));
+	});
+}
+
+#[test]
+fn phantom_generation_bundles_every_pair_into_one_order() {
+	new_test_ext().execute_with(|| {
+		let pairs = vec![phantom_pair(1, 2), phantom_pair(2, 1), phantom_pair(3, 4)];
+		let config = phantom_config_with(200, pairs.clone());
+		let chain = config.chain;
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+
+		// The hook reads the latest confirmed height and uses it as the order's deadline.
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
+
+		System::set_block_number(1);
+		System::reset_events();
+		Intents::on_initialize(1);
+
+		let (commitment, info) = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(info.created_at_block, 1);
+		assert_eq!(info.chain, b"EVM-1".to_vec());
+
+		// One commitment covers all three pairs, and it matches the order built from them.
+		let (expected, _) = types::phantom_order_commitment(1, b"EVM-1", &pairs, 42);
+		assert_eq!(commitment, expected);
+
+		let registered = System::events()
+			.into_iter()
+			.filter_map(|record| match record.event {
+				RuntimeEvent::Intents(Event::PhantomOrderRegistered { pairs, .. }) => Some(pairs),
+				_ => None,
+			})
+			.collect::<alloc::vec::Vec<_>>();
+		assert_eq!(registered.len(), 1);
+		assert_eq!(registered[0].to_vec(), pairs);
+	});
+}
+
+#[test]
+fn phantom_bid_window_exhausted_fires_once_for_the_active_order() {
+	new_test_ext().execute_with(|| {
+		let config = phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
+		let chain = config.chain;
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
+
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+		let (commitment, _) = CurrentPhantomOrder::<Test>::get().unwrap();
+
+		// The default window storage is zero, so the fallback constant (100) applies.
+		let closing = 1 + 100;
+		System::set_block_number(closing);
+		System::reset_events();
+		Intents::on_finalize(closing);
+
+		let exhausted = System::events()
+			.into_iter()
+			.filter_map(|record| match record.event {
+				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) =>
+					Some(commitment),
+				_ => None,
+			})
+			.collect::<alloc::vec::Vec<_>>();
+		assert_eq!(exhausted, vec![commitment]);
 	});
 }
 

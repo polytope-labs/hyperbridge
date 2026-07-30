@@ -86,13 +86,18 @@ interface RpcBidInfo {
 	user_op: HexString
 }
 
+export interface PhantomOrderPair {
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+}
+
 export interface PhantomOrderEvent {
 	commitment: HexString
 	chain: string
 	createdAt: number
-	tokenA: HexString
-	tokenB: HexString
-	standardAmount: bigint
+	/** Listed in the same order as the order's asset lists, so index `i` here is the order's leg `i`. */
+	pairs: PhantomOrderPair[]
 }
 
 export interface PollPhantomOrdersOptions {
@@ -636,14 +641,17 @@ export class IntentsCoprocessor {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		for (const { event } of records as unknown as Array<{ event: any }>) {
 			if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
-			const [commitment, chain, createdAt, tokenA, tokenB, standardAmount] = event.data
+			const [commitment, chain, createdAt, pairs] = event.data
 			orders.push({
 				commitment: commitment.toHex() as HexString,
 				chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
 				createdAt: createdAt.toNumber(),
-				tokenA: tokenA.toHex() as HexString,
-				tokenB: tokenB.toHex() as HexString,
-				standardAmount: BigInt(standardAmount.toString()),
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				pairs: (pairs as any[]).map((pair: any) => ({
+					tokenA: pair.tokenA.toHex() as HexString,
+					tokenB: pair.tokenB.toHex() as HexString,
+					standardAmount: BigInt(pair.standardAmount.toString()),
+				})),
 			})
 		}
 		return orders

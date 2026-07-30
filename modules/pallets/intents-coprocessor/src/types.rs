@@ -154,8 +154,9 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
-/// Upper bound on the token pairs a single config may probe, and therefore on the number
-/// of phantom orders active at once.
+/// Upper bound on the token pairs a single config may probe. Every pair rides in the same
+/// phantom order, so this also bounds that order's asset lists and the size of the encoded
+/// body written to offchain storage.
 pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
 
 /// Tracks a phantom order recognised by the pallet.
@@ -191,7 +192,8 @@ pub struct PhantomTokenPair {
 	///   is the DENOMINATOR OF THE TRUTH. Put `2` units here and every downstream rate is silently
 	///   HALVED; put half a unit and every rate silently DOUBLES. It will not revert. It will not
 	///   warn. It will simply poison every price snapshot for this pair with an integer-factor
-	///   error until a human eventually notices the feed has drifted — and then has to backfill it.
+	///   error until a human eventually notices the feed has drifted — and then has to backfill
+	/// it.
 	///
 	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
 	/// Not two. Not a half. ONE. UNIT.
@@ -386,25 +388,28 @@ pub(crate) mod sol_types {
 	}
 }
 
-/// Builds the IntentGatewayV2 `Order` for a phantom order and returns both the
-/// ABI-encoded bytes and its `keccak256` commitment.
+/// Builds the IntentGatewayV2 `Order` carrying every configured token pair and returns both
+/// the ABI-encoded bytes and its `keccak256` commitment.
+///
+/// Pairs are positional: pair `i` is `inputs[i]` against `output.assets[i]`, which is how
+/// fillers already walk an order's legs. Each input carries its pair's standard amount while
+/// the matching output is left at zero, since the output amount is what fillers quote.
 ///
 /// `deadline` is the EVM block number beyond which the gateway treats the order
 /// as expired (`order.deadline < block.number` reverts).
 pub fn phantom_order_commitment(
 	block: u64,
 	chain: &[u8],
-	token_a: &H160,
-	token_b: &H160,
-	standard_amount: u128,
+	pairs: &[PhantomTokenPair],
 	deadline: u64,
 ) -> (H256, Vec<u8>) {
 	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
 
-	let mut token_a_bytes = [0u8; 32];
-	token_a_bytes[12..].copy_from_slice(token_a.as_bytes());
-	let mut token_b_bytes = [0u8; 32];
-	token_b_bytes[12..].copy_from_slice(token_b.as_bytes());
+	fn to_word(token: &H160) -> FixedBytes<32> {
+		let mut bytes = [0u8; 32];
+		bytes[12..].copy_from_slice(token.as_bytes());
+		FixedBytes::from(bytes)
+	}
 
 	let order = sol_types::Order {
 		user: FixedBytes::from([0u8; 32]),
@@ -415,16 +420,22 @@ pub fn phantom_order_commitment(
 		fees: AlloyU256::ZERO,
 		session: alloy_primitives::Address::ZERO,
 		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
-		inputs: vec![sol_types::TokenInfo {
-			token: FixedBytes::from(token_a_bytes),
-			amount: AlloyU256::from(standard_amount),
-		}],
+		inputs: pairs
+			.iter()
+			.map(|pair| sol_types::TokenInfo {
+				token: to_word(&pair.token_a),
+				amount: AlloyU256::from(pair.standard_amount),
+			})
+			.collect(),
 		output: sol_types::PaymentInfo {
 			beneficiary: FixedBytes::from([0u8; 32]),
-			assets: vec![sol_types::TokenInfo {
-				token: FixedBytes::from(token_b_bytes),
-				amount: AlloyU256::ZERO,
-			}],
+			assets: pairs
+				.iter()
+				.map(|pair| sol_types::TokenInfo {
+					token: to_word(&pair.token_b),
+					amount: AlloyU256::ZERO,
+				})
+				.collect(),
 			call: Bytes::new(),
 		},
 	};
@@ -579,7 +590,8 @@ impl RequestKind {
 				use alloy_primitives::{Address, Bytes};
 				// Mirrors the Solidity `abi.decode(body[1:], (address, bytes))` in
 				// `ExtrinsicIntents.onAccept`. `abi_encode_params` emits the two values as bare
-				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl, initData)`.
+				// ABI parameters (no outer tuple wrapper), matching `abi.encode(newImpl,
+				// initData)`.
 				let payload = (Address::from_slice(&new_impl.0), Bytes::from(init_data.clone()));
 
 				let mut body = vec![IntentGatewayRequestKind::UpgradeContract as u8];
@@ -599,7 +611,8 @@ impl RequestKind {
 				let params_sol: sol_types::PaymasterParams = params.clone().into();
 
 				let mut body = vec![SimplexPaymasterRequestKind::UpdateParams as u8];
-				// Single struct: `abi_encode` is tuple-wrapped, matching `abi.decode(payload, (Params))`.
+				// Single struct: `abi_encode` is tuple-wrapped, matching `abi.decode(payload,
+				// (Params))`.
 				body.extend_from_slice(&params_sol.abi_encode());
 				body
 			},

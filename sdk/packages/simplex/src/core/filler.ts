@@ -45,11 +45,10 @@ export class IntentFiller {
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
 	private stopPhantomPolling: (() => void) | null = null
-	// Last phantom bid commitment per phantom-order series — keyed by chain + the directed token
-	// pair, NOT by chain alone. The pallet generates one phantom order per configured token pair, so
-	// several are live on the same chain at once; a new interval's bid must only retract the previous
-	// bid for the SAME pair, otherwise bidding on a second pair would retract the first pair's bid.
-	private lastPhantomCommitmentByPair = new Map<string, HexString>()
+	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
+	// order per interval, so one commitment per chain is live at a time and a new interval's bid
+	// retracts exactly the one it replaces.
+	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -848,6 +847,37 @@ export class IntentFiller {
 			})
 	}
 
+	/**
+	 * Quotes one leg of a bundled phantom order. Legs are positional, so narrowing the order to
+	 * `inputs[index]` and `output.assets[index]` produces the single pair order the strategies
+	 * already know how to price, which keeps the regular canFill matching intact. Returns null
+	 * when no strategy handles the leg.
+	 */
+	private async quotePhantomLeg(order: Order, index: number, chain: string): Promise<TokenInfo | null> {
+		const leg: Order = {
+			...order,
+			id: order.id ? `${order.id}-${index}` : undefined,
+			inputs: [order.inputs[index]],
+			output: { ...order.output, assets: [order.output.assets[index]] },
+		}
+
+		for (const candidate of this.strategies) {
+			if (typeof candidate.quotePhantomFill !== "function") continue
+			try {
+				if (!(await candidate.canFill(leg))) continue
+				const outputs = await candidate.quotePhantomFill(leg)
+				if (outputs?.length) return outputs[0]
+			} catch (err) {
+				this.logger.warn(
+					{ err, commitment: order.id, chain, index, strategy: candidate.name },
+					"Phantom leg quote failed",
+				)
+			}
+		}
+
+		return null
+	}
+
 	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
 		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${getChainId(event.chain) ?? event.chain}`)
 		if (!entryPointAddress) {
@@ -865,46 +895,17 @@ export class IntentFiller {
 			return
 		}
 
-		// Pick the strategy that actually handles this order's token pair — the same canFill matching
-		// used for regular orders — then require it to support phantom quoting. (Selecting the first
-		// strategy that merely has quotePhantomFill could pick one that doesn't handle this pair, e.g.
-		// the stable strategy quoting an FX pair.)
-		let strategy: FillerStrategy | undefined
-		for (const candidate of this.strategies) {
-			try {
-				if (await candidate.canFill(phantomOrder)) {
-					strategy = candidate
-					break
-				}
-			} catch (err) {
-				this.logger.error(
-					{ err, commitment: event.commitment, strategy: candidate.name },
-					"canFill check failed for phantom order",
-				)
-			}
-		}
-		if (!strategy) {
-			this.logger.debug({ chain: event.chain }, "No strategy handles the phantom order's token pair, skipping")
-			return
-		}
-		if (typeof strategy.quotePhantomFill !== "function") {
-			this.logger.debug(
-				{ chain: event.chain, strategy: strategy.name },
-				"Matched strategy does not support phantom quoting, skipping",
-			)
-			return
+		// Every configured pair rides in this one order, so quote leg by leg. A leg no strategy
+		// handles is quoted at zero instead of sinking the whole order, and legs belonging to
+		// different strategies each get the one that actually prices them.
+		const fillerOutputs: TokenInfo[] = []
+		for (let index = 0; index < phantomOrder.output.assets.length; index++) {
+			const quote = await this.quotePhantomLeg(phantomOrder, index, event.chain)
+			fillerOutputs.push(quote ?? { token: phantomOrder.output.assets[index].token, amount: 0n })
 		}
 
-		let fillerOutputs: TokenInfo[] | null = null
-		try {
-			fillerOutputs = await strategy.quotePhantomFill(phantomOrder)
-		} catch (err) {
-			this.logger.warn({ err, commitment: phantomOrder.id, chain: event.chain }, "quotePhantomFill failed")
-			return
-		}
-
-		if (!fillerOutputs || fillerOutputs.length === 0) {
-			this.logger.debug({ chain: event.chain }, "Strategy declined phantom order")
+		if (fillerOutputs.every((output) => output.amount === 0n)) {
+			this.logger.debug({ chain: event.chain }, "No strategy quoted any leg of the phantom order")
 			return
 		}
 
@@ -920,25 +921,21 @@ export class IntentFiller {
 
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity
 			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			// When a previous interval's bid for THIS pair is still live, retract it and place the new
-			// bid in one utility.batch so the old deposit is reclaimed even if the new bid fails. The
-			// key is per (chain, token pair) so bidding on one pair never retracts another pair's bid.
-			// Submissions are serialised inside IntentsCoprocessor (a single nonce-ordered queue), so a
-			// new interval's bid can go out directly even when several pairs register in one block.
-			const pairKey = `${event.chain}:${event.tokenA.toLowerCase()}:${event.tokenB.toLowerCase()}`
-			const prevCommitment = this.lastPhantomCommitmentByPair.get(pairKey)
+			// When the previous interval's bid on this chain is still live, retract it and place the
+			// new bid in one utility.batch so the old deposit is reclaimed even if the new bid fails.
+			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
 			const result =
 				prevCommitment && prevCommitment !== event.commitment
 					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
 					: await coprocessor.submitBid(event.commitment, userOp)
 			if (result.success) {
-				this.lastPhantomCommitmentByPair.set(pairKey, event.commitment)
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
 				this.logger.info(
 					{
 						commitment: event.commitment,
 						chain: event.chain,
-						tokenA: event.tokenA,
-						tokenB: event.tokenB,
+						quotedLegs: fillerOutputs.filter((output) => output.amount > 0n).length,
+						legs: fillerOutputs.length,
 						txHash: result.extrinsicHash,
 						blockHash: result.blockHash,
 					},

@@ -731,6 +731,86 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 }
 
 #[test]
+fn phantom_order_body_pairs_legs_positionally() {
+	use alloy_sol_types::SolValue;
+
+	// D1: pair i is inputs[i] against output.assets[i], with the input carrying that pair's
+	// standard amount and the matching output left at zero. Fillers walk the legs this way and
+	// the indexer keys snapshots by leg index, so both break silently if the encoder reorders
+	// or misaligns them. The commitment assertion elsewhere cannot catch that: any consistent
+	// encoding hashes consistently.
+	let pairs = vec![phantom_pair(1, 2), phantom_pair(2, 1), phantom_pair(3, 4)];
+	let (commitment, encoded) = types::phantom_order_commitment(7, b"EVM-8453", &pairs, 42);
+
+	// Round-trips through abi.decode(data, (Order)), which is what the SDK's fetchPhantomOrder
+	// does with placeOrder's tuple input.
+	let order = types::sol_types::Order::abi_decode(&encoded).expect("order round-trips");
+
+	assert_eq!(commitment, H256(sp_io::hashing::keccak_256(&encoded)));
+	assert_eq!(order.deadline, alloy_primitives::U256::from(42));
+	assert_eq!(order.nonce, alloy_primitives::U256::from(7));
+	assert_eq!(order.inputs.len(), pairs.len());
+	assert_eq!(order.output.assets.len(), pairs.len());
+
+	for (i, pair) in pairs.iter().enumerate() {
+		let mut token_a = [0u8; 32];
+		token_a[12..].copy_from_slice(pair.token_a.as_bytes());
+		let mut token_b = [0u8; 32];
+		token_b[12..].copy_from_slice(pair.token_b.as_bytes());
+
+		assert_eq!(order.inputs[i].token.as_slice(), &token_a, "input token at leg {i}");
+		assert_eq!(
+			order.inputs[i].amount,
+			alloy_primitives::U256::from(pair.standard_amount),
+			"input amount at leg {i}"
+		);
+		assert_eq!(order.output.assets[i].token.as_slice(), &token_b, "output token at leg {i}");
+		// The output amount is what fillers quote, so the request leaves it at zero.
+		assert_eq!(order.output.assets[i].amount, alloy_primitives::U256::ZERO);
+	}
+}
+
+#[test]
+fn phantom_order_at_max_pairs_stays_within_budget() {
+	use codec::Encode;
+
+	let pairs = (0..types::MAX_PHANTOM_TOKEN_PAIRS)
+		.map(|i| types::PhantomTokenPair {
+			token_a: H160::from_low_u64_be(i.into()),
+			token_b: H160::from_low_u64_be((i + types::MAX_PHANTOM_TOKEN_PAIRS).into()),
+			standard_amount: 1_000_000_000_000_000_000u128,
+		})
+		.collect::<alloc::vec::Vec<_>>();
+
+	let (_, encoded) = types::phantom_order_commitment(1, b"EVM-8453", &pairs, 42);
+	let config = phantom_config_with(200, pairs.clone());
+	let event_payload = (H256::repeat_byte(1), b"EVM-8453".to_vec(), 1u64, pairs).encode();
+
+	// The whole batch now rides in one order body, one config value and one event, so each has
+	// to be sized against its own budget rather than against a single pair.
+	//
+	// The order body only ever lives in offchain storage, which is local and unmetered, and is
+	// fetched over RPC by fillers. The config is read by on_initialize on every block, so its
+	// size is the recurring cost of the feature and the one worth watching. The event lands in
+	// block storage and counts against the block's proof size.
+	//
+	// These numbers are what 64 pairs actually costs. They are asserted rather than merely
+	// printed so raising MAX_PHANTOM_TOKEN_PAIRS or widening PhantomTokenPair has to come back
+	// through here.
+	assert!(encoded.len() < 16 * 1024, "encoded order body: {} bytes", encoded.len());
+	assert!(config.encode().len() < 8 * 1024, "config value: {} bytes", config.encode().len());
+	assert!(event_payload.len() < 8 * 1024, "event payload: {} bytes", event_payload.len());
+
+	println!(
+		"MAX_PHANTOM_TOKEN_PAIRS = {}: order body {} bytes, config {} bytes, event {} bytes",
+		types::MAX_PHANTOM_TOKEN_PAIRS,
+		encoded.len(),
+		config.encode().len(),
+		event_payload.len(),
+	);
+}
+
+#[test]
 fn phantom_bid_window_exhausted_fires_once_for_the_active_order() {
 	new_test_ext().execute_with(|| {
 		let config = phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);

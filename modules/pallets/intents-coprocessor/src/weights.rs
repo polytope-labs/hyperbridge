@@ -43,6 +43,8 @@ pub trait WeightInfo {
 	fn update_token_decimals() -> Weight;
 	fn set_phantom_order_config() -> Weight;
 	fn set_phantom_bid_window() -> Weight;
+	/// The on_initialize generation path, over the number of token pairs bundled into the order.
+	fn generate_phantom_order(p: u32) -> Weight;
 	fn upgrade_gateway() -> Weight;
 	fn add_paymaster_deployment() -> Weight;
 	fn upgrade_paymaster() -> Weight;
@@ -131,6 +133,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
+	/// Storage: PhantomOrderConfig (r:1 w:0), LastPhantomGeneration (r:1 w:1),
+	/// Ismp::LatestStateMachineHeight (r:1 w:0), CurrentPhantomOrder (r:0 w:1)
+	fn generate_phantom_order(p: u32) -> Weight {
+		// The per-pair term covers ABI-encoding and hashing one more leg plus the event bytes.
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(200_000, 0).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3_000))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(2))
+	}
+
 	/// Storage: Gateways (r:1 w:0)
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
@@ -215,6 +228,10 @@ impl WeightInfo for () {
 	}
 	fn set_phantom_bid_window() -> Weight {
 		Weight::from_parts(10_000_000, 0)
+	}
+	fn generate_phantom_order(p: u32) -> Weight {
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(200_000, 0).saturating_mul(p.into()))
 	}
 	fn upgrade_gateway() -> Weight {
 		Weight::from_parts(70_000_000, 0)

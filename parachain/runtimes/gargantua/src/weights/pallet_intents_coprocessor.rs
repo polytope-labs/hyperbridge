@@ -176,6 +176,19 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(2))
 	}
+	/// Storage: `IntentsCoprocessor::PhantomOrderConfig` (r:1 w:0)
+	/// Storage: `IntentsCoprocessor::LastPhantomGeneration` (r:1 w:1)
+	/// Storage: `Ismp::LatestStateMachineHeight` (r:1 w:0)
+	/// Storage: `IntentsCoprocessor::CurrentPhantomOrder` (r:0 w:1)
+	fn generate_phantom_order(p: u32) -> Weight {
+		// Placeholder, not measured. The generation hook is new in this release and the box has
+		// not run the benchmark yet; the per-pair term covers encoding and hashing one more leg.
+		Weight::from_parts(30_000_000, 0)
+			.saturating_add(Weight::from_parts(200_000, 0).saturating_mul(p.into()))
+			.saturating_add(Weight::from_parts(0, 3_000))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(2))
+	}
 	/// Storage: `IntentsCoprocessor::PhantomBidWindow` (r:0 w:1)
 	/// Proof: `IntentsCoprocessor::PhantomBidWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_phantom_bid_window() -> Weight {

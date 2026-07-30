@@ -846,6 +846,7 @@ pub mod pallet {
 				return T::DbWeight::get().reads(5);
 			};
 
+			let pair_count = config.token_pairs.len() as u32;
 			let (commitment, order_bytes) = types::phantom_order_commitment(
 				n.saturated_into::<u64>(),
 				&chain_bytes,
@@ -865,8 +866,11 @@ pub mod pallet {
 				pairs: config.token_pairs,
 			});
 
-			// reads: config + last_generation + latest_height + the on_finalize reads.
-			T::DbWeight::get().reads_writes(5, 2)
+			// The benchmark covers this hook's own reads and writes; encoding and hashing every
+			// pair into one order is what the linear term pays for. The two extra reads are the
+			// ones on_finalize performs on the order it just wrote.
+			T::WeightInfo::generate_phantom_order(pair_count)
+				.saturating_add(T::DbWeight::get().reads(2))
 		}
 
 		fn on_finalize(n: BlockNumberFor<T>) {

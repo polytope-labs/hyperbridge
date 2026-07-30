@@ -329,4 +329,57 @@ describe("Phantom Order E2E (simnode)", () => {
 		console.log("All bids count:", bids.length, bids.map((b) => b.filler))
 		expect(bids.length).toBe(3)
 	}, 60_000)
+
+	it("PhantomOrderRegistered carries every configured pair, decoded through the SDK", async () => {
+		// The only check on how polkadot-js decodes the pair list off the runtime metadata. The SDK
+		// extraction and the indexer handler both read `tokenA` / `tokenB` / `standardAmount`, which
+		// assumes polkadot-js camelCases the pallet's `token_a` / `token_b` / `standard_amount`
+		// fields. Unit tests cannot catch a mismatch there because their fixtures were written from
+		// the same assumption; only a real runtime can. Reading it through
+		// getPhantomOrdersInBlock rather than by hand keeps this honest.
+		const pairs = [
+			{
+				token_a: "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+				token_b: "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+				standard_amount: 1_000_000n,
+			},
+			{
+				token_a: "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+				token_b: "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+				standard_amount: 1_000_000_000_000_000_000n,
+			},
+			{
+				token_a: "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+				token_b: "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+				standard_amount: 1_000_000_000n,
+			},
+		]
+		await sudoAndSeal(
+			api,
+			api.tx.intentsCoprocessor.setPhantomOrderConfig({
+				chain: { state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID },
+				token_pairs: pairs,
+				interval_blocks: 10,
+			}),
+		)
+
+		// Generation happens in on_initialize of the next block.
+		await createBlock(api)
+		const generatedAt = (await api.rpc.chain.getHeader()).number.toNumber()
+
+		const orders = await coprocessor.getPhantomOrdersInBlock(generatedAt)
+		expect(orders).toHaveLength(1)
+
+		const order = orders[0]
+		expect(order.chain).toBe("EVM-8453")
+		expect(order.commitment).toBe(await getActivePhantomCommitment(api))
+
+		// Pairs are positional: index i here is leg i of the order's asset lists.
+		expect(order.pairs).toHaveLength(pairs.length)
+		order.pairs.forEach((pair, i) => {
+			expect(pair.tokenA).toBe(pairs[i].token_a)
+			expect(pair.tokenB).toBe(pairs[i].token_b)
+			expect(pair.standardAmount).toBe(pairs[i].standard_amount)
+		})
+	}, 60_000)
 })

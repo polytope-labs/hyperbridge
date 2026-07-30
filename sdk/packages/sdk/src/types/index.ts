@@ -1487,7 +1487,22 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 
 /** Tagged union of all possible status updates yielded by the intent order execution stream */
 export type IntentOrderStatusUpdate =
-	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| {
+			status: "AWAITING_PLACE_ORDER"
+			to: HexString
+			data: HexString
+			/**
+			 * Native-token value to attach to `placeOrder` when using the native
+			 * fee-payment rail. It is an alternative to paying `feeTokenAmount`
+			 * through an ERC-20 allowance, not an additional fee.
+			 */
+			value?: bigint
+			sessionPrivateKey: HexString
+			/** Exact source-chain fee-token amount encoded in `data`. */
+			feeTokenAmount: bigint
+			/** Source-chain ERC-20 token charged for `feeTokenAmount`. */
+			feeTokenAddress: HexString
+	  }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "NEW_BID"; commitment: HexString; bid: Bid }

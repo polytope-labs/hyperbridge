@@ -50,6 +50,7 @@ import {
 import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
+import { getFeeToken } from "./utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -287,7 +288,8 @@ export class IntentGateway {
 	 *    fee) with a 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. The wei cost used for the `value` field receives
 	 *    a 2% buffer.
-	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
+	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey,
+	 *    feeTokenAmount, feeTokenAddress }`.
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
@@ -337,8 +339,17 @@ export class IntentGateway {
 			throw new Error("placeOrder generator completed without yielding")
 		}
 		const { to, data, sessionPrivateKey } = placeOrderFirst.value
+		const { address: feeTokenAddress } = await getFeeToken(this.ctx, this.source.config.stateMachineId, this.source)
 
-		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }
+		const signedTransaction = yield {
+			status: "AWAITING_PLACE_ORDER",
+			to,
+			data,
+			value,
+			sessionPrivateKey,
+			feeTokenAmount: executionOrder.fees,
+			feeTokenAddress,
+		}
 
 		const placeOrderSecond = await placeOrderGen.next(signedTransaction as HexString)
 		if (placeOrderSecond.done === false) {

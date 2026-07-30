@@ -9,7 +9,7 @@ import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import { assertPairSymbolsResolve } from "@/config/pairs"
+import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -57,6 +57,12 @@ export interface FillerRuntime {
 	configService: FillerConfigService
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
+	/** The live trading engine, absent when the config declared no pairs. */
+	engine?: FXFiller
+	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
+	tradingPairs?: TradingPair[]
+	/** BalanceProvider's live token1 map (chain name to exotic addresses); mutations apply on its next refresh. */
+	balanceTokens: Record<string, string[]>
 	rebalancingService?: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
@@ -75,6 +81,75 @@ export interface FillerRuntime {
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
+}
+
+/** One TOML pair to the engine's TradingPair shape (curves become live policies). */
+export function tradingPairFrom(pair: PairConfig): TradingPair {
+	return {
+		token0: pair.token0,
+		token1: pair.token1,
+		// Reference-only pairs never fill, so the cap is never consulted.
+		maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
+		referenceOnly: pair.referenceOnly === true,
+		bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
+		askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
+	}
+}
+
+/**
+ * Editable-curve view of one trading pair for the UI server, or null for
+ * venue-priced (curve-less) pairs — they have nothing to edit. The
+ * enableSide/disableSide closures mutate the live TradingPair: the engine
+ * reads curve presence per order, so assignment opens or closes the direction.
+ */
+export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: number): AdminStrategy | null {
+	if (!pair.bidPricePolicy && !pair.askPricePolicy) return null
+	const logger = getLogger("cli")
+	const sameToken = normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
+	const adminStrategy: AdminStrategy = {
+		index,
+		pairIndex,
+		exotic: `${pair.token0}/${pair.token1}${pair.referenceOnly ? " (reference)" : ""}`,
+		token0: pair.token0,
+		token1: pair.token1,
+		bid: pair.bidPricePolicy,
+		ask: pair.askPricePolicy,
+		sameToken,
+		referenceOnly: pair.referenceOnly === true,
+	}
+	// Reference pairs never fill, so opening a side is a no-op; same-token
+	// markets are ask-only by engine rule.
+	if (!sameToken && !pair.referenceOnly) {
+		adminStrategy.enableSide = (side, policy) => {
+			if (side === "bid") {
+				pair.bidPricePolicy = policy
+				adminStrategy.bid = policy
+			} else {
+				pair.askPricePolicy = policy
+				adminStrategy.ask = policy
+			}
+			logger.warn(
+				{ pair: `${pair.token0}/${pair.token1}`, side },
+				"Trading direction enabled by operator with a new price curve",
+			)
+		}
+		// Clearing the policy closes the direction on the next order —
+		// the operator's path back to one-sided LP.
+		adminStrategy.disableSide = (side) => {
+			if (side === "bid") {
+				pair.bidPricePolicy = undefined
+				adminStrategy.bid = undefined
+			} else {
+				pair.askPricePolicy = undefined
+				adminStrategy.ask = undefined
+			}
+			logger.warn(
+				{ pair: `${pair.token0}/${pair.token1}`, side },
+				"Trading direction disabled by operator (one-sided LP)",
+			)
+		}
+	}
+	return adminStrategy
 }
 
 /**
@@ -226,65 +301,13 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// server mutates the exact policy instances the engine prices with.
 	const adminStrategies: AdminStrategy[] = []
 	const strategies: FXFiller[] = []
+	let tradingPairs: TradingPair[] | undefined
+	let engine: FXFiller | undefined
 	if (config.pairs?.length) {
-		const tradingPairs: TradingPair[] = config.pairs.map((pair) => ({
-			token0: pair.token0,
-			token1: pair.token1,
-			// Reference-only pairs never fill, so the cap is never consulted.
-			maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
-			referenceOnly: pair.referenceOnly === true,
-			bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
-			askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
-		}))
+		tradingPairs = config.pairs.map(tradingPairFrom)
 		tradingPairs.forEach((pair, pairIndex) => {
-			if (!pair.bidPricePolicy && !pair.askPricePolicy) return
-			const sameToken = normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
-			const adminStrategy: AdminStrategy = {
-				index: adminStrategies.length,
-				pairIndex,
-				exotic: `${pair.token0}/${pair.token1}${pair.referenceOnly ? " (reference)" : ""}`,
-				token0: pair.token0,
-				token1: pair.token1,
-				bid: pair.bidPricePolicy,
-				ask: pair.askPricePolicy,
-				sameToken,
-				referenceOnly: pair.referenceOnly === true,
-			}
-			// Reference pairs never fill, so opening a side is a no-op; same-token
-			// markets are ask-only by engine rule.
-			if (!sameToken && !pair.referenceOnly) {
-				// The engine reads curve presence live on every order, so
-				// assigning a policy onto the pair opens that direction.
-				adminStrategy.enableSide = (side, policy) => {
-					if (side === "bid") {
-						pair.bidPricePolicy = policy
-						adminStrategy.bid = policy
-					} else {
-						pair.askPricePolicy = policy
-						adminStrategy.ask = policy
-					}
-					logger.warn(
-						{ pair: `${pair.token0}/${pair.token1}`, side },
-						"Trading direction enabled by operator with a new price curve",
-					)
-				}
-				// Clearing the policy closes the direction on the next order —
-				// the operator's path back to one-sided LP.
-				adminStrategy.disableSide = (side) => {
-					if (side === "bid") {
-						pair.bidPricePolicy = undefined
-						adminStrategy.bid = undefined
-					} else {
-						pair.askPricePolicy = undefined
-						adminStrategy.ask = undefined
-					}
-					logger.warn(
-						{ pair: `${pair.token0}/${pair.token1}`, side },
-						"Trading direction disabled by operator (one-sided LP)",
-					)
-				}
-			}
-			adminStrategies.push(adminStrategy)
+			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length)
+			if (adminStrategy) adminStrategies.push(adminStrategy)
 		})
 
 		// Orders can be sourced on any configured chain (watch-only ones
@@ -328,7 +351,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			)
 		}
 
-		const engine = new FXFiller(
+		engine = new FXFiller(
 			runtimeSigner,
 			configService,
 			chainClientManager,
@@ -509,6 +532,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		bidStorage: bidStorageService,
 		configService,
 		assetRegistry,
+		engine,
+		tradingPairs,
+		balanceTokens: token1,
 		rebalancingService,
 		resolvedChains,
 		fillerAddress: runtimeSigner.account.address as HexString,

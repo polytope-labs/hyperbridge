@@ -32,7 +32,7 @@ body {
 	color: var(--text);
 }
 #root {
-	max-width: 60rem;
+	max-width: 72rem;
 	margin: 0 auto;
 	padding: 2rem 1.25rem 4rem;
 }

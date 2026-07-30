@@ -162,6 +162,29 @@ export class AssetRegistry {
 	}
 
 	/**
+	 * Registers new user-defined assets on the live registry (runtime market
+	 * adds). Existing symbols may not be redefined — an address swap under a
+	 * running market would silently repoint its fills.
+	 */
+	addAssets(defs: Record<string, AssetDefinition>): void {
+		validateAssetDefinitions(defs)
+		for (const symbol of Object.keys(defs)) {
+			if (this.hasSymbol(symbol)) {
+				throw new Error(`assets: '${symbol}' is already defined and cannot be redefined at runtime`)
+			}
+		}
+		for (const [symbol, definition] of Object.entries(defs)) {
+			const normalized = normalizeSymbol(symbol)
+			this.userAssets.set(normalized, definition)
+			// The cache stores null for previously-unknown symbols; drop those
+			// entries or the new token stays unresolvable.
+			for (const key of this.addressCache.keys()) {
+				if (key.startsWith(`${normalized}:`)) this.addressCache.delete(key)
+			}
+		}
+	}
+
+	/**
 	 * Contract address of `symbol` on `chain`, or `null` when the asset is not
 	 * deployed/known there. User `[assets]` addresses win over the SDK chain
 	 * registry, per chain.

@@ -121,6 +121,18 @@ describe("AssetRegistry", () => {
 			}),
 		).toThrow(/twice/)
 	})
+
+	it("addAssets registers new symbols live and invalidates the negative address cache", () => {
+		const registry = new AssetRegistry(resolver)
+		// The null result below is cached — addAssets must invalidate it.
+		expect(registry.getAddress("BRZ", CHAIN)).toBeNull()
+		registry.addAssets({ BRZ: { [CHAIN]: ZARP } })
+		expect(registry.getAddress("BRZ", CHAIN)).toBe(ZARP)
+		expect(registry.getAddress("brz", CHAIN)).toBe(ZARP)
+
+		expect(() => registry.addAssets({ USDC: { [CHAIN]: CNGN } })).toThrow(/already defined/)
+		expect(() => registry.addAssets({ brz: { [CHAIN]: CNGN } })).toThrow(/already defined/)
+	})
 })
 
 describe("validatePairConfigs", () => {
@@ -1041,6 +1053,81 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			parseUnits("10", 6),
 		)
 		expect((await filler.getOrderUsdValue(o))?.inputUsd.toFixed(6)).toBe("100.000000")
+	})
+
+	it("addPair opens a live market; duplicate, reverse and unanchored adds are rejected atomically", async () => {
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), askPricePolicy: flat("1500") }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"added-market",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(USDT), amount: parseUnits("999", 6) },
+			parseUnits("100", 6),
+		)
+		expect(await filler.canFill(o)).toBe(false)
+
+		filler.addPair({
+			token0: "USDC",
+			token1: "USDT",
+			maxOrderSize: size("100000"),
+			bidPricePolicy: flat("1.005"),
+			askPricePolicy: flat("0.999"),
+		})
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+
+		const usdtPair = () => ({ token0: "USDT", token1: "USDC", maxOrderSize: size("1"), askPricePolicy: flat("0.9") })
+		expect(() => filler.addPair({ ...usdtPair(), token0: "USDC", token1: "USDT" })).toThrow(/duplicate market/)
+		expect(() => filler.addPair(usdtPair())).toThrow(/duplicate market/)
+		// ZARP/ZWL is an island — no curve path to a USD stable.
+		expect(() =>
+			filler.addPair({ token0: "ZARP", token1: "ZWL", maxOrderSize: size("1000"), askPricePolicy: flat("95") }),
+		).toThrow(/no USD anchor/)
+	})
+
+	it("removePair closes a live market; anchor-orphaning and last-market removals are rejected", async () => {
+		const reference: TradingPair = {
+			token0: "USDC",
+			token1: "ZARP",
+			maxOrderSize: size("0"),
+			referenceOnly: true,
+			askPricePolicy: flat("17.8"),
+		}
+		const zarpCngn: TradingPair = {
+			token0: "ZARP",
+			token1: "CNGN",
+			maxOrderSize: size("1000000"),
+			askPricePolicy: flat("95"),
+		}
+		const usdcCngn: TradingPair = {
+			token0: "USDC",
+			token1: "CNGN",
+			maxOrderSize: size("100000"),
+			askPricePolicy: flat("1400"),
+		}
+		const filler = gateFiller([reference, zarpCngn], zarpCngnRegistry(), {
+			fillGas: parseUnits("1", 6),
+			relayer: parseUnits("1", 6),
+		})
+		// The reference feed is ZARP's only path to a USD stable — removing it
+		// would orphan the ZARP/CNGN market.
+		expect(() => filler.removePair(reference)).toThrow(/no USD anchor/)
+
+		filler.addPair(usdcCngn)
+		const o = order(
+			"removed-market",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1396", 18) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+		filler.removePair(usdcCngn)
+		expect(await filler.canFill(o)).toBe(false)
+
+		filler.removePair(zarpCngn)
+		expect(() => filler.removePair(reference)).toThrow(/cannot be removed/)
 	})
 })
 

@@ -6,7 +6,10 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
-import { bootFiller, type FillerRuntime } from "@/core/boot"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
+import type { PairConfig } from "@/config/pairs"
+import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
@@ -58,7 +61,53 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
+	// One array instance for /api/status, mutated by the market capabilities below.
+	const strategyTypes = (runtime.config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`)
+	const { engine, tradingPairs, adminStrategies, assetRegistry, balanceTokens } = runtime
+	const marketCapabilities =
+		engine && tradingPairs
+			? {
+					addPair: (pair: PairConfig, assets: Record<string, AssetDefinition> | undefined, pairIndex: number) => {
+						// Register new custom tokens on the live registry first so the
+						// engine and balance tracking can resolve the pair's symbols.
+						if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
+						const tradingPair = tradingPairFrom(pair)
+						// Pushes into the engine's live array — the same instance as
+						// `tradingPairs`, so config.pairs indexes stay aligned.
+						engine.addPair(tradingPair)
+						strategyTypes.push(`${pair.token0}/${pair.token1}`)
+						// Track the exotic side's balances from the next refresh.
+						if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1) && pair.referenceOnly !== true) {
+							for (const chain of runtime.resolvedChains) {
+								const chainName = formatChainKey(chain.chainId)
+								const address = assetRegistry.getAddress(pair.token1, chainName)
+								if (!address) continue
+								const list = (balanceTokens[chainName] ??= [])
+								if (!list.includes(address)) list.push(address)
+							}
+						}
+						const index = adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1
+						const adminStrategy = adminStrategyFor(tradingPair, pairIndex, index)
+						if (adminStrategy) adminStrategies.push(adminStrategy)
+						return adminStrategy
+					},
+					removePair: (index: number) => {
+						const position = adminStrategies.findIndex((s) => s.index === index)
+						if (position < 0) throw new Error(`Unknown strategy ${index}`)
+						const { pairIndex } = adminStrategies[position]
+						// Splices the engine's live array (same instance as tradingPairs).
+						engine.removePair(tradingPairs[pairIndex])
+						adminStrategies.splice(position, 1)
+						// config.pairs loses the entry too, so later pairs shift down.
+						for (const s of adminStrategies) {
+							if (s.pairIndex > pairIndex) s.pairIndex -= 1
+						}
+						strategyTypes.splice(pairIndex, 1)
+					},
+				}
+			: {}
 	return {
+		...marketCapabilities,
 		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
 		strategies: runtime.adminStrategies,
 		filler: runtime.intentFiller,
@@ -96,12 +145,16 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
 		applyRebalancing: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
 		vaultPreflight: (vaults) => runtime.vaultPreflight(vaults),
+		rpcUrlFor: (chain) => {
+			const chainId = parseChainKey(chain)
+			return runtime.resolvedChains.find((c) => c.chainId === chainId)?.rpcUrls[0]
+		},
 		send: (params) => runtime.tokenSender.send(params),
 		version: packageJson.version,
 		startedAt: runtime.startedAt,
 		configPath: runtime.configPath,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
-		strategyTypes: (runtime.config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
+		strategyTypes,
 		dataDir: runtime.dataDir,
 	}
 }

@@ -208,7 +208,7 @@ async function validateBundler(body: Record<string, unknown>, deps: Required<Set
 	}
 }
 
-async function validateToken(body: Record<string, unknown>) {
+export async function validateToken(body: Record<string, unknown>) {
 	const rpcUrl = String(body.rpcUrl ?? "").trim()
 	const address = String(body.address ?? "").trim()
 	if (!isAddress(address)) return { ok: false, error: "Invalid token address" }

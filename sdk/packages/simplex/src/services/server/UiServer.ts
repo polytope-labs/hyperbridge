@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { Decimal } from "decimal.js"
 import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
-import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
+import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { INIT_CHAINS } from "@/cli/init/chains"
 import { ChainConfigService } from "@hyperbridge/sdk"
@@ -16,7 +17,7 @@ import type { BidStorageService } from "../BidStorageService"
 import { configureLogger, getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
-import { handleSetupRequest, maskToml, type SetupDeps } from "./setup-api"
+import { handleSetupRequest, maskToml, validateToken, type SetupDeps } from "./setup-api"
 import {
 	LOG_LEVELS,
 	type AdminStrategyDto,
@@ -97,6 +98,20 @@ export interface OperatorContext {
 	applyAllowlist(allowlist: AllowlistConfig | undefined): void
 	/** Applies rebalancing settings to the running filler; trigger checks read them live. */
 	applyRebalancing(rebalancing: FillerTomlConfig["rebalancing"]): void
+	/**
+	 * Hydrates a validated new market into the running engine and returns its
+	 * editable-curve view (null for venue-priced pairs). `assets` registers new
+	 * custom tokens on the live registry first. Absent when no engine ran at boot.
+	 */
+	addPair?: (
+		pair: PairConfig,
+		assets: Record<string, AssetDefinition> | undefined,
+		pairIndex: number,
+	) => AdminStrategy | null
+	/** Removes a live market by strategy index; later strategies' pairIndex shift down with config.pairs. */
+	removePair?: (index: number) => void
+	/** First RPC URL for a running chain (state machine id) — backs the custom-token verify probe. */
+	rpcUrlFor?: (chain: string) => string | undefined
 	/**
 	 * Hydration-level validation of a prospective vault set (unconfigured chain,
 	 * same-asset duplicates, non-vault address) without touching any live venue.
@@ -274,6 +289,22 @@ export class UiServer {
 		}
 
 		if (path.startsWith("/api/setup/")) {
+			// Stateless RPC probe, also needed by the operator add-market form
+			// to verify custom tokens — the only setup route usable after boot.
+			if (path === "/api/setup/validate-token" && this.mode === "operator") {
+				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+				try {
+					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
+					// The operator form sends a chain key, not an RPC URL — the
+					// running config's endpoint for that chain backs the probe.
+					if (!body.rpcUrl && typeof body.chain === "string") {
+						body.rpcUrl = this.operator!.rpcUrlFor?.(body.chain)
+					}
+					return sendJson(res, 200, await validateToken(body))
+				} catch (err) {
+					return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+				}
+			}
 			if (this.mode !== "init" || !this.setup) {
 				return sendJson(res, 410, { error: "Setup already completed" })
 			}
@@ -282,8 +313,18 @@ export class UiServer {
 
 		if (path === "/api/strategies") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			return sendJson(res, 200, { strategies: this.operator!.strategies.map(serializeStrategy) })
+			if (method === "GET") {
+				return sendJson(res, 200, { strategies: this.operator!.strategies.map(serializeStrategy) })
+			}
+			if (method === "POST") return this.handleMarketAdd(req, res)
+			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		const strategyMatch = path.match(/^\/api\/strategies\/(\d+)$/)
+		if (strategyMatch) {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleMarketRemove(res, Number(strategyMatch[1]))
 		}
 
 		const curvesMatch = path.match(/^\/api\/strategies\/(\d+)\/curves$/)
@@ -655,6 +696,118 @@ export class UiServer {
 			else delete pair.askPriceCurve
 		}
 		return this.persistConfig()
+	}
+
+	/**
+	 * POST /api/strategies — adds a market. The candidate is validated against
+	 * the FULL prospective config (duplicate/reverse orientation, USD anchor
+	 * graph, symbol resolution on the running chains) before anything mutates,
+	 * hydrated into the running engine when possible, and persisted either way.
+	 */
+	private async handleMarketAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const op = this.operator!
+		let body: {
+			token0?: string
+			token1?: string
+			maxOrderSize?: string
+			bidPriceCurve?: PriceCurvePoint[]
+			askPriceCurve?: PriceCurvePoint[]
+			assets?: Record<string, AssetDefinition>
+		}
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!body.token0?.trim() || !body.token1?.trim()) {
+			return sendJson(res, 400, { error: "token0 and token1 are required" })
+		}
+
+		const candidate: PairConfig = {
+			token0: body.token0.trim(),
+			token1: body.token1.trim(),
+			...(String(body.maxOrderSize ?? "").trim() ? { maxOrderSize: String(body.maxOrderSize).trim() } : {}),
+			...(body.bidPriceCurve?.length ? { bidPriceCurve: body.bidPriceCurve } : {}),
+			...(body.askPriceCurve?.length ? { askPriceCurve: body.askPriceCurve } : {}),
+		}
+		const assets = body.assets && Object.keys(body.assets).length > 0 ? body.assets : undefined
+		const mergedAssets = { ...(op.config.assets ?? {}) }
+		const next = [...(op.config.pairs ?? []), candidate]
+		try {
+			if (assets) {
+				validateAssetDefinitions(assets)
+				// Redefining a known symbol under a running engine would silently
+				// repoint its fills to another contract.
+				const known = new AssetRegistry(new ChainConfigService({}), op.config.assets)
+				for (const symbol of Object.keys(assets)) {
+					if (known.hasSymbol(symbol)) {
+						throw new Error(`assets: '${symbol}' is already defined and cannot be redefined at runtime`)
+					}
+				}
+				Object.assign(mergedAssets, assets)
+			}
+			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
+			validatePairConfigs(next, mergedAssets, hasVenuePricing)
+			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
+			assertPairSymbolsResolve(next, registry, op.chains.map((id) => formatChainKey(id)))
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+
+		let strategy: AdminStrategy | null = null
+		try {
+			if (op.addPair) strategy = op.addPair(candidate, assets, (op.config.pairs ?? []).length)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+
+		op.config.pairs = next
+		if (assets) op.config.assets = mergedAssets
+		const persisted = this.persistConfig()
+		const applied = Boolean(op.addPair)
+		this.logger.warn(
+			{ pair: `${candidate.token0}/${candidate.token1}`, applied, customAssets: assets ? Object.keys(assets) : undefined },
+			"Market added by operator",
+		)
+		return sendJson(res, 200, {
+			applied,
+			restartNeeded: !applied,
+			persisted,
+			strategy: strategy ? serializeStrategy(strategy) : null,
+		})
+	}
+
+	/**
+	 * DELETE /api/strategies/:index — removes a market. The remaining config
+	 * must still validate (at least one market, no orphaned USD anchor) before
+	 * anything mutates. Funds are never touched: vault treasury is per-asset
+	 * and stays configured regardless of markets.
+	 */
+	private handleMarketRemove(res: ServerResponse, index: number): void {
+		const op = this.operator!
+		const strategy = op.strategies.find((s) => s.index === index)
+		if (!strategy) return sendJson(res, 404, { error: `Unknown strategy ${index}` })
+		const pairs = op.config.pairs ?? []
+		const { pairIndex } = strategy
+		try {
+			const remaining = pairs.filter((_, i) => i !== pairIndex)
+			if (remaining.length === 0) {
+				throw new Error("The last market cannot be removed live — edit the config and restart instead")
+			}
+			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
+			validatePairConfigs(remaining, op.config.assets, hasVenuePricing)
+			op.removePair?.(index)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+		pairs.splice(pairIndex, 1)
+		const persisted = this.persistConfig()
+		const applied = Boolean(op.removePair)
+		this.logger.warn(
+			{ pair: `${strategy.token0}/${strategy.token1}`, applied },
+			"Market removed by operator",
+		)
+		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
 	/** Regenerates the config file from the (mutated) running config. */

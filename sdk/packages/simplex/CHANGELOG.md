@@ -9,6 +9,7 @@
 - Terminal setup wizard via `simplex init`
 - `run` is the default command and `-c` is optional; configs are discovered at `./filler-config.toml` or `$SIMPLEX_HOME/config.toml`
 - BREAKING: `--admin-port` is replaced by `--ui <[host:]port>` / `--no-ui`; the UI (same port 8686, same curve API) is now on by default on loopback, and mutating API requests require the `X-Simplex-UI: 1` header
+- Markets can be added and removed from the operator dashboard at runtime — including custom-token markets — validated against the full config (duplicates, USD anchoring, symbol resolution) and persisted; removals never touch vault funds
 - `pause()`/`resume()` on the filler, persisted across restarts
 - Fixed: one-sided bid-only hyperfx configs crashed config validation
 

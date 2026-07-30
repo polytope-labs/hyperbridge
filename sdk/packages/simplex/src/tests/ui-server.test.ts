@@ -1,4 +1,10 @@
-import { UiServer, type HaltControl, type OperatorContext, type PauseControl } from "@/services/server/UiServer"
+import {
+	UiServer,
+	type AdminStrategy,
+	type HaltControl,
+	type OperatorContext,
+	type PauseControl,
+} from "@/services/server/UiServer"
 import { ActivityLogService } from "@/services/ActivityLogService"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
@@ -387,7 +393,8 @@ describe("UiServer (operator mode)", () => {
 
 	it("returns 405 for wrong methods", async () => {
 		const { base } = await startServer()
-		expect((await fetch(`${base}/api/strategies`, { method: "POST", headers: CSRF })).status).toBe(405)
+		expect((await fetch(`${base}/api/strategies`, { method: "PUT", headers: CSRF, body: "{}" })).status).toBe(405)
+		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(405)
 	})
 
 	it("pause/resume toggles the filler and persists the state", async () => {
@@ -772,6 +779,249 @@ describe("UiServer (operator mode)", () => {
 		expect(res.toml).toContain("[simplex.signer]")
 		expect(res.toml).not.toContain('key = "0xab"')
 		expect(res.logLevel).toBe("info")
+	})
+
+	// A pairs set that passes whole-array validation — fakeConfig's default set
+	// deliberately mirrors the strategy fixtures and is not itself valid.
+	function marketConfig(): FillerTomlConfig {
+		const config = fakeConfig()
+		config.pairs = [
+			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: "5000", bidPriceCurve: BID_POINTS, askPriceCurve: ASK_POINTS },
+		]
+		return config
+	}
+
+	it("adds a market at runtime: hydrated via the capability and persisted", async () => {
+		const addPair = vi.fn().mockReturnValue({
+			index: 7,
+			pairIndex: 2,
+			exotic: "USDC/EURC",
+			token0: "USDC",
+			token1: "EURC",
+			sameToken: false,
+			referenceOnly: false,
+		})
+		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const body = {
+			token0: "USDC",
+			token1: "EURC",
+			maxOrderSize: "5000",
+			askPriceCurve: [{ amount: "0", price: "0.92" }],
+		}
+		const res = await fetch(`${base}/api/strategies`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+		expect(res.status).toBe(200)
+		const payload = await res.json()
+		expect(payload.applied).toBe(true)
+		expect(payload.restartNeeded).toBe(false)
+		expect(payload.strategy.index).toBe(7)
+		expect(addPair).toHaveBeenCalledWith(body, undefined, 2)
+		expect(operator.config.pairs).toHaveLength(3)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.pairs?.[2]?.token1).toBe("EURC")
+	})
+
+	it("rejects identical and reverse-orientation markets with nothing persisted", async () => {
+		const addPair = vi.fn()
+		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		for (const [token0, token1] of [
+			["USDC", "CNGN"],
+			["CNGN", "USDC"],
+		]) {
+			const res = await fetch(`${base}/api/strategies`, {
+				method: "POST",
+				headers: CSRF,
+				body: JSON.stringify({ token0, token1, maxOrderSize: "5000", askPriceCurve: ASK_POINTS }),
+			})
+			expect(res.status).toBe(400)
+			expect((await res.json()).error).toMatch(/declared twice|already declared/)
+		}
+		expect(addPair).not.toHaveBeenCalled()
+		expect(operator.config.pairs).toHaveLength(2)
+		expect(existsSync(operator.configPath)).toBe(false)
+	})
+
+	it("rejects an unanchored market with the validator's message", async () => {
+		const { base } = await startServer({ config: marketConfig(), addPair: vi.fn() })
+		const res = await fetch(`${base}/api/strategies`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({
+				token0: "EURC",
+				token1: "ZARP",
+				maxOrderSize: "5000",
+				askPriceCurve: [{ amount: "0", price: "19.4" }],
+			}),
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain("no USD anchor")
+	})
+
+	it("adds a custom-token market, persisting its [assets] entry", async () => {
+		const addPair = vi.fn().mockReturnValue(null)
+		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const assets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" } }
+		const res = await fetch(`${base}/api/strategies`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({
+				token0: "USDC",
+				token1: "BRZ",
+				maxOrderSize: "5000",
+				askPriceCurve: [{ amount: "0", price: "5.6" }],
+				assets,
+			}),
+		})
+		expect(res.status).toBe(200)
+		expect(addPair).toHaveBeenCalledTimes(1)
+		expect(addPair.mock.calls[0][1]).toEqual(assets)
+		expect(operator.config.assets?.BRZ).toEqual(assets.BRZ)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.assets?.BRZ?.["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
+	})
+
+	it("persists a market for restart when live hydration is unavailable", async () => {
+		const { base, operator } = await startServer({ config: marketConfig() })
+		const res = await fetch(`${base}/api/strategies`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({
+				token0: "USDC",
+				token1: "EURC",
+				maxOrderSize: "5000",
+				askPriceCurve: [{ amount: "0", price: "0.92" }],
+			}),
+		})
+		expect(res.status).toBe(200)
+		const payload = await res.json()
+		expect(payload.applied).toBe(false)
+		expect(payload.restartNeeded).toBe(true)
+		expect(operator.config.pairs).toHaveLength(3)
+	})
+
+	it("removes a market at runtime and remaps later strategies to the right config rows", async () => {
+		const config = marketConfig()
+		config.pairs!.push({
+			token0: "USDC",
+			token1: "ZARP",
+			maxOrderSize: "5000",
+			askPriceCurve: [{ amount: "0", price: "17.8" }],
+		})
+		const zarpAsk = new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] })
+		const strategies: AdminStrategy[] = [
+			{
+				index: 0,
+				pairIndex: 0,
+				exotic: "USDC/USDC",
+				token0: "USDC",
+				token1: "USDC",
+				ask: new FillerPricePolicy({ points: SAME_ASSET_POINTS }),
+				sameToken: true,
+			},
+			{
+				index: 1,
+				pairIndex: 1,
+				exotic: "USDC/CNGN",
+				token0: "USDC",
+				token1: "CNGN",
+				bid: new FillerPricePolicy({ points: BID_POINTS }),
+				ask: new FillerPricePolicy({ points: ASK_POINTS }),
+				sameToken: false,
+			},
+			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
+		]
+		const removePair = vi.fn((index: number) => {
+			const position = strategies.findIndex((s) => s.index === index)
+			const { pairIndex } = strategies[position]
+			strategies.splice(position, 1)
+			for (const s of strategies) {
+				if (s.pairIndex > pairIndex) s.pairIndex -= 1
+			}
+		})
+		const { base, operator } = await startServer({ config, strategies, removePair })
+		const res = await fetch(`${base}/api/strategies/1`, { method: "DELETE", headers: CSRF })
+		expect(res.status).toBe(200)
+		expect((await res.json()).applied).toBe(true)
+		expect(removePair).toHaveBeenCalledWith(1)
+		expect(operator.config.pairs).toHaveLength(2)
+
+		// The ZARP strategy (index 2) now maps to config row 1 — a curve edit must land on the right pair.
+		const put = await fetch(`${base}/api/strategies/2/curves`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ askPriceCurve: [{ amount: "0", price: "18" }] }),
+		})
+		expect(put.status).toBe(200)
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.pairs).toHaveLength(2)
+		expect(written.pairs?.[1]?.token1).toBe("ZARP")
+		expect(written.pairs?.[1]?.askPriceCurve?.[0]?.price).toBe("18")
+	})
+
+	it("refuses removals that orphan an anchor, empty the market list, or name an unknown strategy", async () => {
+		const config = marketConfig()
+		config.pairs = [
+			{ token0: "USDC", token1: "ZARP", referenceOnly: true, askPriceCurve: [{ amount: "0", price: "17.8" }] },
+			{ token0: "ZARP", token1: "CNGN", maxOrderSize: "90000", askPriceCurve: [{ amount: "0", price: "5.2" }] },
+		]
+		const strategies: AdminStrategy[] = [
+			{
+				index: 0,
+				pairIndex: 0,
+				exotic: "USDC/ZARP (reference)",
+				token0: "USDC",
+				token1: "ZARP",
+				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "17.8" }] }),
+				sameToken: false,
+				referenceOnly: true,
+			},
+			{
+				index: 1,
+				pairIndex: 1,
+				exotic: "ZARP/CNGN",
+				token0: "ZARP",
+				token1: "CNGN",
+				ask: new FillerPricePolicy({ points: [{ amount: "0", price: "5.2" }] }),
+				sameToken: false,
+			},
+		]
+		const removePair = vi.fn()
+		const { base, operator } = await startServer({ config, strategies, removePair })
+
+		// Removing the reference feed would orphan ZARP/CNGN's USD anchor.
+		const orphan = await fetch(`${base}/api/strategies/0`, { method: "DELETE", headers: CSRF })
+		expect(orphan.status).toBe(400)
+		expect((await orphan.json()).error).toContain("no USD anchor")
+
+		const missing = await fetch(`${base}/api/strategies/99`, { method: "DELETE", headers: CSRF })
+		expect(missing.status).toBe(404)
+		expect(removePair).not.toHaveBeenCalled()
+		expect(operator.config.pairs).toHaveLength(2)
+
+		// A single-market config: the last market cannot be removed live.
+		server?.stop()
+		const single = marketConfig()
+		single.pairs = [single.pairs![1]]
+		const { base: base2 } = await startServer({
+			config: single,
+			strategies: [
+				{
+					index: 0,
+					pairIndex: 0,
+					exotic: "USDC/CNGN",
+					token0: "USDC",
+					token1: "CNGN",
+					bid: new FillerPricePolicy({ points: BID_POINTS }),
+					ask: new FillerPricePolicy({ points: ASK_POINTS }),
+					sameToken: false,
+				},
+			],
+			removePair,
+		})
+		const last = await fetch(`${base2}/api/strategies/0`, { method: "DELETE", headers: CSRF })
+		expect(last.status).toBe(400)
+		expect((await last.json()).error).toContain("cannot be removed")
+		expect(removePair).not.toHaveBeenCalled()
 	})
 
 	it("serves static SPA files with an index.html fallback", async () => {

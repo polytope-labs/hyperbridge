@@ -22,6 +22,7 @@ const GATEWAY = "0x2d61624A17f361020679FaA16fbB566C344AaF4B"
 // USDC and USDT addresses left-padded to bytes32, as they appear in an order's token fields.
 const USDC_BYTES32 = "0x000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" as HexString
 const USDT_BYTES32 = "0x000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7" as HexString
+const DAI_BYTES32 = "0x0000000000000000000000006b175474e89094c44da98b954eedeac495271d0f" as HexString
 const SOLVER_AMOUNT = 1_000_000n
 
 // A phantom order as it arrives in a bid: zero output amount (the solver's real quote lives in the
@@ -64,16 +65,48 @@ function bidCalldata(target: string = GATEWAY): HexString {
 	return encodeERC7821ExecuteBatch([{ target: target as HexString, value: 0n, data: fillCalldata }])
 }
 
+// A two pair order where the solver priced the first leg and declined the second by quoting zero.
+function multiLegBidCalldata(): HexString {
+	const order = phantomOrder()
+	order.inputs.push({ token: USDT_BYTES32, amount: 5_000_000n })
+	order.output.assets.push({ token: DAI_BYTES32, amount: 0n })
+
+	const options = fillOptions()
+	options.outputs.push({ token: DAI_BYTES32, amount: 0n })
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const fillCalldata = (encodeFunctionData as any)({
+		abi: FILL_ORDER_ABI,
+		functionName: "fillOrder",
+		args: [order, options],
+	}) as HexString
+	return encodeERC7821ExecuteBatch([{ target: GATEWAY, value: 0n, data: fillCalldata }])
+}
+
 describe("extractFillData", () => {
 	it("decodes the order, output token, and solver amount from a bid's ERC-7821 batch", () => {
 		const result = extractFillData(bidCalldata(), GATEWAY)
 
 		expect(result).not.toBeNull()
-		expect(result!.outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
-		expect(result!.solverAmount).toBe(SOLVER_AMOUNT)
+		expect(result!.legs).toHaveLength(1)
+		expect(result!.legs[0].outputToken.toLowerCase()).toBe(USDT_BYTES32.toLowerCase())
+		expect(result!.legs[0].solverAmount).toBe(SOLVER_AMOUNT)
 		// The decoded order still carries the phantom's zero output amount.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		expect((result!.order as any).output.assets[0].amount).toBe(0n)
+	})
+
+	// The pallet bundles every configured pair into one order, so a bid carries a quote per leg and
+	// the two lists line up by position.
+	it("decodes one leg per asset, pairing each with the amount quoted at the same index", () => {
+		const result = extractFillData(multiLegBidCalldata(), GATEWAY)
+
+		expect(result).not.toBeNull()
+		expect(result!.legs.map((leg) => leg.outputToken.toLowerCase())).toEqual([
+			USDT_BYTES32.toLowerCase(),
+			DAI_BYTES32.toLowerCase(),
+		])
+		expect(result!.legs.map((leg) => leg.solverAmount)).toEqual([SOLVER_AMOUNT, 0n])
 	})
 
 	it("returns null when no inner call targets the gateway", () => {
@@ -286,8 +319,10 @@ describe("aggregatePhantomBids bid verification", () => {
 		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
 
 		expect(result).not.toBeNull()
-		expect(result!.bidCount).toBe(1)
-		expect(result!.medianPrice).toBe(SOLVER_AMOUNT)
+		expect(result!.legs).toHaveLength(1)
+		expect(result!.legs[0].pairIndex).toBe(0)
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
 	})
 
 	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
@@ -339,7 +374,7 @@ describe("aggregatePhantomBids bid verification", () => {
 		const result = await aggregate([userOp, userOp, userOp], delegatedTo(SOLVER_ACCOUNT))
 
 		expect(result).not.toBeNull()
-		expect(result!.bidCount).toBe(1)
+		expect(result!.legs[0].bidCount).toBe(1)
 		expect(result!.lpBalances.map((lp) => lp.solver.toLowerCase())).toEqual([
 			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
 		])
@@ -372,7 +407,7 @@ describe("aggregatePhantomBids bid verification", () => {
 			account.toLowerCase() === impostorAddress ? "0x" : delegatedTo(SOLVER_ACCOUNT)(),
 		)
 
-		expect(result!.bidCount).toBe(1)
+		expect(result!.legs[0].bidCount).toBe(1)
 		// Liquidity is only swept for solvers whose bid was counted.
 		expect(result!.lpBalances.map((lp) => lp.solver.toLowerCase())).toEqual([
 			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),

@@ -12,6 +12,7 @@ import {
 	LiquidityProvider,
 	LiquidityProviderBalance,
 	PhantomOrder,
+	PhantomOrderPair,
 	PhantomOrderPriceSnapshot,
 } from "@/configs/src/types"
 import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
@@ -23,8 +24,9 @@ import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSigne
 setAggregationFetch(safeFetch)
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
-// already in. Aggregates that single order's bids into one price snapshot. The heavy lifting lives in
-// aggregatePhantomBids(); this handler just resolves endpoints and persists the result.
+// already in. The order prices several token pairs at once, so its bids aggregate into one snapshot
+// per pair. The heavy lifting lives in aggregatePhantomBids(); this handler just resolves endpoints
+// and persists the result.
 export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Promise<void> => {
 	const blockNumber = event.block.block.header.number.toBigInt()
 	const blockHash = event.block.block.header.hash.toString()
@@ -35,8 +37,13 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const phantom = await PhantomOrder.get(commitment)
 	if (!phantom) return
 
-	const snapshotId = `${commitment}-${blockNumber}`
-	if (await PhantomOrderPriceSnapshot.get(snapshotId)) return
+	// MAX_PHANTOM_TOKEN_PAIRS in the pallet caps a config at 64 pairs, so one read covers the order.
+	const pairs = await PhantomOrderPair.getByOrderId(commitment, { limit: 64 })
+	if (pairs.length === 0) return
+
+	// Every pair's snapshot is written in one pass, so the first one already covering this block
+	// means the whole order was handled.
+	if (await PhantomOrderPriceSnapshot.get(`${commitment}-${blockNumber}-${pairs[0].pairIndex}`)) return
 
 	let host: string
 	try {
@@ -121,21 +128,34 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		}).save()
 	}
 
-	await PhantomOrderPriceSnapshot.create({
-		id: snapshotId,
-		commitment,
-		tokenA: bytes32ToBytes20(phantom.tokenA),
-		tokenB: bytes32ToBytes20(phantom.tokenB),
-		// Denormalized from PhantomOrder so a rate (medianPrice / standardAmount) is computable
-		// from a single snapshot row without joining back to the order.
-		standardAmount: phantom.standardAmount,
-		blockNumber,
-		lowestPrice: aggregate.lowestPrice,
-		highestPrice: aggregate.highestPrice,
-		medianPrice: aggregate.medianPrice,
-		bidCount: aggregate.bidCount,
-		snapshotTime,
-	}).save()
+	const pairsByIndex = new Map(pairs.map((pair) => [pair.pairIndex, pair]))
 
-	logger.info({ commitment, blockNumber, bidCount: aggregate.bidCount }, "PhantomOrderPriceSnapshot saved")
+	for (const leg of aggregate.legs) {
+		const pair = pairsByIndex.get(leg.pairIndex)
+		// A leg with no registered pair means the order and the event disagree on its shape, which
+		// would attach a price to the wrong tokens.
+		if (!pair) {
+			logger.warn({ commitment, pairIndex: leg.pairIndex }, "Priced leg has no registered pair, skipping")
+			continue
+		}
+
+		await PhantomOrderPriceSnapshot.create({
+			id: `${commitment}-${blockNumber}-${leg.pairIndex}`,
+			commitment,
+			pairId: pair.id,
+			tokenA: bytes32ToBytes20(pair.tokenA),
+			tokenB: bytes32ToBytes20(pair.tokenB),
+			// Denormalized from the pair so a rate (medianPrice / standardAmount) is computable
+			// from a single snapshot row without joining back to it.
+			standardAmount: pair.standardAmount,
+			blockNumber,
+			lowestPrice: leg.lowestPrice,
+			highestPrice: leg.highestPrice,
+			medianPrice: leg.medianPrice,
+			bidCount: leg.bidCount,
+			snapshotTime,
+		}).save()
+	}
+
+	logger.info({ commitment, blockNumber, pricedLegs: aggregate.legs.length }, "PhantomOrderPriceSnapshot saved")
 })

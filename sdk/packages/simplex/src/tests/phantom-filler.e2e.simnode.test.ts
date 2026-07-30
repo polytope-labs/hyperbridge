@@ -52,7 +52,6 @@ import {
 	extractFillData,
 } from "@hyperbridge/sdk/intents-helpers"
 
-
 /** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
 function exoticPairs(
 	resolver: FillerConfigService,
@@ -142,11 +141,11 @@ async function setPhantomOrderConfig(api: ApiPromise): Promise<void> {
 async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
 	const raw: any = await api.rpc.state.getStorage(api.query.intentsCoprocessor.currentPhantomOrder.key())
 	const hex: string | undefined = raw?.toHex()
-	if (!hex || hex === "0x" || hex.length < 68) return null
-	return `0x${hex.slice(4, 68)}` as HexString
+	if (!hex || hex === "0x" || hex.length < 66) return null
+	return `0x${hex.slice(2, 66)}` as HexString
 }
-// Configures two pairs on the same chain (USDC→cNGN and cNGN→USDC) so the pallet generates two
-// phantom orders per interval — exercises the filler bidding on multiple phantom orders at once.
+// Configures both directions of the pair (USDC→cNGN and cNGN→USDC) so the generated order carries
+// two legs — exercises the filler quoting every pair in one phantom order.
 async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
 	const config = {
 		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
@@ -158,12 +157,12 @@ async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
 }
-// All active phantom commitments. CurrentPhantomOrder is a BoundedVec<(H256, PhantomOrderInfo)>
-// (commitment + created_at + chain), so toJSON gives [[commitment, info], ...]; take each commitment.
+// The active phantom commitment. CurrentPhantomOrder is a (H256, PhantomOrderInfo), so toJSON gives
+// [commitment, info]. Every configured pair rides in that one order, so there is at most one.
 async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
 	const active = await api.query.intentsCoprocessor.currentPhantomOrder()
-	const entries = active.toJSON() as Array<[HexString, unknown]> | null
-	return Array.isArray(entries) ? entries.map((entry) => entry[0]) : []
+	const entry = active.toJSON() as [HexString, unknown] | null
+	return Array.isArray(entry) ? [entry[0]] : []
 }
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
@@ -339,7 +338,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		for (const b of rawBids) {
 			const decoded = decodeUserOpScale(b.user_op as HexString)
 			const fd = extractFillData(decoded.callData as HexString, gateway)
-			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${fd?.solverAmount} cNGN`)
+			const quoted = fd?.legs.map((leg) => leg.solverAmount).join(", ")
+			console.log(`[phantom-e2e]   solver ${decoded.sender} quoted ${quoted} cNGN`)
 		}
 
 		// Aggregation half: the SDK's aggregatePhantomBids (same code the indexer runs) measures each
@@ -357,21 +357,26 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		})
 
 		console.log("\n[phantom-e2e] aggregation snapshot:")
-		console.log(`[phantom-e2e]   bidCount:     ${result?.bidCount}`)
-		console.log(`[phantom-e2e]   lowestPrice:  ${result?.lowestPrice}`)
-		console.log(`[phantom-e2e]   medianPrice:  ${result?.medianPrice}  (liquidity-weighted)`)
-		console.log(`[phantom-e2e]   highestPrice: ${result?.highestPrice}`)
+		for (const leg of result?.legs ?? []) {
+			console.log(`[phantom-e2e]   leg ${leg.pairIndex} bidCount:     ${leg.bidCount}`)
+			console.log(`[phantom-e2e]   leg ${leg.pairIndex} lowestPrice:  ${leg.lowestPrice}`)
+			console.log(`[phantom-e2e]   leg ${leg.pairIndex} medianPrice:  ${leg.medianPrice}  (liquidity-weighted)`)
+			console.log(`[phantom-e2e]   leg ${leg.pairIndex} highestPrice: ${leg.highestPrice}`)
+		}
 		for (const lp of result?.lpBalances ?? []) {
 			console.log(`[phantom-e2e]   LP ${lp.solver} on ${lp.chain} token ${lp.tokenAddress}: ${lp.balance}`)
 		}
 
 		expect(result).not.toBeNull()
-		expect(result!.bidCount).toBe(FILLERS.length)
+		// The config prices a single pair, so the order carries one leg.
+		expect(result!.legs).toHaveLength(1)
+		const leg = result!.legs[0]
+		expect(leg.bidCount).toBe(FILLERS.length)
 		// Real cNGN quotes — guards against the fillers quoting 0 (e.g. the overfill cap collapsing
 		// to the phantom order's zero requested output).
-		expect(result!.lowestPrice).toBeGreaterThan(0n)
-		expect(result!.lowestPrice).toBeLessThanOrEqual(result!.medianPrice)
-		expect(result!.medianPrice).toBeLessThanOrEqual(result!.highestPrice)
+		expect(leg.lowestPrice).toBeGreaterThan(0n)
+		expect(leg.lowestPrice).toBeLessThanOrEqual(leg.medianPrice)
+		expect(leg.medianPrice).toBeLessThanOrEqual(leg.highestPrice)
 		// One swept balance per filler: cNGN on Base (the single configured token/chain).
 		expect(result!.lpBalances.length).toBe(FILLERS.length)
 		for (const lp of result!.lpBalances) {
@@ -381,28 +386,34 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		}
 	}, 180_000)
 
-	it("submits and keeps a bid for every phantom order pair (no cross-pair retraction)", async () => {
-		// Two pairs on the same chain (USDC→cNGN and cNGN→USDC) => two phantom orders per interval.
+	it("quotes every pair of a multi pair phantom order in one bid", async () => {
+		// Both directions of the pair (USDC→cNGN and cNGN→USDC) ride in a single order.
 		await setBothPhantomPairs(api)
 		await createBlock(api)
 
 		const commitments = await getActivePhantomCommitments(api)
-		expect(commitments.length).toBe(2)
+		expect(commitments.length).toBe(1)
+		const commitment = commitments[0]
 
-		// Let the fillers quote + submit bids for BOTH pairs, then seal the blocks carrying their bids.
+		// Let the fillers quote + submit their bids, then seal the blocks carrying them.
 		await new Promise((r) => setTimeout(r, 6_000))
 		await createBlock(api)
 		await new Promise((r) => setTimeout(r, 2_000))
 		await createBlock(api)
 
-		// Regression guard for the per-chain retraction bug: the filler tracked its last phantom bid
-		// per chain, so bidding on the second pair retracted the first pair's bid via
-		// submitBidWithRetraction — leaving one pair with no live bids. Keyed by (chain, token pair),
-		// every pair keeps a full set of bids.
-		for (const commitment of commitments) {
-			const bids = await driver.getBidsForOrder(commitment)
-			console.log(`[phantom-multi] ${bids.length} bids for ${commitment}`)
-			expect(bids.length).toBe(FILLERS.length)
+		const bids = await driver.getBidsForOrder(commitment)
+		console.log(`[phantom-multi] ${bids.length} bids for ${commitment}`)
+		expect(bids.length).toBe(FILLERS.length)
+
+		// The point of bundling: one bid carries a quote per leg, so both directions get priced from
+		// the single order rather than one of them being dropped.
+		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
+		for (const bid of await fetchBidsForOrder(nodeUrl, commitment)) {
+			const decoded = decodeUserOpScale(bid.user_op as HexString)
+			const fillData = extractFillData(decoded.callData as HexString, gateway)
+			expect(fillData).not.toBeNull()
+			expect(fillData!.legs).toHaveLength(2)
+			expect(fillData!.legs.every((leg) => leg.solverAmount > 0n)).toBe(true)
 		}
 	}, 180_000)
 })

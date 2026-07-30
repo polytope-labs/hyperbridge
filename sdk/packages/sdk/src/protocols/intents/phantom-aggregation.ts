@@ -77,11 +77,17 @@ export const FILL_ORDER_ABI = IntentGatewayV2.ABI
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */
 export type YieldVaultMap = Record<string, Record<string, string[]>>
 
+/** One leg of a fill: the token the solver pays out and the amount it quoted for that leg. */
+export interface FillLeg {
+	outputToken: HexString
+	solverAmount: bigint
+}
+
 export interface FillData {
 	order: Record<string, unknown>
 	options: Record<string, unknown>
-	outputToken: HexString
-	solverAmount: bigint
+	/** Positional, matching the order's asset lists. A zero amount means the solver did not quote that leg. */
+	legs: FillLeg[]
 }
 
 export interface RpcBidInfo {
@@ -99,12 +105,21 @@ export interface LpBalance {
 	balance: bigint
 }
 
-/** The aggregated result for a single phantom order's bid window. */
-export interface PhantomAggregation {
+/** The aggregated price for one leg of a phantom order. */
+export interface PhantomLegAggregation {
+	/** Position of the leg in the order's asset lists. */
+	pairIndex: number
+	outputToken: HexString
 	lowestPrice: bigint
 	highestPrice: bigint
 	medianPrice: bigint
 	bidCount: number
+}
+
+/** The aggregated result for a single phantom order's bid window. */
+export interface PhantomAggregation {
+	/** One entry per leg that at least one solver quoted; legs nobody quoted are absent. */
+	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
 }
 
@@ -151,11 +166,15 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			const order = decoded.args[0] as Record<string, unknown>
 			const options = decoded.args[1] as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const outputToken = (order as any)?.output?.assets?.[0]?.token as HexString | undefined
+			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const outputs = (options as any)?.outputs as { amount: bigint }[] | undefined
-			if (!outputToken || !outputs?.length) continue
-			return { order, options, outputToken, solverAmount: outputs[0].amount }
+			if (!assets?.length || !outputs?.length) continue
+			const legs = assets.map((asset, index) => ({
+				outputToken: asset.token,
+				solverAmount: BigInt(outputs[index]?.amount ?? 0n),
+			}))
+			return { order, options, legs }
 		} catch {
 			continue
 		}
@@ -453,7 +472,10 @@ export async function aggregatePhantomBids(params: {
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
 
-	const quotes: { price: bigint; weight: bigint }[] = []
+	// Quotes per leg, keyed by the leg's position in the order's asset lists. One bid carries a quote
+	// for every leg its solver priced, so a solver that only handles some of the pairs still counts
+	// towards those, and legs it skipped are left to the solvers that do handle them.
+	const quotesByLeg = new Map<number, { outputToken: HexString; quotes: { price: bigint; weight: bigint }[] }>()
 	const lpBalances: LpBalance[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
@@ -502,30 +524,46 @@ export async function aggregatePhantomBids(params: {
 			}
 			countedSolvers.add(normalizedSolver)
 
-			// Price influence: the solver's liquidity in the output token on the destination chain.
-			const outputTokenAddress = toAddress(fillData.outputToken)
-			const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
-			quotes.push({ price: fillData.solverAmount, weight })
+			for (const [pairIndex, leg] of fillData.legs.entries()) {
+				// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
+				if (leg.solverAmount === 0n) continue
 
-			// Full liquidity picture: every configured token on every supported chain.
+				// Price influence: the solver's liquidity in THIS leg's output token on the destination
+				// chain, so a leg is weighted by the inventory that actually backs it.
+				const outputTokenAddress = toAddress(leg.outputToken)
+				const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
+
+				const entry = quotesByLeg.get(pairIndex) ?? { outputToken: leg.outputToken, quotes: [] }
+				entry.quotes.push({ price: leg.solverAmount, weight })
+				quotesByLeg.set(pairIndex, entry)
+			}
+
+			// Full liquidity picture: every configured token on every supported chain. Swept once per
+			// bid rather than per leg, since it measures the solver's whole inventory either way.
 			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver)))
 		} catch (err) {
 			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}
 	}
 
-	if (quotes.length === 0) return null
+	if (quotesByLeg.size === 0) return null
 
-	// The snapshot reports a single price: the liquidity-weighted median. lowestPrice and
-	// highestPrice carry that same value rather than the raw min/max of the bid set, so consumers
-	// cannot read an outlier bid as if it were a tradeable bound.
-	const medianPrice = weightedMedian(quotes)
+	// Each leg reports a single price: the liquidity-weighted median of the quotes for that leg.
+	// lowestPrice and highestPrice carry that same value rather than the raw min/max of the bid set,
+	// so consumers cannot read an outlier bid as if it were a tradeable bound.
+	const legs = [...quotesByLeg.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([pairIndex, { outputToken, quotes }]) => {
+			const medianPrice = weightedMedian(quotes)
+			return {
+				pairIndex,
+				outputToken,
+				lowestPrice: medianPrice,
+				highestPrice: medianPrice,
+				medianPrice,
+				bidCount: quotes.length,
+			}
+		})
 
-	return {
-		lowestPrice: medianPrice,
-		highestPrice: medianPrice,
-		medianPrice,
-		bidCount: quotes.length,
-		lpBalances,
-	}
+	return { legs, lpBalances }
 }

@@ -115,19 +115,18 @@ async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalB
 }
 
 /**
- * Reads the first active phantom commitment from `CurrentPhantomOrder` storage at
- * the latest block. Returns null when the storage slot is empty.
+ * Reads the active phantom commitment from `CurrentPhantomOrder` storage at the latest block.
+ * Returns null when the storage slot is empty.
  *
- * `CurrentPhantomOrder` is a `BoundedVec<(H256, PhantomOrderInfo), _>`, so the bytes start
- * with a one byte compact length before the first entry's H256 commitment.
+ * `CurrentPhantomOrder` is a `(H256, PhantomOrderInfo)`, so the commitment is the leading 32 bytes.
  */
 async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
 	const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
 	const raw: any = await api.rpc.state.getStorage(storageKey)
 	if (!raw) return null
 	const hex: string = raw.toHex()
-	if (!hex || hex === "0x" || hex.length < 68) return null
-	return `0x${hex.slice(4, 68)}` as HexString
+	if (!hex || hex === "0x" || hex.length < 66) return null
+	return `0x${hex.slice(2, 66)}` as HexString
 }
 
 describe("Phantom Order E2E (simnode)", () => {
@@ -182,12 +181,12 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(raw).not.toBeNull()
 
 		const hex: string = raw.toHex()
-		expect(hex.length).toBeGreaterThanOrEqual(68)
+		expect(hex.length).toBeGreaterThanOrEqual(66)
 
-		// BoundedVec: [compact len (1)] [H256 (32)] [u32 LE (4)] [compact chain len] [chain bytes]
+		// (H256 (32)) (u32 LE (4)) (compact chain len) (chain bytes)
 		const bytes = Buffer.from(hex.slice(2), "hex")
-		const chainLen = bytes[37] >> 2
-		const storedChain = bytes.slice(38, 38 + chainLen).toString("utf8")
+		const chainLen = bytes[36] >> 2
+		const storedChain = bytes.slice(37, 37 + chainLen).toString("utf8")
 		expect(storedChain).toBe("EVM-8453")
 	}, 30_000)
 

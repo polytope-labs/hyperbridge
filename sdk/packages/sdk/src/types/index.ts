@@ -1331,6 +1331,34 @@ export interface FillOrderEstimate {
 }
 
 /**
+ * Solver-fee quote for an order, priced with the same policy `execute()` /
+ * `executeBest()` apply when `order.fees` is `0n`.
+ */
+export interface OrderFeesQuote {
+	/**
+	 * The amount to set as `Order.fees`, denominated in the source-chain fee
+	 * token. Same-chain fills carry a 2x margin over the estimated fill gas;
+	 * cross-chain fills add the settlement relayer fee and a 5% buffer over
+	 * the whole sum.
+	 */
+	fees: bigint
+	/**
+	 * The native value attached to the placement transaction when the fee is
+	 * paid in the native token: the estimated fill gas cost in source-chain
+	 * wei plus a 2% buffer. The gateway swaps it for the fee token and refunds
+	 * any unused amount.
+	 */
+	nativeValue: bigint
+	/**
+	 * The source-chain fee token `fees` is denominated in — check the user's
+	 * balance and allowance against this address when paying the fee directly.
+	 */
+	feeToken: HexString
+	/** The underlying gas estimate the quote was derived from. */
+	estimate: FillOrderEstimate
+}
+
+/**
  * Result of submitting a bid to Hyperbridge
  */
 export interface BidSubmissionResult {
@@ -1464,7 +1492,29 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 
 /** Tagged union of all possible status updates yielded by the intent order execution stream */
 export type IntentOrderStatusUpdate =
-	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| {
+			status: "AWAITING_PLACE_ORDER"
+			to: HexString
+			data: HexString
+			/**
+			 * The order's native-token input amounts. Native inputs cannot be
+			 * pulled via allowance, so this must be part of the placement
+			 * transaction's `msg.value`. Does not include the solver fee.
+			 */
+			value: bigint
+			/**
+			 * The native amount that funds `order.fees`: what the gateway swaps
+			 * into the fee token at placement. Add it to `value` when paying the
+			 * fee in native token. `0n` when `order.fees` was set by the caller
+			 * (fee-token rail).
+			 */
+			nativeFee: bigint
+			sessionPrivateKey: HexString
+			/** Exact source-chain fee-token amount encoded in `data`. */
+			feeTokenAmount: bigint
+			/** Source-chain ERC-20 token charged for `feeTokenAmount`. */
+			feeTokenAddress: HexString
+	  }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "NEW_BID"; commitment: HexString; bid: Bid }

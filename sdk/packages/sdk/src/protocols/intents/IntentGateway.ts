@@ -17,6 +17,7 @@ import type {
 	SubmitBidOptions,
 	EstimateFillOrderParams,
 	FillOrderEstimate,
+	OrderFeesQuote,
 	IntentOrderStatusUpdate,
 	SelectBidResult,
 	FillerBid,
@@ -34,7 +35,7 @@ import { OrderPlacer } from "./OrderPlacer"
 import { OrderExecutor } from "./OrderExecutor"
 import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
-import { GasEstimator, RELAYER_MESSAGE_GAS } from "./GasEstimator"
+import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
 import { LiquidityEngine } from "./LiquidityEngine"
 import {
@@ -48,8 +49,8 @@ import {
 } from "./quote"
 import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
-import { convertGasToFeeToken } from "./utils"
+import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
+import { getFeeToken } from "./utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -281,14 +282,21 @@ export class IntentGateway {
 	 * placement, fee estimation, bid collection, and execution.
 	 *
 	 * **Yield/receive protocol:**
-	 * 1. If `order.fees` is unset or zero, estimates gas on an internal copy and
-	 *    sets same-chain fees to twice the estimate. Cross-chain orders attach
-	 *    (fill gas + a settlement-message uplift of `RELAYER_MESSAGE_GAS`, the
-	 *    same gas budget the solver's relayer fee uses) with a 5% buffer over
-	 *    the whole sum — strictly above the solver's unpadded requirement. The
-	 *    wei cost used for the `value` field receives a 2% buffer.
-	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
-	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
+	 * 1. If `order.fees` is unset or zero, prices the fee on an internal copy
+	 *    via {@link quoteOrderFees}: same-chain fees are twice the fill-gas
+	 *    estimate; cross-chain orders attach (fill gas + the settlement relayer
+	 *    fee) with a 5% buffer over the whole sum — strictly above the solver's
+	 *    unpadded requirement. The wei cost used for the `value` field receives
+	 *    a 2% buffer.
+	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, nativeFee,
+	 *    feeTokenAmount, feeTokenAddress, sessionPrivateKey }`. `value` carries
+	 *    only the order's native-token input amounts; `nativeFee` is the native
+	 *    amount that funds `order.fees` (`0n` when the caller set `order.fees`);
+	 *    `feeTokenAmount`/`feeTokenAddress` are the exact fee encoded in `data`
+	 *    and the source-chain token it is charged in. To pay the fee in native
+	 *    token, sign the transaction with `value + nativeFee`; with a fee-token
+	 *    allowance, `value` alone. Pass the signed transaction back via
+	 *    `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
 	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
@@ -319,44 +327,24 @@ export class IntentGateway {
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
 		const executionOrder: Order = { ...order }
-		let value: bigint | undefined
+		let nativeFee = 0n
 
 		if (!executionOrder.fees || executionOrder.fees === 0n) {
-			const estimate = await this.gasEstimator.estimateFillOrder({
-				order: executionOrder,
+			const feesQuote = await this.quoteOrderFees(executionOrder, {
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			})
 
-			if (estimate.totalGasCostWei === 0n || estimate.totalGasInFeeToken === 0n) {
-				throw new Error("Gas estimation failed")
-			}
-
-			const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
-			value = estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n
-			// Cover the cross-chain settlement (RedeemEscrow) message with the SAME
-			// gas budget the solver's relayer fee is sized against, so a user placing
-			// via the SDK attaches exactly what a solver requires to fill.
-			const crossChainFeeBump = isSameChain
-				? 0n
-				: await convertGasToFeeToken(
-						this.ctx,
-						RELAYER_MESSAGE_GAS,
-						"source",
-						this.source.config.stateMachineId,
-					)
-
-			// Same-chain fills need a larger solver fee margin. Cross-chain orders
-			// attach (fill gas + settlement uplift) with a 5% buffer over the WHOLE
-			// sum: the solver's requirement (fill gas + relayer fee) carries no
-			// padding of its own, so the buffer must cover the relayer component
-			// too — a buffer on fill gas alone is dwarfed whenever the source chain
-			// is expensive and the destination cheap (relayer fee >> fill gas), and
-			// every SDK-placed order would come up short and be refused.
-			executionOrder.fees = isSameChain
-				? estimate.totalGasInFeeToken * 2n
-				: ((estimate.totalGasInFeeToken + crossChainFeeBump) * 105n) / 100n
+			nativeFee = feesQuote.nativeValue
+			executionOrder.fees = feesQuote.fees
 		}
+
+		// Native inputs cannot be pulled via allowance; they must be part of the
+		// placement transaction's msg.value. The solver fee is reported
+		// separately as nativeFee — callers paying it in native add the two.
+		const value = executionOrder.inputs
+			.filter((input) => bytes32ToBytes20(input.token) === ADDRESS_ZERO)
+			.reduce((sum, input) => sum + input.amount, 0n)
 
 		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)
 		const placeOrderFirst = await placeOrderGen.next()
@@ -364,8 +352,18 @@ export class IntentGateway {
 			throw new Error("placeOrder generator completed without yielding")
 		}
 		const { to, data, sessionPrivateKey } = placeOrderFirst.value
+		const { address: feeTokenAddress } = await getFeeToken(this.ctx, this.source.config.stateMachineId, this.source)
 
-		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }
+		const signedTransaction = yield {
+			status: "AWAITING_PLACE_ORDER",
+			to,
+			data,
+			value,
+			nativeFee,
+			sessionPrivateKey,
+			feeTokenAmount: executionOrder.fees,
+			feeTokenAddress,
+		}
 
 		const placeOrderSecond = await placeOrderGen.next(signedTransaction as HexString)
 		if (placeOrderSecond.done === false) {
@@ -721,6 +719,60 @@ export class IntentGateway {
 	 */
 	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
 		return this.gasEstimator.estimateFillOrder(params)
+	}
+
+	/**
+	 * Quotes the solver fee for an order using the same policy {@link execute} /
+	 * {@link executeBest} apply when `order.fees` is `0n`.
+	 *
+	 * Use this before placing to display the fee, or to check what the user can
+	 * afford: pay `fees` in the source-chain fee token (check balance and
+	 * allowance, then set `order.fees` and submit with `value: 0`), or leave
+	 * `order.fees` at `0n` and let the SDK attach `nativeValue` to the placement
+	 * transaction (check the native balance).
+	 *
+	 * @param order - The order to quote. `order.fees` is ignored and not mutated.
+	 * @param options - Optional gas-price bump percentages, as in {@link execute}.
+	 * @returns An {@link OrderFeesQuote} with the fee-token amount, the native
+	 *   value for the native rail, and the underlying estimate.
+	 * @throws If gas estimation returns zero.
+	 */
+	async quoteOrderFees(
+		order: Order,
+		options?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number },
+	): Promise<OrderFeesQuote> {
+		const estimate = await this.gasEstimator.estimateFillOrder({
+			order,
+			maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
+			maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
+		})
+
+		if (estimate.totalGasCostWei === 0n || estimate.totalGasInFeeToken === 0n) {
+			throw new Error("Gas estimation failed")
+		}
+
+		const isSameChain = this.source.config.stateMachineId === this.dest.config.stateMachineId
+
+		// Same-chain fills need a larger solver fee margin. Cross-chain orders
+		// attach (fill gas + the settlement relayer fee, the SAME gas budget a
+		// solver's requirement is sized against) with a 5% buffer over the WHOLE
+		// sum: the solver's requirement carries no padding of its own, so the
+		// buffer must cover the relayer component too — a buffer on fill gas
+		// alone is dwarfed whenever the source chain is expensive and the
+		// destination cheap (relayer fee >> fill gas), and every SDK-placed
+		// order would come up short and be refused.
+		const fees = isSameChain
+			? estimate.totalGasInFeeToken * 2n
+			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n) / 100n
+
+		const { address: feeToken } = await this.source.getFeeTokenWithDecimals()
+
+		return {
+			fees,
+			nativeValue: estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n,
+			feeToken,
+			estimate,
+		}
 	}
 
 	/**

@@ -235,7 +235,8 @@ describe("IntentGateway placement fee metadata", () => {
 
 			console.log(`${method} AWAITING_PLACE_ORDER`, {
 				to: result.value.to,
-				value: result.value.value?.toString() ?? "undefined",
+				value: result.value.value.toString(),
+				nativeFee: result.value.nativeFee.toString(),
 				feeTokenAddress: result.value.feeTokenAddress,
 				feeTokenAmount: result.value.feeTokenAmount.toString(),
 				encodedFeeTokenAmount: (decoded.args?.[0] as { fees: bigint }).fees.toString(),
@@ -260,9 +261,9 @@ describe("IntentGateway placement fee metadata", () => {
 		assert.equal(result.value.status, "AWAITING_PLACE_ORDER")
 		if (result.value.status !== "AWAITING_PLACE_ORDER") throw new Error("Expected placement update")
 
-		const nativeValue = result.value.value
-		assert(nativeValue !== undefined, "Expected a native placement value for a zero-fee order")
-		assert(nativeValue > 0n, "Expected a positive native placement value")
+		// value carries only native-token inputs; this order's input is USDC.
+		assert.equal(result.value.value, 0n, "Expected no native input value for an ERC-20 order")
+		assert(result.value.nativeFee > 0n, "Expected a positive native fee for a zero-fee order")
 		assert(result.value.feeTokenAmount > 0n, "Expected a positive estimated fee-token amount")
 
 		const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: result.value.data })
@@ -271,7 +272,8 @@ describe("IntentGateway placement fee metadata", () => {
 
 		console.log("execute native-fee AWAITING_PLACE_ORDER", {
 			to: result.value.to,
-			value: nativeValue.toString(),
+			value: result.value.value.toString(),
+			nativeFee: result.value.nativeFee.toString(),
 			feeTokenAddress: result.value.feeTokenAddress,
 			feeTokenAmount: result.value.feeTokenAmount.toString(),
 			encodedFeeTokenAmount: (decoded.args?.[0] as { fees: bigint }).fees.toString(),

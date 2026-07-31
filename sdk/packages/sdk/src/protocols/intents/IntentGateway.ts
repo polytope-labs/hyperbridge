@@ -49,7 +49,7 @@ import {
 } from "./quote"
 import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
+import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -287,8 +287,12 @@ export class IntentGateway {
 	 *    fee) with a 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. The wei cost used for the `value` field receives
 	 *    a 2% buffer.
-	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, sessionPrivateKey }`.
-	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
+	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, nativeFee, sessionPrivateKey }`.
+	 *    `value` carries only the order's native-token input amounts; `nativeFee`
+	 *    is the native amount that funds `order.fees` (`0n` when the caller set
+	 *    `order.fees`). To pay the fee in native token, sign the transaction with
+	 *    `value + nativeFee`; with a fee-token allowance, `value` alone. Pass the
+	 *    signed transaction back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
 	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
@@ -319,7 +323,7 @@ export class IntentGateway {
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString | SelectBidResult | undefined> {
 		const executionOrder: Order = { ...order }
-		let value: bigint | undefined
+		let nativeFee = 0n
 
 		if (!executionOrder.fees || executionOrder.fees === 0n) {
 			const feesQuote = await this.quoteOrderFees(executionOrder, {
@@ -327,9 +331,16 @@ export class IntentGateway {
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
 			})
 
-			value = feesQuote.nativeValue
+			nativeFee = feesQuote.nativeValue
 			executionOrder.fees = feesQuote.fees
 		}
+
+		// Native inputs cannot be pulled via allowance; they must be part of the
+		// placement transaction's msg.value. The solver fee is reported
+		// separately as nativeFee — callers paying it in native add the two.
+		const value = executionOrder.inputs
+			.filter((input) => bytes32ToBytes20(input.token) === ADDRESS_ZERO)
+			.reduce((sum, input) => sum + input.amount, 0n)
 
 		const placeOrderGen = this.orderPlacer.placeOrder(executionOrder, graffiti)
 		const placeOrderFirst = await placeOrderGen.next()
@@ -338,7 +349,7 @@ export class IntentGateway {
 		}
 		const { to, data, sessionPrivateKey } = placeOrderFirst.value
 
-		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }
+		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, nativeFee, sessionPrivateKey }
 
 		const placeOrderSecond = await placeOrderGen.next(signedTransaction as HexString)
 		if (placeOrderSecond.done === false) {
@@ -740,9 +751,12 @@ export class IntentGateway {
 			? estimate.totalGasInFeeToken * 2n
 			: ((estimate.totalGasInFeeToken + estimate.relayerFeeInSourceFeeToken) * 105n) / 100n
 
+		const { address: feeToken } = await this.source.getFeeTokenWithDecimals()
+
 		return {
 			fees,
 			nativeValue: estimate.totalGasCostWei + (estimate.totalGasCostWei * 2n) / 100n,
+			feeToken,
 			estimate,
 		}
 	}

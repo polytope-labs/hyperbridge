@@ -1349,6 +1349,11 @@ export interface OrderFeesQuote {
 	 * any unused amount.
 	 */
 	nativeValue: bigint
+	/**
+	 * The source-chain fee token `fees` is denominated in — check the user's
+	 * balance and allowance against this address when paying the fee directly.
+	 */
+	feeToken: HexString
 	/** The underlying gas estimate the quote was derived from. */
 	estimate: FillOrderEstimate
 }
@@ -1487,7 +1492,25 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 
 /** Tagged union of all possible status updates yielded by the intent order execution stream */
 export type IntentOrderStatusUpdate =
-	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| {
+			status: "AWAITING_PLACE_ORDER"
+			to: HexString
+			data: HexString
+			/**
+			 * The order's native-token input amounts. Native inputs cannot be
+			 * pulled via allowance, so this must be part of the placement
+			 * transaction's `msg.value`. Does not include the solver fee.
+			 */
+			value: bigint
+			/**
+			 * The native amount that funds `order.fees`: what the gateway swaps
+			 * into the fee token at placement. Add it to `value` when paying the
+			 * fee in native token. `0n` when `order.fees` was set by the caller
+			 * (fee-token rail).
+			 */
+			nativeFee: bigint
+			sessionPrivateKey: HexString
+	  }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "NEW_BID"; commitment: HexString; bid: Bid }

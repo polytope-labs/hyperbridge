@@ -138,10 +138,11 @@ while (true) {
   switch (update.status) {
     case "AWAITING_PLACE_ORDER": {
       // Sign and broadcast the placement transaction, then feed the hash back.
+      // value = native inputs; nativeFee funds order.fees (0n if you set order.fees).
       input = await signer.sendTransaction({
         to: update.to,
         data: update.data,
-        value: update.value,
+        value: update.value + update.nativeFee,
       })
       break
     }
@@ -300,7 +301,7 @@ async *executeBest(
 const gen = gateway.executeBest(order, MY_GRAFFITI, { auctionTimeMs: 15_000 })
 for await (const update of gen) {
   if (update.status === "AWAITING_PLACE_ORDER") {
-    const txHash = await signer.sendTransaction({ to: update.to, data: update.data, value: update.value })
+    const txHash = await signer.sendTransaction({ to: update.to, data: update.data, value: update.value + update.nativeFee })
     await gen.next(txHash) // only the placement step needs feedback
   } else if (update.status === "FILLED") {
     console.log("Order filled!")
@@ -603,7 +604,8 @@ async quoteOrderFees(
 | Field | Type | Description |
 |-------|------|-------------|
 | `fees` | `bigint` | Amount to set as `order.fees`, in the source-chain fee token |
-| `nativeValue` | `bigint` | Native value attached to the placement transaction on the native rail (fill gas cost in source-chain wei + 2% buffer) |
+| `nativeValue` | `bigint` | Native value that funds the fee on the native rail (fill gas cost in source-chain wei + 2% buffer) |
+| `feeToken` | `HexString` | The source-chain fee token `fees` is denominated in — check balance/allowance against this address when paying the fee directly |
 | `estimate` | `FillOrderEstimate` | The underlying gas estimate |
 
 Throws if gas estimation returns zero.
@@ -731,7 +733,7 @@ Tagged union of all status updates yielded by the `execute` generator. Use the `
 
 ```typescript lineNumbers
 type IntentOrderStatusUpdate =
-  | { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+  | { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value: bigint; nativeFee: bigint; sessionPrivateKey: HexString }
   | { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
   | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "NEW_BID"; commitment: HexString; bid: Bid }
@@ -745,7 +747,7 @@ type IntentOrderStatusUpdate =
 
 | Status | Fields | Description |
 |--------|--------|-------------|
-| `AWAITING_PLACE_ORDER` | `to`, `data`, `value?`, `sessionPrivateKey` | Caller must sign and broadcast the placement transaction, then send back the tx hash |
+| `AWAITING_PLACE_ORDER` | `to`, `data`, `value`, `nativeFee`, `sessionPrivateKey` | Caller signs the placement transaction with `value + nativeFee` and sends back the tx hash. `value` is the order's native-token input amounts; `nativeFee` funds `order.fees`, `0n` when the caller set `order.fees` |
 | `ORDER_PLACED` | `order`, `receipt` | Order confirmed on-chain; `receipt` is the full viem `TransactionReceipt` of the placement transaction |
 | `AWAITING_BIDS` | `commitment`, `totalFilledAssets`, `remainingAssets` | Polling the coprocessor for solver bids |
 | `NEW_BID` | `commitment`, `bid` | A previously unseen bid arrived during the auction (informational; one [`Bid`](#bid)) |

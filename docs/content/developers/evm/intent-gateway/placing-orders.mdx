@@ -20,7 +20,7 @@ You need:
 
 - An RPC URL for the source chain, and one for the destination chain if this is cross-chain.
 - An ERC-4337 bundler URL for the destination chain. This is required in both modes because solvers submit fills as UserOperations.
-- A source-chain wallet with the USDC input amount and enough native token for transaction gas and the SDK's automatically quoted solver fee.
+- A source-chain wallet with the USDC input amount and enough native token for transaction gas and the quoted solver fee.
 - A Hyperbridge-supported source and destination chain. `EvmChain.create()` rejects an RPC for a chain without a known Hyperbridge deployment.
 
 Install the SDK and viem:
@@ -218,7 +218,7 @@ const order: Order = {
   // This is always a DESTINATION-chain block number.
   deadline: (await destChain.client.getBlockNumber()) + 200n,
   nonce: 0n,
-  // Leave at 0n: executeBest() quotes and sets the solver fee automatically.
+  // We'll set this in the fees step below.
   fees: 0n,
   session: zeroAddress,
   predispatch: { assets: [], call: "0x" },
@@ -254,7 +254,7 @@ const approvalHash = await walletClient.writeContract({
 await sourceChain.client.waitForTransactionReceipt({ hash: approvalHash })
 ```
 
-If your input is the native token rather than an ERC-20, do not approve it. Include the input amount in the placement transaction's `value` in addition to any fee value supplied by the SDK; this guide intentionally uses USDC to keep the two payments unambiguous.
+If your input is the native token rather than an ERC-20, do not approve it. The `AWAITING_PLACE_ORDER` update reports native input amounts as `value` — the placement transaction carries that plus any native fee payment.
 
 </Step>
 <Step>
@@ -263,35 +263,34 @@ If your input is the native token rather than an ERC-20, do not approve it. Incl
 
 `order.fees` is the gas cost the solver spends on filling the order, denominated in the source chain's Hyperbridge fee token. For a cross-chain order it also covers the relayer that delivers the `RedeemEscrow` settlement message back to the source chain. It is not the protocol fee and it is not your wallet's transaction gas.
 
-**You do not need to compute or set it yourself.** With `fees: 0n`, `executeBest()` quotes it, writes it into the `placeOrder` calldata, and attaches the native `value` the gateway swaps for the fee token through its configured router (unused native is refunded). This step only decides how that fee gets paid, and lets you check the user can afford it before they sign.
+Quote it with `quoteOrderFees()` and set it on the order:
 
-#### Default: pay in the native token
-
-Leave `fees: 0n` and do nothing — the SDK handles it. To display the fee or pre-check the user's balance, quote it yourself with `quoteOrderFees()`:
-
-```typescript title="fees-native.ts" lineNumbers
-// The native value executeBest() will attach to the placement transaction.
-const { nativeValue } = await gateway.quoteOrderFees(order)
-
-const balance = await sourceChain.client.getBalance({ address: account.address })
-if (balance < nativeValue) throw new Error("Insufficient native balance for the solver fee")
+```typescript title="quote-order-fees.ts" lineNumbers
+const { fees, nativeValue, feeToken } = await gateway.quoteOrderFees(order)
+order.fees = fees
 ```
 
-The wallet still pays normal transaction gas for the approval and placement transactions on top of this value.
+Then pick how it gets paid and confirm the wallet can cover it.
 
-#### Alternative: pay in the fee token
+#### Native token
 
-Use this when the wallet already holds the fee token or you are batching exact approvals from a smart account. The SDK cannot pull an ERC-20 without an allowance, so this rail is manual: get the fee from `quoteOrderFees()`, check the user's fee-token balance and allowance, then set `order.fees`:
+The placement transaction carries `nativeValue` extra wei, which the gateway swaps into the fee token through its configured router (unused native is refunded). Check the balance now; the placement step adds `nativeValue` to the transaction:
 
-```typescript title="fees-fee-token.ts" lineNumbers
+```typescript title="check-native-fee.ts" lineNumbers
+const nativeBalance = await sourceChain.client.getBalance({ address: account.address })
+if (nativeBalance < nativeValue) throw new Error("Insufficient native balance for the solver fee")
+```
+
+The wallet still pays normal transaction gas on top of this value.
+
+#### Fee token
+
+Approve the gateway for exactly `fees` of `feeToken` — it pulls the fee via the allowance at placement, and nothing extra rides on the transaction's value:
+
+```typescript title="check-fee-token.ts" lineNumbers
 import { erc20Abi } from "viem"
 
-// The same fee executeBest() computes when order.fees is 0n.
-const { fees } = await gateway.quoteOrderFees(order)
-
-const { address: feeToken } = await sourceChain.getFeeTokenWithDecimals()
-
-const [balance, allowance] = await Promise.all([
+const [feeBalance, feeAllowance] = await Promise.all([
   sourceChain.client.readContract({
     address: feeToken,
     abi: erc20Abi,
@@ -305,9 +304,9 @@ const [balance, allowance] = await Promise.all([
     args: [account.address, sourceGateway],
   }),
 ])
-if (balance < fees) throw new Error("Insufficient fee token balance")
+if (feeBalance < fees) throw new Error("Insufficient fee token balance")
 
-if (allowance < fees) {
+if (feeAllowance < fees) {
   const hash = await walletClient.writeContract({
     address: feeToken,
     abi: erc20Abi,
@@ -316,11 +315,9 @@ if (allowance < fees) {
   })
   await sourceChain.client.waitForTransactionReceipt({ hash })
 }
-
-order.fees = fees
 ```
 
-Because `order.fees` is now non-zero, `executeBest()` skips its own estimation and attaches no native value — the gateway transfers exactly `order.fees` of the approved fee token at placement. If the order is cancelled before a full fill, that amount is refunded with the remaining escrow; if the order fills, it is released to the solver.
+If the order is cancelled before a full fill, `order.fees` is refunded with the remaining escrow; if it fills, it is released to the solver.
 
 <Callout type="info">
 You may set `order.fees` higher than this policy to make the order more attractive to solvers. A smaller fee can leave the order with no viable bids; the SDK cannot guarantee a fill at any fee level.
@@ -331,7 +328,7 @@ You may set `order.fees` higher than this policy to make the order more attracti
 
 ### Place the order and let the SDK execute it
 
-`executeBest()` is a bidirectional async generator. Its first update contains the exact `placeOrder` calldata and, on the native rail, the fee value to attach. Sign that transaction, return the signed transaction to the generator, then process the remaining updates.
+`executeBest()` is a bidirectional async generator. Its first update contains the exact `placeOrder` calldata and the order's native-token input amounts as `value` (`0n` for this USDC order). Add the `nativeValue` from your fee quote when paying the solver fee in native token, then sign and return the signed transaction to the generator.
 
 ```typescript title="place-and-execute.ts" lineNumbers
 import { IntentOrderStatus } from "@hyperbridge/sdk"
@@ -345,12 +342,16 @@ const first = await run.next()
 if (first.done || first.value.status !== IntentOrderStatus.AWAITING_PLACE_ORDER) {
   throw new Error("Expected placement transaction")
 }
+const { to, data, value } = first.value
+
+// Paying the fee in native token: add nativeValue from quoteOrderFees.
+// Paying with the fee-token approval: txValue is just value.
+const txValue = value + nativeValue
 
 const signedPlacementTx = await walletClient.signTransaction({
-  to: first.value.to,
-  data: first.value.data,
-  // Native rail: the SDK supplies the fee value. Fee-token rail: value is undefined.
-  value: first.value.value ?? 0n,
+  to,
+  data,
+  value: txValue,
   type: "eip1559",
 })
 
@@ -428,7 +429,8 @@ const exactInputApproval = {
 
 const placementCall = {
   to: first.value.to,
-  value: first.value.value ?? 0n,
+  // Native inputs; the batched fee-token approval covers order.fees.
+  value: first.value.value,
   data: first.value.data,
 }
 
@@ -470,7 +472,7 @@ Some ERC-20s require an allowance to be reset to zero before changing a non-zero
 
 ## What you pay
 
-The placement transaction has four distinct costs. The SDK handles the third automatically on the native rail.
+The placement transaction has four distinct costs.
 
 | Cost | Paid by | How it is handled |
 | --- | --- | --- |
@@ -482,7 +484,7 @@ The placement transaction has four distinct costs. The SDK handles the third aut
 Do not manually add the protocol fee to `order.fees`: they are different charges. `order.fees` pays the solver and, cross-chain, the settlement relayer; the protocol fee is deducted from the input before the order commitment is created.
 
 <Callout type="warn">
-The `value` returned in `AWAITING_PLACE_ORDER` is part of the placement transaction. Do not replace it with `0n`: it funds the SDK's automatic conversion to the fee token. If you set a non-zero `order.fees` yourself instead, approve the source-chain fee token to the gateway and submit with `value: 0n` — `first.value.value ?? 0n` handles both rails.
+The placement transaction's `msg.value` is the `value` from `AWAITING_PLACE_ORDER` — the order's native-token input amounts — plus the quoted `nativeValue` when paying the solver fee in native token. Never zero out `value`.
 </Callout>
 
 ## Completion and recovery

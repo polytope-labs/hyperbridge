@@ -1510,6 +1510,10 @@ export type IntentOrderStatusUpdate =
 			 */
 			nativeFee: bigint
 			sessionPrivateKey: HexString
+			/** Exact source-chain fee-token amount encoded in `data`. */
+			feeTokenAmount: bigint
+			/** Source-chain ERC-20 token charged for `feeTokenAmount`. */
+			feeTokenAddress: HexString
 	  }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }

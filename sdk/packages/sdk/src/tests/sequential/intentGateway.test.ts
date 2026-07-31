@@ -1,10 +1,12 @@
 import "log-timestamp"
 
 import { strict as assert } from "node:assert"
-import type { PublicClient } from "viem"
+import { decodeFunctionData, type PublicClient } from "viem"
+import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { AvailableLiquiditySnapshot, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
 import {
 	deductProtocolFee,
@@ -176,6 +178,104 @@ describe("Intent quote helper", () => {
 		if (bscUsdtQuote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
 		assert.equal(bscUsdtQuote.quoteMetadata.tokenA, configService.getUsdcAsset(BASE_CHAIN))
 		assert.equal(bscUsdtQuote.quoteMetadata.tokenB.toLowerCase(), cNgnAddress.toLowerCase())
+	}, 120_000)
+})
+
+describe("IntentGateway placement fee metadata", () => {
+	it("exposes the source fee token and exact encoded fee from execute and executeBest", async () => {
+		const configService = new ChainConfigService()
+		const baseChain = makeEvmChain(CHAINS.base, configService)
+		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+		const feeToken = await baseChain.getFeeTokenWithDecimals()
+		const order = buildOrder(
+			CHAINS.base.id,
+			CHAINS.base.id,
+			configService.getUsdcAsset(CHAINS.base.id),
+			configService.getExtAsset(CHAINS.base.id)!,
+			1_000_000n,
+		)
+		order.fees = 1n
+
+		console.log("IntentGateway placement fee metadata test", {
+			sourceChain: CHAINS.base.id,
+			gateway: configService.getIntentGatewayAddress(CHAINS.base.id),
+			feeToken: feeToken.address,
+			inputToken: configService.getUsdcAsset(CHAINS.base.id),
+			outputToken: configService.getExtAsset(CHAINS.base.id),
+			orderFee: order.fees.toString(),
+		})
+
+		for (const { method, generator } of [
+			{
+				method: "execute",
+				generator: intentGateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 1 }),
+			},
+			{
+				method: "executeBest",
+				generator: intentGateway.executeBest(order, DEFAULT_GRAFFITI, { auctionTimeMs: 1 }),
+			},
+		]) {
+			const result = await generator.next()
+			assert(!result.done, "Expected the first update to prepare placement")
+			assert.equal(result.value.status, "AWAITING_PLACE_ORDER")
+			if (result.value.status !== "AWAITING_PLACE_ORDER") throw new Error("Expected placement update")
+
+			assert.equal(
+				result.value.to.toLowerCase(),
+				configService.getIntentGatewayAddress(CHAINS.base.id).toLowerCase(),
+			)
+			assert.equal(result.value.feeTokenAddress.toLowerCase(), feeToken.address.toLowerCase())
+			assert.equal(result.value.feeTokenAmount, order.fees)
+			assert("value" in result.value)
+			assert.match(result.value.sessionPrivateKey, /^0x[\da-f]{64}$/i)
+
+			const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: result.value.data })
+			assert.equal(decoded.functionName, "placeOrder")
+			assert.equal((decoded.args?.[0] as { fees: bigint }).fees, result.value.feeTokenAmount)
+
+			console.log(`${method} AWAITING_PLACE_ORDER`, {
+				to: result.value.to,
+				value: result.value.value?.toString() ?? "undefined",
+				feeTokenAddress: result.value.feeTokenAddress,
+				feeTokenAmount: result.value.feeTokenAmount.toString(),
+				encodedFeeTokenAmount: (decoded.args?.[0] as { fees: bigint }).fees.toString(),
+			})
+		}
+	}, 120_000)
+
+	it("includes native value when execute estimates a zero-fee order", async () => {
+		const configService = new ChainConfigService()
+		const baseChain = makeEvmChain(CHAINS.base, configService)
+		const intentGateway = await IntentGateway.create(baseChain, baseChain)
+		const order = buildOrder(
+			CHAINS.base.id,
+			CHAINS.base.id,
+			configService.getUsdcAsset(CHAINS.base.id),
+			configService.getExtAsset(CHAINS.base.id)!,
+			1_000_000n,
+		)
+
+		const result = await intentGateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 1 }).next()
+		assert(!result.done, "Expected the first update to prepare placement")
+		assert.equal(result.value.status, "AWAITING_PLACE_ORDER")
+		if (result.value.status !== "AWAITING_PLACE_ORDER") throw new Error("Expected placement update")
+
+		const nativeValue = result.value.value
+		assert(nativeValue !== undefined, "Expected a native placement value for a zero-fee order")
+		assert(nativeValue > 0n, "Expected a positive native placement value")
+		assert(result.value.feeTokenAmount > 0n, "Expected a positive estimated fee-token amount")
+
+		const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: result.value.data })
+		assert.equal(decoded.functionName, "placeOrder")
+		assert.equal((decoded.args?.[0] as { fees: bigint }).fees, result.value.feeTokenAmount)
+
+		console.log("execute native-fee AWAITING_PLACE_ORDER", {
+			to: result.value.to,
+			value: nativeValue.toString(),
+			feeTokenAddress: result.value.feeTokenAddress,
+			feeTokenAmount: result.value.feeTokenAmount.toString(),
+			encodedFeeTokenAmount: (decoded.args?.[0] as { fees: bigint }).fees.toString(),
+		})
 	}, 120_000)
 })
 

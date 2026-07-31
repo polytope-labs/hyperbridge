@@ -1,5 +1,6 @@
 mod child_trie_proof_check;
 mod pallet_bandwidth;
+mod pallet_beefy_consensus_proofs;
 mod pallet_call_decompressor;
 mod pallet_fishermen;
 mod pallet_ismp;

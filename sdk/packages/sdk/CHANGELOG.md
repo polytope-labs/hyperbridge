@@ -5,8 +5,13 @@
 ### Minor Changes
 
 - `IntentGateway.quoteOrderFees(order, options?)`: public quote for the solver fee, using the same policy `execute()`/`executeBest()` apply when `order.fees` is `0n`. Returns `{ fees, nativeValue, feeToken, estimate }` (`OrderFeesQuote` is exported) so integrators can check a user's fee-token balance and allowance, or native balance, before placing — instead of re-implementing the fee formula from `estimateFillOrder` components. `execute()` now derives its automatic fee from the same method.
-- `AWAITING_PLACE_ORDER` now separates the placement transaction's native components: `value` carries the order's native-token input amounts (previously it carried the auto-quoted fee), and the new `nativeFee` field carries the native amount that funds `order.fees` (`0n` when the caller set `order.fees`). Sign with `value + nativeFee` to pay the fee in native token — the sum is also correct on the fee-token rail.
+- `AWAITING_PLACE_ORDER` now separates the placement transaction's native components: `value` carries the order's native-token input amounts (previously it carried the auto-quoted fee), and the new `nativeFee` field carries the native amount that funds `order.fees` (`0n` when the caller set `order.fees`). Sign with `value + nativeFee` to pay the fee in native token — the sum is also correct on the fee-token rail. The update also carries `feeTokenAmount`/`feeTokenAddress`: the exact fee encoded in the calldata and the source-chain token it is charged in.
 - Cross-chain cancellation relayer fees (source and destination routes) are now sized from an 800k source-chain gas budget, up from 400k, so refund deliveries clear on expensive source chains. Same-chain cancellations remain free of relayer fees.
+## 2.6.2
+
+### Patch Changes
+
+- Mandatory (rotation) BEEFY proofs are read from their own offchain namespace, keyed by the authority set the proof rotated to rather than by parachain height. A rotation that finalizes a head an earlier messaging proof already covered no longer resolves to the wrong blob. The rotation walk now starts at the destination's current authority set id + 1 (it previously started two epochs low), and a proven height produced by a rotation is resolved through the rotation index instead of returning no proof. Proofs written under the previous shared key are still readable via a legacy fallback, so this requires no coordinated upgrade.
 
 ## 2.6.1
 

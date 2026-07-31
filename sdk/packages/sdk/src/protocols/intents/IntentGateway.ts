@@ -50,6 +50,7 @@ import {
 import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
+import { getFeeToken } from "./utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -287,12 +288,15 @@ export class IntentGateway {
 	 *    fee) with a 5% buffer over the whole sum — strictly above the solver's
 	 *    unpadded requirement. The wei cost used for the `value` field receives
 	 *    a 2% buffer.
-	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, nativeFee, sessionPrivateKey }`.
-	 *    `value` carries only the order's native-token input amounts; `nativeFee`
-	 *    is the native amount that funds `order.fees` (`0n` when the caller set
-	 *    `order.fees`). To pay the fee in native token, sign the transaction with
-	 *    `value + nativeFee`; with a fee-token allowance, `value` alone. Pass the
-	 *    signed transaction back via `gen.next(signedTx)`.
+	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, nativeFee,
+	 *    feeTokenAmount, feeTokenAddress, sessionPrivateKey }`. `value` carries
+	 *    only the order's native-token input amounts; `nativeFee` is the native
+	 *    amount that funds `order.fees` (`0n` when the caller set `order.fees`);
+	 *    `feeTokenAmount`/`feeTokenAddress` are the exact fee encoded in `data`
+	 *    and the source-chain token it is charged in. To pay the fee in native
+	 *    token, sign the transaction with `value + nativeFee`; with a fee-token
+	 *    allowance, `value` alone. Pass the signed transaction back via
+	 *    `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
 	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
@@ -348,8 +352,18 @@ export class IntentGateway {
 			throw new Error("placeOrder generator completed without yielding")
 		}
 		const { to, data, sessionPrivateKey } = placeOrderFirst.value
+		const { address: feeTokenAddress } = await getFeeToken(this.ctx, this.source.config.stateMachineId, this.source)
 
-		const signedTransaction = yield { status: "AWAITING_PLACE_ORDER", to, data, value, nativeFee, sessionPrivateKey }
+		const signedTransaction = yield {
+			status: "AWAITING_PLACE_ORDER",
+			to,
+			data,
+			value,
+			nativeFee,
+			sessionPrivateKey,
+			feeTokenAmount: executionOrder.fees,
+			feeTokenAddress,
+		}
 
 		const placeOrderSecond = await placeOrderGen.next(signedTransaction as HexString)
 		if (placeOrderSecond.done === false) {

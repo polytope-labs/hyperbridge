@@ -39,6 +39,7 @@ members = [
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
     "modules/ismp/clients/tendermint",
+    "modules/ismp/clients/tempo",
     "modules/ismp/clients/beefy",
     "modules/pallets/collator-manager",
 
@@ -59,6 +60,7 @@ members = [
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
+    "modules/consensus/tempo/verifier",
     "modules/consensus/pharos/primitives",
     "modules/consensus/pharos/verifier",
     "modules/consensus/pharos/prover",
@@ -122,6 +124,7 @@ members = [
     "tesseract/consensus/admin-relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
+    "tesseract/consensus/tempo",
     "tesseract/consensus/pharos",
     "tesseract/consensus/parachain",
     "tesseract/consensus/config",
@@ -235,6 +238,8 @@ k256 = { version = "0.13.3", default-features = false, features = ["ecdsa"] }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
+ark-ff = { version = "0.4.2", default-features = false }
+ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 
 # tendermint/cometbft
@@ -289,6 +294,7 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
+tempo-verifier = { path = "./modules/consensus/tempo/verifier", default-features = false }
 pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
 pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
 pharos-prover = { path = "./modules/consensus/pharos/prover", default-features = false }
@@ -303,6 +309,7 @@ ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features 
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
 ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features = false }
+ismp-tempo = { path = "modules/ismp/clients/tempo", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -362,6 +369,7 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+tesseract-tempo = { path = "tesseract/consensus/tempo" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
 tesseract-parachain = { path = "tesseract/consensus/parachain" }
 tesseract-consensus-config = { path = "tesseract/consensus/config" }

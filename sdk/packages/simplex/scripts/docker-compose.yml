@@ -2,11 +2,9 @@
 # The simplex image is a multi-arch manifest, so amd64 and arm64 hosts both pull a native
 # image. Nothing here uses host networking, which Docker Desktop does not provide.
 #
-# Generate the config into the data volume first (the terminal wizard, which works in a
-# container; the browser wizard refuses to bind anything but loopback because it handles
-# private keys, so it cannot be published out of one):
-#
-#   docker compose -f scripts/docker-compose.yml run --rm -it simplex init -o /data/filler-config.toml
+# With no config in the volume, the simplex service serves the setup wizard at
+# http://localhost:8686 and starts filling once it is saved. `run --rm -it simplex init -o
+# /data/filler-config.toml` is the same flow in the terminal.
 services:
     simplex:
         image: polytopelabs/simplex:latest
@@ -15,13 +13,12 @@ services:
             dockerfile: packages/simplex/scripts/Dockerfile
         container_name: hyperbridge-simplex
         restart: unless-stopped
-        # Explicit config path: the default command would otherwise fall through to the
-        # browser wizard, which cannot run with a published UI port.
-        command: ["run", "-c", "/data/filler-config.toml", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
+        # No command override: the image's default discovers /data/filler-config.toml and
+        # falls back to the setup wizard when there isn't one yet.
         ports:
-            # Loopback-only publishing: the UI is unauthenticated, so it stays on this
-            # machine. Drop the 127.0.0.1 prefix only on a trusted network.
-            - "127.0.0.1:${SIMPLEX_UI_PORT:-8686}:8686" # operator web UI
+            # Loopback-only publishing: the UI is unauthenticated and the wizard handles
+            # private keys, so it stays on this machine.
+            - "127.0.0.1:${SIMPLEX_UI_PORT:-8686}:8686" # web UI / setup wizard
             - "127.0.0.1:${SIMPLEX_METRICS_PORT:-9090}:9090" # prometheus metrics
         volumes:
             # Holds filler-config.toml, the bids database and runtime state. A named volume

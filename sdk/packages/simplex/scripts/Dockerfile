@@ -92,8 +92,9 @@ WORKDIR /data
 # published ports are the only route in. The ports stay private until published with -p.
 # Carry both flags over if you override this command.
 #
-# Generate the config with the terminal wizard — the browser wizard handles private keys and
-# refuses any non-loopback bind, so it cannot be published out of a container:
+# With no /data/filler-config.toml this serves the browser setup wizard on 8686 and starts
+# the filler once it is saved; with one, it runs the filler directly. `init` is the same
+# flow in the terminal, for headless hosts:
 #   docker run --rm -it -v simplex-data:/data <image> init -o /data/filler-config.toml
 ENTRYPOINT ["node", "/app/packages/simplex/dist/bin/simplex.js"]
 CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]

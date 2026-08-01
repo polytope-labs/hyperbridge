@@ -38,14 +38,14 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 
 ### Ports and volumes
 
-The container publishes nothing by itself. `8686` is the operator web UI and `9090` the
-Prometheus metrics endpoint; both bind `0.0.0.0` inside the container so `-p` can reach them,
-since Docker Desktop on macOS and Windows has no host networking. `/data` holds
-`filler-config.toml`, the bids database and runtime state; mount a volume there to keep it
-across container replacement.
+The container publishes nothing by itself. `8686` is the web UI (and setup wizard) and `9090`
+the Prometheus metrics endpoint; both bind `0.0.0.0` inside the container so `-p` can reach
+them, since Docker Desktop on macOS and Windows has no host networking. Publish them to
+`127.0.0.1` — they are unauthenticated. `/data` holds `filler-config.toml`, the bids database
+and runtime state; mount a volume there to keep it across container replacement.
 
-Set up with the terminal wizard — the browser wizard refuses any non-loopback bind (it
-handles private keys), so it cannot be published out of a container:
+With no config in `/data` the container serves the setup wizard on 8686. For a headless host,
+the terminal wizard writes the same file:
 
 ```bash
 docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml

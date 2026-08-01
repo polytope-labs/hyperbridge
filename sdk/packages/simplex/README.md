@@ -24,33 +24,28 @@ With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `
 so Linux, macOS (Intel and Apple Silicon) and Windows hosts each pull a natively-built
 image. The same commands run in bash and in PowerShell.
 
-Set up with the terminal wizard, writing the config into a named volume:
-
 ```bash
 docker volume create simplex-data
-docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml
-```
-
-Then run the filler, publishing the operator UI and metrics:
-
-```bash
 docker run -d --name simplex --restart unless-stopped \
     -p 127.0.0.1:8686:8686 \
     -p 127.0.0.1:9090:9090 \
     -v simplex-data:/data \
-    polytopelabs/simplex:latest \
-    run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
+    polytopelabs/simplex:latest
 ```
 
-The UI is then at `http://localhost:8686`. Mounting a config you already have —
-`-v /path/to/filler-config.toml:/data/filler-config.toml:ro` — skips the wizard entirely.
+With no config in the volume this serves the setup wizard at `http://localhost:8686`, writes
+`filler-config.toml` into `/data` and starts the filler in the same process; later restarts
+find that config and run directly. Two alternatives to the browser wizard: mount a config
+you already have (`-v /path/to/filler-config.toml:/data/filler-config.toml:ro`), or run the
+terminal wizard with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest
+init -o /data/filler-config.toml`.
 
-Use `init` rather than the browser wizard in a container: the browser wizard handles private
-keys and refuses to bind anything but loopback, so it cannot be reached through a published
-port. The filler's UI and metrics servers do bind `0.0.0.0` above, because a container-local
-loopback bind is unreachable from the host and Docker Desktop on macOS and Windows has no
-`--network host` to fall back on. Those ports stay private until published, so keep the
-`127.0.0.1:` prefix unless the machine is on a trusted network.
+The container's default command binds the UI and metrics servers to `0.0.0.0` — a
+container-local loopback bind is unreachable from the host, and Docker Desktop on macOS and
+Windows has no `--network host` to fall back on. The container's network namespace is the
+boundary there, so the ports stay private until published: keep the `127.0.0.1:` prefix
+above, particularly while the wizard is up, since it collects private keys. If you override
+the command, carry `--ui 0.0.0.0:8686 -p 0.0.0.0:9090` over with it.
 
 `scripts/docker-compose.yml` brings the same up alongside Prometheus and Grafana.
 

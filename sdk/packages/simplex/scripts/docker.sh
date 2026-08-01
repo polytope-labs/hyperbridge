@@ -75,8 +75,7 @@ case "$COMMAND" in
         ;;
 
     init)
-        # The terminal wizard, not the browser one: the latter only binds loopback (it
-        # handles private keys), so it can never be reached through a published port.
+        # The terminal wizard. `$0 up` with an empty volume serves the browser one instead.
         echo -e "${YELLOW}Starting the setup wizard...${NC}"
         docker volume create simplex-data > /dev/null
         docker run --rm -it -v simplex-data:/data "$IMAGE" init -o /data/filler-config.toml
@@ -132,8 +131,8 @@ case "$COMMAND" in
     up)
         echo -e "${YELLOW}Starting with Docker Compose...${NC}"
 
-        # The compose service expects /data/filler-config.toml — in the simplex-data volume
-        # (see `$0 init`) or bind-mounted over it.
+        # With no /data/filler-config.toml in the volume, the service comes up in the setup
+        # wizard on the published UI port.
         compose -f "$COMPOSE_FILE" up -d
         echo -e "${GREEN}✓ Services started!${NC}"
         echo "  Web UI:      http://localhost:$UI_PORT"

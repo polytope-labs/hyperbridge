@@ -18,23 +18,20 @@ docker pull polytopelabs/simplex:latest
 docker run --rm -it polytopelabs/simplex:latest --help
 ```
 
-Set up with the terminal wizard, writing the config into a named volume, then run the filler against it:
+Starting with no config puts the container into the setup wizard. Publish the UI port and give it a volume to write the generated config into:
 
 ```bash lineNumbers
 docker volume create simplex-data
-docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml
-
 docker run -d --name simplex --restart unless-stopped \
     -p 127.0.0.1:8686:8686 \
     -p 127.0.0.1:9090:9090 \
     -v simplex-data:/data \
-    polytopelabs/simplex:latest \
-    run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
+    polytopelabs/simplex:latest
 ```
 
-The operator UI is then at `http://localhost:8686`. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard.
+Then open `http://localhost:8686`. The wizard writes `filler-config.toml` into `/data` and transitions straight into running the filler; on restart the container finds that config and runs directly. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard, or run it in the terminal instead with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
 
-Both commands work verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put each on one line). Use `init` rather than the browser wizard inside a container: the browser wizard handles private keys and refuses to bind anything but loopback, so it cannot be reached through a published port. The filler's UI and metrics servers do bind `0.0.0.0`, since a container-local loopback bind is unreachable from the host and Docker Desktop on macOS and Windows runs the daemon in a VM with no `--network host`. Keep the `127.0.0.1:` prefix on the published ports — the UI is unauthenticated.
+The command works verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put it on one line). Ports have to be published — the container binds `0.0.0.0` internally because Docker Desktop on macOS and Windows runs the daemon inside a VM and offers no `--network host`. The container's network namespace is the boundary there, so keep the `127.0.0.1:` prefix on the published ports: the UI is unauthenticated, and the wizard handles private keys.
 
 ## Markets
 

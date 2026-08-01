@@ -475,10 +475,9 @@ export class IntentFiller {
 					return
 				}
 
-				// Guard against phantom commitments: the off-chain order reconstruction
-				// can mis-pair OrderPlaced logs with placeOrder calldata when a single tx
-				// contains multiple placeOrder calls, yielding a commitment that has no
-				// matching escrow on source. Reject those before bidding/filling.
+				// Guard against phantom commitments: a decode bug or malformed event
+				// would yield a commitment that has no matching escrow on source.
+				// Reject those before bidding/filling.
 				if (!(await this.verifyOrderOnSource(order))) {
 					return
 				}

@@ -15,8 +15,9 @@ import { transformOrderForContract } from "./utils"
  * `OrderPlaced` event.
  *
  * The gateway stamps or normalises every field emitted by the event before it
- * hashes the order. The two call-data fields are not emitted, so they must be
- * retained from the submitted order.
+ * hashes the order. The two call-data fields are read from the event when
+ * present; logs emitted under the pre-#1092 schema omit them, so they fall
+ * back to the submitted order.
  */
 export function deriveCanonicalPlacedOrder(
 	order: Order,
@@ -33,13 +34,13 @@ export function deriveCanonicalPlacedOrder(
 		session: args.session,
 		predispatch: {
 			assets: args.predispatch.map((asset) => ({ ...asset })),
-			call: order.predispatch.call,
+			call: args.predispatchCall ?? order.predispatch.call,
 		},
 		inputs: args.inputs.map((asset) => ({ ...asset })),
 		output: {
 			beneficiary: args.beneficiary,
 			assets: args.outputs.map((asset) => ({ ...asset })),
-			call: order.output.call,
+			call: args.outputCall ?? order.output.call,
 		},
 	}
 

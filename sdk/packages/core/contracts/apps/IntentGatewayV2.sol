@@ -244,6 +244,9 @@ interface IIntentGatewayV2 {
      * @param predispatch The predispatch assets for the order
      * @param inputs The tokens that are escrowed for the filler (amounts reflect values after protocol fee deduction)
      * @param outputs The tokens that the filler will provide
+     * @param predispatchCall The calldata executed via the CallDispatcher before escrow
+     * @param outputCall The calldata executed on the destination chain during the fill
+     * @param graffiti The attribution tag supplied by the order placer
      */
     event OrderPlaced(
         bytes32 user,
@@ -256,7 +259,10 @@ interface IIntentGatewayV2 {
         bytes32 beneficiary,
         TokenInfo[] predispatch,
         TokenInfo[] inputs,
-        TokenInfo[] outputs
+        TokenInfo[] outputs,
+        bytes predispatchCall,
+        bytes outputCall,
+        bytes32 graffiti
     );
 
     /**

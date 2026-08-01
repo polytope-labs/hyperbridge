@@ -51,7 +51,7 @@ dataSources:
           handler: handleOrderPlacedEventV3
           filter:
             topics:
-              - 'OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
+              - 'OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)'
         - kind: ethereum/LogHandler
           handler: handleOrderFilledEventV3
           filter:
@@ -82,6 +82,26 @@ dataSources:
           filter:
             topics:
               - 'DustSwept(address,uint256,address)'
+  # Pre-#1092 OrderPlaced schema (no call payloads/graffiti) — kept as its own
+  # datasource so historical blocks emitted by older gateway deployments still
+  # decode and index. The handler falls back to trace-based calldata recovery
+  # for these logs.
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: intentGatewayV3Legacy
+      address: '{{config.contracts.intentGatewayV3}}'
+    assets:
+      intentGatewayV3Legacy:
+        file: ./abis/IntentGatewayV3Legacy.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEventV3
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
   {{/if}}
   {{#each yieldVaults}}
   - kind: ethereum/Runtime

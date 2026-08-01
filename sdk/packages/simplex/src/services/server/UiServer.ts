@@ -15,7 +15,7 @@ import type { ActivityLogService, ActivityEvent } from "../ActivityLogService"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BidStorageService } from "../BidStorageService"
 import { configureLogger, getLogger, type LogLevel } from "../Logger"
-import { readBody, sendJson, isLoopbackHost, hostHeaderAllowed } from "./http-util"
+import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import { handleSetupRequest, maskToml, validateToken, type SetupDeps } from "./setup-api"
 import {
@@ -190,8 +190,16 @@ export class UiServer {
 	/** Resolves with the bound port once listening (pass port 0 for an ephemeral port). */
 	start(port: number, host = "127.0.0.1"): Promise<number> {
 		if (this.mode === "init" && !isLoopbackHost(host)) {
-			return Promise.reject(
-				new Error(`The setup wizard carries secrets and only binds loopback addresses, not ${host}`),
+			// Outside a container the host's interfaces are the real ones, and the wizard
+			// collects private keys — the bind is refused. Inside one, see isContainerized().
+			if (!isContainerized()) {
+				return Promise.reject(
+					new Error(`The setup wizard carries secrets and only binds loopback addresses, not ${host}`),
+				)
+			}
+			this.logger.warn(
+				{ host },
+				"Setup wizard bound a non-loopback address inside a container — it collects private keys, so publish its port to 127.0.0.1 only",
 			)
 		}
 		if (this.mode === "operator" && !isLoopbackHost(host)) {

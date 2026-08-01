@@ -18,6 +18,42 @@ starts the filler in the same process. `simplex init` is the equivalent terminal
 With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `-c <path>`),
 `simplex` runs the filler directly.
 
+## Docker
+
+`polytopelabs/simplex` is published as a multi-arch manifest (`linux/amd64` + `linux/arm64`),
+so Linux, macOS (Intel and Apple Silicon) and Windows hosts each pull a natively-built
+image. The same commands run in bash and in PowerShell.
+
+Set up with the terminal wizard, writing the config into a named volume:
+
+```bash
+docker volume create simplex-data
+docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml
+```
+
+Then run the filler, publishing the operator UI and metrics:
+
+```bash
+docker run -d --name simplex --restart unless-stopped \
+    -p 127.0.0.1:8686:8686 \
+    -p 127.0.0.1:9090:9090 \
+    -v simplex-data:/data \
+    polytopelabs/simplex:latest \
+    run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
+```
+
+The UI is then at `http://localhost:8686`. Mounting a config you already have —
+`-v /path/to/filler-config.toml:/data/filler-config.toml:ro` — skips the wizard entirely.
+
+Use `init` rather than the browser wizard in a container: the browser wizard handles private
+keys and refuses to bind anything but loopback, so it cannot be reached through a published
+port. The filler's UI and metrics servers do bind `0.0.0.0` above, because a container-local
+loopback bind is unreachable from the host and Docker Desktop on macOS and Windows has no
+`--network host` to fall back on. Those ports stay private until published, so keep the
+`127.0.0.1:` prefix unless the machine is on a trusted network.
+
+`scripts/docker-compose.yml` brings the same up alongside Prometheus and Grafana.
+
 ## Web UI
 
 The filler serves a local web UI at `127.0.0.1:8686` by default:
@@ -50,8 +86,9 @@ Curve changes apply immediately and are written back to the config file (regener
 with standard comments) so restarts keep them. Venue-priced strategies and disabled
 sides (one-sided LP) are not editable. The
 server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
-hygiene), and the setup wizard only ever binds loopback. Only bind another interface
-(e.g. `--ui 0.0.0.0:8686` in docker) on a trusted network.
+hygiene), and both the wizard and the operator UI bind loopback unless told otherwise. Only
+bind another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own
+network namespace) on a trusted network.
 
 ## Development
 

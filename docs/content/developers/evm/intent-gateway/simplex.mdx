@@ -11,10 +11,30 @@ Simplex is an automated binary that monitors Intent Gateway orders and fills the
 
 ### Docker (Recommended)
 
+The image is a multi-arch manifest covering `linux/amd64` and `linux/arm64`, so Linux, macOS (Intel and Apple Silicon) and Windows (Docker Desktop / WSL2) hosts all pull a natively-built image — no emulation, no per-host build.
+
 ```bash lineNumbers
 docker pull polytopelabs/simplex:latest
 docker run --rm -it polytopelabs/simplex:latest --help
 ```
+
+Set up with the terminal wizard, writing the config into a named volume, then run the filler against it:
+
+```bash lineNumbers
+docker volume create simplex-data
+docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml
+
+docker run -d --name simplex --restart unless-stopped \
+    -p 127.0.0.1:8686:8686 \
+    -p 127.0.0.1:9090:9090 \
+    -v simplex-data:/data \
+    polytopelabs/simplex:latest \
+    run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
+```
+
+The operator UI is then at `http://localhost:8686`. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard.
+
+Both commands work verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put each on one line). Use `init` rather than the browser wizard inside a container: the browser wizard handles private keys and refuses to bind anything but loopback, so it cannot be reached through a published port. The filler's UI and metrics servers do bind `0.0.0.0`, since a container-local loopback bind is unreachable from the host and Docker Desktop on macOS and Windows runs the daemon in a VM with no `--network host`. Keep the `127.0.0.1:` prefix on the published ports — the UI is unauthenticated.
 
 ## Markets
 
@@ -501,22 +521,28 @@ Both ask only for the minimum needed to run (chains, RPCs, bundler, signer, Hype
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">
 ```yaml lineNumbers
-version: "3.8"
+# Identical on Linux, macOS and Windows: `docker compose up -d`
 services:
     simplex:
         image: polytopelabs/simplex:latest
         container_name: simplex
         restart: unless-stopped
-        command: ["run", "--config", "/app/config.toml", "--data-dir", "/app", "--port", "9090"]
+        command:
+            ["run", "--config", "/data/filler-config.toml", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
         ports:
-            - "9090:9090"  # Prometheus metrics
+            - "127.0.0.1:8686:8686" # web UI (unauthenticated — keep it on loopback)
+            - "127.0.0.1:9090:9090" # Prometheus metrics
         volumes:
-            - .:/app
+            - simplex-data:/data # bids database + runtime state
+            - ./filler-config.toml:/data/filler-config.toml:ro
         logging:
             driver: "json-file"
             options:
                 max-size: "10m"
                 max-file: "3"
+
+volumes:
+    simplex-data:
 ```
 </Tab>
 <Tab value="config.toml">

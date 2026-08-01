@@ -2,7 +2,11 @@
 set -e
 
 # Simple Docker script for Hyperbridge Simplex
-# Handles the essential Docker operations: build, run, and docker-compose
+# Handles the essential Docker operations: build, run, and docker compose
+#
+# Linux and macOS convenience wrapper. On Windows, run the same operations with
+# `docker compose -f scripts/docker-compose.yml up -d` from PowerShell — nothing in the
+# compose file needs a POSIX shell.
 
 # Color codes for output
 GREEN='\033[0;32m'
@@ -16,6 +20,18 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$ROOT_DIR/config.toml"
 DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+IMAGE="polytopelabs/simplex:latest"
+UI_PORT="${SIMPLEX_UI_PORT:-8686}"
+METRICS_PORT="${SIMPLEX_METRICS_PORT:-9090}"
+
+# Compose v2 is a docker subcommand; keep working where only the v1 binary exists.
+compose() {
+    if docker compose version &> /dev/null; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
+}
 
 # Show help
 show_help() {
@@ -23,6 +39,7 @@ show_help() {
     echo
     echo "Commands:"
     echo "  build       Build the Docker image"
+    echo "  init        Run the terminal setup wizard, writing into the simplex-data volume"
     echo "  run         Run Simplex in a Docker container"
     echo "  up          Start using Docker Compose"
     echo "  down        Stop and remove Docker Compose containers"
@@ -50,8 +67,21 @@ case "$COMMAND" in
     build)
         echo -e "${YELLOW}Building Docker image...${NC}"
         echo -e "$(dirname "$(dirname "$ROOT_DIR")")"
-        docker build -t polytopelabs/simplex:latest -f "$DOCKERFILE" "$(dirname "$(dirname "$ROOT_DIR")")"
+        # Single-arch, for this machine. The published image is a linux/amd64 +
+        # linux/arm64 manifest built by .github/workflows/publish-simplex.yml; reproduce it
+        # locally with: docker buildx build --platform linux/amd64,linux/arm64 ...
+        docker build -t "$IMAGE" -f "$DOCKERFILE" "$(dirname "$(dirname "$ROOT_DIR")")"
         echo -e "${GREEN}✓ Docker image built successfully!${NC}"
+        ;;
+
+    init)
+        # The terminal wizard, not the browser one: the latter only binds loopback (it
+        # handles private keys), so it can never be reached through a published port.
+        echo -e "${YELLOW}Starting the setup wizard...${NC}"
+        docker volume create simplex-data > /dev/null
+        docker run --rm -it -v simplex-data:/data "$IMAGE" init -o /data/filler-config.toml
+        echo -e "${GREEN}✓ Config written to /data/filler-config.toml in the simplex-data volume${NC}"
+        echo "  Start it:    $0 up"
         ;;
 
     run)
@@ -64,9 +94,9 @@ case "$COMMAND" in
         fi
 
         # Check if image exists
-        if ! docker image inspect polytopelabs/simplex:latest &> /dev/null; then
+        if ! docker image inspect "$IMAGE" &> /dev/null; then
             echo -e "${YELLOW}Image not found, building first...${NC}"
-            docker build -t polytopelabs/simplex:latest -f "$DOCKERFILE" "$(dirname "$(dirname "$ROOT_DIR")")"
+            docker build -t "$IMAGE" -f "$DOCKERFILE" "$(dirname "$(dirname "$ROOT_DIR")")"
         fi
 
         # Remove existing container if it exists
@@ -75,19 +105,26 @@ case "$COMMAND" in
             docker rm -f simplex
         fi
 
-        # Run the container
+        # Ports are published on loopback rather than shared with the host network stack:
+        # the UI is unauthenticated, and Docker Desktop (macOS/Windows) has no --network
+        # host to fall back on anyway.
         docker run -d \
             --name simplex \
             --restart unless-stopped \
-            -v "$CONFIG_FILE:/app/config/config.toml:ro" \
+            -p "127.0.0.1:$UI_PORT:8686" \
+            -p "127.0.0.1:$METRICS_PORT:9090" \
+            -v simplex-data:/data \
+            -v "$CONFIG_FILE:/data/filler-config.toml:ro" \
             -e NODE_ENV=production \
             --log-driver json-file \
             --log-opt max-size=10m \
             --log-opt max-file=3 \
-            polytopelabs/simplex:latest \
-            run -c /app/config/config.toml
+            "$IMAGE" \
+            run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
 
         echo -e "${GREEN}✓ Container started!${NC}"
+        echo "  Web UI:      http://localhost:$UI_PORT"
+        echo "  Metrics:     http://localhost:$METRICS_PORT/metrics"
         echo "  View logs:   docker logs -f simplex"
         echo "  Stop:        docker stop simplex"
         ;;
@@ -95,34 +132,24 @@ case "$COMMAND" in
     up)
         echo -e "${YELLOW}Starting with Docker Compose...${NC}"
 
-        # Check if config file exists
-        if [ ! -f "$CONFIG_FILE" ]; then
-            echo -e "${RED}Error: Config file not found at $CONFIG_FILE${NC}"
-            exit 1
-        fi
-
-        # Ensure config file exists before starting
-        if [ ! -f "$CONFIG_FILE" ]; then
-            echo -e "${RED}Error: Config file not found at $CONFIG_FILE${NC}"
-            exit 1
-        fi
-
-        # Start with Docker Compose
-        CONFIG_PATH="$CONFIG_FILE" docker-compose -f "$COMPOSE_FILE" up -d
+        # The compose service expects /data/filler-config.toml — in the simplex-data volume
+        # (see `$0 init`) or bind-mounted over it.
+        compose -f "$COMPOSE_FILE" up -d
         echo -e "${GREEN}✓ Services started!${NC}"
+        echo "  Web UI:      http://localhost:$UI_PORT"
         echo "  View logs:   $0 logs"
         echo "  Stop:        $0 down"
         ;;
 
     down)
         echo -e "${YELLOW}Stopping Docker Compose services...${NC}"
-        docker-compose -f "$COMPOSE_FILE" down
+        compose -f "$COMPOSE_FILE" down
         echo -e "${GREEN}✓ Services stopped${NC}"
         ;;
 
     logs)
         echo -e "${YELLOW}Showing logs (Ctrl+C to exit)...${NC}"
-        docker-compose -f "$COMPOSE_FILE" logs -f
+        compose -f "$COMPOSE_FILE" logs -f
         ;;
 
     help)

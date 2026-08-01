@@ -1,16 +1,35 @@
-version: "3.8"
-
+# Runs the same on Linux, macOS and Windows (PowerShell or WSL2) — `docker compose up -d`.
+# The simplex image is a multi-arch manifest, so amd64 and arm64 hosts both pull a native
+# image. Nothing here uses host networking, which Docker Desktop does not provide.
+#
+# Generate the config into the data volume first (the terminal wizard, which works in a
+# container; the browser wizard refuses to bind anything but loopback because it handles
+# private keys, so it cannot be published out of one):
+#
+#   docker compose -f scripts/docker-compose.yml run --rm -it simplex init -o /data/filler-config.toml
 services:
     simplex:
-        image: polytopelabs/hyperbridge-simplex:latest
+        image: polytopelabs/simplex:latest
         build:
             context: ../../..
             dockerfile: packages/simplex/scripts/Dockerfile
         container_name: hyperbridge-simplex
         restart: unless-stopped
-        command: ["run", "-c", "/app/config/config.toml", "-p", "9090"]
+        # Explicit config path: the default command would otherwise fall through to the
+        # browser wizard, which cannot run with a published UI port.
+        command: ["run", "-c", "/data/filler-config.toml", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
+        ports:
+            # Loopback-only publishing: the UI is unauthenticated, so it stays on this
+            # machine. Drop the 127.0.0.1 prefix only on a trusted network.
+            - "127.0.0.1:${SIMPLEX_UI_PORT:-8686}:8686" # operator web UI
+            - "127.0.0.1:${SIMPLEX_METRICS_PORT:-9090}:9090" # prometheus metrics
         volumes:
-            - ${CONFIG_PATH:-../config.toml}:/app/config/config.toml:ro
+            # Holds filler-config.toml, the bids database and runtime state. A named volume
+            # works the same on every host OS; a bind mount would inherit that OS's file
+            # ownership rules, which differ between Linux and Docker Desktop.
+            - simplex-data:/data
+            # Already have a config on the host? Mount it over the volume instead:
+            # - ../filler-config.toml:/data/filler-config.toml:ro
         environment:
             - NODE_ENV=production
         networks:
@@ -20,12 +39,6 @@ services:
             options:
                 max-size: "10m"
                 max-file: "3"
-        healthcheck:
-            test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r=>{if(!r.ok)throw 1})"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 5s
 
     prometheus:
         image: prom/prometheus:latest
@@ -61,6 +74,7 @@ services:
             - "${GRAFANA_PORT:-3420}:3000"
 
 volumes:
+    simplex-data:
     prometheus-data:
     grafana-data:
 

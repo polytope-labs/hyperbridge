@@ -1,0 +1,237 @@
+import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
+import type { HexString } from "@hyperbridge/sdk"
+import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
+import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
+import { LOG_LEVELS } from "@/services/server/dto"
+import { guard, why, askNumber, askAddress } from "../prompt-utils"
+import { editPoints, nonNegativeIntegerValue } from "../points-editor"
+import { normalizeConfirmationPolicyKeys } from "../confirmation-keys"
+import { WHY } from "../help-text"
+import type { Prefill, WizardState } from "../state"
+
+type Area =
+	| "concurrency"
+	| "gasFeeBump"
+	| "overfill"
+	| "confirmations"
+	| "vault"
+	| "allowlist"
+	| "logging"
+
+export async function stepFineTune(state: WizardState, prefill?: Prefill): Promise<void> {
+	carryPrefillExtras(state, prefill)
+
+	const tune = guard(
+		await confirm({
+			message: "Fine-tune the filler for competitiveness? (everything has working defaults)",
+			initialValue: false,
+		}),
+	)
+	if (!tune) return
+
+	const areas = guard(
+		await multiselect<Area>({
+			message: "What do you want to tune?",
+			required: false,
+			options: [
+				{ value: "concurrency", label: "Concurrency & retry queue", hint: WHY.concurrency },
+				{ value: "gasFeeBump", label: "Gas fee bump", hint: "win more fill races" },
+				{ value: "overfill", label: "Overfill protection", hint: "pricing-bug safety clamp" },
+				{ value: "confirmations", label: "Confirmation policies", hint: "reorg protection per chain" },
+				{ value: "vault", label: "ERC-4626 treasury", hint: "earn yield on idle float" },
+				{ value: "allowlist", label: "User allowlist", hint: "fill only for specific users" },
+				{ value: "logging", label: "Log level" },
+			],
+		}),
+	)
+
+	for (const area of areas) {
+		switch (area) {
+			case "concurrency":
+				await tuneConcurrency(state)
+				break
+			case "gasFeeBump":
+				await tuneGasFeeBump(state)
+				break
+			case "overfill":
+				await tuneOverfill(state)
+				break
+			case "confirmations":
+				await tuneConfirmations(state)
+				break
+			case "vault":
+				await tuneVault(state)
+				break
+			case "allowlist":
+				await tuneAllowlist(state)
+				break
+			case "logging":
+				await tuneLogging(state)
+				break
+		}
+	}
+}
+
+/** Sections the wizard doesn't re-prompt for survive an update run unchanged. */
+function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
+	if (!prefill) return
+	const { config } = prefill
+	state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
+	state.queue = config.simplex.queue ?? state.queue
+	state.logging = config.simplex.logging ?? state.logging
+	state.gasFeeBump = config.simplex.gasFeeBump
+	state.overfillProtection = config.simplex.overfillProtection
+	state.rebalancing = config.rebalancing
+	// The pairs step owns [vault.uniswapV4]; only the treasury half is carried.
+	if (config.vault) {
+		const { uniswapV4: _dropped, ...treasury } = config.vault
+		state.vault = Object.keys(treasury).length > 0 ? treasury : undefined
+	}
+	state.allowlist = config.allowlist
+}
+
+async function tuneConcurrency(state: WizardState): Promise<void> {
+	why(WHY.concurrency)
+	state.maxConcurrentOrders = await askNumber("Max concurrent orders", state.maxConcurrentOrders, (n) =>
+		n >= 1 ? undefined : "Must be at least 1",
+	)
+	state.queue.maxRechecks = await askNumber(
+		"Max re-checks before dropping a queued order",
+		state.queue.maxRechecks,
+		(n) => (n >= 0 ? undefined : "Must be >= 0"),
+	)
+	state.queue.recheckDelayMs = await askNumber("Delay between re-checks (ms)", state.queue.recheckDelayMs, (n) =>
+		n >= 1000 ? undefined : "Use at least 1000ms",
+	)
+}
+
+async function tuneGasFeeBump(state: WizardState): Promise<void> {
+	why(WHY.gasFeeBump)
+	state.gasFeeBump = {
+		maxPriorityFeePerGasBumpPercent: await askNumber(
+			"Priority fee bump % (default 8)",
+			state.gasFeeBump?.maxPriorityFeePerGasBumpPercent ?? 8,
+			(n) => (n >= 0 ? undefined : "Must be >= 0"),
+		),
+		maxFeePerGasBumpPercent: await askNumber(
+			"Max fee bump % (default 10)",
+			state.gasFeeBump?.maxFeePerGasBumpPercent ?? 10,
+			(n) => (n >= 0 ? undefined : "Must be >= 0"),
+		),
+	}
+}
+
+async function tuneOverfill(state: WizardState): Promise<void> {
+	why(WHY.overfill)
+	state.overfillProtection = {
+		maxOverfillBps: await askNumber(
+			"Max overfill (bps above user-requested output, default 500)",
+			state.overfillProtection?.maxOverfillBps ?? 500,
+			(n) => (n >= 0 && n <= 10_000 ? undefined : "Between 0 and 10000"),
+		),
+		maxConsecutiveClamps: await askNumber(
+			"Consecutive clamped orders before halting (default 3)",
+			state.overfillProtection?.maxConsecutiveClamps ?? 3,
+			(n) => (n >= 1 ? undefined : "Must be at least 1"),
+		),
+	}
+}
+
+async function tuneConfirmations(state: WizardState): Promise<void> {
+	why(WHY.confirmations)
+	if (state.confirmationPolicies) {
+		state.confirmationPolicies = normalizeConfirmationPolicyKeys(state.confirmationPolicies)
+	}
+	for (const chain of state.chains) {
+		const chainId = String(chain.meta.chainId)
+		const current = state.confirmationPolicies?.[chainId] ?? DEFAULT_CONFIRMATION_POLICIES[chainId]
+		note(
+			current
+				? current.points.map((p) => `$${p.amount} -> ${p.value} confirmations`).join("\n")
+				: "No built-in default for this chain — one should be set.",
+			chain.meta.label,
+		)
+		const customize = guard(
+			await confirm({ message: `Customize confirmations for ${chain.meta.label}?`, initialValue: !current }),
+		)
+		if (!customize) continue
+
+		const points: ChainConfirmationPolicy["points"] = await editPoints({
+			prompt: "Point as `orderUsd,confirmations` (e.g. `1000,2`); empty line to finish",
+			minPoints: 2,
+			checkValue: nonNegativeIntegerValue,
+			toPoint: ({ first, second }) => ({ amount: first, value: Number(second) }),
+		})
+		state.confirmationPolicies = { ...(state.confirmationPolicies ?? {}), [chainId]: { points } }
+	}
+}
+
+async function tuneVault(state: WizardState): Promise<void> {
+	why(WHY.vault)
+	const vaults: VaultToml[] = [...(state.vault?.vaults ?? [])]
+	if (vaults.length > 0) {
+		log.info(`Keeping ${vaults.length} existing vault${vaults.length > 1 ? "s" : ""}.`)
+	}
+	do {
+		const chain = guard(
+			await select({
+				message: "Chain the ERC-4626 vault is on",
+				options: state.chains.map((c) => ({ value: c.meta.stateMachineId, label: c.meta.label })),
+			}),
+		)
+		const vault = (await askAddress("Vault address (any ERC-4626, e.g. Aave stataUSDC)")) as HexString
+		const sweep = guard(
+			await confirm({
+				message: "Sweep idle wallet balance into the vault? (otherwise it's withdraw-only)",
+				initialValue: true,
+			}),
+		)
+		const entry: VaultToml = { chain, vault }
+		if (sweep) {
+			// The values are stored as decimal strings via String(n) — exponent
+			// notation (1e21) would not survive as a valid TOML decimal.
+			const plainDecimal = (n: number): string | undefined =>
+				/^\d+(\.\d+)?$/.test(String(n)) ? undefined : "Enter a plain decimal number"
+			const threshold = await askNumber("Sweep when wallet balance reaches (USD)", 5000, (n) =>
+				n > 0 ? plainDecimal(n) : "Must be positive",
+			)
+			const minBalance = await askNumber(
+				"Sweep down to (USD; cover fill float + gas spend)",
+				Math.max(1, Math.min(3000, threshold - 1)),
+				(n) => (n > 0 && n < threshold ? plainDecimal(n) : `Must be positive and below ${threshold}`),
+			)
+			entry.threshold = String(threshold)
+			entry.minBalance = String(minBalance)
+		}
+		vaults.push(entry)
+	} while (guard(await confirm({ message: "Add another vault?", initialValue: false })))
+
+	state.vault = { ...(state.vault ?? {}), vaults }
+}
+
+async function tuneAllowlist(state: WizardState): Promise<void> {
+	why(WHY.allowlist)
+	const users: string[] = [...(state.allowlist?.users ?? [])]
+	for (;;) {
+		const address = await askAddress("Allowed user address (empty line to finish)", { required: false })
+		if (!address) break
+		users.push(address)
+	}
+	if (users.length === 0) {
+		log.warn("Empty allowlist would reject every order — leaving the allowlist off.")
+		state.allowlist = undefined
+		return
+	}
+	state.allowlist = { ...(state.allowlist ?? {}), users }
+}
+
+async function tuneLogging(state: WizardState): Promise<void> {
+	why(WHY.logging)
+	state.logging = guard(
+		await select({
+			message: "Log level",
+			initialValue: state.logging ?? "info",
+			options: LOG_LEVELS.map((level) => ({ value: level as string, label: level })),
+		}),
+	)
+}

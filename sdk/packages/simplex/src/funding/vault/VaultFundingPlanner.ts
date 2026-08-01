@@ -1,5 +1,6 @@
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
+import { validateVaultToml } from "@/config/filler-toml"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import type { VaultOutputFundingConfig, FundingPlanResult, FundingVenue } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
@@ -44,9 +45,44 @@ export class VaultFundingPlanner implements FundingVenue {
 	 */
 	constructor(
 		private readonly clientManager: ChainClientManager,
-		private readonly config: VaultOutputFundingConfig,
+		private config: VaultOutputFundingConfig,
 		private readonly userOpSender?: UserOpSender,
 	) {}
+
+	/** Invoked after each submitted sweep/redeem batch so wallet history can record it. */
+	onTx?: (tx: { chain: string; kind: "sweep" | "redeem"; txHash: HexString; sponsored: boolean }) => void
+
+	/**
+	 * Replaces the vault set at runtime and re-hydrates. The instance is shared
+	 * with every strategy's funding-venue list, so an in-place swap takes effect
+	 * on the next fill/sweep without re-wiring. Sweeping restarts if it was on.
+	 */
+	async reconfigure(config: VaultOutputFundingConfig): Promise<void> {
+		const solver = this.solver
+		if (!solver) throw new Error("Vault venue is not initialised yet")
+
+		const wasSweeping = this.sweepInterval !== undefined
+		this.stopSweeping()
+
+		const stateByChain = new Map<string, VaultLiquidityState>()
+		for (const [chain, vaults] of Object.entries(config.vaultsByChain)) {
+			const state = new VaultLiquidityState(chain, vaults, solver, this.clientManager)
+			await state.hydrate()
+			stateByChain.set(chain, state)
+		}
+
+		// Swap only after every chain hydrated, so a bad address leaves the old set live.
+		this.config = config
+		this.stateByChain.clear()
+		for (const [chain, state] of stateByChain) {
+			this.stateByChain.set(chain, state)
+			if (!this.mutexByChain.has(chain)) this.mutexByChain.set(chain, new Mutex())
+			if (!this.sweepMutexByChain.has(chain)) this.sweepMutexByChain.set(chain, new Mutex())
+		}
+
+		if (wasSweeping) this.startSweeping()
+		logger.info({ chains: Object.keys(config.vaultsByChain) }, "Vault venue reconfigured")
+	}
 
 	/**
 	 * Validates raw TOML vault entries before constructing the planner.
@@ -55,31 +91,7 @@ export class VaultFundingPlanner implements FundingVenue {
 	static validateConfig(
 		vaults: { chain?: string; vault?: string; threshold?: string; minBalance?: string; redeemOnShutdown?: boolean }[],
 	): void {
-		const positiveNumber = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0
-		for (const v of vaults) {
-			if (!v.chain?.trim()) {
-				throw new Error("Each vault must have a non-empty 'chain' (e.g. EVM-8453)")
-			}
-			if (!v.vault?.trim()) {
-				throw new Error("Each vault entry must include a 'vault' address")
-			}
-			if (v.threshold !== undefined && !positiveNumber(v.threshold)) {
-				throw new Error(`Vault ${v.vault} 'threshold' must be a positive number`)
-			}
-			if (v.minBalance !== undefined && !positiveNumber(v.minBalance)) {
-				throw new Error(`Vault ${v.vault} 'minBalance' must be a positive number`)
-			}
-			// Sweeping needs a floor to keep gas/paymaster funds, and a trigger
-			// strictly above it so a sweep never tries to deposit ≤ 0.
-			if (v.threshold !== undefined) {
-				if (v.minBalance === undefined) {
-					throw new Error(`Vault ${v.vault} sets 'threshold' so it must also set 'minBalance'`)
-				}
-				if (Number(v.threshold) <= Number(v.minBalance)) {
-					throw new Error(`Vault ${v.vault} 'threshold' must be greater than 'minBalance'`)
-				}
-			}
-		}
+		validateVaultToml(vaults)
 	}
 
 	// =========================================================================
@@ -308,6 +320,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			logger.info({ chain, tx: txHash, sponsored, pairs: calls.length / 2 }, "Vault sweep submitted")
+			this.onTx?.({ chain, kind: "sweep", txHash, sponsored })
 		})
 	}
 
@@ -421,6 +434,7 @@ export class VaultFundingPlanner implements FundingVenue {
 
 			const { txHash, sponsored } = await this.submitBatch(chain, solver, calls)
 			logger.info({ chain, tx: txHash, sponsored, vaults: calls.length }, "Vault shutdown redeem submitted")
+			this.onTx?.({ chain, kind: "redeem", txHash, sponsored })
 		})
 	}
 }

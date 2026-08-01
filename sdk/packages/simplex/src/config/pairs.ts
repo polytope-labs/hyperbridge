@@ -31,9 +31,9 @@ import {
  * A pair may quote the **same symbol on both sides** (`token0 = token1 =
  * "USDC"`) — the same-asset cross-chain market. Such pairs are ask-only with
  * prices strictly below par; the gap to 1 is the filler's spread (e.g.
- * "0.9995" keeps 5 bps of every fill). Two-sided cross-asset books must be
- * uncrossed (bid above ask everywhere) — a crossed or zero spread can never
- * fill and is rejected at startup.
+ * "0.9995" keeps 5 bps of every fill). Cross-asset books quote bid and ask
+ * independently — each side fills at its own curve. A crossed book (bid at or
+ * below ask) is allowed; it just means a full round trip loses money.
  *
  * Users may declare any number of pairs; a single engine serves all of them.
  */
@@ -124,6 +124,85 @@ function validateCurve(pairLabel: string, name: string, curve: PriceCurvePoint[]
 			throw new Error(`pairs.${pairLabel}: ${name} prices must be positive, got '${point.price}'`)
 		}
 	}
+	// Backstop: the exact validation the engine's policy runs at boot (amounts
+	// included), so the gate can never pass a curve boot would reject.
+	try {
+		void new FillerPricePolicy({ points: curve })
+	} catch (err) {
+		throw new Error(`pairs.${pairLabel}: ${name} — ${err instanceof Error ? err.message : err}`)
+	}
+}
+
+/** Resolves a symbol to its contract address on a chain, or null when not deployed there. */
+export interface PairAddressResolver {
+	getAddress(symbol: string, chain: string): string | null
+}
+
+/**
+ * Boot-parity resolution checks over `[[pairs]]` symbols, shared by the boot
+ * path and the wizard gates so a config is rejected where it is written, not
+ * first on `simplex run`:
+ *  1. every symbol must resolve to a real deployment on at least one of the
+ *     given chains — the SDK stores zero-address sentinels for undeployed
+ *     assets, and the zero address doubles as the native-token sentinel in the
+ *     fill path;
+ *  2. no two distinct symbols may resolve to the SAME contract on a chain
+ *     (an [assets] alias of USDC's address): aliasing collapses a cross-asset
+ *     pair into a same-asset market — bypassing the same-token safeguards —
+ *     and makes leg matching order-dependent.
+ */
+export function assertPairSymbolsResolve(
+	pairs: PairConfig[],
+	registry: PairAddressResolver,
+	chainNames: string[],
+): void {
+	const pairSymbols = new Set(pairs.flatMap((pair) => [pair.token0, pair.token1]))
+	for (const pair of pairs) {
+		for (const symbol of [pair.token0, pair.token1]) {
+			const resolvesSomewhere = chainNames.some((chainName) => registry.getAddress(symbol, chainName) !== null)
+			if (!resolvesSomewhere) {
+				throw new Error(
+					`pairs.${pair.token0}/${pair.token1}: '${symbol}' does not resolve to a deployed contract on any configured chain`,
+				)
+			}
+		}
+	}
+
+	for (const chainName of chainNames) {
+		const addressOwner = new Map<string, string>()
+		for (const symbol of pairSymbols) {
+			const address = registry.getAddress(symbol, chainName)?.toLowerCase()
+			if (!address) continue
+			const owner = addressOwner.get(address)
+			if (owner && normalizeSymbol(owner) !== normalizeSymbol(symbol)) {
+				throw new Error(
+					`assets: '${symbol}' and '${owner}' both resolve to ${address} on ${chainName} — symbols must map to distinct contracts`,
+				)
+			}
+			addressOwner.set(address, symbol)
+		}
+	}
+}
+
+/**
+ * The USD stable to quote a reference feed against for an unanchored symbol:
+ * the first stable (registry preference order) with no existing orientation
+ * against it — a pair and its reverse are the same market, so a stable that
+ * already has any market against the symbol cannot also carry the feed.
+ * Returns null when every stable is taken (the operator must give one of
+ * those existing markets a price curve instead). Shared by both wizards.
+ */
+export function pickAnchorStable(pairs: Array<{ token0: string; token1: string }>, symbol: string): string | null {
+	const target = normalizeSymbol(symbol)
+	for (const stable of USD_STABLE_SYMBOLS) {
+		const taken = pairs.some((pair) => {
+			const token0 = normalizeSymbol(pair.token0)
+			const token1 = normalizeSymbol(pair.token1)
+			return (token0 === stable && token1 === target) || (token0 === target && token1 === stable)
+		})
+		if (!taken) return stable
+	}
+	return null
 }
 
 /**
@@ -243,16 +322,9 @@ export function validatePairConfigs(
 			)
 		}
 
-		// Two-sided cross-asset books must be uncrossed everywhere: bid ≤ ask
-		// makes every fill mark as a loss at the opposite curve, so the pair
-		// would silently reject all orders. Fail at startup instead.
-		if (token0 !== token1 && (pair.bidPriceCurve?.length ?? 0) >= 1 && (pair.askPriceCurve?.length ?? 0) >= 1) {
-			FillerPricePolicy.assertBookNotCrossed(
-				`pairs.${label}`,
-				new FillerPricePolicy({ points: pair.bidPriceCurve! }),
-				new FillerPricePolicy({ points: pair.askPriceCurve! }),
-			)
-		}
+		// A crossed book (bid ≤ ask) is allowed: each side is quoted and filled
+		// independently at its own curve — crossing only means a full round trip
+		// loses money. The wizards surface it as a warning, not an error.
 	}
 
 	// Every pair's token0 sizes orders for the confirmation-depth curve, whose

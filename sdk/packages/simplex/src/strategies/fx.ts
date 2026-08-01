@@ -96,7 +96,7 @@ interface ResolvedLeg {
 	token1Chain: string
 }
 
-/** Rate context resolved for a leg: pricing rate plus the opposite side for margin marking. */
+/** Rate context resolved for a leg: pricing rate plus the opposite side for margin telemetry. */
 interface LegRates {
 	/** token1 per token0 used to price this leg's output. */
 	rate: Decimal
@@ -208,89 +208,9 @@ export class FXFiller implements FillerStrategy {
 		}
 		const seenPairs = new Set<string>()
 		for (const pair of pairs) {
-			const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
-			const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
-			if (seenPairs.has(label) || seenPairs.has(reversed)) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: duplicate market (a pair and its reverse are the same market)`,
-				)
-			}
-			seenPairs.add(label)
-			if (!pair.referenceOnly && (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))) {
-				throw new Error(
-					`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
-				)
-			}
-			if (pair.referenceOnly) {
-				// A reference pair is only its curve: same-token pairs carry no FX
-				// rate to reference, and without a curve there is no reference.
-				if (isSameTokenPair(pair)) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: referenceOnly applies to cross-asset pairs — a same-token pair carries no FX rate to reference`,
-					)
-				}
-				if (!pair.bidPricePolicy && !pair.askPricePolicy) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: a referenceOnly pair needs a bid and/or ask policy — the curve IS the reference`,
-					)
-				}
-			}
-			if (isSameTokenPair(pair)) {
-				// Same-asset market: ask-only, priced strictly below par — at or
-				// above par the spread is zero or negative, so every fill either
-				// loses or is rejected by the per-leg spread gate.
-				if (pair.bidPricePolicy || !pair.askPricePolicy) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
-					)
-				}
-				const atOrAbovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gte(1))
-				if (atOrAbovePar) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must be strictly below 1 (the gap to 1 is the spread; par or above never fills)`,
-					)
-				}
-				continue
-			}
-			// Two-sided cross-asset books must be uncrossed everywhere — bid ≤ ask
-			// marks every fill as a loss at the opposite curve and the pair goes
-			// silently dead behind the per-leg spread gate.
-			if (pair.bidPricePolicy && pair.askPricePolicy) {
-				FillerPricePolicy.assertBookNotCrossed(
-					`FXFiller pair ${pair.token0}/${pair.token1}`,
-					pair.bidPricePolicy,
-					pair.askPricePolicy,
-				)
-			}
-			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
-				if (!hasVenues) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy, or funding venues`,
-					)
-				}
-				if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
-					throw new Error(
-						`FXFiller pair ${pair.token0}/${pair.token1}: venue (pool) pricing requires a USD-stable token0 — add price curves instead`,
-					)
-				}
-			}
+			FXFiller.assertPairValid(pair, seenPairs, hasVenues)
 		}
-
-		// Mirrors validatePairConfigs for direct SDK construction: confirmation
-		// depth prices token0 notionals in USD through the curve graph, so every
-		// token0 must be reachable from a USD stable.
-		const unanchored = unanchoredToken0Symbols(
-			pairs.map((p) => ({
-				token0: p.token0,
-				token1: p.token1,
-				hasCurve: Boolean(p.bidPricePolicy || p.askPricePolicy),
-			})),
-		)
-		if (unanchored.length > 0) {
-			throw new Error(
-				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset; mark it referenceOnly to anchor without opening that market`,
-			)
-		}
+		FXFiller.assertAnchored(pairs)
 
 		this.configService = configService
 		this.clientManager = clientManager
@@ -318,6 +238,126 @@ export class FXFiller implements FillerStrategy {
 					confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 			}
 		}
+	}
+
+	/** Per-pair invariants, shared by the constructor and addPair. Adds the accepted pair's label to `seenPairs`. */
+	private static assertPairValid(pair: TradingPair, seenPairs: Set<string>, hasVenues: boolean): void {
+		const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
+		const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
+		if (seenPairs.has(label) || seenPairs.has(reversed)) {
+			throw new Error(
+				`FXFiller pair ${pair.token0}/${pair.token1}: duplicate market (a pair and its reverse are the same market)`,
+			)
+		}
+		seenPairs.add(label)
+		if (!pair.referenceOnly && (!pair.maxOrderSize.isFinite() || pair.maxOrderSize.lte(0))) {
+			throw new Error(
+				`FXFiller pair ${pair.token0}/${pair.token1}: maxOrderSize must be a positive token0 amount`,
+			)
+		}
+		if (pair.referenceOnly) {
+			// A reference pair is only its curve: same-token pairs carry no FX
+			// rate to reference, and without a curve there is no reference.
+			if (isSameTokenPair(pair)) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: referenceOnly applies to cross-asset pairs — a same-token pair carries no FX rate to reference`,
+				)
+			}
+			if (!pair.bidPricePolicy && !pair.askPricePolicy) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: a referenceOnly pair needs a bid and/or ask policy — the curve IS the reference`,
+				)
+			}
+		}
+		if (isSameTokenPair(pair)) {
+			// Same-asset market: ask-only, priced strictly below par — at or
+			// above par the spread is zero or negative, so every fill either
+			// loses or is rejected by the same-token spread gate.
+			if (pair.bidPricePolicy || !pair.askPricePolicy) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: same-token pairs need exactly an ask policy (they are ask-only)`,
+				)
+			}
+			const atOrAbovePar = pair.askPricePolicy.getPoints().some((p) => new Decimal(p.price).gte(1))
+			if (atOrAbovePar) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: same-token ask prices must be strictly below 1 (the gap to 1 is the spread; par or above never fills)`,
+				)
+			}
+			return
+		}
+		// A crossed book (bid ≤ ask) is accepted: each side is quoted and
+		// filled independently at its own curve — crossing only means a
+		// full round trip loses money.
+		if (!pair.bidPricePolicy && !pair.askPricePolicy) {
+			if (!hasVenues) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: needs a bid and/or ask policy, or funding venues`,
+				)
+			}
+			if (!USD_STABLE_SYMBOLS.has(normalizeSymbol(pair.token0))) {
+				throw new Error(
+					`FXFiller pair ${pair.token0}/${pair.token1}: venue (pool) pricing requires a USD-stable token0 — add price curves instead`,
+				)
+			}
+		}
+	}
+
+	/**
+	 * Mirrors validatePairConfigs for direct SDK construction: confirmation
+	 * depth prices token0 notionals in USD through the curve graph, so every
+	 * token0 must be reachable from a USD stable.
+	 */
+	private static assertAnchored(pairs: TradingPair[]): void {
+		const unanchored = unanchoredToken0Symbols(
+			pairs.map((p) => ({
+				token0: p.token0,
+				token1: p.token1,
+				hasCurve: Boolean(p.bidPricePolicy || p.askPricePolicy),
+			})),
+		)
+		if (unanchored.length > 0) {
+			throw new Error(
+				`FXFiller: no USD anchor for ${unanchored.join(", ")} — add a curve-priced pair against a USD stable (e.g. USDC/${unanchored[0]}), directly or through an already-anchored asset; mark it referenceOnly to anchor without opening that market`,
+			)
+		}
+	}
+
+	/**
+	 * Adds a market to the running engine. All-or-nothing: the pair passes the
+	 * same invariants the constructor enforces (duplicate/reverse orientation,
+	 * per-kind rules, whole-graph USD anchoring) before it is pushed. Legs
+	 * re-scan `pairs` on every match, so the market is live immediately.
+	 */
+	addPair(pair: TradingPair): void {
+		if (this.side && (pair.bidPricePolicy || pair.askPricePolicy)) {
+			throw new Error("FXFiller 'side' only applies to venue (pool) pricing; omit pair price curves")
+		}
+		const seenPairs = new Set(
+			this.pairs.map((p) => `${normalizeSymbol(p.token0)}/${normalizeSymbol(p.token1)}`),
+		)
+		FXFiller.assertPairValid(pair, seenPairs, this.fundingVenues.length > 0)
+		FXFiller.assertAnchored([...this.pairs, pair])
+		this.pairs.push(pair)
+	}
+
+	/**
+	 * Removes a market from the running engine. All-or-nothing: at least one
+	 * market must remain and no other pair may lose its USD anchor (removing a
+	 * reference feed that anchors a dependent market is rejected). In-flight
+	 * rechecks of orders on the removed pair simply stop matching.
+	 */
+	removePair(pair: TradingPair): void {
+		const index = this.pairs.indexOf(pair)
+		if (index < 0) {
+			throw new Error(`FXFiller pair ${pair.token0}/${pair.token1}: not a live market`)
+		}
+		const remaining = this.pairs.filter((_, i) => i !== index)
+		if (remaining.length === 0) {
+			throw new Error("FXFiller requires at least one trading pair — the last market cannot be removed live")
+		}
+		FXFiller.assertAnchored(remaining)
+		this.pairs.splice(index, 1)
 	}
 
 	// =========================================================================
@@ -680,26 +720,20 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 
-			// Per-leg P&L accounting over the surviving legs, feeding the SPREAD gate
-			// (the filler's margin on the swap itself, independent of order.fees):
+			// Per-leg P&L accounting over the surviving legs:
 			//  - Same-token legs realize their spread in-kind (input − output of the
-			//    SAME asset), in fee-token (USD) units — deterministic.
-			//  - Cross-asset legs are half a round-trip: the open side is marked at
-			//    the opposite curve (sells token1 → rebuy at bid; buys token1 →
-			//    resale at ask), in token0 units. Only two-sided legs contribute; a
-			//    one-sided (directional) leg has no opposite curve to mark against.
-			//
-			// EVERY leg is gated individually, in its OWN unit — a sign check needs
-			// no common denominator, and margins from pairs with different token0s
-			// must never be summed for a decision (adding dollars to rand lets a
-			// winning leg in a cheap currency mask a losing leg in an expensive
-			// one). The USD-converted sum below is score/telemetry only.
+			//    SAME asset), in fee-token (USD) units — deterministic, and gated:
+			//    a fill that nets a loss of the asset is refused.
+			//  - Cross-asset legs are priced on their own side's curve — the
+			//    operator's declared price, so a fill at it is acceptable by
+			//    definition. Bid and ask are independent books; the FX margin below
+			//    (open side marked at the opposite curve, a mark-to-model round-trip
+			//    value) is REPORT-ONLY telemetry and never rejects an order or
+			//    feeds the execute score.
 			let realizedSpreadProfit = 0n
 			let fxMarginUsd = new Decimal(0)
 			let hasSameTokenSpread = false
 			let sameTokenAllProfitable = true
-			let hasFxMargin = false
-			let losingFxLeg: { leg: number; pair: string; marginToken0: string } | null = null
 			const usdFactorBySymbol = this.usdFactors()
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const legIndex = fillerOutputLegs[i]
@@ -735,7 +769,6 @@ export class FXFiller implements FillerStrategy {
 
 				const rates = legRatesByIndex.get(legIndex)
 				if (!rates?.oppositeRate) continue
-				hasFxMargin = true
 
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
@@ -751,13 +784,6 @@ export class FXFiller implements FillerStrategy {
 					const inputToken1 = new Decimal(formatUnits(input.amount, token1Decimals))
 					const outputToken0 = new Decimal(formatUnits(output.amount, token0Decimals))
 					legMarginToken0 = inputToken1.div(rates.oppositeRate).minus(outputToken0)
-				}
-				if (legMarginToken0.lte(0) && !losingFxLeg) {
-					losingFxLeg = {
-						leg: legIndex,
-						pair: `${leg.pair.token0}/${leg.pair.token1}`,
-						marginToken0: legMarginToken0.toString(),
-					}
 				}
 				const usdFactor = usdFactorBySymbol.get(normalizeSymbol(leg.pair.token0))
 				if (usdFactor) fxMarginUsd = fxMarginUsd.plus(legMarginToken0.mul(usdFactor))
@@ -790,21 +816,14 @@ export class FXFiller implements FillerStrategy {
 				return 0
 			}
 
-			// GATE 2 — swap profit (independent). The fill must make the filler money
-			// on the swap itself, measured per category present. One-sided (directional)
-			// legs produce no spread signal and are not gated here — the operator opted
-			// into that position by configuring one-sided pricing.
+			// GATE 2 — same-token spread (independent). A same-token fill must net
+			// the filler the asset. Cross-asset and one-sided legs are not gated:
+			// they fill at the operator's own curve, which is the price the operator
+			// declared acceptable.
 			if (hasSameTokenSpread && !sameTokenAllProfitable) {
 				this.logger.info(
 					{ orderId: order.id, realizedSpreadProfit: formatUnits(realizedSpreadProfit, feeTokenDecimals) },
 					"Skipping order: a same-token leg does not net a positive spread",
-				)
-				return 0
-			}
-			if (hasFxMargin && losingFxLeg) {
-				this.logger.info(
-					{ orderId: order.id, ...losingFxLeg },
-					"Skipping order: a cross-asset leg's FX margin is not positive in its own quote asset",
 				)
 				return 0
 			}
@@ -813,12 +832,11 @@ export class FXFiller implements FillerStrategy {
 			// Both gates passed → the order is profitable. This number is only the
 			// ranking / >0 execute signal, never a funds gate (the two gates above
 			// already decided). It sums fee surplus (USD) with the realized same-token
-			// spread and the cross-asset FX margin converted to USD through the
-			// anchor factors — for a non-USD same-token asset the spread term is in
-			// that asset's units, so the magnitude is a rough signal rather than a
-			// true dollar figure; its sign is always correct.
-			const totalProfit =
-				parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals)) + fxMarginUsd.toNumber()
+			// spread — for a non-USD same-token asset the spread term is in that
+			// asset's units, so the magnitude is a rough signal rather than a true
+			// dollar figure; its sign is always correct. fxMarginUsd is reported in
+			// the log below but never summed in.
+			const totalProfit = parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
 
 			this.logger.info(
 				{
@@ -956,6 +974,18 @@ export class FXFiller implements FillerStrategy {
 		} else {
 			this.consecutiveClamps = 0
 		}
+	}
+
+	public isHalted(): boolean {
+		return this.halted
+	}
+
+	/** Operator acknowledgement after investigating a self-halt; resumes filling. */
+	public resetHalt(): void {
+		if (!this.halted) return
+		this.halted = false
+		this.consecutiveClamps = 0
+		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
 	}
 
 	/**
@@ -1107,12 +1137,9 @@ export class FXFiller implements FillerStrategy {
 				if (!this.checkPriceGuard(orderId, leg.token1Chain, new Decimal(1).div(venueUsd))) {
 					return null
 				}
-				// A pool mid is ONE price, not a book: there is no opposite side to
-				// mark a round trip against, so venue legs are directional
-				// (gate-1-only), exactly like one-sided curve pairs. Marking the
-				// mid against itself would make the spread gate's outcome a
-				// rounding-dust lottery (margin ≡ 0 up to integer truncation).
-				// The price guard above is the venue-specific defense.
+				// A pool mid is ONE price, not a book: there is no opposite side
+				// to report a round-trip margin against. The price guard above is
+				// the venue-specific defense.
 				const venueRate = new Decimal(1).div(venueUsd)
 				return { rate: venueRate, oppositeRate: null, priceSource: "venue" }
 			}

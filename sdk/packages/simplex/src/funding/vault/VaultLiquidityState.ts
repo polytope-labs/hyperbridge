@@ -77,6 +77,17 @@ export class VaultLiquidityState {
 				functionName: "decimals",
 			})) as number
 
+			// Vaults are keyed by underlying asset — a second same-asset vault would
+			// silently shadow the first (its shares invisible to sourcing, sweeping
+			// and shutdown redemption). Fail loudly instead.
+			const existing = this.vaults.get(asset.toLowerCase())
+			if (existing) {
+				throw new Error(
+					`Vaults ${existing.vault} and ${cfg.vault} on ${this.chain} share the underlying asset ${asset}; ` +
+						"configure at most one vault per asset per chain",
+				)
+			}
+
 			this.vaults.set(asset.toLowerCase(), {
 				vault: cfg.vault,
 				asset,

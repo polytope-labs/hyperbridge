@@ -17,7 +17,7 @@ const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 
 const FLAT = new FillerPricePolicy({ points: [{ amount: "0", price: "1500" }] })
-// Bid for two-sided books — bid must sit above ask (crossed/zero spread fails construction).
+// Bid for two-sided books — sits above the ask so round trips are profitable.
 const FLAT_BID = new FillerPricePolicy({ points: [{ amount: "0", price: "1520" }] })
 
 /** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */

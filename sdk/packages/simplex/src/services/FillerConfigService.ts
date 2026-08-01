@@ -193,6 +193,27 @@ export class FillerConfigService {
 		return this.fillerConfig?.allowlist
 	}
 
+	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
+	setRebalancing(rebalancing: RebalancingConfig | undefined): void {
+		if (this.fillerConfig) this.fillerConfig.rebalancing = rebalancing
+	}
+
+	/** Replaces the allowlist at runtime; takes effect on the next order. */
+	setAllowlist(allowlist: AllowlistConfig | undefined): void {
+		if (this.fillerConfig) this.fillerConfig.allowlist = allowlist
+		this.allowlistGlobal = allowlist?.users
+			? new Set(allowlist.users.map((u) => bytes32ToBytes20(u).toLowerCase()))
+			: undefined
+		this.allowlistBySource = allowlist?.bySource
+			? new Map(
+					Object.entries(allowlist.bySource).map(([chain, users]) => [
+						chain,
+						new Set(users.map((u) => bytes32ToBytes20(u).toLowerCase())),
+					]),
+				)
+			: undefined
+	}
+
 	/**
 	 * Whether an order from `user` on `chain` (a source state machine id, e.g. "EVM-1")
 	 * may be processed. Returns true when no allowlist is configured. Otherwise the user

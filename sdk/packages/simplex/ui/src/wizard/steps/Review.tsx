@@ -1,0 +1,142 @@
+import { useEffect, useState } from "react"
+import { api } from "../../api"
+import { CopyHash } from "../../components/CopyHash"
+import { assembleConfig, chainLabels, enabledChains } from "../state"
+import type { StepProps } from "../Wizard"
+
+type Phase = "review" | "starting" | "failed"
+
+export function StepReview({ state, defaults }: StepProps) {
+	const [toml, setToml] = useState<string>()
+	const [previewError, setPreviewError] = useState<string>()
+	const [phase, setPhase] = useState<Phase>("review")
+	const [startError, setStartError] = useState<string>()
+
+	useEffect(() => {
+		let cancelled = false
+		const config = assembleConfig(state, defaults)
+		api.post<{ ok: boolean; toml?: string; error?: string }>("/api/setup/preview", {
+			config,
+			chainLabels: chainLabels(state),
+			chainIds: enabledChains(state).map((c) => c.meta.chainId),
+		})
+			.then((res) => {
+				if (cancelled) return
+				setToml(res.toml)
+				setPreviewError(undefined)
+			})
+			.catch((err) => {
+				if (cancelled) return
+				setToml(undefined)
+				setPreviewError(err instanceof Error ? err.message : String(err))
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [state, defaults])
+
+	useEffect(() => {
+		if (phase !== "starting") return
+		const timer = setInterval(async () => {
+			try {
+				const status = await api.get<{ state: string; error?: string }>("/api/setup/start-status")
+				if (status.state === "running") {
+					window.location.href = "/"
+				} else if (status.state === "failed") {
+					setPhase("failed")
+					setStartError(status.error)
+				}
+			} catch {
+				// server may briefly be busy while booting; keep polling
+			}
+		}, 2000)
+		return () => clearInterval(timer)
+	}, [phase])
+
+	const saveAndStart = async () => {
+		setStartError(undefined)
+		try {
+			await api.post("/api/setup/save-and-start", {
+				config: assembleConfig(state, defaults),
+				chainLabels: chainLabels(state),
+				chainIds: enabledChains(state).map((c) => c.meta.chainId),
+			})
+			setPhase("starting")
+		} catch (err) {
+			setPhase("failed")
+			setStartError(err instanceof Error ? err.message : String(err))
+		}
+	}
+
+	if (phase === "starting") {
+		return (
+			<div className="card">
+				<h2>Starting the filler…</h2>
+				<p className="hint">
+					Resolving chains, hydrating funding venues and setting up EIP-7702 delegation — this takes up to a
+					minute. This page switches to the dashboard automatically.
+				</p>
+			</div>
+		)
+	}
+
+	const evmAddress =
+		state.signerType === "privateKey"
+			? state.signerAddress
+			: state.signerType === "mpcVault"
+				? state.mpcVault.accountAddress
+				: state.turnkey.signWith
+
+	return (
+		<div>
+			<div className="card">
+				<h2>Your accounts — fund these</h2>
+				{evmAddress && (
+					<div style={{ marginBottom: "0.9rem" }}>
+						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
+							Filler wallet (EVM) — needs stablecoins (USDC/USDT) on every enabled chain; gas is covered by the
+							paymaster, paid in USDC/USDT — whichever is available.
+						</p>
+						<div className="mono" style={{ fontSize: "1.05rem" }}>
+							<CopyHash value={evmAddress} chars={42} />
+						</div>
+					</div>
+				)}
+				{state.substrateAddress && (
+					<div>
+						<p className="hint" style={{ margin: "0 0 0.2rem" }}>
+							Hyperbridge account — needs BRIDGE tokens for bid fees (claimed back automatically).
+						</p>
+						<div className="mono" style={{ fontSize: "1.05rem" }}>
+							<CopyHash value={state.substrateAddress} chars={64} />
+						</div>
+					</div>
+				)}
+			</div>
+
+			<div className="card">
+				<h2>Config file</h2>
+				<p className="hint">
+					Written to <span className="mono">{defaults.configPath}</span> with permissions 600. It contains your
+					secrets — keep it private and out of version control. Safe to edit by hand later; re-run the wizard to
+					update it interactively.
+				</p>
+				{previewError && <p className="error">{previewError}</p>}
+			</div>
+
+			{phase === "failed" && (
+				<div className="card">
+					<p className="error">The filler failed to start: {startError}</p>
+					<p className="hint">
+						The config file was written — fix the problem (funding, endpoints) and try again, or edit the file and
+						run `simplex run` manually.
+					</p>
+				</div>
+			)}
+
+			<button type="button" className="primary" disabled={!toml} onClick={saveAndStart}>
+				Save & start the filler
+			</button>
+		</div>
+	)
+}

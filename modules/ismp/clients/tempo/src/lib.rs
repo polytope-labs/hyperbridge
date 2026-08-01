@@ -23,7 +23,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use evm_state_machine::EvmStateMachine;
@@ -132,7 +132,7 @@ impl<
 		match id {
 			StateMachine::Evm(TEMPO_MAINNET_CHAIN_ID)
 			| StateMachine::Evm(TEMPO_TESTNET_CHAIN_ID) => Ok(Box::new(EvmStateMachine::<H, T>::default())),
-			_ => Err(IsmpError::Custom(format!("State machine not supported: {id:?}"))),
+			_ => Err(Error::UnsupportedStateMachine(id))?,
 		}
 	}
 }

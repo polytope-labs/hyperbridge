@@ -25,9 +25,8 @@ use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod notification;
-mod prover;
 
-pub use prover::{FinalizationInfo, TempoProver};
+pub use tempo_prover::{FinalizationInfo, TempoProver};
 
 /// Default epoch length (in blocks) for Tempo mainnet and testnet.
 pub const DEFAULT_EPOCH_LENGTH: u64 = 21_600;
@@ -273,55 +272,5 @@ impl IsmpHost for TempoHost {
 
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
 		self.provider.clone()
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use sha3::Digest;
-	use tempo_verifier::primitives::TempoClientUpdate;
-
-	struct KeccakHasher;
-	impl ismp::messaging::Keccak256 for KeccakHasher {
-		fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
-			let mut hasher = sha3::Keccak256::new();
-			hasher.update(bytes);
-			primitive_types::H256::from_slice(&hasher.finalize())
-		}
-	}
-
-	const MAINNET_RPC: &str = "https://rpc.presto.tempo.xyz";
-
-	/// End-to-end smoke test against Tempo mainnet: fetches the latest
-	/// finalization, bootstraps a consensus state from the previous boundary
-	/// block, and runs full verification. Run with `cargo test -- --ignored`.
-	#[tokio::test]
-	#[ignore]
-	async fn verify_live_mainnet_finalization() {
-		let prover = TempoProver::new(MAINNET_RPC);
-		let latest = prover.finalization(None).await.unwrap();
-		let header = prover.header(latest.height).await.unwrap();
-
-		let epoch = compute_epoch(latest.height, DEFAULT_EPOCH_LENGTH);
-		let boundary_height = epoch * DEFAULT_EPOCH_LENGTH - 1;
-		let extra_data = prover.extra_data(boundary_height).await.unwrap();
-		let outcome = decode_dkg_outcome(&extra_data).unwrap();
-
-		let consensus_state = ConsensusState {
-			network_identity: outcome.network_identity,
-			from_epoch: outcome.epoch,
-			full_dkg_pending: outcome.is_next_full_dkg,
-			finalized_height: latest.height - 1,
-			finalized_hash: Default::default(),
-			epoch_length: DEFAULT_EPOCH_LENGTH,
-			chain_id: TEMPO_MAINNET_CHAIN_ID,
-		};
-		let update = TempoClientUpdate { finalization: latest.finalization, header };
-
-		let result =
-			tempo_verifier::verify_tempo_update::<KeccakHasher>(&consensus_state, &update).unwrap();
-		assert_eq!(result.hash, latest.digest);
-		assert_eq!(result.height, latest.height);
 	}
 }

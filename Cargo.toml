@@ -61,6 +61,7 @@ members = [
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
     "modules/consensus/tempo/verifier",
+    "modules/consensus/tempo/prover",
     "modules/consensus/pharos/primitives",
     "modules/consensus/pharos/verifier",
     "modules/consensus/pharos/prover",
@@ -295,6 +296,7 @@ tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", de
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
 tempo-verifier = { path = "./modules/consensus/tempo/verifier", default-features = false }
+tempo-prover = { path = "./modules/consensus/tempo/prover", default-features = false }
 pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
 pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
 pharos-prover = { path = "./modules/consensus/pharos/prover", default-features = false }

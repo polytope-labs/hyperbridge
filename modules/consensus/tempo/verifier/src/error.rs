@@ -13,98 +13,86 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ismp::error::Error as IsmpError;
+use ismp::{error::Error as IsmpError, host::StateMachine};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors raised while verifying Tempo consensus proofs.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
 	/// Input ended before the expected structure was fully decoded.
+	#[error("Unexpected end of input")]
 	UnexpectedEndOfInput,
 	/// A varint exceeded the 64-bit range.
+	#[error("Varint exceeds 64 bits")]
 	VarintOverflow,
 	/// A varint used a non-minimal (non-canonical) encoding.
+	#[error("Varint uses a non-minimal encoding")]
 	NonMinimalVarint,
 	/// A decoded length or count does not fit in the target's `usize`.
+	#[error("Decoded length does not fit in usize")]
 	LengthOverflow,
 	/// Decoded structure was followed by unexpected trailing bytes.
+	#[error("Unexpected trailing bytes")]
 	TrailingBytes,
 	/// The DKG outcome embedded in a boundary header was structurally invalid.
+	#[error("Structurally invalid DKG outcome")]
 	InvalidDkgOutcome,
 	/// Failed to decode the SCALE-encoded client update.
+	#[error("Cannot decode TempoClientUpdate")]
 	DecodeClientUpdate,
 	/// Failed to decode the SCALE-encoded consensus state.
+	#[error("Cannot decode ConsensusState")]
 	DecodeConsensusState,
 	/// A BLS point failed to decompress or was not in the prime-order subgroup.
+	#[error("Invalid BLS12-381 point")]
 	InvalidPoint,
 	/// The threshold signature did not verify against the network identity.
+	#[error("Threshold signature verification failed")]
 	SignatureVerificationFailed,
 	/// The certificate's epoch precedes the activation epoch of the network
 	/// identity held by the client.
+	#[error(
+		"Certificate epoch {certificate_epoch} precedes identity activation epoch {from_epoch}"
+	)]
 	EpochBeforeIdentity { certificate_epoch: u64, from_epoch: u64 },
 	/// The supplied header does not hash to the finalized digest.
+	#[error("Header hash does not match finalized digest")]
 	DigestMismatch,
 	/// The update does not advance the finalized height.
+	#[error("Expired update: finalized height {current}, update height {update}")]
 	ExpiredUpdate { current: u64, update: u64 },
 	/// A boundary block's DKG outcome was recorded for an unexpected epoch.
+	#[error("DKG outcome epoch mismatch: expected {expected}, got {got}")]
 	DkgOutcomeEpochMismatch { expected: u64, got: u64 },
 	/// The boundary block header is missing its DKG outcome.
+	#[error("Boundary header is missing its DKG outcome")]
 	MissingDkgOutcome,
 	/// The update would advance past an epoch boundary the client has not
 	/// verified, which would let it skip an identity rotation.
+	#[error(
+		"Update at height {update_height} would skip the epoch boundary after finalized height \
+		 {finalized_height}"
+	)]
 	UnprocessedEpochBoundary { finalized_height: u64, update_height: u64 },
 	/// A boundary block tried to change the group key without the previous
 	/// boundary having announced a full DKG ceremony.
+	#[error("Epoch {epoch} rotated the group key without an announced full DKG")]
 	UnannouncedIdentityRotation { epoch: u64 },
 	/// A rotation carried a group key that is not a valid G2 point.
+	#[error("Rotation carried an invalid group public key")]
 	InvalidIdentity,
 	/// The two certificates in a fraud proof do not conflict.
+	#[error("Fraud proof certificates do not conflict")]
 	InvalidFraudProof,
 	/// The consensus state has an invalid configuration.
+	#[error("Invalid consensus state")]
 	InvalidConsensusState,
-}
-
-impl core::fmt::Display for Error {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		match self {
-			Error::UnexpectedEndOfInput => write!(f, "unexpected end of input"),
-			Error::VarintOverflow => write!(f, "varint exceeds 64 bits"),
-			Error::NonMinimalVarint => write!(f, "varint uses a non-minimal encoding"),
-			Error::LengthOverflow => write!(f, "decoded length does not fit in usize"),
-			Error::TrailingBytes => write!(f, "unexpected trailing bytes"),
-			Error::InvalidDkgOutcome => write!(f, "structurally invalid DKG outcome"),
-			Error::DecodeClientUpdate => write!(f, "failed to decode TempoClientUpdate"),
-			Error::DecodeConsensusState => write!(f, "failed to decode ConsensusState"),
-			Error::InvalidPoint => write!(f, "invalid BLS12-381 point"),
-			Error::SignatureVerificationFailed => {
-				write!(f, "threshold signature verification failed")
-			},
-			Error::EpochBeforeIdentity { certificate_epoch, from_epoch } => write!(
-				f,
-				"certificate epoch {certificate_epoch} precedes identity activation epoch {from_epoch}"
-			),
-			Error::DigestMismatch => write!(f, "header hash does not match finalized digest"),
-			Error::ExpiredUpdate { current, update } => {
-				write!(f, "expired update: finalized height {current}, update height {update}")
-			},
-			Error::DkgOutcomeEpochMismatch { expected, got } => {
-				write!(f, "DKG outcome epoch mismatch: expected {expected}, got {got}")
-			},
-			Error::MissingDkgOutcome => write!(f, "boundary header is missing its DKG outcome"),
-			Error::UnprocessedEpochBoundary { finalized_height, update_height } => write!(
-				f,
-				"update at height {update_height} would skip the epoch boundary after finalized height {finalized_height}"
-			),
-			Error::UnannouncedIdentityRotation { epoch } => {
-				write!(f, "epoch {epoch} rotated the group key without an announced full DKG")
-			},
-			Error::InvalidIdentity => write!(f, "rotation carried an invalid group public key"),
-			Error::InvalidFraudProof => write!(f, "fraud proof certificates do not conflict"),
-			Error::InvalidConsensusState => write!(f, "invalid consensus state"),
-		}
-	}
+	/// A state machine id that this client does not track.
+	#[error("State machine not supported: {0:?}")]
+	UnsupportedStateMachine(StateMachine),
 }
 
 impl From<Error> for IsmpError {
 	fn from(error: Error) -> Self {
-		IsmpError::Custom(alloc::format!("{error}"))
+		IsmpError::AnyHow(anyhow::Error::new(error).into())
 	}
 }

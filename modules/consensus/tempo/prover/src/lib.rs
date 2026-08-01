@@ -1,4 +1,24 @@
-//! Minimal JSON-RPC client for the Tempo consensus and execution APIs.
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Prover for Tempo's commonware simplex consensus.
+//!
+//! A JSON-RPC client over a Tempo node's `consensus` and `eth` namespaces,
+//! producing the finalization certificates and headers that
+//! [`tempo_verifier`] consumes. Both namespaces are served from the same
+//! endpoint.
 
 use anyhow::{anyhow, Context};
 use geth_primitives::CodecHeader;
@@ -197,4 +217,59 @@ fn ethabi_bloom(value: &Value) -> anyhow::Result<ethabi::ethereum_types::Bloom> 
 
 fn ethabi_h64(value: &Value) -> anyhow::Result<ethabi::ethereum_types::H64> {
 	Ok(ethabi::ethereum_types::H64(fixed::<8>(value)?))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sha3::Digest;
+	use tempo_verifier::primitives::{
+		compute_epoch, decode_dkg_outcome, ConsensusState, TempoClientUpdate,
+		TEMPO_MAINNET_CHAIN_ID,
+	};
+
+	struct KeccakHasher;
+	impl ismp::messaging::Keccak256 for KeccakHasher {
+		fn keccak256(bytes: &[u8]) -> H256 {
+			let mut hasher = sha3::Keccak256::new();
+			hasher.update(bytes);
+			H256::from_slice(&hasher.finalize())
+		}
+	}
+
+	const MAINNET_RPC: &str = "https://rpc.presto.tempo.xyz";
+	const MAINNET_EPOCH_LENGTH: u64 = 21_600;
+
+	/// End-to-end smoke test against Tempo mainnet: fetches the latest
+	/// finalization, bootstraps a consensus state from the boundary block that
+	/// governs it, and runs full verification. Run with
+	/// `cargo test -p tempo-prover -- --ignored`.
+	#[tokio::test]
+	#[ignore]
+	async fn verify_live_mainnet_finalization() {
+		let prover = TempoProver::new(MAINNET_RPC);
+		let latest = prover.finalization(None).await.unwrap();
+		let header = prover.header(latest.height).await.unwrap();
+
+		let epoch = compute_epoch(latest.height, MAINNET_EPOCH_LENGTH);
+		let boundary_height = epoch * MAINNET_EPOCH_LENGTH - 1;
+		let extra_data = prover.extra_data(boundary_height).await.unwrap();
+		let outcome = decode_dkg_outcome(&extra_data).unwrap();
+
+		let consensus_state = ConsensusState {
+			network_identity: outcome.network_identity,
+			from_epoch: outcome.epoch,
+			full_dkg_pending: outcome.is_next_full_dkg,
+			finalized_height: latest.height - 1,
+			finalized_hash: Default::default(),
+			epoch_length: MAINNET_EPOCH_LENGTH,
+			chain_id: TEMPO_MAINNET_CHAIN_ID,
+		};
+		let update = TempoClientUpdate { finalization: latest.finalization, header };
+
+		let result =
+			tempo_verifier::verify_tempo_update::<KeccakHasher>(&consensus_state, &update).unwrap();
+		assert_eq!(result.hash, latest.digest);
+		assert_eq!(result.height, latest.height);
+	}
 }

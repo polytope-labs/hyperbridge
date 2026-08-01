@@ -9,20 +9,13 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 anyhow = { workspace = true, default-features = true }
 async-trait = "0.1.88"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-ethabi = { workspace = true, default-features = true }
-hex = { version = "0.4.3" }
+hex = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 ismp-tempo = { workspace = true, default-features = true }
 tempo-verifier = { workspace = true, default-features = true }
-geth-primitives = { workspace = true, default-features = true }
+tempo-prover = { workspace = true, default-features = true }
 log = { workspace = true, default-features = true }
-primitive-types = { workspace = true, default-features = true }
-reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-
-[dev-dependencies]
-sha3 = "0.10"

@@ -7,6 +7,8 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
@@ -29,6 +31,8 @@ ethabi = { workspace = true, features = ["std"] }
 [features]
 default = ["std"]
 std = [
+    "anyhow/std",
+    "thiserror/std",
     "codec/std",
     "scale-info/std",
     "ismp/std",

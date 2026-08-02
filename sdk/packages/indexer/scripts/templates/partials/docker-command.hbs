@@ -13,7 +13,7 @@
 {{#if blockConfirmations}}
 - --block-confirmations={{blockConfirmations}}
 {{else}}
-- --block-confirmations=0
+- --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
 {{/if}}
 - --unfinalized-blocks
 {{else}}

@@ -34,8 +34,8 @@ interface BuiltinSpec {
  * Symbols resolved per chain from the SDK chain registry — the single source
  * of truth for token addresses (`chain.ts`), shared with the rest of the SDK
  * so a new asset is added there once and never in a parallel table here.
- * ZARP/EURC/XSGD/TRYB are curated stablecoin deployments whose addresses were
- * taken from the issuer's official documentation and verified on-chain
+ * ZARP/EURC/XSGD/TRYB/USDR are curated stablecoin deployments whose addresses
+ * were taken from the issuer's official documentation and verified on-chain
  * (`symbol()`/`decimals()`) before inclusion in the SDK registry.
  */
 const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
@@ -43,6 +43,7 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 	USDT: { resolve: (r, chain) => r.getUsdtAsset(chain) },
 	DAI: { resolve: (r, chain) => r.getDaiAsset(chain) },
 	CNGN: { resolve: (r, chain) => r.getCNgnAsset(chain) },
+	USDR: { resolve: (r, chain) => r.getAssetBySymbol(chain, "USDR") },
 	ZARP: { resolve: (r, chain) => r.getAssetBySymbol(chain, "ZARP") },
 	EURC: { resolve: (r, chain) => r.getAssetBySymbol(chain, "EURC") },
 	XSGD: { resolve: (r, chain) => r.getAssetBySymbol(chain, "XSGD") },
@@ -133,7 +134,7 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
  *  1. the user's `[assets]` table — an *escape hatch* for assets the registry
  *     doesn't ship (or per-deployment overrides), never required for shipped
  *     symbols;
- *  2. shipped symbols (USDC, USDT, DAI, CNGN, ZARP, EURC, XSGD, TRYB)
+ *  2. shipped symbols (USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD, TRYB)
  *     resolved per chain from the SDK chain registry (`chain.ts`) — the single
  *     source of truth shared with the rest of the SDK, so an address
  *     correction there is never shadowed by a parallel table here.

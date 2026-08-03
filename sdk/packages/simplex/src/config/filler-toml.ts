@@ -98,7 +98,7 @@ export interface FillerTomlConfig {
 	 * Optional asset-registry escape hatch: symbol → { chain → address }. Only
 	 * needed for assets the built-in registry does not ship, or to override a
 	 * shipped address for a deployment. Shipped symbols: USDC, USDT, DAI, CNGN
-	 * (SDK chain registry) + curated ZARP, EURC, XSGD, TRYB.
+	 * (SDK chain registry) + curated USDR, ZARP, EURC, XSGD and TRYB.
 	 */
 	assets?: Record<string, AssetDefinition>
 	/**

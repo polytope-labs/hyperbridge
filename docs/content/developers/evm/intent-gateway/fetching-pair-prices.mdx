@@ -1,0 +1,104 @@
+---
+title: Fetching Pair Prices
+description: Fetch the latest Phantom price snapshot for a token pair from the Hyperbridge indexer.
+---
+
+# Fetching Pair Prices
+
+Phantom price snapshots are available from the Hyperbridge mainnet indexer's GraphQL API. A snapshot is directional: `tokenA` is the amount being priced and `tokenB` is the quoted token. To fetch the latest price, query the pair in that order and sort snapshots by descending block number.
+
+## cNGN → USDC
+
+For cNGN priced in USDC, use the canonical Base token addresses:
+
+| Field | Token | Address |
+| --- | --- | --- |
+| `tokenA` / `standardAmount` | cNGN | `0x46c85152bfe9f96829aa94755d9f915f9b10ef5f` |
+| `tokenB` / `medianPrice` | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+
+Send this query in a `POST` request to `https://nexus.indexer.polytope.technology/`:
+
+```graphql
+query CngnToUsdcRate {
+  phantomOrderPriceSnapshots(
+    first: 1
+    filter: {
+      and: [
+        {
+          tokenA: {
+            equalToInsensitive: "0x46c85152bfe9f96829aa94755d9f915f9b10ef5f"
+          }
+        }
+        {
+          tokenB: {
+            equalToInsensitive: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          }
+        }
+      ]
+    }
+    orderBy: [BLOCK_NUMBER_DESC]
+  ) {
+    nodes {
+      tokenA
+      tokenB
+      standardAmount
+      medianPrice
+      blockNumber
+    }
+  }
+}
+```
+
+For example, this sends the query in a GraphQL `POST` request:
+
+```typescript
+const response = await fetch("https://nexus.indexer.polytope.technology/", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ query: `query CngnToUsdcRate {
+    phantomOrderPriceSnapshots(
+      first: 1
+      filter: {
+        and: [
+          { tokenA: { equalToInsensitive: "0x46c85152bfe9f96829aa94755d9f915f9b10ef5f" } }
+          { tokenB: { equalToInsensitive: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } }
+        ]
+      }
+      orderBy: [BLOCK_NUMBER_DESC]
+    ) {
+      nodes { tokenA tokenB standardAmount medianPrice blockNumber }
+    }
+  }` }),
+})
+
+const { data, errors } = await response.json()
+if (errors) throw new Error(errors.map(({ message }) => message).join(", "))
+
+const snapshot = data.phantomOrderPriceSnapshots.nodes[0]
+```
+
+Use the first node returned. It is the most recent snapshot because the query requests one record and sorts by `BLOCK_NUMBER_DESC`.
+
+## Calculate the rate
+
+`standardAmount` and `medianPrice` are integer token amounts in their respective smallest units. Calculate the cNGN-to-USDC rate as:
+
+```
+rate = medianPrice / standardAmount
+```
+
+Both cNGN and USDC use six decimals, so their decimal adjustments cancel. The resulting rate means:
+
+```
+1 cNGN = rate USDC
+```
+
+For example, if the returned node has `standardAmount: "1000000"` and `medianPrice: "711"`, the rate is `711 / 1000000 = 0.000711`, meaning **1 cNGN = 0.000711 USDC**.
+
+<Callout type="info">
+Treat `standardAmount` and `medianPrice` as arbitrary-precision integers while calculating prices. In JavaScript, use `bigint` or a decimal library instead of converting large values to `number`.
+</Callout>
+
+## Fetch another pair
+
+Replace `tokenA` with the input token and `tokenB` with the output token. Keep the calculation as `medianPrice / standardAmount`. Snapshot prices are directional, so query the reverse address order when you need the reverse pair rather than assuming a reciprocal price is available.

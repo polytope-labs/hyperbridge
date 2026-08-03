@@ -103,7 +103,7 @@ services:
             - --historical=timestamp
             - --unfinalized-blocks
             - --disable-multichain-rewind-lock
-            - --block-confirmations=0
+            - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
 
@@ -144,7 +144,7 @@ services:
             - --historical=timestamp
             - --unfinalized-blocks
             - --disable-multichain-rewind-lock
-            - --block-confirmations=0
+            - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
 

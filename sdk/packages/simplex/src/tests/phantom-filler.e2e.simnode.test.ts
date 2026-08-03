@@ -85,6 +85,10 @@ const STANDARD_AMOUNT = 1_000_000n // 1 USDC (6 decimals)
 // aggregation only counts bids from senders that do.
 const SOLVER_ACCOUNT = new ChainConfigService().getSolverAccountAddress(BASE_STATE_MACHINE)!
 
+// Every filler declares these accepted source chains, so each bid's paymasterAndData carries the
+// encoded declaration and the aggregation must surface it per bidder.
+const DECLARED_SOURCES = ["EVM-1", "EVM-8453"]
+
 // One IntentFiller per solver. Distinct substrate keys (to place independent bids) and EVM keys
 // (distinct solver addresses/liquidity), and distinct FX prices so there is a real range to reduce.
 // //Alice is reserved for the driver's sudo/sealing, so fillers use other dev accounts to avoid
@@ -207,6 +211,7 @@ async function buildPhantomFiller(opts: {
 	const fillerConfig: FillerConfig = {
 		maxConcurrentOrders: 5,
 		pendingQueueConfig: { maxRechecks: 10, recheckDelayMs: 30_000 },
+		acceptedSourceChains: DECLARED_SOURCES,
 	}
 
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
@@ -383,6 +388,13 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 			expect(lp.chain).toBe(BASE_STATE_MACHINE)
 			expect(lp.tokenAddress.toLowerCase()).toBe(CNGN_BASE.toLowerCase())
 			expect(lp.balance).toBeGreaterThan(0n)
+		}
+		// The configured accepted-source declaration rode inside each bid's paymasterAndData —
+		// covered by the solver's signature — and survived SCALE encoding and aggregation.
+		expect(leg.bidders).toHaveLength(FILLERS.length)
+		for (const bidder of leg.bidders) {
+			expect(bidder.acceptedSources).toEqual(DECLARED_SOURCES)
+			expect(bidder.weight).toBeGreaterThan(0n)
 		}
 	}, 180_000)
 

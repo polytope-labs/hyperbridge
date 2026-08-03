@@ -917,6 +917,7 @@ export class IntentFiller {
 				entryPointAddress,
 				solverAccountAddress,
 				fillerOutputs,
+				this.config.acceptedSourceChains,
 			)
 
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity

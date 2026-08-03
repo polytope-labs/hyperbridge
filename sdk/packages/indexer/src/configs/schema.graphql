@@ -2344,6 +2344,25 @@ type PhantomOrderPriceSnapshot @entity {
 	pair: PhantomOrderPair! @index
 
 	"""
+	Destination chain state machine ID (e.g. EVM-8453), denormalized from PhantomOrder.chain so
+	per-chain price history is queryable without joining through the order. Null on rows indexed
+	before pools existed.
+	"""
+	chain: String @index
+
+	"""
+	The liquidity pool this leg belongs to, resolved through the pool token registry. Null when
+	either leg token is not registry-tracked.
+	"""
+	pool: LiquidityPool @index
+
+	"""
+	The leg's direction relative to the pool's token ordering: SELL (token0 -> token1) or
+	BUY (token1 -> token0). Null exactly when pool is null.
+	"""
+	direction: String
+
+	"""
 	EVM address of the input token (tokenA) priced by this snapshot, as a 0x-prefixed hex string.
 	"""
 	tokenA: String! @index
@@ -2411,6 +2430,11 @@ type LiquidityProvider @entity {
 	snapshots.
 	"""
 	balances: [LiquidityProviderBalance] @derivedFrom(field: "provider")
+
+	"""
+	Pools this provider currently backs, one row per (pool, chain, direction, output token).
+	"""
+	poolPositions: [PoolBidder] @derivedFrom(field: "provider")
 }
 
 """
@@ -2465,6 +2489,215 @@ type LiquidityProviderBalance @entity {
 	Timestamp of the Hyperbridge block at which this balance was recorded.
 	"""
 	snapshotTime: Date! @index
+}
+
+"""
+A cross-chain liquidity pool for one token pair, identified by the canonical slug of the two
+symbols sorted case-insensitively (e.g. cNGN-USDC). Upserted by the phantom price handler: each
+chain's phantom order samples the same market price (solvers arbitrage away per-chain drift), so
+the pool's single price per direction is the depth-weighted merge of the chains' latest samples,
+while depth is what actually varies per chain.
+
+Rates are output token units per 1 whole input token, scaled 1e18. Depths are 18-decimal
+normalized. A pair registered in only one direction in the pallet leaves the other side null.
+"""
+type LiquidityPool @entity {
+	"""
+	Canonical pair slug: {token0Symbol}-{token1Symbol}, symbols sorted case-insensitively.
+	"""
+	id: ID!
+
+	"""
+	First symbol in the sort order, in the registry's canonical casing.
+	"""
+	token0Symbol: String! @index
+
+	"""
+	Second symbol in the sort order; equals token0Symbol for a same-asset pool.
+	"""
+	token1Symbol: String! @index
+
+	"""
+	SELL price: token1 units received per 1 whole token0, scaled 1e18, depth-weighted across the
+	chains' latest samples. Null until the token0 -> token1 direction is first priced.
+	"""
+	sellRate: BigInt @index
+
+	"""
+	BUY price: token0 units received per 1 whole token1, scaled 1e18. The inverse quote of
+	sellRate's, not its reciprocal — it is measured from the token1 -> token0 legs. Null until
+	that direction is first priced.
+	"""
+	buyRate: BigInt @index
+
+	"""
+	Total SELL-side depth: the token1 inventory (18-decimal normalized) of every solver currently
+	bidding the token0 -> token1 legs, summed across chains. Inventory is the solver's global
+	balance, so pools sharing a token double-count it, and a pool's two sides are not summable.
+	"""
+	sellDepth: BigInt!
+
+	"""
+	Total BUY-side depth: bidding solvers' token0 inventory, 18-decimal normalized.
+	"""
+	buyDepth: BigInt!
+
+	"""
+	Verified bidders currently backing the SELL side, summed across chains.
+	"""
+	sellBidCount: Int!
+
+	"""
+	Verified bidders currently backing the BUY side, summed across chains.
+	"""
+	buyBidCount: Int!
+
+	"""
+	Hyperbridge block of the last snapshot that touched this pool.
+	"""
+	lastUpdatedBlock: BigInt! @index
+
+	"""
+	Timestamp of the last snapshot that touched this pool.
+	"""
+	lastUpdatedAt: Date! @index
+
+	"""
+	The per-(chain, direction) latest samples this pool's rates and depths are recomputed from.
+	"""
+	chainLiquidity: [PoolChainLiquidity] @derivedFrom(field: "pool")
+
+	"""
+	The solvers currently bidding on this pool's legs; also the pool -> provider link.
+	"""
+	bidders: [PoolBidder] @derivedFrom(field: "pool")
+
+	"""
+	Per-leg phantom price snapshots attributed to this pool.
+	"""
+	snapshots: [PhantomOrderPriceSnapshot] @derivedFrom(field: "pool")
+}
+
+"""
+The latest phantom sample for one (pool, destination chain, direction) — the chain-distribution
+view of a pool. Overwritten in place each snapshot (price history lives in
+PhantomOrderPriceSnapshot), so the pool-level merge is recomputable from these rows alone.
+A depth of 0 with a fresh lastUpdatedBlock means the latest bid window had no valid quotes for
+this direction on this chain; rate then still carries the last known price.
+
+Solver inventories behind depth are read at the chain head when the snapshot is taken, not at a
+historical block, so a reindex reproduces prices but not necessarily depths.
+"""
+type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]]) {
+	"""
+	Composite identifier: {poolSlug}-{chain}-{direction}.
+	"""
+	id: ID!
+
+	"""
+	The pool this sample belongs to.
+	"""
+	pool: LiquidityPool! @index
+
+	"""
+	Destination chain state machine ID (e.g. EVM-8453) the sample was measured on.
+	"""
+	chain: String! @index
+
+	"""
+	SELL (token0 -> token1) or BUY (token1 -> token0), relative to the pool's token ordering.
+	"""
+	direction: String! @index
+
+	"""
+	Output token units per 1 whole input token for this direction on this chain, scaled 1e18.
+	"""
+	rate: BigInt!
+
+	"""
+	Sum of this leg's bidders' output-token inventory on this chain, 18-decimal normalized.
+	"""
+	depth: BigInt!
+
+	"""
+	Verified bidders behind the latest sample, including ones with zero inventory.
+	"""
+	bidCount: Int!
+
+	"""
+	Hyperbridge block of the latest sample. The pool-level merge ignores rows that are stale
+	relative to the freshest sample, so a quiet chain stops influencing the pool price.
+	"""
+	lastUpdatedBlock: BigInt! @index
+
+	"""
+	Timestamp of the latest sample.
+	"""
+	lastUpdatedAt: Date!
+}
+
+"""
+One solver currently bidding on one leg of a pool: the provider <-> pool link and the basis for
+cross-chain route availability. Rows reflect the latest bid window only — a solver that stops
+bidding has its row removed (bid history lives in FillerBid, balance history in
+LiquidityProviderBalance). A route src -> chain for a direction is live iff some row here accepts
+src with liquidity > 0; route depth is the sum of accepting rows' liquidity.
+"""
+type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
+	"""
+	Composite identifier: {poolSlug}-{chain}-{direction}-{outputToken}-{solver}. The output token
+	is part of the key so distinct representations of one symbol never collide.
+	"""
+	id: ID!
+
+	"""
+	The pool this bidder backs.
+	"""
+	pool: LiquidityPool! @index
+
+	"""
+	The bidding solver.
+	"""
+	provider: LiquidityProvider! @index
+
+	"""
+	Destination chain state machine ID the bid fills on.
+	"""
+	chain: String! @index
+
+	"""
+	SELL or BUY, relative to the pool's token ordering.
+	"""
+	direction: String! @index
+
+	"""
+	Lowercased EVM address of the leg's output token, whose inventory is this bidder's weight.
+	"""
+	outputToken: String!
+
+	"""
+	The bidder's output-token inventory on `chain` (raw ERC-20 plus redeemable ERC-4626 vault
+	positions), 18-decimal normalized. May be 0: the bid still counts towards bidCount but
+	contributes no depth, and route consumers should treat it as no capacity.
+	"""
+	liquidity: BigInt! @index
+
+	"""
+	Source chains this solver's signed paymasterAndData declaration accepts payment from, as
+	state machine IDs. Null means no declaration (legacy default: all CCTP/USDT0-covered chains);
+	an explicitly empty list means the solver accepts no source chains.
+	"""
+	acceptedSources: [String!]
+
+	"""
+	Hyperbridge block of the snapshot that last confirmed this bidder.
+	"""
+	lastUpdatedBlock: BigInt! @index
+
+	"""
+	Timestamp of the confirming snapshot.
+	"""
+	lastUpdatedAt: Date!
 }
 
 """
@@ -2799,7 +3032,7 @@ type IntentGatewayTokenVolume @entity {
 
 """
 Cumulative IntentGatewayV3 volume per chain and volume type, denominated in USD.
-FX tokens (e.g. cNGN) are priced via the latest PhantomOrderPriceSnapshot exchange rate.
+FX tokens (e.g. cNGN) are priced via their LiquidityPool rate against a $1 stable.
 """
 type CumulativeIntentGatewayVolumeUSD @entity {
 	"""

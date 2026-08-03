@@ -15,6 +15,7 @@ import {
 	type HexString,
 } from "@/protocols/intents/phantom-aggregation"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
+import { encodeAcceptedSourceChains } from "@/protocols/intents/phantom-source-declaration"
 import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
 import type { PackedUserOperation } from "@/types"
 
@@ -191,7 +192,11 @@ const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 const SOLVER_BALANCE = 500_000_000n
 const NODE_URL = "http://node.test"
 
-function unsignedUserOp(sender: HexString, nonce: bigint = BID_NONCE): PackedUserOperation {
+function unsignedUserOp(
+	sender: HexString,
+	nonce: bigint = BID_NONCE,
+	paymasterAndData: HexString = "0x",
+): PackedUserOperation {
 	return {
 		sender,
 		nonce,
@@ -200,7 +205,7 @@ function unsignedUserOp(sender: HexString, nonce: bigint = BID_NONCE): PackedUse
 		accountGasLimits: `0x${"00".repeat(32)}`,
 		preVerificationGas: 50_000n,
 		gasFees: `0x${"00".repeat(32)}`,
-		paymasterAndData: "0x",
+		paymasterAndData,
 		signature: "0x",
 	}
 }
@@ -212,9 +217,10 @@ async function signedBidUserOp(opts: {
 	sender?: HexString
 	commitment?: HexString
 	nonce?: bigint
+	paymasterAndData?: HexString
 }): Promise<PackedUserOperation> {
 	const signer = privateKeyToAccount(opts.signingKey)
-	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce)
+	const userOp = unsignedUserOp(opts.sender ?? (signer.address as HexString), opts.nonce, opts.paymasterAndData)
 	const solverSignature = await signer.signTypedData(
 		CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT_V08_ADDRESS, CHAIN_ID),
 	)
@@ -412,5 +418,44 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.lpBalances.map((lp) => lp.solver.toLowerCase())).toEqual([
 			privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
 		])
+	})
+
+	it("reports each leg's bidders with their inventory weight and no declaration as null", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.legs[0].bidders).toEqual([
+			{
+				solver: privateKeyToAccount(SOLVER_KEY).address.toLowerCase(),
+				weight: SOLVER_BALANCE,
+				acceptedSources: null,
+			},
+		])
+	})
+
+	// paymasterAndData is covered by the userOpHash, so the declaration carries the same
+	// authenticity as the quote — and signing over it keeps these fixtures' signatures valid.
+	it("decodes the accepted-source-chains declaration out of a bid's paymasterAndData", async () => {
+		const declared = ["EVM-1", "EVM-42161"]
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			paymasterAndData: encodeAcceptedSourceChains(declared),
+		})
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.legs[0].bidders[0].acceptedSources).toEqual(declared)
+	})
+
+	it("keeps an explicit empty declaration distinct from an absent one", async () => {
+		const userOp = await signedBidUserOp({
+			signingKey: SOLVER_KEY,
+			paymasterAndData: encodeAcceptedSourceChains([]),
+		})
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
+
+		expect(result!.legs[0].bidders[0].acceptedSources).toEqual([])
 	})
 })

@@ -6,6 +6,7 @@
 // simplex).
 import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
+import { decodeAcceptedSourceChains } from "@/protocols/intents/phantom-source-declaration"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
@@ -105,6 +106,19 @@ export interface LpBalance {
 	balance: bigint
 }
 
+/** One verified solver behind a leg's quote. */
+export interface PhantomLegBidder {
+	solver: HexString
+	/** The solver's output-token inventory on the destination chain — its weight in the median. */
+	weight: bigint
+	/**
+	 * Source chains the solver's signed paymasterAndData declaration accepts payment from. Null
+	 * when the bid carries no declaration (legacy default: all CCTP/USDT0-covered chains); an
+	 * empty array is an explicit accepts-nothing declaration.
+	 */
+	acceptedSources: string[] | null
+}
+
 /** The aggregated price for one leg of a phantom order. */
 export interface PhantomLegAggregation {
 	/** Position of the leg in the order's asset lists. */
@@ -114,6 +128,8 @@ export interface PhantomLegAggregation {
 	highestPrice: bigint
 	medianPrice: bigint
 	bidCount: number
+	/** The verified solvers quoting this leg; bidCount === bidders.length. */
+	bidders: PhantomLegBidder[]
 }
 
 /** The aggregated result for a single phantom order's bid window. */
@@ -475,7 +491,14 @@ export async function aggregatePhantomBids(params: {
 	// Quotes per leg, keyed by the leg's position in the order's asset lists. One bid carries a quote
 	// for every leg its solver priced, so a solver that only handles some of the pairs still counts
 	// towards those, and legs it skipped are left to the solvers that do handle them.
-	const quotesByLeg = new Map<number, { outputToken: HexString; quotes: { price: bigint; weight: bigint }[] }>()
+	const quotesByLeg = new Map<
+		number,
+		{
+			outputToken: HexString
+			quotes: { price: bigint; weight: bigint }[]
+			bidders: PhantomLegBidder[]
+		}
+	>()
 	const lpBalances: LpBalance[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
@@ -524,6 +547,10 @@ export async function aggregatePhantomBids(params: {
 			}
 			countedSolvers.add(normalizedSolver)
 
+			// The declaration rides in paymasterAndData, which the userOpHash covers, so it carries
+			// the same authenticity as the quote itself.
+			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
+
 			for (const [pairIndex, leg] of fillData.legs.entries()) {
 				// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
 				if (leg.solverAmount === 0n) continue
@@ -533,8 +560,9 @@ export async function aggregatePhantomBids(params: {
 				const outputTokenAddress = toAddress(leg.outputToken)
 				const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
 
-				const entry = quotesByLeg.get(pairIndex) ?? { outputToken: leg.outputToken, quotes: [] }
+				const entry = quotesByLeg.get(pairIndex) ?? { outputToken: leg.outputToken, quotes: [], bidders: [] }
 				entry.quotes.push({ price: leg.solverAmount, weight })
+				entry.bidders.push({ solver: normalizedSolver as HexString, weight, acceptedSources })
 				quotesByLeg.set(pairIndex, entry)
 			}
 
@@ -553,7 +581,7 @@ export async function aggregatePhantomBids(params: {
 	// so consumers cannot read an outlier bid as if it were a tradeable bound.
 	const legs = [...quotesByLeg.entries()]
 		.sort(([a], [b]) => a - b)
-		.map(([pairIndex, { outputToken, quotes }]) => {
+		.map(([pairIndex, { outputToken, quotes, bidders }]) => {
 			const medianPrice = weightedMedian(quotes)
 			return {
 				pairIndex,
@@ -562,6 +590,7 @@ export async function aggregatePhantomBids(params: {
 				highestPrice: medianPrice,
 				medianPrice,
 				bidCount: quotes.length,
+				bidders,
 			}
 		})
 

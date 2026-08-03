@@ -23,7 +23,13 @@ export {
 	type LpBalance,
 	type OrderCommitmentFn,
 	type PhantomAggregation,
+	type PhantomLegAggregation,
+	type PhantomLegBidder,
 	type RecoverBidSigner,
 	type RpcBidInfo,
 	type YieldVaultMap,
 } from "@/protocols/intents/phantom-aggregation"
+export {
+	decodeAcceptedSourceChains,
+	encodeAcceptedSourceChains,
+} from "@/protocols/intents/phantom-source-declaration"

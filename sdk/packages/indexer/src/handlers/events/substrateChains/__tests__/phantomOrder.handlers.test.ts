@@ -58,7 +58,11 @@ function table(entity: string): Map<string, any> {
 	},
 	getByField: async (entity: string, field: string, value: unknown) =>
 		[...table(entity).values()].filter((row) => row[field] === value),
-	getByFields: async (entity: string) => [...table(entity).values()],
+	// Equality filters only — the handlers use nothing else, and the real store supports no ranges.
+	getByFields: async (entity: string, filters: [string, string, unknown][] = []) =>
+		[...table(entity).values()].filter((row) =>
+			filters.every(([field, op, value]) => op !== "=" || row[field] === value),
+		),
 	remove: async (entity: string, id: string) => {
 		table(entity).delete(id)
 	},
@@ -83,11 +87,32 @@ function registeredEvent(pairs: unknown[]) {
 	} as any
 }
 
-function windowClosedEvent() {
+function windowClosedEvent(block: bigint = 11n) {
 	return {
 		event: { data: [hex(COMMITMENT)] },
-		block: { block: { header: { hash: { toString: () => "0xblock" }, number: { toBigInt: () => 11n } } } },
+		block: { block: { header: { hash: { toString: () => "0xblock" }, number: { toBigInt: () => block } } } },
 	} as any
+}
+
+// A priced leg as aggregatePhantomBids reports it. Solvers default to one anonymous bidder so the
+// pool pipeline always has someone behind a quote.
+function leg(
+	pairIndex: number,
+	outputToken: string,
+	medianPrice: bigint,
+	bidders: { solver: string; weight: bigint; acceptedSources: string[] | null }[] = [
+		{ solver: "0xsolver", weight: 0n, acceptedSources: null },
+	],
+) {
+	return {
+		pairIndex,
+		outputToken,
+		lowestPrice: medianPrice,
+		highestPrice: medianPrice,
+		medianPrice,
+		bidCount: bidders.length,
+		bidders,
+	}
 }
 
 beforeEach(() => {
@@ -131,8 +156,15 @@ describe("handlePhantomOrderPrices", () => {
 		await register([pair(USDC, CNGN, 1_000_000n), pair(CNGN, USDC, 1_000_000n)])
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [
-				{ pairIndex: 0, outputToken: CNGN, lowestPrice: 1_500n, highestPrice: 1_500n, medianPrice: 1_500n, bidCount: 3 },
-				{ pairIndex: 1, outputToken: USDC, lowestPrice: 660n, highestPrice: 660n, medianPrice: 660n, bidCount: 2 },
+				leg(0, CNGN, 1_500n, [
+					{ solver: "0xs1", weight: 0n, acceptedSources: null },
+					{ solver: "0xs2", weight: 0n, acceptedSources: null },
+					{ solver: "0xs3", weight: 0n, acceptedSources: null },
+				]),
+				leg(1, USDC, 660n, [
+					{ solver: "0xs1", weight: 0n, acceptedSources: null },
+					{ solver: "0xs2", weight: 0n, acceptedSources: null },
+				]),
 			],
 			lpBalances: [],
 		})
@@ -155,9 +187,7 @@ describe("handlePhantomOrderPrices", () => {
 	it("prices only the legs solvers quoted, leaving the rest without a snapshot", async () => {
 		await register([pair(USDC, CNGN, 1_000_000n), pair(CNGN, USDC, 1_000_000n)])
 		aggregatePhantomBids.mockResolvedValue({
-			legs: [
-				{ pairIndex: 1, outputToken: USDC, lowestPrice: 660n, highestPrice: 660n, medianPrice: 660n, bidCount: 1 },
-			],
+			legs: [leg(1, USDC, 660n)],
 			lpBalances: [],
 		})
 
@@ -172,9 +202,7 @@ describe("handlePhantomOrderPrices", () => {
 	it("does not rewrite snapshots when the same window close is replayed", async () => {
 		await register([pair(USDC, CNGN, 1_000_000n)])
 		aggregatePhantomBids.mockResolvedValue({
-			legs: [
-				{ pairIndex: 0, outputToken: CNGN, lowestPrice: 1n, highestPrice: 1n, medianPrice: 1n, bidCount: 1 },
-			],
+			legs: [leg(0, CNGN, 1n)],
 			lpBalances: [],
 		})
 
@@ -188,9 +216,7 @@ describe("handlePhantomOrderPrices", () => {
 	it("skips a priced leg with no registered pair rather than mislabelling it", async () => {
 		await register([pair(USDC, CNGN, 1_000_000n)])
 		aggregatePhantomBids.mockResolvedValue({
-			legs: [
-				{ pairIndex: 4, outputToken: CNGN, lowestPrice: 1n, highestPrice: 1n, medianPrice: 1n, bidCount: 1 },
-			],
+			legs: [leg(4, CNGN, 1n)],
 			lpBalances: [],
 		})
 
@@ -202,10 +228,7 @@ describe("handlePhantomOrderPrices", () => {
 	it("records each bidding solver's swept balances once, not once per leg", async () => {
 		await register([pair(USDC, CNGN, 1_000_000n), pair(CNGN, USDC, 1_000_000n)])
 		aggregatePhantomBids.mockResolvedValue({
-			legs: [
-				{ pairIndex: 0, outputToken: CNGN, lowestPrice: 1n, highestPrice: 1n, medianPrice: 1n, bidCount: 1 },
-				{ pairIndex: 1, outputToken: USDC, lowestPrice: 2n, highestPrice: 2n, medianPrice: 2n, bidCount: 1 },
-			],
+			legs: [leg(0, CNGN, 1n), leg(1, USDC, 2n)],
 			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
 		})
 
@@ -213,5 +236,160 @@ describe("handlePhantomOrderPrices", () => {
 
 		expect([...table("LiquidityProvider").values()]).toHaveLength(1)
 		expect([...table("LiquidityProviderBalance").values()]).toHaveLength(1)
+	})
+})
+
+// Both tokens live on Base in these tests: cNGN and USDC are registry-tracked with 6 decimals, so
+// rates and depths normalize by 10^(18-6) = 1e12.
+const SCALE = 10n ** 12n
+
+describe("handlePhantomOrderPrices pool pipeline", () => {
+	async function register(pairs: unknown[]) {
+		await handlePhantomOrderRegistered(registeredEvent(pairs))
+	}
+
+	it("merges both directions of a pair into one pool with sell and buy sides", async () => {
+		await register([pair(CNGN, USDC, 1_000_000n), pair(USDC, CNGN, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [
+				// cNGN -> USDC is the SELL side (cNGN sorts first), USDC -> cNGN the BUY side.
+				leg(0, USDC, 660n, [{ solver: "0xa", weight: 100n, acceptedSources: null }]),
+				leg(1, CNGN, 1_500n, [{ solver: "0xa", weight: 40n, acceptedSources: null }]),
+			],
+			lpBalances: [],
+		})
+
+		await handlePhantomOrderPrices(windowClosedEvent())
+
+		const pool = table("LiquidityPool").get("cNGN-USDC")
+		expect(pool).toMatchObject({
+			token0Symbol: "cNGN",
+			token1Symbol: "USDC",
+			sellRate: 660n * SCALE,
+			buyRate: 1_500n * SCALE,
+			sellDepth: 100n * SCALE,
+			buyDepth: 40n * SCALE,
+			sellBidCount: 1,
+			buyBidCount: 1,
+			lastUpdatedBlock: 11n,
+		})
+
+		const chainRows = [...table("PoolChainLiquidity").values()]
+		expect(chainRows.map((r) => r.id).sort()).toEqual([
+			`cNGN-USDC-${CHAIN}-BUY`,
+			`cNGN-USDC-${CHAIN}-SELL`,
+		])
+
+		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		expect(snapshots.map((s) => [s.poolId, s.direction, s.chain])).toEqual([
+			["cNGN-USDC", "SELL", CHAIN],
+			["cNGN-USDC", "BUY", CHAIN],
+		])
+	})
+
+	it("leaves the other side null for a pair registered in one direction only", async () => {
+		await register([pair(CNGN, USDC, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 5n, acceptedSources: null }])],
+			lpBalances: [],
+		})
+
+		await handlePhantomOrderPrices(windowClosedEvent())
+
+		const pool = table("LiquidityPool").get("cNGN-USDC")
+		expect(pool.sellRate).toBe(660n * SCALE)
+		expect(pool.buyRate).toBeUndefined()
+		expect(pool.buyDepth).toBe(0n)
+	})
+
+	it("keeps the snapshot but skips pool work when a leg token is not registry-tracked", async () => {
+		const unknownToken = "0x1111111111111111111111111111111111111111"
+		await register([pair(unknownToken, USDC, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 660n)],
+			lpBalances: [],
+		})
+
+		await handlePhantomOrderPrices(windowClosedEvent())
+
+		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		expect(snapshots).toHaveLength(1)
+		expect(snapshots[0].poolId).toBeUndefined()
+		expect(snapshots[0].direction).toBeUndefined()
+		expect(table("LiquidityPool").size).toBe(0)
+	})
+
+	it("skips pool work when the standard amount disagrees with the registry decimals", async () => {
+		// cNGN is 6-decimal; a 1e18 standard amount means the pallet config and registry disagree,
+		// and any rate derived from it would be off by an integer factor.
+		await register([pair(CNGN, USDC, 10n ** 18n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 660n)],
+			lpBalances: [],
+		})
+
+		await handlePhantomOrderPrices(windowClosedEvent())
+
+		expect([...table("PhantomOrderPriceSnapshot").values()]).toHaveLength(1)
+		expect(table("LiquidityPool").size).toBe(0)
+	})
+
+	it("records bidders with their declarations and removes ones that stop bidding", async () => {
+		await register([pair(CNGN, USDC, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [
+				leg(0, USDC, 660n, [
+					{ solver: "0xa", weight: 10n, acceptedSources: ["EVM-1", "EVM-56"] },
+					{ solver: "0xb", weight: 20n, acceptedSources: null },
+				]),
+			],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+		let bidders = [...table("PoolBidder").values()]
+		expect(bidders).toHaveLength(2)
+		expect(bidders.find((b) => b.providerId === "0xa")).toMatchObject({
+			acceptedSources: ["EVM-1", "EVM-56"],
+			liquidity: 10n * SCALE,
+			direction: "SELL",
+		})
+		expect(bidders.find((b) => b.providerId === "0xb")!.acceptedSources).toBeUndefined()
+		// Bidders get provider rows even when the balance sweep recorded nothing for them.
+		expect(table("LiquidityProvider").size).toBe(2)
+
+		// Next window only 0xa bids: 0xb's row must go, not linger as a live-looking route.
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 700n, [{ solver: "0xa", weight: 15n, acceptedSources: ["EVM-1"] }])],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(22n))
+
+		bidders = [...table("PoolBidder").values()]
+		expect(bidders).toHaveLength(1)
+		expect(bidders[0]).toMatchObject({ providerId: "0xa", liquidity: 15n * SCALE, acceptedSources: ["EVM-1"] })
+	})
+
+	it("zeroes depth but keeps the last rate when a registered pair goes unquoted", async () => {
+		await register([pair(CNGN, USDC, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 660n, [{ solver: "0xa", weight: 10n, acceptedSources: null }])],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+		// The window closes with bids from someone, but nobody quoted this pair's leg.
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(4, USDC, 1n)],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(22n))
+
+		const row = table("PoolChainLiquidity").get(`cNGN-USDC-${CHAIN}-SELL`)
+		expect(row).toMatchObject({ rate: 660n * SCALE, depth: 0n, bidCount: 0, lastUpdatedBlock: 22n })
+
+		const pool = table("LiquidityPool").get("cNGN-USDC")
+		expect(pool.sellRate).toBe(660n * SCALE)
+		expect(pool.sellDepth).toBe(0n)
 	})
 })

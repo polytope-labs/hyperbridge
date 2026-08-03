@@ -35,10 +35,10 @@ import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowR
 import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
 import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatewayTokenVolume"
 import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
-import { PhantomOrderPriceSnapshot } from "@/configs/src/types/models/PhantomOrderPriceSnapshot"
+import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
-import { BASE_CNGN } from "@/addresses/fx-tokens.addresses"
+import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -57,14 +57,10 @@ export type IntentVolumeType = "PLACED" | "FILLED"
 // USDC and USDT are assumed to be worth exactly $1.
 const STABLE_SYMBOLS = ["USDC", "USDT"]
 
-// Phantom pairs are registered against the cNGN/USDC pool on Base, so snapshot
-// prices are denominated in Base USDC: a $1 stable with 6 decimals.
-const SNAPSHOT_QUOTE_DECIMALS = 6
-
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-// Snapshots are scanned newest-first; a small window is enough to skip rows with no valid bids.
-const SNAPSHOT_SCAN_LIMIT = 10
+// Pool rates are 18-decimal fixed-point integers.
+const POOL_RATE_SCALE = new Decimal(10).pow(18)
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -349,7 +345,7 @@ export class IntentGatewayV3Service {
 				const tokenAddress = bytes32ToBytes20(token.token)
 				const { symbol, decimals } = await this.getTokenMetadata(tokenAddress)
 
-				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				const price = await this.getTokenUsdPriceWithFx(symbol)
 				return PriceHelper.getAmountValueInUSD(token.amount, decimals, price ? price.toFixed(18) : "0")
 			}),
 		)
@@ -367,7 +363,7 @@ export class IntentGatewayV3Service {
 	/**
 	 * Record intent gateway volume for a list of order tokens: cumulative raw amounts per
 	 * chain-token, plus a per-chain USD rollup priced at $1 for stables and via the
-	 * latest PhantomOrderPriceSnapshot exchange rate for FX tokens.
+	 * token's LiquidityPool rate for FX tokens.
 	 */
 	static async recordOrderVolume(
 		volumeType: IntentVolumeType,
@@ -409,7 +405,7 @@ export class IntentGatewayV3Service {
 				}
 				await tokenVolume.save()
 
-				const price = await this.getTokenUsdPriceWithFx(tokenAddress, symbol, decimals)
+				const price = await this.getTokenUsdPriceWithFx(symbol)
 				if (!price) {
 					logger.warn(
 						`[IntentGatewayV3Service.recordOrderVolume] No USD price for ${symbol} (${tokenAddress}) on ${chain}; skipping USD rollup, raw amount retained`,
@@ -453,65 +449,41 @@ export class IntentGatewayV3Service {
 		return { symbol, decimals }
 	}
 
-	private static async getTokenUsdPriceWithFx(
-		tokenAddress: string,
-		symbol: string,
-		decimals: number,
-	): Promise<Decimal | null> {
+	private static async getTokenUsdPriceWithFx(symbol: string): Promise<Decimal | null> {
 		if (STABLE_SYMBOLS.includes(symbol.toUpperCase())) {
 			return new Decimal(1)
 		}
 
-		// Snapshots reference Base token addresses, so cNGN on any chain is priced
-		// via its Base representation.
-		if (symbol.toUpperCase() === "CNGN") {
-			return this.getFxPriceFromSnapshots(BASE_CNGN.address, BASE_CNGN.decimals)
-		}
-
-		return this.getFxPriceFromSnapshots(tokenAddress.toLowerCase(), decimals)
+		return this.getFxPriceFromPools(symbol)
 	}
 
 	/**
-	 * Price an FX token from the latest PhantomOrderPriceSnapshot referencing it as either
-	 * leg of the pair. The snapshot rate is medianPrice / standardAmount adjusted for
-	 * decimals; the quote leg is assumed to be a $1 stable with SNAPSHOT_QUOTE_DECIMALS.
-	 * Snapshot addresses live on Base, so tokenAddress must be the Base representation.
+	 * Price an FX token in USD from its liquidity pool against a $1 stable. Pool rates are
+	 * decimals-free (output per 1 whole input, 1e18-scaled) and already merged across chains, so
+	 * no address or decimals context is needed — any chain's representation prices identically.
+	 * Prefers the direct FX -> stable side; falls back to the reciprocal of the stable -> FX side
+	 * when only that direction is registered. Null when no pool has priced the symbol yet.
 	 */
-	private static async getFxPriceFromSnapshots(tokenAddress: string, decimals: number): Promise<Decimal | null> {
-		const [asInput, asOutput] = await Promise.all([
-			PhantomOrderPriceSnapshot.getByFields([["tokenA", "=", tokenAddress]], {
-				limit: SNAPSHOT_SCAN_LIMIT,
-				orderBy: "blockNumber",
-				orderDirection: "DESC",
-			}),
-			PhantomOrderPriceSnapshot.getByFields([["tokenB", "=", tokenAddress]], {
-				limit: SNAPSHOT_SCAN_LIMIT,
-				orderBy: "blockNumber",
-				orderDirection: "DESC",
-			}),
-		])
+	private static async getFxPriceFromPools(symbol: string): Promise<Decimal | null> {
+		const canonical = canonicalPoolSymbol(symbol)
+		if (!canonical) return null
 
-		const snapshot = [...asInput, ...asOutput]
-			.filter((s) => s.medianPrice && s.medianPrice > 0n && s.standardAmount > 0n)
-			.sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1))[0]
-		if (!snapshot) return null
+		for (const quote of STABLE_SYMBOLS) {
+			const pool = await LiquidityPool.get(poolSlug(canonical, quote))
+			if (!pool) continue
 
-		const tokenIsInput = snapshot.tokenA.toLowerCase() === tokenAddress
+			const baseIsToken0 = pool.token0Symbol === canonical
+			const direct = baseIsToken0 ? pool.sellRate : pool.buyRate
+			const inverse = baseIsToken0 ? pool.buyRate : pool.sellRate
 
-		const median = new Decimal(snapshot.medianPrice!.toString())
-		const standard = new Decimal(snapshot.standardAmount.toString())
-
-		// tokenIsInput: medianPrice is tokenB units received per standardAmount of this token,
-		// so its price in stable units is median/standard; otherwise the reciprocal.
-		const rate = tokenIsInput
-			? median
-					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
-					.div(standard.div(new Decimal(10).pow(decimals)))
-			: standard
-					.div(new Decimal(10).pow(SNAPSHOT_QUOTE_DECIMALS))
-					.div(median.div(new Decimal(10).pow(decimals)))
-
-		return rate
+			if (direct && direct > 0n) {
+				return new Decimal(direct.toString()).div(POOL_RATE_SCALE)
+			}
+			if (inverse && inverse > 0n) {
+				return POOL_RATE_SCALE.div(new Decimal(inverse.toString()))
+			}
+		}
+		return null
 	}
 
 	static async updateOrderStatus(

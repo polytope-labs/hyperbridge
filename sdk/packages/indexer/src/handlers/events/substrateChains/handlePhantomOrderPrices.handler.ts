@@ -18,6 +18,7 @@ import {
 import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
 import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
+import { resolvePoolLeg, updateLiquidityPools, type RegisteredPair } from "@/services/liquidityPool.service"
 
 // The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
 // Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
@@ -41,9 +42,17 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const pairs = await PhantomOrderPair.getByOrderId(commitment, { limit: 64 })
 	if (pairs.length === 0) return
 
-	// Every pair's snapshot is written in one pass, so the first one already covering this block
-	// means the whole order was handled.
-	if (await PhantomOrderPriceSnapshot.get(`${commitment}-${blockNumber}-${pairs[0].pairIndex}`)) return
+	// Every leg's snapshot is written in one pass, so any snapshot for this block means the whole
+	// order was handled. Keyed by fields rather than a specific pair index because only quoted legs
+	// get snapshots, and which legs were quoted is not knowable before aggregating.
+	const handled = await PhantomOrderPriceSnapshot.getByFields(
+		[
+			["commitment", "=", commitment],
+			["blockNumber", "=", blockNumber],
+		],
+		{ limit: 1 },
+	)
+	if (handled.length > 0) return
 
 	let host: string
 	try {
@@ -129,6 +138,13 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	}
 
 	const pairsByIndex = new Map(pairs.map((pair) => [pair.pairIndex, pair]))
+	const registeredPairs: RegisteredPair[] = pairs.map((pair) => ({
+		pairIndex: pair.pairIndex,
+		tokenA: bytes32ToBytes20(pair.tokenA),
+		tokenB: bytes32ToBytes20(pair.tokenB),
+		standardAmount: pair.standardAmount,
+	}))
+	const registeredByIndex = new Map(registeredPairs.map((pair) => [pair.pairIndex, pair]))
 
 	for (const leg of aggregate.legs) {
 		const pair = pairsByIndex.get(leg.pairIndex)
@@ -139,10 +155,18 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			continue
 		}
 
+		const resolved = resolvePoolLeg(phantom.chain, registeredByIndex.get(leg.pairIndex)!)
+		if (!resolved) {
+			logger.debug({ commitment, pairIndex: leg.pairIndex }, "Leg tokens not registry-tracked, no pool attribution")
+		}
+
 		await PhantomOrderPriceSnapshot.create({
 			id: `${commitment}-${blockNumber}-${leg.pairIndex}`,
 			commitment,
 			pairId: pair.id,
+			chain: phantom.chain,
+			poolId: resolved?.poolId,
+			direction: resolved?.direction,
 			tokenA: bytes32ToBytes20(pair.tokenA),
 			tokenB: bytes32ToBytes20(pair.tokenB),
 			// Denormalized from the pair so a rate (medianPrice / standardAmount) is computable
@@ -156,6 +180,14 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			snapshotTime,
 		}).save()
 	}
+
+	await updateLiquidityPools({
+		chain: phantom.chain,
+		blockNumber,
+		snapshotTime,
+		pairs: registeredPairs,
+		legs: aggregate.legs,
+	})
 
 	logger.info({ commitment, blockNumber, pricedLegs: aggregate.legs.length }, "PhantomOrderPriceSnapshot saved")
 })

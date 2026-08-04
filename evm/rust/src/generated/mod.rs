@@ -10,6 +10,7 @@
 //! which is what substrate pallets consume.
 
 pub mod bandwidth_manager;
+pub mod bls_beefy;
 pub mod ecdsa_beefy;
 pub mod erc20;
 pub mod evm_host;

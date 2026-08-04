@@ -1,0 +1,244 @@
+[
+  {
+    "type": "function",
+    "name": "noOp",
+    "inputs": [
+      {
+        "name": "s",
+        "type": "tuple",
+        "internalType": "struct BeefyConsensusState",
+        "components": [
+          {
+            "name": "latestHeight",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "beefyActivationBlock",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "currentAuthoritySet",
+            "type": "tuple",
+            "internalType": "struct AuthoritySetCommitment",
+            "components": [
+              {
+                "name": "id",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "len",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "root",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "nextAuthoritySet",
+            "type": "tuple",
+            "internalType": "struct AuthoritySetCommitment",
+            "components": [
+              {
+                "name": "id",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "len",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "root",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct BlsBeefyConsensusProof",
+        "components": [
+          {
+            "name": "relay",
+            "type": "tuple",
+            "internalType": "struct BlsRelayChainProof",
+            "components": [
+              {
+                "name": "commitment",
+                "type": "tuple",
+                "internalType": "struct Commitment",
+                "components": [
+                  {
+                    "name": "payload",
+                    "type": "tuple[]",
+                    "internalType": "struct Payload[]",
+                    "components": [
+                      {
+                        "name": "id",
+                        "type": "bytes2",
+                        "internalType": "bytes2"
+                      },
+                      {
+                        "name": "data",
+                        "type": "bytes",
+                        "internalType": "bytes"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "blockNumber",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "validatorSetId",
+                    "type": "uint64",
+                    "internalType": "uint64"
+                  }
+                ]
+              },
+              {
+                "name": "signers",
+                "type": "tuple[]",
+                "internalType": "struct BlsSigner[]",
+                "components": [
+                  {
+                    "name": "publicKey",
+                    "type": "bytes",
+                    "internalType": "bytes"
+                  },
+                  {
+                    "name": "authorityIndex",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                ]
+              },
+              {
+                "name": "aggregateSignature",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "latestMmrLeaf",
+                "type": "tuple",
+                "internalType": "struct BeefyMmrLeaf",
+                "components": [
+                  {
+                    "name": "version",
+                    "type": "uint8",
+                    "internalType": "uint8"
+                  },
+                  {
+                    "name": "parentNumber",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "parentHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "nextAuthoritySet",
+                    "type": "tuple",
+                    "internalType": "struct AuthoritySetCommitment",
+                    "components": [
+                      {
+                        "name": "id",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                      },
+                      {
+                        "name": "len",
+                        "type": "uint32",
+                        "internalType": "uint32"
+                      },
+                      {
+                        "name": "root",
+                        "type": "bytes32",
+                        "internalType": "bytes32"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "extra",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "leafIndex",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                ]
+              },
+              {
+                "name": "mmrProof",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+              },
+              {
+                "name": "proof",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+              }
+            ]
+          },
+          {
+            "name": "parachain",
+            "type": "tuple",
+            "internalType": "struct ParachainProof",
+            "components": [
+              {
+                "name": "parachains",
+                "type": "tuple[]",
+                "internalType": "struct Parachain[]",
+                "components": [
+                  {
+                    "name": "index",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "id",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "header",
+                    "type": "bytes",
+                    "internalType": "bytes"
+                  }
+                ]
+              },
+              {
+                "name": "proof",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+              },
+              {
+                "name": "leafCount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "pure"
+  }
+]

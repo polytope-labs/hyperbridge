@@ -35,7 +35,9 @@ pallet-intents-rpc = { workspace = true }
 pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 pallet-beefy-consensus-proofs = { workspace = true, default-features = true }
-beefy-prover = { workspace = true }
+# `bls-aggregate` only adds `beefy_prover::bls`; it does not change how the ECDSA paths read the
+# wire, so the naive BEEFY simtest against Paseo is unaffected.
+beefy-prover = { workspace = true, features = ["bls-aggregate"] }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 ismp-abi = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }

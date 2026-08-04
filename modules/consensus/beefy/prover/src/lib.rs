@@ -49,7 +49,7 @@ use relay::{
 use util::hash_authority_addresses;
 
 /// Proving commitments signed with aggregate BLS12-381
-#[cfg(feature = "bls")]
+#[cfg(feature = "bls-aggregate")]
 pub mod bls;
 /// Methods for querying the relay chain
 pub mod relay;

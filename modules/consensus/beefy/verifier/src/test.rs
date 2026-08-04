@@ -1048,3 +1048,312 @@ async fn test_bls_consensus_via_prover() {
 		 height {trusted_height} -> {block_number}"
 	);
 }
+
+/// Offline coverage for the aggregate BLS path.
+///
+/// The BLS integration tests above all need a live relay chain, so none of them run in CI. These
+/// build a validator set from deterministic seeds and exercise the verifier directly, including
+/// the rejection paths, which is where the interesting behaviour lives.
+#[cfg(feature = "bls-crypto")]
+mod bls_offline {
+	use super::*;
+	use beefy_verifier_primitives::{
+		BLS_G1_SIGNATURE_LEN, BLS_G2_PUBLIC_KEY_LEN, BlsMmrProof, BlsSigner,
+	};
+	use w3f_bls::{
+		EngineBLS, Message, SecretKeyVT, SerializableToBytes, Signature as BlsSignature, TinyBLS381,
+	};
+
+	const SET_ID: ValidatorSetId = 7;
+	const BLOCK: u32 = 100;
+
+	type Validator = (SecretKeyVT<TinyBLS381>, [u8; BLS_G2_PUBLIC_KEY_LEN]);
+
+	/// Deterministic validators, so failures reproduce.
+	fn validators(count: usize) -> Vec<Validator> {
+		(0..count)
+			.map(|i| {
+				let secret = SecretKeyVT::<TinyBLS381>::from_seed(&[b'v', i as u8]);
+				let public = secret.into_public().to_bytes();
+				(secret, public.try_into().expect("G2 public key is 96 bytes"))
+			})
+			.collect()
+	}
+
+	fn aggregate(signatures: &[BlsSignature<TinyBLS381>]) -> [u8; BLS_G1_SIGNATURE_LEN] {
+		let mut sum: Option<<TinyBLS381 as EngineBLS>::SignatureGroup> = None;
+		for signature in signatures {
+			sum = Some(sum.map_or(signature.0, |acc| acc + signature.0));
+		}
+		BlsSignature::<TinyBLS381>(sum.expect("no signatures to aggregate"))
+			.to_bytes()
+			.try_into()
+			.expect("G1 signature is 48 bytes")
+	}
+
+	/// A trusted state and a proof over `signer_indices`, both internally consistent.
+	///
+	/// The MMR is a single leaf, so its root is just the leaf hash and an empty proof verifies.
+	/// That lets the happy path run offline rather than only against a chain.
+	fn valid_proof(
+		validators: &[Validator],
+		signer_indices: &[usize],
+	) -> (ConsensusState, BlsMmrProof) {
+		let leaf = MmrLeaf {
+			version: MmrLeafVersion::new(0, 0),
+			parent_number_and_hash: (BLOCK - 1, H256::zero()),
+			beefy_next_authority_set: BeefyNextAuthoritySet {
+				id: SET_ID + 1,
+				len: validators.len() as u32,
+				keyset_commitment: H256::zero(),
+			},
+			leaf_extra: H256::zero(),
+		};
+		let mmr_root = H256(keccak_256(&leaf.encode()));
+
+		let payload = Payload::from_single_entry(*b"mh", mmr_root.0.to_vec());
+		let commitment = Commitment { payload, block_number: BLOCK, validator_set_id: SET_ID };
+
+		// The keyset commitment is the merkle root over the hashed G2 keys, matching the runtime's
+		// converter.
+		let leaves = validators.iter().map(|(_, key)| keccak_256(key)).collect::<Vec<_>>();
+		let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+		let keyset_commitment = H256(tree.root().expect("keyset tree has a root"));
+		let authority_proof = tree.proof(signer_indices).proof_hashes().to_vec();
+
+		let message = Message::new(b"", &commitment.encode());
+		let signatures = signer_indices
+			.iter()
+			.map(|&i| validators[i].0.sign(&message))
+			.collect::<Vec<_>>();
+
+		let signers = signer_indices
+			.iter()
+			.map(|&i| BlsSigner { public_key: validators[i].1, index: i as u32 })
+			.collect::<Vec<_>>();
+
+		let trusted_state = ConsensusState {
+			latest_beefy_height: BLOCK - 1,
+			beefy_activation_block: 0,
+			mmr_root_hash: H256::zero(),
+			current_authorities: BeefyAuthoritySet {
+				id: SET_ID,
+				len: validators.len() as u32,
+				keyset_commitment,
+			},
+			next_authorities: BeefyAuthoritySet {
+				id: SET_ID + 1,
+				len: validators.len() as u32,
+				keyset_commitment: H256::zero(),
+			},
+		};
+
+		let proof = BlsMmrProof {
+			commitment,
+			signers,
+			aggregate_signature: aggregate(&signatures),
+			latest_mmr_leaf: leaf,
+			mmr_proof: LeafProof { leaf_indices: vec![0], leaf_count: 1, items: vec![] },
+			authority_proof,
+		};
+
+		(trusted_state, proof)
+	}
+
+	fn verify(
+		trusted_state: ConsensusState,
+		proof: BlsMmrProof,
+	) -> Result<(ConsensusState, H256), Error> {
+		sp_io::TestExternalities::default()
+			.execute_with(|| crate::verify_bls_mmr_update_proof::<TestHost>(trusted_state, proof))
+	}
+
+	#[test]
+	fn accepts_a_valid_aggregate() {
+		let validators = validators(4);
+		let (trusted_state, proof) = valid_proof(&validators, &[0, 1, 2, 3]);
+
+		let (new_state, _leaf_extra) = verify(trusted_state, proof).expect("should verify");
+
+		assert_eq!(new_state.latest_beefy_height, BLOCK, "height should advance to the commitment");
+	}
+
+	// Three of four is the supermajority, so a partial set must still verify. The aggregate is
+	// over the signers alone, which is what makes the merkle multi-proof necessary.
+	#[test]
+	fn accepts_a_supermajority_subset() {
+		let validators = validators(4);
+		let (trusted_state, proof) = valid_proof(&validators, &[0, 1, 3]);
+
+		assert!(verify(trusted_state, proof).is_ok());
+	}
+
+	// The check that stops a prover claiming one validator many times. Without it, a single
+	// signer's key and signature could be repeated to clear the supermajority threshold, and BLS
+	// aggregation would happily verify the repeated key against the repeated signature.
+	#[test]
+	fn rejects_duplicate_signer_indices() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+
+		// One real signer, counted three times. The signature is genuinely the sum of three
+		// copies of validator 0's signature, so the pairing check itself would pass.
+		let message = Message::new(b"", &proof.commitment.encode());
+		let signature = validators[0].0.sign(&message);
+		proof.aggregate_signature =
+			aggregate(&[validators[0].0.sign(&message), validators[0].0.sign(&message), signature]);
+		for signer in proof.signers.iter_mut() {
+			signer.public_key = validators[0].1;
+			signer.index = 0;
+		}
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::InvalidBlsSignerOrdering)));
+	}
+
+	#[test]
+	fn rejects_unordered_signer_indices() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.signers.swap(0, 2);
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::InvalidBlsSignerOrdering)));
+	}
+
+	#[test]
+	fn rejects_signer_outside_the_authority_set() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.signers.last_mut().unwrap().index = 9;
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::InvalidBlsSignerOrdering)));
+	}
+
+	#[test]
+	fn rejects_sub_supermajority() {
+		let validators = validators(4);
+		// Two of four is short of the >2/3 threshold.
+		let (trusted_state, proof) = valid_proof(&validators, &[0, 1]);
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::SuperMajorityRequired)));
+	}
+
+	#[test]
+	fn rejects_a_proof_with_no_signers() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.signers.clear();
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::NoBlsSigners)));
+	}
+
+	#[test]
+	fn rejects_a_stale_commitment() {
+		let validators = validators(4);
+		let (mut trusted_state, proof) = valid_proof(&validators, &[0, 1, 2]);
+		trusted_state.latest_beefy_height = BLOCK;
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::StaleHeight { .. })));
+	}
+
+	#[test]
+	fn rejects_an_unknown_authority_set() {
+		let validators = validators(4);
+		let (mut trusted_state, proof) = valid_proof(&validators, &[0, 1, 2]);
+		trusted_state.current_authorities.id = SET_ID + 5;
+		trusted_state.next_authorities.id = SET_ID + 6;
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::UnknownAuthoritySet { .. })));
+	}
+
+	// A signature over a different commitment: well formed points, wrong message.
+	#[test]
+	fn rejects_an_aggregate_over_the_wrong_message() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+
+		let other = Message::new(b"", b"a different commitment");
+		proof.aggregate_signature = aggregate(&[
+			validators[0].0.sign(&other),
+			validators[1].0.sign(&other),
+			validators[2].0.sign(&other),
+		]);
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::BlsVerificationFailed)));
+	}
+
+	// Dropping a signer from the aggregate while leaving their key in the proof must not verify,
+	// or a validator could be credited with a signature they never produced.
+	#[test]
+	fn rejects_an_aggregate_missing_a_claimed_signer() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+
+		let message = Message::new(b"", &proof.commitment.encode());
+		proof.aggregate_signature =
+			aggregate(&[validators[0].0.sign(&message), validators[1].0.sign(&message)]);
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::BlsVerificationFailed)));
+	}
+
+	// All-ones bytes are not undecodable. Arkworks keeps the point flags in the high bits of the
+	// last byte, and 0xff sets the infinity flag, so these decode to the identity element instead
+	// of failing. The identity is harmless (it contributes nothing to either sum, and a signer
+	// still has to appear in the committed keyset), but the rejection therefore arrives as a
+	// failed pairing rather than a decode error.
+	#[test]
+	fn rejects_an_identity_public_key() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.signers[1].public_key = [0xff; BLS_G2_PUBLIC_KEY_LEN];
+
+		let result = verify(trusted_state, proof);
+		assert!(matches!(result, Err(Error::BlsVerificationFailed)), "got {result:?}");
+	}
+
+	#[test]
+	fn rejects_an_identity_signature() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.aggregate_signature = [0xff; BLS_G1_SIGNATURE_LEN];
+
+		let result = verify(trusted_state, proof);
+		assert!(matches!(result, Err(Error::BlsVerificationFailed)), "got {result:?}");
+	}
+
+	// Corrupting the coordinate while leaving the flag bits alone does fail to decode, which is
+	// the path that reports `InvalidBlsPoint`.
+	#[test]
+	fn rejects_an_undecodable_public_key() {
+		let validators = validators(4);
+		let (trusted_state, mut proof) = valid_proof(&validators, &[0, 1, 2]);
+		proof.signers[1].public_key[0] ^= 0xff;
+
+		let result = verify(trusted_state, proof);
+		assert!(matches!(result, Err(Error::InvalidBlsPoint)), "got {result:?}");
+	}
+
+	// Correctly signed by keys that simply are not the committed authority set. The pairing check
+	// passes; only the merkle multi-proof catches it.
+	#[test]
+	fn rejects_signers_outside_the_committed_keyset() {
+		let committed = validators(4);
+		let impostors = (0..4)
+			.map(|i| {
+				let secret = SecretKeyVT::<TinyBLS381>::from_seed(&[b'x', i as u8]);
+				let public = secret.into_public().to_bytes();
+				(secret, public.try_into().expect("G2 public key is 96 bytes"))
+			})
+			.collect::<Vec<Validator>>();
+
+		let (trusted_state, mut proof) = valid_proof(&impostors, &[0, 1, 2]);
+		// Keep the impostors' signatures and keys, but point the state at the real keyset.
+		let leaves = committed.iter().map(|(_, key)| keccak_256(key)).collect::<Vec<_>>();
+		let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+		let mut trusted_state = trusted_state;
+		trusted_state.current_authorities.keyset_commitment =
+			H256(tree.root().expect("keyset tree has a root"));
+		proof.authority_proof = tree.proof(&[0, 1, 2]).proof_hashes().to_vec();
+
+		assert!(matches!(verify(trusted_state, proof), Err(Error::InvalidAuthoritiesProof)));
+	}
+}

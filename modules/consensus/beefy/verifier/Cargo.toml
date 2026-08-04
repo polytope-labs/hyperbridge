@@ -65,7 +65,7 @@ default = ["std"]
 bls-crypto = ["dep:w3f-bls"]
 # Runs the BLS-BEEFY tests against a relay whose BEEFY authorities are paired ecdsa_bls_crypto
 # keys. Pulls the prover's `bls` decode path, which reads 177-byte paired signatures and keys.
-bls = ["beefy-prover/bls", "bls-crypto"]
+bls = ["beefy-prover/bls", "beefy-prover/bls-aggregate", "bls-crypto"]
 # Storage keys for a relay that names its beefy-mmr pallet `MmrLeaf` rather than `BeefyMmrLeaf`.
 # Westend (and Polkadot/Kusama) use `BeefyMmrLeaf`, so leave this off for them; our rococo fork
 # used `MmrLeaf`, so pair it with `bls` as `--features bls,local` when testing against that chain.

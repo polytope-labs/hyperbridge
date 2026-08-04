@@ -480,7 +480,10 @@ pub mod pallet {
 					}
 					Some(nonce)
 				},
-				types::PROOF_TYPE_NAIVE => None,
+				// Only SP1 proofs are bound to a prover account. The naive and BLS paths verify
+				// signatures the relay chain's validators produced, so there is nothing
+				// prover-specific in them to bind and no anti-theft gate to apply.
+				types::PROOF_TYPE_NAIVE | types::PROOF_TYPE_BLS => None,
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
 
@@ -833,6 +836,15 @@ pub mod pallet {
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
 					let scale_proof: beefy_verifier_primitives::ConsensusMessage = abi_proof.into();
 					[&[types::PROOF_TYPE_NAIVE], scale_proof.encode().as_slice()].concat()
+				},
+				types::PROOF_TYPE_BLS => {
+					let abi_proof = <ismp_abi::bls_beefy::BlsBeefy::BlsBeefyConsensusProof as SolType>::abi_decode_params(
+						abi_payload,
+					)
+					.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::BlsConsensusMessage =
+						abi_proof.into();
+					[&[types::PROOF_TYPE_BLS], scale_proof.encode().as_slice()].concat()
 				},
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};

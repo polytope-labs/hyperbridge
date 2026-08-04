@@ -56,9 +56,10 @@ mod beefy {
 	use alloc::{vec, vec::Vec};
 	use alloy_primitives::{Bytes, FixedBytes};
 	use beefy_verifier_primitives::{
-		ConsensusMessage, ConsensusState, MmrProof, ParachainHeader as BvpParachainHeader,
-		ParachainProof as BvpParachainProof, SignatureWithAuthorityIndex,
-		SignedCommitment as BvpSignedCommitment, Sp1BeefyProof, TSignature,
+		BlsConsensusMessage, BlsMmrProof, BlsSigner, ConsensusMessage, ConsensusState, MmrProof,
+		ParachainHeader as BvpParachainHeader, ParachainProof as BvpParachainProof,
+		SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment, Sp1BeefyProof,
+		TSignature,
 	};
 	use polkadot_sdk::*;
 	use primitive_types::H256;
@@ -390,6 +391,220 @@ mod beefy {
 	impl From<BeefyConsensusProof> for ConsensusMessage {
 		fn from(value: BeefyConsensusProof) -> Self {
 			ConsensusMessage { mmr: value.relay.into(), parachain: value.parachain.into() }
+		}
+	}
+
+	// `sol!` emits a distinct set of Rust types per binding, so the shared BEEFY structs appear
+	// again under `BlsBeefy` even though the Solidity definitions are the same ones. These bridge
+	// those duplicates onto the `Beefy` types so the conversions to the SCALE primitives stay
+	// single-sourced above, rather than being written out a second time.
+	//
+	// `BlsBeefy.sol` cannot simply reuse the `EcdsaBeefy` artifact: that contract is deployed, and
+	// adding the BLS structs to its `noOp` would change its ABI and bytecode.
+	mod bls_bridge {
+		use super::*;
+		use crate::bls_beefy::BlsBeefy;
+
+		impl From<BlsBeefy::Payload> for Payload {
+			fn from(value: BlsBeefy::Payload) -> Self {
+				Payload { id: value.id, data: value.data }
+			}
+		}
+
+		impl From<BlsBeefy::Commitment> for Commitment {
+			fn from(value: BlsBeefy::Commitment) -> Self {
+				Commitment {
+					payload: value.payload.into_iter().map(Into::into).collect(),
+					blockNumber: value.blockNumber,
+					validatorSetId: value.validatorSetId,
+				}
+			}
+		}
+
+		impl From<BlsBeefy::AuthoritySetCommitment> for AuthoritySetCommitment {
+			fn from(value: BlsBeefy::AuthoritySetCommitment) -> Self {
+				AuthoritySetCommitment { id: value.id, len: value.len, root: value.root }
+			}
+		}
+
+		impl From<BlsBeefy::BeefyMmrLeaf> for BeefyMmrLeaf {
+			fn from(value: BlsBeefy::BeefyMmrLeaf) -> Self {
+				BeefyMmrLeaf {
+					version: value.version,
+					parentNumber: value.parentNumber,
+					parentHash: value.parentHash,
+					nextAuthoritySet: value.nextAuthoritySet.into(),
+					extra: value.extra,
+					leafIndex: value.leafIndex,
+				}
+			}
+		}
+
+		impl From<BlsBeefy::Parachain> for Parachain {
+			fn from(value: BlsBeefy::Parachain) -> Self {
+				Parachain { index: value.index, id: value.id, header: value.header }
+			}
+		}
+
+		impl From<BlsBeefy::ParachainProof> for ParachainProof {
+			fn from(value: BlsBeefy::ParachainProof) -> Self {
+				ParachainProof {
+					parachains: value.parachains.into_iter().map(Into::into).collect(),
+					proof: value.proof,
+					leafCount: value.leafCount,
+				}
+			}
+		}
+
+		// The same bridges the other way, so a prover can build the payload it submits.
+		impl From<Payload> for BlsBeefy::Payload {
+			fn from(value: Payload) -> Self {
+				BlsBeefy::Payload { id: value.id, data: value.data }
+			}
+		}
+
+		impl From<Commitment> for BlsBeefy::Commitment {
+			fn from(value: Commitment) -> Self {
+				BlsBeefy::Commitment {
+					payload: value.payload.into_iter().map(Into::into).collect(),
+					blockNumber: value.blockNumber,
+					validatorSetId: value.validatorSetId,
+				}
+			}
+		}
+
+		impl From<AuthoritySetCommitment> for BlsBeefy::AuthoritySetCommitment {
+			fn from(value: AuthoritySetCommitment) -> Self {
+				BlsBeefy::AuthoritySetCommitment { id: value.id, len: value.len, root: value.root }
+			}
+		}
+
+		impl From<BeefyMmrLeaf> for BlsBeefy::BeefyMmrLeaf {
+			fn from(value: BeefyMmrLeaf) -> Self {
+				BlsBeefy::BeefyMmrLeaf {
+					version: value.version,
+					parentNumber: value.parentNumber,
+					parentHash: value.parentHash,
+					nextAuthoritySet: value.nextAuthoritySet.into(),
+					extra: value.extra,
+					leafIndex: value.leafIndex,
+				}
+			}
+		}
+
+		impl From<Parachain> for BlsBeefy::Parachain {
+			fn from(value: Parachain) -> Self {
+				BlsBeefy::Parachain { index: value.index, id: value.id, header: value.header }
+			}
+		}
+
+		impl From<ParachainProof> for BlsBeefy::ParachainProof {
+			fn from(value: ParachainProof) -> Self {
+				BlsBeefy::ParachainProof {
+					parachains: value.parachains.into_iter().map(Into::into).collect(),
+					proof: value.proof,
+					leafCount: value.leafCount,
+				}
+			}
+		}
+	}
+
+	impl From<crate::bls_beefy::BlsBeefy::BlsRelayChainProof> for BlsMmrProof {
+		fn from(value: crate::bls_beefy::BlsBeefy::BlsRelayChainProof) -> Self {
+			let leaf: BeefyMmrLeaf = value.latestMmrLeaf.into();
+			let leaf_index: u64 = leaf.leafIndex.try_into().expect("mmr leaf index out of bounds");
+			let mmr_proof = LeafProof {
+				leaf_indices: vec![leaf_index],
+				leaf_count: leaf_index.saturating_add(1),
+				items: value.mmrProof.into_iter().map(|h| H256(h.0)).collect(),
+			};
+
+			let signers = value
+				.signers
+				.into_iter()
+				.map(|signer| BlsSigner {
+					public_key: signer
+						.publicKey
+						.as_ref()
+						.try_into()
+						.expect("BLS public key should be 96 bytes"),
+					index: signer.authorityIndex.try_into().expect("authority index out of bounds"),
+				})
+				.collect();
+
+			let commitment: Commitment = value.commitment.into();
+
+			BlsMmrProof {
+				commitment: commitment.into(),
+				signers,
+				aggregate_signature: value
+					.aggregateSignature
+					.as_ref()
+					.try_into()
+					.expect("aggregate BLS signature should be 48 bytes"),
+				latest_mmr_leaf: leaf.into(),
+				mmr_proof,
+				authority_proof: value.proof.into_iter().map(|h| h.0).collect(),
+			}
+		}
+	}
+
+	impl From<BlsMmrProof> for crate::bls_beefy::BlsBeefy::BlsRelayChainProof {
+		fn from(value: BlsMmrProof) -> Self {
+			use crate::bls_beefy::BlsBeefy;
+
+			let leaf_index = value.mmr_proof.leaf_indices[0];
+			let commitment: Commitment = value.commitment.into();
+			let leaf = BeefyMmrLeaf {
+				version: 0,
+				parentNumber: value.latest_mmr_leaf.parent_number_and_hash.0,
+				parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
+				nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
+				extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
+				leafIndex: leaf_index.to_u256(),
+			};
+
+			BlsBeefy::BlsRelayChainProof {
+				commitment: commitment.into(),
+				signers: value
+					.signers
+					.into_iter()
+					.map(|signer| BlsBeefy::BlsSigner {
+						publicKey: Bytes::from(signer.public_key.to_vec()),
+						authorityIndex: signer.index.to_u256(),
+					})
+					.collect(),
+				aggregateSignature: Bytes::from(value.aggregate_signature.to_vec()),
+				latestMmrLeaf: leaf.into(),
+				mmrProof: value
+					.mmr_proof
+					.items
+					.into_iter()
+					.map(|h| FixedBytes::from(h.0))
+					.collect(),
+				proof: value.authority_proof.into_iter().map(FixedBytes::from).collect(),
+			}
+		}
+	}
+
+	impl From<BlsConsensusMessage> for crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof {
+		fn from(value: BlsConsensusMessage) -> Self {
+			let parachain: ParachainProof = value.parachain.into();
+
+			crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof {
+				relay: value.mmr.into(),
+				parachain: parachain.into(),
+			}
+		}
+	}
+
+	impl From<crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof> for BlsConsensusMessage {
+		fn from(value: crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof) -> Self {
+			// Two hops: the duplicate `BlsBeefy` struct bridges onto the `Beefy` one, which
+			// already knows how to become the SCALE primitive. `into()` will not chain these.
+			let parachain: ParachainProof = value.parachain.into();
+
+			BlsConsensusMessage { mmr: value.relay.into(), parachain: parachain.into() }
 		}
 	}
 

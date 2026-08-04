@@ -5,6 +5,7 @@ import {
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
+import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityLogService } from "@/services/ActivityLogService"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
@@ -177,7 +178,7 @@ describe("UiServer (operator mode)", () => {
 		server = undefined
 	})
 
-	async function startServer(overrides: Partial<OperatorContext> = {}) {
+	async function startServer(overrides: Partial<OperatorContext> = {}, deps?: SetupDeps) {
 		const sameAsset = new FillerPricePolicy({ points: SAME_ASSET_POINTS })
 		const bid = new FillerPricePolicy({ points: BID_POINTS })
 		const ask = new FillerPricePolicy({ points: ASK_POINTS })
@@ -185,16 +186,16 @@ describe("UiServer (operator mode)", () => {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
 			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false },
+				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", ask: sameAsset, sameToken: true, maxOrderSize: "100000" },
+				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", bid, ask, sameToken: false, maxOrderSize: "5000" },
 				{ index: 2, pairIndex: 2, token0: "USDC", token1: "CNGN", sameToken: false }, // venue-priced: no editable curves
-				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false }, // one-sided LP
+				{ index: 3, pairIndex: 3, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: askOnly, sameToken: false, maxOrderSize: "5000" }, // one-sided LP
 			],
 			filler,
 			balances: { getSnapshot: () => ({ updatedAt: 123, chains: [{ chainId: 8453, usdc: 1500 }] }) },
 			...overrides,
 		})
-		server = new UiServer({ mode: "operator", operator })
+		server = new UiServer({ mode: "operator", operator, deps })
 		const port = await server.start(0)
 		return {
 			base: `http://127.0.0.1:${port}`,
@@ -270,6 +271,7 @@ describe("UiServer (operator mode)", () => {
 					pricingMode: "static",
 					sameToken: true,
 					referenceOnly: false,
+					maxOrderSize: "100000",
 					ask: SAME_ASSET_POINTS,
 				},
 				{
@@ -280,6 +282,7 @@ describe("UiServer (operator mode)", () => {
 					pricingMode: "static",
 					sameToken: false,
 					referenceOnly: false,
+					maxOrderSize: "5000",
 					bid: BID_POINTS,
 					ask: ASK_POINTS,
 				},
@@ -292,6 +295,7 @@ describe("UiServer (operator mode)", () => {
 					pricingMode: "static",
 					sameToken: false,
 					referenceOnly: false,
+					maxOrderSize: "5000",
 					ask: ASK_POINTS,
 				},
 			],
@@ -314,6 +318,7 @@ describe("UiServer (operator mode)", () => {
 			pricingMode: "static",
 			sameToken: false,
 			referenceOnly: false,
+			maxOrderSize: "5000",
 			bid: BID_POINTS,
 			ask: newAsk,
 			persisted: true,
@@ -1042,6 +1047,243 @@ describe("UiServer (operator mode)", () => {
 		// traversal is blocked (fetch normalizes ../, so send the raw path over a socket)
 		const traversal = await rawRequest(port, "/../secret.txt")
 		expect(traversal).toContain("403")
+	})
+
+	it("resizes a market's per-order cap on the live pair and persists it", async () => {
+		const { base, operator } = await startServer({ config: marketConfig() })
+		const setMaxOrderSize = vi.fn()
+		operator.strategies.find((s) => s.index === 1)!.setMaxOrderSize = setMaxOrderSize
+
+		const res = await put(base, "/api/strategies/1", { maxOrderSize: "12500" })
+		expect(res.status).toBe(200)
+		const payload = await res.json()
+		expect(payload.applied).toBe(true)
+		expect(payload.restartNeeded).toBe(false)
+		expect(payload.maxOrderSize).toBe("12500")
+		expect(setMaxOrderSize).toHaveBeenCalledWith("12500")
+		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("12500")
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.pairs?.[1]?.maxOrderSize).toBe("12500")
+	})
+
+	it("persists a cap for restart when the pair cannot be resized live", async () => {
+		const { base, operator } = await startServer({ config: marketConfig() })
+		// No setMaxOrderSize hook: no engine ran at boot.
+		const res = await put(base, "/api/strategies/1", { maxOrderSize: "7500" })
+		expect(await res.json()).toMatchObject({ applied: false, restartNeeded: true, persisted: true })
+		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("7500")
+	})
+
+	it("rejects non-positive caps and reference-only markets, leaving the pair untouched", async () => {
+		const { base, operator } = await startServer({ config: marketConfig() })
+		const strategy = operator.strategies.find((s) => s.index === 1)!
+		strategy.setMaxOrderSize = vi.fn()
+
+		for (const value of ["0", "-5", "abc", ""]) {
+			const res = await put(base, "/api/strategies/1", { maxOrderSize: value })
+			expect(res.status).toBe(400)
+			expect((await res.json()).error).toMatch(/maxOrderSize must be a (positive number|decimal string)/)
+		}
+		const unknown = await put(base, "/api/strategies/1", { maxOrderSize: "1", token0: "USDC" })
+		expect(unknown.status).toBe(400)
+		expect((await unknown.json()).error).toContain("Unknown fields")
+
+		strategy.referenceOnly = true
+		const reference = await put(base, "/api/strategies/1", { maxOrderSize: "1000" })
+		expect(reference.status).toBe(409)
+		expect((await reference.json()).error).toContain("never fill")
+
+		expect(strategy.setMaxOrderSize).not.toHaveBeenCalled()
+		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("5000")
+		expect(existsSync(operator.configPath)).toBe(false)
+	})
+
+	/** Two chain rows aligned with the operator's running chain ids. */
+	function chainsConfig(): FillerTomlConfig {
+		const config = marketConfig()
+		config.chains = [
+			{ rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
+			{ rpcUrls: ["https://bsc.example"], bundlerUrl: "https://bsc-bundler.example" },
+		]
+		return config
+	}
+
+	it("lists the configured chains alongside the wizard's catalog for their network", async () => {
+		const { base } = await startServer({ config: chainsConfig() })
+		const dto = await (await fetch(`${base}/api/chains`)).json()
+		expect(dto.chains).toEqual([
+			{
+				chainId: 8453,
+				stateMachineId: "EVM-8453",
+				label: "Base",
+				rpcUrls: ["https://base.example"],
+				bundlerUrl: "https://base-bundler.example",
+				watchOnly: false,
+				running: true,
+			},
+			{
+				chainId: 56,
+				stateMachineId: "EVM-56",
+				label: "BNB Chain",
+				rpcUrls: ["https://bsc.example"],
+				bundlerUrl: "https://bsc-bundler.example",
+				watchOnly: false,
+				running: true,
+			},
+		])
+		expect(dto.globalWatchOnly).toBe(false)
+		// The catalog is every selectable chain on the network — configured ones
+		// included, since the editor toggles them in place like the wizard does.
+		expect(dto.network).toBe("mainnet")
+		const catalogIds = dto.catalog.map((c: { chainId: number }) => c.chainId)
+		expect(catalogIds).toEqual(expect.arrayContaining([1, 8453, 56, 42161, 137]))
+		expect(catalogIds).not.toContain(84532)
+	})
+
+	it("scopes the catalog to testnet when the configured chains are testnets", async () => {
+		const config = chainsConfig()
+		const { base } = await startServer({ config, chains: [84532, 11155111] })
+		const dto = await (await fetch(`${base}/api/chains`)).json()
+		expect(dto.network).toBe("testnet")
+		expect(dto.catalog.map((c: { chainId: number }) => c.chainId)).toEqual(
+			expect.arrayContaining([84532, 11155111]),
+		)
+		expect(dto.catalog.map((c: { chainId: number }) => c.chainId)).not.toContain(1)
+	})
+
+	it("replaces the chain set: probes only new endpoints, persists, and asks for a restart", async () => {
+		const fetchChainId = vi.fn(async (url: string) => (url.includes("arb") ? 42161 : 8453))
+		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId })
+		// Drop BNB Chain, add Arbitrum, and give Base a second quorum provider.
+		const res = await put(base, "/api/chains", {
+			chains: [
+				{
+					chainId: 8453,
+					rpcUrls: ["https://base.example", "https://base-two.example"],
+					bundlerUrl: "https://base-bundler.example",
+				},
+				{ chainId: 42161, rpcUrls: ["https://arb.example"], bundlerUrl: "https://arb-bundler.example", watchOnly: true },
+			],
+		})
+		expect(res.status).toBe(200)
+		expect(await res.json()).toMatchObject({ applied: false, restartNeeded: true, persisted: true, removed: [56] })
+		// The pre-existing Base endpoint is not re-probed; the two new ones are.
+		expect(fetchChainId.mock.calls.map((c) => c[0]).sort()).toEqual([
+			"https://arb.example",
+			"https://base-two.example",
+		])
+		expect(operator.config.chains).toHaveLength(2)
+		expect(operator.config.simplex.watchOnly).toEqual({ "42161": true })
+
+		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(written.chains[1].bundlerUrl).toBe("https://arb-bundler.example")
+		// The rewritten file keeps the chain rows identifiable — the TOML has no chain id.
+		expect(readFileSync(operator.configPath, "utf-8")).toContain("# Arbitrum")
+
+		// The new row is reported as configured but not yet live.
+		const dto = await (await fetch(`${base}/api/chains`)).json()
+		expect(dto.chains.map((c: { chainId: number; running: boolean }) => [c.chainId, c.running])).toEqual([
+			[8453, true],
+			[42161, false],
+		])
+	})
+
+	it("rejects chain edits that boot would reject, with nothing persisted", async () => {
+		const fetchChainId = vi.fn(async () => 999)
+		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId })
+		const base8453 = { chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }
+
+		const empty = await put(base, "/api/chains", { chains: [] })
+		expect((await empty.json()).error).toContain("at least one chain")
+
+		const sameHost = await put(base, "/api/chains", {
+			chains: [{ ...base8453, rpcUrls: ["https://base.example", "https://base.example/two"] }],
+		})
+		expect((await sameHost.json()).error).toContain("different domains")
+
+		const noBundler = await put(base, "/api/chains", { chains: [{ ...base8453, bundlerUrl: "  " }] })
+		expect((await noBundler.json()).error).toContain("bundler URL")
+
+		const uncovered = await put(base, "/api/chains", {
+			chains: [base8453, { chainId: 999, rpcUrls: ["https://odd.example"], bundlerUrl: "https://odd.example" }],
+		})
+		expect((await uncovered.json()).error).toContain("No confirmation policy")
+
+		const wrongChain = await put(base, "/api/chains", {
+			chains: [{ ...base8453, rpcUrls: ["https://impostor.example"] }],
+		})
+		expect((await wrongChain.json()).error).toContain("reports chain 999, expected 8453")
+
+		expect(operator.config.chains).toHaveLength(2)
+		expect(existsSync(operator.configPath)).toBe(false)
+	})
+
+	it("refuses to drop a chain that still holds a funding venue", async () => {
+		const config = chainsConfig()
+		config.vault = { vaults: [{ chain: "EVM-56", vault: "0x1111111111111111111111111111111111111111" }] }
+		const { base, operator } = await startServer({ config }, { fetchChainId: vi.fn(async () => 8453) })
+		const res = await put(base, "/api/chains", {
+			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }],
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain("vault treasury")
+		expect(operator.config.chains).toHaveLength(2)
+	})
+
+	it("writes a testnet confirmation policy for an added testnet chain", async () => {
+		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId: vi.fn(async () => 84532) })
+		const res = await put(base, "/api/chains", {
+			chains: [
+				{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
+				{ chainId: 84532, rpcUrls: ["https://base-sepolia.example"], bundlerUrl: "https://bundler.example" },
+			],
+		})
+		expect(res.status).toBe(200)
+		expect(operator.config.confirmationPolicies?.["84532"]?.points.length).toBeGreaterThan(0)
+	})
+
+	it("keeps a global watch-only switch intact when the chain set changes", async () => {
+		const config = chainsConfig()
+		config.simplex.watchOnly = true
+		const { base, operator } = await startServer({ config }, { fetchChainId: vi.fn(async () => 8453) })
+		const dto = await (await fetch(`${base}/api/chains`)).json()
+		expect(dto.globalWatchOnly).toBe(true)
+		expect(dto.chains.every((c: { watchOnly: boolean }) => c.watchOnly)).toBe(true)
+
+		await put(base, "/api/chains", {
+			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }],
+		})
+		// Expanding it per chain would stop validateConfig treating this as an
+		// all-watch-only (signer-less) config.
+		expect(operator.config.simplex.watchOnly).toBe(true)
+	})
+
+	it("serves the wizard's stateless probes in operator mode but not its stateful routes", async () => {
+		// The Alchemy check probes the first derived URL, which is Ethereum's.
+		const fetchChainId = vi.fn(async (url: string) => (url.includes("eth-mainnet") ? 1 : 8453))
+		const { base } = await startServer({ config: chainsConfig() }, { fetchChainId })
+		const rpc = await fetch(`${base}/api/setup/validate-rpc`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({ urls: ["https://base.example"], expectedChainId: 8453 }),
+		})
+		expect(await rpc.json()).toMatchObject({ ok: true })
+
+		// The chain editor prefills endpoints from one Alchemy key, like the wizard.
+		const alchemy = await fetch(`${base}/api/setup/validate-alchemy-key`, {
+			method: "POST",
+			headers: CSRF,
+			body: JSON.stringify({ apiKey: "test-key", network: "mainnet" }),
+		})
+		const prefill = await alchemy.json()
+		expect(prefill.valid).toBe(true)
+		const base8453 = prefill.chains.find((c: { chainId: number }) => c.chainId === 8453)
+		expect(base8453.rpcUrl).toContain("test-key")
+		// Alchemy serves ERC-4337 bundler methods on the same endpoint.
+		expect(base8453.bundlerUrl).toBe(base8453.rpcUrl)
+
+		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
+		expect((await fetch(`${base}/api/setup/save-and-start`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(410)
 	})
 
 })

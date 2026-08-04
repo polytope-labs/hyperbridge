@@ -4,23 +4,36 @@ import { FillerPricePolicy, formatChainKey, parseChainKey, type PriceCurvePoint 
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
-import { INIT_CHAINS } from "@/cli/init/chains"
+import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
+import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import type { FillerTomlConfig, VaultToml } from "@/config/filler-toml"
+import { assertConfirmationCoverage, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { saveRuntimeState } from "@/core/runtime-state"
 import { isAddress } from "viem"
-import type { AllowlistConfig } from "@/services/FillerConfigService"
+import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
+import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityLogService, ActivityEvent } from "../ActivityLogService"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BidStorageService } from "../BidStorageService"
 import { configureLogger, getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
-import { handleSetupRequest, maskToml, validateToken, type SetupDeps } from "./setup-api"
+import {
+	handleSetupRequest,
+	maskToml,
+	resolveSetupDeps,
+	validateAlchemyKey,
+	validateBundler,
+	validateRpc,
+	validateToken,
+	type SetupDeps,
+} from "./setup-api"
 import {
 	LOG_LEVELS,
 	type AdminStrategyDto,
+	type ChainRowDto,
+	type ChainsDto,
 	type ConfigDto,
 	type SendTokenOption,
 	type StatusInit,
@@ -45,6 +58,14 @@ export interface AdminStrategy {
 	token1: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
+	/** Per-order cap in token0 units, as configured. Kept in step with `setMaxOrderSize`. */
+	maxOrderSize?: string
+	/**
+	 * Applies a new per-order cap to the live TradingPair — the engine reads it
+	 * per order, so the cap binds on the next evaluation. Absent when no engine
+	 * ran at boot (the edit is then persisted for the next start).
+	 */
+	setMaxOrderSize?: (value: string) => void
 	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
 	sameToken?: boolean
 	/** Price feed only — the pair never fills; curves stay editable, sides are never opened. */
@@ -144,6 +165,14 @@ export interface SetupContext {
 
 export type StartState = "idle" | "starting" | "running" | "failed"
 
+/** Setup routes that stay open in operator mode: stateless probes with no wizard state. */
+const OPERATOR_PROBES = [
+	"/api/setup/validate-token",
+	"/api/setup/validate-rpc",
+	"/api/setup/validate-bundler",
+	"/api/setup/validate-alchemy-key",
+]
+
 const UI_NOT_BUILT_HTML = `<!doctype html><meta charset="utf-8"><title>simplex</title>
 <body style="font-family:system-ui;margin:4rem auto;max-width:32rem">
 <h1>UI not built</h1><p>The simplex web UI is missing from this build.
@@ -169,12 +198,28 @@ export class UiServer {
 	private sseClients = new Set<ServerResponse>()
 	private activityListener?: (event: ActivityEvent) => void
 	private boundLoopback = true
+	private deps: Required<SetupDeps>
+	/**
+	 * Chain ids aligned with `config.chains` rows. The TOML records no chain id
+	 * — boot derives it from each row's RPC — so the running set supplies the
+	 * mapping until the operator edits the chain list, after which the edited
+	 * ids stand in (the file is authoritative again on the next boot).
+	 */
+	private configuredChainIds?: number[]
 
-	constructor(opts: { mode: UiMode; uiDistDir?: string; setup?: SetupContext; operator?: OperatorContext }) {
+	constructor(opts: {
+		mode: UiMode
+		uiDistDir?: string
+		setup?: SetupContext
+		operator?: OperatorContext
+		/** Test injection for the operator-mode network probes (chain editor, token verify). */
+		deps?: SetupDeps
+	}) {
 		this.mode = opts.mode
 		this.operator = opts.operator
 		this.setup = opts.setup
 		this.uiDistDir = opts.uiDistDir
+		this.deps = resolveSetupDeps(opts.deps)
 		if (this.mode === "operator") this.startState = "running"
 		if (this.operator) this.subscribeActivity()
 		this.server = createServer((req, res) => {
@@ -297,12 +342,19 @@ export class UiServer {
 		}
 
 		if (path.startsWith("/api/setup/")) {
-			// Stateless RPC probe, also needed by the operator add-market form
-			// to verify custom tokens — the only setup route usable after boot.
-			if (path === "/api/setup/validate-token" && this.mode === "operator") {
+			// Stateless probes, also needed by the operator forms (custom-token
+			// verify, chain editor) — the only setup routes usable after boot.
+			if (OPERATOR_PROBES.includes(path) && this.mode === "operator") {
 				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 				try {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
+					if (path === "/api/setup/validate-rpc") return sendJson(res, 200, await validateRpc(body, this.deps))
+					if (path === "/api/setup/validate-bundler") {
+						return sendJson(res, 200, await validateBundler(body, this.deps))
+					}
+					if (path === "/api/setup/validate-alchemy-key") {
+						return sendJson(res, 200, await validateAlchemyKey(body, this.deps))
+					}
 					// The operator form sends a chain key, not an RPC URL — the
 					// running config's endpoint for that chain backs the probe.
 					if (!body.rpcUrl && typeof body.chain === "string") {
@@ -331,8 +383,9 @@ export class UiServer {
 		const strategyMatch = path.match(/^\/api\/strategies\/(\d+)$/)
 		if (strategyMatch) {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
-			return this.handleMarketRemove(res, Number(strategyMatch[1]))
+			if (method === "DELETE") return this.handleMarketRemove(res, Number(strategyMatch[1]))
+			if (method === "PUT") return this.handleMarketUpdate(req, res, Number(strategyMatch[1]))
+			return sendJson(res, 405, { error: "Method not allowed" })
 		}
 
 		const curvesMatch = path.match(/^\/api\/strategies\/(\d+)\/curves$/)
@@ -433,6 +486,13 @@ export class UiServer {
 				knownVaults: this.knownVaultCatalog(op),
 			}
 			return sendJson(res, 200, configDto)
+		}
+
+		if (path === "/api/chains") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method === "GET") return this.handleChainsGet(res)
+			if (method === "PUT") return this.handleChainsUpdate(req, res)
+			return sendJson(res, 405, { error: "Method not allowed" })
 		}
 
 		if (path === "/api/log-level") {
@@ -551,9 +611,7 @@ export class UiServer {
 			strategyTypes: op.strategyTypes,
 			configPath: op.configPath,
 			addresses: op.addresses,
-			chainLabels: Object.fromEntries(
-				op.chains.map((id) => [id, INIT_CHAINS.find((c) => c.chainId === id)?.label ?? `chain ${id}`]),
-			),
+			chainLabels: Object.fromEntries(op.chains.map((id) => [id, chainLabel(id)])),
 		}
 		return sendJson(res, 200, status)
 	}
@@ -786,6 +844,63 @@ export class UiServer {
 	}
 
 	/**
+	 * PUT /api/strategies/:index — edits a live market's per-order cap. The
+	 * engine reads `maxOrderSize` while sizing each order, so a new cap binds on
+	 * the next evaluation; it is persisted to the pair's config entry either way.
+	 */
+	private async handleMarketUpdate(req: IncomingMessage, res: ServerResponse, index: number): Promise<void> {
+		const op = this.operator!
+		const strategy = op.strategies.find((s) => s.index === index)
+		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
+
+		let body: Record<string, unknown>
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		const { maxOrderSize, ...rest } = body
+		if (Object.keys(rest).length > 0) {
+			return sendJson(res, 400, { error: `Unknown fields: ${Object.keys(rest).join(", ")}` })
+		}
+		if (maxOrderSize === undefined) {
+			return sendJson(res, 400, { error: "Provide maxOrderSize" })
+		}
+		if (strategy.referenceOnly) {
+			return sendJson(res, 409, {
+				error: "Reference-only markets never fill orders — their order cap is never consulted",
+			})
+		}
+		const value = String(maxOrderSize).trim()
+		let parsed: Decimal
+		try {
+			parsed = new Decimal(value)
+		} catch {
+			return sendJson(res, 400, { error: `maxOrderSize must be a decimal string, got '${value}'` })
+		}
+		if (!parsed.isFinite() || parsed.lte(0)) {
+			return sendJson(res, 400, { error: `maxOrderSize must be a positive number, got '${value}'` })
+		}
+
+		strategy.setMaxOrderSize?.(value)
+		strategy.maxOrderSize = value
+		const pair = op.config.pairs?.[strategy.pairIndex]
+		if (pair) pair.maxOrderSize = value
+		const persisted = this.persistConfig()
+		const applied = Boolean(strategy.setMaxOrderSize)
+		this.logger.warn(
+			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, maxOrderSize: value, applied },
+			"Max order size updated by operator",
+		)
+		return sendJson(res, 200, {
+			...serializeStrategy(strategy),
+			applied,
+			restartNeeded: !applied,
+			persisted,
+		})
+	}
+
+	/**
 	 * DELETE /api/strategies/:index — removes a market. The remaining config
 	 * must still validate (at least one market, no orphaned USD anchor) before
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
@@ -818,16 +933,195 @@ export class UiServer {
 		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
-	/** Regenerates the config file from the (mutated) running config. */
+	/**
+	 * Regenerates the config file from the (mutated) running config. Chain rows
+	 * carry no chain id, so each is re-labelled from the known mapping — without
+	 * it a rewritten file loses track of which `[[chains]]` entry is which.
+	 */
 	private persistConfig(): boolean {
 		const op = this.operator!
 		try {
-			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config))
+			const chainComments = this.configChainIds().map((id) => chainLabel(id))
+			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config, { chainComments }))
 			return true
 		} catch (err) {
 			this.logger.warn({ err, configPath: op.configPath }, "Change applied in memory but could not be persisted")
 			return false
 		}
+	}
+
+	/** Chain ids positionally aligned with `config.chains`; see `configuredChainIds`. */
+	private configChainIds(): number[] {
+		const op = this.operator!
+		const ids = this.configuredChainIds ?? op.chains
+		// Positional: a shorter mapping (config edited outside the UI) leaves the
+		// trailing rows unidentified rather than mislabelling every row.
+		return op.config.chains.map((_, index) => ids[index] ?? 0)
+	}
+
+	/** GET /api/chains — the editable chain set plus the catalog of chains that can be added. */
+	private handleChainsGet(res: ServerResponse): void {
+		const op = this.operator!
+		const ids = this.configChainIds()
+		const running = new Set(op.chains)
+		const watchOnly = op.config.simplex.watchOnly
+		const globalWatchOnly = typeof watchOnly === "boolean"
+		// RPC URLs are returned unmasked: the editor round-trips them, and masked
+		// values would be written straight back into the config. Same trust
+		// boundary as the wizard, which collects private keys over this listener.
+		const chains: ChainRowDto[] = op.config.chains.map((chain, index) => {
+			const chainId = ids[index]
+			return {
+				chainId,
+				stateMachineId: formatChainKey(chainId),
+				label: chainLabel(chainId),
+				rpcUrls: chain.rpcUrls,
+				bundlerUrl: chain.bundlerUrl,
+				watchOnly: globalWatchOnly
+					? (watchOnly as boolean)
+					: Boolean((watchOnly as Record<string, boolean> | undefined)?.[String(chainId)]),
+				running: running.has(chainId),
+			}
+		})
+		// One network per filler (the Hyperbridge endpoint and the deployments
+		// differ), so the catalog is scoped the way the wizard scopes it.
+		const network: InitNetwork = chains.some(
+			(row) => INIT_CHAINS.find((meta) => meta.chainId === row.chainId)?.network === "testnet",
+		)
+			? "testnet"
+			: "mainnet"
+		const dto: ChainsDto = { chains, catalog: chainsForNetwork(network), network, globalWatchOnly }
+		return sendJson(res, 200, dto)
+	}
+
+	/**
+	 * PUT /api/chains — replaces the chain set (selection, quorum RPC endpoints,
+	 * bundler, watch-only). Chain topology is wired at boot — clients, event
+	 * monitors, delegation and balance tracking all key off it — so the new set
+	 * is validated and persisted, then takes effect on the next start.
+	 *
+	 * Every candidate is checked the way boot would check it: reachable RPCs
+	 * reporting the claimed chain, confirmation coverage, pair symbols still
+	 * resolving somewhere, and no funding venue left stranded on a dropped chain.
+	 */
+	private async handleChainsUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const op = this.operator!
+		let body: { chains?: Array<Record<string, unknown>> }
+		try {
+			body = JSON.parse(await readBody(req))
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!Array.isArray(body.chains) || body.chains.length === 0) {
+			return sendJson(res, 400, { error: "Provide chains as a non-empty array — the filler needs at least one chain" })
+		}
+
+		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
+		try {
+			for (const row of body.chains) {
+				const chainId = Number(row.chainId)
+				if (!Number.isInteger(chainId) || chainId <= 0) {
+					throw new Error(`Invalid chainId: ${String(row.chainId)}`)
+				}
+				if (rows.some((r) => r.chainId === chainId)) {
+					throw new Error(`Chain ${chainId} is listed twice`)
+				}
+				const rpcUrls = (Array.isArray(row.rpcUrls) ? row.rpcUrls : [])
+					.map((url) => String(url).trim())
+					.filter(Boolean)
+				// Same non-empty/distinct-host rule boot applies to every chain.
+				validateRpcUrls(rpcUrls)
+				const bundlerUrl = String(row.bundlerUrl ?? "").trim()
+				if (!bundlerUrl) {
+					throw new Error(`${chainLabel(chainId)} needs a bundler URL to submit fill UserOperations`)
+				}
+				rows.push({ chainId, rpcUrls, bundlerUrl, watchOnly: row.watchOnly === true })
+			}
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+
+		const chainIds = rows.map((r) => r.chainId)
+		const previous = new Map(this.configChainIds().map((id, index) => [id, op.config.chains[index]]))
+		const removed = [...previous.keys()].filter((id) => id > 0 && !chainIds.includes(id))
+
+		// Testnet chain ids have no built-in confirmation curve; write the same
+		// low-value default the wizard does rather than rejecting the addition.
+		const confirmationPolicies = { ...(op.config.confirmationPolicies ?? {}) }
+		for (const row of rows) {
+			if (INIT_CHAINS.find((meta) => meta.chainId === row.chainId)?.network === "testnet") {
+				confirmationPolicies[String(row.chainId)] ??= { points: TESTNET_CONFIRMATION_POINTS }
+			}
+		}
+
+		try {
+			assertConfirmationCoverage(confirmationPolicies, chainIds)
+			if (op.config.pairs?.length) {
+				const registry = new AssetRegistry(new ChainConfigService({}), op.config.assets)
+				assertPairSymbolsResolve(op.config.pairs, registry, chainIds.map(formatChainKey))
+			}
+			// Funding venues hydrate per chain at boot: one left on a dropped
+			// chain would fall back to a default RPC or fail the next start.
+			for (const chainId of removed) {
+				const chainKey = formatChainKey(chainId)
+				if (op.config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
+					throw new Error(
+						`${chainLabel(chainId)} still holds a vault entry — remove it from the vault treasury before dropping the chain`,
+					)
+				}
+				if (op.config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
+					throw new Error(
+						`${chainLabel(chainId)} still holds a Uniswap V4 position — remove it from the config before dropping the chain`,
+					)
+				}
+			}
+			// Probe only what the operator newly asserts: an unreachable endpoint
+			// or one answering for another chain would brick the next boot.
+			await this.probeChainRows(rows, previous)
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
+
+		op.config.chains = rows.map(({ rpcUrls, bundlerUrl }) => ({ rpcUrls, bundlerUrl }))
+		if (Object.keys(confirmationPolicies).length > 0) op.config.confirmationPolicies = confirmationPolicies
+		// A global boolean watchOnly is left as-is: expanding it per chain would
+		// stop validateConfig treating the config as all-watch-only, which is
+		// what lets a signer-less observer boot at all.
+		if (typeof op.config.simplex.watchOnly !== "boolean") {
+			const perChain = Object.fromEntries(rows.filter((r) => r.watchOnly).map((r) => [String(r.chainId), true]))
+			op.config.simplex.watchOnly = Object.keys(perChain).length > 0 ? perChain : undefined
+		}
+		this.configuredChainIds = chainIds
+		const persisted = this.persistConfig()
+		this.logger.warn({ chains: chainIds, removed }, "Chain set updated by operator")
+		return sendJson(res, 200, { applied: false, restartNeeded: true, persisted, chains: chainIds, removed })
+	}
+
+	/** Verifies every RPC URL that is new to its chain actually answers for that chain. */
+	private async probeChainRows(
+		rows: Array<{ chainId: number; rpcUrls: string[] }>,
+		previous: Map<number, { rpcUrls: string[] } | undefined>,
+	): Promise<void> {
+		const probes: Array<{ chainId: number; url: string }> = []
+		for (const row of rows) {
+			const known = new Set(previous.get(row.chainId)?.rpcUrls ?? [])
+			for (const url of row.rpcUrls) {
+				if (!known.has(url)) probes.push({ chainId: row.chainId, url })
+			}
+		}
+		await Promise.all(
+			probes.map(async ({ chainId, url }) => {
+				let reported: number
+				try {
+					reported = await withTimeout(this.deps.fetchChainId(url), PROBE_TIMEOUT_MS, "RPC check")
+				} catch (err) {
+					throw new Error(`RPC ${url} is unreachable: ${err instanceof Error ? err.message : err}`)
+				}
+				if (reported !== chainId) {
+					throw new Error(`RPC ${url} reports chain ${reported}, expected ${chainId} (${chainLabel(chainId)})`)
+				}
+			}),
+		)
 	}
 
 	private async handleLogLevel(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1060,9 +1354,15 @@ function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
 		pricingMode: strategy.bid || strategy.ask ? ("static" as const) : ("venue" as const),
 		sameToken: strategy.sameToken ?? false,
 		referenceOnly: strategy.referenceOnly ?? false,
+		maxOrderSize: strategy.maxOrderSize,
 		bid: strategy.bid?.getPoints(),
 		ask: strategy.ask?.getPoints(),
 	}
+}
+
+/** Catalog label for a chain id, falling back to the bare id for unlisted chains. */
+function chainLabel(chainId: number): string {
+	return INIT_CHAINS.find((meta) => meta.chainId === chainId)?.label ?? `chain ${chainId}`
 }
 
 /** Returns an error message when the body is not a well-formed curve update, else null. */

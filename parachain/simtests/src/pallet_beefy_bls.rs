@@ -35,9 +35,7 @@ use ismp_abi::{
 	ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState,
 };
 
-use crate::pallet_beefy_consensus_proofs::{
-	previous_beefy_anchor, submit_signed, submit_sudo, BEEFY_CONSENSUS_ID,
-};
+use crate::pallet_beefy_consensus_proofs::{submit_signed, submit_sudo, BEEFY_CONSENSUS_ID};
 
 /// Build a real BLS consensus proof, and the trusted state it advances from, off a live relay.
 async fn build_live_bls_proof() -> Result<(ConsensusState, BlsConsensusMessage), anyhow::Error> {
@@ -50,10 +48,12 @@ async fn build_live_bls_proof() -> Result<(ConsensusState, BlsConsensusMessage),
 			.await?;
 	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
 
-	// Relay-only. Our BLS relay has no registered parachains, so `para_ids` is empty and the
-	// parachain half of the proof is empty; the parachain-header path is exercised elsewhere.
+	// Track the parachain registered on the BLS relay. `pallet-beefy-consensus-proofs` reads the
+	// child trie root out of a finalized parachain head, so the proof has to carry one; 4009 is
+	// the id gargantua's `is_parachain_tracked` allows and the one its coprocessor resolves to.
+	let para_ws_url = env::var("PARA_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:9991".into());
 	let (para_client, para_rpc_client) =
-		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+		subxt_utils::client::ws_client::<PolkadotConfig>(&para_ws_url, max_rpc_payload_size)
 			.await?;
 	let para_rpc = LegacyRpcMethods::<PolkadotConfig>::new(para_rpc_client.clone());
 
@@ -65,33 +65,87 @@ async fn build_live_bls_proof() -> Result<(ConsensusState, BlsConsensusMessage),
 		para: para_client,
 		para_rpc,
 		para_rpc_client,
-		para_ids: vec![],
+		para_ids: vec![4009],
 		query_batch_size: Some(100),
 	};
 
 	let latest_beefy_hash: sp_core::H256 =
 		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await?;
-	let previous_beefy_hash = previous_beefy_anchor(&relay_rpc, latest_beefy_hash).await?;
-	let initial_state =
-		prover.get_initial_consensus_state(Some(previous_beefy_hash.into())).await?;
 
-	let block = relay_rpc
-		.chain_get_block(Some(latest_beefy_hash.into()))
-		.await?
-		.ok_or_else(|| anyhow!("missing latest beefy block"))?;
-	let justification = block
-		.justifications
-		.ok_or_else(|| anyhow!("latest beefy block lacks justifications"))?
-		.into_iter()
-		.find_map(|j| (j.0 == sp_consensus_beefy::BEEFY_ENGINE_ID).then_some(j.1))
-		.ok_or_else(|| anyhow!("latest beefy block lacks a beefy justification"))?;
-
+	let justification = beefy_justification(&relay_rpc, latest_beefy_hash).await?;
 	// Keeps the whole 177-byte paired signature, where the ECDSA path would slice out the first
 	// 65 bytes.
 	let signed_commitment = decode_paired_justification(&justification)?;
+	let latest_set_id = signed_commitment.commitment.validator_set_id;
+
+	// Anchor the trusted state one authority set back, so this proof rotates the set.
+	//
+	// `pallet-beefy-consensus-proofs` rejects a proof that neither rotates the authority set nor
+	// finalizes a parachain head it has not already seen. Our BLS relay has no registered
+	// parachains, so no proof can ever finalize a head and only a rotation proof is accepted.
+	// The anchor has to be exactly one set back: the verifier requires the commitment to be
+	// signed by the trusted state's current or next set, so a further-back anchor is rejected
+	// outright with `UnknownAuthoritySet`.
+	let previous_beefy_hash =
+		previous_set_anchor(&relay_rpc, latest_beefy_hash, latest_set_id).await?;
+	let initial_state =
+		prover.get_initial_consensus_state(Some(previous_beefy_hash.into())).await?;
+
 	let proof = prover.bls_consensus_proof(signed_commitment).await?;
 
 	Ok((initial_state, proof))
+}
+
+/// The BEEFY justification attached to `hash`.
+async fn beefy_justification(
+	relay_rpc: &LegacyRpcMethods<PolkadotConfig>,
+	hash: sp_core::H256,
+) -> Result<Vec<u8>, anyhow::Error> {
+	let block = relay_rpc
+		.chain_get_block(Some(hash.into()))
+		.await?
+		.ok_or_else(|| anyhow!("missing block {hash:?}"))?;
+
+	block
+		.justifications
+		.ok_or_else(|| anyhow!("block {hash:?} lacks justifications"))?
+		.into_iter()
+		.find_map(|j| (j.0 == sp_consensus_beefy::BEEFY_ENGINE_ID).then_some(j.1))
+		.ok_or_else(|| anyhow!("block {hash:?} lacks a beefy justification"))
+}
+
+/// Walk back to a BEEFY-justified block signed by the set immediately before `set_id`.
+///
+/// Seeding the trusted state there leaves it holding `current = set_id - 1` and `next = set_id`,
+/// so a commitment from `set_id` whose leaf announces `set_id + 1` advances the set by one.
+async fn previous_set_anchor(
+	relay_rpc: &LegacyRpcMethods<PolkadotConfig>,
+	from: sp_core::H256,
+	set_id: u64,
+) -> Result<sp_core::H256, anyhow::Error> {
+	let mut cursor = from;
+
+	for _ in 0..4000 {
+		let header = relay_rpc
+			.chain_get_header(Some(cursor.into()))
+			.await?
+			.ok_or_else(|| anyhow!("missing header for {cursor:?}"))?;
+		let parent: sp_core::H256 = header.parent_hash.into();
+		if parent.is_zero() {
+			break;
+		}
+
+		if let Ok(justification) = beefy_justification(relay_rpc, parent).await {
+			let signed = decode_paired_justification(&justification)?;
+			if signed.commitment.validator_set_id + 1 == set_id {
+				return Ok(parent);
+			}
+		}
+
+		cursor = parent;
+	}
+
+	Err(anyhow!("no beefy block found for the authority set preceding {set_id}"))
 }
 
 #[tokio::test]

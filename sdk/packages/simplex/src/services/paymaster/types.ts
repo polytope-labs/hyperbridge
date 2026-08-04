@@ -22,7 +22,9 @@ export interface PaymasterOptions {
 	configService: FillerConfigService
 	/**
 	 * Override for the Circle paymaster verification gas limit (default 200k).
-	 * Ignored when the Simplex paymaster is selected — its limits are mode-specific
+	 * Only honored when the paymaster allowance is already in place — a permit
+	 * executed during validation needs the full default. Ignored when the Simplex
+	 * paymaster is selected — its limits are mode-specific
 	 * ({@link VERIFICATION_GAS_LIMIT_PERMIT} / {@link VERIFICATION_GAS_LIMIT_APPROVE}).
 	 */
 	paymasterVerificationGasLimit?: bigint

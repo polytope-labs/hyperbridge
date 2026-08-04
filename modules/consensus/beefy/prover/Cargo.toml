@@ -18,6 +18,7 @@ derive_more = { workspace = true, features = ["from"], default-features = true }
 rs_merkle = { workspace = true, default-features = true }
 hex-literal = "0.4.1"
 hex = { version = "0.4.3" }
+w3f-bls = { version = "0.1.9", default-features = true, optional = true }
 
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
@@ -54,4 +55,4 @@ local = []
 # key type. On the wire such a chain carries 177-byte paired signatures and 177-byte authority
 # public keys; with this feature the prover keeps only the ECDSA half of each (the keccak-ECDSA
 # recoverable signature / compressed secp256k1 key), so the existing ECDSA verifier is unchanged.
-bls = []
+bls = ["dep:w3f-bls"]

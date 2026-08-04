@@ -24,6 +24,7 @@ features = [
 
 [features]
 default = ["std"]
+bls = ["beefy-verifier/bls-crypto"]
 std = [
     "anyhow/std",
     "codec/std",

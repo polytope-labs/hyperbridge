@@ -126,6 +126,58 @@ pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type identifier for SP1 ZK proofs
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
+/// Proof type identifier for aggregate BLS12-381 proofs
+pub const PROOF_TYPE_BLS: u8 = 0x02;
+
+/// Size of a compressed BLS12-381 G1 point, the group BEEFY signatures live in.
+pub const BLS_G1_SIGNATURE_LEN: usize = 48;
+
+/// Size of a compressed BLS12-381 G2 point, the group BEEFY public keys live in.
+pub const BLS_G2_PUBLIC_KEY_LEN: usize = 96;
+
+/// A validator that contributed to an aggregate BLS signature.
+///
+/// Only the public key is carried. The individual signatures are summed by the prover into
+/// [`BlsMmrProof::aggregate_signature`], since verification never needs them apart.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
+pub struct BlsSigner {
+	/// Compressed G2 public key, as committed to by the relay chain's keyset commitment.
+	pub public_key: [u8; BLS_G2_PUBLIC_KEY_LEN],
+	/// 0-based index of the authority in the authority set
+	pub index: u32,
+}
+
+/// An MMR root update proven by an aggregate BLS12-381 signature rather than by recovering each
+/// authority's ECDSA signature individually.
+///
+/// The verifier checks this in one pairing operation regardless of how many validators signed,
+/// which is the whole point of the BLS path. The tradeoff is that the signers' public keys travel
+/// with the proof, so its size grows with the number of signers.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BlsMmrProof {
+	/// The commitment that was signed
+	pub commitment: sp_consensus_beefy::Commitment<u32>,
+	/// The validators that signed, with the public keys the aggregate was formed over
+	pub signers: Vec<BlsSigner>,
+	/// Sum of the signers' G1 signatures, as a compressed G1 point
+	pub aggregate_signature: [u8; BLS_G1_SIGNATURE_LEN],
+	/// Latest leaf added to mmr
+	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
+	/// Proof for the latest mmr leaf
+	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
+	/// Flat proof hashes proving the signers' public keys against the keyset commitment
+	pub authority_proof: Vec<[u8; 32]>,
+}
+
+/// A BEEFY consensus update proven by an aggregate BLS signature.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BlsConsensusMessage {
+	/// Parachain headers
+	pub parachain: ParachainProof,
+	/// proof for finalized mmr root
+	pub mmr: BlsMmrProof,
+}
+
 /// SP1 BEEFY proof. The proof bytes are prefixed with [`PROOF_TYPE_SP1`] by the prover.
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Sp1BeefyProof {

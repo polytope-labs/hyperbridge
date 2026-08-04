@@ -90,10 +90,10 @@ pub fn decode_beefy_justification(
 ) -> Result<SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, anyhow::Error> {
 	#[cfg(not(feature = "bls"))]
 	{
-		let VersionedFinalityProof::V1(signed_commitment) =
-			VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(
-				&mut &*bytes,
-			)?;
+		let VersionedFinalityProof::V1(signed_commitment) = VersionedFinalityProof::<
+			u32,
+			sp_consensus_beefy::ecdsa_crypto::Signature,
+		>::decode(&mut &*bytes)?;
 		Ok(signed_commitment)
 	}
 	#[cfg(feature = "bls")]

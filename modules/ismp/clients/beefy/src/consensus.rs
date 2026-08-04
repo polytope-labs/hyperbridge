@@ -15,6 +15,8 @@
 
 use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use beefy_verifier::{error::Error as BeefyError, verify_consensus};
+#[cfg(feature = "bls")]
+use beefy_verifier_primitives::PROOF_TYPE_BLS;
 use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
 	Sp1BeefyProof,
@@ -91,6 +93,13 @@ where
 				let consensus_proof: ConsensusMessage = codec::Decode::decode(&mut &payload[..])
 					.map_err(|e| BeefyError::DecodeNaiveProof(format!("{e:?}")))?;
 				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)?
+			},
+			#[cfg(feature = "bls")]
+			PROOF_TYPE_BLS => {
+				let bls_proof: beefy_verifier_primitives::BlsConsensusMessage =
+					codec::Decode::decode(&mut &payload[..])
+						.map_err(|e| BeefyError::DecodeBlsProof(format!("{e:?}")))?;
+				beefy_verifier::verify_bls_consensus::<SubstrateCrypto>(consensus_state, bls_proof)?
 			},
 			PROOF_TYPE_SP1 => {
 				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])

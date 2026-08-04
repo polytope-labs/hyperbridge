@@ -23,6 +23,8 @@
 
 extern crate alloc;
 
+#[cfg(feature = "bls-crypto")]
+pub mod bls;
 pub mod error;
 pub mod sp1;
 #[cfg(test)]
@@ -33,6 +35,7 @@ use core::marker::PhantomData;
 
 use crate::error::Error;
 use beefy_verifier_primitives::{
+	BLS_G1_SIGNATURE_LEN, BLS_G2_PUBLIC_KEY_LEN, BlsConsensusMessage, BlsMmrProof,
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 };
 use codec::Encode;
@@ -40,6 +43,10 @@ use ismp::messaging::Keccak256;
 use merkle_mountain_range::{
 	Error as MmrError, Merge as MmrMerge, MerkleProof as MmrMerkleProof, leaf_index_to_mmr_size,
 	leaf_index_to_pos,
+};
+use polkadot_sdk::{
+	sp_consensus_beefy::{Commitment, mmr::MmrLeaf},
+	sp_mmr_primitives::LeafProof,
 };
 use primitive_types::H256;
 use rs_merkle::{Hasher, MerkleProof};
@@ -53,6 +60,30 @@ pub trait EcdsaRecover {
 	/// Recover the uncompressed public key (64 bytes, without 0x04 prefix) from a 32-byte
 	/// prehash and 65-byte signature. Signature format: [r (32) | s (32) | v (1)]
 	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]>;
+}
+
+/// A trait for verifying an aggregate BLS12-381 signature under BEEFY's signing scheme.
+///
+/// BEEFY's BLS half uses `w3f-bls`'s "double" scheme over `TinyBLS381`, in which signatures are G1
+/// points and public keys are G2 points. Note this is the opposite of the Ethereum convention, so
+/// implementations written against an eth2 BLS library will not transfer. The signed message is the
+/// SCALE-encoded commitment, hashed to a G1 point with an empty context.
+///
+/// This is a trait, rather than a direct call into a BLS library, for the same reason
+/// [`EcdsaRecover`] is: a runtime can route the pairing through host functions instead of paying to
+/// execute it in wasm. Implementations must perform the hash-to-curve themselves so that step can
+/// be host-accelerated too.
+pub trait BlsAggregateVerify {
+	/// Check that `signature` is the sum of the signatures over `message` produced by the holders
+	/// of `public_keys`, using a single pairing check.
+	///
+	/// Returns `Ok(false)` when the points are well formed but the signature does not verify, and
+	/// an error when a point cannot be decoded.
+	fn verify_aggregate(
+		message: &[u8],
+		signature: &[u8; BLS_G1_SIGNATURE_LEN],
+		public_keys: &[[u8; BLS_G2_PUBLIC_KEY_LEN]],
+	) -> anyhow::Result<bool>;
 }
 
 /// A hasher implementation for rs_merkle, generic over the hash function
@@ -97,51 +128,33 @@ pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	Ok((state.encode(), verified_headers))
 }
 
+/// Verify a BEEFY consensus proof whose commitment was signed with aggregate BLS12-381, returning
+/// the new trusted consensus state and the verified parachain headers.
+pub fn verify_bls_consensus<H: Keccak256 + BlsAggregateVerify + Send + Sync>(
+	trusted_state: ConsensusState,
+	proof: BlsConsensusMessage,
+) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
+	let (state, heads_root) = verify_bls_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
+	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
+	Ok((state.encode(), verified_headers))
+}
+
 /// Verifies a new Mmr root update, the relay chain accumulates it's blocks into a merkle mountain
 /// range tree which light clients can use as a source for log_2(n) ancestry proofs. This new mmr
 /// root hash is signed by the relay chain authority set and we can verify the membership of the
 /// authorities that signed this new root using a merkle multi proof and a merkle commitment to the
 /// total authorities
 pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
-	mut trusted_state: ConsensusState,
+	trusted_state: ConsensusState,
 	mmr: MmrProof,
 ) -> Result<(ConsensusState, H256), Error> {
-	let signatures_length = mmr.signed_commitment.signatures.len();
-	let latest_height = mmr.signed_commitment.commitment.block_number;
+	let commitment = &mmr.signed_commitment.commitment;
+	let preamble =
+		prepare_update(&trusted_state, commitment, mmr.signed_commitment.signatures.len() as u32)?;
 
-	if trusted_state.latest_beefy_height >= latest_height {
-		return Err(Error::StaleHeight {
-			trusted_height: trusted_state.latest_beefy_height,
-			current_height: latest_height,
-		});
-	}
-
-	let commitment = mmr.signed_commitment.commitment.clone();
-
-	// Pick the authority set the commitment claims to be signed under, then judge
-	// participation against that set alone.
-	let authority_set = if commitment.validator_set_id == trusted_state.current_authorities.id {
-		&trusted_state.current_authorities
-	} else if commitment.validator_set_id == trusted_state.next_authorities.id {
-		&trusted_state.next_authorities
-	} else {
-		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
-	};
-
-	if !check_participation_threshold(signatures_length as u32, authority_set.len) {
-		return Err(Error::SuperMajorityRequired);
-	}
-
-	let mmr_root_data = commitment
-		.payload
-		.get_raw(&MMR_ROOT_PAYLOAD_ID)
-		.ok_or(Error::MmrRootHashMissing)?;
-
-	if mmr_root_data.len() != 32 {
-		return Err(Error::InvalidMmrRootHashLength { len: mmr_root_data.len() });
-	}
-	let mmr_root = H256::from_slice(mmr_root_data);
-
+	// The ECDSA half signs the keccak hash of the commitment, and the authority set is committed
+	// to as the keccak of each signer's Ethereum address, so the signers are identified by
+	// recovering them rather than by being named in the proof.
 	let commitment_hash = H::keccak256(&commitment.encode());
 	let mut authority_leaves: Vec<[u8; 32]> = Vec::new();
 	let mut authority_indices = Vec::new();
@@ -161,29 +174,178 @@ pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 		authority_indices.push(sig.index as usize);
 	}
 
-	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(mmr.authority_proof.clone());
-
-	let valid = merkle_proof.verify(
-		authority_set.keyset_commitment.into(),
+	verify_authority_membership::<H>(
+		preamble.keyset_commitment,
+		&mmr.authority_proof,
 		&authority_indices,
 		&authority_leaves,
-		authority_set.len as usize,
-	);
+		preamble.authority_count,
+	)?;
+
+	verify_mmr_leaf::<H>(&mmr.latest_mmr_leaf, &mmr.mmr_proof, preamble.mmr_root)?;
+
+	let latest_height = commitment.block_number;
+	let state = apply_update(trusted_state, &mmr.latest_mmr_leaf, latest_height);
+
+	Ok((state, mmr.latest_mmr_leaf.leaf_extra))
+}
+
+/// Verifies an MMR root update whose authorities signed with BLS12-381 rather than ECDSA.
+///
+/// Where the ECDSA path recovers a public key per signature, this sums the signers' keys and
+/// checks one aggregate signature in a single pairing operation, so the cost of the signature
+/// check no longer grows with the size of the validator set. The signers are named explicitly in
+/// the proof and proven to be authorities by the same merkle multi-proof the ECDSA path uses,
+/// against a keyset commitment that must be over BLS public keys rather than Ethereum addresses.
+///
+/// Note that a chain whose keyset commitment holds Ethereum addresses cannot be verified through
+/// this path, and vice versa. The two are separate consensus states.
+pub fn verify_bls_mmr_update_proof<H: Keccak256 + BlsAggregateVerify + Send + Sync>(
+	trusted_state: ConsensusState,
+	mmr: BlsMmrProof,
+) -> Result<(ConsensusState, H256), Error> {
+	if mmr.signers.is_empty() {
+		return Err(Error::NoBlsSigners);
+	}
+
+	let preamble = prepare_update(&trusted_state, &mmr.commitment, mmr.signers.len() as u32)?;
+
+	// Strictly ascending indices, so a signer cannot be counted towards the threshold or summed
+	// into the aggregate more than once, and so the multi-proof sees them in the order it wants.
+	let within_set = mmr
+		.signers
+		.last()
+		.map(|last| last.index < preamble.authority_count)
+		.unwrap_or(false);
+	let ascending = mmr.signers.windows(2).all(|pair| pair[0].index < pair[1].index);
+	if !ascending || !within_set {
+		return Err(Error::InvalidBlsSignerOrdering);
+	}
+
+	// The BLS half signs the SCALE-encoded commitment itself, where the ECDSA half signs its
+	// keccak hash. Hashing it onto the curve is the implementation's job, so that step can be
+	// host-accelerated alongside the pairing.
+	let public_keys = mmr.signers.iter().map(|signer| signer.public_key).collect::<Vec<_>>();
+	let verified =
+		H::verify_aggregate(&mmr.commitment.encode(), &mmr.aggregate_signature, &public_keys)
+			.map_err(|_| Error::InvalidBlsPoint)?;
+
+	if !verified {
+		return Err(Error::BlsVerificationFailed);
+	}
+
+	// The pairing check only proves that the holders of *these* keys signed. Proving those keys
+	// are the authority set's is what the merkle multi-proof is for.
+	let authority_leaves = mmr
+		.signers
+		.iter()
+		.map(|signer| H::keccak256(&signer.public_key).into())
+		.collect::<Vec<[u8; 32]>>();
+	let authority_indices =
+		mmr.signers.iter().map(|signer| signer.index as usize).collect::<Vec<_>>();
+
+	verify_authority_membership::<H>(
+		preamble.keyset_commitment,
+		&mmr.authority_proof,
+		&authority_indices,
+		&authority_leaves,
+		preamble.authority_count,
+	)?;
+
+	verify_mmr_leaf::<H>(&mmr.latest_mmr_leaf, &mmr.mmr_proof, preamble.mmr_root)?;
+
+	let latest_height = mmr.commitment.block_number;
+	let state = apply_update(trusted_state, &mmr.latest_mmr_leaf, latest_height);
+
+	Ok((state, mmr.latest_mmr_leaf.leaf_extra))
+}
+
+/// The parts of an update that hold regardless of how the commitment was signed.
+struct UpdatePreamble {
+	/// Commitment to the authority set the signers must belong to.
+	keyset_commitment: H256,
+	/// Size of that authority set.
+	authority_count: u32,
+	/// MMR root carried in the commitment payload.
+	mmr_root: H256,
+}
+
+/// Checks staleness, resolves which authority set the commitment claims to be signed under,
+/// judges participation against that set alone, and extracts the MMR root from the payload.
+fn prepare_update(
+	trusted_state: &ConsensusState,
+	commitment: &Commitment<u32>,
+	signer_count: u32,
+) -> Result<UpdatePreamble, Error> {
+	if trusted_state.latest_beefy_height >= commitment.block_number {
+		return Err(Error::StaleHeight {
+			trusted_height: trusted_state.latest_beefy_height,
+			current_height: commitment.block_number,
+		});
+	}
+
+	let authority_set = if commitment.validator_set_id == trusted_state.current_authorities.id {
+		&trusted_state.current_authorities
+	} else if commitment.validator_set_id == trusted_state.next_authorities.id {
+		&trusted_state.next_authorities
+	} else {
+		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
+	};
+
+	if !check_participation_threshold(signer_count, authority_set.len) {
+		return Err(Error::SuperMajorityRequired);
+	}
+
+	let mmr_root_data = commitment
+		.payload
+		.get_raw(&MMR_ROOT_PAYLOAD_ID)
+		.ok_or(Error::MmrRootHashMissing)?;
+
+	if mmr_root_data.len() != 32 {
+		return Err(Error::InvalidMmrRootHashLength { len: mmr_root_data.len() });
+	}
+
+	Ok(UpdatePreamble {
+		keyset_commitment: authority_set.keyset_commitment,
+		authority_count: authority_set.len,
+		mmr_root: H256::from_slice(mmr_root_data),
+	})
+}
+
+/// Proves the signing authorities are members of the committed authority set.
+fn verify_authority_membership<H: Keccak256>(
+	keyset_commitment: H256,
+	proof: &[[u8; 32]],
+	indices: &[usize],
+	leaves: &[[u8; 32]],
+	authority_count: u32,
+) -> Result<(), Error> {
+	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(proof.to_vec());
+
+	let valid =
+		merkle_proof.verify(keyset_commitment.into(), indices, leaves, authority_count as usize);
 
 	if !valid {
 		Err(Error::InvalidAuthoritiesProof)?;
 	}
 
-	verify_mmr_leaf::<H>(&mmr, mmr_root)?;
+	Ok(())
+}
 
-	if mmr.latest_mmr_leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
+/// Rotates the tracked authority sets if the leaf announces a newer one, and records the height.
+fn apply_update(
+	mut trusted_state: ConsensusState,
+	leaf: &MmrLeaf<u32, H256, H256, H256>,
+	latest_height: u32,
+) -> ConsensusState {
+	if leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
 		trusted_state.current_authorities = trusted_state.next_authorities.clone();
-		trusted_state.next_authorities = mmr.latest_mmr_leaf.beefy_next_authority_set.clone();
+		trusted_state.next_authorities = leaf.beefy_next_authority_set.clone();
 	}
 
 	trusted_state.latest_beefy_height = latest_height;
 
-	Ok((trusted_state, mmr.latest_mmr_leaf.leaf_extra))
+	trusted_state
 }
 
 /// Verifies the inclusion of parachain headers in the parachain heads root via a merkle multi proof
@@ -223,7 +385,8 @@ pub fn verify_parachain_headers<H: Keccak256>(
 }
 
 fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
-	mmr: &MmrProof,
+	leaf: &MmrLeaf<u32, H256, H256, H256>,
+	proof: &LeafProof<H256>,
 	mmr_root: H256,
 ) -> Result<(), Error> {
 	// `leaf_indices` is supplied by the relayer in the unsigned consensus message;
@@ -231,16 +394,16 @@ fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	// after the BEEFY signature and authority membership checks had already succeeded.
 	// This verifier checks a single MMR leaf, so reject any proof that does not carry
 	// exactly one leaf index.
-	if mmr.mmr_proof.leaf_indices.len() != 1 {
+	if proof.leaf_indices.len() != 1 {
 		Err(Error::InvalidMmrProof)?
 	}
-	let leaf_index = mmr.mmr_proof.leaf_indices[0];
-	let leaf_hash = H::keccak256(&mmr.latest_mmr_leaf.encode());
+	let leaf_index = proof.leaf_indices[0];
+	let leaf_hash = H::keccak256(&leaf.encode());
 	let mmr_size = leaf_index_to_mmr_size(leaf_index);
 
 	let mmr_proof = MmrMerkleProof::<[u8; 32], KeccakMerge<H>>::new(
 		mmr_size,
-		mmr.mmr_proof.items.iter().map(|h| (*h).into()).collect(),
+		proof.items.iter().map(|h| (*h).into()).collect(),
 	);
 	let leaf_pos = leaf_index_to_pos(leaf_index);
 	let leaf = (leaf_pos, leaf_hash.into());

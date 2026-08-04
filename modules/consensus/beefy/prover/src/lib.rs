@@ -48,6 +48,9 @@ use relay::{
 };
 use util::hash_authority_addresses;
 
+/// Proving commitments signed with aggregate BLS12-381
+#[cfg(feature = "bls")]
+pub mod bls;
 /// Methods for querying the relay chain
 pub mod relay;
 /// Helper functions and types
@@ -214,7 +217,8 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		// `bls`: authorities are stored as 177-byte paired (ECDSA, BLS12-381) keys; keep the ECDSA
 		// half (first 33 bytes, a compressed secp256k1 key) so the derived address leaves match the
-		// on-chain keyset commitment, which `BeefyEcdsaBlsToEthereum` builds from those ECDSA halves.
+		// on-chain keyset commitment, which `BeefyEcdsaBlsToEthereum` builds from those ECDSA
+		// halves.
 		#[cfg(feature = "bls")]
 		let current_authorities = Vec::<[u8; 177]>::decode(&mut data.as_ref())?
 			.into_iter()

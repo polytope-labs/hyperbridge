@@ -38,6 +38,8 @@ use polkadot_sdk::sp_consensus_beefy::{
 };
 use sp_mmr_primitives::LeafProof;
 
+#[cfg(feature = "bls")]
+use crate::verify_bls_consensus;
 use crate::{EcdsaRecover, error::Error, verify_consensus, verify_mmr_update_proof};
 
 struct TestHost;
@@ -52,6 +54,17 @@ impl EcdsaRecover for TestHost {
 	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
 		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
 			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
+	}
+}
+
+#[cfg(feature = "bls-crypto")]
+impl crate::BlsAggregateVerify for TestHost {
+	fn verify_aggregate(
+		message: &[u8],
+		signature: &[u8; beefy_verifier_primitives::BLS_G1_SIGNATURE_LEN],
+		public_keys: &[[u8; beefy_verifier_primitives::BLS_G2_PUBLIC_KEY_LEN]],
+	) -> anyhow::Result<bool> {
+		crate::bls::aggregate_verify(message, signature, public_keys)
 	}
 }
 
@@ -319,7 +332,8 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 
 	// Proof payload matches SP1Beefy.sol:verifyConsensus's `abi.decode(...)` call:
 	// a sequence of four top-level types, not a struct wrapper.
-	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes, bytes32) };
+	type ProofTuple =
+		sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes, bytes32) };
 	let (commitment, leaf, headers, plonk_proof, nonce) =
 		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
 	let sp1_proof = Sp1BeefyProof {
@@ -453,9 +467,8 @@ fn rejects_sp1_proof_carrying_a_stale_mmr_leaf() {
 
 	// Swap in a leaf from an earlier block, as an attacker replaying a historical leaf would.
 	proof.mmr_leaf.parent_number_and_hash.0 = BLOCK_NUMBER - 500;
-	let stale = sp_io::TestExternalities::default().execute_with(|| {
-		crate::sp1::verify_sp1_consensus::<TestHost>(trusted_state, proof, VKEY)
-	});
+	let stale = sp_io::TestExternalities::default()
+		.execute_with(|| crate::sp1::verify_sp1_consensus::<TestHost>(trusted_state, proof, VKEY));
 	assert!(matches!(stale, Err(Error::StaleMmrLeaf { .. })), "got {stale:?}");
 }
 
@@ -466,7 +479,8 @@ fn rejects_sp1_proof_carrying_a_stale_mmr_leaf() {
 /// existing ECDSA path.
 ///
 ///   RELAY_WS_URL=ws://127.0.0.1:9977 \
-///     cargo test -p beefy-verifier test_verify_consensus_bls -- --ignored --nocapture
+///     cargo test -p beefy-verifier --features bls test_verify_consensus_bls -- --ignored
+/// --nocapture
 #[cfg(feature = "bls")]
 #[tokio::test]
 #[ignore]
@@ -513,7 +527,11 @@ async fn test_verify_consensus_bls() {
 			panic!("reached genesis without a previous beefy block");
 		}
 		let block = relay_rpc.chain_get_block(Some(parent.into())).await.unwrap().unwrap();
-		if block.justifications.map(|js| js.iter().any(|j| j.0 == engine_id)).unwrap_or(false) {
+		if block
+			.justifications
+			.map(|js| js.iter().any(|j| j.0 == engine_id))
+			.unwrap_or(false)
+		{
 			previous = parent;
 			break;
 		}
@@ -577,7 +595,9 @@ async fn test_verify_consensus_bls() {
 		.execute_with(|| verify_consensus::<TestHost>(trusted_state, consensus_proof));
 
 	assert!(result.is_ok(), "BLS BEEFY verification failed: {:?}", result.err());
-	println!("BLS BEEFY verify OK: verified {signed_count} paired signatures for beefy block #{block_number}");
+	println!(
+		"BLS BEEFY verify OK: verified {signed_count} paired signatures for beefy block #{block_number}"
+	);
 }
 
 /// Option B prototype: actually verify the BLS signatures, aggregated into a single pairing check.
@@ -594,7 +614,8 @@ async fn test_verify_consensus_bls() {
 /// need delinearization, which makes the eventual Solidity/EIP-2537 path much simpler.
 ///
 ///   RELAY_WS_URL=ws://127.0.0.1:9977 \
-///     cargo test -p beefy-verifier --features bls test_bls_aggregate_verify -- --ignored --nocapture
+///     cargo test -p beefy-verifier --features bls test_bls_aggregate_verify -- --ignored
+/// --nocapture
 #[cfg(feature = "bls")]
 #[tokio::test]
 #[ignore]
@@ -697,7 +718,8 @@ async fn test_bls_aggregate_verify() {
 ///   4. aggregate the signers' G2 keys and G1 signatures and verify one pairing check.
 ///
 ///   RELAY_WS_URL=ws://127.0.0.1:9977 \
-///     cargo test -p beefy-verifier --features bls test_bls_trustless_verify -- --ignored --nocapture
+///     cargo test -p beefy-verifier --features bls test_bls_trustless_verify -- --ignored
+/// --nocapture
 #[cfg(feature = "bls")]
 #[tokio::test]
 #[ignore]
@@ -824,5 +846,205 @@ async fn test_bls_trustless_verify() {
 		 check.",
 		signer_indices.len(),
 		total
+	);
+}
+
+/// Pins down exactly how BEEFY's BLS half hashes a commitment onto the signature curve, and emits
+/// a test vector for the Solidity/EIP-2537 implementation to be checked against.
+///
+/// This is the make-or-break detail of the EVM path. `w3f-bls` does *not* use the IETF ciphersuite
+/// string as the domain separation tag the way a textbook implementation would. It uses a one-byte
+/// DST of `0x01`, and prepends the ciphersuite string to the message instead:
+///
+/// ```text
+/// suite    = "BLS_SIG_" || "BLS12381" || "G1" || "_XMD:SHA-256_SSWU_RO_" || "NUL_"
+/// preimage = suite || context || message          // context is empty for BEEFY
+/// point    = hash_to_curve(preimage, DST = 0x01)  // expand_message_xmd<SHA-256>, WB/SSWU map
+/// ```
+///
+/// Everything after that composition is standard RFC 9380, which is what the EIP-2537
+/// `MAP_FP_TO_G1` precompile implements, so the contract has to reproduce the composition and the
+/// `expand_message_xmd` step and can lean on precompiles for the rest.
+///
+///   cargo test -p beefy-verifier --features bls bls_hash_to_curve_vector -- --nocapture
+#[cfg(feature = "bls")]
+#[test]
+fn bls_hash_to_curve_vector() {
+	use ark_bls12_381::{Fq, G1Affine, g1::Config as G1Config};
+	use ark_ec::{
+		AffineRepr, CurveGroup,
+		hashing::{HashToCurve, curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurveBasedHasher},
+	};
+	use ark_ff::{
+		BigInteger, PrimeField,
+		field_hashers::{DefaultFieldHasher, HashToField},
+	};
+	use w3f_bls::{Message, TinyBLS381};
+
+	// Any byte string stands in for a SCALE-encoded commitment here; the composition is what is
+	// being pinned down, and it does not depend on the contents.
+	let message = b"beefy-bls-hash-to-curve-vector";
+
+	let suite = [
+		b"BLS_SIG_".as_ref(),
+		b"BLS12381".as_ref(),
+		b"G1".as_ref(),
+		b"_XMD:SHA-256_SSWU_RO_".as_ref(),
+		b"NUL_".as_ref(),
+	]
+	.concat();
+	assert_eq!(
+		suite.as_slice(),
+		b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_".as_ref(),
+		"ciphersuite string drifted from what w3f-bls composes"
+	);
+
+	// context is empty for BEEFY, matching sp-core's `bls381::Pair::sign`.
+	let preimage = [suite.as_slice(), b"".as_ref(), message.as_ref()].concat();
+
+	// Rebuild the hasher from the documented parameters rather than going through w3f-bls, then
+	// check it lands on the same point. If this assert holds, the recipe above is the whole story
+	// and a Solidity implementation has everything it needs.
+	let hasher = MapToCurveBasedHasher::<
+		ark_ec::short_weierstrass::Projective<G1Config>,
+		DefaultFieldHasher<sha2::Sha256, 128>,
+		WBMap<G1Config>,
+	>::new(&[1u8])
+	.expect("hasher construction");
+	let reconstructed: G1Affine = hasher.hash(&preimage).expect("hash to curve");
+
+	let expected = Message::new(b"", message).hash_to_signature_curve::<TinyBLS381>().into_affine();
+
+	assert_eq!(
+		reconstructed, expected,
+		"reconstructing the hash-to-curve from DST=0x01 and suite-prefixed message did not match \
+		 w3f-bls; the Solidity recipe would be wrong"
+	);
+
+	let (x, y) = expected.xy().expect("point is not the identity");
+	let fq_hex = |value: &Fq| hex::encode(value.into_bigint().to_bytes_be());
+
+	// The two field elements the contract has to derive before it can call MAP_FP_TO_G1. This is
+	// the only part of the pipeline Solidity implements by hand, so it is the part worth pinning.
+	let field_hasher = <DefaultFieldHasher<sha2::Sha256, 128> as HashToField<Fq>>::new(&[1u8]);
+	let u: Vec<Fq> = field_hasher.hash_to_field(&preimage, 2);
+
+	println!("=== BEEFY BLS hash-to-curve vector (BLS12-381 G1) ===");
+	println!("dst              0x01");
+	println!("suite            {}", core::str::from_utf8(&suite).unwrap());
+	println!("message          {}", hex::encode(message));
+	println!("preimage         {}", hex::encode(&preimage));
+	println!("u[0]             {}", fq_hex(&u[0]));
+	println!("u[1]             {}", fq_hex(&u[1]));
+	println!("point.x          {}", fq_hex(x));
+	println!("point.y          {}", fq_hex(y));
+	println!();
+	println!(
+		"Solidity must: expand_message_xmd<SHA-256>(preimage, 0x01, 128) -> 2 field elements,"
+	);
+	println!("MAP_FP_TO_G1 each, G1_ADD them. Cofactor clearing is linear, so it may be applied");
+	println!("per point by the precompile or once at the end without changing the result.");
+}
+
+/// The production path end to end: the prover assembles a BLS consensus proof and the verifier
+/// accepts it, with no proof-building logic in the test itself.
+///
+/// `test_bls_trustless_verify` above proves the same thing from first principles, rebuilding the
+/// tree by hand so it fails loudly if the runtime's converter ever stops committing G2 keys. This
+/// one exercises the API a relayer would actually call.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9979 \
+///     cargo test -p beefy-verifier --features bls test_bls_consensus_via_prover -- --ignored
+/// --nocapture
+#[cfg(feature = "bls")]
+#[tokio::test]
+#[ignore]
+async fn test_bls_consensus_via_prover() {
+	use beefy_prover::bls::decode_paired_justification;
+
+	let max_rpc_payload_size = 15 * 1024 * 1024;
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+
+	let (relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+	// Relay-only: the "para" client points at the same relay and `para_ids` is empty, so no
+	// parachain headers are proven.
+	let (para_client, para_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let para_rpc = LegacyRpcMethods::<PolkadotConfig>::new(para_rpc_client.clone());
+
+	let prover = Prover {
+		beefy_activation_block: 0,
+		relay: relay_client,
+		relay_rpc: relay_rpc.clone(),
+		relay_rpc_client: relay_rpc_client.clone(),
+		para: para_client,
+		para_rpc,
+		para_rpc_client,
+		para_ids: vec![],
+		query_batch_size: Some(100),
+	};
+
+	let engine_id = polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID;
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+
+	// Seed the trusted state from an earlier BEEFY-justified block, so the proof advances it.
+	let mut previous = H256::default();
+	let mut cursor = latest;
+	for _ in 0..2000 {
+		let header = relay_rpc.chain_get_header(Some(cursor.into())).await.unwrap().unwrap();
+		let parent: H256 = header.parent_hash.into();
+		if parent.is_zero() {
+			panic!("reached genesis without a previous beefy block");
+		}
+		let block = relay_rpc.chain_get_block(Some(parent.into())).await.unwrap().unwrap();
+		if block
+			.justifications
+			.map(|js| js.iter().any(|j| j.0 == engine_id))
+			.unwrap_or(false)
+		{
+			previous = parent;
+			break;
+		}
+		cursor = parent;
+	}
+	assert!(!previous.is_zero(), "no previous beefy block found");
+
+	let trusted_state = prover.get_initial_consensus_state(Some(previous)).await.unwrap();
+	let trusted_height = trusted_state.latest_beefy_height;
+
+	let latest_block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let justification = latest_block
+		.justifications
+		.expect("latest beefy block must have justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == engine_id).then_some(j.1))
+		.expect("latest beefy block must have a beefy justification");
+
+	let signed_commitment = decode_paired_justification(&justification).unwrap();
+	let block_number = signed_commitment.commitment.block_number;
+	let signer_count = signed_commitment.signatures.iter().filter(|s| s.is_some()).count();
+
+	let proof = prover.bls_consensus_proof(signed_commitment).await.unwrap();
+	assert_eq!(proof.mmr.signers.len(), signer_count, "prover dropped signers");
+
+	let result = sp_io::TestExternalities::default()
+		.execute_with(|| verify_bls_consensus::<TestHost>(trusted_state, proof));
+
+	let (new_state, _headers) = result.expect("BLS consensus verification failed");
+	let new_state = ConsensusState::decode(&mut &new_state[..]).unwrap();
+
+	assert_eq!(new_state.latest_beefy_height, block_number, "height was not advanced");
+	assert!(new_state.latest_beefy_height > trusted_height, "state did not move forward");
+
+	println!(
+		"BLS consensus verified via the prover API: {signer_count} signers aggregated, \
+		 height {trusted_height} -> {block_number}"
 	);
 }

@@ -19,7 +19,7 @@ extern crate alloc;
 extern crate core;
 pub mod consensus;
 
-pub use beefy_verifier_primitives::{PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
+pub use beefy_verifier_primitives::{PROOF_TYPE_BLS, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
 pub use consensus::{BEEFY_CONSENSUS_ID, BeefyConsensusClient};
 
 use polkadot_sdk::*;
@@ -40,6 +40,22 @@ impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
 	}
 }
 
+/// Unlike `secp256k1_ecdsa_recover` above, this runs the pairing inside wasm rather than through a
+/// host function. `sp-crypto-ec-utils` exposes `bls12_381_multi_miller_loop` and
+/// `bls12_381_final_exponentiation`, but reaching them means working in `ark-bls12-381-ext` types
+/// on a different arkworks version than `w3f-bls` pins, so it is a separate piece of work and
+/// needs the host functions registered by every collator first.
+#[cfg(feature = "bls")]
+impl beefy_verifier::BlsAggregateVerify for SubstrateCrypto {
+	fn verify_aggregate(
+		message: &[u8],
+		signature: &[u8; beefy_verifier_primitives::BLS_G1_SIGNATURE_LEN],
+		public_keys: &[[u8; beefy_verifier_primitives::BLS_G2_PUBLIC_KEY_LEN]],
+	) -> anyhow::Result<bool> {
+		beefy_verifier::bls::aggregate_verify(message, signature, public_keys)
+	}
+}
+
 /// Provides parachain tracking and SP1 vkey data to the BEEFY consensus client.
 pub trait BeefyClientConfig {
 	/// Returns true if the given parachain id is tracked by this consensus client.
@@ -52,5 +68,10 @@ pub trait BeefyClientConfig {
 	/// accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
 	/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`. A proof whose type byte is not listed is
 	/// rejected with [`beefy_verifier::error::Error::UnknownProofType`] before verification.
+	///
+	/// [`PROOF_TYPE_BLS`] additionally requires this crate's `bls` feature, and a relay chain
+	/// whose keyset commitment is over BLS public keys rather than Ethereum addresses. The two
+	/// commitments are mutually exclusive, so a client cannot accept both that and the ECDSA
+	/// proof types against the same consensus state.
 	fn allowed_proof_types() -> &'static [u8];
 }

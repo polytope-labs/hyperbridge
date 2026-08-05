@@ -595,6 +595,7 @@ fn phantom_pair(token_a: u8, token_b: u8) -> types::PhantomTokenPair {
 		token_a: H160::repeat_byte(token_a),
 		token_b: H160::repeat_byte(token_b),
 		standard_amount: 1_000_000,
+		standard_amount_b: 2_000_000,
 	}
 }
 
@@ -687,18 +688,42 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 			Error::<Test>::DuplicatePhantomTokenPair
 		);
 
-		// The reverse direction prices the other side of the pair, so it is not a duplicate.
-		assert_ok!(Intents::set_phantom_order_config(
-			RuntimeOrigin::root(),
-			phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(2, 1)])
-		));
+		// The generator expands every pair into both directions, so registering the reverse
+		// explicitly would duplicate legs already in the order.
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(2, 1)])
+			),
+			Error::<Test>::DuplicatePhantomTokenPair
+		);
+
+		let mut zero_amount = phantom_pair(1, 2);
+		zero_amount.standard_amount = 0;
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_with(200, vec![zero_amount])
+			),
+			Error::<Test>::ZeroPhantomStandardAmount
+		);
+
+		let mut zero_reverse = phantom_pair(1, 2);
+		zero_reverse.standard_amount_b = 0;
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_with(200, vec![zero_reverse])
+			),
+			Error::<Test>::ZeroPhantomStandardAmount
+		);
 	});
 }
 
 #[test]
 fn phantom_generation_bundles_every_pair_into_one_order() {
 	new_test_ext().execute_with(|| {
-		let pairs = vec![phantom_pair(1, 2), phantom_pair(2, 1), phantom_pair(3, 4)];
+		let pairs = vec![phantom_pair(1, 2), phantom_pair(3, 4)];
 		let config = phantom_config_with(200, pairs.clone());
 		let chain = config.chain;
 		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
@@ -714,33 +739,56 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 		assert_eq!(info.created_at_block, 1);
 		assert_eq!(info.chain, b"EVM-1".to_vec());
 
-		// One commitment covers all three pairs, and it matches the order built from them.
-		let (expected, _) = types::phantom_order_commitment(1, b"EVM-1", &pairs, 42);
+		// One commitment covers both directions of every configured pair.
+		let expanded = types::phantom_order_legs(&pairs);
+		let (expected, _) = types::phantom_order_commitment(1, b"EVM-1", &expanded, 42);
 		assert_eq!(commitment, expected);
 
 		let registered = System::events()
 			.into_iter()
 			.filter_map(|record| match record.event {
-				RuntimeEvent::Intents(Event::PhantomOrderRegistered { pairs, .. }) => Some(pairs),
+				RuntimeEvent::Intents(Event::PhantomOrderRegistered { legs, .. }) => Some(legs),
 				_ => None,
 			})
 			.collect::<alloc::vec::Vec<_>>();
 		assert_eq!(registered.len(), 1);
-		assert_eq!(registered[0].to_vec(), pairs);
+		assert_eq!(registered[0].to_vec(), expanded);
 	});
+}
+
+#[test]
+fn phantom_order_legs_expand_each_pair_into_both_directions() {
+	let pairs = vec![phantom_pair(1, 2), phantom_pair(3, 4)];
+	let legs = types::phantom_order_legs(&pairs);
+
+	// Pair order is preserved and each pair's forward leg precedes its reverse, with the
+	// reverse denominated in standard_amount_b.
+	assert_eq!(legs.len(), 4);
+	for (pair, chunk) in pairs.iter().zip(legs.chunks(2)) {
+		assert_eq!((chunk[0].token_a, chunk[0].token_b), (pair.token_a, pair.token_b));
+		assert_eq!(chunk[0].standard_amount, pair.standard_amount);
+		assert_eq!((chunk[1].token_a, chunk[1].token_b), (pair.token_b, pair.token_a));
+		assert_eq!(chunk[1].standard_amount, pair.standard_amount_b);
+	}
+
+	// A same-token pair has no distinct reverse, so it contributes a single leg.
+	let same = types::phantom_order_legs(&[phantom_pair(5, 5)]);
+	assert_eq!(same.len(), 1);
+	assert_eq!((same[0].token_a, same[0].token_b), (H160::repeat_byte(5), H160::repeat_byte(5)));
+	assert_eq!(same[0].standard_amount, 1_000_000);
 }
 
 #[test]
 fn phantom_order_body_pairs_legs_positionally() {
 	use alloy_sol_types::SolValue;
 
-	// D1: pair i is inputs[i] against output.assets[i], with the input carrying that pair's
+	// D1: leg i is inputs[i] against output.assets[i], with the input carrying that leg's
 	// standard amount and the matching output left at zero. Fillers walk the legs this way and
 	// the indexer keys snapshots by leg index, so both break silently if the encoder reorders
 	// or misaligns them. The commitment assertion elsewhere cannot catch that: any consistent
 	// encoding hashes consistently.
-	let pairs = vec![phantom_pair(1, 2), phantom_pair(2, 1), phantom_pair(3, 4)];
-	let (commitment, encoded) = types::phantom_order_commitment(7, b"EVM-8453", &pairs, 42);
+	let legs = types::phantom_order_legs(&vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
+	let (commitment, encoded) = types::phantom_order_commitment(7, b"EVM-8453", &legs, 42);
 
 	// Round-trips through abi.decode(data, (Order)), which is what the SDK's fetchPhantomOrder
 	// does with placeOrder's tuple input.
@@ -749,19 +797,19 @@ fn phantom_order_body_pairs_legs_positionally() {
 	assert_eq!(commitment, H256(sp_io::hashing::keccak_256(&encoded)));
 	assert_eq!(order.deadline, alloy_primitives::U256::from(42));
 	assert_eq!(order.nonce, alloy_primitives::U256::from(7));
-	assert_eq!(order.inputs.len(), pairs.len());
-	assert_eq!(order.output.assets.len(), pairs.len());
+	assert_eq!(order.inputs.len(), legs.len());
+	assert_eq!(order.output.assets.len(), legs.len());
 
-	for (i, pair) in pairs.iter().enumerate() {
+	for (i, leg) in legs.iter().enumerate() {
 		let mut token_a = [0u8; 32];
-		token_a[12..].copy_from_slice(pair.token_a.as_bytes());
+		token_a[12..].copy_from_slice(leg.token_a.as_bytes());
 		let mut token_b = [0u8; 32];
-		token_b[12..].copy_from_slice(pair.token_b.as_bytes());
+		token_b[12..].copy_from_slice(leg.token_b.as_bytes());
 
 		assert_eq!(order.inputs[i].token.as_slice(), &token_a, "input token at leg {i}");
 		assert_eq!(
 			order.inputs[i].amount,
-			alloy_primitives::U256::from(pair.standard_amount),
+			alloy_primitives::U256::from(leg.standard_amount),
 			"input amount at leg {i}"
 		);
 		assert_eq!(order.output.assets[i].token.as_slice(), &token_b, "output token at leg {i}");
@@ -779,25 +827,29 @@ fn phantom_order_at_max_pairs_stays_within_budget() {
 			token_a: H160::from_low_u64_be(i.into()),
 			token_b: H160::from_low_u64_be((i + types::MAX_PHANTOM_TOKEN_PAIRS).into()),
 			standard_amount: 1_000_000_000_000_000_000u128,
+			standard_amount_b: 1_000_000_000_000_000_000u128,
 		})
 		.collect::<alloc::vec::Vec<_>>();
 
-	let (_, encoded) = types::phantom_order_commitment(1, b"EVM-8453", &pairs, 42);
-	let config = phantom_config_with(200, pairs.clone());
-	let event_payload = (H256::repeat_byte(1), b"EVM-8453".to_vec(), 1u64, pairs).encode();
+	let legs = types::phantom_order_legs(&pairs);
+	assert_eq!(legs.len() as u32, types::MAX_PHANTOM_ORDER_LEGS);
+	let (_, encoded) = types::phantom_order_commitment(1, b"EVM-8453", &legs, 42);
+	let config = phantom_config_with(200, pairs);
+	let event_payload = (H256::repeat_byte(1), b"EVM-8453".to_vec(), 1u64, legs).encode();
 
 	// The whole batch now rides in one order body, one config value and one event, so each has
-	// to be sized against its own budget rather than against a single pair.
+	// to be sized against its own budget rather than against a single pair. Every pair expands
+	// into both directions, so the order body and event carry twice the configured pair count.
 	//
 	// The order body only ever lives in offchain storage, which is local and unmetered, and is
 	// fetched over RPC by fillers. The config is read by on_initialize on every block, so its
 	// size is the recurring cost of the feature and the one worth watching. The event lands in
 	// block storage and counts against the block's proof size.
 	//
-	// These numbers are what 64 pairs actually costs. They are asserted rather than merely
-	// printed so raising MAX_PHANTOM_TOKEN_PAIRS or widening PhantomTokenPair has to come back
-	// through here.
-	assert!(encoded.len() < 16 * 1024, "encoded order body: {} bytes", encoded.len());
+	// These numbers are what 64 pairs (128 legs) actually costs. They are asserted rather than
+	// merely printed so raising MAX_PHANTOM_TOKEN_PAIRS or widening PhantomTokenPair has to come
+	// back through here.
+	assert!(encoded.len() < 32 * 1024, "encoded order body: {} bytes", encoded.len());
 	assert!(config.encode().len() < 8 * 1024, "config value: {} bytes", config.encode().len());
 	assert!(event_payload.len() < 8 * 1024, "event payload: {} bytes", event_payload.len());
 

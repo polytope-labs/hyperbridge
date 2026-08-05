@@ -27,34 +27,37 @@ mod v1 {
 	use super::*;
 	use frame_support::traits::Get;
 
-	/// Clears the old `CurrentPhantomOrder` value. It used to hold one entry per token pair, and
-	/// the leading length prefix means the old bytes can still decode under the new single-order
-	/// type, just into a meaningless commitment. Clearing it lets the next generation write the
-	/// only value that matters.
-	pub struct ClearLegacyPhantomOrder<T>(PhantomData<T>);
+	/// Clears the phantom state the single-order model obsoleted. `CurrentPhantomOrder` used to
+	/// hold one entry per token pair, and the leading length prefix means the old bytes can still
+	/// decode under the new single-order type, just into a meaningless commitment.
+	/// `PhantomOrderConfig` predates `PhantomTokenPair::standard_amount_b`, so the stored value no
+	/// longer decodes and governance must re-set it; `LastPhantomGeneration` goes with it so the
+	/// re-set config generates immediately.
+	pub struct ClearLegacyPhantomState<T>(PhantomData<T>);
 
-	impl<T: Config> UncheckedOnRuntimeUpgrade for ClearLegacyPhantomOrder<T> {
+	impl<T: Config> UncheckedOnRuntimeUpgrade for ClearLegacyPhantomState<T> {
 		fn on_runtime_upgrade() -> Weight {
 			crate::CurrentPhantomOrder::<T>::kill();
+			crate::PhantomOrderConfig::<T>::kill();
+			crate::LastPhantomGeneration::<T>::kill();
 
 			log::info!(
 				target: "runtime::intents-coprocessor",
-				"ClearLegacyPhantomOrder: cleared the per-pair phantom order batch",
+				"ClearLegacyPhantomState: cleared the per-pair phantom order batch and pre-reverse-leg config",
 			);
 
-			T::DbWeight::get().writes(1)
+			T::DbWeight::get().writes(3)
 		}
 	}
 }
 
-/// Migration that clears the old per-pair `CurrentPhantomOrder` batch (v0 → v1).
-///
-/// Every configured pair now rides in a single phantom order, so the storage item holds one
-/// commitment instead of a list of them.
-pub type ClearLegacyPhantomOrder<T> = VersionedMigration<
+/// Migration that clears the pre-single-order phantom state (v0 → v1): the per-pair
+/// `CurrentPhantomOrder` batch, plus the `PhantomOrderConfig` whose pair type gained
+/// `standard_amount_b` and must be re-set by governance.
+pub type ClearLegacyPhantomState<T> = VersionedMigration<
 	0,
 	1,
-	v1::ClearLegacyPhantomOrder<T>,
+	v1::ClearLegacyPhantomState<T>,
 	Pallet<T>,
 	<T as frame_system::Config>::DbWeight,
 >;

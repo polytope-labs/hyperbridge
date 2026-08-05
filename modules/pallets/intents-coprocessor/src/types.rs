@@ -159,6 +159,10 @@ pub struct GatewayInfo {
 /// body written to offchain storage.
 pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
 
+/// Upper bound on the directed legs of one phantom order: every configured pair contributes
+/// its configured direction plus the reverse.
+pub const MAX_PHANTOM_ORDER_LEGS: u32 = MAX_PHANTOM_TOKEN_PAIRS * 2;
+
 /// Tracks a phantom order recognised by the pallet.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderInfo<BlockNumber> {
@@ -198,6 +202,56 @@ pub struct PhantomTokenPair {
 	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
 	/// Not two. Not a half. ONE. UNIT.
 	pub standard_amount: u128,
+	/// The same ONE-UNIT rule as [`standard_amount`](PhantomTokenPair::standard_amount), for the
+	/// REVERSE leg: exactly `10^decimals(token_b)`, the benchmark quantity when `token_b` is the
+	/// input. Everything written above applies verbatim — a wrong value silently poisons every
+	/// reverse-direction rate. Unused (but still required non-zero for uniformity) when
+	/// `token_a == token_b`, since a same-token pair has no distinct reverse.
+	pub standard_amount_b: u128,
+}
+
+/// One directed leg of the bundled phantom order: `standard_amount` of `token_a` quoted in
+/// `token_b`. Field names deliberately mirror [`PhantomTokenPair`] — downstream decoders read
+/// legs and configured pairs with the same shape.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderLeg {
+	/// The input token being priced.
+	pub token_a: H160,
+	/// The output token the price is quoted in.
+	pub token_b: H160,
+	/// One whole unit of `token_a` in its smallest denomination.
+	pub standard_amount: u128,
+}
+
+impl PhantomTokenPair {
+	/// The directed legs this pair contributes to the bundled order: the configured direction and
+	/// its reverse, so both sides of a pair are priced from a single config entry. A same-token
+	/// pair's reverse is the identical leg, so it contributes only one.
+	pub fn legs(&self) -> Vec<PhantomOrderLeg> {
+		let forward = PhantomOrderLeg {
+			token_a: self.token_a,
+			token_b: self.token_b,
+			standard_amount: self.standard_amount,
+		};
+		if self.token_a == self.token_b {
+			vec![forward]
+		} else {
+			vec![
+				forward,
+				PhantomOrderLeg {
+					token_a: self.token_b,
+					token_b: self.token_a,
+					standard_amount: self.standard_amount_b,
+				},
+			]
+		}
+	}
+}
+
+/// Expands the configured pairs into the phantom order's directed legs, preserving pair order:
+/// pair `i`'s forward leg precedes its reverse.
+pub fn phantom_order_legs(pairs: &[PhantomTokenPair]) -> Vec<PhantomOrderLeg> {
+	pairs.iter().flat_map(PhantomTokenPair::legs).collect()
 }
 
 /// Governance-settable configuration for autonomous phantom order generation.
@@ -388,11 +442,11 @@ pub(crate) mod sol_types {
 	}
 }
 
-/// Builds the IntentGatewayV2 `Order` carrying every configured token pair and returns both
-/// the ABI-encoded bytes and its `keccak256` commitment.
+/// Builds the IntentGatewayV2 `Order` carrying every directed leg and returns both the
+/// ABI-encoded bytes and its `keccak256` commitment.
 ///
-/// Pairs are positional: pair `i` is `inputs[i]` against `output.assets[i]`, which is how
-/// fillers already walk an order's legs. Each input carries its pair's standard amount while
+/// Legs are positional: leg `i` is `inputs[i]` against `output.assets[i]`, which is how
+/// fillers already walk an order's legs. Each input carries its leg's standard amount while
 /// the matching output is left at zero, since the output amount is what fillers quote.
 ///
 /// `deadline` is the EVM block number beyond which the gateway treats the order
@@ -400,7 +454,7 @@ pub(crate) mod sol_types {
 pub fn phantom_order_commitment(
 	block: u64,
 	chain: &[u8],
-	pairs: &[PhantomTokenPair],
+	legs: &[PhantomOrderLeg],
 	deadline: u64,
 ) -> (H256, Vec<u8>) {
 	use alloy_primitives::{Bytes, FixedBytes, U256 as AlloyU256};
@@ -420,19 +474,19 @@ pub fn phantom_order_commitment(
 		fees: AlloyU256::ZERO,
 		session: alloy_primitives::Address::ZERO,
 		predispatch: sol_types::DispatchInfo { assets: vec![], call: Bytes::new() },
-		inputs: pairs
+		inputs: legs
 			.iter()
-			.map(|pair| sol_types::TokenInfo {
-				token: to_word(&pair.token_a),
-				amount: AlloyU256::from(pair.standard_amount),
+			.map(|leg| sol_types::TokenInfo {
+				token: to_word(&leg.token_a),
+				amount: AlloyU256::from(leg.standard_amount),
 			})
 			.collect(),
 		output: sol_types::PaymentInfo {
 			beneficiary: FixedBytes::from([0u8; 32]),
-			assets: pairs
+			assets: legs
 				.iter()
-				.map(|pair| sol_types::TokenInfo {
-					token: to_word(&pair.token_b),
+				.map(|leg| sol_types::TokenInfo {
+					token: to_word(&leg.token_b),
 					amount: AlloyU256::ZERO,
 				})
 				.collect(),

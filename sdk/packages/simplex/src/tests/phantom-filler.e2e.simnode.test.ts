@@ -137,7 +137,15 @@ async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: 
 async function setPhantomOrderConfig(api: ApiPromise): Promise<void> {
 	const config = {
 		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT }],
+		token_pairs: [
+			{
+				token_a: USDC_BASE,
+				token_b: CNGN_BASE,
+				standard_amount: STANDARD_AMOUNT,
+				// 1 cNGN (6 decimals) — the reverse leg's benchmark quantity.
+				standard_amount_b: 1_000_000n,
+			},
+		],
 		interval_blocks: 10,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
@@ -147,19 +155,6 @@ async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | 
 	const hex: string | undefined = raw?.toHex()
 	if (!hex || hex === "0x" || hex.length < 66) return null
 	return `0x${hex.slice(2, 66)}` as HexString
-}
-// Configures both directions of the pair (USDC→cNGN and cNGN→USDC) so the generated order carries
-// two legs — exercises the filler quoting every pair in one phantom order.
-async function setBothPhantomPairs(api: ApiPromise): Promise<void> {
-	const config = {
-		chain: { state_id: { Evm: BASE_CHAIN_ID }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [
-			{ token_a: USDC_BASE, token_b: CNGN_BASE, standard_amount: STANDARD_AMOUNT },
-			{ token_a: CNGN_BASE, token_b: USDC_BASE, standard_amount: STANDARD_AMOUNT },
-		],
-		interval_blocks: 10,
-	}
-	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
 }
 // The active phantom commitment. CurrentPhantomOrder is a (H256, PhantomOrderInfo), so toJSON gives
 // [commitment, info]. Every configured pair rides in that one order, so there is at most one.
@@ -363,18 +358,19 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 
 		console.log("\n[phantom-e2e] aggregation snapshot:")
 		for (const leg of result?.legs ?? []) {
-			console.log(`[phantom-e2e]   leg ${leg.pairIndex} bidCount:     ${leg.bidCount}`)
-			console.log(`[phantom-e2e]   leg ${leg.pairIndex} lowestPrice:  ${leg.lowestPrice}`)
-			console.log(`[phantom-e2e]   leg ${leg.pairIndex} medianPrice:  ${leg.medianPrice}  (liquidity-weighted)`)
-			console.log(`[phantom-e2e]   leg ${leg.pairIndex} highestPrice: ${leg.highestPrice}`)
+			console.log(`[phantom-e2e]   leg ${leg.legIndex} bidCount:     ${leg.bidCount}`)
+			console.log(`[phantom-e2e]   leg ${leg.legIndex} lowestPrice:  ${leg.lowestPrice}`)
+			console.log(`[phantom-e2e]   leg ${leg.legIndex} medianPrice:  ${leg.medianPrice}  (liquidity-weighted)`)
+			console.log(`[phantom-e2e]   leg ${leg.legIndex} highestPrice: ${leg.highestPrice}`)
 		}
 		for (const lp of result?.lpBalances ?? []) {
 			console.log(`[phantom-e2e]   LP ${lp.solver} on ${lp.chain} token ${lp.tokenAddress}: ${lp.balance}`)
 		}
 
 		expect(result).not.toBeNull()
-		// The config prices a single pair, so the order carries one leg.
-		expect(result!.legs).toHaveLength(1)
+		// One configured pair expands into its forward and reverse legs.
+		expect(result!.legs).toHaveLength(2)
+		// Leg 0 is the configured direction: USDC in, cNGN out.
 		const leg = result!.legs[0]
 		expect(leg.bidCount).toBe(FILLERS.length)
 		// Real cNGN quotes — guards against the fillers quoting 0 (e.g. the overfill cap collapsing
@@ -398,9 +394,9 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		}
 	}, 180_000)
 
-	it("quotes every pair of a multi pair phantom order in one bid", async () => {
-		// Both directions of the pair (USDC→cNGN and cNGN→USDC) ride in a single order.
-		await setBothPhantomPairs(api)
+	it("quotes every leg of the expanded phantom order in one bid", async () => {
+		// One configured pair; the pallet expands it into USDC→cNGN and cNGN→USDC legs.
+		await setPhantomOrderConfig(api)
 		await createBlock(api)
 
 		const commitments = await getActivePhantomCommitments(api)

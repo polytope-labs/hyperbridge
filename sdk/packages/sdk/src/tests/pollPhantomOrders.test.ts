@@ -112,7 +112,7 @@ describe("pollPhantomOrders", () => {
 				commitment: COMMITMENT_A,
 				chain: CHAIN,
 				createdAt: 7,
-				pairs: [{ tokenA: TOKEN_A, tokenB: TOKEN_B, standardAmount: 1000000n }],
+				legs: [{ tokenA: TOKEN_A, tokenB: TOKEN_B, standardAmount: 1000000n }],
 			},
 		])
 	})

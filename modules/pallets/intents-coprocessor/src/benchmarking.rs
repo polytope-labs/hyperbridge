@@ -18,6 +18,7 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
+use crate::types::MAX_PHANTOM_TOKEN_PAIRS;
 use alloc::vec;
 use frame_benchmarking::v2::*;
 use frame_support::{
@@ -196,6 +197,7 @@ mod benchmarks {
 				token_a: H160::from_low_u64_be(i.into()),
 				token_b: H160::from_low_u64_be((i + MAX_PHANTOM_TOKEN_PAIRS).into()),
 				standard_amount: 1_000_000_000_000_000_000u128,
+				standard_amount_b: 1_000_000_000_000_000_000u128,
 			})
 			.collect::<Vec<_>>()
 			.try_into()
@@ -221,9 +223,9 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// The on_initialize generation path. Every configured pair rides in one order, so both the
-	/// ABI encoding it hashes and the event it deposits grow with the pair count while the
-	/// storage writes stay fixed. Hence the linear component.
+	/// The on_initialize generation path. Every configured pair expands into both directions of
+	/// one order, so both the ABI encoding it hashes and the event it deposits grow with the pair
+	/// count (two legs per pair) while the storage writes stay fixed. Hence the linear component.
 	#[benchmark]
 	fn generate_phantom_order(p: Linear<1, MAX_PHANTOM_TOKEN_PAIRS>) -> Result<(), BenchmarkError> {
 		let chain =
@@ -233,6 +235,7 @@ mod benchmarks {
 				token_a: H160::from_low_u64_be(i.into()),
 				token_b: H160::from_low_u64_be((i + MAX_PHANTOM_TOKEN_PAIRS).into()),
 				standard_amount: 1_000_000_000_000_000_000u128,
+				standard_amount_b: 1_000_000_000_000_000_000u128,
 			})
 			.collect::<Vec<_>>()
 			.try_into()

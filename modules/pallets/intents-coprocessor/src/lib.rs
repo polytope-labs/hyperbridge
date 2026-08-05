@@ -50,8 +50,8 @@ pub use weights::WeightInfo;
 
 use types::{
 	Bid, GatewayInfo, IntentGatewayParams, PaymasterParams, PhantomOrderConfiguration,
-	PhantomOrderInfo, PhantomTokenPair, RequestKind, TokenDecimalsUpdate, TokenInfo,
-	MAX_PHANTOM_TOKEN_PAIRS,
+	PhantomOrderInfo, PhantomOrderLeg, RequestKind, TokenDecimalsUpdate, TokenInfo,
+	MAX_PHANTOM_ORDER_LEGS,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -204,13 +204,14 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
-		/// The runtime generated a new phantom order commitment. The pairs are listed in the
-		/// same order as the order's asset lists, so index `i` here is the order's leg `i`.
+		/// The runtime generated a new phantom order commitment. Every configured pair expands
+		/// into its configured direction plus the reverse, and the legs are listed in the same
+		/// order as the order's asset lists, so index `i` here is the order's leg `i`.
 		PhantomOrderRegistered {
 			commitment: H256,
 			chain: Vec<u8>,
 			created_at: BlockNumberFor<T>,
-			pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+			legs: BoundedVec<PhantomOrderLeg, ConstU32<MAX_PHANTOM_ORDER_LEGS>>,
 		},
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
@@ -260,9 +261,12 @@ pub mod pallet {
 		PhantomBidWindowNotShorterThanInterval,
 		/// The phantom order configuration carries no token pairs, so there is nothing to price.
 		EmptyPhantomTokenPairs,
-		/// The same directed token pair appears more than once in the configuration. Duplicates
-		/// would be counted twice in one order's asset lists.
+		/// Two configured pairs share the same unordered token set. Every pair expands into both
+		/// directions, so the second entry would duplicate legs already in the order.
 		DuplicatePhantomTokenPair,
+		/// A pair carries a zero standard amount. It is the denominator of every published rate,
+		/// so zero is never meaningful.
+		ZeroPhantomStandardAmount,
 	}
 
 	#[pallet::call]
@@ -563,9 +567,13 @@ pub mod pallet {
 		/// Also clears the current active phantom order so the hook fires immediately
 		/// on the next block.
 		///
+		/// Each configured pair is probed in BOTH directions — the generator expands it into a
+		/// forward and a reverse leg — so a pair is registered once, not once per direction.
+		///
 		/// ⚠ Before calling: each pair's `standard_amount` MUST be exactly one unit of its input
-		/// token (`10^decimals(token_a)`) — no more, no less. It is the denominator of every
-		/// published rate and fails silently if wrong.
+		/// token (`10^decimals(token_a)`) and `standard_amount_b` one unit of `token_b` — no
+		/// more, no less. They are the denominators of every published rate and fail silently
+		/// if wrong.
 		/// See [`PhantomTokenPair::standard_amount`](crate::types::PhantomTokenPair::standard_amount).
 		#[pallet::call_index(8)]
 		#[pallet::weight(T::WeightInfo::set_phantom_order_config())]
@@ -589,16 +597,33 @@ pub mod pallet {
 
 			ensure!(!config.token_pairs.is_empty(), Error::<T>::EmptyPhantomTokenPairs);
 
-			// All pairs share one order now, so a repeated direction would occupy two legs and be
-			// counted twice in the same snapshot.
-			let directions = config
+			// Every pair expands into both directions, so uniqueness is on the unordered token
+			// set: registering cNGN/USDC and USDC/cNGN would put the same two legs in the order
+			// twice and count them twice in one snapshot.
+			let unordered = config
 				.token_pairs
 				.iter()
-				.map(|pair| (pair.token_a, pair.token_b))
+				.map(|pair| {
+					if pair.token_a <= pair.token_b {
+						(pair.token_a, pair.token_b)
+					} else {
+						(pair.token_b, pair.token_a)
+					}
+				})
 				.collect::<BTreeSet<_>>();
 			ensure!(
-				directions.len() == config.token_pairs.len(),
+				unordered.len() == config.token_pairs.len(),
 				Error::<T>::DuplicatePhantomTokenPair
+			);
+
+			// The amounts are the denominators of every published rate; zero can only be a
+			// misconfiguration. Their actual value (one whole unit) is unknowable on-chain.
+			ensure!(
+				config
+					.token_pairs
+					.iter()
+					.all(|pair| pair.standard_amount != 0 && pair.standard_amount_b != 0),
+				Error::<T>::ZeroPhantomStandardAmount
 			);
 
 			PhantomOrderConfig::<T>::put(&config);
@@ -847,10 +872,13 @@ pub mod pallet {
 			};
 
 			let pair_count = config.token_pairs.len() as u32;
+			// Both directions of every configured pair ride in the order, so a pair is priced
+			// buy-and-sell from a single config entry.
+			let legs = types::phantom_order_legs(&config.token_pairs);
 			let (commitment, order_bytes) = types::phantom_order_commitment(
 				n.saturated_into::<u64>(),
 				&chain_bytes,
-				&config.token_pairs,
+				&legs,
 				deadline,
 			);
 			offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
@@ -859,16 +887,17 @@ pub mod pallet {
 			CurrentPhantomOrder::<T>::put((commitment, info));
 			LastPhantomGeneration::<T>::put(n);
 
+			let legs = BoundedVec::truncate_from(legs);
 			Self::deposit_event(Event::PhantomOrderRegistered {
 				commitment,
 				chain: chain_bytes,
 				created_at: n,
-				pairs: config.token_pairs,
+				legs,
 			});
 
-			// The benchmark covers this hook's own reads and writes; encoding and hashing every
-			// pair into one order is what the linear term pays for. The two extra reads are the
-			// ones on_finalize performs on the order it just wrote.
+			// The benchmark covers this hook's own reads and writes; encoding and hashing both
+			// directions of every pair into one order is what the linear term pays for. The two
+			// extra reads are the ones on_finalize performs on the order it just wrote.
 			T::WeightInfo::generate_phantom_order(pair_count)
 				.saturating_add(T::DbWeight::get().reads(2))
 		}

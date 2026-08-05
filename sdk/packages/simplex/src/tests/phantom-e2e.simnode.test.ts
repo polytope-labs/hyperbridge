@@ -107,6 +107,7 @@ async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalB
 				token_a: "0x0101010101010101010101010101010101010101",
 				token_b: "0x0202020202020202020202020202020202020202",
 				standard_amount: 1_000_000_000_000_000_000n,
+				standard_amount_b: 1_000_000_000_000_000_000n,
 			},
 		],
 		interval_blocks: intervalBlocks,
@@ -330,8 +331,8 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(bids.length).toBe(3)
 	}, 60_000)
 
-	it("PhantomOrderRegistered carries every configured pair, decoded through the SDK", async () => {
-		// The only check on how polkadot-js decodes the pair list off the runtime metadata. The SDK
+	it("PhantomOrderRegistered carries both directions of every configured pair, decoded through the SDK", async () => {
+		// The only check on how polkadot-js decodes the leg list off the runtime metadata. The SDK
 		// extraction and the indexer handler both read `tokenA` / `tokenB` / `standardAmount`, which
 		// assumes polkadot-js camelCases the pallet's `token_a` / `token_b` / `standard_amount`
 		// fields. Unit tests cannot catch a mismatch there because their fixtures were written from
@@ -342,16 +343,13 @@ describe("Phantom Order E2E (simnode)", () => {
 				token_a: "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
 				token_b: "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
 				standard_amount: 1_000_000n,
-			},
-			{
-				token_a: "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
-				token_b: "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-				standard_amount: 1_000_000_000_000_000_000n,
+				standard_amount_b: 1_000_000_000_000_000_000n,
 			},
 			{
 				token_a: "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
 				token_b: "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
 				standard_amount: 1_000_000_000n,
+				standard_amount_b: 1_000_000n,
 			},
 		]
 		await sudoAndSeal(
@@ -374,12 +372,12 @@ describe("Phantom Order E2E (simnode)", () => {
 		expect(order.chain).toBe("EVM-8453")
 		expect(order.commitment).toBe(await getActivePhantomCommitment(api))
 
-		// Pairs are positional: index i here is leg i of the order's asset lists.
-		expect(order.pairs).toHaveLength(pairs.length)
-		order.pairs.forEach((pair, i) => {
-			expect(pair.tokenA).toBe(pairs[i].token_a)
-			expect(pair.tokenB).toBe(pairs[i].token_b)
-			expect(pair.standardAmount).toBe(pairs[i].standard_amount)
-		})
+		// The pallet expands each configured pair into its forward and reverse legs, positionally:
+		// index i here is leg i of the order's asset lists.
+		const expectedLegs = pairs.flatMap((pair) => [
+			{ tokenA: pair.token_a, tokenB: pair.token_b, standardAmount: pair.standard_amount },
+			{ tokenA: pair.token_b, tokenB: pair.token_a, standardAmount: pair.standard_amount_b },
+		])
+		expect(order.legs).toEqual(expectedLegs)
 	}, 60_000)
 })

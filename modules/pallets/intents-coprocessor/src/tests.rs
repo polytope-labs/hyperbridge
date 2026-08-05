@@ -599,15 +599,25 @@ fn phantom_pair(token_a: u8, token_b: u8) -> types::PhantomTokenPair {
 	}
 }
 
+fn phantom_chain(evm_id: u32, pairs: alloc::vec::Vec<types::PhantomTokenPair>) -> types::PhantomChainConfiguration {
+	types::PhantomChainConfiguration {
+		chain: StateMachineId { state_id: StateMachine::Evm(evm_id), consensus_state_id: *b"ETH0" },
+		token_pairs: BoundedVec::try_from(pairs).unwrap(),
+	}
+}
+
+fn phantom_config_chains(
+	interval_blocks: u32,
+	chains: alloc::vec::Vec<types::PhantomChainConfiguration>,
+) -> types::PhantomOrderConfiguration {
+	types::PhantomOrderConfiguration { chains: BoundedVec::try_from(chains).unwrap(), interval_blocks }
+}
+
 fn phantom_config_with(
 	interval_blocks: u32,
 	pairs: alloc::vec::Vec<types::PhantomTokenPair>,
 ) -> types::PhantomOrderConfiguration {
-	types::PhantomOrderConfiguration {
-		chain: StateMachineId { state_id: StateMachine::Evm(1), consensus_state_id: *b"ETH0" },
-		token_pairs: BoundedVec::try_from(pairs).unwrap(),
-		interval_blocks,
-	}
+	phantom_config_chains(interval_blocks, vec![phantom_chain(1, pairs)])
 }
 
 fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
@@ -725,7 +735,7 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 	new_test_ext().execute_with(|| {
 		let pairs = vec![phantom_pair(1, 2), phantom_pair(3, 4)];
 		let config = phantom_config_with(200, pairs.clone());
-		let chain = config.chain;
+		let chain = config.chains[0].chain;
 		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
 
 		// The hook reads the latest confirmed height and uses it as the order's deadline.
@@ -735,7 +745,9 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 		System::reset_events();
 		Intents::on_initialize(1);
 
-		let (commitment, info) = CurrentPhantomOrder::<Test>::get().unwrap();
+		let active = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(active.len(), 1);
+		let (commitment, info) = active[0].clone();
 		assert_eq!(info.created_at_block, 1);
 		assert_eq!(info.chain, b"EVM-1".to_vec());
 
@@ -753,6 +765,130 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 			.collect::<alloc::vec::Vec<_>>();
 		assert_eq!(registered.len(), 1);
 		assert_eq!(registered[0].to_vec(), expanded);
+	});
+}
+
+#[test]
+fn phantom_generation_emits_one_order_per_configured_chain() {
+	new_test_ext().execute_with(|| {
+		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
+		let chain_b = phantom_chain(10, vec![phantom_pair(5, 6)]);
+		let config = phantom_config_chains(200, vec![chain_a.clone(), chain_b.clone()]);
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_b.chain, 77u64);
+
+		System::set_block_number(1);
+		System::reset_events();
+		Intents::on_initialize(1);
+
+		// One bundled order per chain, each committing to its own chain's legs and deadline.
+		let active = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(active.len(), 2);
+		let legs_a = types::phantom_order_legs(&chain_a.token_pairs);
+		let legs_b = types::phantom_order_legs(&chain_b.token_pairs);
+		let (expected_a, _) = types::phantom_order_commitment(1, b"EVM-1", &legs_a, 42);
+		let (expected_b, _) = types::phantom_order_commitment(1, b"EVM-10", &legs_b, 77);
+		assert_eq!(active[0].0, expected_a);
+		assert_eq!(active[0].1.chain, b"EVM-1".to_vec());
+		assert_eq!(active[1].0, expected_b);
+		assert_eq!(active[1].1.chain, b"EVM-10".to_vec());
+
+		let registered = System::events()
+			.into_iter()
+			.filter_map(|record| match record.event {
+				RuntimeEvent::Intents(Event::PhantomOrderRegistered { commitment, legs, .. }) =>
+					Some((commitment, legs.to_vec())),
+				_ => None,
+			})
+			.collect::<alloc::vec::Vec<_>>();
+		assert_eq!(registered, vec![(expected_a, legs_a), (expected_b, legs_b)]);
+
+		// Both chains' bid windows close together, and each order signals its own exhaustion.
+		let closing = 1 + 100;
+		System::set_block_number(closing);
+		System::reset_events();
+		Intents::on_finalize(closing);
+		let exhausted = System::events()
+			.into_iter()
+			.filter_map(|record| match record.event {
+				RuntimeEvent::Intents(Event::PhantomBidWindowExhausted { commitment, .. }) =>
+					Some(commitment),
+				_ => None,
+			})
+			.collect::<alloc::vec::Vec<_>>();
+		assert_eq!(exhausted, vec![expected_a, expected_b]);
+	});
+}
+
+#[test]
+fn phantom_generation_skips_chains_without_a_confirmed_height() {
+	new_test_ext().execute_with(|| {
+		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2)]);
+		let chain_b = phantom_chain(10, vec![phantom_pair(5, 6)]);
+		let config = phantom_config_chains(200, vec![chain_a.clone(), chain_b.clone()]);
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+
+		// Only chain A has a confirmed height; chain B must be skipped, not sink the batch.
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
+
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+
+		let active = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(active.len(), 1);
+		assert_eq!(active[0].1.chain, b"EVM-1".to_vec());
+	});
+}
+
+#[test]
+fn phantom_generation_retries_when_no_chain_has_a_confirmed_height() {
+	new_test_ext().execute_with(|| {
+		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2)]);
+		let config = phantom_config_chains(200, vec![chain_a.clone()]);
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+
+		// No confirmed height anywhere: nothing is generated and the generation marker stays
+		// clear, so the hook retries on the very next block instead of waiting an interval.
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+		assert!(CurrentPhantomOrder::<Test>::get().is_none());
+		assert!(LastPhantomGeneration::<Test>::get().is_none());
+
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
+		System::set_block_number(2);
+		Intents::on_initialize(2);
+		assert_eq!(CurrentPhantomOrder::<Test>::get().unwrap().len(), 1);
+		assert_eq!(LastPhantomGeneration::<Test>::get(), Some(2));
+	});
+}
+
+#[test]
+fn set_phantom_order_config_rejects_empty_and_duplicate_chains() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_chains(200, vec![])
+			),
+			Error::<Test>::EmptyPhantomChains
+		);
+
+		// Each chain gets exactly one bundled order, so its pairs must live in a single entry.
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_chains(
+					200,
+					vec![
+						phantom_chain(1, vec![phantom_pair(1, 2)]),
+						phantom_chain(1, vec![phantom_pair(3, 4)]),
+					]
+				)
+			),
+			Error::<Test>::DuplicatePhantomChain
+		);
 	});
 }
 
@@ -866,13 +1002,13 @@ fn phantom_order_at_max_pairs_stays_within_budget() {
 fn phantom_bid_window_exhausted_fires_once_for_the_active_order() {
 	new_test_ext().execute_with(|| {
 		let config = phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
-		let chain = config.chain;
+		let chain = config.chains[0].chain;
 		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
 		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
 
 		System::set_block_number(1);
 		Intents::on_initialize(1);
-		let (commitment, _) = CurrentPhantomOrder::<Test>::get().unwrap();
+		let (commitment, _) = CurrentPhantomOrder::<Test>::get().unwrap()[0].clone();
 
 		// The default window storage is zero, so the fallback constant (100) applies.
 		let closing = 1 + 100;

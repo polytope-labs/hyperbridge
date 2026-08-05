@@ -154,10 +154,15 @@ pub struct GatewayInfo {
 	pub params: IntentGatewayParams,
 }
 
-/// Upper bound on the token pairs a single config may probe. Every pair rides in the same
-/// phantom order, so this also bounds that order's asset lists and the size of the encoded
-/// body written to offchain storage.
+/// Upper bound on the token pairs a single chain's config may probe. Every pair rides in the
+/// same phantom order, so this also bounds that order's asset lists and the size of the
+/// encoded body written to offchain storage.
 pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
+
+/// Upper bound on the chains a phantom order configuration may cover. Each chain gets its own
+/// bundled order per interval, so this also bounds `CurrentPhantomOrder` and the work
+/// `on_initialize` performs on a generation block.
+pub const MAX_PHANTOM_CHAINS: u32 = 16;
 
 /// Upper bound on the directed legs of one phantom order: every configured pair contributes
 /// its configured direction plus the reverse.
@@ -254,14 +259,22 @@ pub fn phantom_order_legs(pairs: &[PhantomTokenPair]) -> Vec<PhantomOrderLeg> {
 	pairs.iter().flat_map(PhantomTokenPair::legs).collect()
 }
 
-/// Governance-settable configuration for autonomous phantom order generation.
-/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block. The
-/// `chain` carries the consensus state id so the hook can look up the latest
-/// confirmed height directly instead of scanning every state machine.
+/// The token pairs probed on one chain. Every pair here rides in that chain's single bundled
+/// phantom order. The `chain` carries the consensus state id so the hook can look up the
+/// latest confirmed height directly instead of scanning every state machine.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomOrderConfiguration {
+pub struct PhantomChainConfiguration {
 	pub chain: StateMachineId,
 	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+}
+
+/// Governance-settable configuration for autonomous phantom order generation.
+/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block and emits one bundled
+/// order per configured chain every `interval_blocks`. The interval is shared so all chains
+/// generate on the same block and their bid windows close together.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PhantomOrderConfiguration {
+	pub chains: BoundedVec<PhantomChainConfiguration, ConstU32<MAX_PHANTOM_CHAINS>>,
 	pub interval_blocks: u32,
 }
 

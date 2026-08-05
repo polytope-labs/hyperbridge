@@ -183,7 +183,8 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 	fn generate_phantom_order(p: u32) -> Weight {
 		// Placeholder, not measured. The generation hook is new in this release and the box has
 		// not run the benchmark yet; the per-pair term covers encoding and hashing the two legs
-		// (forward and reverse) each configured pair expands into.
+		// (forward and reverse) each configured pair expands into. The hook charges this once
+		// per configured chain with that chain's own pair count.
 		Weight::from_parts(30_000_000, 0)
 			.saturating_add(Weight::from_parts(400_000, 0).saturating_mul(p.into()))
 			.saturating_add(Weight::from_parts(0, 3_000))

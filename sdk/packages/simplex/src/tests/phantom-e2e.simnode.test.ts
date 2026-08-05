@@ -101,13 +101,17 @@ async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: 
  */
 async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalBlocks: number): Promise<void> {
 	const config = {
-		chain: { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
-		token_pairs: [
+		chains: [
 			{
-				token_a: "0x0101010101010101010101010101010101010101",
-				token_b: "0x0202020202020202020202020202020202020202",
-				standard_amount: 1_000_000_000_000_000_000n,
-				standard_amount_b: 1_000_000_000_000_000_000n,
+				chain: { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
+				token_pairs: [
+					{
+						token_a: "0x0101010101010101010101010101010101010101",
+						token_b: "0x0202020202020202020202020202020202020202",
+						standard_amount: 1_000_000_000_000_000_000n,
+						standard_amount_b: 1_000_000_000_000_000_000n,
+					},
+				],
 			},
 		],
 		interval_blocks: intervalBlocks,
@@ -119,15 +123,17 @@ async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalB
  * Reads the active phantom commitment from `CurrentPhantomOrder` storage at the latest block.
  * Returns null when the storage slot is empty.
  *
- * `CurrentPhantomOrder` is a `(H256, PhantomOrderInfo)`, so the commitment is the leading 32 bytes.
+ * `CurrentPhantomOrder` is a `BoundedVec<(H256, PhantomOrderInfo)>` with one entry per configured
+ * chain; every test here configures a single chain, so the commitment is the 32 bytes after the
+ * vec's one-byte compact length prefix.
  */
 async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | null> {
 	const storageKey = api.query.intentsCoprocessor.currentPhantomOrder.key()
 	const raw: any = await api.rpc.state.getStorage(storageKey)
 	if (!raw) return null
 	const hex: string = raw.toHex()
-	if (!hex || hex === "0x" || hex.length < 66) return null
-	return `0x${hex.slice(2, 66)}` as HexString
+	if (!hex || hex === "0x" || hex.length < 68) return null
+	return `0x${hex.slice(4, 68)}` as HexString
 }
 
 describe("Phantom Order E2E (simnode)", () => {
@@ -355,8 +361,12 @@ describe("Phantom Order E2E (simnode)", () => {
 		await sudoAndSeal(
 			api,
 			api.tx.intentsCoprocessor.setPhantomOrderConfig({
-				chain: { state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID },
-				token_pairs: pairs,
+				chains: [
+					{
+						chain: { state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID },
+						token_pairs: pairs,
+					},
+				],
 				interval_blocks: 10,
 			}),
 		)

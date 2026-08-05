@@ -27,12 +27,12 @@ mod v1 {
 	use super::*;
 	use frame_support::traits::Get;
 
-	/// Clears the phantom state the single-order model obsoleted. `CurrentPhantomOrder` used to
-	/// hold one entry per token pair, and the leading length prefix means the old bytes can still
-	/// decode under the new single-order type, just into a meaningless commitment.
-	/// `PhantomOrderConfig` predates `PhantomTokenPair::standard_amount_b`, so the stored value no
-	/// longer decodes and governance must re-set it; `LastPhantomGeneration` goes with it so the
-	/// re-set config generates immediately.
+	/// Clears the phantom state the bundled-order model obsoleted. `CurrentPhantomOrder` used to
+	/// hold one entry per token pair; under the new type its entries are one bundled order per
+	/// chain, so the old bytes would decode into meaningless commitments. `PhantomOrderConfig`
+	/// predates both the per-chain config list and `PhantomTokenPair::standard_amount_b`, so the
+	/// stored value no longer decodes and governance must re-set it; `LastPhantomGeneration`
+	/// goes with it so the re-set config generates immediately.
 	pub struct ClearLegacyPhantomState<T>(PhantomData<T>);
 
 	impl<T: Config> UncheckedOnRuntimeUpgrade for ClearLegacyPhantomState<T> {
@@ -51,9 +51,9 @@ mod v1 {
 	}
 }
 
-/// Migration that clears the pre-single-order phantom state (v0 → v1): the per-pair
-/// `CurrentPhantomOrder` batch, plus the `PhantomOrderConfig` whose pair type gained
-/// `standard_amount_b` and must be re-set by governance.
+/// Migration that clears the pre-bundled-order phantom state (v0 → v1): the per-pair
+/// `CurrentPhantomOrder` batch, plus the `PhantomOrderConfig` whose shape changed to a
+/// per-chain list with `standard_amount_b` pairs and must be re-set by governance.
 pub type ClearLegacyPhantomState<T> = VersionedMigration<
 	0,
 	1,

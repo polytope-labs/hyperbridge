@@ -33,7 +33,6 @@ use frame_support::{
 	BoundedVec,
 };
 use ismp::{
-	consensus::StateMachineId,
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 };
@@ -51,7 +50,7 @@ pub use weights::WeightInfo;
 use types::{
 	Bid, GatewayInfo, IntentGatewayParams, PaymasterParams, PhantomOrderConfiguration,
 	PhantomOrderInfo, PhantomOrderLeg, RequestKind, TokenDecimalsUpdate, TokenInfo,
-	MAX_PHANTOM_ORDER_LEGS,
+	MAX_PHANTOM_CHAINS, MAX_PHANTOM_ORDER_LEGS,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -154,11 +153,16 @@ pub mod pallet {
 	pub type Paymasters<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, H160, OptionQuery>;
 
-	/// The phantom order active for the current interval. Every configured token pair rides
-	/// in this one order, so a single commitment covers them all. Replaced each cycle.
+	/// The phantom orders active for the current interval, one bundled order per configured
+	/// chain (every token pair configured for a chain rides in that chain's single order).
+	/// Keeping them all here lets `place_bid` enforce the bid rules for every chain's order,
+	/// not just the last one generated. Replaced as a whole each cycle.
 	#[pallet::storage]
-	pub type CurrentPhantomOrder<T: Config> =
-		StorageValue<_, (H256, PhantomOrderInfo<BlockNumberFor<T>>), OptionQuery>;
+	pub type CurrentPhantomOrder<T: Config> = StorageValue<
+		_,
+		BoundedVec<(H256, PhantomOrderInfo<BlockNumberFor<T>>), ConstU32<MAX_PHANTOM_CHAINS>>,
+		OptionQuery,
+	>;
 
 	/// The block at which phantom orders were last generated, used to decide when the next
 	/// interval is due. Cleared by set_phantom_order_config so generation restarts immediately.
@@ -215,8 +219,9 @@ pub mod pallet {
 		},
 		/// The phantom order bid window was updated
 		PhantomBidWindowUpdated { window: u32 },
-		/// The phantom order configuration was updated by governance
-		PhantomOrderConfigSet { chain: StateMachineId, pair_count: u32, interval_blocks: u32 },
+		/// The phantom order configuration was updated by governance. `pair_count` is the total
+		/// across every configured chain.
+		PhantomOrderConfigSet { chain_count: u32, pair_count: u32, interval_blocks: u32 },
 		/// A phantom order's bid window closed; the indexer can now aggregate its snapshot.
 		PhantomBidWindowExhausted { commitment: H256, created_at: BlockNumberFor<T> },
 		/// A gateway implementation upgrade was initiated
@@ -259,10 +264,16 @@ pub mod pallet {
 		/// They must satisfy `window < interval_blocks` so an order is never replaced on the
 		/// same block its bid window closes (which would drop its exhaustion snapshot).
 		PhantomBidWindowNotShorterThanInterval,
-		/// The phantom order configuration carries no token pairs, so there is nothing to price.
+		/// The phantom order configuration carries no chains, so there is nothing to generate.
+		EmptyPhantomChains,
+		/// Two configured entries target the same chain. Each chain gets exactly one bundled
+		/// order per interval, so its pairs must live in a single entry.
+		DuplicatePhantomChain,
+		/// A configured chain carries no token pairs, so there is nothing to price on it.
 		EmptyPhantomTokenPairs,
-		/// Two configured pairs share the same unordered token set. Every pair expands into both
-		/// directions, so the second entry would duplicate legs already in the order.
+		/// Two pairs configured for one chain share the same unordered token set. Every pair
+		/// expands into both directions, so the second entry would duplicate legs already in
+		/// that chain's order.
 		DuplicatePhantomTokenPair,
 		/// A pair carries a zero standard amount. It is the denominator of every published rate,
 		/// so zero is never meaningful.
@@ -296,9 +307,10 @@ pub mod pallet {
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
 
 			// Phantom orders have stricter rules: one bid per filler, no updates, and only
-			// within the configured acceptance window after the order was registered.
-			if let Some((active, info)) = CurrentPhantomOrder::<T>::get() {
-				if active == commitment {
+			// within the configured acceptance window after the order was registered. Every
+			// chain's active order is checked, not just the most recently generated one.
+			if let Some(active) = CurrentPhantomOrder::<T>::get() {
+				if let Some((_, info)) = active.iter().find(|(c, _)| *c == commitment) {
 					let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
 					ensure!(
 						frame_system::Pallet::<T>::block_number() <= info.created_at_block + window,
@@ -563,9 +575,9 @@ pub mod pallet {
 		}
 
 		/// Set the phantom order configuration. The on_initialize hook reads this every
-		/// block and generates a new phantom commitment when the interval elapses.
-		/// Also clears the current active phantom order so the hook fires immediately
-		/// on the next block.
+		/// block and generates one bundled phantom order per configured chain when the
+		/// interval elapses. Also clears the current active phantom orders so the hook
+		/// fires immediately on the next block.
 		///
 		/// Each configured pair is probed in BOTH directions — the generator expands it into a
 		/// forward and a reverse leg — so a pair is registered once, not once per direction.
@@ -583,55 +595,64 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			let pair_count = config.token_pairs.len() as u32;
 			let interval_blocks = config.interval_blocks;
-			let chain = config.chain.clone();
 
 			// The bid window must close strictly before the next generation so on_finalize emits
-			// the exhaustion before on_initialize replaces the order. interval_blocks == 0 means
+			// the exhaustions before on_initialize replaces the orders. interval_blocks == 0 means
 			// generate once and never regenerate, so there is no replacement to race.
 			ensure!(
 				interval_blocks == 0 || Self::phantom_bid_window() < interval_blocks,
 				Error::<T>::PhantomBidWindowNotShorterThanInterval
 			);
 
-			ensure!(!config.token_pairs.is_empty(), Error::<T>::EmptyPhantomTokenPairs);
+			ensure!(!config.chains.is_empty(), Error::<T>::EmptyPhantomChains);
 
-			// Every pair expands into both directions, so uniqueness is on the unordered token
-			// set: registering cNGN/USDC and USDC/cNGN would put the same two legs in the order
-			// twice and count them twice in one snapshot.
-			let unordered = config
-				.token_pairs
-				.iter()
-				.map(|pair| {
-					if pair.token_a <= pair.token_b {
-						(pair.token_a, pair.token_b)
-					} else {
-						(pair.token_b, pair.token_a)
-					}
-				})
-				.collect::<BTreeSet<_>>();
-			ensure!(
-				unordered.len() == config.token_pairs.len(),
-				Error::<T>::DuplicatePhantomTokenPair
-			);
+			let chains = config.chains.iter().map(|entry| entry.chain).collect::<BTreeSet<_>>();
+			ensure!(chains.len() == config.chains.len(), Error::<T>::DuplicatePhantomChain);
 
-			// The amounts are the denominators of every published rate; zero can only be a
-			// misconfiguration. Their actual value (one whole unit) is unknowable on-chain.
-			ensure!(
-				config
+			for entry in config.chains.iter() {
+				ensure!(!entry.token_pairs.is_empty(), Error::<T>::EmptyPhantomTokenPairs);
+
+				// Every pair expands into both directions, so uniqueness is on the unordered
+				// token set: registering cNGN/USDC and USDC/cNGN would put the same two legs in
+				// the chain's order twice and count them twice in one snapshot.
+				let unordered = entry
 					.token_pairs
 					.iter()
-					.all(|pair| pair.standard_amount != 0 && pair.standard_amount_b != 0),
-				Error::<T>::ZeroPhantomStandardAmount
-			);
+					.map(|pair| {
+						if pair.token_a <= pair.token_b {
+							(pair.token_a, pair.token_b)
+						} else {
+							(pair.token_b, pair.token_a)
+						}
+					})
+					.collect::<BTreeSet<_>>();
+				ensure!(
+					unordered.len() == entry.token_pairs.len(),
+					Error::<T>::DuplicatePhantomTokenPair
+				);
+
+				// The amounts are the denominators of every published rate; zero can only be a
+				// misconfiguration. Their actual value (one whole unit) is unknowable on-chain.
+				ensure!(
+					entry
+						.token_pairs
+						.iter()
+						.all(|pair| pair.standard_amount != 0 && pair.standard_amount_b != 0),
+					Error::<T>::ZeroPhantomStandardAmount
+				);
+			}
+
+			let chain_count = config.chains.len() as u32;
+			let pair_count =
+				config.chains.iter().map(|entry| entry.token_pairs.len() as u32).sum::<u32>();
 
 			PhantomOrderConfig::<T>::put(&config);
 			CurrentPhantomOrder::<T>::kill();
 			LastPhantomGeneration::<T>::kill();
 
 			Self::deposit_event(Event::PhantomOrderConfigSet {
-				chain,
+				chain_count,
 				pair_count,
 				interval_blocks,
 			});
@@ -858,65 +879,82 @@ pub mod pallet {
 				return T::DbWeight::get().reads(4);
 			}
 
-			// Phantom orders carry the latest confirmed height as their deadline so they read
-			// as already expired on-chain and can never be executed for real. Bail before
-			// touching storage if the destination chain has no confirmed height yet.
-			let chain_bytes = config.chain.state_id.to_string().into_bytes();
-			let Some(deadline) = LatestStateMachineHeight::<T>::get(config.chain) else {
-				log::warn!(
-					target: LOG_TARGET,
-					"No confirmed state machine height for {:?}, skipping phantom order generation",
-					config.chain,
+			// One bundled order per configured chain, each carrying both directions of every
+			// pair configured for it. The weight sums the per-chain benchmark (encoding and
+			// hashing the legs is what its linear term pays for) plus each chain's confirmed
+			// height read; the two extra reads are the ones on_finalize performs on the batch.
+			let mut weight = T::DbWeight::get()
+				.reads(4)
+				.saturating_add(T::DbWeight::get().reads(config.chains.len() as u64));
+			let mut batch: BoundedVec<
+				(H256, PhantomOrderInfo<BlockNumberFor<T>>),
+				ConstU32<MAX_PHANTOM_CHAINS>,
+			> = BoundedVec::new();
+			for entry in config.chains.iter() {
+				// Phantom orders carry the latest confirmed height as their deadline so they
+				// read as already expired on-chain and can never be executed for real. A chain
+				// with no confirmed height yet is skipped.
+				let Some(deadline) = LatestStateMachineHeight::<T>::get(entry.chain) else {
+					log::warn!(
+						target: LOG_TARGET,
+						"No confirmed state machine height for {:?}, skipping phantom order generation",
+						entry.chain,
+					);
+					continue;
+				};
+
+				let chain_bytes = entry.chain.state_id.to_string().into_bytes();
+				let legs = types::phantom_order_legs(&entry.token_pairs);
+				let (commitment, order_bytes) = types::phantom_order_commitment(
+					n.saturated_into::<u64>(),
+					&chain_bytes,
+					&legs,
+					deadline,
 				);
-				return T::DbWeight::get().reads(5);
-			};
+				offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
 
-			let pair_count = config.token_pairs.len() as u32;
-			// Both directions of every configured pair ride in the order, so a pair is priced
-			// buy-and-sell from a single config entry.
-			let legs = types::phantom_order_legs(&config.token_pairs);
-			let (commitment, order_bytes) = types::phantom_order_commitment(
-				n.saturated_into::<u64>(),
-				&chain_bytes,
-				&legs,
-				deadline,
-			);
-			offchain_index::set(&offchain_phantom_key(&commitment), &order_bytes);
+				let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
+				let _ = batch.try_push((commitment, info));
+				Self::deposit_event(Event::PhantomOrderRegistered {
+					commitment,
+					chain: chain_bytes,
+					created_at: n,
+					legs: BoundedVec::truncate_from(legs),
+				});
+				weight = weight.saturating_add(T::WeightInfo::generate_phantom_order(
+					entry.token_pairs.len() as u32,
+				));
+			}
 
-			let info = PhantomOrderInfo { created_at_block: n, chain: chain_bytes.clone() };
-			CurrentPhantomOrder::<T>::put((commitment, info));
+			// No chain had a confirmed height: leave the previous batch and the generation
+			// marker untouched so the hook retries next block instead of waiting an interval.
+			if batch.is_empty() {
+				return weight;
+			}
+
+			CurrentPhantomOrder::<T>::put(batch);
 			LastPhantomGeneration::<T>::put(n);
 
-			let legs = BoundedVec::truncate_from(legs);
-			Self::deposit_event(Event::PhantomOrderRegistered {
-				commitment,
-				chain: chain_bytes,
-				created_at: n,
-				legs,
-			});
-
-			// The benchmark covers this hook's own reads and writes; encoding and hashing both
-			// directions of every pair into one order is what the linear term pays for. The two
-			// extra reads are the ones on_finalize performs on the order it just wrote.
-			T::WeightInfo::generate_phantom_order(pair_count)
-				.saturating_add(T::DbWeight::get().reads(2))
+			weight
 		}
 
 		fn on_finalize(n: BlockNumberFor<T>) {
-			// Signal the active commitment on the block its bid window closes so the indexer can
-			// aggregate the snapshot. Emitted in on_finalize (after all extrinsics) so any bid
-			// placed in the window-closing block is already in storage when the snapshot is taken.
-			// The bid window is expected to be shorter than the generation interval, so the active
-			// order is never replaced by on_initialize on the same block its window closes.
-			let Some((commitment, info)) = CurrentPhantomOrder::<T>::get() else {
+			// Signal each active commitment on the block its bid window closes so the indexer can
+			// aggregate that order's snapshot. Emitted in on_finalize (after all extrinsics) so any
+			// bid placed in the window-closing block is already in storage when the snapshot is
+			// taken. The bid window is expected to be shorter than the generation interval, so the
+			// active batch is never replaced by on_initialize on the same block its window closes.
+			let Some(active) = CurrentPhantomOrder::<T>::get() else {
 				return;
 			};
 			let window: BlockNumberFor<T> = Self::phantom_bid_window().into();
-			if n == info.created_at_block.saturating_add(window) {
-				Self::deposit_event(Event::PhantomBidWindowExhausted {
-					commitment,
-					created_at: info.created_at_block,
-				});
+			for (commitment, info) in active.iter() {
+				if n == info.created_at_block.saturating_add(window) {
+					Self::deposit_event(Event::PhantomBidWindowExhausted {
+						commitment: *commitment,
+						created_at: info.created_at_block,
+					});
+				}
 			}
 		}
 	}

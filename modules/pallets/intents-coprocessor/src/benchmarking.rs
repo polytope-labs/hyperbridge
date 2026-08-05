@@ -215,11 +215,15 @@ mod benchmarks {
 		let token_pairs = synthetic_pairs(MAX_PHANTOM_TOKEN_PAIRS)?;
 
 		let config = types::PhantomOrderConfiguration {
-			chain: StateMachineId {
-				state_id: StateMachine::Evm(8453),
-				consensus_state_id: *b"ETH0",
-			},
-			token_pairs,
+			chains: vec![types::PhantomChainConfiguration {
+				chain: StateMachineId {
+					state_id: StateMachine::Evm(8453),
+					consensus_state_id: *b"ETH0",
+				},
+				token_pairs,
+			}]
+			.try_into()
+			.map_err(|_| BenchmarkError::Stop("chain list exceeds MAX_PHANTOM_CHAINS"))?,
 			// Must stay strictly above every fallback bid window this benchmark runs against, or
 			// the call is rejected with PhantomBidWindowNotShorterThanInterval. The bound is the
 			// mock's 100 (gargantua uses 5, nexus 25), and the check is `window < interval`, so
@@ -234,9 +238,11 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// The on_initialize generation path. Every configured pair expands into both directions of
-	/// one order, so both the ABI encoding it hashes and the event it deposits grow with the pair
-	/// count (two legs per pair) while the storage writes stay fixed. Hence the linear component.
+	/// The on_initialize generation path, measured for a single chain: the hook sums this
+	/// weight per configured chain. Every pair expands into both directions of the chain's
+	/// order, so both the ABI encoding it hashes and the event it deposits grow with the pair
+	/// count (two legs per pair) while the storage writes stay fixed. Hence the linear
+	/// component.
 	#[benchmark]
 	fn generate_phantom_order(p: Linear<1, MAX_PHANTOM_TOKEN_PAIRS>) -> Result<(), BenchmarkError> {
 		let chain =
@@ -247,8 +253,9 @@ mod benchmarks {
 		// is not checked against the bid window here and any value does. The hook reads it only to
 		// decide whether an interval has elapsed, which the kill below settles anyway.
 		PhantomOrderConfig::<T>::put(types::PhantomOrderConfiguration {
-			chain,
-			token_pairs,
+			chains: vec![types::PhantomChainConfiguration { chain, token_pairs }]
+				.try_into()
+				.map_err(|_| BenchmarkError::Stop("chain list exceeds MAX_PHANTOM_CHAINS"))?,
 			interval_blocks: 100,
 		});
 		// The hook needs a confirmed height on the destination chain for the deadline, and no

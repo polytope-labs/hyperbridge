@@ -837,7 +837,17 @@ export class IntentFiller {
 			.then((coprocessor) => {
 				this.stopPhantomPolling = coprocessor.pollPhantomOrders(
 					(order) => {
-						this.globalQueue.add(() => this.handlePhantomOrder(order, coprocessor))
+						// The queued promise is nobody's return value, so an escaping throw would be an
+						// unhandled rejection — which this process has no handler for and Node turns into
+						// an exit. Contain it here so a bad phantom order can never take the filler down.
+						void this.globalQueue
+							.add(() => this.handlePhantomOrder(order, coprocessor))
+							.catch((err) =>
+								this.logger.error(
+									{ err, chain: order.chain, commitment: order.commitment },
+									"Unhandled error while processing a phantom order",
+								),
+							)
 					},
 					{ onError: (err) => this.logger.warn({ err }, "Phantom order poll failed, will retry") },
 				)
@@ -855,8 +865,20 @@ export class IntentFiller {
 			return
 		}
 
-		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage.
-		const phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
+		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage. The read
+		// throws rather than returning empty when the node does not serve the offchain RPC at all,
+		// which is the common misconfiguration — a public endpoint runs safe methods only.
+		let phantomOrder: Order | null
+		try {
+			phantomOrder = await coprocessor.fetchPhantomOrder(event.commitment)
+		} catch (err) {
+			this.logger.error(
+				{ err, commitment: event.commitment, chain: event.chain },
+				"Could not read the phantom order from offchain storage — the Hyperbridge node must run with " +
+					"--enable-offchain-indexing=true and expose offchain_localStorageGet (--rpc-methods=unsafe)",
+			)
+			return
+		}
 		if (!phantomOrder) {
 			this.logger.warn(
 				{ commitment: event.commitment, chain: event.chain },

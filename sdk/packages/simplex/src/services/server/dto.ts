@@ -74,7 +74,7 @@ export interface BalanceSnapshot {
 	hyperbridge?: { address: string; free: number; reserved: number }
 }
 
-/** GET /api/strategies rows; PUT /api/strategies/:index/curves response */
+/** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
 export interface AdminStrategyDto {
 	index: number
 	/** Display label, e.g. "USDC/CNGN" (reference pairs carry a " (reference)" suffix). */
@@ -84,8 +84,34 @@ export interface AdminStrategyDto {
 	pricingMode: "static" | "venue"
 	sameToken: boolean
 	referenceOnly: boolean
+	/** Per-order cap in token0 units; absent for reference-only pairs (never consulted). */
+	maxOrderSize?: string
 	bid?: PriceCurvePoint[]
 	ask?: PriceCurvePoint[]
+}
+
+/** GET /api/chains rows; one per `[[chains]]` entry in the running config. */
+export interface ChainRowDto {
+	chainId: number
+	/** State machine id, e.g. "EVM-8453". */
+	stateMachineId: string
+	label: string
+	rpcUrls: string[]
+	bundlerUrl: string
+	watchOnly: boolean
+	/** False for rows added since boot — they only start filling after a restart. */
+	running: boolean
+}
+
+/** GET /api/chains */
+export interface ChainsDto {
+	chains: ChainRowDto[]
+	/** Every chain selectable on this network — the same catalog the setup wizard offers. */
+	catalog: InitChainMeta[]
+	/** Network the configured chains belong to; scopes the catalog and the Alchemy prefill. */
+	network: InitNetwork
+	/** True when `[simplex].watchOnly` is the global boolean — per-chain toggles are then frozen. */
+	globalWatchOnly: boolean
 }
 
 /** GET /api/activity/orders rows; SSE /api/events frames */

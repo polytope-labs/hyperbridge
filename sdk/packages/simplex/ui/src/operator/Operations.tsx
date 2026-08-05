@@ -4,6 +4,7 @@ import { api } from "../api"
 import { AddressListEditor } from "../components/AddressListEditor"
 import { CopyHash } from "../components/CopyHash"
 import { VaultRowsEditor } from "../components/VaultRowsEditor"
+import { Chains } from "./Chains"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ConfigDto, SendTokenOption } from "../types"
@@ -95,10 +96,11 @@ export function Operations(props: { chains: number[]; chainLabels?: Record<strin
 				/>
 			</div>
 
+			<Chains />
+
 			{config && (
 				<p className="hint">
-					Config: <span className="mono">{config.configPath}</span> — chains, endpoints and signer changes require
-					an edit + restart.
+					Config: <span className="mono">{config.configPath}</span> — signer changes require an edit + restart.
 				</p>
 			)}
 

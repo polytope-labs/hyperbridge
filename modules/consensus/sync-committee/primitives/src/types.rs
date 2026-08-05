@@ -7,6 +7,11 @@ use primitive_types::H256;
 use ssz_rs::Node;
 
 /// This holds the relevant data required to prove the state root in the execution payload.
+///
+/// `state_root`, `block_number` and `timestamp` are what the ISMP consumer needs and are common to
+/// both forks. What differs is how the verifier is convinced of them, and that lives in
+/// [`ExecutionProof`]. Both variants are always compiled, so one binary verifies either fork and
+/// picks the path at runtime rather than at build time.
 #[derive(Debug, Clone, PartialEq, Eq, Default, codec::Encode, codec::Decode)]
 pub struct ExecutionPayloadProof {
 	/// The state root in the `ExecutionPayload` which represents the commitment to
@@ -14,12 +19,64 @@ pub struct ExecutionPayloadProof {
 	pub state_root: H256,
 	/// the block number of the execution header.
 	pub block_number: u64,
-	/// merkle mutli proof for the state_root & block_number in the [`ExecutionPayload`].
-	pub multi_proof: Vec<Node>,
-	/// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
-	pub execution_payload_branch: Vec<Node>,
 	/// timestamp
 	pub timestamp: u64,
+	/// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
+	pub execution_payload_branch: Vec<Node>,
+	/// The fork-specific material that proves the three fields above.
+	pub proof: ExecutionProof,
+}
+
+/// The fork-specific execution proof carried by [`ExecutionPayloadProof`].
+#[derive(Debug, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
+pub enum ExecutionProof {
+	/// Pre-Gloas: the execution payload header lives in the beacon state, so `state_root`,
+	/// `block_number` and `timestamp` are proven directly by an ssz multi proof over it.
+	Legacy {
+		/// merkle multi proof for the state_root, block_number & timestamp in the
+		/// [`ExecutionPayload`].
+		multi_proof: Vec<Node>,
+	},
+	/// Post-Gloas (EIP-7732 ePBS): the beacon state keeps only the execution block hash, so the
+	/// relayer ships the rlp encoded execution block header and the verifier recovers the three
+	/// fields from this preimage after checking `keccak256(header)` matches the block hash
+	/// consensus vouched for. The verifier is what decides whether the fields are honest.
+	Gloas {
+		/// the rlp encoded execution block header.
+		execution_header: Vec<u8>,
+	},
+}
+
+impl Default for ExecutionProof {
+	fn default() -> Self {
+		ExecutionProof::Legacy { multi_proof: Vec::new() }
+	}
+}
+
+impl ExecutionPayloadProof {
+	/// The pre-Gloas ssz multi proof, or `None` when this is a Gloas proof.
+	pub fn multi_proof(&self) -> Option<&Vec<Node>> {
+		match &self.proof {
+			ExecutionProof::Legacy { multi_proof } => Some(multi_proof),
+			ExecutionProof::Gloas { .. } => None,
+		}
+	}
+
+	/// The rlp encoded Gloas execution header, or `None` when this is a legacy proof.
+	pub fn execution_header(&self) -> Option<&Vec<u8>> {
+		match &self.proof {
+			ExecutionProof::Gloas { execution_header } => Some(execution_header),
+			ExecutionProof::Legacy { .. } => None,
+		}
+	}
+
+	/// Mutable access to the rlp encoded Gloas execution header, or `None` for a legacy proof.
+	pub fn execution_header_mut(&mut self) -> Option<&mut Vec<u8>> {
+		match &mut self.proof {
+			ExecutionProof::Gloas { execution_header } => Some(execution_header),
+			ExecutionProof::Legacy { .. } => None,
+		}
+	}
 }
 
 /// Holds the neccessary proofs required to verify a header in the `block_roots` field

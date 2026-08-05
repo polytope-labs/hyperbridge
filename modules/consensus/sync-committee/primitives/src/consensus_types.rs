@@ -1,15 +1,28 @@
+#[cfg(not(feature = "glamsterdam"))]
+use crate::deneb::KzgCommitment;
 use crate::{
 	constants::{
 		BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32,
 		ParticipationFlags, Root, Slot, ValidatorIndex, Version, WithdrawalIndex,
 		DEPOSIT_PROOF_LENGTH, JUSTIFICATION_BITS_LENGTH,
 	},
-	deneb::KzgCommitment,
 	electra::*,
 	ssz::{ByteList, ByteVector},
 };
 use alloc::{vec, vec::Vec};
 use ssz_rs::{prelude::*, Deserialize, List, Vector};
+
+#[cfg(feature = "glamsterdam")]
+use crate::{
+	constants::{BUILDER_PENDING_PAYMENTS_LIMIT, MAX_WITHDRAWALS_PER_PAYLOAD, PTC_WINDOW_LIMIT},
+	deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
+	gloas::{
+		Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal,
+		ExecutionPayloadBid, PayloadAttestation, SignedExecutionPayloadBid,
+		BUILDER_PENDING_WITHDRAWALS_LIMIT, BUILDER_REGISTRY_LIMIT, MAX_PAYLOAD_ATTESTATIONS,
+		PTC_SIZE,
+	},
+};
 
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
@@ -293,6 +306,7 @@ pub struct BeaconBlockBody<
 	pub deposits: List<Deposit, MAX_DEPOSITS>,
 	pub voluntary_exits: List<SignedVoluntaryExit, MAX_VOLUNTARY_EXITS>,
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
+	#[cfg(not(feature = "glamsterdam"))]
 	pub execution_payload: ExecutionPayload<
 		BYTES_PER_LOGS_BLOOM,
 		MAX_EXTRA_DATA_BYTES,
@@ -301,8 +315,22 @@ pub struct BeaconBlockBody<
 		MAX_WITHDRAWALS_PER_PAYLOAD,
 	>,
 	pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
+	#[cfg(not(feature = "glamsterdam"))]
 	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	#[cfg(not(feature = "glamsterdam"))]
 	pub execution_requests: ExecutionRequests<
+		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
+		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
+		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
+	>,
+	// [New in Gloas:EIP7732] the payload is no longer in the body. The builder's bid commits to
+	// the execution block hash and the payload itself is revealed separately.
+	#[cfg(feature = "glamsterdam")]
+	pub signed_execution_payload_bid: SignedExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	#[cfg(feature = "glamsterdam")]
+	pub payload_attestations: List<PayloadAttestation, MAX_PAYLOAD_ATTESTATIONS>,
+	#[cfg(feature = "glamsterdam")]
+	pub parent_execution_requests: ExecutionRequests<
 		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
 		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
 		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
@@ -433,8 +461,13 @@ pub struct BeaconState<
 	pub inactivity_scores: List<u64, VALIDATOR_REGISTRY_LIMIT>,
 	pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+	#[cfg(not(feature = "glamsterdam"))]
 	pub latest_execution_payload_header:
 		ExecutionPayloadHeader<BYTES_PER_LOGS_BLOOM, MAX_EXTRA_DATA_BYTES>,
+	// [New in Gloas:EIP7732] takes over the slot the payload header used to occupy, so the
+	// generalized index of the execution leaf is unchanged.
+	#[cfg(feature = "glamsterdam")]
+	pub latest_block_hash: Hash32,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub next_withdrawal_index: WithdrawalIndex,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
@@ -459,4 +492,25 @@ pub struct BeaconState<
 	#[cfg(not(feature = "nofulu"))]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>,
+	// [New in Gloas:EIP7732] the builder registry and payload timeliness bookkeeping. Nothing
+	// here is proven, but the fields are part of the container, so they have to be present for
+	// the state to hash to the root the sync committee signed over.
+	#[cfg(feature = "glamsterdam")]
+	builders: List<Builder, BUILDER_REGISTRY_LIMIT>,
+	#[cfg(feature = "glamsterdam")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	next_withdrawal_builder_index: BuilderIndex,
+	#[cfg(feature = "glamsterdam")]
+	execution_payload_availability: Bitvector<SLOTS_PER_HISTORICAL_ROOT>,
+	#[cfg(feature = "glamsterdam")]
+	builder_pending_payments: Vector<BuilderPendingPayment, BUILDER_PENDING_PAYMENTS_LIMIT>,
+	#[cfg(feature = "glamsterdam")]
+	builder_pending_withdrawals: List<BuilderPendingWithdrawal, BUILDER_PENDING_WITHDRAWALS_LIMIT>,
+	#[cfg(feature = "glamsterdam")]
+	latest_execution_payload_bid: ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	#[cfg(feature = "glamsterdam")]
+	payload_expected_withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
+	#[cfg(feature = "glamsterdam")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_seq_of_str"))]
+	ptc_window: Vector<Vector<ValidatorIndex, PTC_SIZE>, PTC_WINDOW_LIMIT>,
 }

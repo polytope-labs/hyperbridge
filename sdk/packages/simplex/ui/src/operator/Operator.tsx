@@ -271,6 +271,7 @@ function StrategyCurves(props: {
 	const { strategy, onApplied, removable, hasVaults } = props
 	const [bid, setBid] = useState<EditorPoint[]>(() => fromPricePoints(strategy.bid))
 	const [ask, setAsk] = useState<EditorPoint[]>(() => fromPricePoints(strategy.ask))
+	const [maxOrderSize, setMaxOrderSize] = useState(strategy.maxOrderSize ?? "")
 	// One-sided LP: an absent side of a curve-priced cross-asset market can be
 	// opened by submitting a curve for it. Same-token markets stay ask-only.
 	const [enableBid, setEnableBid] = useState(false)
@@ -310,6 +311,26 @@ function StrategyCurves(props: {
 			setMessage(res.persisted ? "Applied & saved to config" : "Applied in memory — config file could not be written")
 			setEnableBid(false)
 			setEnableAsk(false)
+			onApplied()
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		}
+	}
+
+	const applyMaxOrderSize = async () => {
+		setMessage(undefined)
+		setError(undefined)
+		try {
+			const res = await api.put<{ persisted: boolean; restartNeeded: boolean }>(`/api/strategies/${strategy.index}`, {
+				maxOrderSize: maxOrderSize.trim(),
+			})
+			setMessage(
+				res.restartNeeded
+					? "Saved to config — restart the filler to apply the new cap"
+					: res.persisted
+						? "Cap applied & saved to config"
+						: "Cap applied in memory — config file could not be written",
+			)
 			onApplied()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err))
@@ -365,6 +386,25 @@ function StrategyCurves(props: {
 					⚠ The book is crossed at order size {crossedAt} (bid at or below ask) — both sides still fill at
 					their own curve, but a full round trip at these prices loses money. Leave it only if deliberate.
 				</p>
+			)}
+			{!strategy.referenceOnly && (
+				<div className="row" style={{ alignItems: "flex-end" }}>
+					<label className="field" style={{ maxWidth: "11rem", margin: 0 }}>
+						<span>Max order size ({token0})</span>
+						<input type="text" value={maxOrderSize} onChange={(e) => setMaxOrderSize(e.target.value)} />
+					</label>
+					<button
+						type="button"
+						disabled={!maxOrderSize.trim() || maxOrderSize.trim() === strategy.maxOrderSize}
+						onClick={applyMaxOrderSize}
+					>
+						Save cap
+					</button>
+					<span className="hint">
+						Per-order cap on the {token0} notional — orders needing more than the cap allows are skipped. A
+						new cap binds from the next order.
+					</span>
+				</div>
 			)}
 			<div className="row" style={{ alignItems: "flex-start", gap: "2rem" }}>
 				{(strategy.bid || enableBid) && (

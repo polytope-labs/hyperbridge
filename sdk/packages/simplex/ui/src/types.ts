@@ -11,6 +11,8 @@ export type {
 	BalanceSnapshot,
 	BidDto,
 	BidStatsDto,
+	ChainRowDto,
+	ChainsDto,
 	ConfigDto,
 	KnownToken,
 	KnownVault,

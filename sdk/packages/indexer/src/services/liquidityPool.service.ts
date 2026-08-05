@@ -3,7 +3,7 @@
 // chain's sample only differs in depth, and the pool's single buy/sell number is the
 // depth-weighted merge of the chains' latest samples.
 import { getPoolToken, poolSlug, sortPoolSymbols } from "@/addresses/pool-tokens.addresses"
-import { LiquidityPool, LiquidityProvider, PoolBidder, PoolChainLiquidity } from "@/configs/src/types"
+import { LiquidityPool, LiquidityProvider, PoolBidder, PoolChainLiquidity, PoolRoute } from "@/configs/src/types"
 import { readAllPages } from "@/utils/store.helpers"
 import type { PhantomLegAggregation } from "@hyperbridge/sdk/intents-helpers"
 
@@ -250,16 +250,76 @@ export async function updateLiquidityPools(params: {
 			}).save()
 		}
 
+		// Materialize each direction's explicit declarations into searchable routes, reconciled
+		// with the same set-diff so a route disappears with its last declaring bidder. A bidder
+		// with no declaration contributes to no route (its capacity is reported as the
+		// chain-liquidity row's unrestricted slice); one with an empty declaration accepts
+		// nothing and contributes to neither.
+		const desiredRoutes = new Map<
+			string,
+			{ direction: string; sourceChain: string; depth: bigint; bidCount: number }
+		>()
+		for (const [direction, entry] of directions) {
+			for (const bidder of entry.bidders.values()) {
+				if (!bidder.acceptedSources) continue
+				for (const sourceChain of new Set(bidder.acceptedSources)) {
+					const id = `${poolId}-${chain}-${direction}-${sourceChain}`
+					const route = desiredRoutes.get(id) ?? { direction, sourceChain, depth: 0n, bidCount: 0 }
+					route.depth += bidder.liquidity
+					route.bidCount += 1
+					desiredRoutes.set(id, route)
+				}
+			}
+		}
+		// Route rows scale with bidders times declared sources, which nothing bounds.
+		const existingRoutes = await readAllPages((limit, offset) =>
+			PoolRoute.getByFields(
+				[
+					["poolId", "=", poolId],
+					["chain", "=", chain],
+				],
+				{ limit, offset, orderBy: "id", orderDirection: "ASC" },
+			),
+		)
+		for (const row of existingRoutes) {
+			if (!desiredRoutes.has(row.id)) await PoolRoute.remove(row.id)
+		}
+		for (const [id, route] of desiredRoutes) {
+			await PoolRoute.create({
+				id,
+				poolId,
+				chain,
+				direction: route.direction,
+				sourceChain: route.sourceChain,
+				depth: route.depth,
+				bidCount: route.bidCount,
+				lastUpdatedBlock: blockNumber,
+				lastUpdatedAt: snapshotTime,
+			}).save()
+		}
+
 		for (const [direction, entry] of directions) {
 			const id = `${poolId}-${chain}-${direction}`
 			if (entry.quoted) {
 				const depth = entry.samples.reduce((acc, sample) => acc + sample.depth, 0n)
 				const rate = weightedRate(entry.samples)
+				// The slice of depth behind no-declaration bidders, reported separately because
+				// they have no PoolRoute rows for consumers to find it under.
+				let unrestrictedDepth = 0n
+				let unrestrictedBidCount = 0
+				for (const bidder of entry.bidders.values()) {
+					if (bidder.acceptedSources === null) {
+						unrestrictedDepth += bidder.liquidity
+						unrestrictedBidCount += 1
+					}
+				}
 				const row = await PoolChainLiquidity.get(id)
 				if (row) {
 					row.rate = rate
 					row.depth = depth
 					row.bidCount = entry.bidCount
+					row.unrestrictedDepth = unrestrictedDepth
+					row.unrestrictedBidCount = unrestrictedBidCount
 					row.lastUpdatedBlock = blockNumber
 					row.lastUpdatedAt = snapshotTime
 					await row.save()
@@ -272,6 +332,8 @@ export async function updateLiquidityPools(params: {
 						rate,
 						depth,
 						bidCount: entry.bidCount,
+						unrestrictedDepth,
+						unrestrictedBidCount,
 						lastUpdatedBlock: blockNumber,
 						lastUpdatedAt: snapshotTime,
 					}).save()
@@ -283,6 +345,8 @@ export async function updateLiquidityPools(params: {
 				if (row) {
 					row.depth = 0n
 					row.bidCount = 0
+					row.unrestrictedDepth = 0n
+					row.unrestrictedBidCount = 0
 					row.lastUpdatedBlock = blockNumber
 					row.lastUpdatedAt = snapshotTime
 					await row.save()

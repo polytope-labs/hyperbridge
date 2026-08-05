@@ -387,6 +387,66 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		expect(bidders[0]).toMatchObject({ providerId: "0xa", liquidity: 15n * SCALE, acceptedSources: ["EVM-1"] })
 	})
 
+	it("materializes searchable routes from explicit declarations, splitting out unrestricted depth", async () => {
+		await register([pair(CNGN, USDC, 1_000_000n)])
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [
+				leg(0, USDC, 660n, [
+					{ solver: "0xa", weight: 10n, acceptedSources: ["EVM-1", "EVM-56"] },
+					{ solver: "0xb", weight: 20n, acceptedSources: ["EVM-1"] },
+					// No declaration: capacity goes to the unrestricted slice, not to any route.
+					{ solver: "0xc", weight: 40n, acceptedSources: null },
+					// Empty declaration: accepts nothing, contributes to neither.
+					{ solver: "0xd", weight: 5n, acceptedSources: [] },
+				]),
+			],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(11n))
+
+		const routes = [...table("PoolRoute").values()]
+		expect(routes.map((r) => r.id).sort()).toEqual([
+			`cNGN-USDC-${CHAIN}-SELL-EVM-1`,
+			`cNGN-USDC-${CHAIN}-SELL-EVM-56`,
+		])
+		expect(table("PoolRoute").get(`cNGN-USDC-${CHAIN}-SELL-EVM-1`)).toMatchObject({
+			poolId: "cNGN-USDC",
+			chain: CHAIN,
+			direction: "SELL",
+			sourceChain: "EVM-1",
+			depth: 30n * SCALE,
+			bidCount: 2,
+		})
+		expect(table("PoolRoute").get(`cNGN-USDC-${CHAIN}-SELL-EVM-56`)).toMatchObject({
+			depth: 10n * SCALE,
+			bidCount: 1,
+		})
+
+		// Total depth counts everyone; the unrestricted slice is just the null-declaration bidder.
+		expect(table("PoolChainLiquidity").get(`cNGN-USDC-${CHAIN}-SELL`)).toMatchObject({
+			depth: 75n * SCALE,
+			bidCount: 4,
+			unrestrictedDepth: 40n * SCALE,
+			unrestrictedBidCount: 1,
+		})
+
+		// Next window only 0xb bids and now declares EVM-56: the EVM-1 route must go with its
+		// last declarer, and EVM-56 reflects the one remaining bidder.
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, USDC, 660n, [{ solver: "0xb", weight: 20n, acceptedSources: ["EVM-56"] }])],
+			lpBalances: [],
+		})
+		await handlePhantomOrderPrices(windowClosedEvent(22n))
+
+		const after = [...table("PoolRoute").values()]
+		expect(after.map((r) => r.id)).toEqual([`cNGN-USDC-${CHAIN}-SELL-EVM-56`])
+		expect(after[0]).toMatchObject({ depth: 20n * SCALE, bidCount: 1 })
+		expect(table("PoolChainLiquidity").get(`cNGN-USDC-${CHAIN}-SELL`)).toMatchObject({
+			unrestrictedDepth: 0n,
+			unrestrictedBidCount: 0,
+		})
+	})
+
 	it("merges the same pool across chains depth-weighted, with per-chain bidder routes", async () => {
 		// One order per chain, as the pallet emits them: the same USDC/USDT pair through each
 		// chain's own token deployments, folding into the single USDC-USDT pool.
@@ -443,6 +503,22 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			`USDC-USDT-${CHAIN2}-SELL-${USDT_OP}-0xc`,
 			`USDC-USDT-${CHAIN}-SELL-${USDT}-0xa`,
 		])
+
+		// Routes reconcile per destination chain too: the first chain's EVM-1 route survived both
+		// of the second chain's windows, and the second chain now carries 0xc's declaration.
+		const routes = [...table("PoolRoute").values()]
+		expect(routes.map((r) => r.id).sort()).toEqual([
+			`USDC-USDT-${CHAIN2}-SELL-EVM-8453`,
+			`USDC-USDT-${CHAIN}-SELL-EVM-1`,
+		])
+		expect(table("PoolRoute").get(`USDC-USDT-${CHAIN}-SELL-EVM-1`)).toMatchObject({
+			depth: 100n * SCALE,
+			bidCount: 1,
+		})
+		expect(table("PoolRoute").get(`USDC-USDT-${CHAIN2}-SELL-EVM-8453`)).toMatchObject({
+			depth: 60n * SCALE,
+			bidCount: 1,
+		})
 	})
 
 	it("zeroes depth but keeps the last rate when a registered pair goes unquoted", async () => {

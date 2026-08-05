@@ -2578,6 +2578,11 @@ type LiquidityPool @entity {
 	Per-leg phantom price snapshots attributed to this pool.
 	"""
 	snapshots: [PhantomOrderPriceSnapshotV2] @derivedFrom(field: "pool")
+
+	"""
+	Live cross-chain routes into this pool, from the bidders' explicit source declarations.
+	"""
+	routes: [PoolRoute] @derivedFrom(field: "pool")
 }
 
 """
@@ -2627,6 +2632,19 @@ type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]
 	bidCount: Int!
 
 	"""
+	The slice of depth from bidders with no accepted-source declaration (the legacy default:
+	all CCTP/USDT0-covered chains). These bidders have no PoolRoute rows — which chains the
+	default covers is a policy this indexer does not own — so route consumers add this on top
+	of PoolRoute.depth for sources they consider covered.
+	"""
+	unrestrictedDepth: BigInt!
+
+	"""
+	Bidders in the latest window with no accepted-source declaration.
+	"""
+	unrestrictedBidCount: Int!
+
+	"""
 	Hyperbridge block of the latest sample. The pool-level merge ignores rows that are stale
 	relative to the freshest sample, so a quiet chain stops influencing the pool price.
 	"""
@@ -2642,8 +2660,8 @@ type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]
 One solver currently bidding on one leg of a pool: the provider <-> pool link and the basis for
 cross-chain route availability. Rows reflect the latest bid window only — a solver that stops
 bidding has its row removed (bid history lives in FillerBid, balance history in
-LiquidityProviderBalance). A route src -> chain for a direction is live iff some row here accepts
-src with liquidity > 0; route depth is the sum of accepting rows' liquidity.
+LiquidityProviderBalance). The explicit source declarations here are also aggregated into
+searchable PoolRoute rows; this entity keeps the per-solver attribution behind them.
 """
 type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
 	"""
@@ -2693,6 +2711,66 @@ type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
 
 	"""
 	Hyperbridge block of the snapshot that last confirmed this bidder.
+	"""
+	lastUpdatedBlock: BigInt! @index
+
+	"""
+	Timestamp of the confirming snapshot.
+	"""
+	lastUpdatedAt: Date!
+}
+
+"""
+A currently-live cross-chain route into a pool, materialized from the bidders' explicit
+accepted-source declarations so routes are searchable in one query: filter on sourceChain for
+everything fillable from an origin, or on (sourceChain, chain) for one corridor. Rows reflect the
+latest bid window only and are removed when the last declaring bidder stops bidding, mirroring
+PoolBidder.
+
+Only explicit declarations appear here. Bidders with no declaration (the legacy default: all
+CCTP/USDT0-covered chains) are not expanded into rows — which chains that default covers is a
+policy this indexer does not own — so their capacity is reported separately as
+PoolChainLiquidity.unrestrictedDepth and consumers add it for sources they consider covered.
+"""
+type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["pool", "chain"]]) {
+	"""
+	Composite identifier: {poolSlug}-{destinationChain}-{direction}-{sourceChain}.
+	"""
+	id: ID!
+
+	"""
+	The pool this route fills into.
+	"""
+	pool: LiquidityPool! @index
+
+	"""
+	Destination chain state machine ID the accepting bids fill on.
+	"""
+	chain: String! @index
+
+	"""
+	SELL (token0 -> token1) or BUY (token1 -> token0), relative to the pool's token ordering.
+	"""
+	direction: String!
+
+	"""
+	Source chain state machine ID the bidders explicitly accept payment from.
+	"""
+	sourceChain: String! @index
+
+	"""
+	Sum of the accepting bidders' output-token inventory on `chain`, 18-decimal normalized.
+	May be 0 when every accepting bidder currently holds nothing.
+	"""
+	depth: BigInt!
+
+	"""
+	Bidders in the latest window that explicitly accept this source chain.
+	"""
+	bidCount: Int!
+
+	"""
+	Hyperbridge block of the snapshot that last confirmed this route.
 	"""
 	lastUpdatedBlock: BigInt! @index
 

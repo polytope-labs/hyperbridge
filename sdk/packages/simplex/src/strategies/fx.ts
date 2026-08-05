@@ -1404,10 +1404,8 @@ export class FXFiller implements FillerStrategy {
 
 		if (outputs.length === 0) return null
 
-		if (order.id) {
-			this.contractService.cacheService.setFillerOutputs(order.id, outputs)
-		}
-
+		// Deliberately not cached: the bid is built from these outputs directly, and phantom
+		// orders never reach the execution path that reads cached filler outputs.
 		return outputs
 	}
 

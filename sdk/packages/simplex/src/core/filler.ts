@@ -850,13 +850,15 @@ export class IntentFiller {
 	/**
 	 * Quotes one leg of a bundled phantom order. Legs are positional, so narrowing the order to
 	 * `inputs[index]` and `output.assets[index]` produces the single pair order the strategies
-	 * already know how to price, which keeps the regular canFill matching intact. Returns null
-	 * when no strategy handles the leg.
+	 * already know how to price. `quotePhantomFill` does its own canFill gating and returns null
+	 * for a leg it does not handle, so there is no pre-check here — one canFill per strategy,
+	 * not two. The synthetic leg carries no id so nothing keys the shared TTL caches with
+	 * per-interval throwaway entries.
 	 */
 	private async quotePhantomLeg(order: Order, index: number, chain: string): Promise<TokenInfo | null> {
 		const leg: Order = {
 			...order,
-			id: order.id ? `${order.id}-${index}` : undefined,
+			id: undefined,
 			inputs: [order.inputs[index]],
 			output: { ...order.output, assets: [order.output.assets[index]] },
 		}
@@ -864,7 +866,6 @@ export class IntentFiller {
 		for (const candidate of this.strategies) {
 			if (typeof candidate.quotePhantomFill !== "function") continue
 			try {
-				if (!(await candidate.canFill(leg))) continue
 				const outputs = await candidate.quotePhantomFill(leg)
 				if (outputs?.length) return outputs[0]
 			} catch (err) {
@@ -895,14 +896,17 @@ export class IntentFiller {
 			return
 		}
 
-		// Every configured pair rides in this one order, so quote leg by leg. A leg no strategy
-		// handles is quoted at zero instead of sinking the whole order, and legs belonging to
-		// different strategies each get the one that actually prices them.
-		const fillerOutputs: TokenInfo[] = []
-		for (let index = 0; index < phantomOrder.output.assets.length; index++) {
-			const quote = await this.quotePhantomLeg(phantomOrder, index, event.chain)
-			fillerOutputs.push(quote ?? { token: phantomOrder.output.assets[index].token, amount: 0n })
-		}
+		// Every leg of every configured pair rides in this one order, so quote leg by leg —
+		// concurrently, because legs are independent and the bid has to land inside the on-chain
+		// bid window (as few as 5 blocks), which a sequential walk over a large order would miss.
+		// A leg no strategy handles is quoted at zero instead of sinking the whole order, and legs
+		// belonging to different strategies each get the one that actually prices them.
+		const quotes = await Promise.all(
+			phantomOrder.output.assets.map((_, index) => this.quotePhantomLeg(phantomOrder, index, event.chain)),
+		)
+		const fillerOutputs: TokenInfo[] = quotes.map(
+			(quote, index) => quote ?? { token: phantomOrder.output.assets[index].token, amount: 0n },
+		)
 
 		if (fillerOutputs.every((output) => output.amount === 0n)) {
 			this.logger.debug({ chain: event.chain }, "No strategy quoted any leg of the phantom order")

@@ -2199,10 +2199,10 @@ interval (governed by PhantomBidWindow) to solicit bids from fillers and measure
 market liquidity and pricing on a destination chain.
 The commitment is keccak256(abi.encode(Order)) and serves as the unique identifier.
 
-Every configured token pair rides in one order, so the pairs live in PhantomOrderPair rather
-than on the order itself.
+Every configured token pair expands into both of its directions in one order, so the directed
+legs live in PhantomOrderLeg rather than on the order itself.
 """
-type PhantomOrder @entity {
+type PhantomOrderV2 @entity {
 	"""
 	The phantom order commitment — keccak256(abi.encode(Order)). Primary key and lookup handle
 	used when querying bids via intents_getBidsForOrder.
@@ -2226,39 +2226,40 @@ type PhantomOrder @entity {
 	blockTimestamp: Date @index
 
 	"""
-	The token pairs this order prices, one per leg.
+	The directed legs this order prices — both directions of every configured pair.
 	"""
-	pairs: [PhantomOrderPair] @derivedFrom(field: "order")
+	legs: [PhantomOrderLeg] @derivedFrom(field: "order")
 }
 
 """
-One token pair priced by a phantom order. The pallet bundles every configured pair into a single
-order whose asset lists are positional, so pairIndex is the leg's position in those lists: the pair
-is order.inputs[pairIndex] against order.output.assets[pairIndex].
+One directed leg of a phantom order: standardAmount of tokenA quoted in tokenB. The pallet
+expands every configured pair into its forward and reverse legs inside a single order whose asset
+lists are positional, so legIndex is the leg's position in those lists: the leg is
+order.inputs[legIndex] against order.output.assets[legIndex].
 """
-type PhantomOrderPair @entity {
+type PhantomOrderLeg @entity {
 	"""
-	Composite identifier: {commitment}-{pairIndex}.
+	Composite identifier: {commitment}-{legIndex}.
 	"""
 	id: ID!
 
 	"""
-	The phantom order this pair belongs to.
+	The phantom order this leg belongs to.
 	"""
-	order: PhantomOrder! @index
+	order: PhantomOrderV2! @index
 
 	"""
-	Position of this pair in the order's asset lists.
+	Position of this leg in the order's asset lists.
 	"""
-	pairIndex: Int!
+	legIndex: Int!
 
 	"""
-	EVM address of the input token (tokenA) offered for this pair, as a 0x-prefixed hex string.
+	EVM address of the input token (tokenA) offered for this leg, as a 0x-prefixed hex string.
 	"""
 	tokenA: String! @index
 
 	"""
-	EVM address of the output token (tokenB) requested for this pair, as a 0x-prefixed hex string.
+	EVM address of the output token (tokenB) requested for this leg, as a 0x-prefixed hex string.
 	"""
 	tokenB: String! @index
 
@@ -2278,7 +2279,7 @@ expires, so it only answers for bids still live on the queried node.
 
 Fillers may re-bid on the same commitment (the pallet unreserves the previous deposit and emits a
 fresh BidPlaced), so one row is written per event rather than per (commitment, filler) — the bid
-history is preserved. The commitment usually belongs to a PhantomOrder, but place_bid accepts any
+history is preserved. The commitment usually belongs to a PhantomOrderV2, but place_bid accepts any
 commitment, so the field is a plain reference rather than a foreign key.
 """
 type FillerBid @entity {
@@ -2289,7 +2290,7 @@ type FillerBid @entity {
 	id: ID!
 
 	"""
-	The order commitment bid on — keccak256(abi.encode(Order)). Matches PhantomOrder.id when the bid
+	The order commitment bid on — keccak256(abi.encode(Order)). Matches PhantomOrderV2.id when the bid
 	targets a phantom order.
 	"""
 	commitment: String! @index
@@ -2326,29 +2327,28 @@ the chain's SolverAccount. It then records the output amount distribution across
 weighting each by the solver's liquidity. A snapshot is only written when at least one bid passes
 verification and an EVM RPC endpoint is configured for the phantom order's destination chain.
 """
-type PhantomOrderPriceSnapshot @entity {
+type PhantomOrderPriceSnapshotV2 @entity {
 	"""
-	Composite identifier: {commitment}-{blockNumber}-{pairIndex}. One order prices several pairs, so
+	Composite identifier: {commitment}-{blockNumber}-{legIndex}. One order prices several legs, so
 	the leg's position is part of the key.
 	"""
 	id: ID!
 
 	"""
-	The phantom order commitment this snapshot belongs to. References PhantomOrder.id.
+	The phantom order commitment this snapshot belongs to. References PhantomOrderV2.id.
 	"""
 	commitment: String! @index
 
 	"""
-	The pair this snapshot prices.
+	The leg this snapshot prices.
 	"""
-	pair: PhantomOrderPair! @index
+	leg: PhantomOrderLeg! @index
 
 	"""
-	Destination chain state machine ID (e.g. EVM-8453), denormalized from PhantomOrder.chain so
-	per-chain price history is queryable without joining through the order. Null on rows indexed
-	before pools existed.
+	Destination chain state machine ID (e.g. EVM-8453), denormalized from PhantomOrderV2.chain so
+	per-chain price history is queryable without joining through the order.
 	"""
-	chain: String @index
+	chain: String! @index
 
 	"""
 	The liquidity pool this leg belongs to, resolved through the pool token registry. Null when
@@ -2374,8 +2374,8 @@ type PhantomOrderPriceSnapshot @entity {
 
 	"""
 	Standard input amount (smallest unit of tokenA) the prices are quoted against. Denormalized from
-	PhantomOrder so the exchange rate (medianPrice / standardAmount, adjusted for token decimals) is
-	computable from a single snapshot row without joining back to the order.
+	the leg so the exchange rate (medianPrice / standardAmount, adjusted for token decimals) is
+	computable from a single snapshot row without joining back to it.
 	"""
 	standardAmount: BigInt!
 
@@ -2519,7 +2519,9 @@ type LiquidityPool @entity {
 
 	"""
 	SELL price: token1 units received per 1 whole token0, scaled 1e18, depth-weighted across the
-	chains' latest samples. Null until the token0 -> token1 direction is first priced.
+	chains' latest samples. Null until the token0 -> token1 direction is first priced. A same-asset
+	pool's legs always resolve to SELL, so its baseline-margin measurement lands here and buyRate
+	stays null.
 	"""
 	sellRate: BigInt @index
 
@@ -2575,13 +2577,13 @@ type LiquidityPool @entity {
 	"""
 	Per-leg phantom price snapshots attributed to this pool.
 	"""
-	snapshots: [PhantomOrderPriceSnapshot] @derivedFrom(field: "pool")
+	snapshots: [PhantomOrderPriceSnapshotV2] @derivedFrom(field: "pool")
 }
 
 """
 The latest phantom sample for one (pool, destination chain, direction) — the chain-distribution
 view of a pool. Overwritten in place each snapshot (price history lives in
-PhantomOrderPriceSnapshot), so the pool-level merge is recomputable from these rows alone.
+PhantomOrderPriceSnapshotV2), so the pool-level merge is recomputable from these rows alone.
 A depth of 0 with a fresh lastUpdatedBlock means the latest bid window had no valid quotes for
 this direction on this chain; rate then still carries the last known price.
 

@@ -1,6 +1,6 @@
 // Covers the fan-out both phantom handlers perform now that the pallet bundles every configured
-// token pair into a single order: one registration writes a pair row per leg, and one bid window
-// closing writes a price snapshot per leg.
+// token pair into a single order: one registration writes a row per directed leg, and one bid
+// window closing writes a price snapshot per leg.
 //
 // The SDK is mocked rather than imported. Its CJS bundle pulls in ESM-only packages that jest's
 // runtime cannot require, and the aggregation itself is already covered by the SDK's own tests; what
@@ -97,7 +97,7 @@ function windowClosedEvent(block: bigint = 11n) {
 // A priced leg as aggregatePhantomBids reports it. Solvers default to one anonymous bidder so the
 // pool pipeline always has someone behind a quote.
 function leg(
-	pairIndex: number,
+	legIndex: number,
 	outputToken: string,
 	medianPrice: bigint,
 	bidders: { solver: string; weight: bigint; acceptedSources: string[] | null }[] = [
@@ -105,7 +105,7 @@ function leg(
 	],
 ) {
 	return {
-		pairIndex,
+		legIndex,
 		outputToken,
 		lowestPrice: medianPrice,
 		highestPrice: medianPrice,
@@ -124,13 +124,13 @@ describe("handlePhantomOrderRegistered", () => {
 	it("writes one pair row per leg, keyed and indexed by the leg's position", async () => {
 		await handlePhantomOrderRegistered(registeredEvent([pair(USDC, CNGN, 1_000_000n), pair(CNGN, USDC, 10n ** 6n)]))
 
-		const order = table("PhantomOrder").get(COMMITMENT)
+		const order = table("PhantomOrderV2").get(COMMITMENT)
 		expect(order).toMatchObject({ id: COMMITMENT, chain: CHAIN, createdAtBlock: 7n })
 
-		const pairs = [...table("PhantomOrderPair").values()]
+		const pairs = [...table("PhantomOrderLeg").values()]
 		expect(pairs).toHaveLength(2)
 		expect(pairs.map((p) => p.id)).toEqual([`${COMMITMENT}-0`, `${COMMITMENT}-1`])
-		expect(pairs.map((p) => p.pairIndex)).toEqual([0, 1])
+		expect(pairs.map((p) => p.legIndex)).toEqual([0, 1])
 		expect(pairs.every((p) => p.orderId === COMMITMENT)).toBe(true)
 		// Both directions of the same pair are distinct legs.
 		expect(pairs.map((p) => [p.tokenA, p.tokenB])).toEqual([
@@ -143,7 +143,7 @@ describe("handlePhantomOrderRegistered", () => {
 		await handlePhantomOrderRegistered(registeredEvent([pair(USDC, CNGN, 1_000_000n)]))
 		await handlePhantomOrderRegistered(registeredEvent([pair(USDC, CNGN, 1_000_000n), pair(CNGN, USDC, 1n)]))
 
-		expect([...table("PhantomOrderPair").values()]).toHaveLength(1)
+		expect([...table("PhantomOrderLeg").values()]).toHaveLength(1)
 	})
 })
 
@@ -171,7 +171,7 @@ describe("handlePhantomOrderPrices", () => {
 
 		await handlePhantomOrderPrices(windowClosedEvent())
 
-		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		const snapshots = [...table("PhantomOrderPriceSnapshotV2").values()]
 		expect(snapshots).toHaveLength(2)
 		expect(snapshots.map((s) => s.id)).toEqual([`${COMMITMENT}-11-0`, `${COMMITMENT}-11-1`])
 		// The snapshot's tokens come from its own leg, not from the first pair on the order.
@@ -181,7 +181,7 @@ describe("handlePhantomOrderPrices", () => {
 		])
 		expect(snapshots.map((s) => s.medianPrice)).toEqual([1_500n, 660n])
 		expect(snapshots.map((s) => s.bidCount)).toEqual([3, 2])
-		expect(snapshots.map((s) => s.pairId)).toEqual([`${COMMITMENT}-0`, `${COMMITMENT}-1`])
+		expect(snapshots.map((s) => s.legId)).toEqual([`${COMMITMENT}-0`, `${COMMITMENT}-1`])
 	})
 
 	it("prices only the legs solvers quoted, leaving the rest without a snapshot", async () => {
@@ -193,7 +193,7 @@ describe("handlePhantomOrderPrices", () => {
 
 		await handlePhantomOrderPrices(windowClosedEvent())
 
-		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		const snapshots = [...table("PhantomOrderPriceSnapshotV2").values()]
 		expect(snapshots).toHaveLength(1)
 		expect(snapshots[0].id).toBe(`${COMMITMENT}-11-1`)
 		expect(snapshots[0].tokenA).toBe(CNGN)
@@ -210,7 +210,7 @@ describe("handlePhantomOrderPrices", () => {
 		await handlePhantomOrderPrices(windowClosedEvent())
 
 		expect(aggregatePhantomBids).toHaveBeenCalledTimes(1)
-		expect([...table("PhantomOrderPriceSnapshot").values()]).toHaveLength(1)
+		expect([...table("PhantomOrderPriceSnapshotV2").values()]).toHaveLength(1)
 	})
 
 	it("skips a priced leg with no registered pair rather than mislabelling it", async () => {
@@ -222,7 +222,7 @@ describe("handlePhantomOrderPrices", () => {
 
 		await handlePhantomOrderPrices(windowClosedEvent())
 
-		expect([...table("PhantomOrderPriceSnapshot").values()]).toHaveLength(0)
+		expect([...table("PhantomOrderPriceSnapshotV2").values()]).toHaveLength(0)
 	})
 
 	it("records each bidding solver's swept balances once, not once per leg", async () => {
@@ -280,7 +280,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 			`cNGN-USDC-${CHAIN}-SELL`,
 		])
 
-		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		const snapshots = [...table("PhantomOrderPriceSnapshotV2").values()]
 		expect(snapshots.map((s) => [s.poolId, s.direction, s.chain])).toEqual([
 			["cNGN-USDC", "SELL", CHAIN],
 			["cNGN-USDC", "BUY", CHAIN],
@@ -312,7 +312,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 
 		await handlePhantomOrderPrices(windowClosedEvent())
 
-		const snapshots = [...table("PhantomOrderPriceSnapshot").values()]
+		const snapshots = [...table("PhantomOrderPriceSnapshotV2").values()]
 		expect(snapshots).toHaveLength(1)
 		expect(snapshots[0].poolId).toBeUndefined()
 		expect(snapshots[0].direction).toBeUndefined()
@@ -330,7 +330,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 
 		await handlePhantomOrderPrices(windowClosedEvent())
 
-		expect([...table("PhantomOrderPriceSnapshot").values()]).toHaveLength(1)
+		expect([...table("PhantomOrderPriceSnapshotV2").values()]).toHaveLength(1)
 		expect(table("LiquidityPool").size).toBe(0)
 	})
 

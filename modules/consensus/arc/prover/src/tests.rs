@@ -16,17 +16,19 @@
 //! Live integration tests against the Arc testnet.
 //!
 //! Configuration:
-//! - `ARC_RPC_URL`: execution JSON-RPC for headers/proofs/storage (defaults to the public Arc
-//!   testnet RPC). Third-party endpoints (e.g. Alchemy) work.
-//! - `ARC_CERT_RPC_URL`: endpoint serving `arc_getCertificate` (defaults to the public Arc testnet
-//!   RPC, which proxies the consensus node).
+//! - `ARC_RPC_URL`: execution JSON-RPC for headers/proofs/storage (defaults to the public drpc
+//!   endpoint — the official rpc.testnet.arc.network no longer serves `eth_getProof`, and
+//!   providers like Alchemy don't proxy `arc_getCertificate`).
+//! - `ARC_CERT_RPC_URL`: endpoint serving `arc_getCertificate` (defaults to the same drpc
+//!   endpoint, which proxies the consensus node).
 
 use crate::{header_hash, ArcProver, Keccak256Hasher};
 use arc_verifier::verify_arc_update;
 use std::time::Duration;
 
-/// Public Arc testnet JSON-RPC endpoint (serves `arc_getCertificate`).
-const DEFAULT_ARC_TESTNET_RPC: &str = "https://rpc.testnet.arc.network";
+/// Public Arc testnet JSON-RPC endpoint serving both `eth_getProof` (at
+/// `"latest"` only) and `arc_getCertificate`.
+const DEFAULT_ARC_TESTNET_RPC: &str = "https://arc-testnet.drpc.org";
 
 /// How many consecutive updates to follow.
 const UPDATES_TO_FOLLOW: u64 = 5;

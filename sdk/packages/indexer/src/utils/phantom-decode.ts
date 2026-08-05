@@ -1,6 +1,7 @@
 import { Interface, defaultAbiCoder } from "@ethersproject/abi"
 import { ethers } from "ethers"
 import {
+	zipFillLegs,
 	FILL_ORDER_ABI,
 	type BidNonceKeyFn,
 	type FillData,
@@ -45,14 +46,7 @@ export function extractFillDataVm2(callData: HexString, gatewayAddress: string):
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const outputs = (options as any)?.outputs as { amount: unknown }[] | undefined
 			if (!assets?.length || !outputs?.length) continue
-			const legs = assets.map((asset, index) => {
-				const rawAmount = outputs[index]?.amount
-				return {
-					outputToken: asset.token,
-					solverAmount: rawAmount === undefined || rawAmount === null ? 0n : BigInt(rawAmount.toString()),
-				}
-			})
-			return { order, options, legs }
+			return { order, options, legs: zipFillLegs(assets, outputs) }
 		}
 	} catch {
 		return null

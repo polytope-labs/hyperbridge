@@ -157,6 +157,22 @@ export interface FillData {
 	legs: FillLeg[]
 }
 
+/**
+ * Zips an order's output assets with the bid's quoted amounts into positional legs. A missing or
+ * null amount is the "solver declined this leg" sentinel and becomes a zero quote. Shared by the
+ * viem extractor below and the indexer's VM2-safe one, so the declined-leg convention has a
+ * single home while only the ABI decode differs per environment.
+ */
+export function zipFillLegs(assets: { token: HexString }[], outputs: { amount: unknown }[]): FillLeg[] {
+	return assets.map((asset, index) => {
+		const rawAmount = outputs[index]?.amount
+		return {
+			outputToken: asset.token,
+			solverAmount: rawAmount === undefined || rawAmount === null ? 0n : BigInt(rawAmount.toString()),
+		}
+	})
+}
+
 export interface RpcBidInfo {
 	commitment: string
 	filler: string
@@ -252,11 +268,7 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const outputs = (options as any)?.outputs as { amount: bigint }[] | undefined
 			if (!assets?.length || !outputs?.length) continue
-			const legs = assets.map((asset, index) => ({
-				outputToken: asset.token,
-				solverAmount: BigInt(outputs[index]?.amount ?? 0n),
-			}))
-			return { order, options, legs }
+			return { order, options, legs: zipFillLegs(assets, outputs) }
 		} catch {
 			continue
 		}
@@ -639,15 +651,17 @@ export async function aggregatePhantomBids(params: {
 			// the same authenticity as the quote itself.
 			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
 
-			for (const [legIndex, leg] of fillData.legs.entries()) {
-				// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
-				if (leg.solverAmount === 0n) continue
-
+			// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
+			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
+			// across legs still collapse to a single RPC round trip.
+			const quotedLegs = [...fillData.legs.entries()].filter(([, leg]) => leg.solverAmount !== 0n)
+			const weights = await Promise.all(
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
 				// chain, so a leg is weighted by the inventory that actually backs it.
-				const outputTokenAddress = toAddress(leg.outputToken)
-				const weight = await getBalance(destUrl, chain, outputTokenAddress, solver)
-
+				quotedLegs.map(([, leg]) => getBalance(destUrl, chain, toAddress(leg.outputToken), solver)),
+			)
+			for (const [position, [legIndex, leg]] of quotedLegs.entries()) {
+				const weight = weights[position]
 				const entry = quotesByLeg.get(legIndex) ?? { outputToken: leg.outputToken, quotes: [], bidders: [] }
 				entry.quotes.push({ price: leg.solverAmount, weight })
 				entry.bidders.push({ solver: normalizedSolver as HexString, weight, acceptedSources })

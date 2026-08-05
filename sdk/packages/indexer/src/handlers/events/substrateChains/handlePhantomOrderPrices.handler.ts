@@ -18,7 +18,8 @@ import {
 import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
 import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
-import { resolvePoolLeg, updateLiquidityPools, type RegisteredLeg } from "@/services/liquidityPool.service"
+import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
+import { readAllPages } from "@/utils/store.helpers"
 
 // The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
 // Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
@@ -38,9 +39,16 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 	const phantom = await PhantomOrderV2.get(commitment)
 	if (!phantom) return
 
-	// MAX_PHANTOM_ORDER_LEGS in the pallet caps an order at 128 legs (64 pairs, both directions),
-	// so one read covers the order.
-	const legs = await PhantomOrderLeg.getByOrderId(commitment, { limit: 128 })
+	// The pallet bounds an order's legs (MAX_PHANTOM_ORDER_LEGS), but that cap has one home —
+	// the pallet — so read to exhaustion rather than mirroring the number here.
+	const legs = await readAllPages((limit, offset) =>
+		PhantomOrderLeg.getByFields([["orderId", "=", commitment]], {
+			limit,
+			offset,
+			orderBy: "legIndex",
+			orderDirection: "ASC",
+		}),
+	)
 	if (legs.length === 0) return
 
 	// Every leg's snapshot is written in one pass, so any snapshot for this block means the whole
@@ -138,21 +146,18 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		}).save()
 	}
 
-	// One map, both shapes: the stored row (for the snapshot's FK and denormalized fields) and its
-	// 20-byte-address form (for registry resolution).
-	const registeredByIndex = new Map(
-		legs.map((leg) => [
-			leg.legIndex,
-			{
-				row: leg,
-				resolvable: {
-					legIndex: leg.legIndex,
-					tokenA: bytes32ToBytes20(leg.tokenA),
-					tokenB: bytes32ToBytes20(leg.tokenB),
-					standardAmount: leg.standardAmount,
-				} satisfies RegisteredLeg,
-			},
-		]),
+	// Each registered leg converted to 20-byte addresses and resolved against the registry ONCE;
+	// both the snapshot writes and the pool upsert consume this.
+	const registeredByIndex = new Map<number, AttributedLeg>(
+		legs.map((row) => {
+			const leg = {
+				legIndex: row.legIndex,
+				tokenA: bytes32ToBytes20(row.tokenA),
+				tokenB: bytes32ToBytes20(row.tokenB),
+				standardAmount: row.standardAmount,
+			}
+			return [row.legIndex, { ...leg, resolved: resolvePoolLeg(phantom.chain, leg) }]
+		}),
 	)
 
 	for (const leg of aggregate.legs) {
@@ -163,25 +168,22 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			logger.warn({ commitment, legIndex: leg.legIndex }, "Priced leg has no registered leg, skipping")
 			continue
 		}
-		const { row, resolvable } = registered
-
-		const resolved = resolvePoolLeg(phantom.chain, resolvable)
-		if (!resolved) {
+		if (!registered.resolved) {
 			logger.debug({ commitment, legIndex: leg.legIndex }, "Leg tokens not registry-tracked, no pool attribution")
 		}
 
 		await PhantomOrderPriceSnapshotV2.create({
 			id: `${commitment}-${blockNumber}-${leg.legIndex}`,
 			commitment,
-			legId: row.id,
+			legId: `${commitment}-${leg.legIndex}`,
 			chain: phantom.chain,
-			poolId: resolved?.poolId,
-			direction: resolved?.direction,
-			tokenA: bytes32ToBytes20(row.tokenA),
-			tokenB: bytes32ToBytes20(row.tokenB),
+			poolId: registered.resolved?.poolId,
+			direction: registered.resolved?.direction,
+			tokenA: registered.tokenA,
+			tokenB: registered.tokenB,
 			// Denormalized from the leg so a rate (medianPrice / standardAmount) is computable
 			// from a single snapshot row without joining back to it.
-			standardAmount: row.standardAmount,
+			standardAmount: registered.standardAmount,
 			blockNumber,
 			lowestPrice: leg.lowestPrice,
 			highestPrice: leg.highestPrice,
@@ -195,8 +197,8 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		chain: phantom.chain,
 		blockNumber,
 		snapshotTime,
-		pairs: [...registeredByIndex.values()].map((registered) => registered.resolvable),
-		legs: aggregate.legs,
+		legs: [...registeredByIndex.values()],
+		priced: aggregate.legs,
 	})
 
 	logger.info({ commitment, blockNumber, pricedLegs: aggregate.legs.length }, "PhantomOrderPriceSnapshotV2 saved")

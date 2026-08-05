@@ -14,6 +14,7 @@ export {
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
+	zipFillLegs,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
 	type AggregationLogger,

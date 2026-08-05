@@ -39,6 +39,7 @@ import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
+import { orientedPoolRates, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
 
 import { PointsService } from "./points.service"
 import { VolumeService, toScaledUsd } from "./volume.service"
@@ -59,8 +60,7 @@ const STABLE_SYMBOLS = ["USDC", "USDT"]
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-// Pool rates are 18-decimal fixed-point integers.
-const POOL_RATE_SCALE = new Decimal(10).pow(18)
+const POOL_RATE_SCALE = new Decimal(10).pow(POOL_RATE_DECIMALS)
 
 const decodeChain = (value: string): string =>
 	value.startsWith("0x") ? ethers.utils.toUtf8String(value) : value
@@ -472,9 +472,7 @@ export class IntentGatewayV3Service {
 			const pool = await LiquidityPool.get(poolSlug(canonical, quote))
 			if (!pool) continue
 
-			const baseIsToken0 = pool.token0Symbol === canonical
-			const direct = baseIsToken0 ? pool.sellRate : pool.buyRate
-			const inverse = baseIsToken0 ? pool.buyRate : pool.sellRate
+			const { direct, inverse } = orientedPoolRates(pool, canonical)
 
 			if (direct && direct > 0n) {
 				return new Decimal(direct.toString()).div(POOL_RATE_SCALE)

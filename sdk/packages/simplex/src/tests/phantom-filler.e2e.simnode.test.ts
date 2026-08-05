@@ -156,13 +156,6 @@ async function getActivePhantomCommitment(api: ApiPromise): Promise<HexString | 
 	if (!hex || hex === "0x" || hex.length < 66) return null
 	return `0x${hex.slice(2, 66)}` as HexString
 }
-// The active phantom commitment. CurrentPhantomOrder is a (H256, PhantomOrderInfo), so toJSON gives
-// [commitment, info]. Every configured pair rides in that one order, so there is at most one.
-async function getActivePhantomCommitments(api: ApiPromise): Promise<HexString[]> {
-	const active = await api.query.intentsCoprocessor.currentPhantomOrder()
-	const entry = active.toJSON() as [HexString, unknown] | null
-	return Array.isArray(entry) ? [entry[0]] : []
-}
 
 // ─── anvil ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -399,9 +392,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		await setPhantomOrderConfig(api)
 		await createBlock(api)
 
-		const commitments = await getActivePhantomCommitments(api)
-		expect(commitments.length).toBe(1)
-		const commitment = commitments[0]
+		const commitment = (await getActivePhantomCommitment(api))!
+		expect(commitment).toBeTruthy()
 
 		// Let the fillers quote + submit their bids, then seal the blocks carrying them.
 		await new Promise((r) => setTimeout(r, 6_000))

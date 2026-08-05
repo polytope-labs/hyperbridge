@@ -187,12 +187,15 @@ mod benchmarks {
 		Ok(())
 	}
 
-	#[benchmark]
-	fn set_phantom_order_config() -> Result<(), BenchmarkError> {
-		let origin =
-			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		// A full pair list is the worst case: the duplicate check builds a set over every pair.
-		let token_pairs = (0..MAX_PHANTOM_TOKEN_PAIRS)
+	/// `count` distinct token pairs with disjoint unordered token sets, sized like real one-unit
+	/// standard amounts.
+	fn synthetic_pairs(
+		count: u32,
+	) -> Result<
+		BoundedVec<types::PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
+		BenchmarkError,
+	> {
+		(0..count)
 			.map(|i| types::PhantomTokenPair {
 				token_a: H160::from_low_u64_be(i.into()),
 				token_b: H160::from_low_u64_be((i + MAX_PHANTOM_TOKEN_PAIRS).into()),
@@ -201,7 +204,15 @@ mod benchmarks {
 			})
 			.collect::<Vec<_>>()
 			.try_into()
-			.map_err(|_| BenchmarkError::Stop("pair list exceeds MAX_PHANTOM_TOKEN_PAIRS"))?;
+			.map_err(|_| BenchmarkError::Stop("pair list exceeds MAX_PHANTOM_TOKEN_PAIRS"))
+	}
+
+	#[benchmark]
+	fn set_phantom_order_config() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		// A full pair list is the worst case: the duplicate check builds a set over every pair.
+		let token_pairs = synthetic_pairs(MAX_PHANTOM_TOKEN_PAIRS)?;
 
 		let config = types::PhantomOrderConfiguration {
 			chain: StateMachineId {
@@ -230,16 +241,7 @@ mod benchmarks {
 	fn generate_phantom_order(p: Linear<1, MAX_PHANTOM_TOKEN_PAIRS>) -> Result<(), BenchmarkError> {
 		let chain =
 			StateMachineId { state_id: StateMachine::Evm(8453), consensus_state_id: *b"ETH0" };
-		let token_pairs = (0..p)
-			.map(|i| types::PhantomTokenPair {
-				token_a: H160::from_low_u64_be(i.into()),
-				token_b: H160::from_low_u64_be((i + MAX_PHANTOM_TOKEN_PAIRS).into()),
-				standard_amount: 1_000_000_000_000_000_000u128,
-				standard_amount_b: 1_000_000_000_000_000_000u128,
-			})
-			.collect::<Vec<_>>()
-			.try_into()
-			.map_err(|_| BenchmarkError::Stop("pair list exceeds MAX_PHANTOM_TOKEN_PAIRS"))?;
+		let token_pairs = synthetic_pairs(p)?;
 
 		// Written straight to storage rather than through set_phantom_order_config, so the interval
 		// is not checked against the bid window here and any value does. The hook reads it only to

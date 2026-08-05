@@ -5,8 +5,8 @@
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
 import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
+import { hexToU8a, isHex, stringToU8a, u8aToHex, u8aToString } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
-import { decodeAcceptedSourceChains } from "@/protocols/intents/phantom-source-declaration"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
@@ -74,6 +74,72 @@ async function rpcCall(url: string, payload: object): Promise<any> {
 }
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
+
+// ─── accepted-source-chains declaration ─────────────────────────────────────────────────────────
+//
+// A same-chain phantom bid proves a solver operates on a chain, not which chains it will accept
+// payment FROM when filling a cross-chain order. Bids declare that set inside paymasterAndData,
+// which the userOpHash covers, so the declaration is authenticated by the solver's existing bid
+// signature (the `signature` field is excluded from the hash and therefore unusable). The
+// overload applies to phantom bids only: a real fill's paymasterAndData keeps its functional
+// EntryPoint semantics, and nothing on the real-fill path ever parses this format.
+//
+// Layout: version(1) ‖ count(1) ‖ count × (length(1) ‖ utf8 state machine id). A declaration
+// with no entries is a deliberate "accepts no source chains" and is distinct from an absent
+// declaration ("0x"), which means the legacy default: all CCTP/USDT0-covered chains.
+
+const DECLARATION_VERSION = 0x01
+
+/** Upper bound on declared chains; one byte of count, and far beyond any real deployment. */
+const MAX_DECLARED_CHAINS = 255
+
+/**
+ * Encodes the accepted source chains (state machine ids, e.g. "EVM-8453") into the
+ * paymasterAndData declaration blob.
+ */
+export function encodeAcceptedSourceChains(chains: string[]): HexString {
+	if (chains.length > MAX_DECLARED_CHAINS) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_CHAINS} source chains`)
+	}
+
+	const bytes: number[] = [DECLARATION_VERSION, chains.length]
+	for (const chain of chains) {
+		const encoded = stringToU8a(chain)
+		if (encoded.length === 0 || encoded.length > 255) {
+			throw new Error(`Invalid state machine id in source chain declaration: ${chain}`)
+		}
+		bytes.push(encoded.length, ...encoded)
+	}
+	return u8aToHex(new Uint8Array(bytes)) as HexString
+}
+
+/**
+ * Decodes a phantom bid's paymasterAndData into its declared source chains. Returns null for an
+ * absent, unversioned or malformed blob — the legacy default — and an empty array only for an
+ * explicit zero-entry declaration. Callers must preserve that distinction.
+ */
+export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
+	if (!paymasterAndData || !isHex(paymasterAndData)) return null
+	const bytes = hexToU8a(paymasterAndData)
+	if (bytes.length < 2 || bytes[0] !== DECLARATION_VERSION) return null
+
+	const count = bytes[1]
+	const chains: string[] = []
+	let offset = 2
+	for (let entry = 0; entry < count; entry++) {
+		if (offset >= bytes.length) return null
+		const length = bytes[offset]
+		offset += 1
+		if (length === 0 || offset + length > bytes.length) return null
+		chains.push(u8aToString(bytes.subarray(offset, offset + length)))
+		offset += length
+	}
+	// Trailing bytes mean this is not a declaration but something that happens to share the
+	// version byte, so treat the whole blob as unparseable rather than half-reading it.
+	if (offset !== bytes.length) return null
+
+	return chains
+}
 
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */
 export type YieldVaultMap = Record<string, Record<string, string[]>>

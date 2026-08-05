@@ -1,7 +1,4 @@
-import {
-	decodeAcceptedSourceChains,
-	encodeAcceptedSourceChains,
-} from "@/protocols/intents/phantom-source-declaration"
+import { decodeAcceptedSourceChains, encodeAcceptedSourceChains } from "@/protocols/intents/phantom-aggregation"
 
 describe("accepted source chains declaration", () => {
 	it("round-trips a list of state machine ids", () => {

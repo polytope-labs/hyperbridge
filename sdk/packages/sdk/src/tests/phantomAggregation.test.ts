@@ -15,7 +15,7 @@ import {
 	type HexString,
 } from "@/protocols/intents/phantom-aggregation"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
-import { encodeAcceptedSourceChains } from "@/protocols/intents/phantom-source-declaration"
+import { encodeAcceptedSourceChains } from "@/protocols/intents/phantom-aggregation"
 import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
 import type { PackedUserOperation } from "@/types"
 

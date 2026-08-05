@@ -5,6 +5,8 @@ export { decodeUserOpScale, encodeUserOpScale } from "@/chains/intentsCoprocesso
 export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
 export {
 	aggregatePhantomBids,
+	decodeAcceptedSourceChains,
+	encodeAcceptedSourceChains,
 	extractFillData,
 	fetchBidsForOrder,
 	orderCommitmentFromDecoded,
@@ -29,7 +31,3 @@ export {
 	type RpcBidInfo,
 	type YieldVaultMap,
 } from "@/protocols/intents/phantom-aggregation"
-export {
-	decodeAcceptedSourceChains,
-	encodeAcceptedSourceChains,
-} from "@/protocols/intents/phantom-source-declaration"

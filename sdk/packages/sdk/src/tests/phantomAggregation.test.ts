@@ -326,7 +326,7 @@ describe("aggregatePhantomBids bid verification", () => {
 
 		expect(result).not.toBeNull()
 		expect(result!.legs).toHaveLength(1)
-		expect(result!.legs[0].pairIndex).toBe(0)
+		expect(result!.legs[0].legIndex).toBe(0)
 		expect(result!.legs[0].bidCount).toBe(1)
 		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
 	})

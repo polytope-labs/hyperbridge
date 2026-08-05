@@ -122,7 +122,7 @@ export interface PhantomLegBidder {
 /** The aggregated price for one leg of a phantom order. */
 export interface PhantomLegAggregation {
 	/** Position of the leg in the order's asset lists. */
-	pairIndex: number
+	legIndex: number
 	outputToken: HexString
 	lowestPrice: bigint
 	highestPrice: bigint
@@ -404,6 +404,24 @@ async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+// One aggregation run reads the same (chain, token, solver) balance from several places — once
+// per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
+// can carry up to 128 legs. Memoizing for the life of the run collapses that to one RPC round
+// trip per distinct triple, at the cost of ignoring balance changes within the run (the snapshot
+// is a point-in-time read either way).
+function memoizedSolverBalance(yieldVaults: YieldVaultMap) {
+	const cache = new Map<string, Promise<bigint>>()
+	return (evmRpcUrl: string, chain: string, token: string, solver: string): Promise<bigint> => {
+		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults)
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
 // Sweeps a solver's liquidity for every configured yield-vault token on every supported chain: for
 // each chain that has both an RPC (in evmRpcUrls) and configured tokens (in yieldVaults), the
 // solver's balance (raw ERC-20 + ERC-4626 vault positions) for each token. Captures the LP's whole
@@ -413,13 +431,14 @@ async function sweepSolverLiquidity(
 	evmRpcUrls: Record<string, string>,
 	yieldVaults: YieldVaultMap,
 	solver: string,
+	getBalance: ReturnType<typeof memoizedSolverBalance>,
 ): Promise<LpBalance[]> {
 	const balances: LpBalance[] = []
 	for (const [chain, tokens] of Object.entries(yieldVaults)) {
 		const url = evmRpcUrls[chain]
 		if (!url) continue
 		for (const token of Object.keys(tokens)) {
-			const balance = await getTotalSolverBalance(url, chain, token, solver, yieldVaults)
+			const balance = await getBalance(url, chain, token, solver)
 			if (balance === 0n) continue
 			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
 		}
@@ -488,6 +507,9 @@ export async function aggregatePhantomBids(params: {
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
 
+	// Balances repeat across legs and the sweep; one memo serves the whole run.
+	const getBalance = memoizedSolverBalance(yieldVaults)
+
 	// Quotes per leg, keyed by the leg's position in the order's asset lists. One bid carries a quote
 	// for every leg its solver priced, so a solver that only handles some of the pairs still counts
 	// towards those, and legs it skipped are left to the solvers that do handle them.
@@ -551,24 +573,24 @@ export async function aggregatePhantomBids(params: {
 			// the same authenticity as the quote itself.
 			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
 
-			for (const [pairIndex, leg] of fillData.legs.entries()) {
+			for (const [legIndex, leg] of fillData.legs.entries()) {
 				// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
 				if (leg.solverAmount === 0n) continue
 
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
 				// chain, so a leg is weighted by the inventory that actually backs it.
 				const outputTokenAddress = toAddress(leg.outputToken)
-				const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
+				const weight = await getBalance(destUrl, chain, outputTokenAddress, solver)
 
-				const entry = quotesByLeg.get(pairIndex) ?? { outputToken: leg.outputToken, quotes: [], bidders: [] }
+				const entry = quotesByLeg.get(legIndex) ?? { outputToken: leg.outputToken, quotes: [], bidders: [] }
 				entry.quotes.push({ price: leg.solverAmount, weight })
 				entry.bidders.push({ solver: normalizedSolver as HexString, weight, acceptedSources })
-				quotesByLeg.set(pairIndex, entry)
+				quotesByLeg.set(legIndex, entry)
 			}
 
 			// Full liquidity picture: every configured token on every supported chain. Swept once per
 			// bid rather than per leg, since it measures the solver's whole inventory either way.
-			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver)))
+			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance)))
 		} catch (err) {
 			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}
@@ -581,10 +603,10 @@ export async function aggregatePhantomBids(params: {
 	// so consumers cannot read an outlier bid as if it were a tradeable bound.
 	const legs = [...quotesByLeg.entries()]
 		.sort(([a], [b]) => a - b)
-		.map(([pairIndex, { outputToken, quotes, bidders }]) => {
+		.map(([legIndex, { outputToken, quotes, bidders }]) => {
 			const medianPrice = weightedMedian(quotes)
 			return {
-				pairIndex,
+				legIndex,
 				outputToken,
 				lowestPrice: medianPrice,
 				highestPrice: medianPrice,

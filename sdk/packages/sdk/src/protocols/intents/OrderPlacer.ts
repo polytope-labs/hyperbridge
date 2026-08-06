@@ -15,9 +15,10 @@ import { transformOrderForContract } from "./utils"
  * `OrderPlaced` event.
  *
  * The gateway stamps or normalises every field emitted by the event before it
- * hashes the order. The two call-data fields are read from the event when
- * present; logs emitted under the pre-#1092 schema omit them, so they fall
- * back to the submitted order.
+ * hashes the order; the two call-data fields are read from the event, which
+ * carries the complete order. The fallback to the submitted order's call
+ * fields is defensive only — pre-#1092 logs have a different event signature
+ * and never decode with this ABI, so placement requires an upgraded gateway.
  */
 export function deriveCanonicalPlacedOrder(
 	order: Order,

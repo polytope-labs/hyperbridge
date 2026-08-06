@@ -2898,7 +2898,12 @@ dependencies = [
 name = "beefy-prover"
 version = "0.1.1"
 dependencies = [
+ "alloy-primitives 1.5.7",
  "anyhow",
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-serialize 0.4.2",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "derive_more 1.0.0",
@@ -2906,6 +2911,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "indicatif 0.18.4",
+ "ismp-abi",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -2923,6 +2929,7 @@ dependencies = [
 name = "beefy-verifier"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
  "ark-bls12-381 0.4.0",

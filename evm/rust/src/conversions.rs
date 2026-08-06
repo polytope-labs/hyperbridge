@@ -56,10 +56,11 @@ mod beefy {
 	use alloc::{vec, vec::Vec};
 	use alloy_primitives::{Bytes, FixedBytes};
 	use beefy_verifier_primitives::{
-		BlsConsensusMessage, BlsMmrProof, BlsSigner, ConsensusMessage, ConsensusState, MmrProof,
-		ParachainHeader as BvpParachainHeader, ParachainProof as BvpParachainProof,
-		SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment, Sp1BeefyProof,
-		TSignature,
+		compress_g1, compress_g2, BlsConsensusMessage, BlsMmrProof, BlsSigner, ConsensusMessage,
+		ConsensusState, MmrProof, ParachainHeader as BvpParachainHeader,
+		ParachainProof as BvpParachainProof, SignatureWithAuthorityIndex,
+		SignedCommitment as BvpSignedCommitment, Sp1BeefyProof, TSignature,
+		BLS_G1_UNCOMPRESSED_LEN, BLS_G2_UNCOMPRESSED_LEN,
 	};
 	use polkadot_sdk::*;
 	use primitive_types::H256;
@@ -519,16 +520,26 @@ mod beefy {
 				items: value.mmrProof.into_iter().map(|h| H256(h.0)).collect(),
 			};
 
+			// The ABI proof carries uncompressed points, because that is what EIP-2537 accepts.
+			// The verifier and the keyset commitment both work on the compressed encoding, so
+			// compress on the way in. That direction is pure byte manipulation; the reverse needs
+			// an Fp2 square root.
 			let signers = value
 				.signers
 				.into_iter()
-				.map(|signer| BlsSigner {
-					public_key: signer
+				.map(|signer| {
+					let uncompressed: [u8; BLS_G2_UNCOMPRESSED_LEN] = signer
 						.publicKey
 						.as_ref()
 						.try_into()
-						.expect("BLS public key should be 96 bytes"),
-					index: signer.authorityIndex.try_into().expect("authority index out of bounds"),
+						.expect("BLS public key should be 256 bytes uncompressed");
+					BlsSigner {
+						public_key: compress_g2(&uncompressed),
+						index: signer
+							.authorityIndex
+							.try_into()
+							.expect("authority index out of bounds"),
+					}
 				})
 				.collect();
 
@@ -537,11 +548,14 @@ mod beefy {
 			BlsMmrProof {
 				commitment: commitment.into(),
 				signers,
-				aggregate_signature: value
-					.aggregateSignature
-					.as_ref()
-					.try_into()
-					.expect("aggregate BLS signature should be 48 bytes"),
+				aggregate_signature: {
+					let uncompressed: [u8; BLS_G1_UNCOMPRESSED_LEN] = value
+						.aggregateSignature
+						.as_ref()
+						.try_into()
+						.expect("aggregate BLS signature should be 128 bytes uncompressed");
+					compress_g1(&uncompressed)
+				},
 				latest_mmr_leaf: leaf.into(),
 				mmr_proof,
 				authority_proof: value.proof.into_iter().map(|h| h.0).collect(),
@@ -549,54 +563,9 @@ mod beefy {
 		}
 	}
 
-	impl From<BlsMmrProof> for crate::bls_beefy::BlsBeefy::BlsRelayChainProof {
-		fn from(value: BlsMmrProof) -> Self {
-			use crate::bls_beefy::BlsBeefy;
-
-			let leaf_index = value.mmr_proof.leaf_indices[0];
-			let commitment: Commitment = value.commitment.into();
-			let leaf = BeefyMmrLeaf {
-				version: 0,
-				parentNumber: value.latest_mmr_leaf.parent_number_and_hash.0,
-				parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
-				nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
-				extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
-				leafIndex: leaf_index.to_u256(),
-			};
-
-			BlsBeefy::BlsRelayChainProof {
-				commitment: commitment.into(),
-				signers: value
-					.signers
-					.into_iter()
-					.map(|signer| BlsBeefy::BlsSigner {
-						publicKey: Bytes::from(signer.public_key.to_vec()),
-						authorityIndex: signer.index.to_u256(),
-					})
-					.collect(),
-				aggregateSignature: Bytes::from(value.aggregate_signature.to_vec()),
-				latestMmrLeaf: leaf.into(),
-				mmrProof: value
-					.mmr_proof
-					.items
-					.into_iter()
-					.map(|h| FixedBytes::from(h.0))
-					.collect(),
-				proof: value.authority_proof.into_iter().map(FixedBytes::from).collect(),
-			}
-		}
-	}
-
-	impl From<BlsConsensusMessage> for crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof {
-		fn from(value: BlsConsensusMessage) -> Self {
-			let parachain: ParachainProof = value.parachain.into();
-
-			crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof {
-				relay: value.mmr.into(),
-				parachain: parachain.into(),
-			}
-		}
-	}
+	// The SCALE -> ABI direction lives in `beefy-prover`, not here. Building an EVM-bound proof
+	// means decompressing the points, which needs arkworks, and this crate compiles into the
+	// runtime. See `beefy_prover::bls::to_abi_proof`.
 
 	impl From<crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof> for BlsConsensusMessage {
 		fn from(value: crate::bls_beefy::BlsBeefy::BlsBeefyConsensusProof) -> Self {

@@ -1295,11 +1295,11 @@ mod bls_offline {
 		assert!(matches!(verify(trusted_state, proof), Err(Error::BlsVerificationFailed)));
 	}
 
-	// All-ones bytes are not undecodable. Arkworks keeps the point flags in the high bits of the
-	// last byte, and 0xff sets the infinity flag, so these decode to the identity element instead
-	// of failing. The identity is harmless (it contributes nothing to either sum, and a signer
-	// still has to appear in the committed keyset), but the rejection therefore arrives as a
-	// failed pairing rather than a decode error.
+	// All-ones bytes are not undecodable. The compressed encoding is big-endian with the point
+	// flags in the high bits of the *first* byte, and 0xff sets the infinity flag, so these decode
+	// to the identity element instead of failing. The identity is harmless (it contributes nothing
+	// to either sum, and a signer still has to appear in the committed keyset), but the rejection
+	// therefore arrives as a failed pairing rather than a decode error.
 	#[test]
 	fn rejects_an_identity_public_key() {
 		let validators = validators(4);
@@ -1356,4 +1356,473 @@ mod bls_offline {
 
 		assert!(matches!(verify(trusted_state, proof), Err(Error::InvalidAuthoritiesProof)));
 	}
+}
+
+/// Emits an EIP-2537 shaped fixture for the Solidity aggregate verifier.
+///
+/// The Solidity side cannot consume the compressed points the proof carries, because EIP-2537 has
+/// no decompression precompile: it wants uncompressed, big-endian, zero-padded coordinates. This
+/// prints exactly that, for a deterministic validator set, and asserts `w3f-bls` accepts the same
+/// aggregate first, so the fixture cannot drift from what the chain would produce.
+///
+///   cargo test -p beefy-verifier --features bls-crypto bls_eip2537_fixture -- --nocapture
+#[cfg(feature = "bls-crypto")]
+#[test]
+fn bls_eip2537_fixture() {
+	use ark_bls12_381::{Fq, G1Affine, G2Affine};
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_ff::{BigInteger, PrimeField};
+	use w3f_bls::{
+		EngineBLS, Message, PublicKey, SecretKeyVT, SerializableToBytes, Signature as BlsSignature,
+		TinyBLS381,
+	};
+
+	let message = b"beefy-bls-aggregate-fixture";
+	let msg = Message::new(b"", message);
+
+	// Same deterministic construction the offline tests use.
+	let validators: Vec<_> =
+		(0..3).map(|i| SecretKeyVT::<TinyBLS381>::from_seed(&[b'v', i as u8])).collect();
+
+	let mut agg_sig: Option<<TinyBLS381 as EngineBLS>::SignatureGroup> = None;
+	let mut agg_pub: Option<<TinyBLS381 as EngineBLS>::PublicKeyGroup> = None;
+	for secret in &validators {
+		let sig = secret.sign(&msg);
+		let public = secret.into_public();
+		agg_sig = Some(agg_sig.map_or(sig.0, |acc| acc + sig.0));
+		agg_pub = Some(agg_pub.map_or(public.0, |acc| acc + public.0));
+	}
+	let agg_sig = agg_sig.expect("signers");
+	let agg_pub = agg_pub.expect("signers");
+
+	// The aggregate must verify before the fixture is worth anything.
+	assert!(
+		BlsSignature::<TinyBLS381>(agg_sig).verify(&msg, &PublicKey::<TinyBLS381>(agg_pub)),
+		"aggregate does not verify, fixture would be meaningless"
+	);
+
+	let fq = |v: &Fq| hex::encode(v.into_bigint().to_bytes_be());
+
+	let sig_affine: G1Affine = agg_sig.into_affine();
+	let (sx, sy) = sig_affine.xy().expect("signature is not the identity");
+
+	let pub_affine: G2Affine = agg_pub.into_affine();
+	let (px, py) = pub_affine.xy().expect("public key is not the identity");
+
+	println!("=== EIP-2537 fixture: {} signers ===", validators.len());
+	println!("message              {}", hex::encode(message));
+	println!(
+		"compressed signature {}",
+		hex::encode(BlsSignature::<TinyBLS381>(agg_sig).to_bytes())
+	);
+	println!("compressed pubkey    {}", hex::encode(PublicKey::<TinyBLS381>(agg_pub).to_bytes()));
+	println!("-- aggregate signature, G1 uncompressed --");
+	println!("sig.x                {}", fq(sx));
+	println!("sig.y                {}", fq(sy));
+	println!("-- aggregate public key, G2 uncompressed --");
+	println!("pk.x.c0              {}", fq(&px.c0));
+	println!("pk.x.c1              {}", fq(&px.c1));
+	println!("pk.y.c0              {}", fq(&py.c0));
+	println!("pk.y.c1              {}", fq(&py.c1));
+
+	// The keyset commitment the Solidity client verifies against, built over the *uncompressed*
+	// encoding since that is what the contract can hash without a decompression precompile. Four
+	// authorities, of which the three above signed, so the multi-proof is non-trivial.
+	let uncompressed = |secret: &SecretKeyVT<TinyBLS381>| -> Vec<u8> {
+		let affine: G2Affine = secret.into_public().0.into_affine();
+		let (x, y) = affine.xy().expect("public key is not the identity");
+		let mut out = Vec::with_capacity(4 * 64);
+		for coord in [&x.c0, &x.c1, &y.c0, &y.c1] {
+			out.extend_from_slice(&[0u8; 16]);
+			out.extend_from_slice(&coord.into_bigint().to_bytes_be());
+		}
+		out
+	};
+
+	let authorities: Vec<_> =
+		(0..4).map(|i| SecretKeyVT::<TinyBLS381>::from_seed(&[b'v', i as u8])).collect();
+	// The runtime commits the compressed encoding, and the contract compresses to match, so the
+	// leaves are over compressed keys.
+	let leaves: Vec<[u8; 32]> = authorities
+		.iter()
+		.map(|secret| keccak_256(&secret.into_public().to_bytes()))
+		.collect();
+	let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let _ = &uncompressed;
+
+	for (i, secret) in authorities.iter().enumerate() {
+		println!("authority {i} compressed  {}", hex::encode(secret.into_public().to_bytes()));
+	}
+	println!("-- keyset over compressed keys, {} authorities --", authorities.len());
+	println!("keyset root          {}", hex::encode(tree.root().expect("root")));
+	for hash in tree.proof(&[0, 1, 2]).proof_hashes() {
+		println!("multiproof node      {}", hex::encode(hash));
+	}
+
+	// Each signer's key on its own, for the merkle leaves and the G2_ADD path.
+	for (i, secret) in validators.iter().enumerate() {
+		let affine: G2Affine = secret.into_public().0.into_affine();
+		let (x, y) = affine.xy().expect("public key is not the identity");
+		println!("-- signer {i} --");
+		println!("  x.c0               {}", fq(&x.c0));
+		println!("  x.c1               {}", fq(&x.c1));
+		println!("  y.c0               {}", fq(&y.c0));
+		println!("  y.c1               {}", fq(&y.c1));
+	}
+}
+
+/// Emits a complete ABI-encoded state and proof so the Solidity client's `verify()` entry point
+/// can be exercised, not just the pieces it calls.
+///
+/// The MMR is a single leaf, so its root is the leaf hash and an empty proof verifies. The
+/// commitment carries that root, and the validators sign the SCALE encoding of the commitment,
+/// which is exactly what the contract hashes. Keys are emitted uncompressed, because EIP-2537 has
+/// no decompression precompile, and the keyset commitment is built over the same encoding.
+///
+///   cargo test -p beefy-verifier --features bls-crypto bls_solidity_proof_fixture -- --nocapture
+#[cfg(feature = "bls-crypto")]
+#[test]
+fn bls_solidity_proof_fixture() {
+	use alloy_sol_types::SolType;
+	use ark_bls12_381::G2Affine;
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_ff::{BigInteger, PrimeField};
+	use ismp_abi::bls_beefy::BlsBeefy as Sol;
+	use w3f_bls::{
+		EngineBLS, Message, SecretKeyVT, SerializableToBytes, Signature as BlsSignature, TinyBLS381,
+	};
+
+	const SET_ID: u64 = 7;
+	const BLOCK: u32 = 100;
+
+	let uncompressed = |secret: &SecretKeyVT<TinyBLS381>| -> Vec<u8> {
+		let affine: G2Affine = secret.into_public().0.into_affine();
+		let (x, y) = affine.xy().expect("not the identity");
+		let mut out = Vec::with_capacity(256);
+		for coord in [&x.c0, &x.c1, &y.c0, &y.c1] {
+			out.extend_from_slice(&[0u8; 16]);
+			out.extend_from_slice(&coord.into_bigint().to_bytes_be());
+		}
+		out
+	};
+
+	let authorities: Vec<_> =
+		(0..4).map(|i| SecretKeyVT::<TinyBLS381>::from_seed(&[b'v', i as u8])).collect();
+	let keys: Vec<Vec<u8>> = authorities.iter().map(uncompressed).collect();
+
+	// Keyset commitment over the compressed keys, exactly as the runtime converter builds it. The
+	// contract compresses each uncompressed key it is given to reproduce these leaves.
+	let leaves: Vec<[u8; 32]> =
+		authorities.iter().map(|s| keccak_256(&s.into_public().to_bytes())).collect();
+	let keyset = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let keyset_root = keyset.root().expect("keyset root");
+
+	// The MMR leaf, and the root it implies as the only leaf in the tree.
+	let leaf = MmrLeaf {
+		version: MmrLeafVersion::new(0, 0),
+		parent_number_and_hash: (0u32, H256::zero()),
+		beefy_next_authority_set: BeefyNextAuthoritySet {
+			id: SET_ID + 1,
+			len: authorities.len() as u32,
+			keyset_commitment: H256(keyset_root),
+		},
+		leaf_extra: H256::zero(),
+	};
+	let mmr_root = H256(keccak_256(&leaf.encode()));
+
+	// The validators sign the SCALE encoding of this commitment; the contract hashes the same.
+	let payload = Payload::from_single_entry(*b"mh", mmr_root.0.to_vec());
+	let commitment = Commitment { payload, block_number: BLOCK, validator_set_id: SET_ID };
+	let message = Message::new(b"", &commitment.encode());
+
+	let signer_indices = [0usize, 1, 2];
+	let mut agg: Option<<TinyBLS381 as EngineBLS>::SignatureGroup> = None;
+	for &i in &signer_indices {
+		let sig = authorities[i].sign(&message);
+		agg = Some(agg.map_or(sig.0, |acc| acc + sig.0));
+	}
+	let agg_affine = BlsSignature::<TinyBLS381>(agg.expect("signers")).0.into_affine();
+	let (sx, sy) = agg_affine.xy().expect("not the identity");
+	let mut aggregate_signature = Vec::with_capacity(128);
+	for coord in [sx, sy] {
+		aggregate_signature.extend_from_slice(&[0u8; 16]);
+		aggregate_signature.extend_from_slice(&coord.into_bigint().to_bytes_be());
+	}
+
+	let authority_proof = keyset.proof(&signer_indices);
+
+	// Assemble the sol types the contract decodes.
+	let state = Sol::BeefyConsensusState {
+		latestHeight: alloy_primitives::U256::from(BLOCK - 1),
+		beefyActivationBlock: alloy_primitives::U256::ZERO,
+		currentAuthoritySet: Sol::AuthoritySetCommitment {
+			id: SET_ID,
+			len: authorities.len() as u32,
+			root: alloy_primitives::FixedBytes(keyset_root),
+		},
+		nextAuthoritySet: Sol::AuthoritySetCommitment {
+			id: SET_ID + 1,
+			len: authorities.len() as u32,
+			root: alloy_primitives::FixedBytes(keyset_root),
+		},
+	};
+
+	let relay = Sol::BlsRelayChainProof {
+		commitment: Sol::Commitment {
+			payload: vec![Sol::Payload {
+				id: alloy_primitives::FixedBytes(*b"mh"),
+				data: alloy_primitives::Bytes::from(mmr_root.0.to_vec()),
+			}],
+			blockNumber: BLOCK,
+			validatorSetId: SET_ID,
+		},
+		signers: signer_indices
+			.iter()
+			.map(|&i| Sol::BlsSigner {
+				publicKey: alloy_primitives::Bytes::from(keys[i].clone()),
+				authorityIndex: alloy_primitives::U256::from(i),
+			})
+			.collect(),
+		aggregateSignature: alloy_primitives::Bytes::from(aggregate_signature),
+		latestMmrLeaf: Sol::BeefyMmrLeaf {
+			version: 0,
+			parentNumber: 0,
+			parentHash: alloy_primitives::FixedBytes([0u8; 32]),
+			nextAuthoritySet: Sol::AuthoritySetCommitment {
+				id: SET_ID + 1,
+				len: authorities.len() as u32,
+				root: alloy_primitives::FixedBytes(keyset_root),
+			},
+			extra: alloy_primitives::FixedBytes([0u8; 32]),
+			leafIndex: alloy_primitives::U256::ZERO,
+		},
+		mmrProof: vec![],
+		proof: authority_proof
+			.proof_hashes()
+			.iter()
+			.map(|h| alloy_primitives::FixedBytes(*h))
+			.collect(),
+	};
+
+	let parachain = Sol::ParachainProof {
+		parachains: vec![],
+		proof: vec![],
+		leafCount: alloy_primitives::U256::ZERO,
+	};
+
+	let encoded_state = Sol::BeefyConsensusState::abi_encode(&state);
+	let encoded_proof =
+		<(Sol::BlsRelayChainProof, Sol::ParachainProof) as SolType>::abi_encode_params(&(
+			relay, parachain,
+		));
+
+	println!("=== solidity verify() fixture ===");
+	println!("state 0x{}", hex::encode(encoded_state));
+	println!("proof 0x{}", hex::encode(encoded_proof));
+	println!("expected new latestHeight {BLOCK}");
+}
+
+/// Works out the compressed-encoding sign rule, so the Solidity client can compress an
+/// uncompressed key on the fly and match the leaf the runtime commits.
+///
+/// Compressing is cheap; decompressing a G2 point on chain would need Fp2 square roots. So the
+/// prover sends uncompressed points, which the pairing needs anyway, and the contract derives the
+/// compressed form for the merkle leaf. That only works if the flag convention is pinned down.
+///
+///   cargo test -p beefy-verifier --features bls-crypto bls_compression_rule -- --nocapture
+#[cfg(feature = "bls-crypto")]
+#[test]
+fn bls_compression_rule() {
+	use ark_bls12_381::{Fq, G2Affine};
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_ff::{BigInteger, PrimeField};
+	use w3f_bls::{SecretKeyVT, SerializableToBytes, TinyBLS381};
+
+	// (p - 1) / 2, the threshold the IETF convention uses to call a root "larger".
+	let half = {
+		let modulus = Fq::MODULUS;
+		let mut bytes = modulus.to_bytes_be();
+		// divide by two, big-endian, then subtract nothing: (p-1)/2 == p >> 1 for odd p
+		let mut carry = 0u8;
+		for b in bytes.iter_mut() {
+			let cur = *b;
+			*b = (cur >> 1) | (carry << 7);
+			carry = cur & 1;
+		}
+		bytes
+	};
+
+	let gt_half = |v: &Fq| -> bool { v.into_bigint().to_bytes_be() > half };
+
+	println!("=== compressed flag vs y sign, {} samples ===", 8);
+	for i in 0..8u8 {
+		let secret = SecretKeyVT::<TinyBLS381>::from_seed(&[b'c', i]);
+		let compressed = secret.into_public().to_bytes();
+		let affine: G2Affine = secret.into_public().0.into_affine();
+		let (_, y) = affine.xy().expect("not the identity");
+
+		println!(
+			"seed {i}: flags {:#04x}  y.c1>half {}  y.c0>half {}",
+			compressed[0] & 0xe0,
+			gt_half(&y.c1),
+			gt_half(&y.c0),
+		);
+	}
+}
+
+/// `compress_g2` / `compress_g1` must reproduce what `w3f-bls` serialises, since the keyset
+/// commitment and the Rust verifier both work on the compressed encoding while an EVM-bound proof
+/// carries uncompressed points.
+#[cfg(feature = "bls-crypto")]
+#[test]
+fn compression_matches_w3f_bls() {
+	use ark_bls12_381::{G1Affine, G2Affine};
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_ff::{BigInteger, PrimeField};
+	use beefy_verifier_primitives::{compress_g1, compress_g2};
+	use w3f_bls::{Message, SecretKeyVT, SerializableToBytes, TinyBLS381};
+
+	let msg = Message::new(b"", b"compression check");
+
+	for i in 0..8u8 {
+		let secret = SecretKeyVT::<TinyBLS381>::from_seed(&[b'c', i]);
+
+		// G2 public key.
+		let affine: G2Affine = secret.into_public().0.into_affine();
+		let (x, y) = affine.xy().expect("not the identity");
+		let mut uncompressed = [0u8; 256];
+		for (slot, coord) in [&x.c0, &x.c1, &y.c0, &y.c1].iter().enumerate() {
+			let bytes = coord.into_bigint().to_bytes_be();
+			uncompressed[slot * 64 + 16..slot * 64 + 64].copy_from_slice(&bytes);
+		}
+		assert_eq!(
+			compress_g2(&uncompressed).to_vec(),
+			secret.into_public().to_bytes(),
+			"G2 compression differs for seed {i}"
+		);
+
+		// G1 signature.
+		let sig = secret.sign(&msg);
+		let sig_affine: G1Affine = sig.0.into_affine();
+		let (sx, sy) = sig_affine.xy().expect("not the identity");
+		let mut sig_uncompressed = [0u8; 128];
+		for (slot, coord) in [sx, sy].iter().enumerate() {
+			let bytes = coord.into_bigint().to_bytes_be();
+			sig_uncompressed[slot * 64 + 16..slot * 64 + 64].copy_from_slice(&bytes);
+		}
+		assert_eq!(
+			compress_g1(&sig_uncompressed).to_vec(),
+			sig.to_bytes(),
+			"G1 compression differs for seed {i}"
+		);
+	}
+}
+
+/// Emits an ABI fixture built from a **live** BLS relay, so the Solidity client can be tested
+/// against a real MMR proof and a real parachain header rather than a synthetic single-leaf tree.
+///
+/// Needs the relay and its registered parachain running; see `docs/bls-beefy-rust-remaining.md`.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9979 PARA_WS_URL=ws://127.0.0.1:9991 \
+///     cargo test -p beefy-verifier --features bls bls_live_abi_fixture -- --ignored --nocapture
+#[cfg(feature = "bls")]
+#[tokio::test]
+#[ignore]
+async fn bls_live_abi_fixture() {
+	use alloy_sol_types::SolType;
+	use beefy_prover::bls::{abi::to_abi_proof, decode_paired_justification};
+	use ismp_abi::{
+		bls_beefy::BlsBeefy, ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState,
+	};
+
+	let max_rpc_payload_size = 15 * 1024 * 1024;
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+	let para_ws_url = std::env::var("PARA_WS_URL").expect("PARA_WS_URL must be set");
+
+	let (relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+	let (para_client, para_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&para_ws_url, max_rpc_payload_size)
+			.await
+			.unwrap();
+	let para_rpc = LegacyRpcMethods::<PolkadotConfig>::new(para_rpc_client.clone());
+
+	let prover = Prover {
+		beefy_activation_block: 0,
+		relay: relay_client,
+		relay_rpc: relay_rpc.clone(),
+		relay_rpc_client: relay_rpc_client.clone(),
+		para: para_client,
+		para_rpc,
+		para_rpc_client,
+		para_ids: vec![4009],
+		query_batch_size: Some(100),
+	};
+
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+	let block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let justification = block
+		.justifications
+		.expect("justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID).then_some(j.1))
+		.expect("beefy justification");
+
+	let signed = decode_paired_justification(&justification).unwrap();
+	let set_id = signed.commitment.validator_set_id;
+
+	// Anchor one authority set back so the proof also exercises a rotation.
+	let mut anchor = H256::default();
+	let mut cursor = latest;
+	for _ in 0..4000 {
+		let header = relay_rpc.chain_get_header(Some(cursor.into())).await.unwrap().unwrap();
+		let parent: H256 = header.parent_hash.into();
+		if parent.is_zero() {
+			break;
+		}
+		if let Ok(Some(b)) = relay_rpc.chain_get_block(Some(parent.into())).await {
+			if let Some(js) = b.justifications {
+				if let Some(raw) = js.into_iter().find_map(|j| {
+					(j.0 == polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID).then_some(j.1)
+				}) {
+					let prev = decode_paired_justification(&raw).unwrap();
+					if prev.commitment.validator_set_id + 1 == set_id {
+						anchor = parent;
+						break;
+					}
+				}
+			}
+		}
+		cursor = parent;
+	}
+	assert!(!anchor.is_zero(), "no anchor one set back");
+
+	let state = prover.get_initial_consensus_state(Some(anchor)).await.unwrap();
+	let message = prover.bls_consensus_proof(signed).await.unwrap();
+
+	let signer_count = message.mmr.signers.len();
+	let para_count = message.parachain.parachains.len();
+	let mmr_nodes = message.mmr.mmr_proof.items.len();
+	let block_number = message.mmr.commitment.block_number;
+
+	let abi_state: SolBeefyConsensusState = state.into();
+	let abi_proof = to_abi_proof(message).expect("to_abi_proof");
+
+	let encoded_state = SolBeefyConsensusState::abi_encode(&abi_state);
+	let encoded_proof =
+		<(BlsBeefy::BlsRelayChainProof, BlsBeefy::ParachainProof) as SolType>::abi_encode_params(
+			&(abi_proof.relay, abi_proof.parachain),
+		);
+
+	println!("=== live abi fixture ===");
+	println!(
+		"signers {signer_count} | parachains {para_count} | mmr nodes {mmr_nodes} | block {block_number}"
+	);
+	println!("state 0x{}", hex::encode(encoded_state));
+	println!("proof 0x{}", hex::encode(encoded_proof));
+	assert!(para_count > 0, "expected a parachain header from the registered para");
 }

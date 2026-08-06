@@ -37,6 +37,7 @@ hex-literal = { workspace = true }
 hex = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 ismp-abi = { workspace = true, default-features = true }
+alloy-primitives = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }

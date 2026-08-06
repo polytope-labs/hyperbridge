@@ -20,9 +20,17 @@ hex-literal = "0.4.1"
 hex = { version = "0.4.3" }
 w3f-bls = { version = "0.1.9", default-features = true, optional = true }
 
+ark-bls12-381 = { version = "0.4.0", features = ["curve"], default-features = false, optional = true }
+ark-ec = { version = "0.4.0", default-features = false, optional = true }
+ark-ff = { version = "0.4.0", default-features = false, optional = true }
+ark-serialize = { version = "0.4.0", default-features = false, optional = true }
+
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true }
+
+ismp-abi = { workspace = true, default-features = true, optional = true }
+alloy-primitives = { workspace = true, default-features = true, optional = true }
 merkle-mountain-range = { workspace = true }
 indicatif = "0.18.0"
 futures = { workspace = true }
@@ -62,4 +70,4 @@ local = []
 bls = []
 # Prove the BLS half instead: `crate::bls`, which builds a proof the aggregate verifier checks in
 # a single pairing. Purely additive, so it is safe to enable alongside plain-ECDSA proving.
-bls-aggregate = ["dep:w3f-bls"]
+bls-aggregate = ["dep:w3f-bls", "dep:ismp-abi", "dep:alloy-primitives", "dep:ark-bls12-381", "dep:ark-ec", "dep:ark-ff", "dep:ark-serialize"]

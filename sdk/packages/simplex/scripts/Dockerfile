@@ -4,15 +4,26 @@
 # it runs natively on Intel/AMD Linux and Windows (WSL2) hosts as well as Apple Silicon
 # Macs and Windows-on-ARM, with no QEMU emulation.
 #
-# Nothing below is arch-specific: node:24 and the Debian build deps are multi-arch, and
+# Nothing below is arch-specific: the node images and the Debian build deps are multi-arch, and
 # better-sqlite3 resolves a per-arch prebuild (falling back to a source build with the
 # toolchain installed in the builder stage). Build both arches with:
 #   docker buildx build --platform linux/amd64,linux/arm64 -f packages/simplex/scripts/Dockerfile sdk
+#
+# The base tags are pinned to an exact patch on purpose. The floating `node:24` tag rolled to
+# 24.19.0, which added cleanup-hook registration to `node::ObjectWrap`'s constructor/destructor
+# (src/node_object_wrap.h). ~ObjectWrap then calls node::RemoveEnvironmentCleanupHook, which
+# CHECKs on Environment::GetCurrent(isolate) != nullptr — null whenever no context is entered.
+# Any ObjectWrap-derived object finalised by an idle/background GC therefore aborts the process
+# (SIGABRT), which read as a container crash-loop. better-sqlite3 <13 wrapped every Statement in
+# node::ObjectWrap, so each db.prepare() was a live landmine. Fixed by moving to better-sqlite3
+# 13.x (N-API, no node::ObjectWrap); the pin keeps the toolchain reproducible so a base-image
+# roll can never silently change the compiled addon again. Bump both stages together — the
+# builder's headers are what get compiled into any native addon.
 
 # ---------------------------------------------------------------------------
 # Builder — installs the toolchain, compiles protos, bundles the CLI and web UI.
 # ---------------------------------------------------------------------------
-FROM node:24 AS builder
+FROM node:24.19.0 AS builder
 
 # protoc is needed by packages/simplex/scripts/build.sh; python3/make/g++ are the fallback
 # path for native modules (better-sqlite3) on an arch with no matching prebuild.
@@ -46,7 +57,7 @@ RUN cd packages/simplex && pnpm build
 # Runtime — slim base, no compiler toolchain. Keeps the pull small on Docker Desktop
 # hosts, where every layer lands inside the Linux VM's disk image.
 # ---------------------------------------------------------------------------
-FROM node:24-slim AS runtime
+FROM node:24.19.0-slim AS runtime
 
 # Create non-root user
 RUN groupadd -g 1001 simplex && \

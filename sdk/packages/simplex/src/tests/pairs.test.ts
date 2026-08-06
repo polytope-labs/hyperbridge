@@ -103,8 +103,12 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("EURC", "EVM-8453")).toBe("0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42")
 		expect(registry.getAddress("XSGD", "EVM-137")).toBe("0xDC3326e71D45186F113a2F448984CA0e8D201995")
 		expect(registry.getAddress("TRYB", "EVM-1")).toBe("0x2C537E5624e4af88A7ae4060C022609376C8D0EB")
+		expect(registry.getAddress("USDR", "EVM-1")).toBe("0x9623DfB044D5612Ce0c0F1606973CCAEFd03CD05")
+		expect(registry.getAddress("USDR", "EVM-8453")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
+		expect(registry.getAddress("usdr", "EVM-137")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
 		// Not deployed there → absent, not an error.
 		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
+		expect(registry.getAddress("USDR", "EVM-42161")).toBeNull()
 	})
 
 	it("rejects malformed definitions", () => {

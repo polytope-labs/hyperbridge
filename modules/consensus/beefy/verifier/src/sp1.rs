@@ -45,8 +45,12 @@ sol! {
 
 /// Verify an SP1 BEEFY consensus proof and return the updated consensus state
 /// and verified parachain headers. Mirrors the Solidity `SP1Beefy.verifyConsensus` flow:
-/// SP1 proves authority-set membership, commitment signatures, MMR leaf correctness and
+/// SP1 proves authority-set membership, commitment signatures, MMR leaf inclusion and
 /// parachain header inclusion — so no additional merkle verification is done here.
+///
+/// SP1 proves only that the leaf is *in* the mmr, not that it is the *latest* leaf, so leaf
+/// freshness (`parent_number + 1 == block_number`) is enforced here. Keep this in step with
+/// the equivalent check in `SP1Beefy.verifyConsensus`.
 pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 	trusted_state: ConsensusState,
 	proof: Sp1BeefyProof,
@@ -57,6 +61,16 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 			trusted_height: trusted_state.latest_beefy_height,
 			current_height: proof.block_number,
 		})?;
+	}
+
+	// An mmr is append-only, so a historical leaf also proves against the commitment's root.
+	// Accepting one would advance `latest_beefy_height` while replaying an old leaf, suppressing
+	// the rotation below and stranding the client on a set the relay chain has retired.
+	// `parent_number` is part of the leaf preimage hashed into `leaf_hash`, so pinning it here
+	// pins the leaf itself.
+	let parent_number = proof.mmr_leaf.parent_number_and_hash.0;
+	if parent_number.saturating_add(1) != proof.block_number {
+		Err(Error::StaleMmrLeaf { parent_number, block_number: proof.block_number })?;
 	}
 
 	let authority = if proof.validator_set_id == trusted_state.next_authorities.id {

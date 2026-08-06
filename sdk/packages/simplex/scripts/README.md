@@ -1,16 +1,19 @@
 # Scripts Directory
 
-This directory contains utility scripts for the Hyperbridge FillerV2.
+This directory contains utility scripts for Hyperbridge Simplex.
 
-## Docker Script
+## Docker
 
-A single, simplified script to handle all Docker operations:
+- **Dockerfile**: Builds the simplex image. Multi-stage (node:24 builder → node:24-slim
+  runtime) and arch-neutral, so the same file produces the published `linux/amd64` +
+  `linux/arm64` manifest. The build context is the `sdk` workspace root, not this directory.
+- **docker-compose.yml**: Simplex plus Prometheus and Grafana. Works unchanged on Linux,
+  macOS and Windows — `docker compose -f scripts/docker-compose.yml up -d`.
+- **docker.sh**: bash convenience wrapper around the two (Linux/macOS; on Windows call
+  `docker compose` directly).
 
-- **docker.sh**: All-in-one Docker operations for building, running, and managing containers
-- **Dockerfile**: Used to build the filler Docker image
-- **docker-compose.yml**: Configuration for running the filler using Docker Compose
-
-Note: The `.dockerignore` file is located in the parent directory as it needs to be in the root of the Docker build context.
+Note: The `.dockerignore` that applies is `sdk/.dockerignore`, since the build context is
+the `sdk` workspace root.
 
 ### Usage
 
@@ -18,21 +21,40 @@ Note: The `.dockerignore` file is located in the parent directory as it needs to
 ./docker.sh [command]
 
 # Commands:
-#   build       Build the Docker image
-#   run         Run the filler in a Docker container
+#   build       Build the Docker image (single-arch, for this machine)
+#   run         Run Simplex in a Docker container
 #   up          Start using Docker Compose
 #   down        Stop and remove Docker Compose containers
 #   logs        View logs from Docker Compose containers
 #   help        Show this help message
 ```
 
-## Other Scripts
+To reproduce the published multi-arch image locally (needs QEMU for the foreign arch):
 
-- **make-executable.sh**: Utility to make scripts executable
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -f packages/simplex/scripts/Dockerfile sdk
+```
 
-## Configuration
+### Ports and volumes
 
-The Docker script is configured to use the config file from the parent directory (`../config.toml`).
+The container publishes nothing by itself. `8686` is the web UI (and setup wizard) and `9090`
+the Prometheus metrics endpoint; both bind `0.0.0.0` inside the container so `-p` can reach
+them, since Docker Desktop on macOS and Windows has no host networking. Publish them to
+`127.0.0.1` — they are unauthenticated. `/data` holds `filler-config.toml`, the bids database
+and runtime state; mount a volume there to keep it across container replacement.
+
+With no config in `/data` the container serves the setup wizard on 8686. For a headless host,
+the terminal wizard writes the same file:
+
+```bash
+docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml
+```
+
+## Build scripts
+
+- **build.sh**: protoc codegen + tsup bundle + vite web UI (`pnpm build`).
+- **generate-proto.sh**: the codegen half on its own (`pnpm codegen`).
 
 ## Development Notes
 

@@ -97,10 +97,11 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 }
 
 /**
- * Editable-curve view of one trading pair for the UI server, or null for
+ * Editable view of one trading pair for the UI server, or null for
  * venue-priced (curve-less) pairs — they have nothing to edit. The
- * enableSide/disableSide closures mutate the live TradingPair: the engine
- * reads curve presence per order, so assignment opens or closes the direction.
+ * enableSide/disableSide/setMaxOrderSize closures mutate the live TradingPair:
+ * the engine reads curve presence and the cap per order, so assignment opens or
+ * closes a direction and resizes the market from the next evaluation.
  */
 export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: number): AdminStrategy | null {
 	if (!pair.bidPricePolicy && !pair.askPricePolicy) return null
@@ -116,6 +117,20 @@ export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: nu
 		ask: pair.askPricePolicy,
 		sameToken,
 		referenceOnly: pair.referenceOnly === true,
+	}
+	// A reference pair's cap is never consulted (it never fills), so leave it
+	// absent rather than surfacing the placeholder "0" as editable.
+	if (pair.referenceOnly !== true) {
+		adminStrategy.maxOrderSize = pair.maxOrderSize.toString()
+		adminStrategy.setMaxOrderSize = (value) => {
+			const previous = pair.maxOrderSize.toString()
+			pair.maxOrderSize = new Decimal(value)
+			adminStrategy.maxOrderSize = value
+			logger.warn(
+				{ pair: `${pair.token0}/${pair.token1}`, previous, next: value },
+				"Per-order cap resized by operator",
+			)
+		}
 	}
 	// Reference pairs never fill, so opening a side is a no-op; same-token
 	// markets are ask-only by engine rule.

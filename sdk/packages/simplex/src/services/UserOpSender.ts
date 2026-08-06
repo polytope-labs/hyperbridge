@@ -44,8 +44,10 @@ export interface SponsoredUserOpRequest {
 	 * Override for the Circle paymaster verification gas limit (default 200k).
 	 * Lower it for a known cheap op so rundler's verification-gas-limit efficiency
 	 * policy — which divides actual usage by `accountVerif + paymasterVerif` —
-	 * accepts the op (e.g. re-delegation). Ignored when the Simplex paymaster is
-	 * selected; its limits are mode-specific.
+	 * accepts the op (e.g. re-delegation). Only honored when the paymaster allowance
+	 * is already in place — a permit executed during validation needs the full
+	 * default. Ignored when the Simplex paymaster is selected; its limits are
+	 * mode-specific.
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**

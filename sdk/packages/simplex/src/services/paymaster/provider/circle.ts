@@ -29,6 +29,12 @@ export async function buildCirclePaymasterData(
 	 * Circle-recommended {@link VERIFICATION_GAS_LIMIT_CIRCLE}. A caller can pass a
 	 * tighter value for a known, cheap op (e.g. a re-delegation) so the bundler's
 	 * verification-gas-limit efficiency policy accepts it — see the delegation path.
+	 *
+	 * Only honored when the existing allowance covers the threshold. The permit path
+	 * alone burns ~113k gas during validation (EIP-2612 permit resolved via ERC-1271
+	 * through the delegated account, plus the upfront transferFrom), so a tightened
+	 * limit would make the paymaster frame run out of gas and the bundler reject the
+	 * op with AA33.
 	 */
 	paymasterVerificationGasLimit: bigint = VERIFICATION_GAS_LIMIT_CIRCLE,
 ): Promise<PaymasterResult> {
@@ -78,7 +84,9 @@ export async function buildCirclePaymasterData(
 	return {
 		paymaster: paymasterAddress,
 		paymasterData,
-		paymasterVerificationGasLimit,
+		// Executing the permit needs the full Circle default — a caller's tightened
+		// limit only applies to the cheap allowance-reuse branch above.
+		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_CIRCLE,
 		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
 	}
 }

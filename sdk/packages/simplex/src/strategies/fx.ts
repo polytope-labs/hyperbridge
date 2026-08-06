@@ -651,7 +651,9 @@ export class FXFiller implements FillerStrategy {
 					this.logger.info(
 						{
 							orderId: order.id,
+							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
+							inputAmount: input.amount.toString(),
 							fillerBalance: balance.toString(),
 						},
 						"Skipping leg: no available balance for required output token",
@@ -663,15 +665,26 @@ export class FXFiller implements FillerStrategy {
 				}
 
 				if (policyMaxOutput < output.amount) {
+					// Name the actual limiter: a fair order capped by maxOrderSize
+					// reads very differently from one demanding a better-than-book
+					// rate, and the two have different operator fixes.
+					const capLimited = token0Used.lt(legNotionals[i])
 					this.logger.info(
 						{
 							orderId: order.id,
 							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
+							inputAmount: input.amount.toString(),
+							legNotional: legNotionals[i].toString(),
+							pricedNotional: token0Used.toString(),
+							maxOrderSize: leg.pair.maxOrderSize.toString(),
 							policyOutput: policyMaxOutput.toString(),
 							userRequested: output.amount.toString(),
+							limiter: capLimited ? "maxOrderSize" : "price",
 						},
-						"Skipping order: filler price yields less than user's requested amount",
+						capLimited
+							? "Skipping order: maxOrderSize caps the leg below the user's requested amount"
+							: "Skipping order: filler price yields less than user's requested amount",
 					)
 					return 0
 				}
@@ -680,7 +693,9 @@ export class FXFiller implements FillerStrategy {
 					this.logger.info(
 						{
 							orderId: order.id,
+							pair: `${leg.pair.token0}/${leg.pair.token1}`,
 							token: output.token,
+							inputAmount: input.amount.toString(),
 							fillerBalance: balance.toString(),
 							userRequested: output.amount.toString(),
 						},

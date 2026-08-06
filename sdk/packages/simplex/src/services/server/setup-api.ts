@@ -46,6 +46,14 @@ async function defaultRpcRequest(url: string, method: string, params: unknown[])
 	return json.result
 }
 
+/** Fills in the real network-facing validators for anything a caller did not stub. */
+export function resolveSetupDeps(deps?: SetupDeps): Required<SetupDeps> {
+	return {
+		fetchChainId: deps?.fetchChainId ?? fetchChainId,
+		rpcRequest: deps?.rpcRequest ?? defaultRpcRequest,
+	}
+}
+
 /**
  * Routes /api/setup/* requests in init mode. Request bodies carry private keys
  * and API tokens — they are never logged and never echoed back unmasked.
@@ -100,10 +108,7 @@ export async function handleSetupRequest(
 		return sendJson(res, 400, { error: err instanceof Error ? err.message : "Invalid JSON body" })
 	}
 
-	const deps: Required<SetupDeps> = {
-		fetchChainId: setup.deps?.fetchChainId ?? fetchChainId,
-		rpcRequest: setup.deps?.rpcRequest ?? defaultRpcRequest,
-	}
+	const deps = resolveSetupDeps(setup.deps)
 
 	try {
 		switch (endpoint) {
@@ -136,7 +141,7 @@ export async function handleSetupRequest(
 	}
 }
 
-async function validateAlchemyKey(body: Record<string, unknown>, deps: Required<SetupDeps>) {
+export async function validateAlchemyKey(body: Record<string, unknown>, deps: Required<SetupDeps>) {
 	const apiKey = String(body.apiKey ?? "").trim()
 	const network = (body.network === "testnet" ? "testnet" : "mainnet") as InitNetwork
 	if (!apiKey) return { valid: false, error: "apiKey is required", chains: [] }
@@ -167,7 +172,7 @@ async function validateAlchemyKey(body: Record<string, unknown>, deps: Required<
 	return { valid: true, chains }
 }
 
-async function validateRpc(body: Record<string, unknown>, deps: Required<SetupDeps>) {
+export async function validateRpc(body: Record<string, unknown>, deps: Required<SetupDeps>) {
 	const urls = Array.isArray(body.urls) ? body.urls.map(String) : [String(body.url ?? "")]
 	const expectedChainId = body.expectedChainId === undefined ? undefined : Number(body.expectedChainId)
 	try {
@@ -193,7 +198,7 @@ async function validateRpc(body: Record<string, unknown>, deps: Required<SetupDe
 }
 
 /** Warning-only: bundler probes never block the wizard. */
-async function validateBundler(body: Record<string, unknown>, deps: Required<SetupDeps>) {
+export async function validateBundler(body: Record<string, unknown>, deps: Required<SetupDeps>) {
 	const url = String(body.url ?? "").trim()
 	if (!url) return { ok: false, warning: "Bundler URL is empty" }
 	try {

@@ -305,7 +305,10 @@ program
 				logger.warn({ err, bind: `${uiBind.host}:${uiBind.port}` }, "Preferred UI port unavailable, retrying")
 				boundPort = await server.start(0, uiBind.host)
 			}
-			const url = `http://${uiBind.host}:${boundPort}/`
+			// A wildcard bind is not an address to browse to — Safari refuses 0.0.0.0
+			// outright. The operator reaches it on localhost, via whatever they published.
+			const browsableHost = uiBind.host === "0.0.0.0" || uiBind.host === "::" ? "localhost" : uiBind.host
+			const url = `http://${browsableHost}:${boundPort}/`
 			console.log(`\n  No config found — starting the setup wizard.\n\n  ${url}\n`)
 			openBrowser(url)
 			// The server keeps the event loop alive until the wizard completes.

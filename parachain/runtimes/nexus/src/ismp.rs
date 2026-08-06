@@ -295,7 +295,8 @@ impl pallet_bandwidth::Config for Runtime {
 }
 
 parameter_types! {
-	pub const HftDecimals: u8 = 18;
+	// The native token's decimal count, `UNIT` is 10^12.
+	pub const HftDecimals: u8 = 12;
 }
 
 pub struct HftNativeAssetId;

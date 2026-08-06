@@ -148,9 +148,9 @@ triggerPercentage = 0.5
 # (USDC/CNGN) and same-asset cross-chain markets (USDC/USDC) alike. Assets are
 # referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
-# the SDK, testnets included) plus curated mainnet deployments of ZARP, EURC,
-# XSGD and TRYB, all verified on-chain. The registry holds addresses only; the
-# pair curves are the only price source.
+# the SDK, testnets included) plus curated mainnet deployments of USDR, ZARP,
+# EURC, XSGD and TRYB, all verified on-chain. The registry holds addresses only;
+# the pair curves are the only price source.
 #
 # Each pair is priced by its own curves in token1 per 1 token0 and capped per
 # order by maxOrderSize, both denominated in token0 (the curve amount axis and

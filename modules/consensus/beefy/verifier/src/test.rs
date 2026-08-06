@@ -404,3 +404,57 @@ fn rejects_sub_supermajority_from_named_authority_set() {
 
 	assert!(matches!(result, Err(Error::SuperMajorityRequired)));
 }
+
+// SP1 proves that the leaf is *in* the mmr, not that it is the latest leaf, and an mmr is
+// append-only — so every historical leaf also proves against the commitment's root. Accepting
+// one would advance `latest_beefy_height` while replaying an old `beefy_next_authority_set`,
+// suppressing the rotation and stranding the client on a set the relay chain has retired.
+#[test]
+fn rejects_sp1_proof_carrying_a_stale_mmr_leaf() {
+	use beefy_verifier_primitives::Sp1BeefyProof;
+
+	const SET_ID: ValidatorSetId = 42;
+	const BLOCK_NUMBER: u32 = 1_000;
+	// Mainnet SP1Beefy verification key, as in the fixture test above.
+	const VKEY: &str = "0x007d1720c695842ed647a1a72e981751f9b5e26fc5ca038523b23430a1292f08";
+
+	let trusted_state = ConsensusState {
+		latest_beefy_height: BLOCK_NUMBER - 1,
+		beefy_activation_block: 0,
+		mmr_root_hash: H256::zero(),
+		current_authorities: authority_set(SET_ID, 100),
+		next_authorities: authority_set(SET_ID + 1, 100),
+	};
+
+	let mut proof = Sp1BeefyProof {
+		block_number: BLOCK_NUMBER,
+		validator_set_id: SET_ID,
+		mmr_leaf: MmrLeaf {
+			version: MmrLeafVersion::new(0, 0),
+			parent_number_and_hash: (BLOCK_NUMBER - 1, H256::zero()),
+			beefy_next_authority_set: BeefyNextAuthoritySet {
+				id: SET_ID + 1,
+				len: 100,
+				keyset_commitment: H256::zero(),
+			},
+			leaf_extra: H256::zero(),
+		},
+		headers: vec![],
+		proof: vec![],
+		nonce: H256::zero(),
+	};
+
+	// The leaf appended at `BLOCK_NUMBER` clears the freshness check and is only rejected
+	// later, by the Groth16 verifier — so the check discriminates on leaf freshness alone.
+	let fresh = sp_io::TestExternalities::default().execute_with(|| {
+		crate::sp1::verify_sp1_consensus::<TestHost>(trusted_state.clone(), proof.clone(), VKEY)
+	});
+	assert!(matches!(fresh, Err(Error::Sp1VerificationFailed)), "got {fresh:?}");
+
+	// Swap in a leaf from an earlier block, as an attacker replaying a historical leaf would.
+	proof.mmr_leaf.parent_number_and_hash.0 = BLOCK_NUMBER - 500;
+	let stale = sp_io::TestExternalities::default().execute_with(|| {
+		crate::sp1::verify_sp1_consensus::<TestHost>(trusted_state, proof, VKEY)
+	});
+	assert!(matches!(stale, Err(Error::StaleMmrLeaf { .. })), "got {stale:?}");
+}

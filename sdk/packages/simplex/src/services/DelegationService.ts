@@ -185,6 +185,12 @@ export class DelegationService {
 			// reused) — actual ~96k — so those loose limits fall below the 0.4 floor
 			// (`actual / (accountVerif + paymasterVerif)`). Tighten both verification
 			// limits for that case so the ratio clears 0.4 while still covering usage.
+			//
+			// The tightened paymaster limit assumes the allowance is still in place. When
+			// it has been depleted (or was never set on this chain — e.g. re-delegating
+			// from an older SolverAccount), the Circle builder ignores the override and
+			// keeps its 200k default: the permit executed during validation needs ~113k
+			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.account.address as HexString,
 			})

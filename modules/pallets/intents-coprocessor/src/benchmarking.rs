@@ -159,6 +159,109 @@ mod benchmarks {
 	}
 
 	#[benchmark]
+	fn upgrade_gateway() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let state_machine = StateMachine::Evm(1);
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, H160::default(), params);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::repeat_byte(0x42), vec![0u8; 32]);
+
+		Ok(())
+	}
+
+	fn registered_paymaster<T: Config>() -> Result<(T::RuntimeOrigin, StateMachine), BenchmarkError>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let state_machine = StateMachine::Evm(1);
+		Pallet::<T>::add_paymaster_deployment(origin.clone(), state_machine, H160::repeat_byte(0xAA))
+			.map_err(|_| BenchmarkError::Stop("paymaster registration failed"))?;
+		Ok((origin, state_machine))
+	}
+
+	#[benchmark]
+	fn add_paymaster_deployment() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let state_machine = StateMachine::Evm(1);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::repeat_byte(0xAA));
+
+		assert!(Paymasters::<T>::contains_key(state_machine));
+		Ok(())
+	}
+
+	#[benchmark]
+	fn upgrade_paymaster() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::repeat_byte(0x42), vec![0u8; 32]);
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn update_paymaster_params() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+		let params = types::PaymasterParams {
+			native_oracle: H160::repeat_byte(0x01),
+			markup_bps: U256::from(200),
+			treasury: H160::repeat_byte(0x02),
+			max_oracle_age: U256::from(90_000),
+			swap_slippage_bps: U256::from(200),
+		};
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, params);
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn register_paymaster_token() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::repeat_byte(0x11), H160::repeat_byte(0x22));
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn deactivate_paymaster_token() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::repeat_byte(0x11));
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn withdraw_paymaster_assets() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine, H160::zero(), U256::from(1_000_000));
+
+		Ok(())
+	}
+
+	#[benchmark]
 	fn update_token_decimals() -> Result<(), BenchmarkError> {
 		let origin =
 			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;

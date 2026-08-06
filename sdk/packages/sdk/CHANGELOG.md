@@ -1,5 +1,13 @@
 # @hyperbridge/sdk
 
+## 2.8.0
+
+### Minor Changes
+
+- BREAKING: the `IntentGatewayV2` `OrderPlaced` event now carries the complete order — `bytes predispatchCall`, `bytes outputCall`, and the `bytes32 graffiti` attribution tag are appended — so an order's commitment is computable from the log alone. This changes the event signature and therefore its topic0: this SDK version only recognises logs from upgraded IntentGatewayV2 deployments, and older SDK versions cannot see the new logs. Upgrade the SDK in lockstep with the gateway deployment — against a mismatched pair, `OrderPlacer.placeOrder` throws "OrderPlaced event not found in transaction receipt" after the placement transaction has already escrowed funds. The order commitment itself (`keccak256(abi.encode(order))`) is unchanged.
+- `DecodedOrderPlacedLog` gains `predispatchCall`, `outputCall` and `graffiti` (optional — absent when the type is used for V1-gateway logs).
+- `deriveCanonicalPlacedOrder` reads the two call payloads from the event when present instead of retaining them from the submitted order.
+
 ## 2.7.0
 
 ### Minor Changes

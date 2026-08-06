@@ -4,6 +4,7 @@ import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import {
 	aggregatePhantomBids,
 	extractFillData,
+	memoizedSolverBalance,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
 	setAggregationFetch,
@@ -457,5 +458,36 @@ describe("aggregatePhantomBids bid verification", () => {
 		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
 
 		expect(result!.legs[0].bidders[0].acceptedSources).toEqual([])
+	})
+
+	// One bundled order per configured chain means several aggregations run against the same
+	// block; a caller-supplied reader lets them share one point-in-time balance cache.
+	it("serves repeat aggregations from a shared balance reader without re-reading balances", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let balanceCalls = 0
+		const rpc = mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT))
+		setAggregationFetch(async (url, init) => {
+			const method = JSON.parse((init as { body: string }).body).method
+			if (method !== "intents_getBidsForOrder" && method !== "eth_getCode") balanceCalls++
+			return rpc(url, init)
+		})
+
+		const yieldVaults = { [CHAIN]: { [USDT]: [] } }
+		const params = {
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults,
+			solverAccount: SOLVER_ACCOUNT,
+			getBalance: memoizedSolverBalance(yieldVaults),
+		}
+		expect(await aggregatePhantomBids(params)).not.toBeNull()
+		const afterFirst = balanceCalls
+		expect(afterFirst).toBeGreaterThan(0)
+
+		expect(await aggregatePhantomBids(params)).not.toBeNull()
+		expect(balanceCalls).toBe(afterFirst)
 	})
 })

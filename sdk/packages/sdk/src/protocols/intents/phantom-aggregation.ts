@@ -482,12 +482,22 @@ async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+/** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
+export type SolverBalanceReader = (
+	evmRpcUrl: string,
+	chain: string,
+	token: string,
+	solver: string,
+) => Promise<bigint>
+
 // One aggregation run reads the same (chain, token, solver) balance from several places — once
 // per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
 // can carry up to 128 legs. Memoizing for the life of the run collapses that to one RPC round
 // trip per distinct triple, at the cost of ignoring balance changes within the run (the snapshot
-// is a point-in-time read either way).
-function memoizedSolverBalance(yieldVaults: YieldVaultMap) {
+// is a point-in-time read either way). Exported so a caller aggregating several orders whose bid
+// windows close on the same block (one bundled order per configured chain) can share one memo
+// across the runs instead of re-reading identical balances per order.
+export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalanceReader {
 	const cache = new Map<string, Promise<bigint>>()
 	return (evmRpcUrl: string, chain: string, token: string, solver: string): Promise<bigint> => {
 		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
@@ -562,6 +572,12 @@ export async function aggregatePhantomBids(params: {
 	recoverSigner?: RecoverBidSigner
 	bidNonceKey?: BidNonceKeyFn
 	orderCommitment?: OrderCommitmentFn
+	/**
+	 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
+	 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
+	 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
+	 */
+	getBalance?: SolverBalanceReader
 	logger?: AggregationLogger
 }): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
@@ -586,7 +602,7 @@ export async function aggregatePhantomBids(params: {
 	if (bids.length === 0) return null
 
 	// Balances repeat across legs and the sweep; one memo serves the whole run.
-	const getBalance = memoizedSolverBalance(yieldVaults)
+	const getBalance = params.getBalance ?? memoizedSolverBalance(yieldVaults)
 
 	// Quotes per leg, keyed by the leg's position in the order's asset lists. One bid carries a quote
 	// for every leg its solver priced, so a solver that only handles some of the pairs still counts

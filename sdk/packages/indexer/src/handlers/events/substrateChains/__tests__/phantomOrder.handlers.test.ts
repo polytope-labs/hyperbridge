@@ -10,6 +10,7 @@ const aggregatePhantomBids = jest.fn()
 
 jest.mock("@hyperbridge/sdk/intents-helpers", () => ({
 	aggregatePhantomBids: (...args: unknown[]) => aggregatePhantomBids(...args),
+	memoizedSolverBalance: jest.fn(() => jest.fn()),
 	setAggregationFetch: jest.fn(),
 }))
 jest.mock("@/utils/phantom-decode", () => ({
@@ -252,7 +253,33 @@ describe("handlePhantomOrderPrices", () => {
 		await handlePhantomOrderPrices(windowClosedEvent())
 
 		expect([...table("LiquidityProvider").values()]).toHaveLength(1)
-		expect([...table("LiquidityProviderBalance").values()]).toHaveLength(1)
+		expect([...table("LiquidityProviderBalanceV2").values()]).toHaveLength(1)
+	})
+
+	it("sweeps balances once per block across every order closing on it", async () => {
+		// All chains share one generation interval, so every chain's bid window closes on the same
+		// block; the sweeps are point-in-time reads that cannot differ within it.
+		await register([pair(USDC, CNGN, 1_000_000n)])
+		await handlePhantomOrderRegistered(registeredEvent([pair(USDC_OP, USDT_OP, 1_000_000n)], COMMITMENT2, CHAIN2))
+		aggregatePhantomBids.mockResolvedValue({
+			legs: [leg(0, CNGN, 1n)],
+			lpBalances: [{ solver: "0xsolver", chain: CHAIN, tokenAddress: CNGN, balance: 42n }],
+		})
+
+		await handlePhantomOrderPrices(windowClosedEvent(11n))
+		await handlePhantomOrderPrices(windowClosedEvent(11n, COMMITMENT2))
+
+		// One balance row despite two orders sweeping, and one balance memo shared between them.
+		expect([...table("LiquidityProviderBalanceV2").values()]).toHaveLength(1)
+		expect(table("LiquidityProviderBalanceV2").get(`${CHAIN}-${CNGN}-11-0xsolver`)).toBeDefined()
+		const readers = aggregatePhantomBids.mock.calls.map(([params]: any[]) => params.getBalance)
+		expect(readers[0]).toBeDefined()
+		expect(readers[1]).toBe(readers[0])
+
+		// A later block is a new point in time: fresh memo, new time-series row.
+		await handlePhantomOrderPrices(windowClosedEvent(33n))
+		expect([...table("LiquidityProviderBalanceV2").values()]).toHaveLength(2)
+		expect(aggregatePhantomBids.mock.calls[2][0].getBalance).not.toBe(readers[0])
 	})
 })
 

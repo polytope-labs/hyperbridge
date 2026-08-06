@@ -2429,7 +2429,7 @@ type LiquidityProvider @entity {
 	Every per-chain, per-token liquidity balance measured for this provider across phantom order price
 	snapshots.
 	"""
-	balances: [LiquidityProviderBalance] @derivedFrom(field: "provider")
+	balances: [LiquidityProviderBalanceV2] @derivedFrom(field: "provider")
 
 	"""
 	Pools this provider currently backs, one row per (pool, chain, direction, output token).
@@ -2438,19 +2438,21 @@ type LiquidityProvider @entity {
 }
 
 """
-Per-provider, per-chain, per-token liquidity balance recorded at a phantom order price snapshot.
+Per-provider, per-chain, per-token liquidity balance recorded when phantom bid windows close.
 For every valid bidder, the provider's liquidity is swept across every configured yield-vault token
 on every supported chain — so one entity is written per (provider, chain, token) the provider
-actually holds (zero balances are skipped). Each balance is a single token measured as raw ERC-20
-plus redeemable ERC-4626 vault positions; balances of different tokens are never combined into one
-value.
+actually holds (zero balances are skipped), once per Hyperbridge block no matter how many orders
+close on it. Each balance is a single token measured as raw ERC-20 plus redeemable ERC-4626 vault
+positions; balances of different tokens are never combined into one value.
 """
-type LiquidityProviderBalance @entity {
+type LiquidityProviderBalanceV2 @entity {
 	"""
-	Composite identifier: {chain}-{tokenAddress}-{commitment}-{blockNumber}-{providerAddress}. One row
-	per provider per (chain, token) per snapshot, so liquidity is a time series (keyed to the snapshot
-	whose weighted median it fed) rather than a single overwritten latest value. For a provider's
-	current liquidity, take the row with the greatest blockNumber for that (provider, chain, tokenAddress).
+	Composite identifier: {chain}-{tokenAddress}-{blockNumber}-{providerAddress}. One row per
+	provider per (chain, token) per Hyperbridge block, so liquidity is a time series rather than a
+	single overwritten latest value. Every phantom order whose bid window closes on a block shares
+	that block's rows — balances are point-in-time reads, identical across the block's snapshots —
+	so rows correlate to snapshots via blockNumber. For a provider's current liquidity, take the
+	row with the greatest blockNumber for that (provider, chain, tokenAddress).
 	"""
 	id: ID!
 
@@ -2463,11 +2465,6 @@ type LiquidityProviderBalance @entity {
 	State machine ID of the chain (e.g. EVM-8453) where this balance was measured.
 	"""
 	chain: String! @index
-
-	"""
-	The phantom order commitment this balance belongs to.
-	"""
-	commitment: String! @index
 
 	"""
 	Hyperbridge block number at which this balance was recorded.
@@ -2660,7 +2657,7 @@ type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]
 One solver currently bidding on one leg of a pool: the provider <-> pool link and the basis for
 cross-chain route availability. Rows reflect the latest bid window only — a solver that stops
 bidding has its row removed (bid history lives in FillerBid, balance history in
-LiquidityProviderBalance). The explicit source declarations here are also aggregated into
+LiquidityProviderBalanceV2). The explicit source declarations here are also aggregated into
 searchable PoolRoute rows; this entity keeps the per-solver attribution behind them.
 """
 type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
@@ -2751,7 +2748,7 @@ type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["po
 	"""
 	SELL (token0 -> token1) or BUY (token1 -> token0), relative to the pool's token ordering.
 	"""
-	direction: String!
+	direction: String! @index
 
 	"""
 	Source chain state machine ID the bidders explicitly accept payment from.
@@ -2761,6 +2758,13 @@ type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["po
 	"""
 	Sum of the accepting bidders' output-token inventory on `chain`, 18-decimal normalized.
 	May be 0 when every accepting bidder currently holds nothing.
+
+	An upper bound on fillable size, not a promise: the inventory is the solvers' global balance,
+	not earmarked for this route (the same tokens back every pool and route sharing them), solvers
+	cap individual fills with undisclosed maxOrderSize policies, and balances are read at the
+	chain head when the snapshot is taken. A solver declaring several sources also contributes its
+	full liquidity to each source's row, so values are correct per route and must not be summed
+	across sourceChain.
 	"""
 	depth: BigInt!
 

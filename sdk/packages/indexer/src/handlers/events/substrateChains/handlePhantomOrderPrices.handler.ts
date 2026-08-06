@@ -10,12 +10,17 @@ import { YIELD_VAULT_ADDRESSES } from "@/yield-vault-addresses"
 import { SOLVER_ACCOUNT_ADDRESSES } from "@/solver-account-addresses"
 import {
 	LiquidityProvider,
-	LiquidityProviderBalance,
+	LiquidityProviderBalanceV2,
 	PhantomOrderLeg,
 	PhantomOrderPriceSnapshotV2,
 	PhantomOrderV2,
 } from "@/configs/src/types"
-import { aggregatePhantomBids, setAggregationFetch } from "@hyperbridge/sdk/intents-helpers"
+import {
+	aggregatePhantomBids,
+	memoizedSolverBalance,
+	setAggregationFetch,
+	type SolverBalanceReader,
+} from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
 import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
 import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
@@ -24,6 +29,22 @@ import { readAllPages } from "@/utils/store.helpers"
 // The aggregation's RPC helpers run inside the SubQuery VM2 sandbox, which has no global `fetch`.
 // Inject the indexer's sandbox-safe HTTP client so its JSON-RPC calls work here.
 setAggregationFetch(safeFetch)
+
+// Every configured chain's phantom order shares one generation interval, so all their bid windows
+// close on the same Hyperbridge block and this handler runs once per order back to back. Balances
+// are point-in-time reads that cannot differ within a block, so one memo serves every aggregation
+// on it — without this, the full liquidity sweep (every chain, every vault token, every solver)
+// would repeat identically per order. Blocks are processed in order, so keeping only the current
+// block's memo is enough.
+let balanceReaderBlock: bigint | null = null
+let balanceReader: SolverBalanceReader | null = null
+function blockBalanceReader(blockNumber: bigint, yieldVaults: Parameters<typeof memoizedSolverBalance>[0]) {
+	if (balanceReaderBlock !== blockNumber || !balanceReader) {
+		balanceReader = memoizedSolverBalance(yieldVaults)
+		balanceReaderBlock = blockNumber
+	}
+	return balanceReader
+}
 
 // Triggered by PhantomBidWindowExhausted once a phantom order's bid window closes, so every bid is
 // already in. The order prices several directed legs at once, so its bids aggregate into one
@@ -114,6 +135,7 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			recoverSigner: recoverBidSignerVm2,
 			bidNonceKey: bidNonceKeyVm2,
 			orderCommitment: orderCommitmentVm2,
+			getBalance: blockBalanceReader(blockNumber, YIELD_VAULT_ADDRESSES),
 			logger,
 		})
 	} catch (err) {
@@ -132,13 +154,16 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		if (!(await LiquidityProvider.get(lp.solver))) {
 			await LiquidityProvider.create({ id: lp.solver }).save()
 		}
-		// One row per provider per (chain, token) per snapshot so liquidity history is preserved and
-		// each balance is attributable to the snapshot whose weighted median it fed.
-		await LiquidityProviderBalance.create({
-			id: `${lp.chain}-${lp.tokenAddress}-${commitment}-${blockNumber}-${lp.solver}`,
+		// One row per provider per (chain, token) per block so liquidity history is preserved.
+		// Every order closing on this block sweeps the same point-in-time balances, so the row is
+		// written by whichever of them runs first and skipped by the rest (and by replays); a
+		// solver first seen by a later order on the block still gets its rows here.
+		const id = `${lp.chain}-${lp.tokenAddress}-${blockNumber}-${lp.solver}`
+		if (await LiquidityProviderBalanceV2.get(id)) continue
+		await LiquidityProviderBalanceV2.create({
+			id,
 			providerId: lp.solver,
 			chain: lp.chain,
-			commitment,
 			blockNumber,
 			tokenAddress: lp.tokenAddress,
 			balance: lp.balance,

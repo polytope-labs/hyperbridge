@@ -9,6 +9,7 @@ export {
 	encodeAcceptedSourceChains,
 	extractFillData,
 	fetchBidsForOrder,
+	memoizedSolverBalance,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
 	setAggregationFetch,
@@ -29,6 +30,7 @@ export {
 	type PhantomLegAggregation,
 	type PhantomLegBidder,
 	type RecoverBidSigner,
+	type SolverBalanceReader,
 	type RpcBidInfo,
 	type YieldVaultMap,
 } from "@/protocols/intents/phantom-aggregation"

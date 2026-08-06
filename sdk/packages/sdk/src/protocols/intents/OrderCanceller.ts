@@ -135,7 +135,9 @@ export class OrderCanceller {
 		)
 		const relayerFee = (feeInSourceFeeToken * 1005n) / 1000n
 
-		const nativeValue = await this.ctx.source.quoteNative(getRequest, relayerFee)
+		// getAmountsIn quotes are exact; pool reserves drift between quote and
+		// execution, so pad the swap input or the host's swapETHForExactTokens reverts.
+		const nativeValue = ((await this.ctx.source.quoteNative(getRequest, relayerFee)) * 101n) / 100n
 		return { nativeValue, relayerFee }
 	}
 
@@ -442,7 +444,7 @@ export class OrderCanceller {
 			timeoutTimestamp: 0n,
 		}
 
-		const nativeValue = await this.ctx.dest.quoteNative(postRequest, relayerFee)
+		const nativeValue = ((await this.ctx.dest.quoteNative(postRequest, relayerFee)) * 101n) / 100n
 		return { nativeValue, relayerFee }
 	}
 

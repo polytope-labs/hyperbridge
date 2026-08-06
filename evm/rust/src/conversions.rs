@@ -546,6 +546,8 @@ mod beefy {
 			let commitment: Commitment = value.commitment.into();
 
 			BlsMmrProof {
+				bls_commitment: H256(value.blsCommitment.0),
+				keyset_proof: value.keysetProof.into_iter().map(|h| h.0).collect(),
 				commitment: commitment.into(),
 				signers,
 				aggregate_signature: {

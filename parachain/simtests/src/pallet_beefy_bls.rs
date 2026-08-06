@@ -6,9 +6,9 @@
 //! pairing check, and the consensus state advances.
 //!
 //! This needs a BLS BEEFY relay, which no public network is. Bring one up from Parity's
-//! `skalman--enable-bls-beefy-on-westend` branch with the G2 keyset converter applied (see
-//! `docs/bls-beefy-skalman-migration.md`), then point `RELAY_WS_URL` at it. Without that the test
-//! cannot run, so it is `#[ignore]`d rather than silently passing.
+//! `skalman--enable-bls-beefy-on-westend` branch, built with `--features bls-beefy-experimental`
+//! and with a converter committing the validators' BLS G2 keys, then point `RELAY_WS_URL` at it.
+//! Without that the test cannot run, so it is `#[ignore]`d rather than silently passing.
 //!
 //!   RELAY_WS_URL=ws://127.0.0.1:9979 PORT=9990 \
 //!     cargo test -p simtests bls_beefy -- --ignored --nocapture
@@ -28,7 +28,10 @@ use subxt::{
 };
 use subxt_utils::Hyperbridge;
 
-use beefy_prover::{bls::decode_paired_justification, Prover};
+use beefy_prover::{
+	bls::{abi::to_abi_proof, decode_paired_justification},
+	Prover,
+};
 use beefy_verifier_primitives::{BlsConsensusMessage, ConsensusState, PROOF_TYPE_BLS};
 use ismp_abi::{
 	bls_beefy::BlsBeefy::BlsBeefyConsensusProof as SolBlsProof,
@@ -81,11 +84,10 @@ async fn build_live_bls_proof() -> Result<(ConsensusState, BlsConsensusMessage),
 	// Anchor the trusted state one authority set back, so this proof rotates the set.
 	//
 	// `pallet-beefy-consensus-proofs` rejects a proof that neither rotates the authority set nor
-	// finalizes a parachain head it has not already seen. Our BLS relay has no registered
-	// parachains, so no proof can ever finalize a head and only a rotation proof is accepted.
-	// The anchor has to be exactly one set back: the verifier requires the commitment to be
-	// signed by the trusted state's current or next set, so a further-back anchor is rejected
-	// outright with `UnknownAuthoritySet`.
+	// finalizes a parachain head it has not already seen, so rotating keeps this test independent
+	// of how far the parachain happens to have advanced. The anchor has to be exactly one set
+	// back: the verifier requires the commitment to be signed by the trusted state's current or
+	// next set, so a further-back anchor is rejected outright with `UnknownAuthoritySet`.
 	let previous_beefy_hash =
 		previous_set_anchor(&relay_rpc, latest_beefy_hash, latest_set_id).await?;
 	let initial_state =
@@ -172,8 +174,14 @@ async fn bls_beefy_proof_happy_path() -> Result<(), anyhow::Error> {
 	let abi_state: SolBeefyConsensusState = initial_state.into();
 	let abi_state_bytes = SolBeefyConsensusState::abi_encode(&abi_state);
 
-	let abi_proof: SolBlsProof = consensus_message.into();
+	// The ABI carries points uncompressed, since EIP-2537 takes no other form and offers no
+	// decompression precompile. `to_abi_proof` does that expansion.
+	let abi_proof: SolBlsProof = to_abi_proof(consensus_message)?;
 	let abi_proof_bytes = <SolBlsProof as SolType>::abi_encode_params(&abi_proof);
+	// The runtime decodes this payload with the same type and method, so a failure here is an
+	// encoding bug on this side rather than anything the pallet did.
+	<SolBlsProof as SolType>::abi_decode_params(&abi_proof_bytes)
+		.map_err(|e| anyhow!("proof does not round-trip through abi_decode_params: {e}"))?;
 	let mut wire_proof = Vec::with_capacity(1 + abi_proof_bytes.len());
 	wire_proof.push(PROOF_TYPE_BLS);
 	wire_proof.extend_from_slice(&abi_proof_bytes);

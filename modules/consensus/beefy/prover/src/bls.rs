@@ -26,6 +26,7 @@
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use polkadot_sdk::*;
+use primitive_types::H256;
 use sp_consensus_beefy::{SignedCommitment, VersionedFinalityProof};
 use sp_io::hashing::keccak_256;
 use subxt::{backend::legacy::LegacyRpcMethods, Config};
@@ -128,6 +129,31 @@ pub fn aggregate_signatures(
 		.map_err(|_| anyhow!("Aggregated signature was not {BLS_G1_SIGNATURE_LEN} bytes"))
 }
 
+/// The ECDSA halves of the paired authority keys, SCALE-encoded as the address converter expects.
+///
+/// These are the leaves the ECDSA path proves against, and the BLS commitment is appended after
+/// them, so the prover has to rebuild them to open a path to that extra leaf.
+async fn ecdsa_halves<T: Config>(
+	rpc: &LegacyRpcMethods<T>,
+	at: Option<HashFor<T>>,
+) -> Result<Vec<Vec<u8>>, anyhow::Error> {
+	let data = rpc
+		.state_get_storage(BEEFY_AUTHORITIES.as_slice(), at)
+		.await?
+		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+
+	let paired = Vec::<[u8; PAIRED_LEN]>::decode(&mut data.as_ref())?;
+
+	Ok(paired
+		.into_iter()
+		.map(|key| {
+			let mut ecdsa = [0u8; 33];
+			ecdsa.copy_from_slice(&key[..33]);
+			ecdsa.encode()
+		})
+		.collect())
+}
+
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Build a consensus proof whose commitment is proven by one aggregate BLS signature.
 	///
@@ -166,12 +192,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		let aggregate_signature = aggregate_signatures(&g1_signatures)?;
 
-		// The keyset commitment is a merkle root over the hashed G2 keys, so the tree is built
-		// over every authority and opened at the signers' positions.
-		let leaves = authorities.iter().map(|key| keccak_256(key)).collect::<Vec<_>>();
+		// Two trees, mirroring how the relay chain commits them. The BLS keys have their own tree,
+		// and its root sits as one extra leaf of the authority set tree alongside the Ethereum
+		// address leaves. So the proof carries a path to that leaf, and a path to the signers
+		// within it.
+		let bls_leaves = authorities.iter().map(|key| keccak_256(key)).collect::<Vec<_>>();
 		let indices = signers.iter().map(|signer| signer.index as usize).collect::<Vec<_>>();
-		let tree = rs_merkle::MerkleTree::<crate::util::MerkleHasher>::from_leaves(&leaves);
-		let authority_proof = tree.proof(&indices).proof_hashes().to_vec();
+		let bls_tree = rs_merkle::MerkleTree::<crate::util::MerkleHasher>::from_leaves(&bls_leaves);
+		let bls_commitment =
+			H256(bls_tree.root().ok_or_else(|| anyhow!("empty BLS authority key tree"))?);
+		let authority_proof = bls_tree.proof(&indices).proof_hashes().to_vec();
+
+		// The authority set tree: the Ethereum address leaves the ECDSA path uses, then the BLS
+		// commitment. Its leaf count is one more than the validator count.
+		let ecdsa_authorities = crate::util::hash_authority_addresses(
+			ecdsa_halves(&self.relay_rpc, Some(block_hash)).await?,
+		)?;
+		let mut keyset_leaves = ecdsa_authorities;
+		keyset_leaves.push(keccak_256(bls_commitment.as_bytes()));
+		let bls_leaf_index = keyset_leaves.len() - 1;
+		let keyset_tree =
+			rs_merkle::MerkleTree::<crate::util::MerkleHasher>::from_leaves(&keyset_leaves);
+		let keyset_proof = keyset_tree.proof(&[bls_leaf_index]).proof_hashes().to_vec();
 
 		let mmr = BlsMmrProof {
 			commitment: signed_commitment.commitment.clone(),
@@ -179,6 +221,8 @@ impl<R: Config, P: Config> Prover<R, P> {
 			aggregate_signature,
 			latest_mmr_leaf: latest_leaf.clone(),
 			mmr_proof,
+			bls_commitment,
+			keyset_proof,
 			authority_proof,
 		};
 
@@ -300,6 +344,8 @@ pub mod abi {
 				leafIndex: U256::from(leaf_index),
 			},
 			mmrProof: mmr.mmr_proof.items.iter().map(|h| FixedBytes(h.0)).collect(),
+			blsCommitment: FixedBytes(mmr.bls_commitment.0),
+			keysetProof: mmr.keyset_proof.iter().map(|h| FixedBytes(*h)).collect(),
 			proof: mmr.authority_proof.iter().map(|h| FixedBytes(*h)).collect(),
 		};
 

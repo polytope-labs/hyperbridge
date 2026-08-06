@@ -221,7 +221,14 @@ pub struct BlsMmrProof {
 	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
 	/// Proof for the latest mmr leaf
 	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
-	/// Flat proof hashes proving the signers' public keys against the keyset commitment
+	/// Root of the tree over the authorities' BLS public keys. The relay chain commits this as one
+	/// extra leaf of the authority set tree, so it is proven rather than trusted.
+	pub bls_commitment: H256,
+	/// Flat proof hashes proving [`Self::bls_commitment`] is the authority set's extra leaf,
+	/// against the keyset commitment. That tree holds `len + 1` leaves: the authorities, then
+	/// this one.
+	pub keyset_proof: Vec<[u8; 32]>,
+	/// Flat proof hashes proving the signers' public keys against [`Self::bls_commitment`]
 	pub authority_proof: Vec<[u8; 32]>,
 }
 

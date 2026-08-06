@@ -196,7 +196,13 @@ struct BlsRelayChainProof {
     BeefyMmrLeaf latestMmrLeaf;
     // Proof for the latest mmr leaf
     bytes32[] mmrProof;
-    // Proof for the signing authorities against the keyset commitment
+    // Root of the tree over the authorities' BLS public keys. The relay chain commits this as one
+    // extra leaf of the authority set tree, so it is proven rather than trusted.
+    bytes32 blsCommitment;
+    // Proof that blsCommitment is the authority set's extra leaf, against the keyset commitment.
+    // That tree holds len + 1 leaves: the authorities, then this one.
+    bytes32[] keysetProof;
+    // Proof for the signing authorities against blsCommitment
     bytes32[] proof;
 }
 

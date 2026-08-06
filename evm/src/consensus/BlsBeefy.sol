@@ -148,6 +148,8 @@ contract BlsBeefy is IConsensusV2, ERC165 {
             relayProof.signers,
             relayProof.aggregateSignature,
             authoritySet.root,
+            relayProof.blsCommitment,
+            relayProof.keysetProof,
             relayProof.proof,
             authoritySet.len
         );
@@ -186,6 +188,8 @@ contract BlsBeefy is IConsensusV2, ERC165 {
         BlsSigner[] memory signers,
         bytes memory aggregateSignature,
         bytes32 keysetRoot,
+        bytes32 blsCommitment,
+        bytes32[] memory keysetProof,
         bytes32[] memory authorityProof,
         uint256 authorityCount
     ) public view {
@@ -215,7 +219,22 @@ contract BlsBeefy is IConsensusV2, ERC165 {
             });
         }
 
-        if (!MerkleMultiProof.VerifyProof(keysetRoot, authorityProof, leaves, authorityCount)) {
+        // Two levels. The relay chain commits the BLS keys as one extra leaf of the authority set
+        // tree, so the per-authority leaves keep their positions and bridges verifying ECDSA
+        // signatures still prove against the same root. Establish that leaf is the authority set's,
+        // then prove the signers against it.
+        //
+        // The keyset tree therefore holds authorityCount + 1 leaves, with the BLS commitment last,
+        // while the threshold above still judges against authorityCount.
+        MerkleMultiProof.Leaf[] memory keysetLeaf = new MerkleMultiProof.Leaf[](1);
+        keysetLeaf[0] =
+            MerkleMultiProof.Leaf({index: authorityCount, hash: keccak256(abi.encodePacked(blsCommitment))});
+
+        if (!MerkleMultiProof.VerifyProof(keysetRoot, keysetProof, keysetLeaf, authorityCount + 1)) {
+            revert InvalidAuthoritiesProof();
+        }
+
+        if (!MerkleMultiProof.VerifyProof(blsCommitment, authorityProof, leaves, authorityCount)) {
             revert InvalidAuthoritiesProof();
         }
 

@@ -244,8 +244,23 @@ pub fn verify_bls_mmr_update_proof<H: Keccak256 + BlsAggregateVerify + Send + Sy
 	let authority_indices =
 		mmr.signers.iter().map(|signer| signer.index as usize).collect::<Vec<_>>();
 
+	// Two levels. The relay chain commits the BLS keys as one extra leaf of the authority set
+	// tree, so that the per-authority leaves keep their positions and bridges verifying ECDSA
+	// signatures still prove against the same root. First establish that leaf really is the
+	// authority set's, then prove the signers against it.
+	//
+	// The keyset tree therefore holds `authority_count + 1` leaves, with the BLS commitment last,
+	// while the threshold above still judges against `authority_count`.
 	verify_authority_membership::<H>(
 		preamble.keyset_commitment,
+		&mmr.keyset_proof,
+		&[preamble.authority_count as usize],
+		&[H::keccak256(mmr.bls_commitment.as_bytes()).into()],
+		preamble.authority_count.saturating_add(1),
+	)?;
+
+	verify_authority_membership::<H>(
+		mmr.bls_commitment,
 		&mmr.authority_proof,
 		&authority_indices,
 		&authority_leaves,

@@ -1114,12 +1114,20 @@ mod bls_offline {
 		let payload = Payload::from_single_entry(*b"mh", mmr_root.0.to_vec());
 		let commitment = Commitment { payload, block_number: BLOCK, validator_set_id: SET_ID };
 
-		// The keyset commitment is the merkle root over the hashed G2 keys, matching the runtime's
-		// converter.
-		let leaves = validators.iter().map(|(_, key)| keccak_256(key)).collect::<Vec<_>>();
-		let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
-		let keyset_commitment = H256(tree.root().expect("keyset tree has a root"));
-		let authority_proof = tree.proof(signer_indices).proof_hashes().to_vec();
+		// Two trees, mirroring the runtime. The BLS keys have their own tree, and its root is one
+		// extra leaf of the authority set tree, after the per-authority leaves the ECDSA path
+		// proves against. Those are stand-ins here; only their count matters.
+		let bls_leaves = validators.iter().map(|(_, key)| keccak_256(key)).collect::<Vec<_>>();
+		let bls_tree = MerkleTree::<MerkleHasher>::from_leaves(&bls_leaves);
+		let bls_commitment = H256(bls_tree.root().expect("bls tree has a root"));
+		let authority_proof = bls_tree.proof(signer_indices).proof_hashes().to_vec();
+
+		let mut keyset_leaves =
+			(0..validators.len()).map(|i| keccak_256(&[b'a', i as u8])).collect::<Vec<_>>();
+		keyset_leaves.push(keccak_256(bls_commitment.as_bytes()));
+		let keyset_tree = MerkleTree::<MerkleHasher>::from_leaves(&keyset_leaves);
+		let keyset_commitment = H256(keyset_tree.root().expect("keyset tree has a root"));
+		let keyset_proof = keyset_tree.proof(&[validators.len()]).proof_hashes().to_vec();
 
 		let message = Message::new(b"", &commitment.encode());
 		let signatures = signer_indices
@@ -1154,6 +1162,8 @@ mod bls_offline {
 			aggregate_signature: aggregate(&signatures),
 			latest_mmr_leaf: leaf,
 			mmr_proof: LeafProof { leaf_indices: vec![0], leaf_count: 1, items: vec![] },
+			bls_commitment,
+			keyset_proof,
 			authority_proof,
 		};
 
@@ -1447,16 +1457,28 @@ fn bls_eip2537_fixture() {
 		.iter()
 		.map(|secret| keccak_256(&secret.into_public().to_bytes()))
 		.collect();
-	let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let bls_tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let bls_commitment = bls_tree.root().expect("bls root");
 	let _ = &uncompressed;
+
+	// The authority set tree: per-authority leaves (stand-ins for the ECDSA addresses), then the
+	// BLS commitment as one extra leaf.
+	let mut keyset_leaves: Vec<[u8; 32]> =
+		(0..authorities.len()).map(|i| keccak_256(&[b'a', i as u8])).collect();
+	keyset_leaves.push(keccak_256(&bls_commitment));
+	let keyset_tree = MerkleTree::<MerkleHasher>::from_leaves(&keyset_leaves);
 
 	for (i, secret) in authorities.iter().enumerate() {
 		println!("authority {i} compressed  {}", hex::encode(secret.into_public().to_bytes()));
 	}
-	println!("-- keyset over compressed keys, {} authorities --", authorities.len());
-	println!("keyset root          {}", hex::encode(tree.root().expect("root")));
-	for hash in tree.proof(&[0, 1, 2]).proof_hashes() {
-		println!("multiproof node      {}", hex::encode(hash));
+	println!("-- two-level keyset, {} authorities --", authorities.len());
+	println!("bls commitment       {}", hex::encode(bls_commitment));
+	println!("keyset root          {}", hex::encode(keyset_tree.root().expect("root")));
+	for hash in keyset_tree.proof(&[authorities.len()]).proof_hashes() {
+		println!("keyset proof node    {}", hex::encode(hash));
+	}
+	for hash in bls_tree.proof(&[0, 1, 2]).proof_hashes() {
+		println!("authority proof node {}", hex::encode(hash));
 	}
 
 	// Each signer's key on its own, for the merkle leaves and the G2_ADD path.
@@ -1510,12 +1532,19 @@ fn bls_solidity_proof_fixture() {
 		(0..4).map(|i| SecretKeyVT::<TinyBLS381>::from_seed(&[b'v', i as u8])).collect();
 	let keys: Vec<Vec<u8>> = authorities.iter().map(uncompressed).collect();
 
-	// Keyset commitment over the compressed keys, exactly as the runtime converter builds it. The
-	// contract compresses each uncompressed key it is given to reproduce these leaves.
-	let leaves: Vec<[u8; 32]> =
+	// Two trees, as the runtime builds them: the BLS keys in their own tree, whose root is one
+	// extra leaf of the authority set tree. The leaves before it stand in for the ECDSA addresses.
+	let bls_leaves: Vec<[u8; 32]> =
 		authorities.iter().map(|s| keccak_256(&s.into_public().to_bytes())).collect();
-	let keyset = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let bls_tree = MerkleTree::<MerkleHasher>::from_leaves(&bls_leaves);
+	let bls_commitment = bls_tree.root().expect("bls root");
+
+	let mut keyset_leaves: Vec<[u8; 32]> =
+		(0..authorities.len()).map(|i| keccak_256(&[b'a', i as u8])).collect();
+	keyset_leaves.push(keccak_256(&bls_commitment));
+	let keyset = MerkleTree::<MerkleHasher>::from_leaves(&keyset_leaves);
 	let keyset_root = keyset.root().expect("keyset root");
+	let keyset_proof = keyset.proof(&[authorities.len()]);
 
 	// The MMR leaf, and the root it implies as the only leaf in the tree.
 	let leaf = MmrLeaf {
@@ -1549,7 +1578,7 @@ fn bls_solidity_proof_fixture() {
 		aggregate_signature.extend_from_slice(&coord.into_bigint().to_bytes_be());
 	}
 
-	let authority_proof = keyset.proof(&signer_indices);
+	let authority_proof = bls_tree.proof(&signer_indices);
 
 	// Assemble the sol types the contract decodes.
 	let state = Sol::BeefyConsensusState {
@@ -1597,6 +1626,12 @@ fn bls_solidity_proof_fixture() {
 			leafIndex: alloy_primitives::U256::ZERO,
 		},
 		mmrProof: vec![],
+		blsCommitment: alloy_primitives::FixedBytes(bls_commitment),
+		keysetProof: keyset_proof
+			.proof_hashes()
+			.iter()
+			.map(|h| alloy_primitives::FixedBytes(*h))
+			.collect(),
 		proof: authority_proof
 			.proof_hashes()
 			.iter()
@@ -1721,7 +1756,8 @@ fn compression_matches_w3f_bls() {
 /// Emits an ABI fixture built from a **live** BLS relay, so the Solidity client can be tested
 /// against a real MMR proof and a real parachain header rather than a synthetic single-leaf tree.
 ///
-/// Needs the relay and its registered parachain running; see `docs/bls-beefy-rust-remaining.md`.
+/// Needs a BLS BEEFY relay running with a parachain registered on it, since the proof has to carry
+/// a real parachain header. The para id must be 4009, which is what gargantua tracks.
 ///
 ///   RELAY_WS_URL=ws://127.0.0.1:9979 PARA_WS_URL=ws://127.0.0.1:9991 \
 ///     cargo test -p beefy-verifier --features bls bls_live_abi_fixture -- --ignored --nocapture

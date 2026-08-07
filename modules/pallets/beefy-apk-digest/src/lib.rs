@@ -123,8 +123,15 @@ impl ApkCommitmentDigest {
 	}
 }
 
+impl Progress {
+	/// A chain that has absorbed nothing yet.
+	pub fn fresh(set_digest: [u8; 32]) -> Self {
+		Self { set_digest, absorbed: 0, state: PartialCommitment::new().to_bytes() }
+	}
+}
+
 /// Where the running commitment has got to.
-#[derive(Clone, Encode, Decode, TypeInfo, Default, MaxEncodedLen)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Default, MaxEncodedLen)]
 pub struct Progress {
 	/// Identifies the set being absorbed, so a rotation part way through restarts rather than
 	/// mixing keys from two sets into one commitment.
@@ -214,17 +221,17 @@ pub mod pallet {
 			let set_id = Self::relay_beefy_set_id()?;
 			let set_digest = sp_io::hashing::blake2_256(&keys.encode());
 
-			let mut progress = match Pending::<T>::get() {
-				// A rotation part way through invalidates the chain, so start again.
-				Some(p) if p.set_digest != set_digest => Self::start(set_digest),
-				Some(p) => p,
-				None => {
-					// Nothing to do once this set is already published.
-					if Published::<T>::get().map(|(d, _)| d) == Some(set_digest) {
-						return Ok(0);
-					}
-					Self::start(set_digest)
+			let mut progress = match next_progress(
+				Pending::<T>::get().as_ref(),
+				Published::<T>::get().map(|(d, _)| d),
+				set_digest,
+			) {
+				Step::Done => return Ok(0),
+				Step::Restart => {
+					Self::deposit_event(Event::CommitmentStarted { set_digest });
+					Progress::fresh(set_digest)
 				},
+				Step::Continue(p) => p,
 			};
 
 			let from = progress.absorbed as usize;
@@ -265,11 +272,6 @@ pub mod pallet {
 				.read_entry(&RELAY_BEEFY_VALIDATOR_SET_ID, None)
 				.map_err(|_| Error::<T>::KeyNotProven)?;
 			Ok(current.saturating_add(1))
-		}
-
-		fn start(set_digest: [u8; 32]) -> Progress {
-			Self::deposit_event(Event::CommitmentStarted { set_digest });
-			Progress { set_digest, absorbed: 0, state: PartialCommitment::new().to_bytes() }
 		}
 
 		/// The relay state proof for this block, checked against the relay parent's state root.
@@ -330,6 +332,36 @@ impl WeightInfo for () {
 	fn absorb(slots: u32) -> Weight {
 		Weight::from_parts(410_000_000u64.saturating_mul(slots as u64), 0)
 			.saturating_add(Weight::from_parts(0, 4096))
+	}
+}
+
+/// What to do with the commitment this block.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Step {
+	/// This set is already published; nothing to do.
+	Done,
+	/// Begin, or begin again because the set changed under us.
+	Restart,
+	/// Carry on from where the last block left off.
+	Continue(Progress),
+}
+
+/// Decide how to proceed, given what is in progress and what has already been published.
+///
+/// Kept pure so the rotation case can be tested without a mock chain. The case that matters is a
+/// set changing part way through: the Merkle-Damgard chain is over one specific key list, so
+/// carrying the state across a rotation would silently produce a commitment belonging to neither
+/// set. Restarting is the only safe answer.
+pub fn next_progress(
+	pending: Option<&Progress>,
+	published: Option<[u8; 32]>,
+	set_digest: [u8; 32],
+) -> Step {
+	match pending {
+		Some(p) if p.set_digest != set_digest => Step::Restart,
+		Some(p) => Step::Continue(p.clone()),
+		None if published == Some(set_digest) => Step::Done,
+		None => Step::Restart,
 	}
 }
 
@@ -470,6 +502,74 @@ mod tests {
 		key.copy_from_slice(&encoded);
 		let state = PartialCommitment::new().to_bytes();
 		assert!(absorb_slots(&[key], 0, 1, state).is_ok());
+	}
+
+	// ── rotation ────────────────────────────────────────────────────────────────────────────
+
+	const SET_A: [u8; 32] = [0xaa; 32];
+	const SET_B: [u8; 32] = [0xbb; 32];
+
+	#[test]
+	fn a_fresh_chain_starts() {
+		assert_eq!(next_progress(None, None, SET_A), Step::Restart);
+	}
+
+	#[test]
+	fn an_already_published_set_is_left_alone() {
+		assert_eq!(next_progress(None, Some(SET_A), SET_A), Step::Done);
+	}
+
+	/// A new set arriving after one was published starts rather than stopping.
+	#[test]
+	fn a_new_set_starts_even_though_another_was_published() {
+		assert_eq!(next_progress(None, Some(SET_A), SET_B), Step::Restart);
+	}
+
+	#[test]
+	fn work_in_progress_on_the_same_set_continues() {
+		let p = Progress { set_digest: SET_A, absorbed: 128, state: [1u8; 32] };
+		assert_eq!(next_progress(Some(&p), None, SET_A), Step::Continue(p));
+	}
+
+	/// The case this whole function exists for: the authority set changed while a commitment was
+	/// part way through.
+	#[test]
+	fn a_rotation_part_way_through_restarts() {
+		let p = Progress { set_digest: SET_A, absorbed: 512, state: [1u8; 32] };
+		assert_eq!(next_progress(Some(&p), None, SET_B), Step::Restart);
+	}
+
+	/// And restarting has to mean *restarting*, not resuming with a relabelled set. If the state
+	/// carried over, the commitment would be a Merkle-Damgard chain over the first set's keys
+	/// followed by the second's, belonging to neither, and nothing downstream would notice.
+	#[test]
+	fn a_restart_discards_the_partial_state() {
+		let fresh = Progress::fresh(SET_B);
+		assert_eq!(fresh.absorbed, 0);
+		assert_eq!(fresh.state, PartialCommitment::new().to_bytes());
+		assert_eq!(fresh.set_digest, SET_B);
+	}
+
+	/// End to end over the absorption itself: absorb part of one set, rotate, and the commitment
+	/// that comes out must be the second set's, identical to having never seen the first.
+	#[test]
+	fn a_commitment_interrupted_by_a_rotation_is_not_a_mixture() {
+		let first = relay_keys();
+		let mut second = relay_keys();
+		second.swap(0, 1); // a different set, same size
+
+		// absorb 300 slots of the first set, then rotate
+		let mut state = PartialCommitment::new().to_bytes();
+		state = absorb_slots(&first, 0, 300, state).unwrap();
+		assert_eq!(
+			next_progress(Some(&Progress { set_digest: SET_A, absorbed: 300, state }), None, SET_B),
+			Step::Restart
+		);
+
+		// restart discards that state, so the result is the second set's commitment alone
+		let restarted = run(&second, 64);
+		assert_eq!(restarted, expected_commitment(&second));
+		assert_ne!(restarted, expected_commitment(&first), "the two sets must not collide");
 	}
 
 	/// A client finds the commitment in a header carrying unrelated digest items too, which is the

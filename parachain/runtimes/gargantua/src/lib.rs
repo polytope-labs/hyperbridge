@@ -882,6 +882,19 @@ impl pallet_messaging_incentives::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
+parameter_types! {
+	/// A full 1024-slot commitment is roughly 420ms of wasm, so it is absorbed across blocks. At
+	/// about 410us per slot this is ~26ms per block, and a whole set lands in 16 blocks, well
+	/// inside the session in which the next authority set is already known.
+	pub const ApkSlotsPerBlock: u32 = 64;
+}
+
+impl pallet_beefy_apk_digest::Config for Runtime {
+	type SlotsPerBlock = ApkSlotsPerBlock;
+	// Measured, not benchmarked; see the note on the default impl.
+	type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -1006,6 +1019,8 @@ mod runtime {
 	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 	#[runtime::pallet_index(92)]
 	pub type MessagingIncentives = pallet_messaging_incentives;
+	#[runtime::pallet_index(93)]
+	pub type BeefyApkDigest = pallet_beefy_apk_digest;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -1285,8 +1300,27 @@ impl_runtime_apis! {
 
 	impl cumulus_primitives_core::KeyToIncludeInRelayProof<Block> for Runtime {
 		fn keys_to_prove() -> cumulus_primitives_core::RelayProofRequest {
-			// This runtime reads no extra relay chain storage, so no keys need proving.
-			Default::default()
+			// The relay chain's BEEFY authority set, `Beefy::Authorities`. The collator only puts
+			// keys in the relay state proof that were asked for here, and the proof is checked
+			// against the relay parent's state root by the validators, so reading the set out of
+			// it needs no trust beyond what a parachain already places in its relay parent.
+			//
+			// Note this is not `well_known_keys::AUTHORITIES`, which is `Babe::Authorities`; both
+			// end in twox128("Authorities") but differ in the pallet prefix.
+			// `Beefy::NextAuthorities` and `Beefy::ValidatorSetId`. The next set rather than the
+			// current one, so a client verifying a header signed by set N learns the commitment
+			// for N+1 and can verify the following update. The set id comes along because the
+			// commitment is not usable without knowing which set it describes.
+			cumulus_primitives_core::RelayProofRequest {
+				keys: alloc::vec![
+					cumulus_primitives_core::RelayStorageKey::Top(
+						pallet_beefy_apk_digest::RELAY_BEEFY_NEXT_AUTHORITIES.to_vec()
+					),
+					cumulus_primitives_core::RelayStorageKey::Top(
+						pallet_beefy_apk_digest::RELAY_BEEFY_VALIDATOR_SET_ID.to_vec()
+					),
+				],
+			}
 		}
 	}
 

@@ -952,6 +952,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
+name = "apk-commitment"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-serialize 0.4.2",
+ "hex",
+ "sha3 0.10.8",
+]
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8361,6 +8373,7 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-bandwidth",
+ "pallet-beefy-apk-digest",
  "pallet-beefy-consensus-proofs",
  "pallet-call-decompressor",
  "pallet-collator-manager",
@@ -14642,6 +14655,21 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-beefy-apk-digest"
+version = "0.1.0"
+dependencies = [
+ "apk-commitment",
+ "ark-bls12-381 0.4.0",
+ "ark-serialize 0.4.2",
+ "cumulus-pallet-parachain-system",
+ "hex",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
 ]
 
 [[package]]

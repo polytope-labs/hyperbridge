@@ -46,6 +46,7 @@ members = [
     "modules/consensus/sync-committee/prover",
     "modules/consensus/sync-committee/verifier",
     "modules/consensus/sync-committee/primitives",
+    "modules/consensus/beefy/apk-commitment",
     "modules/consensus/beefy/primitives",
     "modules/consensus/beefy/prover",
     "modules/consensus/beefy/verifier",
@@ -73,6 +74,7 @@ members = [
     "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-incentives",
+    "modules/pallets/beefy-apk-digest",
     "modules/pallets/beefy-consensus-proofs",
 
     # evm stuff
@@ -275,6 +277,7 @@ hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
 
 # consensus provers & verifiers
+apk-commitment = { path = "./modules/consensus/beefy/apk-commitment", default-features = false }
 beefy-verifier-primitives = { version = "0.1.1", path = "./modules/consensus/beefy/primitives", default-features = false }
 beefy-prover = { path = "./modules/consensus/beefy/prover" }
 beefy-verifier = { path = "./modules/consensus/beefy/verifier", default-features = false }
@@ -316,6 +319,7 @@ pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-
 pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
 pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", default-features = false }
 pallet-messaging-incentives = { path = "modules/pallets/messaging-incentives", default-features = false }
+pallet-beefy-apk-digest = { path = "./modules/pallets/beefy-apk-digest", default-features = false }
 pallet-beefy-consensus-proofs = { path = "modules/pallets/beefy-consensus-proofs", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }

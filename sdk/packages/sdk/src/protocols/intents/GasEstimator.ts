@@ -13,13 +13,7 @@ import {
 } from "@/utils"
 import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
-import type {
-	PackedUserOperation,
-	EstimateFillOrderParams,
-	FillOrderEstimate,
-	FillOptions,
-	Order,
-} from "@/types"
+import type { PackedUserOperation, EstimateFillOrderParams, FillOrderEstimate, FillOptions } from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
@@ -58,6 +52,12 @@ import { CryptoUtils } from "./CryptoUtils"
  */
 export const RELAYER_MESSAGE_GAS = 1_000_000n
 
+/** Internal pricing policy used by SDK order-fee quotes. */
+interface GasEstimationPricingOptions {
+	/** Percentage added to gas prices used for fee-token conversion. Defaults to 0. */
+	orderFeeGasPriceBumpPercent?: bigint
+}
+
 export class GasEstimator {
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
@@ -95,12 +95,18 @@ export class GasEstimator {
 	 *
 	 * @param params - Parameters including the order to estimate and optional
 	 *   percentage bumps for `maxPriorityFeePerGas` and `maxFeePerGas`.
+	 * @param pricingOptions - Internal fee-pricing policy. Direct estimates use
+	 *   the default zero gas-price bump; SDK order-fee quotes opt into headroom.
 	 * @returns A {@link FillOrderEstimate} containing all gas components,
 	 *   EIP-1559 fee values, total cost in wei, and total cost in the source
 	 *   chain's fee token.
 	 */
-	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
+	async estimateFillOrder(
+		params: EstimateFillOrderParams,
+		pricingOptions: GasEstimationPricingOptions = {},
+	): Promise<FillOrderEstimate> {
 		const { order } = params
+		const orderFeeGasPriceBumpPercent = pricingOptions.orderFeeGasPriceBumpPercent ?? 0n
 		const solverPrivateKey = generatePrivateKey()
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
 		const souceStateMachineId = isHex(order.source) ? hexToString(order.source) : order.source
@@ -140,7 +146,12 @@ export class GasEstimator {
 			}),
 			isSameChain
 				? Promise.resolve({ postRequestFee: 0n, relayerFeeInSourceFeeToken: 0n })
-				: this.estimateCrossChainFees(sourceFeeToken, destFeeToken, souceStateMachineId),
+				: this.estimateCrossChainFees(
+						sourceFeeToken,
+						destFeeToken,
+						souceStateMachineId,
+						orderFeeGasPriceBumpPercent,
+					),
 		])
 
 		const { viem: stateOverrides, bundler: bundlerStateOverrides } = stateOverridesResult
@@ -341,6 +352,7 @@ export class GasEstimator {
 			"dest",
 			destStateMachineId,
 			gasPrice,
+			orderFeeGasPriceBumpPercent,
 		)
 		const totalGasInSourceFeeToken = isSameChain
 			? totalGasInDestFeeToken
@@ -375,16 +387,18 @@ export class GasEstimator {
 		sourceFeeToken: { address: HexString; decimals: number },
 		destFeeToken: { address: HexString; decimals: number },
 		sourceChainId: string,
+		orderFeeGasPriceBumpPercent: bigint,
 	): Promise<{ postRequestFee: bigint; relayerFeeInSourceFeeToken: bigint }> {
-		// No padding here: RELAYER_MESSAGE_GAS (1M) already carries generous
-		// headroom over actual delivery gas, and the placement side overpays by
-		// 5% — any padding on the solver's requirement would reopen the gap
-		// where SDK-placed orders attach less than solvers demand.
+		// RELAYER_MESSAGE_GAS (1M) already carries generous gas-unit headroom.
+		// Direct solver estimates price it at the live gas price, while SDK order
+		// quotes explicitly opt into gas-price headroom through the pricing policy.
 		const postRequestFeeInSourceFeeToken = await convertGasToFeeToken(
 			this.ctx,
 			RELAYER_MESSAGE_GAS,
 			"source",
 			sourceChainId,
+			undefined,
+			orderFeeGasPriceBumpPercent,
 		)
 
 		const postRequestFeeInDestFeeToken = adjustDecimals(

@@ -219,6 +219,63 @@ struct BlsBeefyConsensusProof {
     ParachainProof parachain;
 }
 
+// An authority set identified by its APK commitment rather than by a merkle root over keys.
+//
+// The commitment is Poseidon2 over the validators' BLS12-381 G1 keys, padded to the circuit's
+// fixed width. Unlike the keyset root it does not come from the MMR leaf: hyperbridge publishes it
+// in a header digest, and a client picks it up from a header it has already verified. That is why
+// it is carried in the consensus state rather than supplied with each proof.
+struct ApkAuthoritySet {
+    /// Id of the set.
+    uint64 id;
+    /// Number of validators in the set, for the two-thirds threshold.
+    uint32 len;
+    /// Poseidon2 commitment over the set's G1 public keys.
+    bytes32 apkCommitment;
+}
+
+struct BlsApkConsensusState {
+    /// block number for the latest mmr_root_hash
+    uint256 latestHeight;
+    /// Block number that the beefy protocol was activated on the relay chain.
+    uint256 beefyActivationBlock;
+    /// authorities for the current round
+    ApkAuthoritySet currentAuthoritySet;
+    /// authorities for the next round
+    ApkAuthoritySet nextAuthoritySet;
+}
+
+// A BEEFY relay chain proof verified by a SNARK over the aggregate public key, rather than by a
+// merkle multi-proof of each signer's key.
+//
+// The saving is that nothing here grows with the number of signers: the bitlist is fixed width and
+// the proof is constant size, where the merkle path costs roughly 17k gas per signer.
+struct BlsApkRelayChainProof {
+    // A commitment to the finalized state
+    Commitment commitment;
+    // Which validators signed, one bit each, 1024 slots over five words
+    uint256[5] bitlist;
+    // Aggregate public key in G1, proven correct against the set's APK commitment
+    bytes32[3] apk;
+    // The same aggregate in G2, bound to `apk` by the pairing check inside ApkProof
+    bytes32[6] apk2;
+    // PLONK proof that `apk` is the aggregate of exactly the validators in `bitlist`
+    bytes apkProof;
+    // Sum of the signers' BLS signatures, a G1 point
+    bytes32[3] signature;
+    // Latest leaf added to mmr
+    BeefyMmrLeaf latestMmrLeaf;
+    // Proof for the latest mmr leaf
+    bytes32[] mmrProof;
+}
+
+struct BlsApkBeefyConsensusProof {
+    // The proof items for the relay chain consensus
+    BlsApkRelayChainProof relay;
+    // Proof items for parachain headers
+    ParachainProof parachain;
+}
+
 struct DigestItem {
     bytes4 consensusId;
     bytes data;

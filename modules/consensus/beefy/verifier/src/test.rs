@@ -1888,7 +1888,7 @@ async fn bls_live_abi_fixture() {
 async fn bls_apk_group_binding() {
 	use ark_bls12_381::{Bls12_381, G1Affine, G1Projective, G2Affine, G2Projective};
 	use ark_ec::{AffineRepr, CurveGroup, Group, pairing::Pairing};
-	use ark_serialize::CanonicalDeserialize;
+	use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 	use beefy_prover::bls::{
 		aggregate_signatures, beefy_g1_authorities, beefy_g2_authorities,
 		decode_paired_justification,
@@ -1968,4 +1968,25 @@ async fn bls_apk_group_binding() {
 		"[ok] group binding holds for {signer_count} live signers: apk_g1 <-> apk_g2 bound, \
 		 and BEEFY's G1 signature verifies against the bound apk_g2",
 	);
+
+	// Dump everything an APK proof fixture needs, so a test elsewhere can be built against real
+	// BEEFY data rather than synthetic keypairs.
+	let hex_affine_g1 = |p: &G1Affine| {
+		let mut b = Vec::new();
+		p.serialize_compressed(&mut b).unwrap();
+		hex::encode(b)
+	};
+	let hex_affine_g2 = |p: &G2Affine| {
+		let mut b = Vec::new();
+		p.serialize_compressed(&mut b).unwrap();
+		hex::encode(b)
+	};
+	println!("=== apk fixture inputs ===");
+	println!("message  {}", hex::encode(&message));
+	println!("apk_g1   {}", hex_affine_g1(&apk_g1));
+	println!("apk_g2   {}", hex_affine_g2(&apk_g2));
+	println!("agg_sig  {}", hex::encode(aggregate_signature));
+	for (i, key) in g1_keys.iter().enumerate() {
+		println!("g1[{i}]    {}", hex::encode(key));
+	}
 }

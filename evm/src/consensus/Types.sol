@@ -249,6 +249,8 @@ library HeaderImpl {
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
     /// ConsensusID for the ISMP timestamp digest deposited by pallet-ismp
     bytes4 public constant ISMP_TIMESTAMP_ID = bytes4("ISTM");
+    /// ConsensusID for the APK commitment digest deposited by pallet-beefy-apk-digest
+    bytes4 public constant APK_COMMITMENT_ID = bytes4("APKC");
 
     error TimestampNotFound();
 
@@ -274,5 +276,35 @@ library HeaderImpl {
         if (timestamp == 0) revert TimestampNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
+    }
+
+    /// @dev The commitment to the relay chain's next BEEFY authority set, if this header carries
+    /// one. Written by `pallet-beefy-apk-digest` on the block a set finishes being absorbed, so
+    /// most headers do not have it and `found` is false for those.
+    ///
+    /// The header itself is already authenticated, through the parachain heads root in the BEEFY
+    /// MMR leaf, so no further proof is needed: `commitment` can go straight to `ApkProof.verify`
+    /// as `publicKeysCommitment`, and `setId` says which authority set it describes.
+    ///
+    /// Payload is SCALE: a u64 set id little-endian, then the 32 byte commitment.
+    function apkCommitment(Header memory self)
+        internal
+        pure
+        returns (bool found, uint64 setId, bytes32 commitment)
+    {
+        for (uint256 j = 0; j < self.digests.length; j++) {
+            if (!self.digests[j].isConsensus) continue;
+            if (self.digests[j].consensus.consensusId != APK_COMMITMENT_ID) continue;
+
+            bytes memory data = self.digests[j].consensus.data;
+            // Ignore a malformed item rather than reverting: a wrong length means some other
+            // producer wrote under this engine id, and the caller should see "absent", not fail.
+            if (data.length != 40) continue;
+
+            setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
+            commitment = Bytes.toBytes32(Bytes.substr(data, 8));
+            return (true, setId, commitment);
+        }
+        return (false, 0, bytes32(0));
     }
 }

@@ -104,6 +104,25 @@ impl PairedAuthority {
 	}
 }
 
+impl ApkCommitmentDigest {
+	/// Pull the commitment out of a header's digest logs, if this pallet wrote one into it.
+	///
+	/// This is the client side of the design. A verifier that has already authenticated a
+	/// hyperbridge header, through the parachain heads root in the BEEFY MMR leaf, can read the
+	/// commitment straight out of that header with no further proof, and hand it to
+	/// `ApkProof.verify` as `publicKeysCommitment`.
+	///
+	/// Returns the first matching item. The pallet only ever writes one per block, and only on the
+	/// block a set completes.
+	pub fn find_in(digest: &sp_runtime::generic::Digest) -> Option<Self> {
+		digest.logs().iter().find_map(|log| match log {
+			sp_runtime::DigestItem::Consensus(id, payload) if *id == APK_ENGINE_ID =>
+				Self::decode(&mut &payload[..]).ok(),
+			_ => None,
+		})
+	}
+}
+
 /// Where the running commitment has got to.
 #[derive(Clone, Encode, Decode, TypeInfo, Default, MaxEncodedLen)]
 pub struct Progress {
@@ -451,6 +470,42 @@ mod tests {
 		key.copy_from_slice(&encoded);
 		let state = PartialCommitment::new().to_bytes();
 		assert!(absorb_slots(&[key], 0, 1, state).is_ok());
+	}
+
+	/// A client finds the commitment in a header carrying unrelated digest items too, which is the
+	/// normal case: aura and the parachain system both write their own.
+	#[test]
+	fn commitment_is_found_among_other_digest_items() {
+		let payload = ApkCommitmentDigest { set_id: 577, commitment: [3u8; 32] };
+		let digest = sp_runtime::generic::Digest {
+			logs: alloc::vec![
+				sp_runtime::DigestItem::PreRuntime(*b"aura", alloc::vec![1, 2, 3]),
+				sp_runtime::DigestItem::Consensus(APK_ENGINE_ID, payload.encode()),
+				sp_runtime::DigestItem::Seal(*b"aura", alloc::vec![4, 5, 6]),
+			],
+		};
+		assert_eq!(ApkCommitmentDigest::find_in(&digest), Some(payload));
+	}
+
+	/// A header from a block that did not complete a set carries nothing, and a client must treat
+	/// that as "no update" rather than an error.
+	#[test]
+	fn a_header_without_our_digest_yields_nothing() {
+		let digest = sp_runtime::generic::Digest {
+			logs: alloc::vec![sp_runtime::DigestItem::PreRuntime(*b"aura", alloc::vec![1])],
+		};
+		assert_eq!(ApkCommitmentDigest::find_in(&digest), None);
+	}
+
+	/// Another engine's consensus item must not be mistaken for ours, even though the variant is
+	/// the same. This is what the engine id is for.
+	#[test]
+	fn another_engines_consensus_item_is_ignored() {
+		let payload = ApkCommitmentDigest { set_id: 1, commitment: [9u8; 32] };
+		let digest = sp_runtime::generic::Digest {
+			logs: alloc::vec![sp_runtime::DigestItem::Consensus(*b"BEEF", payload.encode())],
+		};
+		assert_eq!(ApkCommitmentDigest::find_in(&digest), None);
 	}
 
 	/// The digest is a wire format, so its encoding is pinned here: a client decodes these bytes

@@ -311,7 +311,23 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 	afterAll(async () => {
 		await Promise.all(fillers.map((f) => f.stop().catch(() => {})))
 		await api?.disconnect()
-	})
+	}, 60_000)
+
+	/**
+	 * Seals blocks until every commitment has `expected` bids or the deadline
+	 * passes. The fill pipeline (offchain-storage fetch → quote against the
+	 * fork → UserOp build → submit) is bounded by upstream RPC latency, so a
+	 * fixed sleep races it; polling keeps the assertions strict without the race.
+	 */
+	async function waitForBids(commitments: HexString[], expected: number, timeoutMs = 120_000): Promise<void> {
+		const deadline = Date.now() + timeoutMs
+		for (;;) {
+			await new Promise((r) => setTimeout(r, 2_000))
+			await createBlock(api)
+			const counts = await Promise.all(commitments.map((c) => driver.getBidsForOrder(c).then((b) => b.length)))
+			if (counts.every((n) => n >= expected) || Date.now() > deadline) return
+		}
+	}
 
 	it("real fillers watch + submit USDC→cNGN bids that the SDK aggregation reduces to a snapshot", async () => {
 		// Register the phantom order; the fillers' subscriptions pick it up and submit bids.
@@ -321,12 +337,9 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		const commitment = (await getActivePhantomCommitment(api))!
 		expect(commitment).toBeTruthy()
 
-		// Give the fillers time to fetch the order, quote, build the UserOp, and submit, then seal the
-		// block that includes their bids.
-		await new Promise((r) => setTimeout(r, 6_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 2_000))
-		await createBlock(api)
+		// Seal blocks until every filler's bid lands (or the deadline passes and
+		// the assertion below reports the shortfall).
+		await waitForBids([commitment], FILLERS.length)
 
 		// Submission half: every filler's bid landed on-chain.
 		const bids = await driver.getBidsForOrder(commitment)
@@ -389,11 +402,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		const commitments = await getActivePhantomCommitments(api)
 		expect(commitments.length).toBe(2)
 
-		// Let the fillers quote + submit bids for BOTH pairs, then seal the blocks carrying their bids.
-		await new Promise((r) => setTimeout(r, 6_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 2_000))
-		await createBlock(api)
+		// Seal blocks until the fillers' bids for BOTH pairs land.
+		await waitForBids(commitments, FILLERS.length)
 
 		// Regression guard for the per-chain retraction bug: the filler tracked its last phantom bid
 		// per chain, so bidding on the second pair retracted the first pair's bid via

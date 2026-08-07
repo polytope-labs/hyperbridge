@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.7.2
+
+### Patch Changes
+
+- SDK-generated order fees now price destination fill gas and cross-chain settlement gas with 5% gas-price headroom before fee-token conversion. Direct `estimateFillOrder` calls remain unbumped, so Simplex solver pricing and UserOperation gas fields are unchanged.
+
 ## 2.7.0
 
 ### Minor Changes

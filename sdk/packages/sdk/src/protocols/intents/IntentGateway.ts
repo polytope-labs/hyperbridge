@@ -52,6 +52,8 @@ import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
 import { getFeeToken } from "./utils"
 
+const SDK_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 5n
+
 /**
  * High-level facade for the IntentGatewayV2 protocol.
  *
@@ -283,11 +285,12 @@ export class IntentGateway {
 	 *
 	 * **Yield/receive protocol:**
 	 * 1. If `order.fees` is unset or zero, prices the fee on an internal copy
-	 *    via {@link quoteOrderFees}: same-chain fees are twice the fill-gas
+	 *    via {@link quoteOrderFees}, pricing gas 5% above the live price without
+	 *    changing direct solver estimates: same-chain fees are twice the fill-gas
 	 *    estimate; cross-chain orders attach (fill gas + the settlement relayer
-	 *    fee) with a 5% buffer over the whole sum — strictly above the solver's
-	 *    unpadded requirement. The wei cost used for the `value` field receives
-	 *    a 2% buffer.
+	 *    fee) with a further 5% buffer over the whole sum — strictly above the
+	 *    solver's unpadded requirement. The wei cost used for the `value` field
+	 *    receives a 2% buffer.
 	 * 2. Yields `AWAITING_PLACE_ORDER` with `{ to, data, value, nativeFee,
 	 *    feeTokenAmount, feeTokenAddress, sessionPrivateKey }`. `value` carries
 	 *    only the order's native-token input amounts; `nativeFee` is the native
@@ -732,7 +735,11 @@ export class IntentGateway {
 	 * transaction (check the native balance).
 	 *
 	 * @param order - The order to quote. `order.fees` is ignored and not mutated.
-	 * @param options - Optional gas-price bump percentages, as in {@link execute}.
+	 * Gas prices used to derive `fees` receive 5% SDK-only headroom. Direct calls
+	 * to {@link estimateFillOrder}, including Simplex solver estimates, remain
+	 * unbumped.
+	 *
+	 * @param options - Optional transaction gas-price bump percentages, as in {@link execute}.
 	 * @returns An {@link OrderFeesQuote} with the fee-token amount, the native
 	 *   value for the native rail, and the underlying estimate.
 	 * @throws If gas estimation returns zero.
@@ -741,11 +748,16 @@ export class IntentGateway {
 		order: Order,
 		options?: { maxPriorityFeePerGasBumpPercent?: number; maxFeePerGasBumpPercent?: number },
 	): Promise<OrderFeesQuote> {
-		const estimate = await this.gasEstimator.estimateFillOrder({
-			order,
-			maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
-			maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
-		})
+		const estimate = await this.gasEstimator.estimateFillOrder(
+			{
+				order,
+				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
+				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
+			},
+			{
+				orderFeeGasPriceBumpPercent: SDK_ORDER_FEE_GAS_PRICE_BUMP_PERCENT,
+			},
+		)
 
 		if (estimate.totalGasCostWei === 0n || estimate.totalGasInFeeToken === 0n) {
 			throw new Error("Gas estimation failed")

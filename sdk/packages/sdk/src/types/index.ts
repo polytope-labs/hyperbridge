@@ -1337,9 +1337,9 @@ export interface FillOrderEstimate {
 export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
-	 * token. Same-chain fills carry a 2x margin over the estimated fill gas;
-	 * cross-chain fills add the settlement relayer fee and a 5% buffer over
-	 * the whole sum.
+	 * token. Gas is priced with 5% SDK-only headroom. Same-chain fills then carry
+	 * a 2x margin over the estimated fill gas; cross-chain fills add the settlement
+	 * relayer fee and a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**

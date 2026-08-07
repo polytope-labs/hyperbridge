@@ -1862,3 +1862,110 @@ async fn bls_live_abi_fixture() {
 	println!("proof 0x{}", hex::encode(encoded_proof));
 	assert!(para_count > 0, "expected a parachain header from the registered para");
 }
+
+/// Checks the group-bridging step an APK proof would need, against a live BLS relay.
+///
+/// `gnark-apk-proofs` aggregates public keys in G1 and pairs them against a G2 signature, while
+/// BEEFY signs in G1 with G2 public keys. `DoublePublicKey` publishes the same secret in both
+/// groups, so both aggregates describe one aggregate secret and the two can be tied together
+/// without changing how the relay signs:
+///
+/// ```text
+///   e(apk_g1, g2) == e(g1, apk_g2)              binds an untrusted apk_g2 to apk_g1
+///   e(sig_g1, g2) == e(hash_to_g1(msg), apk_g2) BEEFY's existing G1 signature
+/// ```
+///
+/// A verifier gets `apk_g1` from the SNARK and takes `apk_g2` as an untrusted input, so proving
+/// both equations hold for real validator keys is what makes the design viable. Both checks are
+/// constant cost, unlike the per-signer merkle paths they would replace.
+///
+///   RELAY_WS_URL=ws://127.0.0.1:9979 \
+///     cargo test -p beefy-verifier --features bls,bls-crypto bls_apk_group_binding -- --ignored
+/// --nocapture
+#[cfg(all(feature = "bls", feature = "bls-crypto"))]
+#[tokio::test]
+#[ignore]
+async fn bls_apk_group_binding() {
+	use ark_bls12_381::{Bls12_381, G1Affine, G1Projective, G2Affine, G2Projective};
+	use ark_ec::{AffineRepr, CurveGroup, Group, pairing::Pairing};
+	use ark_serialize::CanonicalDeserialize;
+	use beefy_prover::bls::{
+		aggregate_signatures, beefy_g1_authorities, beefy_g2_authorities,
+		decode_paired_justification,
+	};
+	use w3f_bls::{EngineBLS, Message, TinyBLS381};
+
+	let relay_ws_url = std::env::var("RELAY_WS_URL").expect("RELAY_WS_URL must be set");
+	let (_relay_client, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, 15 * 1024 * 1024)
+			.await
+			.unwrap();
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+
+	// A real finalized commitment, signed by the relay's paired ecdsa_bls381 validators.
+	let latest: H256 =
+		relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await.unwrap();
+	let block = relay_rpc.chain_get_block(Some(latest.into())).await.unwrap().unwrap();
+	let justification = block
+		.justifications
+		.expect("justifications")
+		.into_iter()
+		.find_map(|j| (j.0 == polkadot_sdk::sp_consensus_beefy::BEEFY_ENGINE_ID).then_some(j.1))
+		.expect("beefy justification");
+	let signed = decode_paired_justification(&justification).unwrap();
+
+	let at = Some(latest);
+	let g1_keys = beefy_g1_authorities(&relay_rpc, at).await.unwrap();
+	let g2_keys = beefy_g2_authorities(&relay_rpc, at).await.unwrap();
+	assert_eq!(g1_keys.len(), g2_keys.len(), "both halves come from the same paired keys");
+
+	// Aggregate only the validators that actually signed, which is what a bitmask selects.
+	let mut apk_g1 = G1Projective::default();
+	let mut apk_g2 = G2Projective::default();
+	let mut signatures = Vec::new();
+	let mut signer_count = 0usize;
+	for (index, maybe_signature) in signed.signatures.iter().enumerate() {
+		let Some(signature) = maybe_signature else { continue };
+		apk_g1 += G1Affine::deserialize_compressed(&g1_keys[index][..])
+			.expect("validator G1 public key decodes");
+		apk_g2 += G2Affine::deserialize_compressed(&g2_keys[index][..])
+			.expect("validator G2 public key decodes");
+		signatures.push(signature.g1_signature());
+		signer_count += 1;
+	}
+	assert!(signer_count > 0, "commitment carries no signatures");
+
+	let apk_g1 = apk_g1.into_affine();
+	let apk_g2 = apk_g2.into_affine();
+
+	// 1. The binding check. Holds only when both aggregates share a discrete log, so a verifier can
+	//    accept apk_g2 from an untrusted relayer once the SNARK has fixed apk_g1.
+	let bound = Bls12_381::pairing(apk_g1, G2Affine::generator()) ==
+		Bls12_381::pairing(G1Affine::generator(), apk_g2);
+	assert!(bound, "e(apk_g1, g2) != e(g1, apk_g2): the two aggregates disagree");
+
+	// 2. BEEFY's unmodified G1 signature, verified against the G2 aggregate just bound above.
+	let message = signed.commitment.encode();
+	let aggregate_signature = aggregate_signatures(&signatures).unwrap();
+	let sig_g1 = G1Affine::deserialize_compressed(&aggregate_signature[..])
+		.expect("aggregate signature decodes");
+	let message_point = Message::new(b"", &message)
+		.hash_to_signature_curve::<TinyBLS381>()
+		.into_affine();
+	let signed_ok = Bls12_381::pairing(sig_g1, G2Affine::generator()) ==
+		Bls12_381::pairing(message_point, apk_g2);
+	assert!(signed_ok, "e(sig_g1, g2) != e(H(m), apk_g2): signature does not verify");
+
+	// 3. A negative control, so the equations are not vacuously true.
+	let tampered = (apk_g2.into_group() + G2Projective::generator()).into_affine();
+	assert!(
+		Bls12_381::pairing(apk_g1, G2Affine::generator()) !=
+			Bls12_381::pairing(G1Affine::generator(), tampered),
+		"binding check accepted a tampered apk_g2",
+	);
+
+	println!(
+		"[ok] group binding holds for {signer_count} live signers: apk_g1 <-> apk_g2 bound, \
+		 and BEEFY's G1 signature verifies against the bound apk_g2",
+	);
+}

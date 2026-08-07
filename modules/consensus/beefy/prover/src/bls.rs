@@ -49,6 +49,10 @@ pub const PAIRED_LEN: usize = 177;
 /// `DoubleSignature` begins with its 48-byte G1 point.
 const PAIRED_SIGNATURE_G1_OFFSET: usize = 65;
 
+/// Offset of the BLS G1 public key within a paired public key: the ECDSA half is 33 bytes, then
+/// the `DoublePublicKey` opens with its 48-byte G1 point.
+const PAIRED_PUBLIC_G1_OFFSET: usize = 33;
+
 /// Offset of the BLS G2 public key within a paired public key: the ECDSA half is 33 bytes, then
 /// the `DoublePublicKey` is `G1 (48) || G2 (96)`, so G2 starts 48 bytes further in.
 const PAIRED_PUBLIC_G2_OFFSET: usize = 33 + 48;
@@ -105,6 +109,34 @@ pub async fn beefy_g2_authorities<T: Config>(
 				&key[PAIRED_PUBLIC_G2_OFFSET..PAIRED_PUBLIC_G2_OFFSET + BLS_G2_PUBLIC_KEY_LEN],
 			);
 			g2
+		})
+		.collect())
+}
+
+/// The validators' BLS12-381 G1 public keys, in authority-set order.
+///
+/// `DoublePublicKey` publishes the same secret in both groups, so these are the G1 counterparts of
+/// [`beefy_g2_authorities`]. An APK proof consumes the G1 halves while BEEFY's own signature
+/// verifies against the G2 halves.
+pub async fn beefy_g1_authorities<T: Config>(
+	rpc: &LegacyRpcMethods<T>,
+	at: Option<HashFor<T>>,
+) -> Result<Vec<[u8; BLS_G1_SIGNATURE_LEN]>, anyhow::Error> {
+	let data = rpc
+		.state_get_storage(BEEFY_AUTHORITIES.as_slice(), at)
+		.await?
+		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+
+	let paired = Vec::<[u8; PAIRED_LEN]>::decode(&mut data.as_ref())?;
+
+	Ok(paired
+		.into_iter()
+		.map(|key| {
+			let mut g1 = [0u8; BLS_G1_SIGNATURE_LEN];
+			g1.copy_from_slice(
+				&key[PAIRED_PUBLIC_G1_OFFSET..PAIRED_PUBLIC_G1_OFFSET + BLS_G1_SIGNATURE_LEN],
+			);
+			g1
 		})
 		.collect())
 }

@@ -5,6 +5,7 @@
 // it passes VM2-safe implementations; the viem-based defaults are fine for Node consumers (tests,
 // simplex).
 import { decodeFunctionData, encodeAbiParameters, keccak256, recoverAddress } from "viem"
+import { hexToU8a, isHex, stringToU8a, u8aToHex, u8aToString } from "@polkadot/util"
 import { decodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
@@ -74,14 +75,102 @@ async function rpcCall(url: string, payload: object): Promise<any> {
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
+// ─── accepted-source-chains declaration ─────────────────────────────────────────────────────────
+//
+// A same-chain phantom bid proves a solver operates on a chain, not which chains it will accept
+// payment FROM when filling a cross-chain order. Bids declare that set inside paymasterAndData,
+// which the userOpHash covers, so the declaration is authenticated by the solver's existing bid
+// signature (the `signature` field is excluded from the hash and therefore unusable). The
+// overload applies to phantom bids only: a real fill's paymasterAndData keeps its functional
+// EntryPoint semantics, and nothing on the real-fill path ever parses this format.
+//
+// Layout: version(1) ‖ count(1) ‖ count × (length(1) ‖ utf8 state machine id). A declaration
+// with no entries is a deliberate "accepts no source chains" and is distinct from an absent
+// declaration ("0x"), which means the legacy default: all CCTP/USDT0-covered chains.
+
+const DECLARATION_VERSION = 0x01
+
+/** Upper bound on declared chains; one byte of count, and far beyond any real deployment. */
+const MAX_DECLARED_CHAINS = 255
+
+/**
+ * Encodes the accepted source chains (state machine ids, e.g. "EVM-8453") into the
+ * paymasterAndData declaration blob.
+ */
+export function encodeAcceptedSourceChains(chains: string[]): HexString {
+	if (chains.length > MAX_DECLARED_CHAINS) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_CHAINS} source chains`)
+	}
+
+	const bytes: number[] = [DECLARATION_VERSION, chains.length]
+	for (const chain of chains) {
+		const encoded = stringToU8a(chain)
+		if (encoded.length === 0 || encoded.length > 255) {
+			throw new Error(`Invalid state machine id in source chain declaration: ${chain}`)
+		}
+		bytes.push(encoded.length, ...encoded)
+	}
+	return u8aToHex(new Uint8Array(bytes)) as HexString
+}
+
+/**
+ * Decodes a phantom bid's paymasterAndData into its declared source chains. Returns null for an
+ * absent, unversioned or malformed blob — the legacy default — and an empty array only for an
+ * explicit zero-entry declaration. Callers must preserve that distinction.
+ */
+export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
+	if (!paymasterAndData || !isHex(paymasterAndData)) return null
+	const bytes = hexToU8a(paymasterAndData)
+	if (bytes.length < 2 || bytes[0] !== DECLARATION_VERSION) return null
+
+	const count = bytes[1]
+	const chains: string[] = []
+	let offset = 2
+	for (let entry = 0; entry < count; entry++) {
+		if (offset >= bytes.length) return null
+		const length = bytes[offset]
+		offset += 1
+		if (length === 0 || offset + length > bytes.length) return null
+		chains.push(u8aToString(bytes.subarray(offset, offset + length)))
+		offset += length
+	}
+	// Trailing bytes mean this is not a declaration but something that happens to share the
+	// version byte, so treat the whole blob as unparseable rather than half-reading it.
+	if (offset !== bytes.length) return null
+
+	return chains
+}
+
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */
 export type YieldVaultMap = Record<string, Record<string, string[]>>
+
+/** One leg of a fill: the token the solver pays out and the amount it quoted for that leg. */
+export interface FillLeg {
+	outputToken: HexString
+	solverAmount: bigint
+}
 
 export interface FillData {
 	order: Record<string, unknown>
 	options: Record<string, unknown>
-	outputToken: HexString
-	solverAmount: bigint
+	/** Positional, matching the order's asset lists. A zero amount means the solver did not quote that leg. */
+	legs: FillLeg[]
+}
+
+/**
+ * Zips an order's output assets with the bid's quoted amounts into positional legs. A missing or
+ * null amount is the "solver declined this leg" sentinel and becomes a zero quote. Shared by the
+ * viem extractor below and the indexer's VM2-safe one, so the declined-leg convention has a
+ * single home while only the ABI decode differs per environment.
+ */
+export function zipFillLegs(assets: { token: HexString }[], outputs: { amount: unknown }[]): FillLeg[] {
+	return assets.map((asset, index) => {
+		const rawAmount = outputs[index]?.amount
+		return {
+			outputToken: asset.token,
+			solverAmount: rawAmount === undefined || rawAmount === null ? 0n : BigInt(rawAmount.toString()),
+		}
+	})
 }
 
 export interface RpcBidInfo {
@@ -99,12 +188,36 @@ export interface LpBalance {
 	balance: bigint
 }
 
-/** The aggregated result for a single phantom order's bid window. */
-export interface PhantomAggregation {
+/** One verified solver behind a leg's quote. */
+export interface PhantomLegBidder {
+	solver: HexString
+	/** The solver's output-token inventory on the destination chain — its weight in the median. */
+	weight: bigint
+	/**
+	 * Source chains the solver's signed paymasterAndData declaration accepts payment from. Null
+	 * when the bid carries no declaration (legacy default: all CCTP/USDT0-covered chains); an
+	 * empty array is an explicit accepts-nothing declaration.
+	 */
+	acceptedSources: string[] | null
+}
+
+/** The aggregated price for one leg of a phantom order. */
+export interface PhantomLegAggregation {
+	/** Position of the leg in the order's asset lists. */
+	legIndex: number
+	outputToken: HexString
 	lowestPrice: bigint
 	highestPrice: bigint
 	medianPrice: bigint
 	bidCount: number
+	/** The verified solvers quoting this leg; bidCount === bidders.length. */
+	bidders: PhantomLegBidder[]
+}
+
+/** The aggregated result for a single phantom order's bid window. */
+export interface PhantomAggregation {
+	/** One entry per leg that at least one solver quoted; legs nobody quoted are absent. */
+	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
 }
 
@@ -151,11 +264,11 @@ export function extractFillData(callData: HexString, gatewayAddress: string): Fi
 			const order = decoded.args[0] as Record<string, unknown>
 			const options = decoded.args[1] as Record<string, unknown>
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const outputToken = (order as any)?.output?.assets?.[0]?.token as HexString | undefined
+			const assets = (order as any)?.output?.assets as { token: HexString }[] | undefined
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const outputs = (options as any)?.outputs as { amount: bigint }[] | undefined
-			if (!outputToken || !outputs?.length) continue
-			return { order, options, outputToken, solverAmount: outputs[0].amount }
+			if (!assets?.length || !outputs?.length) continue
+			return { order, options, legs: zipFillLegs(assets, outputs) }
 		} catch {
 			continue
 		}
@@ -369,6 +482,34 @@ async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+/** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
+export type SolverBalanceReader = (
+	evmRpcUrl: string,
+	chain: string,
+	token: string,
+	solver: string,
+) => Promise<bigint>
+
+// One aggregation run reads the same (chain, token, solver) balance from several places — once
+// per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
+// can carry up to 128 legs. Memoizing for the life of the run collapses that to one RPC round
+// trip per distinct triple, at the cost of ignoring balance changes within the run (the snapshot
+// is a point-in-time read either way). Exported so a caller aggregating several orders whose bid
+// windows close on the same block (one bundled order per configured chain) can share one memo
+// across the runs instead of re-reading identical balances per order.
+export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalanceReader {
+	const cache = new Map<string, Promise<bigint>>()
+	return (evmRpcUrl: string, chain: string, token: string, solver: string): Promise<bigint> => {
+		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults)
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
 // Sweeps a solver's liquidity for every configured yield-vault token on every supported chain: for
 // each chain that has both an RPC (in evmRpcUrls) and configured tokens (in yieldVaults), the
 // solver's balance (raw ERC-20 + ERC-4626 vault positions) for each token. Captures the LP's whole
@@ -378,13 +519,14 @@ async function sweepSolverLiquidity(
 	evmRpcUrls: Record<string, string>,
 	yieldVaults: YieldVaultMap,
 	solver: string,
+	getBalance: ReturnType<typeof memoizedSolverBalance>,
 ): Promise<LpBalance[]> {
 	const balances: LpBalance[] = []
 	for (const [chain, tokens] of Object.entries(yieldVaults)) {
 		const url = evmRpcUrls[chain]
 		if (!url) continue
 		for (const token of Object.keys(tokens)) {
-			const balance = await getTotalSolverBalance(url, chain, token, solver, yieldVaults)
+			const balance = await getBalance(url, chain, token, solver)
 			if (balance === 0n) continue
 			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
 		}
@@ -430,6 +572,12 @@ export async function aggregatePhantomBids(params: {
 	recoverSigner?: RecoverBidSigner
 	bidNonceKey?: BidNonceKeyFn
 	orderCommitment?: OrderCommitmentFn
+	/**
+	 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
+	 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
+	 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
+	 */
+	getBalance?: SolverBalanceReader
 	logger?: AggregationLogger
 }): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
@@ -453,7 +601,20 @@ export async function aggregatePhantomBids(params: {
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
 
-	const quotes: { price: bigint; weight: bigint }[] = []
+	// Balances repeat across legs and the sweep; one memo serves the whole run.
+	const getBalance = params.getBalance ?? memoizedSolverBalance(yieldVaults)
+
+	// Quotes per leg, keyed by the leg's position in the order's asset lists. One bid carries a quote
+	// for every leg its solver priced, so a solver that only handles some of the pairs still counts
+	// towards those, and legs it skipped are left to the solvers that do handle them.
+	const quotesByLeg = new Map<
+		number,
+		{
+			outputToken: HexString
+			quotes: { price: bigint; weight: bigint }[]
+			bidders: PhantomLegBidder[]
+		}
+	>()
 	const lpBalances: LpBalance[] = []
 	// Bids are stored per substrate filler, but weight is a property of the EVM solver. Without this
 	// one solver's bid, copied under N funded fillers, would count N times in the weighted median.
@@ -502,30 +663,54 @@ export async function aggregatePhantomBids(params: {
 			}
 			countedSolvers.add(normalizedSolver)
 
-			// Price influence: the solver's liquidity in the output token on the destination chain.
-			const outputTokenAddress = toAddress(fillData.outputToken)
-			const weight = await getTotalSolverBalance(destUrl, chain, outputTokenAddress, solver, yieldVaults)
-			quotes.push({ price: fillData.solverAmount, weight })
+			// The declaration rides in paymasterAndData, which the userOpHash covers, so it carries
+			// the same authenticity as the quote itself.
+			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
 
-			// Full liquidity picture: every configured token on every supported chain.
-			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver)))
+			// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
+			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
+			// across legs still collapse to a single RPC round trip.
+			const quotedLegs = [...fillData.legs.entries()].filter(([, leg]) => leg.solverAmount !== 0n)
+			const weights = await Promise.all(
+				// Price influence: the solver's liquidity in THIS leg's output token on the destination
+				// chain, so a leg is weighted by the inventory that actually backs it.
+				quotedLegs.map(([, leg]) => getBalance(destUrl, chain, toAddress(leg.outputToken), solver)),
+			)
+			for (const [position, [legIndex, leg]] of quotedLegs.entries()) {
+				const weight = weights[position]
+				const entry = quotesByLeg.get(legIndex) ?? { outputToken: leg.outputToken, quotes: [], bidders: [] }
+				entry.quotes.push({ price: leg.solverAmount, weight })
+				entry.bidders.push({ solver: normalizedSolver as HexString, weight, acceptedSources })
+				quotesByLeg.set(legIndex, entry)
+			}
+
+			// Full liquidity picture: every configured token on every supported chain. Swept once per
+			// bid rather than per leg, since it measures the solver's whole inventory either way.
+			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance)))
 		} catch (err) {
 			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}
 	}
 
-	if (quotes.length === 0) return null
+	if (quotesByLeg.size === 0) return null
 
-	// The snapshot reports a single price: the liquidity-weighted median. lowestPrice and
-	// highestPrice carry that same value rather than the raw min/max of the bid set, so consumers
-	// cannot read an outlier bid as if it were a tradeable bound.
-	const medianPrice = weightedMedian(quotes)
+	// Each leg reports a single price: the liquidity-weighted median of the quotes for that leg.
+	// lowestPrice and highestPrice carry that same value rather than the raw min/max of the bid set,
+	// so consumers cannot read an outlier bid as if it were a tradeable bound.
+	const legs = [...quotesByLeg.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([legIndex, { outputToken, quotes, bidders }]) => {
+			const medianPrice = weightedMedian(quotes)
+			return {
+				legIndex,
+				outputToken,
+				lowestPrice: medianPrice,
+				highestPrice: medianPrice,
+				medianPrice,
+				bidCount: quotes.length,
+				bidders,
+			}
+		})
 
-	return {
-		lowestPrice: medianPrice,
-		highestPrice: medianPrice,
-		medianPrice,
-		bidCount: quotes.length,
-		lpBalances,
-	}
+	return { legs, lpBalances }
 }

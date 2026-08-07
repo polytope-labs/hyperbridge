@@ -10,6 +10,7 @@ import {
 	EvmChain,
 	getChainId,
 	orderCommitment,
+	encodeAcceptedSourceChains,
 	encodeUserOpScale,
 	type PackedUserOperation,
 	type FillOptions,
@@ -643,12 +644,18 @@ export class ContractInteractionService {
 	 * Builds a PackedUserOperation for a phantom (expired same-chain) order bid.
 	 * Uses zero relayer fees and default gas values — no estimation needed since
 	 * the order will never execute; the indexer only reads the proposed fill amounts.
+	 *
+	 * When the filler declares accepted source chains, the declaration rides in
+	 * paymasterAndData so the userOpHash — and therefore the solver's bid signature —
+	 * covers it. Phantom bids never reach a bundler or the EntryPoint, so the field is
+	 * free for this; a real fill's paymasterAndData keeps its functional semantics.
 	 */
 	async preparePhantomBidUserOp(
 		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
 		fillerOutputs: TokenInfo[],
+		acceptedSourceChains?: string[],
 	): Promise<{ commitment: HexString; userOp: HexString }> {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 		const client = this.clientManager.getPublicClient(order.destination)
@@ -685,7 +692,9 @@ export class ContractInteractionService {
 			maxFeePerGas: gasPrice,
 			maxPriorityFeePerGas: gasPrice / 10n,
 			callData,
-			paymasterAndData: "0x" as HexString,
+			paymasterAndData: acceptedSourceChains
+				? encodeAcceptedSourceChains(acceptedSourceChains)
+				: ("0x" as HexString),
 		})
 
 		return { commitment, userOp: encodeUserOpScale(userOp) }

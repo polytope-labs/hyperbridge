@@ -811,6 +811,14 @@ export interface FillerConfig {
 	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
 	 */
 	watchOnly?: Record<number, boolean>
+
+	/**
+	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
+	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
+	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
+	 * chains"; an empty array declares that no source chain is accepted.
+	 */
+	acceptedSourceChains?: string[]
 }
 
 /**
@@ -1352,9 +1360,9 @@ export interface FillOrderEstimate {
 export interface OrderFeesQuote {
 	/**
 	 * The amount to set as `Order.fees`, denominated in the source-chain fee
-	 * token. Same-chain fills carry a 2x margin over the estimated fill gas;
-	 * cross-chain fills add the settlement relayer fee and a 5% buffer over
-	 * the whole sum.
+	 * token. Same-chain fills carry a 2x margin over the estimated fill gas without
+	 * a gas-price bump. Cross-chain gas is priced with 10% SDK-only headroom before
+	 * adding the settlement relayer fee and a further 5% buffer over the whole sum.
 	 */
 	fees: bigint
 	/**

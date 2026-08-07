@@ -145,6 +145,12 @@ export interface FillerTomlConfig {
 			maxOverfillBps?: number
 			maxConsecutiveClamps?: number
 		}
+		/**
+		 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from,
+		 * declared inside its phantom bids. Omit to declare nothing (read downstream as "all
+		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.
+		 */
+		acceptedSourceChains?: string[]
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
@@ -266,6 +272,17 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")
+		}
+	}
+
+	if (config.simplex.acceptedSourceChains !== undefined) {
+		if (
+			!Array.isArray(config.simplex.acceptedSourceChains) ||
+			config.simplex.acceptedSourceChains.some((chain) => typeof chain !== "string" || !chain.trim())
+		) {
+			throw new Error(
+				"simplex.acceptedSourceChains must be an array of state machine ids (e.g. \"EVM-8453\")",
+			)
 		}
 	}
 

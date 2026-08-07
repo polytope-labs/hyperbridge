@@ -5,13 +5,17 @@ export { decodeUserOpScale, encodeUserOpScale } from "@/chains/intentsCoprocesso
 export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
 export {
 	aggregatePhantomBids,
+	decodeAcceptedSourceChains,
+	encodeAcceptedSourceChains,
 	extractFillData,
 	fetchBidsForOrder,
+	memoizedSolverBalance,
 	orderCommitmentFromDecoded,
 	recoverBidSignerViem,
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
+	zipFillLegs,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
 	type AggregationLogger,
@@ -23,7 +27,10 @@ export {
 	type LpBalance,
 	type OrderCommitmentFn,
 	type PhantomAggregation,
+	type PhantomLegAggregation,
+	type PhantomLegBidder,
 	type RecoverBidSigner,
+	type SolverBalanceReader,
 	type RpcBidInfo,
 	type YieldVaultMap,
 } from "@/protocols/intents/phantom-aggregation"

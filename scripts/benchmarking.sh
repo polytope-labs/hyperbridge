@@ -22,6 +22,7 @@ declare -a nexus=(
 "pallet_treasury"
 "pallet_utility"
 "pallet_hyper_fungible_token"
+"pallet_intents_coprocessor"
 )
 
 cargo build -rp hyperbridge -F=runtime-benchmarks

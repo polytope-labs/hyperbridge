@@ -86,13 +86,22 @@ interface RpcBidInfo {
 	user_op: HexString
 }
 
+/** One directed leg of a phantom order: `standardAmount` of `tokenA` quoted in `tokenB`. */
+export interface PhantomOrderLeg {
+	tokenA: HexString
+	tokenB: HexString
+	standardAmount: bigint
+}
+
 export interface PhantomOrderEvent {
 	commitment: HexString
 	chain: string
 	createdAt: number
-	tokenA: HexString
-	tokenB: HexString
-	standardAmount: bigint
+	/**
+	 * Every configured pair expands into its configured direction plus the reverse. Listed in
+	 * the same order as the order's asset lists, so index `i` here is the order's leg `i`.
+	 */
+	legs: PhantomOrderLeg[]
 }
 
 export interface PollPhantomOrdersOptions {
@@ -636,14 +645,17 @@ export class IntentsCoprocessor {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		for (const { event } of records as unknown as Array<{ event: any }>) {
 			if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
-			const [commitment, chain, createdAt, tokenA, tokenB, standardAmount] = event.data
+			const [commitment, chain, createdAt, legs] = event.data
 			orders.push({
 				commitment: commitment.toHex() as HexString,
 				chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
 				createdAt: createdAt.toNumber(),
-				tokenA: tokenA.toHex() as HexString,
-				tokenB: tokenB.toHex() as HexString,
-				standardAmount: BigInt(standardAmount.toString()),
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				legs: (legs as any[]).map((leg: any) => ({
+					tokenA: leg.tokenA.toHex() as HexString,
+					tokenB: leg.tokenB.toHex() as HexString,
+					standardAmount: BigInt(leg.standardAmount.toString()),
+				})),
 			})
 		}
 		return orders

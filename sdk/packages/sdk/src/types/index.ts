@@ -796,6 +796,14 @@ export interface FillerConfig {
 	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
 	 */
 	watchOnly?: Record<number, boolean>
+
+	/**
+	 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from when
+	 * filling cross-chain orders, declared inside its phantom bids' paymasterAndData. Omit to
+	 * declare nothing, which downstream consumers read as "accepts all CCTP/USDT0-covered
+	 * chains"; an empty array declares that no source chain is accepted.
+	 */
+	acceptedSourceChains?: string[]
 }
 
 /**

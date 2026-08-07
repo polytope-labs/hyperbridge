@@ -246,6 +246,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 		pendingQueueConfig: config.simplex.queue,
 		watchOnly: watchOnlyConfig,
+		acceptedSourceChains: config.simplex.acceptedSourceChains,
 	} as FillerConfig
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections

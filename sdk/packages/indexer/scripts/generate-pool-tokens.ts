@@ -11,9 +11,25 @@
 import fs from "node:fs"
 
 import { type Configuration, loadConfig } from "../src/configs"
-import { POOL_TOKENS as PREVIOUS_POOL_TOKENS } from "../src/addresses/pool-tokens.generated"
 
 const root = process.cwd()
+
+type PoolTokenMap = Record<string, Record<string, { symbol: string; decimals: number }>>
+
+// Loaded dynamically, not by a top-level import: this script is copied into the release tarball
+// along with the rest of scripts/, where src/addresses/ does not exist. A static import there
+// fails at module resolution with an ERR_MODULE_NOT_FOUND that says nothing about why.
+const loadPreviousPoolTokens = async (): Promise<PoolTokenMap> => {
+	try {
+		const module = await import("../src/addresses/pool-tokens.generated")
+		return module.POOL_TOKENS as PoolTokenMap
+	} catch {
+		throw new Error(
+			"src/addresses/pool-tokens.generated.ts not found. This script refreshes a committed " +
+				"registry and only runs inside the repository, not in an assembled release package.",
+		)
+	}
+}
 
 // Addresses come from each chain's "yieldVaults" keys, so the set a pool maps to and the set
 // the balance sweep tracks are the same list read twice and cannot drift apart.
@@ -94,7 +110,7 @@ const generatePoolTokens = async () => {
 		...Object.entries(loadConfig("testnet")),
 	])
 
-	const previousAll = PREVIOUS_POOL_TOKENS as Record<string, Record<string, { symbol: string; decimals: number }>>
+	const previousAll = await loadPreviousPoolTokens()
 	const resolved: Record<string, Record<string, { symbol: string; decimals: number }>> = {}
 	const warnings: string[] = []
 	const failures: string[] = []

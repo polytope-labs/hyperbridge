@@ -11,6 +11,14 @@ import { PhantomOrderLeg, PhantomOrderV2 } from "@/configs/src/types"
 // a registration carries a list of directed legs. Their position in the list is the leg's position
 // in the order's asset lists, which is what ties a leg back to the bid amounts quoted for it.
 export const handlePhantomOrderRegistered = wrap(async (event: SubstrateEvent): Promise<void> => {
+	// Before pairs were bundled, the pallet emitted one order per pair as a flat
+	// (commitment, chain, created_at, token_a, token_b, standard_amount). Nothing distinguishes the
+	// two shapes at the filter, so pre-upgrade blocks reach this handler too, and their fourth field
+	// is an H160 rather than a leg list — a Uint8Array, so reading it as legs iterates raw bytes
+	// instead of failing outright. Those orders belong to the retired PhantomOrder entity, so there
+	// is nothing to index for them.
+	if (event.event.data.length !== 4) return
+
 	const [commitmentData, chainData, createdAtData, legsData] = event.event.data
 
 	const commitment = commitmentData.toString()

@@ -25,6 +25,7 @@ export const POOL_TOKENS: Record<string, Record<string, PoolToken>> = {
 		"0x1abaea1f7c830bd89acc67ec4af516284b1bc33c": { symbol: "EURC", decimals: 6 },
 		"0x70e8de73ce538da2beed35d14187f6959a8eca96": { symbol: "XSGD", decimals: 6 },
 		"0x2c537e5624e4af88a7ae4060c022609376c8d0eb": { symbol: "TRYB", decimals: 6 },
+		"0x9623dfb044d5612ce0c0f1606973ccaefd03cd05": { symbol: "USDR", decimals: 6 },
 	},
 	"EVM-10": {
 		"0x0b2c639c533813f4aa9d7837caf62653d097ff85": { symbol: "USDC", decimals: 6 },
@@ -39,6 +40,8 @@ export const POOL_TOKENS: Record<string, Record<string, PoolToken>> = {
 	"EVM-100": {
 		"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": { symbol: "USDC", decimals: 6 },
 		"0x4ecaba5870353805a9f068101a40e0f32ed605c6": { symbol: "USDT", decimals: 6 },
+		// WXDAI on chain, carried as DAI so gnosis legs pool with DAI elsewhere — matches chain.ts.
+		"0xe91d153e0b41518a2ce8dd3d7944fa863463a97d": { symbol: "DAI", decimals: 18 },
 	},
 	"EVM-137": {
 		"0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": { symbol: "USDC", decimals: 6 },
@@ -47,6 +50,7 @@ export const POOL_TOKENS: Record<string, Record<string, PoolToken>> = {
 		"0x52828daa48c1a9a06f37500882b42daf0be04c3b": { symbol: "cNGN", decimals: 6 },
 		"0xb755506531786c8ac63b756bab1ac387bacb0c04": { symbol: "ZARP", decimals: 18 },
 		"0xdc3326e71d45186f113a2f448984ca0e8d201995": { symbol: "XSGD", decimals: 6 },
+		"0x3b5f2810fb2168ffa9c73160f97bf9f2461ffa5c": { symbol: "USDR", decimals: 6 },
 	},
 	"EVM-1868": {
 		"0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369": { symbol: "USDC", decimals: 6 },
@@ -58,6 +62,7 @@ export const POOL_TOKENS: Record<string, Record<string, PoolToken>> = {
 		"0x46c85152bfe9f96829aa94755d9f915f9b10ef5f": { symbol: "cNGN", decimals: 6 },
 		"0xb755506531786c8ac63b756bab1ac387bacb0c04": { symbol: "ZARP", decimals: 18 },
 		"0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42": { symbol: "EURC", decimals: 6 },
+		"0x3b5f2810fb2168ffa9c73160f97bf9f2461ffa5c": { symbol: "USDR", decimals: 6 },
 	},
 	"EVM-42161": {
 		"0xaf88d065e77c8cc2239327c5edb3a432268e5831": { symbol: "USDC", decimals: 6 },
@@ -65,7 +70,10 @@ export const POOL_TOKENS: Record<string, Record<string, PoolToken>> = {
 		"0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": { symbol: "DAI", decimals: 18 },
 	},
 	"EVM-420420419": {
+		// Asset Hub assets surfaced at their asset-id precompile addresses: 0x539 = 1337 (USDC),
+		// 0x7c0 = 1984 (Tether USD). chain.ts still carries a zero-address placeholder for USDT.
 		"0x0000053900000000000000000000000001200000": { symbol: "USDC", decimals: 6 },
+		"0x000007c000000000000000000000000001200000": { symbol: "USDT", decimals: 6 },
 	},
 	// Testnets
 	"EVM-97": {

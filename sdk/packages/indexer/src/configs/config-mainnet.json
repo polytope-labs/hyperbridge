@@ -318,8 +318,13 @@
 				}
 			},
 			"tokenSlots": {
+				"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": {
+					"description": "USD//C on xDai (PermittableToken, the USDC this config trades on Gnosis) \u2014 balances at slot 3, allowed at slot 5",
+					"balanceSlot": 3,
+					"allowanceSlot": 5
+				},
 				"0x2a22f9c3b484c3629090feed35f17ff8f88f76f0": {
-					"description": "Gnosis USDC (FiatToken-based bridge) \u2014 balances at slot 9, allowed at slot 10",
+					"description": "USDC.e / Bridged USDC (Gnosis), a Circle FiatToken \u2014 balances at slot 9, allowed at slot 10. Distinct from the USD//C above, and not referenced anywhere else in this config",
 					"balanceSlot": 9,
 					"allowanceSlot": 10
 				}

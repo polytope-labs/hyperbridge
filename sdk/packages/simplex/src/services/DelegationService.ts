@@ -166,10 +166,6 @@ export class DelegationService {
 		}
 
 		try {
-			// Build EIP-7702 authorization (bundler submits the tx, so use the current nonce)
-			// and carry it inside the UserOp so a not-yet-delegated EOA is delegated in the op.
-			const authorization = await this.buildAuthorization(chain, solverAccountContract, true)
-
 			this.logger.info(
 				{ chain, solverAccount: this.signer.account.address, solverAccountContract, mode: "bundler" },
 				"Setting up EIP-7702 delegation via bundler with paymaster",
@@ -196,10 +192,15 @@ export class DelegationService {
 			})
 			const isFreshEoa = !code || code === "0x"
 
+			// The EIP-7702 authorization rides inside the UserOp so a not-yet-delegated
+			// EOA is delegated in the op (bundler submits the tx, so it uses the current
+			// nonce). Passed as a factory: the sender signs it only after paymaster data
+			// is built, because approve-mode chains send an approve tx from this same EOA
+			// at that step, which would invalidate an authorization signed beforehand.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData: "0x" as HexString,
-				eip7702Auth: authorization,
+				eip7702Auth: () => this.buildAuthorization(chain, solverAccountContract, true),
 				gas: isFreshEoa
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },

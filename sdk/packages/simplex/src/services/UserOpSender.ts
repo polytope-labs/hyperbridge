@@ -6,6 +6,7 @@ import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
+import type { PaymasterDataResult } from "./paymaster"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -30,8 +31,14 @@ export interface SponsoredUserOpRequest {
 	chain: string
 	/** ERC-7821 batch (or "0x" for a no-op, e.g. delegation). */
 	callData: HexString
-	/** Attach when the EOA still needs delegating in this op. */
-	eip7702Auth?: Eip7702Authorization
+	/**
+	 * Attach when the EOA still needs delegating in this op. Pass a factory rather
+	 * than a pre-signed tuple: building paymaster data can send an approve tx from
+	 * the authority EOA (Simplex approve mode), and an authorization signed before
+	 * that tx embeds a stale nonce the bundler will reject. The factory runs only
+	 * after paymaster data is built.
+	 */
+	eip7702Auth?: Eip7702Authorization | (() => Promise<Eip7702Authorization>)
 	/** EntryPoint nonce key. Defaults to 0. */
 	nonceKey?: bigint
 	/**
@@ -74,8 +81,9 @@ const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
  * Submission contract (so callers can safely fall back to a native tx without
  * risking a double-execution):
  * - Returns `null` when the op was **never submitted** — paymaster/bundler not
- *   configured, insufficient USDC, or the bundler rejected `eth_sendUserOperation`
- *   outright (it never entered the mempool). The caller may fall back to native.
+ *   configured, insufficient USDC, preparation failed (approve tx or signing), or
+ *   the bundler rejected `eth_sendUserOperation` outright (it never entered the
+ *   mempool). The caller may fall back to native.
  * - Returns `{ txHash }` once a receipt is observed.
  * - **Throws** only when the op **was submitted** but no receipt arrived. The
  *   caller must NOT fall back (the op may still land) — retry on the next cycle.
@@ -120,21 +128,35 @@ export class UserOpSender {
 		const solverAccount = this.signer.account.address as HexString
 		const chainId = this.configService.getChainId(chain)
 
-		const pm = await buildPaymasterAndData({
-			chain,
-			solverAccount,
-			publicClient,
-			walletClient,
-			signer: this.signer,
-			configService: this.configService,
-			paymasterVerificationGasLimit,
-			forceApproveMode,
-		})
-		if (pm.type === "none") {
-			this.logger.warn(
-				{ chain, solverAccount, reason: pm.reason },
-				"No paymaster can sponsor this UserOp; caller should fall back to native",
-			)
+		let pm: PaymasterDataResult
+		let auth: Eip7702Authorization | undefined
+		try {
+			pm = await buildPaymasterAndData({
+				chain,
+				solverAccount,
+				publicClient,
+				walletClient,
+				signer: this.signer,
+				configService: this.configService,
+				paymasterVerificationGasLimit,
+				forceApproveMode,
+			})
+			if (pm.type === "none") {
+				this.logger.warn(
+					{ chain, solverAccount, reason: pm.reason },
+					"No paymaster can sponsor this UserOp; caller should fall back to native",
+				)
+				return null
+			}
+
+			// Sign the EIP-7702 authorization only after paymaster data is built —
+			// approve-mode building sends an approve tx from the authority EOA, and an
+			// authorization signed before that tx embeds a stale nonce (bundler reject).
+			auth = typeof eip7702Auth === "function" ? await eip7702Auth() : eip7702Auth
+		} catch (error) {
+			// Preparation failures (approve tx, permit/authorization signing) happen
+			// before anything reaches the bundler — never submitted, safe to fall back.
+			this.logger.warn({ chain, error }, "Failed to prepare sponsored UserOp; caller should fall back to native")
 			return null
 		}
 		this.logger.info({ chain, paymaster: pm.address, type: pm.type, token: pm.token }, "Paymaster selected")
@@ -149,14 +171,14 @@ export class UserOpSender {
 			args: [solverAccount, nonceKey],
 		})) as bigint
 
-		const formattedAuth = eip7702Auth
+		const formattedAuth = auth
 			? {
-					address: eip7702Auth.address,
-					chainId: toHex(eip7702Auth.chainId),
-					nonce: toHex(eip7702Auth.nonce),
-					r: eip7702Auth.r,
-					s: eip7702Auth.s,
-					yParity: toHex(eip7702Auth.yParity),
+					address: auth.address,
+					chainId: toHex(auth.chainId),
+					nonce: toHex(auth.nonce),
+					r: auth.r,
+					s: auth.s,
+					yParity: toHex(auth.yParity),
 				}
 			: undefined
 

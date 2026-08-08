@@ -600,6 +600,21 @@ export interface DecodedOrderPlacedLog extends Log {
 			token: HexString
 			amount: bigint
 		}>
+		/**
+		 * Calldata executed via the CallDispatcher before escrow.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		predispatchCall?: HexString
+		/**
+		 * Calldata executed on the destination chain during the fill.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		outputCall?: HexString
+		/**
+		 * Attribution tag supplied by the order placer.
+		 * Absent on logs emitted under the pre-#1092 event schema.
+		 */
+		graffiti?: HexString
 	}
 	transactionHash: HexString
 }

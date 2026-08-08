@@ -26,6 +26,8 @@ describe.sequential("IntentsCoprocessor", () => {
 	}
 	const encodedUserOp = encodeUserOp(testUserOp)
 
+	// The default 10s hook timeout races websocket jitter on the public
+	// Hyperbridge endpoint; give the connection a real window.
 	beforeAll(async () => {
 		hyperbridge = await SubstrateChain.connect({
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
@@ -40,12 +42,12 @@ describe.sequential("IntentsCoprocessor", () => {
 
 		console.log("Test commitment:", testCommitment)
 		console.log("Test userOp sender:", testUserOp.sender)
-	})
+	}, 60_000)
 
 	afterAll(async () => {
-		await hyperbridge.disconnect()
+		await hyperbridge?.disconnect()
 		console.log("Disconnected")
-	})
+	}, 60_000)
 
 	it("should submit a bid with realistic userOp", async () => {
 		const keyPair = coprocessor.getKeyPair()

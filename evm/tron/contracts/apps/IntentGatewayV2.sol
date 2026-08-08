@@ -190,7 +190,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         /// @dev The tokens that are escrowed for the filler.
         TokenInfo[] inputs,
         /// @dev The tokens that the filler will provide.
-        TokenInfo[] outputs
+        TokenInfo[] outputs,
+        /// @dev The calldata executed via the CallDispatcher before escrow.
+        bytes predispatchCall,
+        /// @dev The calldata executed on the destination chain during the fill.
+        bytes outputCall,
+        /// @dev The attribution tag supplied by the order placer.
+        bytes32 graffiti
     );
 
     /**
@@ -492,7 +498,10 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             predispatch: order.predispatch.assets,
             inputs: reducedInputs,
             beneficiary: order.output.beneficiary,
-            outputs: order.output.assets
+            outputs: order.output.assets,
+            predispatchCall: order.predispatch.call,
+            outputCall: order.output.call,
+            graffiti: graffiti
         });
     }
 

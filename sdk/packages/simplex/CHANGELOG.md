@@ -1,9 +1,11 @@
 # @hyperbridge/filler
 
-## Unreleased
+## 0.9.0
 
 ### Minor Changes
 
+- BREAKING: order reconstruction is pure log decoding. `OrderPlaced` logs now carry the full order (call payloads and graffiti), so the `debug_traceTransaction` calldata-recovery path and the per-transaction occurrence pairing are removed — order detection needs nothing beyond `eth_getLogs`. The filler only understands the new event schema: it must run against upgraded IntentGatewayV2 deployments, sees nothing from pre-upgrade gateways (different event topic), and logs an error for any decoded log missing its call payloads. Upgrade the filler in lockstep with the gateway deployment.
+- `reconstructOrdersFromLogs` is now synchronous and `ReconstructDeps` reduces to `{ onError }` — the `getPlaceOrderCalldata` dependency is gone.
 - Local web UI: browser setup wizard (`simplex` with no config) that writes the config and starts the filler in-process, plus an operator dashboard (status, pause/resume, graceful stop, balances, inflight price-curve edits persisted to the config file, overfill self-halt reset, live activity feed over SSE, manual vault sweep/redeem, runtime allowlist and log-level changes, rebalancing trigger view)
 - Web wizard supports MPCVault/Turnkey signers and Uniswap V4 pool pricing
 - Terminal setup wizard via `simplex init`

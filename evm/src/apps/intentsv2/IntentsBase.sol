@@ -229,6 +229,9 @@ abstract contract IntentsBase is EIP712 {
      * @param predispatch The tokens sent to the CallDispatcher for pre-order execution.
      * @param inputs The escrowed input tokens (after protocol fee deduction).
      * @param outputs The desired output tokens on the destination chain.
+     * @param predispatchCall The calldata executed via the CallDispatcher before escrow.
+     * @param outputCall The calldata executed on the destination chain during the fill.
+     * @param graffiti The attribution tag supplied by the order placer.
      */
     event OrderPlaced(
         bytes32 user,
@@ -241,7 +244,10 @@ abstract contract IntentsBase is EIP712 {
         bytes32 beneficiary,
         TokenInfo[] predispatch,
         TokenInfo[] inputs,
-        TokenInfo[] outputs
+        TokenInfo[] outputs,
+        bytes predispatchCall,
+        bytes outputCall,
+        bytes32 graffiti
     );
 
     /**

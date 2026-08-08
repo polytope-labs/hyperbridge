@@ -373,7 +373,23 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 	afterAll(async () => {
 		await Promise.all(fillers.map((f) => f.stop().catch(() => {})))
 		await api?.disconnect()
-	})
+	}, 60_000)
+
+	/**
+	 * Seals blocks until every commitment has `expected` bids or the deadline
+	 * passes. The fill pipeline (offchain-storage fetch → quote against the
+	 * fork → UserOp build → submit) is bounded by upstream RPC latency, so a
+	 * fixed sleep races it; polling keeps the assertions strict without the race.
+	 */
+	async function waitForBids(commitments: HexString[], expected: number, timeoutMs = 120_000): Promise<void> {
+		const deadline = Date.now() + timeoutMs
+		for (;;) {
+			await new Promise((r) => setTimeout(r, 2_000))
+			await createBlock(api)
+			const counts = await Promise.all(commitments.map((c) => driver.getBidsForOrder(c).then((b) => b.length)))
+			if (counts.every((n) => n >= expected) || Date.now() > deadline) return
+		}
+	}
 
 	it("real fillers bid on every chain's order and the SDK aggregation reduces each to a snapshot", async () => {
 		// Register the phantom orders; the fillers' subscriptions pick them up and submit one bid
@@ -384,12 +400,9 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		const commitments = await getActivePhantomCommitments(api)
 		expect([...commitments.keys()].sort()).toEqual(CHAINS.map((c) => c.stateMachine).sort())
 
-		// Give the fillers time to fetch the orders, quote, build the UserOps, and submit, then seal
-		// the blocks that include their bids.
-		await new Promise((r) => setTimeout(r, 8_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 3_000))
-		await createBlock(api)
+		// Seal blocks until every filler's bid lands for every chain's order (or
+		// the deadline passes and the assertions below report the shortfall).
+		await waitForBids([...commitments.values()], FILLERS.length)
 
 		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
 		// Two pairs per chain expand into four positional legs, in config order; the output token
@@ -474,11 +487,8 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		const commitments = await getActivePhantomCommitments(api)
 		expect(commitments.size).toBe(CHAINS.length)
 
-		// Let the fillers quote + submit their bids, then seal the blocks carrying them.
-		await new Promise((r) => setTimeout(r, 8_000))
-		await createBlock(api)
-		await new Promise((r) => setTimeout(r, 3_000))
-		await createBlock(api)
+		// Seal blocks until the fillers' bids land for every chain's order.
+		await waitForBids([...commitments.values()], FILLERS.length)
 
 		const nodeUrl = SIMNODE_URL.replace(/^ws/, "http")
 		for (const c of CHAINS) {

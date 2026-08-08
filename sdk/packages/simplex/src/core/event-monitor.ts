@@ -1,20 +1,14 @@
 import { EventEmitter } from "events"
 import {
 	ChainConfig,
-	EvmChain,
-	IChain,
 	Order,
-	TronChain,
 	orderCommitment,
 	normalizeStateMachineId,
 	retryPromise,
 	DecodedOrderPlacedLog,
 	HexString,
-	tronChainIds,
-	IEvmChain,
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
-import { decodeFunctionData } from "viem"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
@@ -22,83 +16,63 @@ import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { Mutex } from "async-mutex"
 
 export interface ReconstructDeps {
-	getPlaceOrderCalldata: (txHash: string, occurrenceIndex: number) => Promise<HexString>
-	onError?: (err: unknown, log: DecodedOrderPlacedLog, occurrenceIndex: number) => void
+	onError?: (err: unknown, log: DecodedOrderPlacedLog) => void
 }
 
 /**
- * Pure reconstruction of `OrderPlaced` logs into `Order` structs with commitments.
- * Groups logs by transaction hash and pairs the K-th log in a tx with the K-th
- * placeOrder calldata supplied by `deps.getPlaceOrderCalldata(txHash, K)`.
+ * Pure reconstruction of `OrderPlaced` logs into `Order` structs with
+ * commitments. Every log carries the complete order — including both call
+ * payloads — so each order is rebuilt from its log alone.
  */
-export async function reconstructOrdersFromLogs(
+export function reconstructOrdersFromLogs(
 	logs: DecodedOrderPlacedLog[],
-	deps: ReconstructDeps,
-): Promise<{ order: Order; transactionHash: string }[]> {
-	const logsByTx = new Map<string, { log: DecodedOrderPlacedLog; occurrenceIndex: number }[]>()
-	for (const log of logs) {
-		const txHash = log.transactionHash as string
-		const bucket = logsByTx.get(txHash) ?? []
-		bucket.push({ log, occurrenceIndex: bucket.length })
-		logsByTx.set(txHash, bucket)
-	}
-
+	deps: ReconstructDeps = {},
+): { order: Order; transactionHash: string }[] {
 	const out: { order: Order; transactionHash: string }[] = []
 
-	for (const [transactionHash, entries] of logsByTx) {
-		for (const { log: decodedLog, occurrenceIndex } of entries) {
-			try {
-				let order: Order = {
-					user: decodedLog.args.user,
-					source: normalizeStateMachineId(decodedLog.args.source) as HexString,
-					destination: normalizeStateMachineId(decodedLog.args.destination) as HexString,
-					deadline: decodedLog.args.deadline,
-					nonce: decodedLog.args.nonce,
-					fees: decodedLog.args.fees,
-					session: decodedLog.args.session,
-					predispatch: {
-						assets: decodedLog.args.predispatch.map(
-							(predispatch: { token: HexString; amount: bigint }) => ({
-								token: predispatch.token,
-								amount: predispatch.amount,
-							}),
-						),
-						call: "0x",
-					},
-					output: {
-						beneficiary: "0x0000000000000000000000000000000000000000",
-						assets: decodedLog.args.outputs.map(
-							(output: { token: HexString; amount: bigint }) => ({
-								token: output.token,
-								amount: output.amount,
-							}),
-						),
-						call: "0x",
-					},
-					inputs: decodedLog.args.inputs.map(
-						(input: { token: HexString; amount: bigint }) => ({
-							token: input.token,
-							amount: input.amount,
+	for (const decodedLog of logs) {
+		try {
+			const { predispatchCall, outputCall } = decodedLog.args
+			if (predispatchCall === undefined || outputCall === undefined) {
+				throw new Error("OrderPlaced log is missing its call payloads; pre-#1092 gateways are not supported")
+			}
+
+			const order: Order = {
+				user: decodedLog.args.user,
+				source: normalizeStateMachineId(decodedLog.args.source) as HexString,
+				destination: normalizeStateMachineId(decodedLog.args.destination) as HexString,
+				deadline: decodedLog.args.deadline,
+				nonce: decodedLog.args.nonce,
+				fees: decodedLog.args.fees,
+				session: decodedLog.args.session,
+				predispatch: {
+					assets: decodedLog.args.predispatch.map(
+						(predispatch: { token: HexString; amount: bigint }) => ({
+							token: predispatch.token,
+							amount: predispatch.amount,
 						}),
 					),
-				}
-
-				const placeOrderCallInput = await deps.getPlaceOrderCalldata(transactionHash, occurrenceIndex)
-
-				const decodedCalldata = decodeFunctionData({
-					abi: INTENT_GATEWAY_V2_ABI,
-					data: placeOrderCallInput as HexString,
-				})?.args?.[0] as Order
-
-				order.output.beneficiary = decodedCalldata.output.beneficiary as `0x${string}`
-				order.output.call = decodedCalldata.output.call as HexString
-				order.predispatch.call = decodedCalldata.predispatch.call as HexString
-				order.id = orderCommitment(order)
-
-				out.push({ order, transactionHash })
-			} catch (error) {
-				if (deps.onError) deps.onError(error, decodedLog, occurrenceIndex)
+					call: predispatchCall,
+				},
+				output: {
+					beneficiary: decodedLog.args.beneficiary,
+					assets: decodedLog.args.outputs.map((output: { token: HexString; amount: bigint }) => ({
+						token: output.token,
+						amount: output.amount,
+					})),
+					call: outputCall,
+				},
+				inputs: decodedLog.args.inputs.map((input: { token: HexString; amount: bigint }) => ({
+					token: input.token,
+					amount: input.amount,
+				})),
 			}
+
+			order.id = orderCommitment(order)
+
+			out.push({ order, transactionHash: decodedLog.transactionHash as string })
+		} catch (error) {
+			if (deps.onError) deps.onError(error, decodedLog)
 		}
 	}
 
@@ -106,7 +80,6 @@ export async function reconstructOrdersFromLogs(
 }
 
 export class EventMonitor extends EventEmitter {
-	private chains: Map<number, IEvmChain> = new Map()
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
 	private listening: boolean = false
 	private configService: FillerConfigService
@@ -128,15 +101,6 @@ export class EventMonitor extends EventEmitter {
 
 		chainConfigs.forEach((config) => {
 			const chainName = `EVM-${config.chainId}`
-			const chainParams = {
-				stateMachineId: chainName,
-				chainId: config.chainId,
-				rpcUrl: this.configService.getRpcUrl(chainName),
-				host: this.configService.getHostAddress(chainName),
-				consensusStateId: this.configService.getConsensusStateId(chainName),
-			}
-			const chain = EvmChain.fromParams(chainParams)
-			this.chains.set(config.chainId, chain as IEvmChain)
 			this.scanningMutexes.set(config.chainId, new Mutex())
 
 			// Shared quorum client over the operator's configured endpoints, also
@@ -162,7 +126,7 @@ export class EventMonitor extends EventEmitter {
 				(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
 		)
 
-		for (const [chainId, chain] of this.chains.entries()) {
+		for (const chainId of this.quorumClients.keys()) {
 			try {
 				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
 
@@ -190,7 +154,7 @@ export class EventMonitor extends EventEmitter {
 
 					await mutex.runExclusive(async () => {
 						try {
-							await this.scanBlocks(chainId, chain, quorumClient, intentGatewayAddress, gatewayEvents)
+							await this.scanBlocks(chainId, quorumClient, intentGatewayAddress, gatewayEvents)
 						} catch (error) {
 							this.logger.error({ chainId, err: error }, "Error in block scanner")
 						}
@@ -216,7 +180,6 @@ export class EventMonitor extends EventEmitter {
 
 	private async scanBlocks(
 		chainId: number,
-		chain: IEvmChain,
 		quorumClient: QuorumPublicClient,
 		intentGatewayAddress: `0x${string}`,
 		gatewayEvents: any[],
@@ -269,7 +232,7 @@ export class EventMonitor extends EventEmitter {
 				{ chainId, fromBlock, toBlock, eventCount: placedLogs.length },
 				"Found OrderPlaced events in block scan",
 			)
-			await this.processOrderPlacedLogs(chainId, chain, placedLogs)
+			this.processOrderPlacedLogs(placedLogs)
 		}
 
 		if (filledLogs.length > 0) {
@@ -283,18 +246,10 @@ export class EventMonitor extends EventEmitter {
 		this.lastScannedBlock.set(chainId, toBlock)
 	}
 
-	private async processOrderPlacedLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {
-		const results = await reconstructOrdersFromLogs(logs as DecodedOrderPlacedLog[], {
-			getPlaceOrderCalldata: (txHash, occurrenceIndex) => {
-				const sourceFromTxHash = (logs as DecodedOrderPlacedLog[]).find((l) => l.transactionHash === txHash)
-				const source = sourceFromTxHash
-					? (normalizeStateMachineId(sourceFromTxHash.args.source) as HexString)
-					: undefined
-				const intentGatewayAddress = this.configService.getIntentGatewayAddress(source!)
-				return chain.getPlaceOrderCalldata!(txHash, intentGatewayAddress, occurrenceIndex)
-			},
-			onError: (err, decodedLog, occurrenceIndex) => {
-				this.logger.error({ err, log: decodedLog, occurrenceIndex }, "Error parsing event log")
+	private processOrderPlacedLogs(logs: any[]): void {
+		const results = reconstructOrdersFromLogs(logs as DecodedOrderPlacedLog[], {
+			onError: (err, decodedLog) => {
+				this.logger.error({ err, log: decodedLog }, "Error parsing event log")
 			},
 		})
 

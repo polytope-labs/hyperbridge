@@ -227,6 +227,122 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(dustCollectedFound, "DustCollected event should be emitted");
     }
 
+    /// @dev Mirror of the OrderPlaced event parameters, used to abi.decode raw log data.
+    struct OrderPlacedEventData {
+        bytes32 user;
+        string source;
+        string destination;
+        uint256 deadline;
+        uint256 nonce;
+        uint256 fees;
+        address session;
+        bytes32 beneficiary;
+        TokenInfo[] predispatch;
+        TokenInfo[] inputs;
+        TokenInfo[] outputs;
+        bytes predispatchCall;
+        bytes outputCall;
+        bytes32 graffiti;
+    }
+
+    function testOrderPlacedEventCarriesCallPayloadsAndGraffiti() public {
+        // Predispatch: swap 1 ETH -> DAI via UniswapV2 so predispatchCall is non-empty.
+        uint256 ethAmount = 1 ether;
+        address[] memory path = new address[](2);
+        path[0] = WETH;
+        path[1] = address(dai);
+        uint256[] memory amounts = _uniswapV2Router.getAmountsOut(ethAmount, path);
+        uint256 minDaiAmount = (amounts[1] * 95) / 100;
+
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({
+            to: address(_uniswapV2Router),
+            value: ethAmount,
+            data: abi.encodeWithSelector(
+                _uniswapV2Router.swapExactETHForTokens.selector,
+                minDaiAmount,
+                path,
+                address(dispatcher),
+                block.timestamp + 3600
+            )
+        });
+
+        TokenInfo[] memory predispatchAssets = new TokenInfo[](1);
+        predispatchAssets[0] = TokenInfo({token: bytes32(0), amount: ethAmount});
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: minDaiAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 2000 * 1e6});
+
+        Call[] memory outputCalls = new Call[](1);
+        outputCalls[0] =
+            Call({to: address(usdc), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, 1)});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: abi.encodePacked("DEST_CHAIN"),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: predispatchAssets, call: abi.encode(calls)}),
+            inputs: inputs,
+            output: PaymentInfo({
+                beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: abi.encode(outputCalls)
+            })
+        });
+
+        bytes32 graffiti = keccak256("solver-frontend");
+
+        vm.recordLogs();
+        vm.prank(user);
+        intentGateway.placeOrder{value: ethAmount}(order, graffiti);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool found = false;
+        OrderPlacedEventData memory ev;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
+                    )
+            ) {
+                // Event data is the bare parameter tuple; prepend an offset word so it
+                // decodes as the equivalent tuple-wrapped struct encoding.
+                ev = abi.decode(bytes.concat(abi.encode(uint256(0x20)), entries[i].data), (OrderPlacedEventData));
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "OrderPlaced event should be emitted");
+
+        assertEq(ev.predispatchCall, order.predispatch.call, "predispatch calldata should be emitted");
+        assertEq(ev.outputCall, order.output.call, "output calldata should be emitted");
+        assertEq(ev.graffiti, graffiti, "graffiti should be emitted");
+
+        // The event alone must be sufficient to reconstruct the committed order.
+        Order memory fromEvent = Order({
+            user: ev.user,
+            source: bytes(ev.source),
+            destination: bytes(ev.destination),
+            deadline: ev.deadline,
+            nonce: ev.nonce,
+            fees: ev.fees,
+            session: ev.session,
+            predispatch: DispatchInfo({assets: ev.predispatch, call: ev.predispatchCall}),
+            inputs: ev.inputs,
+            output: PaymentInfo({beneficiary: ev.beneficiary, assets: ev.outputs, call: ev.outputCall})
+        });
+        bytes32 commitment = keccak256(abi.encode(fromEvent));
+        assertEq(
+            intentGateway._orders(commitment, address(dai)), minDaiAmount, "commitment from event must match escrow"
+        );
+    }
+
     function testDustCollectionFromPredispatchSwapWithUniswapV3() public {
         // Test scenario: User wants to swap 1 ETH for USDC using UniswapV3
         uint256 ethAmount = 1 ether;
@@ -3084,7 +3200,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
                     )
             ) {
                 orderPlacedFound = true;
@@ -3432,7 +3548,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                        "OrderPlaced(bytes32,string,string,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[],bytes,bytes,bytes32)"
                     )
             ) {
                 // Decode the event - note this is complex due to dynamic arrays

@@ -157,7 +157,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *    fee token — swapping from native token via Uniswap V2 if necessary.
      *
      * @param order The order struct. `user`, `source`, and `nonce` are overwritten by this function.
-     * @param graffiti Unused on-chain; available for off-chain indexing or solver metadata.
+     * @param graffiti Attribution tag emitted in the OrderPlaced event for off-chain indexers.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
@@ -378,7 +378,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             predispatch: order.predispatch.assets,
             inputs: reducedInputs,
             beneficiary: order.output.beneficiary,
-            outputs: order.output.assets
+            outputs: order.output.assets,
+            predispatchCall: order.predispatch.call,
+            outputCall: order.output.call,
+            graffiti: graffiti
         });
     }
 

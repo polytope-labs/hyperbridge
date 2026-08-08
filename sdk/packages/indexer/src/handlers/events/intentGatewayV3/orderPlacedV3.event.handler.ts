@@ -13,6 +13,13 @@ import { bytes32ToBytes20, bytes20ToBytes32 } from "@/utils/transfer.helpers"
 
 const intentGatewayInterface = new Interface(IntentGatewayV3Abi)
 
+/**
+ * Handles `OrderPlaced` logs from both event schemas. The project manifest
+ * registers this handler twice: against the current schema (which carries the
+ * full order and graffiti in the log) and, via a separate legacy datasource,
+ * against the pre-#1092 schema whose call payloads must still be recovered
+ * from the placeOrder calldata.
+ */
 export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Promise<void> => {
 	logger.info(`[Intent Gateway V3] Order Placed Event: ${stringify(event)}`)
 
@@ -52,39 +59,51 @@ export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Prom
 		},
 	}
 
-	let decoded: { decodedOrder: any; graffitiArg: string } | null = null
+	let graffiti: Hex
+	const eventArgs = args as unknown as { predispatchCall?: string; outputCall?: string; graffiti?: string }
+	if (eventArgs.predispatchCall !== undefined && eventArgs.outputCall !== undefined && eventArgs.graffiti !== undefined) {
+		// Current schema: the complete order and graffiti are in the log itself.
+		order.outputs.beneficiary = args.beneficiary as Hex
+		order.outputs.call = eventArgs.outputCall as Hex
+		order.predispatch.call = eventArgs.predispatchCall as Hex
+		graffiti = resolveGraffiti(eventArgs.graffiti, args.user)
+	} else {
+		// Pre-#1092 schema: the call payloads and graffiti only exist in the
+		// placeOrder calldata, so recover it from the transaction trace.
+		let decoded: { decodedOrder: any; graffitiArg: string } | null = null
 
-	// Try to decode from direct transaction input first (direct call to IntentGateway)
-	if (transaction?.input) {
-		try {
-			decoded = decodePlaceOrder(transaction.input)
-		} catch (e: any) {
-			logger.info(`Failed to decode direct transaction input, trying nested call: ${e.message}`)
-		}
-	}
-
-	// If direct decoding failed, try to find IntentGateway call in nested calls
-	if (!decoded) {
-		const intentGatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[chain]
-		if (!intentGatewayAddress) {
-			logger.error(`No IntentGatewayV3 address found for chain: ${chain}`)
-		} else {
+		// Try to decode from direct transaction input first (direct call to IntentGateway)
+		if (transaction?.input) {
 			try {
-				const calldata = await getContractCallInput(transactionHash, intentGatewayAddress, chain)
-				if (calldata) {
-					decoded = decodePlaceOrder(calldata)
-				} else {
-					logger.warn(`IntentGateway call not found in nested calls for tx: ${transactionHash}`)
-				}
+				decoded = decodePlaceOrder(transaction.input)
 			} catch (e: any) {
-				logger.error(`Error decoding nested IntentGateway call: ${e.message}`)
+				logger.info(`Failed to decode direct transaction input, trying nested call: ${e.message}`)
 			}
 		}
+
+		// If direct decoding failed, try to find IntentGateway call in nested calls
+		if (!decoded) {
+			const intentGatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[chain]
+			if (!intentGatewayAddress) {
+				logger.error(`No IntentGatewayV3 address found for chain: ${chain}`)
+			} else {
+				try {
+					const calldata = await getContractCallInput(transactionHash, intentGatewayAddress, chain)
+					if (calldata) {
+						decoded = decodePlaceOrder(calldata)
+					} else {
+						logger.warn(`IntentGateway call not found in nested calls for tx: ${transactionHash}`)
+					}
+				} catch (e: any) {
+					logger.error(`Error decoding nested IntentGateway call: ${e.message}`)
+				}
+			}
+		}
+
+		if (!decoded) return
+
+		graffiti = applyDecodedOrder(order, decoded.decodedOrder, decoded.graffitiArg, args.user).graffiti
 	}
-
-	if (!decoded) return
-
-	const { graffiti } = applyDecodedOrder(order, decoded.decodedOrder, decoded.graffitiArg, args.user)
 	const commitment = IntentGatewayV3Service.computeOrderCommitment(order)
 	order.id = commitment
 
@@ -126,11 +145,17 @@ function applyDecodedOrder(
 	order.outputs.call = decodedOrder.output.call as Hex
 	order.predispatch.call = decodedOrder.predispatch.call as Hex
 
-	let graffiti: Hex = DEFAULT_REFERRER as Hex
-	if (graffitiArg.toLowerCase() !== userAddress.toLowerCase()) {
-		graffiti = bytes20ToBytes32(graffitiArg) as Hex
-		logger.info(`Using referrer graffiti: ${graffiti}`)
-	}
+	return { order, graffiti: resolveGraffiti(graffitiArg, userAddress) }
+}
 
-	return { order, graffiti }
+/**
+ * Maps a raw graffiti value to the stored referrer tag: a graffiti equal to
+ * the placing user's address is treated as unattributed (DEFAULT_REFERRER).
+ */
+function resolveGraffiti(graffitiArg: string, userAddress: string): Hex {
+	if (graffitiArg.toLowerCase() === userAddress.toLowerCase()) return DEFAULT_REFERRER as Hex
+
+	const graffiti = bytes20ToBytes32(graffitiArg) as Hex
+	logger.info(`Using referrer graffiti: ${graffiti}`)
+	return graffiti
 }

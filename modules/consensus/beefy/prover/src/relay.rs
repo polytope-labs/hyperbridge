@@ -83,8 +83,8 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 /// On a plain-ECDSA relay the signatures decode directly. With the `bls` feature (a relay whose
 /// BEEFY authorities use the paired `ecdsa_bls_crypto` key type) the on-wire signatures are
 /// 177-byte paired signatures; we decode them and keep only the ECDSA half (the first 65 bytes, a
-/// keccak-ECDSA recoverable signature). Both paths return the same type, so everything downstream
-/// — commitment hashing, signature recovery, the ECDSA verifier — is unchanged.
+/// keccak-ECDSA recoverable signature). Both paths return the same type, so commitment hashing,
+/// signature recovery and the ECDSA verifier all stay as they are.
 pub fn decode_beefy_justification(
 	bytes: &[u8],
 ) -> Result<SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, anyhow::Error> {

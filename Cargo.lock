@@ -14666,6 +14666,7 @@ dependencies = [
  "apk-commitment",
  "ark-bls12-381 0.4.0",
  "ark-serialize 0.4.2",
+ "beefy-verifier-primitives",
  "cumulus-pallet-parachain-system",
  "hex",
  "log",

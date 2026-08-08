@@ -24,8 +24,6 @@
 //! The commitment is expensive. A full 1024-slot set is roughly 420ms of wasm, which does not fit
 //! in a block, so it is absorbed a chunk at a time across blocks and published once complete. The
 //! authority set for the next session is known a session ahead, which is what makes that possible.
-//!
-//! What still has to be decided before this is more than a skeleton is marked `DECIDE` below.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -36,6 +34,7 @@ use alloc::vec::Vec;
 use apk_commitment::{PartialCommitment, NUM_VALIDATORS};
 use ark_bls12_381::G1Affine;
 use ark_serialize::CanonicalDeserialize;
+use beefy_verifier_primitives::{PairedAuthority, BLS_G1_SIGNATURE_LEN};
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayChainStateProof;
 use frame_support::weights::Weight;
@@ -43,13 +42,6 @@ use polkadot_sdk::*;
 use scale_info::TypeInfo;
 
 pub use pallet::*;
-
-/// Wire size of a paired (ECDSA, BLS12-381) BEEFY key: `ecdsa(33) || G1(48) || G2(96)`.
-const PAIRED_LEN: usize = 177;
-/// Offset of the BLS G1 half within a paired key.
-const PAIRED_G1_OFFSET: usize = 33;
-/// Size of a compressed G1 point.
-const G1_LEN: usize = 48;
 
 /// `Beefy::NextAuthorities` on the relay chain.
 ///
@@ -88,20 +80,6 @@ pub struct ApkCommitmentDigest {
 	pub set_id: u64,
 	/// Poseidon2 over the set's G1 keys, padded to the circuit width with the identity point.
 	pub commitment: [u8; 32],
-}
-
-/// A paired BEEFY authority key exactly as the relay chain stores it.
-#[derive(Clone, Encode, Decode, TypeInfo)]
-pub struct PairedAuthority(pub [u8; PAIRED_LEN]);
-
-impl PairedAuthority {
-	/// The BLS G1 half, which is what the APK circuit consumes. `DoublePublicKey` publishes the
-	/// same secret in both groups, so this is the counterpart of the G2 key BEEFY verifies with.
-	pub fn g1(&self) -> [u8; G1_LEN] {
-		let mut out = [0u8; G1_LEN];
-		out.copy_from_slice(&self.0[PAIRED_G1_OFFSET..PAIRED_G1_OFFSET + G1_LEN]);
-		out
-	}
 }
 
 impl ApkCommitmentDigest {
@@ -293,7 +271,7 @@ pub mod pallet {
 		}
 
 		/// The G1 halves of the relay chain's *next* BEEFY authority set.
-		fn relay_beefy_g1_keys() -> Result<Vec<[u8; G1_LEN]>, Error<T>> {
+		fn relay_beefy_g1_keys() -> Result<Vec<[u8; BLS_G1_SIGNATURE_LEN]>, Error<T>> {
 			let authorities: Vec<PairedAuthority> = Self::relay_state()?
 				.read_entry(&RELAY_BEEFY_NEXT_AUTHORITIES, None)
 				.map_err(|_| Error::<T>::KeyNotProven)?;
@@ -378,7 +356,7 @@ pub struct MalformedKey;
 /// `state` is the Merkle-Damgard state carried between blocks; pass
 /// `PartialCommitment::new().to_bytes()` to start.
 pub fn absorb_slots(
-	keys: &[[u8; G1_LEN]],
+	keys: &[[u8; BLS_G1_SIGNATURE_LEN]],
 	from: usize,
 	take: usize,
 	state: [u8; 32],
@@ -407,24 +385,24 @@ mod tests {
 		"a3948b7bd16acfa3b7a113826a1a8b192c2c462f31ddd9dc90131f5b014d85ff9669ad1a686f33f89e6b0d821761b2cc",
 	];
 
-	fn relay_keys() -> Vec<[u8; G1_LEN]> {
+	fn relay_keys() -> Vec<[u8; BLS_G1_SIGNATURE_LEN]> {
 		RELAY_KEYS
 			.iter()
 			.map(|h| {
-				let mut out = [0u8; G1_LEN];
+				let mut out = [0u8; BLS_G1_SIGNATURE_LEN];
 				out.copy_from_slice(&hex::decode(h).unwrap());
 				out
 			})
 			.collect()
 	}
 
-	fn expected_commitment(keys: &[[u8; G1_LEN]]) -> [u8; 32] {
+	fn expected_commitment(keys: &[[u8; BLS_G1_SIGNATURE_LEN]]) -> [u8; 32] {
 		let points: Vec<G1Affine> =
 			keys.iter().map(|k| G1Affine::deserialize_compressed(&k[..]).unwrap()).collect();
 		public_keys_commitment_bytes(&padded_to_circuit_width(&points))
 	}
 
-	fn run(keys: &[[u8; G1_LEN]], slots_per_block: usize) -> [u8; 32] {
+	fn run(keys: &[[u8; BLS_G1_SIGNATURE_LEN]], slots_per_block: usize) -> [u8; 32] {
 		let mut state = PartialCommitment::new().to_bytes();
 		let mut absorbed = 0usize;
 		while absorbed < NUM_VALIDATORS {
@@ -484,7 +462,7 @@ mod tests {
 		)
 		.unwrap();
 		key[0] |= 0x80; // compressed form, so the x bytes are actually parsed
-		let mut fixed = [0u8; G1_LEN];
+		let mut fixed = [0u8; BLS_G1_SIGNATURE_LEN];
 		fixed.copy_from_slice(&key);
 
 		let state = PartialCommitment::new().to_bytes();
@@ -498,13 +476,11 @@ mod tests {
 	fn an_identity_key_is_valid_input() {
 		let mut encoded = Vec::new();
 		G1Affine::identity().serialize_compressed(&mut encoded).unwrap();
-		let mut key = [0u8; G1_LEN];
+		let mut key = [0u8; BLS_G1_SIGNATURE_LEN];
 		key.copy_from_slice(&encoded);
 		let state = PartialCommitment::new().to_bytes();
 		assert!(absorb_slots(&[key], 0, 1, state).is_ok());
 	}
-
-	// ── rotation ────────────────────────────────────────────────────────────────────────────
 
 	const SET_A: [u8; 32] = [0xaa; 32];
 	const SET_B: [u8; 32] = [0xbb; 32];

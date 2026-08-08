@@ -31,7 +31,7 @@ use subxt::{backend::legacy::LegacyRpcMethods, Config};
 use subxt_core::config::HashFor;
 
 use beefy_verifier_primitives::{
-	BlsConsensusMessage, BlsMmrProof, BLS_G1_SIGNATURE_LEN, BLS_G2_PUBLIC_KEY_LEN,
+	BlsConsensusMessage, BlsMmrProof, PairedAuthority, BLS_G1_SIGNATURE_LEN, BLS_G2_PUBLIC_KEY_LEN,
 };
 
 use crate::{
@@ -40,20 +40,12 @@ use crate::{
 	Prover, BEEFY_AUTHORITIES,
 };
 
-/// Wire size of a paired (ECDSA, BLS12-381) BEEFY key or signature.
+/// Wire size of a paired (ECDSA, BLS12-381) BEEFY signature.
 pub const PAIRED_LEN: usize = 177;
 
 /// Offset of the BLS G1 signature within a paired signature: the ECDSA half is 65 bytes, then the
 /// `DoubleSignature` begins with its 48-byte G1 point.
 const PAIRED_SIGNATURE_G1_OFFSET: usize = 65;
-
-/// Offset of the BLS G1 public key within a paired public key: the ECDSA half is 33 bytes, then
-/// the `DoublePublicKey` opens with its 48-byte G1 point.
-const PAIRED_PUBLIC_G1_OFFSET: usize = 33;
-
-/// Offset of the BLS G2 public key within a paired public key: the ECDSA half is 33 bytes, then
-/// the `DoublePublicKey` is `G1 (48) || G2 (96)`, so G2 starts 48 bytes further in.
-const PAIRED_PUBLIC_G2_OFFSET: usize = 33 + 48;
 
 /// A paired (ECDSA, BLS12-381) signature exactly as SCALE-encoded on the wire.
 #[derive(Clone)]
@@ -97,17 +89,9 @@ pub async fn beefy_g2_authorities<T: Config>(
 		.await?
 		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
 
-	let paired = Vec::<[u8; PAIRED_LEN]>::decode(&mut data.as_ref())?;
-
-	Ok(paired
-		.into_iter()
-		.map(|key| {
-			let mut g2 = [0u8; BLS_G2_PUBLIC_KEY_LEN];
-			g2.copy_from_slice(
-				&key[PAIRED_PUBLIC_G2_OFFSET..PAIRED_PUBLIC_G2_OFFSET + BLS_G2_PUBLIC_KEY_LEN],
-			);
-			g2
-		})
+	Ok(Vec::<PairedAuthority>::decode(&mut data.as_ref())?
+		.iter()
+		.map(PairedAuthority::g2)
 		.collect())
 }
 
@@ -125,17 +109,9 @@ pub async fn beefy_g1_authorities<T: Config>(
 		.await?
 		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
 
-	let paired = Vec::<[u8; PAIRED_LEN]>::decode(&mut data.as_ref())?;
-
-	Ok(paired
-		.into_iter()
-		.map(|key| {
-			let mut g1 = [0u8; BLS_G1_SIGNATURE_LEN];
-			g1.copy_from_slice(
-				&key[PAIRED_PUBLIC_G1_OFFSET..PAIRED_PUBLIC_G1_OFFSET + BLS_G1_SIGNATURE_LEN],
-			);
-			g1
-		})
+	Ok(Vec::<PairedAuthority>::decode(&mut data.as_ref())?
+		.iter()
+		.map(PairedAuthority::g1)
 		.collect())
 }
 

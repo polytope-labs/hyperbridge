@@ -462,8 +462,8 @@ fn rejects_sp1_proof_carrying_a_stale_mmr_leaf() {
 /// End-to-end verification against a relay chain whose BEEFY authorities use the paired
 /// (ECDSA, BLS12-381) `ecdsa_bls_crypto` key type. Requires the `beefy-prover/bls` feature, which
 /// makes the prover keep the ECDSA half of each 177-byte paired signature and authority key. The
-/// verifier itself is unchanged: this is "Option A" — a BLS-BEEFY relay is verified through the
-/// existing ECDSA path.
+/// verifier itself is unchanged: this is "Option A", where a BLS-BEEFY relay is verified through
+/// the existing ECDSA path.
 ///
 ///   RELAY_WS_URL=ws://127.0.0.1:9977 \
 ///     cargo test -p beefy-verifier --features bls test_verify_consensus_bls -- --ignored
@@ -526,7 +526,7 @@ async fn test_verify_consensus_bls() {
 	}
 	assert!(!previous.is_zero(), "no previous beefy block found");
 
-	// Initial trusted state via the prover — exercises the folded BLS justification decode.
+	// Initial trusted state via the prover, which exercises the folded BLS justification decode.
 	let trusted_state = prover.get_initial_consensus_state(Some(previous)).await.unwrap();
 
 	// Latest justification -> signed commitment with ECDSA-half signatures (folded BLS decode).

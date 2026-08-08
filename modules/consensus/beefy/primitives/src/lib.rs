@@ -132,6 +132,38 @@ pub const BLS_G1_SIGNATURE_LEN: usize = 48;
 /// Size of a compressed BLS12-381 G2 point, the group BEEFY public keys live in.
 pub const BLS_G2_PUBLIC_KEY_LEN: usize = 96;
 
+/// Wire size of a paired `ecdsa_bls_crypto` BEEFY key: `ecdsa(33) || G1(48) || G2(96)`.
+pub const PAIRED_AUTHORITY_LEN: usize = 33 + BLS_G1_SIGNATURE_LEN + BLS_G2_PUBLIC_KEY_LEN;
+
+/// Where the BLS halves start, after the ECDSA key.
+const PAIRED_G1_OFFSET: usize = 33;
+const PAIRED_G2_OFFSET: usize = PAIRED_G1_OFFSET + BLS_G1_SIGNATURE_LEN;
+
+/// A BEEFY authority key on a relay chain that uses paired `ecdsa_bls_crypto`, exactly as the
+/// relay stores it.
+///
+/// `DoublePublicKey` publishes the same secret in both BLS groups, so a validator has a G1 and a
+/// G2 half describing one key. BEEFY verifies signatures against the G2 half while an APK proof
+/// aggregates the G1 halves, which is why both accessors exist.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
+pub struct PairedAuthority(pub [u8; PAIRED_AUTHORITY_LEN]);
+
+impl PairedAuthority {
+	/// The compressed G1 half.
+	pub fn g1(&self) -> [u8; BLS_G1_SIGNATURE_LEN] {
+		let mut out = [0u8; BLS_G1_SIGNATURE_LEN];
+		out.copy_from_slice(&self.0[PAIRED_G1_OFFSET..PAIRED_G2_OFFSET]);
+		out
+	}
+
+	/// The compressed G2 half.
+	pub fn g2(&self) -> [u8; BLS_G2_PUBLIC_KEY_LEN] {
+		let mut out = [0u8; BLS_G2_PUBLIC_KEY_LEN];
+		out.copy_from_slice(&self.0[PAIRED_G2_OFFSET..PAIRED_AUTHORITY_LEN]);
+		out
+	}
+}
+
 /// The relay chain half of a BLS BEEFY update: the signed commitment, the aggregate signature, and
 /// the MMR leaf it attests to.
 ///

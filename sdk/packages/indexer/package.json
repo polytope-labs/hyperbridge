@@ -40,6 +40,7 @@
 		"codegen:l2-chains": "tsx scripts/generate-l2-chains.ts",
 		"codegen:subql": "subql codegen -f src/configs",
 		"codegen:yamls": "tsx scripts/generate-chain-yamls.ts && tsx scripts/generate-compose.ts",
+		"codegen:pool-tokens": "tsx scripts/generate-pool-tokens.ts",
 		"start": "./scripts/up.sh ./docker/$ENV",
 		"down": "./scripts/down.sh ./docker/$ENV",
 		"start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",

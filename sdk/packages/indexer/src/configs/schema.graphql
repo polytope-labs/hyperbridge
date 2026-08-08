@@ -822,6 +822,11 @@ type IOrderV3 @entity {
 	feeToken: String!
 
 	"""
+	Decimals of the fee token, so `fees` can be rendered without a separate token lookup
+	"""
+	feeTokenDecimals: Int!
+
+	"""
 	Optional session key used to select winning solver
 	"""
 	session: String

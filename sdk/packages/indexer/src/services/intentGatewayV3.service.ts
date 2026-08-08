@@ -37,6 +37,7 @@ import { IntentGatewayTokenVolume } from "@/configs/src/types/models/IntentGatew
 import { CumulativeIntentGatewayVolumeUSD } from "@/configs/src/types/models/CumulativeIntentGatewayVolumeUSD"
 import { LiquidityPool } from "@/configs/src/types/models/LiquidityPool"
 import { timestampToDate } from "@/utils/date.helpers"
+import { FeeTokenInfo } from "@/utils/host.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { canonicalPoolSymbol, poolSlug } from "@/addresses/pool-tokens.addresses"
 import { orientedPoolRates, POOL_RATE_DECIMALS } from "@/services/liquidityPool.service"
@@ -188,7 +189,7 @@ export class IntentGatewayV3Service {
 	static async getOrCreateOrder(
 		order: OrderV3,
 		referrer: string,
-		feeToken: string,
+		feeToken: FeeTokenInfo,
 		logsData: {
 			transactionHash: string
 			blockNumber: number
@@ -210,7 +211,8 @@ export class IntentGatewayV3Service {
 				deadline: order.deadline,
 				nonce: order.nonce,
 				fees: order.fees,
-				feeToken,
+				feeToken: feeToken.address,
+				feeTokenDecimals: feeToken.decimals,
 				session: order.session,
 				inputUSD: BigInt(new Decimal(inputUSD).truncated().toString()),
 				predispatchCalldata: order.predispatch.call as string,
@@ -281,7 +283,8 @@ export class IntentGatewayV3Service {
 			orderPlaced.deadline = order.deadline
 			orderPlaced.nonce = order.nonce
 			orderPlaced.fees = order.fees
-			orderPlaced.feeToken = feeToken
+			orderPlaced.feeToken = feeToken.address
+			orderPlaced.feeTokenDecimals = feeToken.decimals
 			orderPlaced.session = order.session
 			orderPlaced.inputUSD = BigInt(new Decimal(inputUSD).truncated().toString())
 			orderPlaced.predispatchCalldata = order.predispatch.call as string

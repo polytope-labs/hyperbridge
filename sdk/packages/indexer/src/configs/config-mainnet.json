@@ -59,6 +59,34 @@
 					"vaults": [
 						"0x7Bc3485026Ac48b6cf9BaF0A377477Fff5703Af8"
 					]
+				},
+				"0x9623dfb044d5612ce0c0f1606973ccaefd03cd05": {
+					"description": "USDR (DollarCoin) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x6b175474e89094c44da98b954eedeac495271d0f": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x17cdb2a01e7a34cbb3dd4b83260b05d0274c8dab": {
+					"description": "cNGN \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xb755506531786c8ac63b756bab1ac387bacb0c04": {
+					"description": "ZARP \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x1abaea1f7c830bd89acc67ec4af516284b1bc33c": {
+					"description": "EURC \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x70e8de73ce538da2beed35d14187f6959a8eca96": {
+					"description": "XSGD \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x2c537e5624e4af88a7ae4060c022609376c8d0eb": {
+					"description": "TRYB \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -98,6 +126,10 @@
 					"vaults": [
 						"0xa6D12574eFB239FC1D2099732bd8b5dC6306897F"
 					]
+				},
+				"0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -137,6 +169,10 @@
 					"vaults": [
 						"0x927CfF131fD5B43FC992D071929b2c095d6E4b70"
 					]
+				},
+				"0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -174,6 +210,22 @@
 				},
 				"0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": {
 					"description": "USDT \u2014 no ERC-4626 market on Base; listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x3b5f2810fb2168ffa9c73160f97bf9f2461ffa5c": {
+					"description": "USDR (DollarCoin) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x50c5725949a6f0c72e6c4a641f24049a917db0cb": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xb755506531786c8ac63b756bab1ac387bacb0c04": {
+					"description": "ZARP \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42": {
+					"description": "EURC \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
 				}
 			},
@@ -220,6 +272,10 @@
 					"vaults": [
 						"0x0471D185cc7Be61E154277cAB2396cD397663da6"
 					]
+				},
+				"0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -247,9 +303,28 @@
 			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			"yieldVaults": {
+				"0xe91d153e0b41518a2ce8dd3d7944fa863463a97d": {
+					"description": "WXDAI (carried as DAI) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": {
+					"description": "USDC \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x4ecaba5870353805a9f068101a40e0f32ed605c6": {
+					"description": "USDT \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			},
 			"tokenSlots": {
+				"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": {
+					"description": "USD//C on xDai (PermittableToken, the USDC this config trades on Gnosis) \u2014 balances at slot 3, allowed at slot 5",
+					"balanceSlot": 3,
+					"allowanceSlot": 5
+				},
 				"0x2a22f9c3b484c3629090feed35f17ff8f88f76f0": {
-					"description": "Gnosis USDC (FiatToken-based bridge) \u2014 balances at slot 9, allowed at slot 10",
+					"description": "USDC.e / Bridged USDC (Gnosis), a Circle FiatToken \u2014 balances at slot 9, allowed at slot 10. Distinct from the USD//C above, and not referenced anywhere else in this config",
 					"balanceSlot": 9,
 					"allowanceSlot": 10
 				}
@@ -264,7 +339,13 @@
 		"contracts": {
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"erc6160ext20": "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369",
-			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
+			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
+			"yieldVaults": {
+				"0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369": {
+					"description": "USDC.e — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			}
 		}
 	},
 	"polygon-mainnet": {
@@ -291,6 +372,26 @@
 					"vaults": [
 						"0x2eaD203C5C1C00612B1DdbBb20e4180dA822d6ff"
 					]
+				},
+				"0x3b5f2810fb2168ffa9c73160f97bf9f2461ffa5c": {
+					"description": "USDR (DollarCoin) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x8f3cf7ad23cd3cadbd9735aff958023239c6a063": {
+					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x52828daa48c1a9a06f37500882b42daf0be04c3b": {
+					"description": "cNGN \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xb755506531786c8ac63b756bab1ac387bacb0c04": {
+					"description": "ZARP \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xdc3326e71d45186f113a2f448984ca0e8d201995": {
+					"description": "XSGD \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -312,7 +413,17 @@
 			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			"handlerV1": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"erc6160ext20": "0x0000053900000000000000000000000001200000",
-			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716"
+			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			"yieldVaults": {
+				"0x0000053900000000000000000000000001200000": {
+					"description": "USDC (Asset Hub asset 1337) — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x000007c000000000000000000000000001200000": {
+					"description": "USDT (Asset Hub asset 1984) — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			}
 		}
 	}
 }

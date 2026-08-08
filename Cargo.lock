@@ -8379,6 +8379,7 @@ dependencies = [
  "ismp-pharos",
  "ismp-polygon",
  "ismp-sync-committee",
+ "ismp-tempo",
  "ismp-tendermint",
  "log",
  "mmr-primitives",
@@ -10721,6 +10722,17 @@ dependencies = [
  "sync-committee-primitives",
  "sync-committee-verifier",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ismp-tempo"
+version = "0.1.0"
+dependencies = [
+ "evm-state-machine",
+ "ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "tempo-verifier",
 ]
 
 [[package]]
@@ -13235,6 +13247,7 @@ dependencies = [
  "ismp-pharos",
  "ismp-polygon",
  "ismp-sync-committee",
+ "ismp-tempo",
  "ismp-tendermint",
  "log",
  "mmr-primitives",
@@ -28222,6 +28235,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempo-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ethabi",
+ "geth-primitives",
+ "hex",
+ "ismp",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde_json",
+ "sha3 0.10.8",
+ "tempo-verifier",
+ "tokio",
+]
+
+[[package]]
+name = "tempo-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "bls_on_arkworks",
+ "ethabi",
+ "geth-primitives",
+ "hex",
+ "ismp",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tendermint"
 version = "0.40.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -28587,6 +28641,7 @@ dependencies = [
  "tesseract-substrate",
  "tesseract-substrate-evm",
  "tesseract-sync-committee",
+ "tesseract-tempo",
  "tesseract-tendermint",
  "zk-beefy",
 ]
@@ -29023,6 +29078,25 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-tempo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hex",
+ "ismp",
+ "ismp-tempo",
+ "log",
+ "parity-scale-codec",
+ "serde",
+ "tempo-prover",
+ "tempo-verifier",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

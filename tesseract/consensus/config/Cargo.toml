@@ -34,6 +34,7 @@ tesseract-substrate = { workspace = true }
 tesseract-substrate-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-tendermint = { workspace = true }
+tesseract-tempo = { workspace = true }
 zk-beefy = { path = "../beefy/zk" }
 
 [dependencies.polkadot-sdk]

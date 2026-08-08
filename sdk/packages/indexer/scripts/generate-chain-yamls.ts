@@ -7,7 +7,8 @@ import Handlebars from "handlebars"
 import { RpcWebSocketClient } from "rpc-websocket-client"
 import { Hex, hexToNumber } from "viem"
 
-import { type Configuration, getConfigs, getEnv, getValidChains } from "../src/configs"
+import { type Configuration, getConfigs, getEnv, getValidChains, loadConfig } from "../src/configs"
+import { POOL_TOKENS as PREVIOUS_POOL_TOKENS } from "../src/addresses/pool-tokens.generated"
 
 const skipRpc = process.argv.includes("--skip-rpc")
 const root = process.cwd()
@@ -295,6 +296,184 @@ const generateYieldVaultAddresses = () => {
 	console.log("Generated yield-vault-addresses.ts")
 }
 
+// The pool-token registry is the yieldVaults key set — the same addresses, resolved to the
+// (symbol, decimals) the pool layer needs. Both are read off the same list on purpose: a token
+// the sweep tracks and a token that maps to a pool must not be able to drift apart.
+//
+// Symbols and decimals are read from the token contracts rather than written by hand, because
+// both are silent when wrong — a bad decimal scales every published rate for the pair by a
+// power of ten without erroring anywhere.
+const ERC20_SYMBOL = "0x95d89b41"
+const ERC20_DECIMALS = "0x313ce567"
+
+// On-chain `symbol()` is the token's own branding, not a pool identity: the symbol is what
+// collapses two legs on different chains into one pool, so it has to be canonicalised before
+// use. Left unmapped, polygon's "USDT0", arbitrum's "USD₮0" and Asset Hub's "USDt" would each
+// become a pool separate from ethereum's "USDT".
+//
+// Keyed by the lowercased on-chain symbol, so this table does two jobs at once: it fixes casing
+// ("usdt" -> "USDT", "cngn" -> "cNGN") and maps genuine aliases onto the canonical asset. A
+// token whose symbol is absent here keeps its on-chain value verbatim.
+const SYMBOL_ALIASES: Record<string, string> = {
+	// canonical casing
+	usdc: "USDC",
+	usdt: "USDT", // also catches Asset Hub's "USDt"
+	dai: "DAI",
+	cngn: "cNGN",
+	zarp: "ZARP",
+	eurc: "EURC",
+	xsgd: "XSGD",
+	tryb: "TRYB",
+	usdr: "USDR",
+	// aliases for the same asset under another name
+	usdt0: "USDT", // polygon, and arbitrum's "USD₮0" once non-ASCII is stripped
+	"usd₮0": "USDT",
+	wxdai: "DAI", // gnosis: wrapped xDai is the DAI of that chain
+	"usdc.e": "USDC", // bridged variants
+	"usdt.e": "USDT",
+	"dai.e": "DAI",
+	// bsc-chapel's stand-in for USDC is "Hyper USD" (symbol "USD.h"). Mapped so testnet pool
+	// slugs keep matching mainnet's; drop this line if testnet should read USD.h instead.
+	"usd.h": "USDC",
+}
+
+const decodeAbiString = (hex: string): string | null => {
+	if (!hex || hex === "0x") return null
+	const body = hex.slice(2)
+	// dynamic string: offset, length, data — anything shorter is a bytes32 symbol
+	if (body.length >= 128) {
+		const length = parseInt(body.slice(64, 128), 16)
+		return Buffer.from(body.slice(128, 128 + length * 2), "hex").toString("utf8").trim()
+	}
+	return Buffer.from(body, "hex").toString("utf8").replace(/\0+/g, "").trim()
+}
+
+const ethCall = async (endpoints: string[], to: string, data: string): Promise<string | null> => {
+	// Public endpoints throttle, and a throttled response is indistinguishable from "no such
+	// token" if you only ask once. Rotate and retry before believing a null.
+	for (let attempt = 0; attempt < 3; attempt++) {
+		for (const url of endpoints) {
+			try {
+				const response = await fetch(url, {
+					method: "POST",
+					headers: { accept: "application/json", "content-type": "application/json" },
+					body: JSON.stringify({
+						id: 1,
+						jsonrpc: "2.0",
+						method: "eth_call",
+						params: [{ to, data }, "latest"],
+					}),
+				})
+				const body = await response.json()
+				if (body.result && body.result !== "0x") return body.result as string
+			} catch {
+				// try the next endpoint
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+	}
+	return null
+}
+
+const generatePoolTokens = async () => {
+	// Env-independent: the registry is imported by handlers that run against either network, so
+	// it carries every chain from both configs rather than only the one being built.
+	const chains = new Map<string, Configuration>([
+		...Object.entries(loadConfig("mainnet")),
+		...Object.entries(loadConfig("testnet")),
+	])
+
+	const resolved: Record<string, Record<string, { symbol: string; decimals: number }>> = {}
+	const notes: string[] = []
+
+	for (const [chain, config] of chains) {
+		if (config.type !== "evm" || !config.contracts?.yieldVaults) continue
+		const stateMachineId = config.stateMachineId
+		const previous = (PREVIOUS_POOL_TOKENS as Record<string, Record<string, { symbol: string; decimals: number }>>)[
+			stateMachineId
+		]
+		const endpoints = generateEndpoints(chain)
+		const tokens: Record<string, { symbol: string; decimals: number }> = {}
+
+		for (const address of Object.keys(config.contracts.yieldVaults)) {
+			const token = address.toLowerCase()
+			const cached = previous?.[token]
+
+			if (skipRpc || endpoints.length === 0) {
+				if (cached) tokens[token] = cached
+				else notes.push(`${stateMachineId} ${token}: no endpoint and no cached entry — omitted`)
+				continue
+			}
+
+			const [symbolHex, decimalsHex] = [
+				await ethCall(endpoints, token, ERC20_SYMBOL),
+				await ethCall(endpoints, token, ERC20_DECIMALS),
+			]
+			const decimals = decimalsHex ? parseInt(decimalsHex, 16) : null
+			const rawSymbol = decodeAbiString(symbolHex ?? "")
+
+			if (decimals === null || !Number.isFinite(decimals)) {
+				// Never guess decimals. Keep the last known-good value and say so loudly.
+				if (cached) {
+					tokens[token] = cached
+					notes.push(`${stateMachineId} ${token}: decimals() unreadable — kept cached ${cached.decimals}`)
+				} else {
+					notes.push(`${stateMachineId} ${token}: decimals() unreadable and no cached entry — omitted`)
+				}
+				continue
+			}
+
+			const ascii = (rawSymbol ?? "").replace(/[^\x20-\x7e]/g, "")
+			const symbol =
+				SYMBOL_ALIASES[(rawSymbol ?? "").toLowerCase()] ??
+				SYMBOL_ALIASES[ascii.toLowerCase()] ??
+				(ascii || cached?.symbol)
+
+			if (!symbol) {
+				notes.push(`${stateMachineId} ${token}: symbol() unreadable and no cached entry — omitted`)
+				continue
+			}
+			if (cached && cached.decimals !== decimals) {
+				notes.push(`${stateMachineId} ${token}: decimals changed ${cached.decimals} -> ${decimals}`)
+			}
+			tokens[token] = { symbol, decimals }
+		}
+
+		if (Object.keys(tokens).length > 0) resolved[stateMachineId] = tokens
+	}
+
+	const lines: string[] = []
+	lines.push("// Auto-generated, DO NOT EDIT")
+	lines.push("// The tokens that liquidity pools are composed from, keyed by state machine id then")
+	lines.push("// lowercase token address. Addresses are the \"yieldVaults\" keys of the relevant chain")
+	lines.push("// entry in src/configs/config-mainnet.json / config-testnet.json; symbols and decimals")
+	lines.push("// are read from each token contract at generation time.")
+	lines.push("//")
+	lines.push("// Decimals are per chain because the same symbol is not the same everywhere (BSC stables")
+	lines.push("// are 18-decimal, most others 6); every rate and depth normalization depends on them.")
+	lines.push("// To add a token, add it to that chain's \"yieldVaults\" and re-run codegen with an RPC")
+	lines.push("// endpoint configured for the chain. Committed rather than gitignored: it is derived")
+	lines.push("// from chain state, not from anything else in the repo, so --skip-rpc builds reuse it.")
+	lines.push("export const POOL_TOKENS: Record<string, Record<string, { symbol: string; decimals: number }>> = {")
+	const chainIds = Object.keys(resolved)
+	chainIds.forEach((stateMachineId, chainIndex) => {
+		lines.push(`\t"${stateMachineId}": {`)
+		const entries = Object.entries(resolved[stateMachineId])
+		entries.forEach(([token, { symbol, decimals }], i) => {
+			const comma = i < entries.length - 1 ? "," : ""
+			lines.push(`\t\t"${token}": { symbol: "${symbol}", decimals: ${decimals} }${comma}`)
+		})
+		lines.push(chainIndex < chainIds.length - 1 ? "\t}," : "\t},")
+	})
+	lines.push("}")
+	lines.push("")
+
+	fs.writeFileSync(root + "/src/addresses/pool-tokens.generated.ts", lines.join("\n"))
+	const total = Object.values(resolved).reduce((n, t) => n + Object.keys(t).length, 0)
+	console.log(`Generated pool-tokens.generated.ts (${total} tokens across ${chainIds.length} chains)`)
+	for (const note of notes) console.warn(`  pool-tokens: ${note}`)
+}
+
 const generateSolverAccountAddresses = () => {
 	const solverAccounts: Record<string, string> = {}
 
@@ -410,6 +589,7 @@ try {
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayV3Addresses()
 	generateYieldVaultAddresses()
+	await generatePoolTokens()
 	generateSolverAccountAddresses()
 	generateTokenSlotOverrides()
 	generateTestnetStateMachineIds()

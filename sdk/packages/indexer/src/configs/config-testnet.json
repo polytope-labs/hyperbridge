@@ -84,7 +84,17 @@
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
 			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
-			"intentGatewayV3": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD"
+			"intentGatewayV3": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
+			"yieldVaults": {
+				"0xa801da100bf16d07f668f4a49e1f71fc54d05177": {
+					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0xc043f483373072f7f27420d6e7d7ad269c018e18": {
+					"description": "USDT — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			}
 		}
 	},
 	"polygon-amoy": {
@@ -96,7 +106,13 @@
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
-			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
+			"yieldVaults": {
+				"0xbe97e73126d66188d72fbf99029126d0340a7f18": {
+					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			}
 		}
 	},
 	"polkadot-testnet": {
@@ -108,7 +124,13 @@
 		"contracts": {
 			"ethereumHost": "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1",
 			"handlerV1": "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925",
-			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+			"erc6160ext20": "0xBe97E73126d66188d72FBf99029126d0340a7f18",
+			"yieldVaults": {
+				"0x0dc440cf87830f0af564eb8b62b454b7e0c68a4b": {
+					"description": "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				}
+			}
 		}
 	},
 	"tron-nile": {
@@ -123,7 +145,7 @@
 			"intentGatewayV3": "0xbB6BFF5Cf62cf5a091C29D88FAe88b3010F100D1"
 		}
 	},
-"pharos-atlantic": {
+	"pharos-atlantic": {
 		"type": "evm",
 		"chainId": "688689",
 		"startBlock": 25297354,

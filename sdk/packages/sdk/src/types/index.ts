@@ -1404,6 +1404,16 @@ export interface BidSubmissionResult {
 	 * Error message if submission failed
 	 */
 	error?: string
+
+	/**
+	 * The extrinsic is (or may still be) in the transaction pool: it was accepted but its
+	 * inclusion was not observed before the watch timed out, or a resubmission bounced off an
+	 * earlier copy already pooled (RPC 1013/1014). Only meaningful when `success` is false —
+	 * the operation is in flight, not failed, and must not be re-signed with the same nonce.
+	 * Callers should confirm the outcome later (e.g. re-check on-chain state) instead of
+	 * treating this as a terminal failure.
+	 */
+	pending?: boolean
 }
 
 /**

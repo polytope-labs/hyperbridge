@@ -15,6 +15,8 @@ export interface StoredBid {
 	retracted: boolean
 	retractedAt: string | null
 	retractExtrinsicHash: HexString | null
+	/** The order was observed filled on-chain, so this bid can never win and should be retracted ASAP. */
+	dead: boolean
 }
 
 export interface BidInsertData {
@@ -24,6 +26,21 @@ export interface BidInsertData {
 	success: boolean
 	error?: string
 }
+
+/** Column list shared by every SELECT that returns a StoredBid. */
+const BID_COLUMNS = `
+	id,
+	commitment,
+	extrinsic_hash as extrinsicHash,
+	block_hash as blockHash,
+	success,
+	error,
+	created_at as createdAt,
+	retracted,
+	retracted_at as retractedAt,
+	retract_extrinsic_hash as retractExtrinsicHash,
+	dead
+`
 
 /**
  * Service for persistent storage of Hyperbridge bid submissions.
@@ -69,7 +86,8 @@ export class BidStorageService {
 				created_at TEXT NOT NULL DEFAULT (datetime('now')),
 				retracted INTEGER NOT NULL DEFAULT 0,
 				retracted_at TEXT,
-				retract_extrinsic_hash TEXT
+				retract_extrinsic_hash TEXT,
+				dead INTEGER NOT NULL DEFAULT 0
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_bids_commitment ON bids(commitment);
@@ -79,7 +97,23 @@ export class BidStorageService {
 
 		`)
 
+		// Databases created before the column existed need it added in place.
+		const columns = this.db.pragma("table_info(bids)") as { name: string }[]
+		if (!columns.some((column) => column.name === "dead")) {
+			this.db.exec("ALTER TABLE bids ADD COLUMN dead INTEGER NOT NULL DEFAULT 0")
+			this.logger.info("Migrated bid storage schema: added 'dead' column")
+		}
+
 		this.logger.debug("Bid storage schema initialized")
+	}
+
+	private toStoredBid(row: any): StoredBid {
+		return {
+			...row,
+			success: Boolean(row.success),
+			retracted: Boolean(row.retracted),
+			dead: Boolean(row.dead),
+		}
 	}
 
 	/**
@@ -116,18 +150,8 @@ export class BidStorageService {
 	 */
 	getBidByCommitment(commitment: HexString): StoredBid | null {
 		const stmt = this.db.prepare(`
-			SELECT 
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
-			FROM bids 
+			SELECT ${BID_COLUMNS}
+			FROM bids
 			WHERE commitment = ?
 			ORDER BY created_at DESC
 			LIMIT 1
@@ -137,11 +161,7 @@ export class BidStorageService {
 
 		if (!row) return null
 
-		return {
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}
+		return this.toStoredBid(row)
 	}
 
 	/**
@@ -150,65 +170,42 @@ export class BidStorageService {
 	 */
 	getUnretractedSuccessfulBids(): StoredBid[] {
 		const stmt = this.db.prepare(`
-			SELECT 
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
-			FROM bids 
+			SELECT ${BID_COLUMNS}
+			FROM bids
 			WHERE success = 1 AND retracted = 0
 			ORDER BY created_at ASC
 		`)
 
 		const rows = stmt.all() as any[]
 
-		return rows.map((row) => ({
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}))
+		return rows.map((row) => this.toStoredBid(row))
 	}
 
 	/**
-	 * Retrieves successful, unretracted bids older than the given age.
-	 * Used by the periodic sweep to retract stale bids after a TTL.
+	 * Retrieves successful, unretracted bids that are due for retraction: bids older than the
+	 * given age, plus dead bids (order already filled on-chain) regardless of age — a dead bid's
+	 * deposit is reclaimable now, so a failed retraction attempt is retried on the next sweep
+	 * cycle instead of waiting out the TTL.
 	 */
 	getExpiredUnretractedBids(maxAgeMs: number): StoredBid[] {
 		// Format must match SQLite's datetime('now'): "YYYY-MM-DD HH:MM:SS"
 		// Using .toISOString() produces "YYYY-MM-DDTHH:MM:SS.sssZ" which breaks
 		// lexicographic comparison because space (ASCII 32) < 'T' (ASCII 84),
 		// causing ALL bids to appear expired.
-		const cutoff = new Date(Date.now() - maxAgeMs).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
+		const cutoff = new Date(Date.now() - maxAgeMs)
+			.toISOString()
+			.replace("T", " ")
+			.replace(/\.\d{3}Z$/, "")
 		const stmt = this.db.prepare(`
-			SELECT 
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
-			FROM bids 
-			WHERE success = 1 AND retracted = 0 AND created_at < ?
+			SELECT ${BID_COLUMNS}
+			FROM bids
+			WHERE success = 1 AND retracted = 0 AND (dead = 1 OR created_at < ?)
 			ORDER BY created_at ASC
 		`)
 
 		const rows = stmt.all(cutoff) as any[]
 
-		return rows.map((row) => ({
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}))
+		return rows.map((row) => this.toStoredBid(row))
 	}
 
 	/**
@@ -216,39 +213,32 @@ export class BidStorageService {
 	 */
 	getBidsByDateRange(startDate: Date, endDate: Date): StoredBid[] {
 		const stmt = this.db.prepare(`
-			SELECT 
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
-			FROM bids 
+			SELECT ${BID_COLUMNS}
+			FROM bids
 			WHERE created_at BETWEEN ? AND ?
 			ORDER BY created_at DESC
 		`)
 
-		const toSqliteDatetime = (d: Date) => d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
+		const toSqliteDatetime = (d: Date) =>
+			d
+				.toISOString()
+				.replace("T", " ")
+				.replace(/\.\d{3}Z$/, "")
 		const rows = stmt.all(toSqliteDatetime(startDate), toSqliteDatetime(endDate)) as any[]
 
-		return rows.map((row) => ({
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}))
+		return rows.map((row) => this.toStoredBid(row))
 	}
 
 	/**
-	 * Marks a bid as retracted after successful fund recovery
+	 * Marks a bid as retracted. Called after successful fund recovery, and also when the chain
+	 * reports `BidNotFound` — bids only leave the pallet by retraction, so "no bid" means there
+	 * is nothing left to reclaim (an earlier duplicate landed, or the bid never did) and no hash
+	 * is available.
 	 */
-	markBidAsRetracted(commitment: HexString, retractExtrinsicHash: HexString): boolean {
+	markBidAsRetracted(commitment: HexString, retractExtrinsicHash: HexString | null): boolean {
 		const stmt = this.db.prepare(`
-			UPDATE bids 
-			SET retracted = 1, 
+			UPDATE bids
+			SET retracted = 1,
 				retracted_at = datetime('now'),
 				retract_extrinsic_hash = ?
 			WHERE commitment = ? AND retracted = 0
@@ -258,6 +248,27 @@ export class BidStorageService {
 
 		if (result.changes > 0) {
 			this.logger.info({ commitment, retractExtrinsicHash }, "Bid marked as retracted")
+			return true
+		}
+
+		return false
+	}
+
+	/**
+	 * Marks a bid as dead: its order was observed filled on-chain, so the bid can never win and
+	 * its deposit should be reclaimed on the next retraction sweep regardless of the bid's age.
+	 */
+	markBidAsDead(commitment: HexString): boolean {
+		const stmt = this.db.prepare(`
+			UPDATE bids
+			SET dead = 1
+			WHERE commitment = ? AND retracted = 0 AND dead = 0
+		`)
+
+		const result = stmt.run(commitment)
+
+		if (result.changes > 0) {
+			this.logger.debug({ commitment }, "Bid marked as dead (order filled on-chain)")
 			return true
 		}
 
@@ -277,7 +288,7 @@ export class BidStorageService {
 		const stats = this.db
 			.prepare(
 				`
-			SELECT 
+			SELECT
 				COUNT(*) as total,
 				SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
 				SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed,
@@ -302,18 +313,8 @@ export class BidStorageService {
 	 */
 	getFailedBids(limit = 100): StoredBid[] {
 		const stmt = this.db.prepare(`
-			SELECT 
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
-			FROM bids 
+			SELECT ${BID_COLUMNS}
+			FROM bids
 			WHERE success = 0
 			ORDER BY created_at DESC
 			LIMIT ?
@@ -321,11 +322,7 @@ export class BidStorageService {
 
 		const rows = stmt.all(limit) as any[]
 
-		return rows.map((row) => ({
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}))
+		return rows.map((row) => this.toStoredBid(row))
 	}
 
 	/**
@@ -333,17 +330,7 @@ export class BidStorageService {
 	 */
 	getRecentBids(limit = 100): StoredBid[] {
 		const stmt = this.db.prepare(`
-			SELECT
-				id,
-				commitment,
-				extrinsic_hash as extrinsicHash,
-				block_hash as blockHash,
-				success,
-				error,
-				created_at as createdAt,
-				retracted,
-				retracted_at as retractedAt,
-				retract_extrinsic_hash as retractExtrinsicHash
+			SELECT ${BID_COLUMNS}
 			FROM bids
 			ORDER BY id DESC
 			LIMIT ?
@@ -351,11 +338,7 @@ export class BidStorageService {
 
 		const rows = stmt.all(Math.min(Math.max(limit, 1), 500)) as any[]
 
-		return rows.map((row) => ({
-			...row,
-			success: Boolean(row.success),
-			retracted: Boolean(row.retracted),
-		}))
+		return rows.map((row) => this.toStoredBid(row))
 	}
 
 	/**

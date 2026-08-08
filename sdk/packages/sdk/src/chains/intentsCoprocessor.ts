@@ -226,20 +226,30 @@ export class IntentsCoprocessor {
 	/**
 	 * Signs and sends an extrinsic. Submissions are serialised through {@link submissionQueue} so
 	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
-	 * before the next is signed.
+	 * (or is confirmed still pooled and returned as `pending`) before the next is signed; auto-nonce
+	 * via `system.accountNextIndex` counts pooled extrinsics, so a pending one is never re-used.
 	 */
 	private async signAndSendExtrinsic(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
 	): Promise<BidSubmissionResult> {
-		const result = await this.submissionQueue.add(() => this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs))
+		const result = await this.submissionQueue.add(() =>
+			this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs),
+		)
 		return result ?? { success: false, error: "Submission queue returned no result" }
 	}
 
 	/**
 	 * Signs and sends an extrinsic, handling status updates and errors.
 	 * Implements retry logic with progressive tip increases for stuck transactions.
+	 *
+	 * A retry only happens when the previous attempt verifiably went nowhere. Once an attempt's
+	 * extrinsic is known to be pooled (`pending`), re-signing the same call would race our own
+	 * submission: the copy either bounces off the pool (1014, same nonce below the replacement
+	 * priority bump) or — if the original lands first, freeing the nonce — executes as a duplicate
+	 * and fails on-chain (e.g. `BidNotFound` for a retraction). Neither can succeed, so the pending
+	 * result is returned for the caller to confirm later.
 	 */
 	private async sendExtrinsicWithRetries(
 		extrinsic: SubmittableExtrinsic<"promise">,
@@ -256,8 +266,9 @@ export class IntentsCoprocessor {
 
 			try {
 				const result = await this.sendWithTimeout(extrinsic, keyPair, currentTip, timeoutMs)
-				if (result.success || result.error?.includes("Dispatch error")) {
-					// Return immediately on success or dispatch errors (non-recoverable)
+				if (result.success || result.pending || result.error?.includes("Dispatch error")) {
+					// Return immediately on success, an in-flight extrinsic, or dispatch errors
+					// (non-recoverable)
 					return result
 				}
 			} catch (err) {
@@ -276,7 +287,28 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Sends an extrinsic with a timeout
+	 * Classifies a submission rejection. Codes 1013 ("already imported") and 1014 ("priority is
+	 * too low") both mean a copy of this account+nonce is already in the pool — almost always our
+	 * own earlier attempt whose watch handle didn't confirm cleanly. That extrinsic is in flight;
+	 * resubmitting can only bounce again or land a duplicate, so these are surfaced as `pending`
+	 * rather than failure.
+	 */
+	private classifySubmissionError(err: Error): BidSubmissionResult {
+		const code = (err as { code?: number }).code
+		const inFlight =
+			code === 1013 ||
+			code === 1014 ||
+			/already imported|already in the pool|priority is too low/i.test(err.message)
+		return { success: false, pending: inFlight || undefined, error: err.message }
+	}
+
+	/**
+	 * Sends an extrinsic with a timeout.
+	 *
+	 * A timeout is only a failure when the extrinsic never made it into the transaction pool.
+	 * Once a pool-entry status (Future/Ready/Broadcast/Retracted) has been seen, the extrinsic is
+	 * in flight and may well execute after the watch is abandoned — the result is then `pending`,
+	 * telling the caller to confirm the outcome later instead of re-signing the same call.
 	 */
 	private async sendWithTimeout(
 		extrinsic: SubmittableExtrinsic<"promise">,
@@ -287,6 +319,7 @@ export class IntentsCoprocessor {
 		return new Promise<BidSubmissionResult>((resolve) => {
 			let resolved = false
 			let unsubscribe: (() => void) | null = null
+			let enteredPool = false
 
 			// Set timeout to detect stuck transactions
 			const timeoutId = setTimeout(() => {
@@ -297,7 +330,9 @@ export class IntentsCoprocessor {
 					}
 					resolve({
 						success: false,
-						error: `Transaction timed out after ${timeoutMs}ms`,
+						pending: enteredPool || undefined,
+						extrinsicHash: enteredPool ? (extrinsic.hash.toHex() as HexString) : undefined,
+						error: `Transaction timed out after ${timeoutMs}ms${enteredPool ? " while in the transaction pool" : ""}`,
 					})
 				}
 			}, timeoutMs)
@@ -305,6 +340,15 @@ export class IntentsCoprocessor {
 			extrinsic
 				.signAndSend(keyPair, { tip }, (result) => {
 					if (resolved) return
+
+					if (
+						result.status.isFuture ||
+						result.status.isReady ||
+						result.status.isBroadcast ||
+						result.status.isRetracted
+					) {
+						enteredPool = true
+					}
 
 					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {
 						resolved = true
@@ -384,7 +428,7 @@ export class IntentsCoprocessor {
 					if (!resolved) {
 						resolved = true
 						clearTimeout(timeoutId)
-						resolve({ success: false, error: err.message })
+						resolve(this.classifySubmissionError(err))
 					}
 				})
 		})
@@ -590,9 +634,9 @@ export class IntentsCoprocessor {
 		const rawHex = result.unwrap().toHex() as HexString
 		if (rawHex === "0x" || rawHex === "0x00") return null
 
-		const placeOrderAbi = (IntentGatewayV2.ABI as readonly { type: string; name?: string; inputs?: unknown[] }[]).find(
-			(item) => item.type === "function" && item.name === "placeOrder",
-		)
+		const placeOrderAbi = (
+			IntentGatewayV2.ABI as readonly { type: string; name?: string; inputs?: unknown[] }[]
+		).find((item) => item.type === "function" && item.name === "placeOrder")
 		const orderType = placeOrderAbi?.inputs?.[0]
 		if (!orderType) return null
 
@@ -677,7 +721,10 @@ export class IntentsCoprocessor {
 	 *
 	 * Returns a function that stops polling.
 	 */
-	pollPhantomOrders(callback: (event: PhantomOrderEvent) => void, options: PollPhantomOrdersOptions = {}): () => void {
+	pollPhantomOrders(
+		callback: (event: PhantomOrderEvent) => void,
+		options: PollPhantomOrdersOptions = {},
+	): () => void {
 		const { intervalMs = 6_000, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
 
 		// Last block whose events have been delivered. Null until the first successful head read.

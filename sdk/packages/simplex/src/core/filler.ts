@@ -185,7 +185,8 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Immediately enqueues retraction for all stale bids (older than maxAgeMs).
+	 * Immediately enqueues retraction for all bids due for it: stale bids (older than maxAgeMs)
+	 * and dead bids (order already filled) of any age.
 	 * Returns the number of bids queued for retraction.
 	 */
 	public async retractStaleBids(maxAgeMs = 60 * 60 * 1000): Promise<number> {
@@ -317,7 +318,7 @@ export class IntentFiller {
 			})
 		}, SWEEP_INTERVAL_MS)
 
-		this.logger.info("Periodic retraction sweep started (every 5 minutes, 1h TTL)")
+		this.logger.info("Periodic retraction sweep started (every 5 minutes; 1h TTL, dead bids swept next cycle)")
 	}
 
 	private async sweepExpiredBids(maxAgeMs: number): Promise<void> {
@@ -762,6 +763,7 @@ export class IntentFiller {
 
 					if (this.pendingRetractions.delete(commitment)) {
 						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
+						this.bidStorage?.markBidAsDead(commitment)
 						this.enqueueRetraction(commitment)
 					}
 				}
@@ -806,20 +808,45 @@ export class IntentFiller {
 			return
 		}
 
+		// The order is filled, so the bid is dead weight from here on. Should the immediate
+		// retraction below not confirm, the sweep re-attempts dead bids on its next cycle
+		// instead of waiting out the stale-bid TTL.
+		this.bidStorage.markBidAsDead(commitment)
 		this.enqueueRetraction(commitment)
 	}
 
 	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
-				this.logger.info({ commitment }, "Retracting bid after on-chain OrderFilled")
+				// Both OrderFilled and the periodic sweep can enqueue the same commitment; a fresh
+				// read at dequeue time skips the duplicate instead of paying for a BidNotFound.
+				if (this.bidStorage!.getBidByCommitment(commitment)?.retracted) {
+					return
+				}
+
+				this.logger.info({ commitment }, "Retracting bid")
 
 				const coprocessor = await this.hyperbridge!
 				const result = await coprocessor.retractBid(commitment)
 
 				if (result.success) {
-					this.bidStorage!.markBidAsRetracted(commitment, result.extrinsicHash as HexString)
+					this.bidStorage!.markBidAsRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
+				} else if (result.error?.includes("BidNotFound")) {
+					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
+					// means there is nothing left to reclaim — an earlier submission of ours landed,
+					// someone retracted manually, or the placement never landed. Anything else seeds
+					// a zombie the sweep re-retracts forever.
+					this.bidStorage!.markBidAsRetracted(commitment, null)
+					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
+				} else if (result.pending) {
+					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce
+					// off it (1014) or land a duplicate; leave the bid as-is and let the sweep confirm
+					// — if the pooled retraction lands, the next attempt's BidNotFound closes it out.
+					this.logger.debug(
+						{ commitment, error: result.error },
+						"Retraction already in flight, deferring to sweep",
+					)
 				} else {
 					this.logger.error({ commitment, error: result.error }, "Failed to retract bid")
 				}
@@ -889,7 +916,9 @@ export class IntentFiller {
 	}
 
 	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
-		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${getChainId(event.chain) ?? event.chain}`)
+		const entryPointAddress = this.configService.getEntryPointAddress(
+			`EVM-${getChainId(event.chain) ?? event.chain}`,
+		)
 		if (!entryPointAddress) {
 			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
 			return
@@ -966,6 +995,15 @@ export class IntentFiller {
 						blockHash: result.blockHash,
 					},
 					"Phantom bid submitted",
+				)
+			} else if (result.pending) {
+				// The extrinsic reached the tx pool but inclusion wasn't observed — it will almost
+				// certainly land. Record the commitment so the next interval's batch retracts it;
+				// if it never lands, that retraction degrades to a harmless trailing BidNotFound.
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
+				this.logger.info(
+					{ commitment: event.commitment, chain: event.chain, error: result.error },
+					"Phantom bid in flight, inclusion not yet observed",
 				)
 			} else {
 				this.logger.warn(

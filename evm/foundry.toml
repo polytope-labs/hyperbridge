@@ -10,6 +10,13 @@ evm_version = "cancun"
 via-ir = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 
+# EIP-2537 (BLS12-381 precompiles) only exists from Prague, and the default profile is on cancun.
+# Kept separate so the deployed contracts' bytecode is unaffected. SimplexPaymaster is skipped
+# because its @openzeppelin/community-contracts dependency is not vendored.
+[profile.bls]
+evm_version = "prague"
+skip = ["src/utils/SimplexPaymaster.sol"]
+
 [profile.ci]
 
 [lint]

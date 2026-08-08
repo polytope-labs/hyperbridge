@@ -173,6 +173,52 @@ struct BeefyConsensusProof {
     ParachainProof parachain;
 }
 
+// A validator that contributed to an aggregate BLS12-381 signature.
+//
+// Only the public key travels. The individual signatures are summed by the prover into
+// BlsRelayChainProof.aggregateSignature, since verification never needs them apart.
+struct BlsSigner {
+    // Compressed BLS12-381 G2 public key, 96 bytes. Note BEEFY puts public keys in G2 and
+    // signatures in G1, the opposite of the Ethereum convention.
+    bytes publicKey;
+    // 0-based index of the authority in the authority set
+    uint256 authorityIndex;
+}
+
+struct BlsRelayChainProof {
+    // A commitment to the finalized state
+    Commitment commitment;
+    // The validators that signed, in strictly ascending index order
+    BlsSigner[] signers;
+    // Sum of the signers' signatures as a compressed BLS12-381 G1 point, 48 bytes
+    bytes aggregateSignature;
+    // Latest leaf added to mmr
+    BeefyMmrLeaf latestMmrLeaf;
+    // Proof for the latest mmr leaf
+    bytes32[] mmrProof;
+    // Root of the tree over the authorities' BLS public keys. The relay chain commits this as one
+    // extra leaf of the authority set tree, so it is proven rather than trusted.
+    bytes32 blsCommitment;
+    // Proof that blsCommitment is the authority set's extra leaf, against the keyset commitment.
+    // That tree holds len + 1 leaves: the authorities, then this one.
+    bytes32[] keysetProof;
+    // Proof for the signing authorities against blsCommitment
+    bytes32[] proof;
+}
+
+// A BEEFY consensus proof verified by a single aggregate BLS signature rather than by recovering
+// each authority's ECDSA signature.
+//
+// This requires a relay chain whose keyset commitment is over BLS public keys. A chain committing
+// ECDSA-derived addresses cannot be verified this way, and vice versa, so the two are separate
+// consensus states.
+struct BlsBeefyConsensusProof {
+    // The proof items for the relay chain consensus
+    BlsRelayChainProof relay;
+    // Proof items for parachain headers
+    ParachainProof parachain;
+}
+
 struct DigestItem {
     bytes4 consensusId;
     bytes data;
@@ -203,6 +249,8 @@ library HeaderImpl {
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
     /// ConsensusID for the ISMP timestamp digest deposited by pallet-ismp
     bytes4 public constant ISMP_TIMESTAMP_ID = bytes4("ISTM");
+    /// ConsensusID for the APK commitment digest deposited by pallet-beefy-apk-digest
+    bytes4 public constant APK_COMMITMENT_ID = bytes4("APKC");
 
     error TimestampNotFound();
 
@@ -228,5 +276,35 @@ library HeaderImpl {
         if (timestamp == 0) revert TimestampNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
+    }
+
+    /// @dev The commitment to the relay chain's next BEEFY authority set, if this header carries
+    /// one. Written by `pallet-beefy-apk-digest` on the block a set finishes being absorbed, so
+    /// most headers do not have it and `found` is false for those.
+    ///
+    /// The header itself is already authenticated, through the parachain heads root in the BEEFY
+    /// MMR leaf, so no further proof is needed: `commitment` can go straight to `ApkProof.verify`
+    /// as `publicKeysCommitment`, and `setId` says which authority set it describes.
+    ///
+    /// Payload is SCALE: a u64 set id little-endian, then the 32 byte commitment.
+    function apkCommitment(Header memory self)
+        internal
+        pure
+        returns (bool found, uint64 setId, bytes32 commitment)
+    {
+        for (uint256 j = 0; j < self.digests.length; j++) {
+            if (!self.digests[j].isConsensus) continue;
+            if (self.digests[j].consensus.consensusId != APK_COMMITMENT_ID) continue;
+
+            bytes memory data = self.digests[j].consensus.data;
+            // Ignore a malformed item rather than reverting: a wrong length means some other
+            // producer wrote under this engine id, and the caller should see "absent", not fail.
+            if (data.length != 40) continue;
+
+            setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
+            commitment = Bytes.toBytes32(Bytes.substr(data, 8));
+            return (true, setId, commitment);
+        }
+        return (false, 0, bytes32(0));
     }
 }

@@ -34,6 +34,8 @@ pub const ROTATION_OFFCHAIN_PREFIX: &[u8] = b"beefy_consensus_proofs::rotation::
 pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type byte: SP1 ZK BEEFY proof.
 pub const PROOF_TYPE_SP1: u8 = 0x01;
+/// Proof type byte: aggregate BLS12-381 BEEFY proof.
+pub const PROOF_TYPE_BLS: u8 = 0x02;
 
 fn offchain_key(prefix: &[u8], id: u64) -> Vec<u8> {
 	let mut key = Vec::with_capacity(prefix.len() + 8);

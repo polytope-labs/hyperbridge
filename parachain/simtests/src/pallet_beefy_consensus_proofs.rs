@@ -79,7 +79,7 @@ const MAX_UNCLE_PROVERS: usize = 5;
 
 /// `ConsensusClientId` for BEEFY (`b"BEEF"`); duplicated here because pulling
 /// `ismp-beefy` into simtests just for this constant is excessive.
-const BEEFY_CONSENSUS_ID: [u8; 4] = *b"BEEF";
+pub(crate) const BEEFY_CONSENSUS_ID: [u8; 4] = *b"BEEF";
 
 /// Path-embedded SP1 fixture produced by the prover (`zk-beefy::tests::test_sp1_beefy`)
 /// and consumed by the on-chain SP1Beefy fork test under `evm/tests/foundry/`. Sourcing
@@ -178,7 +178,7 @@ fn curve_value(fractions: &[(u32, u32)]) -> Value {
 /// Submit a sudo-wrapped call signed by Alice (the simnode sudo key) and wait
 /// for finalization. Returns the dispatch result so callers can assert on
 /// success / failure of the inner call.
-async fn submit_sudo(
+pub(crate) async fn submit_sudo(
 	client: &OnlineClient<Hyperbridge>,
 	rpc_client: &RpcClient,
 	inner: subxt::tx::DynamicPayload,
@@ -187,7 +187,7 @@ async fn submit_sudo(
 	submit_signed(client, rpc_client, sudo_call, Keyring::Alice).await
 }
 
-async fn submit_signed(
+pub(crate) async fn submit_signed(
 	client: &OnlineClient<Hyperbridge>,
 	rpc_client: &RpcClient,
 	call: subxt::tx::DynamicPayload,
@@ -407,7 +407,7 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 /// a BEEFY justification. We use that parent as the trusted-state anchor so the
 /// proof at `latest_beefy_hash` is guaranteed to advance state. Mirrors the lookup
 /// in `modules/pallets/testsuite/src/tests/pallet_ismp_beefy.rs::setup`.
-async fn previous_beefy_anchor(
+pub(crate) async fn previous_beefy_anchor(
 	relay_rpc: &LegacyRpcMethods<PolkadotConfig>,
 	latest_beefy_hash: H256,
 ) -> Result<H256, anyhow::Error> {

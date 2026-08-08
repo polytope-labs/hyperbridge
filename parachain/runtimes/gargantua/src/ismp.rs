@@ -242,8 +242,8 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 	}
 
 	fn allowed_proof_types() -> &'static [u8] {
-		// Testnet: accept the naive ECDSA and SP1 ZK proof formats, plus aggregate BLS12-381.
-		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1, ismp_beefy::PROOF_TYPE_BLS]
+		// Testnet: accept the naive ECDSA and SP1 ZK proof formats.
+		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1]
 	}
 }
 

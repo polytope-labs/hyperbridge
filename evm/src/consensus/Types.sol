@@ -173,52 +173,6 @@ struct BeefyConsensusProof {
     ParachainProof parachain;
 }
 
-// A validator that contributed to an aggregate BLS12-381 signature.
-//
-// Only the public key travels. The individual signatures are summed by the prover into
-// BlsRelayChainProof.aggregateSignature, since verification never needs them apart.
-struct BlsSigner {
-    // Compressed BLS12-381 G2 public key, 96 bytes. Note BEEFY puts public keys in G2 and
-    // signatures in G1, the opposite of the Ethereum convention.
-    bytes publicKey;
-    // 0-based index of the authority in the authority set
-    uint256 authorityIndex;
-}
-
-struct BlsRelayChainProof {
-    // A commitment to the finalized state
-    Commitment commitment;
-    // The validators that signed, in strictly ascending index order
-    BlsSigner[] signers;
-    // Sum of the signers' signatures as a compressed BLS12-381 G1 point, 48 bytes
-    bytes aggregateSignature;
-    // Latest leaf added to mmr
-    BeefyMmrLeaf latestMmrLeaf;
-    // Proof for the latest mmr leaf
-    bytes32[] mmrProof;
-    // Root of the tree over the authorities' BLS public keys. The relay chain commits this as one
-    // extra leaf of the authority set tree, so it is proven rather than trusted.
-    bytes32 blsCommitment;
-    // Proof that blsCommitment is the authority set's extra leaf, against the keyset commitment.
-    // That tree holds len + 1 leaves: the authorities, then this one.
-    bytes32[] keysetProof;
-    // Proof for the signing authorities against blsCommitment
-    bytes32[] proof;
-}
-
-// A BEEFY consensus proof verified by a single aggregate BLS signature rather than by recovering
-// each authority's ECDSA signature.
-//
-// This requires a relay chain whose keyset commitment is over BLS public keys. A chain committing
-// ECDSA-derived addresses cannot be verified this way, and vice versa, so the two are separate
-// consensus states.
-struct BlsBeefyConsensusProof {
-    // The proof items for the relay chain consensus
-    BlsRelayChainProof relay;
-    // Proof items for parachain headers
-    ParachainProof parachain;
-}
-
 // An authority set identified by its APK commitment rather than by a merkle root over keys.
 //
 // The commitment is Poseidon2 over the validators' BLS12-381 G1 keys, padded to the circuit's

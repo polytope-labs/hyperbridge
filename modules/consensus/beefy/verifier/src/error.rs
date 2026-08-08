@@ -73,24 +73,6 @@ pub enum Error {
 	/// The SP1 Groth16 verifier rejected the proof bytes.
 	#[error("SP1 proof verification failed")]
 	Sp1VerificationFailed,
-	/// A G1 signature or G2 public key in a BLS proof is not a valid curve point.
-	#[error("Invalid BLS point encoding")]
-	InvalidBlsPoint,
-	/// The aggregate BLS pairing check rejected the signature.
-	#[error("Aggregate BLS signature verification failed")]
-	BlsVerificationFailed,
-	/// A BLS proof carried no signers, so there is no aggregate to verify.
-	#[error("BLS proof contains no signers")]
-	NoBlsSigners,
-	/// A BLS proof's signer indices are not strictly ascending, or address an authority outside
-	/// the set. Repeating an index would let a prover count one validator many times towards the
-	/// supermajority threshold and aggregate its key more than once.
-	#[error("BLS signer indices must be strictly ascending and within the authority set")]
-	InvalidBlsSignerOrdering,
-	/// The BLS proof payload failed to SCALE-decode.
-	#[error("Cannot decode BLS proof: {0}")]
-	DecodeBlsProof(String),
-
 	// -- ismp-beefy client wrapper --
 	/// The trusted state failed to SCALE-decode into a `ConsensusState`.
 	#[error("Cannot decode consensus state: {0}")]

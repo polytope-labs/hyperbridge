@@ -23,8 +23,6 @@
 
 extern crate alloc;
 
-#[cfg(feature = "bls-crypto")]
-pub mod bls;
 pub mod error;
 pub mod sp1;
 #[cfg(test)]
@@ -35,7 +33,6 @@ use core::marker::PhantomData;
 
 use crate::error::Error;
 use beefy_verifier_primitives::{
-	BLS_G1_SIGNATURE_LEN, BLS_G2_PUBLIC_KEY_LEN, BlsConsensusMessage, BlsMmrProof,
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 };
 use codec::Encode;
@@ -60,30 +57,6 @@ pub trait EcdsaRecover {
 	/// Recover the uncompressed public key (64 bytes, without 0x04 prefix) from a 32-byte
 	/// prehash and 65-byte signature. Signature format: [r (32) | s (32) | v (1)]
 	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]>;
-}
-
-/// A trait for verifying an aggregate BLS12-381 signature under BEEFY's signing scheme.
-///
-/// BEEFY's BLS half uses `w3f-bls`'s "double" scheme over `TinyBLS381`, in which signatures are G1
-/// points and public keys are G2 points. Note this is the opposite of the Ethereum convention, so
-/// implementations written against an eth2 BLS library will not transfer. The signed message is the
-/// SCALE-encoded commitment, hashed to a G1 point with an empty context.
-///
-/// This is a trait, rather than a direct call into a BLS library, for the same reason
-/// [`EcdsaRecover`] is: a runtime can route the pairing through host functions instead of paying to
-/// execute it in wasm. Implementations must perform the hash-to-curve themselves so that step can
-/// be host-accelerated too.
-pub trait BlsAggregateVerify {
-	/// Check that `signature` is the sum of the signatures over `message` produced by the holders
-	/// of `public_keys`, using a single pairing check.
-	///
-	/// Returns `Ok(false)` when the points are well formed but the signature does not verify, and
-	/// an error when a point cannot be decoded.
-	fn verify_aggregate(
-		message: &[u8],
-		signature: &[u8; BLS_G1_SIGNATURE_LEN],
-		public_keys: &[[u8; BLS_G2_PUBLIC_KEY_LEN]],
-	) -> anyhow::Result<bool>;
 }
 
 /// A hasher implementation for rs_merkle, generic over the hash function
@@ -124,17 +97,6 @@ pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	proof: ConsensusMessage,
 ) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
 	let (state, heads_root) = verify_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
-	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
-	Ok((state.encode(), verified_headers))
-}
-
-/// Verify a BEEFY consensus proof whose commitment was signed with aggregate BLS12-381, returning
-/// the new trusted consensus state and the verified parachain headers.
-pub fn verify_bls_consensus<H: Keccak256 + BlsAggregateVerify + Send + Sync>(
-	trusted_state: ConsensusState,
-	proof: BlsConsensusMessage,
-) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
-	let (state, heads_root) = verify_bls_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
 	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 	Ok((state.encode(), verified_headers))
 }
@@ -185,91 +147,6 @@ pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	verify_mmr_leaf::<H>(&mmr.latest_mmr_leaf, &mmr.mmr_proof, preamble.mmr_root)?;
 
 	let latest_height = commitment.block_number;
-	let state = apply_update(trusted_state, &mmr.latest_mmr_leaf, latest_height);
-
-	Ok((state, mmr.latest_mmr_leaf.leaf_extra))
-}
-
-/// Verifies an MMR root update whose authorities signed with BLS12-381 rather than ECDSA.
-///
-/// Where the ECDSA path recovers a public key per signature, this sums the signers' keys and
-/// checks one aggregate signature in a single pairing operation, so the cost of the signature
-/// check no longer grows with the size of the validator set. The signers are named explicitly in
-/// the proof and proven to be authorities by the same merkle multi-proof the ECDSA path uses,
-/// against a keyset commitment that must be over BLS public keys rather than Ethereum addresses.
-///
-/// Note that a chain whose keyset commitment holds Ethereum addresses cannot be verified through
-/// this path, and vice versa. The two are separate consensus states.
-pub fn verify_bls_mmr_update_proof<H: Keccak256 + BlsAggregateVerify + Send + Sync>(
-	trusted_state: ConsensusState,
-	mmr: BlsMmrProof,
-) -> Result<(ConsensusState, H256), Error> {
-	if mmr.signers.is_empty() {
-		return Err(Error::NoBlsSigners);
-	}
-
-	let preamble = prepare_update(&trusted_state, &mmr.commitment, mmr.signers.len() as u32)?;
-
-	// Strictly ascending indices, so a signer cannot be counted towards the threshold or summed
-	// into the aggregate more than once, and so the multi-proof sees them in the order it wants.
-	let within_set = mmr
-		.signers
-		.last()
-		.map(|last| last.index < preamble.authority_count)
-		.unwrap_or(false);
-	let ascending = mmr.signers.windows(2).all(|pair| pair[0].index < pair[1].index);
-	if !ascending || !within_set {
-		return Err(Error::InvalidBlsSignerOrdering);
-	}
-
-	// The BLS half signs the SCALE-encoded commitment itself, where the ECDSA half signs its
-	// keccak hash. Hashing it onto the curve is the implementation's job, so that step can be
-	// host-accelerated alongside the pairing.
-	let public_keys = mmr.signers.iter().map(|signer| signer.public_key).collect::<Vec<_>>();
-	let verified =
-		H::verify_aggregate(&mmr.commitment.encode(), &mmr.aggregate_signature, &public_keys)
-			.map_err(|_| Error::InvalidBlsPoint)?;
-
-	if !verified {
-		return Err(Error::BlsVerificationFailed);
-	}
-
-	// The pairing check only proves that the holders of *these* keys signed. Proving those keys
-	// are the authority set's is what the merkle multi-proof is for.
-	let authority_leaves = mmr
-		.signers
-		.iter()
-		.map(|signer| H::keccak256(&signer.public_key).into())
-		.collect::<Vec<[u8; 32]>>();
-	let authority_indices =
-		mmr.signers.iter().map(|signer| signer.index as usize).collect::<Vec<_>>();
-
-	// Two levels. The relay chain commits the BLS keys as one extra leaf of the authority set
-	// tree, so that the per-authority leaves keep their positions and bridges verifying ECDSA
-	// signatures still prove against the same root. First establish that leaf really is the
-	// authority set's, then prove the signers against it.
-	//
-	// The keyset tree therefore holds `authority_count + 1` leaves, with the BLS commitment last,
-	// while the threshold above still judges against `authority_count`.
-	verify_authority_membership::<H>(
-		preamble.keyset_commitment,
-		&mmr.keyset_proof,
-		&[preamble.authority_count as usize],
-		&[H::keccak256(mmr.bls_commitment.as_bytes()).into()],
-		preamble.authority_count.saturating_add(1),
-	)?;
-
-	verify_authority_membership::<H>(
-		mmr.bls_commitment,
-		&mmr.authority_proof,
-		&authority_indices,
-		&authority_leaves,
-		preamble.authority_count,
-	)?;
-
-	verify_mmr_leaf::<H>(&mmr.latest_mmr_leaf, &mmr.mmr_proof, preamble.mmr_root)?;
-
-	let latest_height = mmr.commitment.block_number;
 	let state = apply_update(trusted_state, &mmr.latest_mmr_leaf, latest_height);
 
 	Ok((state, mmr.latest_mmr_leaf.leaf_extra))

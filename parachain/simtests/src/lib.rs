@@ -2,7 +2,6 @@ mod base_call_filter;
 mod bls_relay_setup;
 mod intents_rpc;
 mod migration_test;
-mod pallet_beefy_bls;
 mod pallet_beefy_consensus_proofs;
 mod pallet_fishermen;
 mod pallet_ismp;

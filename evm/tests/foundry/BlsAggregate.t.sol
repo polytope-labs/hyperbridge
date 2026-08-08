@@ -3,8 +3,6 @@ pragma solidity ^0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {BlsAggregate} from "../../src/consensus/BlsAggregate.sol";
-import {BlsBeefy} from "../../src/consensus/BlsBeefy.sol";
-import {BlsSigner} from "../../src/consensus/Types.sol";
 
 /**
  * @title Cross-language check of the aggregate BLS pairing.
@@ -105,82 +103,6 @@ contract BlsAggregateTest is Test {
         assertFalse(
             BlsAggregate.verify(MESSAGE, _g1(SIG_X, SIG_Y), subset),
             "aggregate must not verify against a subset of the signers"
-        );
-    }
-
-    /// Root of the authority set tree: four per-authority leaves, then the BLS commitment.
-    bytes32 constant KEYSET_ROOT = 0x9097854fdde72a6cae144165afd1b881ff201a20acbbbef836f9cdf45a1d85a9;
-    /// Root of the tree over the four authorities' compressed BLS keys, the extra leaf's value.
-    bytes32 constant BLS_COMMITMENT = 0xd220f3b093a9c3cb95b44e1413e438eb0184b9fe9337591ef13680c44e678a2a;
-    /// Opens the BLS commitment as leaf 4 of the five-leaf authority set tree.
-    bytes32 constant KEYSET_PROOF_NODE = 0x9ca0bbf4e382871c43e750de6df39704e2604f75b83534dfa710289745b331f7;
-    /// Opens signers 0,1,2 against the BLS commitment.
-    bytes32 constant PROOF_NODE = 0x97e418e070e3ec967bccc1d0aaea6d787a7b68733451c5320cd32eec2be63df8;
-
-    function _blsSigners() private pure returns (BlsSigner[] memory out) {
-        bytes[] memory keys = _signers();
-        out = new BlsSigner[](3);
-        for (uint256 i = 0; i < 3; ++i) {
-            out[i] = BlsSigner({publicKey: keys[i], authorityIndex: i});
-        }
-    }
-
-    function _authorityProof() private pure returns (bytes32[] memory nodes) {
-        nodes = new bytes32[](1);
-        nodes[0] = PROOF_NODE;
-    }
-
-    function _keysetProof() private pure returns (bytes32[] memory nodes) {
-        nodes = new bytes32[](1);
-        nodes[0] = KEYSET_PROOF_NODE;
-    }
-
-    /// The authority half end to end: threshold, ordering, merkle membership, aggregate pairing.
-    /// Reverts on any failure, so reaching the end is the assertion.
-    function test_verify_authorities() public {
-        new BlsBeefy().verifyAuthorities(MESSAGE, _blsSigners(), _g1(SIG_X, SIG_Y), KEYSET_ROOT, BLS_COMMITMENT, _keysetProof(), _authorityProof(), 4);
-    }
-
-    /// Repeating a signer must be rejected before any cryptography runs.
-    function test_rejects_duplicate_signer_index() public {
-        BlsSigner[] memory signers = _blsSigners();
-        signers[2].authorityIndex = 1;
-
-        BlsBeefy client = new BlsBeefy();
-        vm.expectRevert(BlsBeefy.InvalidSignerOrdering.selector);
-        client.verifyAuthorities(MESSAGE, signers, _g1(SIG_X, SIG_Y), KEYSET_ROOT, BLS_COMMITMENT, _keysetProof(), _authorityProof(), 4);
-    }
-
-    /// Two of four is short of the supermajority.
-    function test_rejects_sub_supermajority() public {
-        BlsSigner[] memory all = _blsSigners();
-        BlsSigner[] memory two = new BlsSigner[](2);
-        two[0] = all[0];
-        two[1] = all[1];
-
-        BlsBeefy client = new BlsBeefy();
-        vm.expectRevert(BlsBeefy.SuperMajorityRequired.selector);
-        client.verifyAuthorities(MESSAGE, two, _g1(SIG_X, SIG_Y), KEYSET_ROOT, BLS_COMMITMENT, _keysetProof(), _authorityProof(), 4);
-    }
-
-    /// Compression must reproduce exactly what `w3f-bls` serialises, or the merkle leaves will not
-    /// match the commitment. Signer 0 has the sign bit set (0xb4), signer 2 does not (0x80), so
-    /// both branches of the rule are covered.
-    function test_compress_matches_w3f_bls() public pure {
-        bytes[] memory keys = _signers();
-
-        assertEq(
-            BlsAggregate.compressG2(keys[0]),
-            hex"b4168206974b9223cc95e6e1f279f9d10e526aa172b5bd15b101b6f4997e2038ebcb02bfee1bca54f428162e17ade003"
-            hex"0eb912203efe065b9d9844025f9a85a43fdb21f4c8c0f31b39cc3bedcdbecce8ab3567f9cadbe965adebb7dd4a081ec1",
-            "signer 0 compression differs, sign bit set"
-        );
-
-        assertEq(
-            BlsAggregate.compressG2(keys[2]),
-            hex"808cd3cbf5e8dd6aca7d5fb78061c360910691c3797bcd95a42cf5a45b0612e8555f6e118788872af47d231954914282"
-            hex"0c2410d03233711f03a7242fd3a8bb141125ac84a07813d8cce6e366038f129d3ef348fc7dd14682e3db28a920d2c748",
-            "signer 2 compression differs, sign bit clear"
         );
     }
 }

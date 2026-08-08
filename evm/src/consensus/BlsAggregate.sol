@@ -38,9 +38,8 @@ import {BlsHashToCurve} from "./BlsHashToCurve.sol";
  * Signatures live in G1 and public keys in G2, the opposite of the Ethereum convention.
  *
  * Points are taken **uncompressed**. EIP-2537 has no decompression precompile, and recovering a
- * G2 point from its compressed form needs an Fp2 square root, which is expensive in Solidity. The
- * prover therefore supplies uncompressed coordinates. Compressing them again is cheap, so
- * [`compressG2`] derives the form the relay chain commits to when a merkle leaf is needed.
+ * G2 point from its compressed form needs an Fp2 square root, which is expensive in Solidity, so
+ * the prover supplies uncompressed coordinates.
  */
 library BlsAggregate {
     /// @dev EIP-2537 BLS12_G2ADD
@@ -65,16 +64,6 @@ library BlsAggregate {
         hex"0d1b3cc2c7027888be51d9ef691d77bcb679afda66c73f17f9ee3837a55024f78c71363275a75d75d86bab79f74782aa"
         hex"00000000000000000000000000000000"
         hex"13fa4d4a0ad8b1ce186ed5061789213d993923066dddaf1040bc3ff59f825c78df74f2d75467e25e0f55f8a00fa030ed";
-
-    /// @dev `(p - 1) / 2`. A compressed point records which of the two square roots `y` is, and
-    /// the convention is "the larger one", meaning `y > (p - 1) / 2`.
-    bytes internal constant HALF_MODULUS =
-        hex"0d0088f51cbff34d258dd3db21a5d66bb23ba5c279c2895fb39869507b587b120f55ffff58a9ffffdcff7fffffffd555";
-
-    /// @dev Set on the first byte of a compressed point.
-    uint8 internal constant COMPRESSION_FLAG = 0x80;
-    /// @dev Set when `y` is the larger of the two roots.
-    uint8 internal constant SIGN_FLAG = 0x20;
 
     error G2AddFailed();
     error PairingFailed();
@@ -124,44 +113,5 @@ library BlsAggregate {
         }
 
         return acc;
-    }
-
-    /**
-     * @notice Compress an uncompressed G2 point to the 96 byte form the relay chain commits to.
-     *
-     * @dev The keyset commitment is built over compressed keys, but EIP-2537 only accepts
-     * uncompressed ones, so the prover sends uncompressed and this derives the compressed form for
-     * the merkle leaf. Going this direction is cheap: take `x` and set two flag bits. The reverse
-     * would need an Fp2 square root, which is why the proof does not simply carry compressed keys.
-     *
-     * The layout is `x.c1 || x.c0`, c1 first, with the flags in the top bits of the first byte.
-     * The sign bit tracks `y.c1`, confirmed against `bls_compression_rule` in the Rust verifier.
-     */
-    function compressG2(bytes memory point) internal pure returns (bytes memory) {
-        if (point.length != G2_POINT_LEN) revert InvalidPointLength();
-
-        bytes memory out = new bytes(96);
-        for (uint256 i = 0; i < 48; ++i) {
-            // x.c1 occupies bytes 64..128, its value in the trailing 48; x.c0 is bytes 0..64.
-            out[i] = point[80 + i];
-            out[48 + i] = point[16 + i];
-        }
-
-        uint8 flags = COMPRESSION_FLAG;
-        // y.c1 occupies bytes 192..256, its value in the trailing 48.
-        if (greaterThanHalfModulus(point, 208)) flags |= SIGN_FLAG;
-        out[0] = bytes1(uint8(out[0]) | flags);
-
-        return out;
-    }
-
-    /// @dev Whether the 48 byte big-endian value at `offset` exceeds `(p - 1) / 2`.
-    function greaterThanHalfModulus(bytes memory value, uint256 offset) internal pure returns (bool) {
-        for (uint256 i = 0; i < 48; ++i) {
-            uint8 a = uint8(value[offset + i]);
-            uint8 b = uint8(HALF_MODULUS[i]);
-            if (a != b) return a > b;
-        }
-        return false;
     }
 }

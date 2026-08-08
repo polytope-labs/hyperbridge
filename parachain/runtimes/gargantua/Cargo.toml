@@ -34,9 +34,7 @@ ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
-# `bls` accepts aggregate BLS12-381 BEEFY proofs. Gargantua is the testnet runtime, so it carries
-# the BLS verifier while the measurements that decide whether it belongs on nexus are outstanding.
-ismp-beefy = { workspace = true, features = ["bls"] }
+ismp-beefy = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }

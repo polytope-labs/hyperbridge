@@ -24,6 +24,7 @@ import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot
 import {Codec} from "./Codec.sol";
 import {
     ApkAuthoritySet,
+    BlsApkBeefyConsensusProof,
     BlsApkConsensusState,
     BlsApkRelayChainProof,
     BeefyMmrLeaf,
@@ -54,10 +55,9 @@ interface IApkProof {
  * @title BEEFY consensus verified by an aggregate public key proof
  * @notice Verifies BEEFY finality without touching individual validator keys.
  *
- * @dev The merkle client in `BlsBeefy.sol` proves each signer's public key against the authority
- * set's keyset root, so its cost grows with the number of signers: roughly 17k gas each, for the
- * G2 addition and the compression needed to rebuild the leaf. At a few hundred validators that
- * dominates everything else.
+ * @dev Naming each signer and proving their public key against the authority set's keyset root
+ * costs roughly 17k gas per signer, for the G2 addition and the compression needed to rebuild the
+ * leaf. At a few hundred validators that dominates everything else.
  *
  * Here a SNARK does that work instead. The prover shows that an aggregate public key corresponds
  * to exactly the validators named in a bitlist, against a commitment to the whole set, and the
@@ -70,7 +70,7 @@ interface IApkProof {
  * and carries it in its consensus state. That is what `ApkAuthoritySet.apkCommitment` holds, and
  * why the state has to be seeded with the starting set's commitment at initialisation.
  *
- * Requires Prague for the EIP-2537 precompiles, same as the merkle client.
+ * Requires Prague for the EIP-2537 precompiles.
  */
 contract BlsApkBeefy is IConsensusV2, ERC165 {
     /// The payload id for the mmr root in a BEEFY commitment, "mh"
@@ -112,7 +112,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         (BlsApkRelayChainProof memory relay, ParachainProof memory parachain) =
             abi.decode(proof, (BlsApkRelayChainProof, ParachainProof));
 
-        // Replays are idempotent rather than reverting, matching the merkle client.
+        // Replays are idempotent rather than reverting, matching the ecdsa client.
         if (consensusState.latestHeight >= relay.commitment.blockNumber) {
             return (abi.encode(consensusState), new IntermediateState[](0), consensusState.nextAuthoritySet.id);
         }
@@ -226,7 +226,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         }
     }
 
-    /// @dev Two thirds plus one, matching the merkle client and substrate's own rule.
+    /// @dev Two thirds plus one, matching the ecdsa client and substrate's own rule.
     function checkParticipationThreshold(uint256 signed, uint256 total) internal pure returns (bool) {
         return total > 0 && signed * 3 > total * 2;
     }
@@ -301,4 +301,8 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
     function leafIndex(uint256 activationBlock, uint256 parentNumber) internal pure returns (uint256) {
         return activationBlock == 0 ? parentNumber : parentNumber - activationBlock;
     }
+
+    /// @dev Only here so the structs appear in the ABI, which is what the Rust bindings are
+    /// generated from. `verify` takes bytes, so without this they would be invisible.
+    function noOp(BlsApkConsensusState memory s, BlsApkBeefyConsensusProof memory p) external pure {}
 }

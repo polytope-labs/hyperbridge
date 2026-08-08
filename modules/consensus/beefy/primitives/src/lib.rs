@@ -126,113 +126,30 @@ pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type identifier for SP1 ZK proofs
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
-/// Proof type identifier for aggregate BLS12-381 proofs
-pub const PROOF_TYPE_BLS: u8 = 0x02;
-
 /// Size of a compressed BLS12-381 G1 point, the group BEEFY signatures live in.
 pub const BLS_G1_SIGNATURE_LEN: usize = 48;
 
 /// Size of a compressed BLS12-381 G2 point, the group BEEFY public keys live in.
 pub const BLS_G2_PUBLIC_KEY_LEN: usize = 96;
 
-/// Size of an uncompressed BLS12-381 G2 point as EIP-2537 encodes it: four 64 byte field
-/// elements, `x.c0 || x.c1 || y.c0 || y.c1`.
-pub const BLS_G2_UNCOMPRESSED_LEN: usize = 256;
-
-/// Size of an uncompressed BLS12-381 G1 point: `x || y`, each 64 bytes.
-pub const BLS_G1_UNCOMPRESSED_LEN: usize = 128;
-
-/// `(p - 1) / 2` for the BLS12-381 base field, big-endian.
-const HALF_MODULUS: [u8; 48] = [
-	0x0d, 0x00, 0x88, 0xf5, 0x1c, 0xbf, 0xf3, 0x4d, 0x25, 0x8d, 0xd3, 0xdb, 0x21, 0xa5, 0xd6, 0x6b,
-	0xb2, 0x3b, 0xa5, 0xc2, 0x79, 0xc2, 0x89, 0x5f, 0xb3, 0x98, 0x69, 0x50, 0x7b, 0x58, 0x7b, 0x12,
-	0x0f, 0x55, 0xff, 0xff, 0x58, 0xa9, 0xff, 0xff, 0xdc, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xd5, 0x55,
-];
-
-/// Compress an uncompressed G2 point into the 96 byte form the relay chain commits to.
+/// The relay chain half of a BLS BEEFY update: the signed commitment, the aggregate signature, and
+/// the MMR leaf it attests to.
 ///
-/// EIP-2537 only accepts uncompressed points, so an EVM-bound proof carries those, while the
-/// keyset commitment and the Rust verifier both work on the compressed encoding. Converting this
-/// direction is pure byte manipulation: take `x`, ordered `c1` then `c0`, and set the compression
-/// flag plus a sign bit recording which square root `y` is. The reverse would need an Fp2 square
-/// root, which is why proofs never travel compressed to the EVM.
-pub fn compress_g2(point: &[u8; BLS_G2_UNCOMPRESSED_LEN]) -> [u8; BLS_G2_PUBLIC_KEY_LEN] {
-	let mut out = [0u8; BLS_G2_PUBLIC_KEY_LEN];
-	// Each 64 byte field element carries its 48 byte value in the trailing bytes.
-	out[..48].copy_from_slice(&point[80..128]); // x.c1
-	out[48..].copy_from_slice(&point[16..64]); // x.c0
-
-	let y_c1 = &point[208..256];
-	let sign = y_c1 > &HALF_MODULUS[..];
-
-	out[0] |= 0x80; // compression flag
-	if sign {
-		out[0] |= 0x20;
-	}
-
-	out
-}
-
-/// Compress an uncompressed G1 point into the 48 byte form `w3f-bls` serialises.
-///
-/// Same convention as [`compress_g2`], with a single field element instead of a pair.
-pub fn compress_g1(point: &[u8; BLS_G1_UNCOMPRESSED_LEN]) -> [u8; BLS_G1_SIGNATURE_LEN] {
-	let mut out = [0u8; BLS_G1_SIGNATURE_LEN];
-	out.copy_from_slice(&point[16..64]); // x
-
-	let y = &point[80..128];
-	let sign = y > &HALF_MODULUS[..];
-
-	out[0] |= 0x80;
-	if sign {
-		out[0] |= 0x20;
-	}
-
-	out
-}
-
-/// A validator that contributed to an aggregate BLS signature.
-///
-/// Only the public key is carried. The individual signatures are summed by the prover into
-/// [`BlsMmrProof::aggregate_signature`], since verification never needs them apart.
-#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
-pub struct BlsSigner {
-	/// Compressed G2 public key, as committed to by the relay chain's keyset commitment.
-	pub public_key: [u8; BLS_G2_PUBLIC_KEY_LEN],
-	/// 0-based index of the authority in the authority set
-	pub index: u32,
-}
-
-/// An MMR root update proven by an aggregate BLS12-381 signature rather than by recovering each
-/// authority's ECDSA signature individually.
-///
-/// The verifier checks this in one pairing operation regardless of how many validators signed,
-/// which is the whole point of the BLS path. The tradeoff is that the signers' public keys travel
-/// with the proof, so its size grows with the number of signers.
+/// Which validators signed, and the proof that their aggregate key is the authority set's, are not
+/// here. Those come from the APK proof, which is built and checked outside this crate.
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct BlsMmrProof {
 	/// The commitment that was signed
 	pub commitment: sp_consensus_beefy::Commitment<u32>,
-	/// The validators that signed, with the public keys the aggregate was formed over
-	pub signers: Vec<BlsSigner>,
 	/// Sum of the signers' G1 signatures, as a compressed G1 point
 	pub aggregate_signature: [u8; BLS_G1_SIGNATURE_LEN],
 	/// Latest leaf added to mmr
 	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
 	/// Proof for the latest mmr leaf
 	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
-	/// Root of the tree over the authorities' BLS public keys. The relay chain commits this as one
-	/// extra leaf of the authority set tree, so it is proven rather than trusted.
-	pub bls_commitment: H256,
-	/// Flat proof hashes proving [`Self::bls_commitment`] is the authority set's extra leaf,
-	/// against the keyset commitment. That tree holds `len + 1` leaves: the authorities, then
-	/// this one.
-	pub keyset_proof: Vec<[u8; 32]>,
-	/// Flat proof hashes proving the signers' public keys against [`Self::bls_commitment`]
-	pub authority_proof: Vec<[u8; 32]>,
 }
 
-/// A BEEFY consensus update proven by an aggregate BLS signature.
+/// A BEEFY consensus update signed with aggregate BLS12-381.
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct BlsConsensusMessage {
 	/// Parachain headers

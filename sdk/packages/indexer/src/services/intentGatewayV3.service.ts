@@ -51,6 +51,16 @@ export interface TokenInfo {
 	amount: bigint
 }
 
+/**
+ * Fill data derived from the fill transaction's receipt rather than the event args.
+ */
+export interface FillEnrichment {
+	/** Hash of the ERC-4337 user operation that executed the fill, when the filler is a smart account */
+	userOpHash?: string
+	/** Amounts actually received by the beneficiary, aligned with the fill's output assets */
+	amountsReceived?: (bigint | undefined)[]
+}
+
 const ENTITY_TYPE = "IOrderV3"
 
 export type IntentVolumeType = "PLACED" | "FILLED"
@@ -178,6 +188,7 @@ export class IntentGatewayV3Service {
 	static async getOrCreateOrder(
 		order: OrderV3,
 		referrer: string,
+		feeToken: string,
 		logsData: {
 			transactionHash: string
 			blockNumber: number
@@ -199,6 +210,7 @@ export class IntentGatewayV3Service {
 				deadline: order.deadline,
 				nonce: order.nonce,
 				fees: order.fees,
+				feeToken,
 				session: order.session,
 				inputUSD: BigInt(new Decimal(inputUSD).truncated().toString()),
 				predispatchCalldata: order.predispatch.call as string,
@@ -269,6 +281,7 @@ export class IntentGatewayV3Service {
 			orderPlaced.deadline = order.deadline
 			orderPlaced.nonce = order.nonce
 			orderPlaced.fees = order.fees
+			orderPlaced.feeToken = feeToken
 			orderPlaced.session = order.session
 			orderPlaced.inputUSD = BigInt(new Decimal(inputUSD).truncated().toString())
 			orderPlaced.predispatchCalldata = order.predispatch.call as string
@@ -643,6 +656,7 @@ export class IntentGatewayV3Service {
 			timestamp: bigint
 			logIndex: number
 		},
+		enrichment?: FillEnrichment,
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
@@ -668,6 +682,7 @@ export class IntentGatewayV3Service {
 				timestamp,
 				blockNumber: blockNumber.toString(),
 				transactionHash,
+				userOpHash: enrichment?.userOpHash,
 				createdAt: timestampToDate(timestamp),
 			})
 		}
@@ -711,6 +726,7 @@ export class IntentGatewayV3Service {
 						partialFillId,
 						token: output.token,
 						amount: output.amount,
+						amountReceived: enrichment?.amountsReceived?.[index],
 						index,
 						beneficiary,
 					})
@@ -740,6 +756,7 @@ export class IntentGatewayV3Service {
 			timestamp: bigint
 			logIndex: number
 		},
+		enrichment?: FillEnrichment,
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
@@ -764,6 +781,7 @@ export class IntentGatewayV3Service {
 				timestamp,
 				blockNumber: blockNumber.toString(),
 				transactionHash,
+				userOpHash: enrichment?.userOpHash,
 				createdAt: timestampToDate(timestamp),
 			})
 		}
@@ -796,6 +814,7 @@ export class IntentGatewayV3Service {
 						fillId,
 						token: output.token,
 						amount: output.amount,
+						amountReceived: enrichment?.amountsReceived?.[index],
 						index,
 					})
 				}

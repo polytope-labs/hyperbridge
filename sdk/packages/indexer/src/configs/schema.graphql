@@ -817,6 +817,11 @@ type IOrderV3 @entity {
 	fees: BigInt!
 
 	"""
+	Address of the token the fees are denominated in (the source chain host's fee token)
+	"""
+	feeToken: String!
+
+	"""
 	Optional session key used to select winning solver
 	"""
 	session: String
@@ -1092,6 +1097,12 @@ type IOrderV3PartialFill @entity {
 	transactionHash: String! @index
 
 	"""
+	Hash of the ERC-4337 user operation that executed this partial fill, when the filler
+	is a smart account (e.g. SolverAccount). Null for plain EOA fills.
+	"""
+	userOpHash: String @index
+
+	"""
 	Input assets released from escrow for this partial fill
 	"""
 	inputAssets: [IOrderV3PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
@@ -1162,6 +1173,13 @@ type IOrderV3PartialFillOutputAsset @entity {
 	amount: BigInt! @index
 
 	"""
+	Token amount actually received by the beneficiary (including any surplus share),
+	read from the fill transaction's Transfer logs. Null when it cannot be derived
+	(e.g. native token outputs, which emit no Transfer log).
+	"""
+	amountReceived: BigInt
+
+	"""
 	Position index in the partial fill output assets array
 	"""
 	index: Int!
@@ -1212,6 +1230,12 @@ type IOrderV3Fill @entity {
 	The hash of the transaction in which the fill occurred
 	"""
 	transactionHash: String! @index
+
+	"""
+	Hash of the ERC-4337 user operation that executed this fill, when the filler
+	is a smart account (e.g. SolverAccount). Null for plain EOA fills.
+	"""
+	userOpHash: String @index
 
 	"""
 	Input assets credited to the filler (post-fee, post-FoT escrowed amounts that will be released on the source chain)
@@ -1282,6 +1306,13 @@ type IOrderV3FillOutputAsset @entity {
 	Token amount delivered to the beneficiary
 	"""
 	amount: BigInt! @index
+
+	"""
+	Token amount actually received by the beneficiary (including any surplus share),
+	read from the fill transaction's Transfer logs. Null when it cannot be derived
+	(e.g. native token outputs, which emit no Transfer log).
+	"""
+	amountReceived: BigInt
 
 	"""
 	Position index in the fill output assets array

@@ -6,6 +6,7 @@ import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
+import { resolveFillEnrichment } from "@/utils/fill.helpers"
 
 export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Promise<void> => {
 	logger.info(`[Intent Gateway V3] Order Filled Event: ${stringify(event)}`)
@@ -28,6 +29,13 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 		amount: BigInt(token.amount.toString()),
 	}))
 
+	const enrichment = await resolveFillEnrichment(event, {
+		commitment,
+		filler,
+		outputs: mappedOutputs,
+		chain,
+	})
+
 	await IntentGatewayV3Service.recordFill(
 		commitment,
 		filler,
@@ -42,6 +50,7 @@ export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Prom
 			timestamp,
 			logIndex,
 		},
+		enrichment,
 	)
 
 	await IntentGatewayV3Service.updateOrderStatus(

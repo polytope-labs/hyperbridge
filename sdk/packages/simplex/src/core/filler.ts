@@ -916,9 +916,24 @@ export class IntentFiller {
 	}
 
 	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
-		const entryPointAddress = this.configService.getEntryPointAddress(
-			`EVM-${getChainId(event.chain) ?? event.chain}`,
-		)
+		// A phantom bid is a public quote — it advertises that this filler stands ready to fill that
+		// chain's pairs at the quoted rate. The pallet registers one order per chain *it* knows about,
+		// which is a superset of what any single operator runs, and the strategies price legs off the
+		// shared asset registry rather than the operator's config, so an unconfigured chain quotes
+		// happily. Bidding there advertises liquidity no real order could ever draw on: without RPCs
+		// or a bundler for the chain, the fill path cannot even see the order, let alone fill it.
+		// Watch-only chains are the same story — `evaluateOrder` refuses to fill them by design.
+		const chainId = getChainId(event.chain)
+		if (chainId === undefined || !this.configService.getConfiguredChainIds().includes(chainId)) {
+			this.logger.debug({ chain: event.chain }, "Phantom order chain is not configured, skipping")
+			return
+		}
+		if (this.isChainWatchOnly(chainId)) {
+			this.logger.debug({ chain: event.chain }, "Phantom order chain is watch-only, skipping")
+			return
+		}
+
+		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${chainId}`)
 		if (!entryPointAddress) {
 			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
 			return

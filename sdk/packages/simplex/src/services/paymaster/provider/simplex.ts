@@ -1,4 +1,4 @@
-import { encodePacked, maxUint256, erc20Abi, type PublicClient, type WalletClient } from "viem"
+import { encodePacked, formatEther, maxUint256, erc20Abi, type PublicClient, type WalletClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import {
@@ -15,6 +15,9 @@ interface TokenOption {
 	address: HexString
 	decimals: number
 }
+
+/** Gas ceiling for the one-time ERC-20 approve tx (typical approves need ~45-55k). */
+const APPROVE_TX_GAS = 60_000n
 
 /**
  * Builds the paymaster fields for a PackedUserOperation using the SimplexPaymaster.
@@ -192,6 +195,21 @@ async function ensureCappedApproval(
 
 	if (currentAllowance >= threshold) {
 		return
+	}
+
+	// The approve is a plain EOA tx paid in native — the very thing the paymaster
+	// exists to avoid needing. Pre-check the balance so an unfunded solver fails
+	// with one actionable line instead of viem's estimateGas error chain.
+	const [nativeBalance, gasPrice] = await Promise.all([
+		client.getBalance({ address: solverAccount }),
+		client.getGasPrice(),
+	])
+	const requiredNative = APPROVE_TX_GAS * gasPrice
+	if (nativeBalance < requiredNative) {
+		throw new Error(
+			`SimplexPaymaster needs a one-time funded approval on this chain — the fee token has no permit; ` +
+				`send native dust (>= ${formatEther(requiredNative)}) to ${solverAccount}`,
+		)
 	}
 
 	const approvalAmount = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)

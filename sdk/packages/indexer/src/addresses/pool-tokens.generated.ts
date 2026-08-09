@@ -2,13 +2,13 @@
 // The tokens that liquidity pools are composed from, keyed by state machine id then
 // lowercase token address. Addresses are the "yieldVaults" keys of the relevant chain
 // entry in src/configs/config-mainnet.json / config-testnet.json; symbols and decimals
-// are read from each token contract at generation time.
+// are read from each token contract by scripts/generate-pool-tokens.ts.
 //
 // Decimals are per chain because the same symbol is not the same everywhere (BSC stables
 // are 18-decimal, most others 6); every rate and depth normalization depends on them.
-// To add a token, add it to that chain's "yieldVaults" and re-run codegen with an RPC
-// endpoint configured for the chain. Committed rather than gitignored: it is derived
-// from chain state, not from anything else in the repo, so --skip-rpc builds reuse it.
+// To add a token, add it to that chain's "yieldVaults" and run `pnpm codegen:pool-tokens`
+// with an RPC endpoint configured for the chain. Committed rather than gitignored: it
+// derives from chain state, which nothing else in the repo can reconstruct.
 export const POOL_TOKENS: Record<string, Record<string, { symbol: string; decimals: number }>> = {
 	"EVM-1": {
 		"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },

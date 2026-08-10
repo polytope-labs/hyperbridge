@@ -158,12 +158,23 @@ export interface ChainConfigData {
 		USDT: number
 		cNGN?: number
 		EXT?: number
+		ZARP?: number
+		EURC?: number
+		XSGD?: number
+		TRYB?: number
+		USDR?: number
 	}
 	tokenStorageSlots?: {
 		USDT?: { balanceSlot: number; allowanceSlot: number }
 		USDC?: { balanceSlot: number; allowanceSlot: number }
 		WETH?: { balanceSlot: number; allowanceSlot: number }
 		DAI?: { balanceSlot: number; allowanceSlot: number }
+		cNGN?: { balanceSlot: number; allowanceSlot: number }
+		ZARP?: { balanceSlot: number; allowanceSlot: number }
+		EURC?: { balanceSlot: number; allowanceSlot: number }
+		XSGD?: { balanceSlot: number; allowanceSlot: number }
+		TRYB?: { balanceSlot: number; allowanceSlot: number }
+		USDR?: { balanceSlot: number; allowanceSlot: number }
 	}
 	addresses: {
 		IntentGateway?: `0x${string}`
@@ -344,12 +355,23 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: 6,
 			USDT: 6,
 			cNGN: 6,
+			ZARP: 18,
+			EURC: 6,
+			XSGD: 6,
+			TRYB: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 2, allowanceSlot: 5 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			EURC: { balanceSlot: 9, allowanceSlot: 10 }, // Circle FiatToken layout
+			XSGD: { balanceSlot: 7, allowanceSlot: 8 },
+			TRYB: { balanceSlot: 9, allowanceSlot: 10 },
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
@@ -530,12 +552,19 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 			cNGN: 6,
 			EXT: 18,
+			ZARP: 18,
+			EURC: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			EURC: { balanceSlot: 9, allowanceSlot: 10 }, // Circle FiatToken layout
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
@@ -597,12 +626,19 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: 6,
 			EXT: 18,
 			cNGN: 6,
+			ZARP: 18,
+			XSGD: 6,
+			USDR: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout
+			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
+			XSGD: { balanceSlot: 7, allowanceSlot: 8 },
+			USDR: { balanceSlot: 51, allowanceSlot: 52 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",

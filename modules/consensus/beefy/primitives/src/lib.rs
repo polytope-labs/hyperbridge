@@ -126,6 +126,9 @@ pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type identifier for SP1 ZK proofs
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
+/// Proof type identifier for aggregate public key proofs
+pub const PROOF_TYPE_APK: u8 = 0x02;
+
 /// Size of a compressed BLS12-381 G1 point, the group BEEFY signatures live in.
 pub const BLS_G1_SIGNATURE_LEN: usize = 48;
 
@@ -162,6 +165,123 @@ impl PairedAuthority {
 		out.copy_from_slice(&self.0[PAIRED_G2_OFFSET..PAIRED_AUTHORITY_LEN]);
 		out
 	}
+}
+
+/// Size of a curve point as the APK circuit's verifier takes it: raw big-endian coordinates, 48
+/// bytes each, with no padding. Not the EIP-2537 layout.
+pub const APK_G1_LEN: usize = 96;
+/// The same for G2, four coordinates.
+pub const APK_G2_LEN: usize = 192;
+/// The participation bitlist, one bit per validator slot.
+pub const APK_BITLIST_WORDS: usize = 5;
+
+/// Engine id of the digest item carrying an authority set's APK commitment.
+pub const APK_ENGINE_ID: [u8; 4] = *b"APKC";
+
+/// The payload hyperbridge writes into a header digest once it has hashed an authority set.
+///
+/// This is a wire format shared by the runtime that writes it and every verifier that reads it. A
+/// client that has already authenticated a hyperbridge header, through the parachain heads root in
+/// the BEEFY MMR leaf, can take the commitment straight out of that header with no further proof.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
+pub struct ApkCommitmentDigest {
+	/// The BEEFY validator set the keys belong to, which is the relay's current set id plus one,
+	/// since the commitment describes the next set.
+	pub set_id: u64,
+	/// Poseidon2 over the set's G1 keys, padded to the circuit width with the identity point.
+	pub commitment: [u8; 32],
+}
+
+impl ApkCommitmentDigest {
+	/// Pull the commitment out of a header's digest logs, if one is there.
+	///
+	/// Returns the first matching item, since at most one is ever written per block. A malformed
+	/// payload reads as absent rather than as an error, on the grounds that some other producer
+	/// wrote under this engine id and the honest answer is that there is no commitment here.
+	pub fn find_in(digest: &sp_runtime::generic::Digest) -> Option<Self> {
+		digest.logs().iter().find_map(|log| match log {
+			sp_runtime::DigestItem::Consensus(id, payload) if *id == APK_ENGINE_ID =>
+				Self::decode(&mut &payload[..]).ok(),
+			_ => None,
+		})
+	}
+}
+
+/// An authority set identified by a commitment to its keys rather than a merkle root over them.
+///
+/// The commitment is Poseidon2 over the validators' G1 keys, which is what the APK circuit binds
+/// to. It cannot be read off the relay chain, so it arrives in a header digest and is empty until
+/// one has been seen.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode, Default)]
+pub struct ApkAuthoritySet {
+	/// Id of the set
+	pub id: u64,
+	/// Number of validators in the set
+	pub len: u32,
+	/// Poseidon2 over the set's G1 keys, zero until a digest supplies it
+	pub apk_commitment: H256,
+}
+
+/// Consensus state for BEEFY verified through an aggregate public key proof.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode, Default)]
+pub struct ApkConsensusState {
+	/// Latest beefy height
+	pub latest_beefy_height: u32,
+	/// Height at which beefy was activated
+	pub beefy_activation_block: u32,
+	/// Latest mmr root hash
+	pub mmr_root_hash: H256,
+	/// Authorities for the current session
+	pub current_authorities: ApkAuthoritySet,
+	/// Authorities for the next session
+	pub next_authorities: ApkAuthoritySet,
+}
+
+impl ApkConsensusState {
+	/// Record `commitment` for `set_id` if it names a set this state knows and has no commitment
+	/// for yet. Called with whatever a verified header carried, so an unknown set is ignored
+	/// rather than treated as an error.
+	pub fn learn_commitment(&mut self, set_id: u64, commitment: H256) {
+		for set in [&mut self.next_authorities, &mut self.current_authorities] {
+			if set.id == set_id && set.apk_commitment.is_zero() {
+				set.apk_commitment = commitment;
+				return;
+			}
+		}
+	}
+}
+
+/// The relay chain half of an update proven by an aggregate public key proof.
+///
+/// Nothing here grows with the number of signers. The bitlist is fixed width, the aggregates are
+/// one point each, and the proof is constant size.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
+pub struct ApkMmrProof {
+	/// The commitment that was signed
+	pub commitment: sp_consensus_beefy::Commitment<u32>,
+	/// Which validators signed, one bit each, big-endian words
+	pub bitlist: [[u8; 32]; APK_BITLIST_WORDS],
+	/// Aggregate of the signers' G1 keys, proven correct by [`Self::apk_proof`]
+	pub apk: [u8; APK_G1_LEN],
+	/// The same aggregate in G2, bound to `apk` by the pairing check
+	pub apk2: [u8; APK_G2_LEN],
+	/// PLONK proof that `apk` aggregates exactly the validators named in `bitlist`
+	pub apk_proof: Vec<u8>,
+	/// Sum of the signers' signatures, a G1 point
+	pub signature: [u8; APK_G1_LEN],
+	/// Latest leaf added to mmr
+	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
+	/// Proof for the latest mmr leaf
+	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
+}
+
+/// A BEEFY consensus update proven by an aggregate public key proof.
+#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
+pub struct ApkConsensusMessage {
+	/// Parachain headers
+	pub parachain: ParachainProof,
+	/// Proof for the finalized mmr root
+	pub mmr: ApkMmrProof,
 }
 
 /// The relay chain half of a BLS BEEFY update: the signed commitment, the aggregate signature, and

@@ -34,7 +34,7 @@ ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
-ismp-beefy = { workspace = true }
+ismp-beefy = { workspace = true, features = ["apk"] }
 ismp-parachain-runtime-api = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }

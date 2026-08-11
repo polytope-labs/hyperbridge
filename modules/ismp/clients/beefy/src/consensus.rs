@@ -15,6 +15,8 @@
 
 use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use beefy_verifier::{error::Error as BeefyError, verify_consensus};
+#[cfg(feature = "apk")]
+use beefy_verifier_primitives::PROOF_TYPE_APK;
 use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
 	Sp1BeefyProof,
@@ -76,9 +78,12 @@ where
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let consensus_state: ConsensusState =
+		// Decoded per arm rather than up front, since the apk path carries a different state
+		// shape: authority sets there are identified by a commitment to their keys.
+		let decode_state = || -> Result<ConsensusState, BeefyError> {
 			codec::Decode::decode(&mut &trusted_consensus_state[..])
-				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
+				.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))
+		};
 
 		let proof_type = proof.first().ok_or(BeefyError::EmptyProof)?;
 		if !C::allowed_proof_types().contains(proof_type) {
@@ -90,7 +95,7 @@ where
 			PROOF_TYPE_NAIVE => {
 				let consensus_proof: ConsensusMessage = codec::Decode::decode(&mut &payload[..])
 					.map_err(|e| BeefyError::DecodeNaiveProof(format!("{e:?}")))?;
-				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)?
+				verify_consensus::<SubstrateCrypto>(decode_state()?, consensus_proof)?
 			},
 			PROOF_TYPE_SP1 => {
 				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
@@ -98,10 +103,25 @@ where
 				let vkey_hash = C::sp1_vkey_hash();
 				let vkey = alloc::format!("0x{:x}", vkey_hash);
 				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
-					consensus_state,
+					decode_state()?,
 					sp1_proof,
 					&vkey,
 				)?
+			},
+			#[cfg(feature = "apk")]
+			PROOF_TYPE_APK => {
+				let apk_state: beefy_verifier_primitives::ApkConsensusState =
+					codec::Decode::decode(&mut &trusted_consensus_state[..])
+						.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
+				let apk_proof: beefy_verifier_primitives::ApkConsensusMessage =
+					codec::Decode::decode(&mut &payload[..])
+						.map_err(|e| BeefyError::DecodeApkProof(format!("{e:?}")))?;
+				let (state, headers) = beefy_verifier::apk::verify_apk_consensus::<SubstrateCrypto>(
+					apk_state,
+					apk_proof,
+					&C::apk_verifying_key(),
+				)?;
+				(state.encode(), headers)
 			},
 			_ => return Err(BeefyError::UnknownProofType(*proof_type).into()),
 		};

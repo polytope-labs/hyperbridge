@@ -22,6 +22,18 @@ thiserror = { workspace = true }
 sp1-verifier = { git = "https://github.com/polytope-labs/sp1.git", branch = "polytope-labs/v6.1.0-wasm-compatible", default-features = false }
 alloy-sol-types = { workspace = true, default-features = false }
 
+sha2 = { version = "0.10", default-features = false, optional = true }
+ark-bls12-381 = { version = "0.5", default-features = false, features = ["curve"], optional = true }
+ark-ec = { version = "0.5", default-features = false, optional = true }
+ark-ff = { version = "0.5", default-features = false, optional = true }
+ark-serialize = { version = "0.5", default-features = false, optional = true }
+
+[dependencies.gnark-plonk-verifier]
+git = "https://github.com/polytope-labs/gnark-apk-proofs"
+rev = "48e6aa504994a58fb41465e22eb90b1df6a190f8"
+default-features = false
+optional = true
+
 [dependencies.polkadot-sdk]
 workspace = true
 features = [
@@ -67,6 +79,14 @@ default = ["std"]
 # Tests that need `w3f-bls` itself: the hash-to-curve vector and the aggregate checks the APK path
 # is built on. Nothing in the library depends on it.
 bls-crypto = []
+apk = [
+    "dep:gnark-plonk-verifier",
+    "dep:sha2",
+    "dep:ark-bls12-381",
+    "dep:ark-ec",
+    "dep:ark-ff",
+    "dep:ark-serialize",
+]
 # Runs the BLS-BEEFY tests against a relay whose BEEFY authorities are paired ecdsa_bls_crypto
 # keys. Pulls the prover's `bls` decode path, which reads 177-byte paired signatures and keys.
 bls = ["beefy-prover/bls", "beefy-prover/bls-aggregate", "bls-crypto"]
@@ -86,4 +106,10 @@ std = [
     "rs_merkle/std",
     "sp1-verifier/std",
     "alloy-sol-types/std",
+    "sha2?/std",
+    "ark-bls12-381?/std",
+    "ark-ec?/std",
+    "ark-ff?/std",
+    "ark-serialize?/std",
+    "gnark-plonk-verifier?/std",
 ]

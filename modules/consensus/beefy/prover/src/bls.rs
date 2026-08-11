@@ -26,7 +26,7 @@
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use polkadot_sdk::*;
-use sp_consensus_beefy::{SignedCommitment, VersionedFinalityProof};
+use sp_consensus_beefy::{SignedCommitment, VersionedFinalityProof, BEEFY_ENGINE_ID};
 use subxt::{backend::legacy::LegacyRpcMethods, Config};
 use subxt_core::config::HashFor;
 
@@ -77,6 +77,31 @@ pub fn decode_paired_justification(
 	let VersionedFinalityProof::V1(signed_commitment) =
 		VersionedFinalityProof::<u32, PairedSignature>::decode(&mut &*bytes)?;
 	Ok(signed_commitment)
+}
+
+/// The justification at `at`, with both halves of each paired signature kept.
+///
+/// `crate::relay::fetch_latest_beefy_justification` reads the same bytes but discards the BLS
+/// half, which is the half this path needs.
+pub async fn fetch_paired_justification<T: Config>(
+	rpc: &LegacyRpcMethods<T>,
+	at: HashFor<T>,
+) -> Result<SignedCommitment<u32, PairedSignature>, anyhow::Error> {
+	let block = rpc
+		.chain_get_block(Some(at))
+		.await?
+		.ok_or_else(|| anyhow!("No block at {at:?}"))?;
+
+	let justification = block
+		.justifications
+		.and_then(|justifications| {
+			justifications
+				.into_iter()
+				.find_map(|(id, encoded)| (id == BEEFY_ENGINE_ID).then_some(encoded))
+		})
+		.ok_or_else(|| anyhow!("Block {at:?} carries no beefy justification"))?;
+
+	decode_paired_justification(&justification)
 }
 
 /// The validators' BLS12-381 G2 public keys, in authority-set order.

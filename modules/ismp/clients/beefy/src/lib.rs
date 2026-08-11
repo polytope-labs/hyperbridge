@@ -19,7 +19,7 @@ extern crate alloc;
 extern crate core;
 pub mod consensus;
 
-pub use beefy_verifier_primitives::{PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
+pub use beefy_verifier_primitives::{PROOF_TYPE_APK, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
 pub use consensus::{BEEFY_CONSENSUS_ID, BeefyConsensusClient};
 
 use polkadot_sdk::*;
@@ -47,6 +47,14 @@ pub trait BeefyClientConfig {
 
 	/// Returns the SP1 verification key hash.
 	fn sp1_vkey_hash() -> primitive_types::H256;
+
+	/// Verifying key for the aggregate public key circuit, read on every apk proof.
+	///
+	/// This is the key itself rather than a hash, since the verification happens here. A chain
+	/// that never sees an apk proof can leave it empty.
+	fn apk_verifying_key() -> alloc::vec::Vec<u8> {
+		Default::default()
+	}
 
 	/// Allowed proof types. Controls which consensus proof formats this client will
 	/// accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to

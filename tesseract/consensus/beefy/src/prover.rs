@@ -105,6 +105,10 @@ pub enum ProofVariant {
 	/// Delegate signature verification to an SP1 zero-knowledge proof (SP1Beefy).
 	#[serde(alias = "zk")]
 	Sp1,
+	/// Prove the signers with an aggregate public key proof (BlsApkBeefy). Only for a relay whose
+	/// BEEFY authorities hold paired `ecdsa_bls_crypto` keys.
+	#[serde(alias = "bls")]
+	Apk,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +126,10 @@ pub struct ProverConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
 	pub query_batch_size: Option<u32>,
+	/// Where the apk circuit's structured reference string lives. Only read by the `Apk` variant,
+	/// and left unset it falls back to `$HOME/.config/gnark-apk-proofs/srs`.
+	#[serde(default)]
+	pub apk_srs_dir: Option<std::path::PathBuf>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
@@ -153,6 +161,9 @@ pub const PROOF_TYPE_ECDSA: u8 = 0x00;
 
 /// Proof type identifier for ZK proofs (SP1Beefy)
 pub const PROOF_TYPE_SP1: u8 = 0x01;
+
+/// Proof type identifier for aggregate public key proofs (BlsApkBeefy)
+pub const PROOF_TYPE_APK: u8 = 0x02;
 
 impl<R, P, B, Q> BeefyProver<R, P, B, Q>
 where
@@ -199,6 +210,10 @@ where
 			Prover::Sp1(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
 				[&[PROOF_TYPE_SP1], message.abi_encode_params().as_slice()].concat()
+			},
+			Prover::Apk(ref apk) => {
+				let message = apk.consensus_proof(signed_commitment, consensus_state).await?;
+				[&[PROOF_TYPE_APK], message.abi_encode_params().as_slice()].concat()
 			},
 		};
 
@@ -578,12 +593,14 @@ where
 	}
 }
 
-/// Beefy prover, can produce ECDSA or SP1 proofs
+/// Beefy prover, can produce ECDSA, SP1 or aggregate public key proofs
 pub enum Prover<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
 	/// ECDSA prover — verifies all 2/3+1 signatures on-chain
 	Ecdsa(beefy_prover::Prover<R, P>, PhantomData<B>),
 	/// SP1 prover — delegates signature verification to an SP1 ZK program
 	Sp1(zk_beefy::Prover<R, P, B>),
+	/// APK prover — proves the signers against a commitment to the authority set
+	Apk(apk_beefy::Prover<R, P>),
 }
 
 impl<R, P, B> Clone for Prover<R, P, B>
@@ -598,6 +615,7 @@ where
 		match self {
 			Prover::Ecdsa(p, _) => Prover::Ecdsa(p.clone(), PhantomData),
 			Prover::Sp1(p) => Prover::Sp1(p.clone()),
+			Prover::Apk(p) => Prover::Apk(p.clone()),
 		}
 	}
 }
@@ -656,6 +674,20 @@ where
 				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover, account))
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
+			// Setup compiles the circuit and generates the proving key, minutes of cpu, so it is
+			// done once here rather than per proof and kept off the runtime's worker threads.
+			#[cfg(feature = "apk-local")]
+			ProofVariant::Apk => {
+				let srs_dir = config.apk_srs_dir.clone();
+				let apk_prover =
+					tokio::task::spawn_blocking(move || apk_beefy::LocalProver::new(srs_dir))
+						.await??;
+				Prover::Apk(apk_beefy::Prover::new(prover, Arc::new(apk_prover)))
+			},
+			#[cfg(not(feature = "apk-local"))]
+			ProofVariant::Apk => Err(anyhow!(
+				"This binary was built without apk proving, rebuild with the `apk-local` feature"
+			))?,
 		};
 
 		Ok(prover)
@@ -674,6 +706,7 @@ where
 		match self {
 			Prover::Sp1(ref p) => &p.inner,
 			Prover::Ecdsa(ref p, _) => p,
+			Prover::Apk(ref p) => &p.inner,
 		}
 	}
 

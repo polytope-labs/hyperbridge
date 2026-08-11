@@ -952,6 +952,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
+name = "apk-beefy"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "anyhow",
+ "apk-commitment",
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-serialize 0.5.0",
+ "async-trait",
+ "beefy-prover",
+ "beefy-verifier-primitives",
+ "gnark-apk-prover",
+ "hex",
+ "ismp-abi",
+ "sp-consensus-beefy",
+ "subxt 0.42.1",
+ "tokio",
+]
+
+[[package]]
 name = "apk-commitment"
 version = "0.1.0"
 dependencies = [
@@ -2946,13 +2969,18 @@ dependencies = [
  "anyhow",
  "apk-commitment",
  "ark-bls12-381 0.4.0",
+ "ark-bls12-381 0.5.0",
  "ark-ec 0.4.2",
+ "ark-ec 0.5.0",
  "ark-ff 0.4.2",
+ "ark-ff 0.5.0",
  "ark-serialize 0.4.2",
+ "ark-serialize 0.5.0",
  "beefy-prover",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "futures",
+ "gnark-plonk-verifier 0.1.0 (git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8)",
  "hex",
  "hex-literal 0.4.1",
  "ismp",
@@ -8637,6 +8665,53 @@ checksum = "60f8970a75c006bb2f8ae79c6768a116dd215fa8346a87aed99bf9d82ca43394"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "gnark-apk-ffi"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+
+[[package]]
+name = "gnark-apk-prover"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "gnark-apk-ffi",
+ "gnark-plonk-verifier 0.1.0 (git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gnark-plonk-verifier"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "once_cell",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gnark-plonk-verifier"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -28431,6 +28506,7 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "apk-beefy",
  "async-stream",
  "async-trait",
  "beefy-prover",

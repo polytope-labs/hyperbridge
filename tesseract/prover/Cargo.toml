@@ -19,7 +19,7 @@ rustls = { version = "0.23.23", features = ["ring"] }
 primitive-types = { workspace = true }
 subxt-utils = { workspace = true }
 
-tesseract-beefy = { workspace = true }
+tesseract-beefy = { workspace = true, features = ["apk-local"] }
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
 

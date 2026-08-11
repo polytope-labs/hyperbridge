@@ -23,6 +23,7 @@ features = [
     "sp-core",
     "sp-consensus-beefy",
     "sp-mmr-primitives",
+    "sp-runtime",
 ]
 
 [features]

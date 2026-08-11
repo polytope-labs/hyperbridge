@@ -393,6 +393,178 @@ mod beefy {
 		}
 	}
 
+	// `sol!` emits a distinct set of Rust types per binding, so the shared BEEFY structs appear
+	// again under `BlsApkBeefy` even though the Solidity definitions are the same ones. These
+	// bridge those duplicates onto the `Beefy` types so the conversions to the SCALE primitives
+	// stay single-sourced above.
+	mod apk_bridge {
+		use super::*;
+		use crate::bls_apk_beefy::BlsApkBeefy;
+
+		impl From<BlsApkBeefy::Payload> for Payload {
+			fn from(value: BlsApkBeefy::Payload) -> Self {
+				Payload { id: value.id, data: value.data }
+			}
+		}
+
+		impl From<BlsApkBeefy::Commitment> for Commitment {
+			fn from(value: BlsApkBeefy::Commitment) -> Self {
+				Commitment {
+					payload: value.payload.into_iter().map(Into::into).collect(),
+					blockNumber: value.blockNumber,
+					validatorSetId: value.validatorSetId,
+				}
+			}
+		}
+
+		impl From<BlsApkBeefy::AuthoritySetCommitment> for AuthoritySetCommitment {
+			fn from(value: BlsApkBeefy::AuthoritySetCommitment) -> Self {
+				AuthoritySetCommitment { id: value.id, len: value.len, root: value.root }
+			}
+		}
+
+		impl From<BlsApkBeefy::BeefyMmrLeaf> for BeefyMmrLeaf {
+			fn from(value: BlsApkBeefy::BeefyMmrLeaf) -> Self {
+				BeefyMmrLeaf {
+					version: value.version,
+					parentNumber: value.parentNumber,
+					parentHash: value.parentHash,
+					nextAuthoritySet: value.nextAuthoritySet.into(),
+					extra: value.extra,
+					leafIndex: value.leafIndex,
+				}
+			}
+		}
+
+		impl From<BlsApkBeefy::Parachain> for Parachain {
+			fn from(value: BlsApkBeefy::Parachain) -> Self {
+				Parachain { index: value.index, id: value.id, header: value.header }
+			}
+		}
+
+		impl From<BlsApkBeefy::ParachainProof> for ParachainProof {
+			fn from(value: BlsApkBeefy::ParachainProof) -> Self {
+				ParachainProof {
+					parachains: value.parachains.into_iter().map(Into::into).collect(),
+					proof: value.proof,
+					leafCount: value.leafCount,
+				}
+			}
+		}
+	}
+
+	/// Decoded from calldata a relayer supplied, so every width is checked rather than assumed.
+	impl TryFrom<crate::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof>
+		for beefy_verifier_primitives::ApkConsensusMessage
+	{
+		type Error = &'static str;
+
+		fn try_from(
+			value: crate::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof,
+		) -> Result<Self, Self::Error> {
+			let relay = value.relay;
+			let leaf: BeefyMmrLeaf = relay.latestMmrLeaf.into();
+			let leaf_index: u64 =
+				leaf.leafIndex.try_into().map_err(|_| "mmr leaf index out of bounds")?;
+
+			let commitment: Commitment = relay.commitment.into();
+			let parachain: ParachainProof = value.parachain.into();
+
+			let mut bitlist = [[0u8; 32]; beefy_verifier_primitives::APK_BITLIST_WORDS];
+			for (word, out) in relay.bitlist.iter().zip(bitlist.iter_mut()) {
+				*out = word.to_be_bytes();
+			}
+
+			Ok(beefy_verifier_primitives::ApkMmrProof {
+				commitment: commitment.into(),
+				bitlist,
+				apk: flatten(&relay.apk),
+				apk2: flatten(&relay.apk2),
+				apk_proof: relay.apkProof.to_vec(),
+				signature: flatten(&relay.signature),
+				latest_mmr_leaf: leaf.into(),
+				mmr_proof: LeafProof {
+					leaf_indices: vec![leaf_index],
+					leaf_count: leaf_index.saturating_add(1),
+					items: relay.mmrProof.into_iter().map(|h| H256(h.0)).collect(),
+				},
+			})
+			.map(|mmr| beefy_verifier_primitives::ApkConsensusMessage {
+				mmr,
+				parachain: parachain.into(),
+			})
+		}
+	}
+
+	/// The direction tooling needs when bootstrapping a chain: the starting set's commitment has
+	/// to be handed to `initialize_apk_state` in this encoding, since it is otherwise only ever
+	/// learned from a header digest.
+	impl From<beefy_verifier_primitives::ApkConsensusState>
+		for crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState
+	{
+		fn from(value: beefy_verifier_primitives::ApkConsensusState) -> Self {
+			let authority_set = |set: beefy_verifier_primitives::ApkAuthoritySet| {
+				crate::bls_apk_beefy::BlsApkBeefy::ApkAuthoritySet {
+					id: set.id,
+					len: set.len,
+					apkCommitment: FixedBytes(set.apk_commitment.0),
+				}
+			};
+
+			crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState {
+				latestHeight: value.latest_beefy_height.to_u256(),
+				beefyActivationBlock: value.beefy_activation_block.to_u256(),
+				currentAuthoritySet: authority_set(value.current_authorities),
+				nextAuthoritySet: authority_set(value.next_authorities),
+			}
+		}
+	}
+
+	/// The mmr root is not part of the initial state, since nothing has been proven yet. It is
+	/// filled by the first update that verifies.
+	impl TryFrom<crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState>
+		for beefy_verifier_primitives::ApkConsensusState
+	{
+		type Error = &'static str;
+
+		fn try_from(
+			value: crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState,
+		) -> Result<Self, Self::Error> {
+			let authority_set = |set: crate::bls_apk_beefy::BlsApkBeefy::ApkAuthoritySet| {
+				beefy_verifier_primitives::ApkAuthoritySet {
+					id: set.id,
+					len: set.len,
+					apk_commitment: H256(set.apkCommitment.0),
+				}
+			};
+
+			Ok(beefy_verifier_primitives::ApkConsensusState {
+				latest_beefy_height: value
+					.latestHeight
+					.try_into()
+					.map_err(|_| "latest height out of bounds")?,
+				beefy_activation_block: value
+					.beefyActivationBlock
+					.try_into()
+					.map_err(|_| "beefy activation block out of bounds")?,
+				mmr_root_hash: H256::zero(),
+				current_authorities: authority_set(value.currentAuthoritySet),
+				next_authorities: authority_set(value.nextAuthoritySet),
+			})
+		}
+	}
+
+	/// Curve points reach the circuit's verifier as raw coordinates packed into 32 byte words.
+	fn flatten<const WORDS: usize, const BYTES: usize>(
+		words: &[FixedBytes<32>; WORDS],
+	) -> [u8; BYTES] {
+		let mut out = [0u8; BYTES];
+		for (word, chunk) in words.iter().zip(out.chunks_mut(32)) {
+			chunk.copy_from_slice(&word.0);
+		}
+		out
+	}
+
 	impl From<crate::sp1_beefy::SP1Beefy::SP1BeefyProof> for Sp1BeefyProof {
 		fn from(value: crate::sp1_beefy::SP1Beefy::SP1BeefyProof) -> Self {
 			Sp1BeefyProof {

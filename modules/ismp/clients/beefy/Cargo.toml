@@ -24,6 +24,7 @@ features = [
 
 [features]
 default = ["std"]
+apk = ["beefy-verifier/apk"]
 std = [
     "anyhow/std",
     "codec/std",

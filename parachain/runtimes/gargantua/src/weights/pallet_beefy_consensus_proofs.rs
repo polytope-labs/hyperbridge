@@ -108,6 +108,18 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
+	/// Storage: `BeefyConsensusProofs::ApkVerifyingKey` (r:0 w:1)
+	/// Proof: `BeefyConsensusProofs::ApkVerifyingKey` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn set_apk_verifying_key() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Approximated: one write like `set_sp1_vkey_hash`, of a value three orders of magnitude
+		// larger, so the byte cost dominates rather than the write itself.
+		Weight::from_parts(2_000_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 0))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 	/// Storage: `BeefyConsensusProofs::Sp1VkeyHash` (r:0 w:1)
 	/// Proof: `BeefyConsensusProofs::Sp1VkeyHash` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_sp1_vkey_hash() -> Weight {

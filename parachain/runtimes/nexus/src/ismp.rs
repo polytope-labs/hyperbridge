@@ -210,6 +210,10 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
 
+	fn apk_verifying_key() -> alloc::vec::Vec<u8> {
+		pallet_beefy_consensus_proofs::ApkVerifyingKey::<Runtime>::get().into_inner()
+	}
+
 	fn allowed_proof_types() -> &'static [u8] {
 		// Mainnet: only accept SP1 ZK proofs.
 		&[ismp_beefy::PROOF_TYPE_SP1]
@@ -325,7 +329,9 @@ pub struct HftBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
 impl pallet_hyper_fungible_token::types::BenchmarkHelper<Runtime> for HftBenchmarkHelper {
 	fn create_asset(decimals: u8, who: &AccountId, amount: u128) -> H256 {
-		use frame_support::traits::fungibles::{metadata::Mutate as MutateMetadata, Create, Mutate};
+		use frame_support::traits::fungibles::{
+			metadata::Mutate as MutateMetadata, Create, Mutate,
+		};
 
 		let asset_id: H256 = sp_io::hashing::keccak_256(b"HFT_BENCHMARK_ASSET").into();
 		<Assets as Create<AccountId>>::create(asset_id, who.clone(), true, 1)

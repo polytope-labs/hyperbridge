@@ -1010,6 +1010,7 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
 	type MaxUncleProvers = MaxBeefyUncleProvers;
+	type MaxApkVerifyingKeyLen = ConstU32<131072>;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }

@@ -517,6 +517,7 @@ impl pallet_beefy_consensus_proofs::Config for Test {
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = ConstU64<10>;
 	type MaxUncleProvers = ConstU32<5>;
+	type MaxApkVerifyingKeyLen = ConstU32<131072>;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = ();
 }

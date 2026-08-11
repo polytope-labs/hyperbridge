@@ -23,6 +23,8 @@
 
 extern crate alloc;
 
+#[cfg(feature = "apk")]
+pub mod apk;
 pub mod error;
 pub mod sp1;
 #[cfg(test)]
@@ -276,7 +278,7 @@ pub fn verify_parachain_headers<H: Keccak256>(
 	Ok(parachain_proof.parachains)
 }
 
-fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
+pub(crate) fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	leaf: &MmrLeaf<u32, H256, H256, H256>,
 	proof: &LeafProof<H256>,
 	mmr_root: H256,

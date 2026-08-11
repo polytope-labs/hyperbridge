@@ -34,6 +34,8 @@ pub trait WeightInfo {
 	fn set_sp1_vkey_hash() -> Weight;
 	/// Weight of `set_reward_curve`.
 	fn set_reward_curve() -> Weight;
+	/// Weight of `set_apk_verifying_key`.
+	fn set_apk_verifying_key() -> Weight;
 }
 
 /// No-op [`WeightInfo`] for tests and genesis bootstrap.
@@ -51,6 +53,9 @@ impl WeightInfo for () {
 		Weight::zero()
 	}
 	fn set_reward_curve() -> Weight {
+		Weight::zero()
+	}
+	fn set_apk_verifying_key() -> Weight {
 		Weight::zero()
 	}
 }

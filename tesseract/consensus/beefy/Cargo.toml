@@ -47,6 +47,7 @@ sp-consensus-beefy = { workspace = true }
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
+apk-beefy = { path = "apk", default-features = false }
 rsmq_async = { workspace = true }
 redis-async = { version = "0.17.1", features = ["with-rustls"] }
 
@@ -55,6 +56,7 @@ workspace = true
 features = ["sp-runtime"]
 
 [features]
+apk-local = ["apk-beefy/local"]
 # a feature that tells the tests to write a new consensus state
 new-consensus-state = []
 

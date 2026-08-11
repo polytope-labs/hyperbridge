@@ -241,9 +241,13 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
 	}
 
+	fn apk_verifying_key() -> alloc::vec::Vec<u8> {
+		pallet_beefy_consensus_proofs::ApkVerifyingKey::<Runtime>::get().into_inner()
+	}
+
 	fn allowed_proof_types() -> &'static [u8] {
-		// Testnet: accept the naive ECDSA and SP1 ZK proof formats.
-		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1]
+		// Testnet: accept the naive ECDSA and SP1 ZK proof formats, plus aggregate public key.
+		&[ismp_beefy::PROOF_TYPE_NAIVE, ismp_beefy::PROOF_TYPE_SP1, ismp_beefy::PROOF_TYPE_APK]
 	}
 }
 

@@ -149,6 +149,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxUncleProvers: Get<u32>;
 
+		/// Upper bound on the apk circuit's verifying key. The key generated for the 1024 slot
+		/// circuit is around 49KB, so this wants headroom rather than a tight fit.
+		#[pallet::constant]
+		type MaxApkVerifyingKeyLen: Get<u32>;
+
 		/// The pallet-assets instance used for managing the reputation token.
 		/// Mints reputation tokens 1:1 with native token rewards to proof submitters.
 		type ReputationAsset: fungible::Mutate<Self::AccountId, Balance = BalanceOf<Self>>;
@@ -171,6 +176,16 @@ pub mod pallet {
 	/// `beefy_verifier::sp1::verify_sp1_consensus`.
 	#[pallet::storage]
 	pub type Sp1VkeyHash<T: Config> = StorageValue<_, H256, ValueQuery>;
+
+	/// Verifying key for the aggregate public key circuit, consumed by
+	/// `beefy_verifier::apk::verify_apk_consensus`.
+	///
+	/// Unlike the SP1 key this is the key itself rather than a hash of it, since the verification
+	/// runs here rather than inside a proof system that already knows it. It is around 49KB, set
+	/// once by governance and read on every apk proof.
+	#[pallet::storage]
+	pub type ApkVerifyingKey<T: Config> =
+		StorageValue<_, BoundedVec<u8, T::MaxApkVerifyingKeyLen>, ValueQuery>;
 
 	/// Heights of recent messaging proofs (no authority-set rotation). Values are
 	/// strictly increasing because every accepted proof advances the proven height,
@@ -287,6 +302,8 @@ pub mod pallet {
 		ProofRewardUpdated { new_reward: BalanceOf<T> },
 		/// SP1 verification key hash updated.
 		Sp1VkeyHashUpdated,
+		/// Apk circuit verifying key replaced.
+		ApkVerifyingKeyUpdated,
 		/// Reward curve updated.
 		RewardCurveUpdated,
 	}
@@ -309,52 +326,45 @@ pub mod pallet {
 						Error::<T>::AbiDecodeFailed
 					})?
 					.into();
-			let current_set_id = state.current_authorities.id;
-			let next_set_id = state.next_authorities.id;
-			let latest_beefy_height = state.latest_beefy_height;
-			let host = pallet_ismp::Pallet::<T>::default();
 
-			// Seed an initial commitment for the host state machine at the current block height.
-			pallet_ismp::Pallet::<T>::create_consensus_client(
-				frame_system::RawOrigin::Root.into(),
-				ismp::messaging::CreateConsensusState {
-					consensus_state: state.encode(),
-					consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
-					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
-					unbonding_period: T::UnbondingPeriod::get(),
-					challenge_periods: Default::default(),
-					state_machine_commitments: vec![(
-						StateMachineId {
-							consensus_state_id: T::ConsensusStateId::get(),
-							state_id: host.host_state_machine(),
-						},
-						StateCommitmentHeight {
-							height: 1,
-							commitment: StateCommitment {
-								timestamp: host.timestamp().as_secs(),
-								overlay_root: None,
-								state_root: H256::zero(),
-							},
-						},
-					)],
-				},
+			Self::create_state(
+				state.encode(),
+				state.current_authorities.id,
+				state.next_authorities.id,
+				state.latest_beefy_height,
 			)
-			.map_err(|e| {
-				log::warn!(
-					target: "ismp",
-					"[beefy-consensus-proofs]: pallet_ismp::create_consensus_client failed: {e:?}",
-				);
-				Error::<T>::IsmpUpdateFailed
-			})?;
+		}
 
-			LastRewardedDispatchRoot::<T>::kill();
+		/// Initialize or reset the consensus state for a chain verified through aggregate public
+		/// key proofs, from its solidity-ABI encoding.
+		///
+		/// The starting set's commitment has to be supplied here, since it is normally learned
+		/// from a header digest and there is no earlier verified header at this point.
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::WeightInfo::initialize_state())]
+		pub fn initialize_apk_state(origin: OriginFor<T>, abi_state: Vec<u8>) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-			Self::deposit_event(Event::StateInitialized {
-				current_set_id,
-				next_set_id,
-				latest_beefy_height,
-			});
-			Ok(())
+			let state: beefy_verifier_primitives::ApkConsensusState =
+				<ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(
+					&abi_state,
+				)
+				.map_err(|e| {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs]: abi_decode(BlsApkConsensusState) failed: {e}",
+					);
+					Error::<T>::AbiDecodeFailed
+				})?
+				.try_into()
+				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+
+			Self::create_state(
+				state.encode(),
+				state.current_authorities.id,
+				state.next_authorities.id,
+				state.latest_beefy_height,
+			)
 		}
 
 		/// Submit a BEEFY consensus proof. Signed: the signer is the reward payee.
@@ -380,6 +390,19 @@ pub mod pallet {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 			ProofReward::<T>::put(reward);
 			Self::deposit_event(Event::ProofRewardUpdated { new_reward: reward });
+			Ok(())
+		}
+
+		/// Replace the apk circuit's verifying key.
+		#[pallet::call_index(5)]
+		#[pallet::weight(T::WeightInfo::set_apk_verifying_key())]
+		pub fn set_apk_verifying_key(
+			origin: OriginFor<T>,
+			key: BoundedVec<u8, T::MaxApkVerifyingKeyLen>,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			ApkVerifyingKey::<T>::put(key);
+			Self::deposit_event(Event::ApkVerifyingKeyUpdated);
 			Ok(())
 		}
 
@@ -433,6 +456,76 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Returns the latest proven parachain height from `pallet-ismp` for the
 		/// coprocessor state machine.
+		/// Register the consensus client with whichever state shape was decoded, and seed a
+		/// commitment for the host state machine at the current height.
+		fn create_state(
+			consensus_state: Vec<u8>,
+			current_set_id: u64,
+			next_set_id: u64,
+			latest_beefy_height: u32,
+		) -> DispatchResult {
+			let host = pallet_ismp::Pallet::<T>::default();
+
+			// Seed an initial commitment for the host state machine at the current block height.
+			pallet_ismp::Pallet::<T>::create_consensus_client(
+				frame_system::RawOrigin::Root.into(),
+				ismp::messaging::CreateConsensusState {
+					consensus_state,
+					consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+					unbonding_period: T::UnbondingPeriod::get(),
+					challenge_periods: Default::default(),
+					state_machine_commitments: vec![(
+						StateMachineId {
+							consensus_state_id: T::ConsensusStateId::get(),
+							state_id: host.host_state_machine(),
+						},
+						StateCommitmentHeight {
+							height: 1,
+							commitment: StateCommitment {
+								timestamp: host.timestamp().as_secs(),
+								overlay_root: None,
+								state_root: H256::zero(),
+							},
+						},
+					)],
+				},
+			)
+			.map_err(|e| {
+				log::warn!(
+					target: "ismp",
+					"[beefy-consensus-proofs]: pallet_ismp::create_consensus_client failed: {e:?}",
+				);
+				Error::<T>::IsmpUpdateFailed
+			})?;
+
+			LastRewardedDispatchRoot::<T>::kill();
+
+			Self::deposit_event(Event::StateInitialized {
+				current_set_id,
+				next_set_id,
+				latest_beefy_height,
+			});
+			Ok(())
+		}
+
+		/// Authority set ids out of a stored consensus state.
+		///
+		/// The shape follows the proof type: an apk state identifies a set by a commitment to its
+		/// keys where the others carry a merkle root, so the two do not decode into each other.
+		/// Only the ids are wanted here, and both shapes have them.
+		fn authority_set_ids(state: &[u8], proof_type: u8) -> Result<(u64, u64), Error<T>> {
+			if proof_type == types::PROOF_TYPE_APK {
+				let state: beefy_verifier_primitives::ApkConsensusState =
+					Decode::decode(&mut &state[..]).map_err(|_| Error::<T>::NotInitialized)?;
+				Ok((state.current_authorities.id, state.next_authorities.id))
+			} else {
+				let state: beefy_verifier_primitives::ConsensusState =
+					Decode::decode(&mut &state[..]).map_err(|_| Error::<T>::NotInitialized)?;
+				Ok((state.current_authorities.id, state.next_authorities.id))
+			}
+		}
+
 		fn latest_height() -> Result<u64, Error<T>> {
 			let host = pallet_ismp::Pallet::<T>::default();
 			let id = ismp::consensus::StateMachineId {
@@ -480,10 +573,10 @@ pub mod pallet {
 					}
 					Some(nonce)
 				},
-				// Only SP1 proofs are bound to a prover account. The naive path verifies
+				// Only SP1 proofs are bound to a prover account. The naive and apk paths verify
 				// signatures the relay chain's validators produced, so there is nothing
-				// prover-specific in it to bind and no anti-theft gate to apply.
-				types::PROOF_TYPE_NAIVE => None,
+				// prover-specific in them to bind and no anti-theft gate to apply.
+				types::PROOF_TYPE_NAIVE | types::PROOF_TYPE_APK => None,
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
 
@@ -813,9 +906,7 @@ pub mod pallet {
 			let prev_state_bytes = host
 				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
-			let prev_state: beefy_verifier_primitives::ConsensusState =
-				Decode::decode(&mut &prev_state_bytes[..])
-					.map_err(|_| Error::<T>::NotInitialized)?;
+			let (prev_current_set, _) = Self::authority_set_ids(&prev_state_bytes, proof_type)?;
 			let prev_height = Self::latest_height()?;
 
 			let consensus_proof = match proof_type {
@@ -836,6 +927,15 @@ pub mod pallet {
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
 					let scale_proof: beefy_verifier_primitives::ConsensusMessage = abi_proof.into();
 					[&[types::PROOF_TYPE_NAIVE], scale_proof.encode().as_slice()].concat()
+				},
+				types::PROOF_TYPE_APK => {
+					let abi_proof = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
+						abi_payload,
+					)
+					.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::ApkConsensusMessage =
+						abi_proof.try_into().map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					[&[types::PROOF_TYPE_APK], scale_proof.encode().as_slice()].concat()
 				},
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
@@ -886,16 +986,15 @@ pub mod pallet {
 			let new_state_bytes = host
 				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::VerificationFailed)?;
-			let new_state: beefy_verifier_primitives::ConsensusState =
-				Decode::decode(&mut &new_state_bytes[..])
-					.map_err(|_| Error::<T>::VerificationFailed)?;
+			let (new_current_set, new_next_set) =
+				Self::authority_set_ids(&new_state_bytes, proof_type)?;
 
 			// BEEFY invariant: `next` is always `current + 1`.
-			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
+			if new_next_set != new_current_set.saturating_add(1) {
 				Err(Error::<T>::UnexpectedAuthoritySet)?;
 			}
 
-			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
+			let rotated = new_current_set > prev_current_set;
 
 			// Messaging proofs must finalize a parachain head we haven't seen; one that doesn't
 			// carries no new work and is rejected. Rotation proofs are exempt: the session
@@ -937,7 +1036,7 @@ pub mod pallet {
 
 			Ok(VerifyOutcome {
 				latest_height,
-				current_set_id: new_state.current_authorities.id,
+				current_set_id: new_current_set,
 				rotated,
 				has_new_messages,
 				child_trie_root,

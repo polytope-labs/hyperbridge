@@ -119,6 +119,7 @@ members = [
     "tesseract/consensus/grandpa",
     "tesseract/consensus/integration-tests",
     "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/apk",
     "tesseract/consensus/beefy/zk",
     "tesseract/prover",
     "tesseract/consensus/admin-relayer",

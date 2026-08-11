@@ -73,6 +73,35 @@ pub enum Error {
 	/// The SP1 Groth16 verifier rejected the proof bytes.
 	#[error("SP1 proof verification failed")]
 	Sp1VerificationFailed,
+	/// The apk proof payload failed to SCALE-decode.
+	#[error("Cannot decode apk proof: {0}")]
+	DecodeApkProof(String),
+	/// No commitment has been learned for this authority set yet, so nothing can be checked
+	/// against it.
+	#[error("No apk commitment known for authority set {id}")]
+	ApkCommitmentMissing {
+		/// Id of the set
+		id: u64,
+	},
+	/// The apk verifying key stored for the client did not parse.
+	#[error("Invalid apk verifying key")]
+	ApkVerifyingKeyInvalid,
+	/// The proof bytes are not a well formed PLONK proof.
+	#[error("Malformed apk proof")]
+	ApkProofMalformed,
+	/// The PLONK verifier rejected the proof, so the aggregate key is not this set's.
+	#[error("Apk proof verification failed")]
+	ApkProofVerificationFailed,
+	/// A point in the proof is not on the curve or not in the right subgroup.
+	#[error("Invalid apk curve point")]
+	ApkPointInvalid,
+	/// Hashing the commitment onto the curve failed.
+	#[error("Apk hash to curve failed")]
+	ApkHashToCurveFailed,
+	/// The aggregate signature did not verify against the aggregate key.
+	#[error("Apk pairing check failed")]
+	ApkPairingFailed,
+
 	// -- ismp-beefy client wrapper --
 	/// The trusted state failed to SCALE-decode into a `ConsensusState`.
 	#[error("Cannot decode consensus state: {0}")]

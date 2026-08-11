@@ -34,6 +34,7 @@ use alloc::vec::Vec;
 use apk_commitment::{PartialCommitment, NUM_VALIDATORS};
 use ark_bls12_381::G1Affine;
 use ark_serialize::CanonicalDeserialize;
+pub use beefy_verifier_primitives::{ApkCommitmentDigest, APK_ENGINE_ID};
 use beefy_verifier_primitives::{PairedAuthority, BLS_G1_SIGNATURE_LEN};
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayChainStateProof;
@@ -63,43 +64,6 @@ pub const RELAY_BEEFY_VALIDATOR_SET_ID: [u8; 32] = [
 	0x08, 0xc4, 0x19, 0x74, 0xa9, 0x7d, 0xbf, 0x15, 0xcf, 0xbe, 0xc2, 0x83, 0x65, 0xbe, 0xa2, 0xda,
 	0x8f, 0x05, 0xbc, 0xcc, 0x2f, 0x70, 0xec, 0x66, 0xa3, 0x29, 0x99, 0xc5, 0x76, 0x11, 0x56, 0xbe,
 ];
-
-/// Engine id for the digest item carrying the commitment.
-pub const APK_ENGINE_ID: [u8; 4] = *b"APKC";
-
-/// The payload of the digest item this pallet writes.
-///
-/// This is a wire format: an off-chain verifier reads it out of a header it has already
-/// authenticated through the BEEFY MMR's parachain heads root, and feeds `commitment` to
-/// `ApkProof.verify` as `publicKeysCommitment`. The set id is what lets it tell which authority
-/// set the commitment belongs to.
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
-pub struct ApkCommitmentDigest {
-	/// The BEEFY validator set id these keys belong to, which is the relay's current set id plus
-	/// one, since the commitment describes the next set.
-	pub set_id: u64,
-	/// Poseidon2 over the set's G1 keys, padded to the circuit width with the identity point.
-	pub commitment: [u8; 32],
-}
-
-impl ApkCommitmentDigest {
-	/// Pull the commitment out of a header's digest logs, if this pallet wrote one into it.
-	///
-	/// This is the client side of the design. A verifier that has already authenticated a
-	/// hyperbridge header, through the parachain heads root in the BEEFY MMR leaf, can read the
-	/// commitment straight out of that header with no further proof, and hand it to
-	/// `ApkProof.verify` as `publicKeysCommitment`.
-	///
-	/// Returns the first matching item. The pallet only ever writes one per block, and only on the
-	/// block a set completes.
-	pub fn find_in(digest: &sp_runtime::generic::Digest) -> Option<Self> {
-		digest.logs().iter().find_map(|log| match log {
-			sp_runtime::DigestItem::Consensus(id, payload) if *id == APK_ENGINE_ID =>
-				Self::decode(&mut &payload[..]).ok(),
-			_ => None,
-		})
-	}
-}
 
 impl Progress {
 	/// A chain that has absorbed nothing yet.

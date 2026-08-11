@@ -46,6 +46,13 @@ pub struct BeefyHostConfig {
 	pub consensus_state_id: ConsensusStateId,
 }
 
+/// What the host needs out of a destination's consensus state, independent of its shape.
+struct StateSummary {
+	latest_beefy_height: u32,
+	current_set_id: u64,
+	next_set_id: u64,
+}
+
 /// The beefy host is responsible for receiving BEEFY proofs from the queue and submitting
 /// them to the counterparty.
 pub struct BeefyHost<R, P, B, Q: ?Sized>
@@ -84,6 +91,31 @@ where
 		backend: Arc<Q>,
 	) -> Result<Self, anyhow::Error> {
 		Ok(BeefyHost { backend, prover, client, config })
+	}
+
+	/// The parts of the destination's consensus state this host reasons about.
+	///
+	/// The shape follows the variant this prover produces, since an apk client identifies a set
+	/// by a commitment to its keys where the others carry a merkle root. Only these three values
+	/// are wanted here, and both shapes have them.
+	fn state_summary(&self, encoded: &[u8]) -> Result<StateSummary, anyhow::Error> {
+		if matches!(self.prover, Prover::Apk(_)) {
+			let state = beefy_verifier_primitives::ApkConsensusState::decode(&mut &encoded[..])
+				.context("Could not decode apk consensus state")?;
+			Ok(StateSummary {
+				latest_beefy_height: state.latest_beefy_height,
+				current_set_id: state.current_authorities.id,
+				next_set_id: state.next_authorities.id,
+			})
+		} else {
+			let state = ConsensusState::decode(&mut &encoded[..])
+				.context("Could not decode consensus state")?;
+			Ok(StateSummary {
+				latest_beefy_height: state.latest_beefy_height,
+				current_set_id: state.current_authorities.id,
+				next_set_id: state.next_authorities.id,
+			})
+		}
 	}
 
 	/// Initialize the consensus state for the prover (used by the state storage backend), then
@@ -202,14 +234,12 @@ where
 						.query_consensus_state(None, self.config.consensus_state_id)
 						.await
 						.context("Could not fetch consenus state")?; // somewhat fatal
-					let consensus_state = ConsensusState::decode(&mut &encoded[..])
-						.expect("Infallible, consensus state was encoded correctly");
+					let StateSummary { next_set_id, .. } = self.state_summary(&encoded)?;
 
 					// just some sanity checks
-					if set_id < consensus_state.next_authorities.id {
+					if set_id < next_set_id {
 						tracing::error!(
-							target: crate::LOG_TARGET, "{counterparty_state_machine} got proof with set_id: {set_id} < next_set_id:{}",
-							consensus_state.next_authorities.id
+							target: crate::LOG_TARGET, "{counterparty_state_machine} got proof with set_id: {set_id} < next_set_id:{next_set_id}",
 						);
 						self.backend
 							.delete_message(
@@ -222,10 +252,9 @@ where
 					}
 
 					// just some sanity checks
-					if set_id != consensus_state.next_authorities.id {
+					if set_id != next_set_id {
 						tracing::error!(
-							target: crate::LOG_TARGET, "{counterparty_state_machine} consensus proof with set_id: {set_id} does not match next_set_id: {}",
-							consensus_state.next_authorities.id
+							target: crate::LOG_TARGET, "{counterparty_state_machine} consensus proof with set_id: {set_id} does not match next_set_id: {next_set_id}",
 						);
 						// try to pull something else
 						continue;
@@ -283,14 +312,13 @@ where
 				let encoded = counterparty
 					.query_consensus_state(None, self.config.consensus_state_id)
 					.await?; // somewhat fatal
-				let consensus_state = ConsensusState::decode(&mut &encoded[..])
-					.expect("Infallible, consensus state was encoded correctly");
+				let StateSummary { latest_beefy_height, current_set_id, next_set_id } =
+					self.state_summary(&encoded)?;
 
 				// check if the update is relevant to us.
-				if consensus_state.latest_beefy_height >= finalized_height {
+				if latest_beefy_height >= finalized_height {
 					tracing::info!(
-						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for stale height {finalized_height}, current: {}",
-						consensus_state.latest_beefy_height
+						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for stale height {finalized_height}, current: {latest_beefy_height}",
 					);
 					// delete the message and pull another one
 					self.backend
@@ -303,26 +331,20 @@ where
 					continue;
 				}
 
-				if set_id != consensus_state.current_authorities.id &&
-					set_id != consensus_state.next_authorities.id
-				{
+				if set_id != current_set_id && set_id != next_set_id {
 					tracing::info!(
-						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {}, next: {}",
-						consensus_state.current_authorities.id,
-						consensus_state.next_authorities.id,
+						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {current_set_id}, next: {next_set_id}",
 					);
 
-					if set_id > consensus_state.next_authorities.id {
+					if set_id > next_set_id {
 						tracing::info!(
-							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for future set: {set_id}, next: {}",
-							consensus_state.next_authorities.id,
+							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for future set: {set_id}, next: {next_set_id}",
 						);
 						// break so that we can process a mandatory update
 						break;
-					} else if set_id < consensus_state.current_authorities.id {
+					} else if set_id < current_set_id {
 						tracing::info!(
-							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for older set: {set_id}, current: {}",
-							consensus_state.current_authorities.id,
+							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for older set: {set_id}, current: {current_set_id}",
 						);
 						self.backend
 							.delete_message(
@@ -364,11 +386,48 @@ where
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
 		use alloy_sol_types::SolValue;
-		let consensus_state: BeefyConsensusState =
-			self.prover.query_initial_consensus_state(None).await?.inner.into();
+		let prover_state = self.prover.query_initial_consensus_state(None).await?;
+
+		// An apk client is seeded with a commitment to the signing set's keys instead of a merkle
+		// root, and the set that signs the first update has to be given one by hand, since every
+		// later commitment arrives in a header digest. The next set's is left empty for that
+		// reason.
+		let consensus_state = match self.prover {
+			Prover::Apk(ref apk) => {
+				let at = apk
+					.inner
+					.relay_rpc
+					.chain_get_block_hash(Some(prover_state.inner.latest_beefy_height.into()))
+					.await?
+					.ok_or_else(|| anyhow!("No block hash for the initial beefy height"))?;
+				let commitment = apk.current_apk_commitment(at).await?;
+
+				let inner = prover_state.inner.clone();
+				let authority_set = |set: sp_consensus_beefy::mmr::BeefyAuthoritySet<H256>,
+				                     apk_commitment: H256| {
+					beefy_verifier_primitives::ApkAuthoritySet {
+						id: set.id,
+						len: set.len,
+						apk_commitment,
+					}
+				};
+				let state = beefy_verifier_primitives::ApkConsensusState {
+					latest_beefy_height: inner.latest_beefy_height,
+					beefy_activation_block: inner.beefy_activation_block,
+					mmr_root_hash: inner.mmr_root_hash,
+					current_authorities: authority_set(inner.current_authorities, H256(commitment)),
+					next_authorities: authority_set(inner.next_authorities, H256::zero()),
+				};
+				ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState::from(state).abi_encode()
+			},
+			_ => {
+				let state: BeefyConsensusState = prover_state.inner.into();
+				state.abi_encode()
+			},
+		};
 
 		Ok(Some(CreateConsensusState {
-			consensus_state: consensus_state.abi_encode(),
+			consensus_state,
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,

@@ -221,6 +221,15 @@ where
 		Ok(BlsApkBeefy::BlsApkBeefyConsensusProof { relay, parachain })
 	}
 
+	/// Poseidon2 over the relay's current BEEFY keys at `at`.
+	///
+	/// Needed when bootstrapping a client, since the commitment for the set that signs the first
+	/// update has to be seeded by hand. Every later one arrives in a header digest.
+	pub async fn current_apk_commitment(&self, at: HashFor<R>) -> Result<[u8; 32], anyhow::Error> {
+		let keys = beefy_g1_authorities(&self.inner.relay_rpc, Some(at)).await?;
+		apk_commitment_of(&keys)
+	}
+
 	/// Sum the signers' keys in both groups and their signatures, and note who they were.
 	///
 	/// The G1 halves are what the circuit binds to and the G2 halves are what BEEFY's signature
@@ -279,7 +288,9 @@ struct Aggregate {
 
 /// Poseidon2 over the key set, padded to the circuit's width. The same value the runtime pallet
 /// publishes in a header digest.
-fn apk_commitment_of(keys: &[[u8; BLS_G1_SIGNATURE_LEN]]) -> Result<[u8; 32], anyhow::Error> {
+pub(crate) fn apk_commitment_of(
+	keys: &[[u8; BLS_G1_SIGNATURE_LEN]],
+) -> Result<[u8; 32], anyhow::Error> {
 	let points = keys.iter().map(decompress_g1).collect::<Result<Vec<_>, _>>()?;
 	let padded = apk_commitment::padded_to_circuit_width(&points);
 	Ok(apk_commitment::public_keys_commitment_bytes(&padded))

@@ -48,6 +48,12 @@ use relay::{
 };
 use util::hash_authority_addresses;
 
+/// Size of a compressed secp256k1 BEEFY key, and of the ECDSA half of a paired one.
+const ECDSA_PUBLIC_KEY_LEN: usize = 33;
+
+/// Wire size of a paired (ECDSA, BLS12-381) BEEFY key.
+const PAIRED_AUTHORITY_LEN: usize = 177;
+
 /// Proving commitments signed with aggregate BLS12-381
 #[cfg(feature = "bls-aggregate")]
 pub mod bls;
@@ -211,23 +217,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
 
-		// Encoding and decoding to fix dependency version conflicts
-		#[cfg(not(feature = "bls"))]
-		let current_authorities = Vec::<[u8; 33]>::decode(&mut data.as_ref())?;
+		// A relay whose authorities hold paired `ecdsa_bls_crypto` keys stores 177 bytes each,
+		// where a plain ECDSA one stores 33. The item width follows from the length prefix and
+		// what is left after it, so the chain says which it is rather than the build.
+		let mut rest = data.as_ref();
+		let count = codec::Compact::<u32>::decode(&mut rest)?.0 as usize;
+		let width = if count == 0 { ECDSA_PUBLIC_KEY_LEN } else { rest.len() / count };
 
-		// `bls`: authorities are stored as 177-byte paired (ECDSA, BLS12-381) keys; keep the ECDSA
-		// half (first 33 bytes, a compressed secp256k1 key) so the derived address leaves match the
-		// on-chain keyset commitment, which `BeefyEcdsaBlsToEthereum` builds from those ECDSA
-		// halves.
-		#[cfg(feature = "bls")]
-		let current_authorities = Vec::<[u8; 177]>::decode(&mut data.as_ref())?
-			.into_iter()
-			.map(|key| {
-				let mut ecdsa_half = [0u8; 33];
-				ecdsa_half.copy_from_slice(&key[..33]);
-				ecdsa_half
-			})
-			.collect::<Vec<_>>();
+		// Either way keep the ECDSA half, a compressed secp256k1 key, so the derived address
+		// leaves match the on-chain keyset commitment that `BeefyEcdsaBlsToEthereum` builds from
+		// exactly those halves.
+		let current_authorities = match width {
+			ECDSA_PUBLIC_KEY_LEN => Vec::<[u8; ECDSA_PUBLIC_KEY_LEN]>::decode(&mut data.as_ref())?,
+			PAIRED_AUTHORITY_LEN => Vec::<[u8; PAIRED_AUTHORITY_LEN]>::decode(&mut data.as_ref())?
+				.into_iter()
+				.map(|key| {
+					let mut ecdsa_half = [0u8; ECDSA_PUBLIC_KEY_LEN];
+					ecdsa_half.copy_from_slice(&key[..ECDSA_PUBLIC_KEY_LEN]);
+					ecdsa_half
+				})
+				.collect(),
+			_ => Err(anyhow!("Beefy authorities are {width} bytes wide, which is neither an ecdsa nor a paired key"))?,
+		};
 
 		Ok(current_authorities)
 	}

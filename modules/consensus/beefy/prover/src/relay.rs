@@ -42,6 +42,12 @@ use crate::{
 	PARAS_PARACHAINS,
 };
 
+/// Wire size of a paired (ECDSA, BLS12-381) BEEFY signature.
+const PAIRED_SIGNATURE_LEN: usize = 177;
+
+/// Wire size of the ECDSA half of one.
+const ECDSA_SIGNATURE_LEN: usize = 65;
+
 /// Storage key for mmr.numberOfLeaves
 pub const MMR_NUMBER_OF_LEAVES: [u8; 32] =
 	hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d");
@@ -80,50 +86,53 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 
 /// Decode a BEEFY justification into a `SignedCommitment` carrying 65-byte ECDSA signatures.
 ///
-/// On a plain-ECDSA relay the signatures decode directly. With the `bls` feature (a relay whose
-/// BEEFY authorities use the paired `ecdsa_bls_crypto` key type) the on-wire signatures are
-/// 177-byte paired signatures; we decode them and keep only the ECDSA half (the first 65 bytes, a
-/// keccak-ECDSA recoverable signature). Both paths return the same type, so commitment hashing,
-/// signature recovery and the ECDSA verifier all stay as they are.
+/// A relay whose authorities hold paired `ecdsa_bls_crypto` keys puts 177-byte signatures on the
+/// wire, where a plain ECDSA one puts 65. Which it is depends on the chain rather than on how this
+/// was built, so both are attempted: a correct decode consumes the whole justification, and one
+/// that leaves bytes behind read the wrong width. Either way only the ECDSA half survives, so
+/// commitment hashing, signature recovery and the verifier are unaffected.
 pub fn decode_beefy_justification(
 	bytes: &[u8],
 ) -> Result<SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, anyhow::Error> {
-	#[cfg(not(feature = "bls"))]
+	let mut input = bytes;
+	if let Ok(VersionedFinalityProof::V1(signed_commitment)) = VersionedFinalityProof::<
+		u32,
+		sp_consensus_beefy::ecdsa_crypto::Signature,
+	>::decode(&mut input)
 	{
-		let VersionedFinalityProof::V1(signed_commitment) = VersionedFinalityProof::<
-			u32,
-			sp_consensus_beefy::ecdsa_crypto::Signature,
-		>::decode(&mut &*bytes)?;
-		Ok(signed_commitment)
-	}
-	#[cfg(feature = "bls")]
-	{
-		/// A 177-byte paired (ECDSA, BLS12-381) signature exactly as SCALE-encoded on the wire.
-		struct Sig177([u8; 177]);
-		impl codec::Decode for Sig177 {
-			fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
-				let mut bytes = [0u8; 177];
-				input.read(&mut bytes)?;
-				Ok(Sig177(bytes))
-			}
+		if input.is_empty() {
+			return Ok(signed_commitment);
 		}
-
-		let VersionedFinalityProof::V1(paired) =
-			VersionedFinalityProof::<u32, Sig177>::decode(&mut &*bytes)?;
-		let signatures = paired
-			.signatures
-			.into_iter()
-			.map(|maybe_sig| {
-				maybe_sig
-					.map(|sig| {
-						// The ECDSA half is the first 65 bytes: r || s || v.
-						sp_consensus_beefy::ecdsa_crypto::Signature::decode(&mut &sig.0[..65])
-					})
-					.transpose()
-			})
-			.collect::<Result<Vec<_>, _>>()?;
-		Ok(SignedCommitment { commitment: paired.commitment, signatures })
 	}
+
+	/// A paired (ECDSA, BLS12-381) signature exactly as SCALE-encoded on the wire.
+	struct PairedSignature([u8; PAIRED_SIGNATURE_LEN]);
+	impl codec::Decode for PairedSignature {
+		fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+			let mut bytes = [0u8; PAIRED_SIGNATURE_LEN];
+			input.read(&mut bytes)?;
+			Ok(PairedSignature(bytes))
+		}
+	}
+
+	let VersionedFinalityProof::V1(paired) =
+		VersionedFinalityProof::<u32, PairedSignature>::decode(&mut &*bytes)?;
+	let signatures = paired
+		.signatures
+		.into_iter()
+		.map(|maybe_signature| {
+			maybe_signature
+				.map(|signature| {
+					// The ECDSA half is the first 65 bytes: r || s || v.
+					sp_consensus_beefy::ecdsa_crypto::Signature::decode(
+						&mut &signature.0[..ECDSA_SIGNATURE_LEN],
+					)
+				})
+				.transpose()
+		})
+		.collect::<Result<Vec<_>, _>>()?;
+
+	Ok(SignedCommitment { commitment: paired.commitment, signatures })
 }
 
 /// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root

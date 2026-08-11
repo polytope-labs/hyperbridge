@@ -59,15 +59,6 @@ features = [
 
 [features]
 local = []
-# Prove a relay chain whose BEEFY authorities use the paired (ECDSA, BLS12-381) `ecdsa_bls_crypto`
-# key type. On the wire such a chain carries 177-byte paired signatures and 177-byte authority
-# public keys; with this feature the prover keeps only the ECDSA half of each (the keccak-ECDSA
-# recoverable signature / compressed secp256k1 key), so the existing ECDSA verifier is unchanged.
-#
-# This changes how `beefy_authorities` and `decode_beefy_justification` read the wire, so it must
-# not be enabled when proving a plain-ECDSA relay. It is deliberately separate from
-# `bls-aggregate`, which only adds code.
-bls = []
 # Prove the BLS half instead: `crate::bls`, which builds a proof the aggregate verifier checks in
 # a single pairing. Purely additive, so it is safe to enable alongside plain-ECDSA proving.
 bls-aggregate = ["dep:w3f-bls", "dep:ismp-abi", "dep:alloy-primitives", "dep:ark-bls12-381", "dep:ark-ec", "dep:ark-ff", "dep:ark-serialize"]

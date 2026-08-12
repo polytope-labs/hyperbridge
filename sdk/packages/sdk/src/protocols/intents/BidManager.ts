@@ -14,7 +14,7 @@ import type {
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
-import { BidImpl, BidSubmissionRejectedError } from "./Bid"
+import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
 
 /**
@@ -173,16 +173,14 @@ export class BidManager {
 
 	/**
 	 * Autopilot bid selection: sorts the given bids by output value, simulates
-	 * each in order until one passes, then executes that bid. A bid that passes
-	 * simulation but is definitively rejected by the bundler is skipped so the
-	 * next ranked bid can be attempted. For consumers that do not need custom
-	 * selection logic.
+	 * each in order and attempts execution. Any bid that fails simulation or
+	 * execution is skipped once so the next ranked bid can be attempted in the
+	 * same round. For consumers that do not need custom selection logic.
 	 *
 	 * @param order - The placed order to fill.
 	 * @param bids - Candidate bids (from {@link buildBids}).
 	 * @returns A {@link SelectBidResult} for the executed bid.
-	 * @throws If no valid bids exist, every bid fails simulation/submission, or an
-	 *   execution has an ambiguous post-submission failure that must not be raced.
+	 * @throws If no valid bids exist or every bid fails simulation/execution.
 	 */
 	async selectAndExecuteBest(order: Order, bids: Bid[]): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
@@ -203,7 +201,7 @@ export class BidManager {
 
 		console.log(`[BidManager] Simulating ${sortedBids.length} sorted bid(s) to find a valid one`)
 		let simulationFailures = 0
-		let submissionRejections = 0
+		let executionFailures = 0
 		for (let idx = 0; idx < sortedBids.length; idx++) {
 			const bid = sortedBids[idx]
 			console.log(`[BidManager] Simulating bid ${idx + 1}/${sortedBids.length} from solver=${bid.solverAddress}`)
@@ -223,24 +221,19 @@ export class BidManager {
 			try {
 				return await bid.execute()
 			} catch (err) {
-				if (!(err instanceof BidSubmissionRejectedError)) {
-					// Receipt/confirmation and transport failures are ambiguous: the
-					// operation may already be pending or mined. Do not submit another bid.
-					throw err
-				}
-
-				submissionRejections += 1
+				executionFailures += 1
 				console.warn(
-					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: submission REJECTED: ${err.message}; trying next bid`,
+					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: execution FAILED: ` +
+						`${err instanceof Error ? err.message : String(err)}; trying next bid`,
 				)
 			}
 		}
 
 		console.error(
 			`[BidManager] No executable bids for commitment=${commitment}: ` +
-				`${simulationFailures} simulation failure(s), ${submissionRejections} submission rejection(s)`,
+				`${simulationFailures} simulation failure(s), ${executionFailures} execution failure(s)`,
 		)
-		throw new Error("No bids passed simulation and submission")
+		throw new Error("No bids passed simulation and execution")
 	}
 
 	/**

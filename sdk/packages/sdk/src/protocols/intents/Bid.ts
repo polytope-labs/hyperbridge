@@ -15,27 +15,9 @@ import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise }
 import type Decimal from "decimal.js"
 import { concat, encodeFunctionData, parseEventLogs } from "viem"
 import type { Hex } from "viem"
-import { BundlerRpcError, CryptoUtils } from "./CryptoUtils"
+import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
-
-/**
- * A bundler definitively rejected a bid before accepting its UserOperation.
- * Selection may safely continue to another bid when this error is raised.
- */
-export class BidSubmissionRejectedError extends Error {
-	readonly userOpHash: HexString
-
-	constructor(userOpHash: HexString, cause: BundlerRpcError) {
-		super(`Failed to submit bid: ${cause.message}`, { cause })
-		this.name = "BidSubmissionRejectedError"
-		this.userOpHash = userOpHash
-	}
-}
-
-function isAlreadyKnown(error: unknown): error is BundlerRpcError {
-	return error instanceof BundlerRpcError && /\balready known\b/i.test(error.message)
-}
 
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
@@ -225,31 +207,10 @@ export class BidImpl implements Bid {
 			normalizeStateMachineId(this.order.destination),
 		)
 
-		// The hash is deterministic and does not include the signature. Computing it
-		// before submission lets retries recover when the bundler has accepted the
-		// operation but answers a repeated request with "already known".
-		const expectedUserOpHash = CryptoUtils.computeUserOpHash(signedUserOp, entryPointAddress, this.chainId())
-		let userOpHash = expectedUserOpHash as HexString
-		try {
-			userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-				CryptoUtils.prepareBundlerCall(signedUserOp),
-				entryPointAddress,
-			])
-		} catch (err) {
-			if (isAlreadyKnown(err)) {
-				console.info(
-					`[Bid] UserOperation ${expectedUserOpHash} is already known by the bundler; resuming receipt tracking`,
-				)
-			} else if (err instanceof BundlerRpcError) {
-				// A JSON-RPC rejection is definitive: the bundler responded without
-				// accepting this operation, so the selector may try the next bid.
-				throw new BidSubmissionRejectedError(expectedUserOpHash as HexString, err)
-			} else {
-				// Transport failures are ambiguous: the request may have reached the
-				// bundler. Do not race it by selecting a competing bid.
-				throw err
-			}
-		}
+		const userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
+			CryptoUtils.prepareBundlerCall(signedUserOp),
+			entryPointAddress,
+		])
 
 		let txnHash: HexString | undefined
 		let fillStatus: "full" | "partial" | undefined

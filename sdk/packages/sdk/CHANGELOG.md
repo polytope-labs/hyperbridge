@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.8.2
+
+### Patch Changes
+
+- Autopilot bid selection now advances to the next ranked bid when a simulated bid is definitively rejected by the bundler, instead of restarting the polling round and repeatedly selecting the same bid. An `already known` response is handled as an idempotent resubmission: the SDK derives the UserOperation hash locally and resumes receipt tracking without submitting a competing bid.
+
 ## 2.8.1
 
 ### Patch Changes

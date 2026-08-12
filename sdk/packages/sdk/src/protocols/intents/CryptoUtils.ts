@@ -19,6 +19,21 @@ import type { IntentGatewayContext } from "./types"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
 
+/** JSON-RPC error returned by an ERC-4337 bundler. */
+export class BundlerRpcError extends Error {
+	readonly code?: number
+	readonly data?: unknown
+	readonly method: BundlerMethod
+
+	constructor(method: BundlerMethod, error: { code?: number; message?: string; data?: unknown }) {
+		super(`Bundler error: ${error.message || JSON.stringify(error)}`)
+		this.name = "BundlerRpcError"
+		this.method = method
+		this.code = error.code
+		this.data = error.data
+	}
+}
+
 /**
  * EIP-712 type hash for the `SelectSolver` struct.
  *
@@ -372,7 +387,7 @@ export class CryptoUtils {
 		const result = await response.json()
 
 		if (result.error) {
-			throw new Error(`Bundler error: ${result.error.message || JSON.stringify(result.error)}`)
+			throw new BundlerRpcError(method, result.error)
 		}
 
 		return result.result

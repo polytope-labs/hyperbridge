@@ -113,13 +113,14 @@ function windowClosedEvent(block: bigint = 11n, commitment: string = COMMITMENT)
 }
 
 // A priced leg as aggregatePhantomBids reports it. Solvers default to one anonymous bidder so the
-// pool pipeline always has someone behind a quote.
+// pool pipeline always has someone behind a quote. Weights are positive because the aggregation
+// drops zero-inventory bidders before reporting a leg — a zero here would be an impossible input.
 function leg(
 	legIndex: number,
 	outputToken: string,
 	medianPrice: bigint,
 	bidders: { solver: string; weight: bigint; acceptedSources: string[] | null }[] = [
-		{ solver: "0xsolver", weight: 0n, acceptedSources: null },
+		{ solver: "0xsolver", weight: 1n, acceptedSources: null },
 	],
 ) {
 	return {
@@ -175,13 +176,13 @@ describe("handlePhantomOrderPrices", () => {
 		aggregatePhantomBids.mockResolvedValue({
 			legs: [
 				leg(0, CNGN, 1_500n, [
-					{ solver: "0xs1", weight: 0n, acceptedSources: null },
-					{ solver: "0xs2", weight: 0n, acceptedSources: null },
-					{ solver: "0xs3", weight: 0n, acceptedSources: null },
+					{ solver: "0xs1", weight: 1n, acceptedSources: null },
+					{ solver: "0xs2", weight: 1n, acceptedSources: null },
+					{ solver: "0xs3", weight: 1n, acceptedSources: null },
 				]),
 				leg(1, USDC, 660n, [
-					{ solver: "0xs1", weight: 0n, acceptedSources: null },
-					{ solver: "0xs2", weight: 0n, acceptedSources: null },
+					{ solver: "0xs1", weight: 1n, acceptedSources: null },
+					{ solver: "0xs2", weight: 1n, acceptedSources: null },
 				]),
 			],
 			lpBalances: [],
@@ -319,10 +320,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		})
 
 		const chainRows = [...table("PoolChainLiquidity").values()]
-		expect(chainRows.map((r) => r.id).sort()).toEqual([
-			`cNGN-USDC-${CHAIN}-BUY`,
-			`cNGN-USDC-${CHAIN}-SELL`,
-		])
+		expect(chainRows.map((r) => r.id).sort()).toEqual([`cNGN-USDC-${CHAIN}-BUY`, `cNGN-USDC-${CHAIN}-SELL`])
 
 		const snapshots = [...table("PhantomOrderPriceSnapshotV2").values()]
 		expect(snapshots.map((s) => [s.poolId, s.direction, s.chain])).toEqual([
@@ -495,10 +493,7 @@ describe("handlePhantomOrderPrices pool pipeline", () => {
 		// Each chain keeps its own sample row; the pool's side is their depth-weighted average:
 		// (990000·100 + 1010000·300) / 400 = 1005000.
 		const chainRows = [...table("PoolChainLiquidity").values()]
-		expect(chainRows.map((r) => r.id).sort()).toEqual([
-			`USDC-USDT-${CHAIN2}-SELL`,
-			`USDC-USDT-${CHAIN}-SELL`,
-		])
+		expect(chainRows.map((r) => r.id).sort()).toEqual([`USDC-USDT-${CHAIN2}-SELL`, `USDC-USDT-${CHAIN}-SELL`])
 		const pool = table("LiquidityPool").get("USDC-USDT")
 		expect(pool).toMatchObject({
 			sellRate: 1_005_000n * SCALE,

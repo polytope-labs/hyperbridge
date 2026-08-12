@@ -485,7 +485,11 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toEqual([])
 	})
 
-	it("keeps a leg when at least one bidder is backed, zero-inventory co-bidders included", async () => {
+	// A zero-inventory co-bidder is excluded outright, not merely down-weighted: counting it would
+	// overstate how many solvers stand behind the price, and carrying it into `bidders` would mint
+	// a zero-capacity PoolBidder row and, through its declaration, a PoolRoute advertising a
+	// corridor nobody can actually fill.
+	it("keeps a leg backed by one solver but excludes its zero-inventory co-bidder", async () => {
 		const backed = privateKeyToAccount(SOLVER_KEY).address.toLowerCase()
 		const solver = await signedBidUserOp({ signingKey: SOLVER_KEY })
 		const empty = await signedBidUserOp({ signingKey: IMPOSTOR_KEY })
@@ -495,9 +499,9 @@ describe("aggregatePhantomBids bid verification", () => {
 		)
 
 		expect(result!.legs).toHaveLength(1)
-		// Both bids still count; the empty one just carries no weight into the median.
-		expect(result!.legs[0].bidCount).toBe(2)
-		expect(result!.legs[0].bidders.map((b) => b.weight)).toEqual([SOLVER_BALANCE, 0n])
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(result!.legs[0].bidders.map((b) => b.solver.toLowerCase())).toEqual([backed])
+		expect(result!.legs[0].bidders.map((b) => b.weight)).toEqual([SOLVER_BALANCE])
 	})
 
 	// One bundled order per configured chain means several aggregations run against the same

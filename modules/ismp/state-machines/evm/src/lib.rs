@@ -64,6 +64,15 @@ pub enum EvmStateMachineError {
 	/// The proof is missing the storage trie for at least one referenced contract.
 	#[error("The storage proof is incomplete, missing some contract proofs")]
 	IncompleteStorageProof,
+	/// The proof carries a storage trie for a contract no key was requested from.
+	///
+	/// Paired with [`Self::IncompleteStorageProof`] this makes the correspondence exact: the
+	/// storage proof must cover the requested contracts and nothing else. Resolving a contract
+	/// means cloning the whole contract proof and rebuilding its trie, so accepting unrequested
+	/// entries would let the cost of a proof grow with padding rather than with the work asked
+	/// for.
+	#[error("The storage proof contains a contract that was not requested")]
+	UnrequestedContractProof,
 	/// Failed to SCALE-decode the EVM state proof from the proof bytes.
 	#[error("Cannot decode evm state proof")]
 	StateProofDecodeError,
@@ -188,7 +197,13 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		entry.push((key, slot_hash));
 	}
 
-	// Ensure there is a proof for all contract addresses
+	// The storage proof must correspond exactly to the contracts a key was requested from:
+	// every one covered, and nothing else. Both directions are settled here, before a single
+	// entry is resolved — resolving one clones the whole contract proof and rebuilds its trie,
+	// so checking as we go would let a proof padded with unrequested accounts do that work
+	// before being rejected, and would make which error surfaces depend on map ordering.
+	// The honest prover already emits exactly this set, deriving its map from the requested
+	// keys, so nothing legitimate is turned away.
 	let result = contract_to_keys
 		.clone()
 		.into_keys()
@@ -197,14 +212,21 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		return Err(EvmStateMachineError::IncompleteStorageProof.into());
 	}
 
+	if evm_state_proof
+		.storage_proof
+		.keys()
+		.any(|contract| !contract_to_keys.contains_key(contract))
+	{
+		return Err(EvmStateMachineError::UnrequestedContractProof.into());
+	}
+
 	for (contract_address, storage_proof) in evm_state_proof.storage_proof {
-		// Resolve the relevant contracts only. The proof may carry entries for contracts no key
-		// was requested for; those used to be resolved anyway, and since resolving one means
-		// cloning the whole contract proof and rebuilding its trie, the cost of a proof grew
-		// with the number of accounts padded into it rather than with the work asked for.
-		// Entries are skipped rather than rejected so an honest prover including extra accounts
-		// still verifies.
-		let Some(keys) = contract_to_keys.remove(&contract_address) else { continue };
+		// Unreachable: the correspondence check above already rejected any entry without a
+		// requested key. Kept as a hard error rather than a skip so the invariant survives if
+		// that check is ever moved or relaxed.
+		let Some(keys) = contract_to_keys.remove(&contract_address) else {
+			return Err(EvmStateMachineError::UnrequestedContractProof.into());
+		};
 
 		let contract_root = get_contract_account::<H>(
 			evm_state_proof.contract_proof.clone(),
@@ -319,6 +341,8 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 #[cfg(test)]
 mod bounded_verification_tests {
 	use super::*;
+	use crate::types::EvmStateProof;
+	use codec::Encode;
 	use ismp::consensus::{StateMachineHeight, StateMachineId};
 	use ismp::host::StateMachine;
 
@@ -353,6 +377,23 @@ mod bounded_verification_tests {
 		fn keccak256(_bytes: &[u8]) -> H256 {
 			panic!("hashing must not be reached before the duplicate-key check")
 		}
+	}
+
+	/// Used where a test must get past key grouping, which hashes every key. The digest itself is
+	/// irrelevant here: grouping takes the contract address from `key[..20]`, and the slot hash is
+	/// only consulted after the rejection under test, so any total function will do.
+	struct StubHasher;
+	impl Keccak256 for StubHasher {
+		fn keccak256(_bytes: &[u8]) -> H256 {
+			H256::zero()
+		}
+	}
+
+	/// Wraps an encoded state proof in the `Proof` envelope `verify_state_proof` expects.
+	fn proof_with(state_proof: EvmStateProof) -> Proof {
+		let mut proof = dummy_proof();
+		proof.proof = state_proof.encode();
+		proof
 	}
 
 	fn verify(keys: Vec<Vec<u8>>) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
@@ -398,6 +439,57 @@ mod bounded_verification_tests {
 			!is_duplicate_key_error(&err),
 			"distinct keys must not be rejected as duplicates, got {err:?}"
 		);
+	}
+
+	/// A proof carrying a contract nobody asked for is rejected, and rejected before the entry is
+	/// resolved — which is why this test needs no real trie data. `keys` is empty, so nothing is
+	/// requested and the completeness check passes trivially; the single storage-proof entry is
+	/// therefore unrequested by construction.
+	#[test]
+	fn rejects_a_storage_proof_for_an_unrequested_contract() {
+		let mut storage_proof = BTreeMap::new();
+		storage_proof.insert(vec![0xab; 20], alloc::vec![alloc::vec![0u8; 8]]);
+		let proof = proof_with(EvmStateProof { contract_proof: vec![], storage_proof });
+
+		let err = verify_state_proof::<UnusedHasher>(vec![], H256::zero(), &proof, H160::zero())
+			.expect_err("an unrequested contract proof must be rejected");
+		assert!(
+			alloc::format!("{err:?}").contains("not requested"),
+			"expected an unrequested-contract error, got {err:?}"
+		);
+	}
+
+	/// Padding is rejected even alongside a legitimately requested contract, so an attacker
+	/// cannot hide extra accounts behind a real query.
+	#[test]
+	fn rejects_padding_added_alongside_a_requested_contract() {
+		let requested = vec![0x11u8; 20];
+		let mut key = requested.clone();
+		key.extend_from_slice(&[0x22u8; 32]);
+
+		let mut storage_proof = BTreeMap::new();
+		storage_proof.insert(requested, alloc::vec![alloc::vec![0u8; 8]]);
+		storage_proof.insert(vec![0xcd; 20], alloc::vec![alloc::vec![0u8; 8]]);
+		let proof = proof_with(EvmStateProof { contract_proof: vec![], storage_proof });
+
+		let err = verify_state_proof::<StubHasher>(vec![key], H256::zero(), &proof, H160::zero())
+			.expect_err("padding must be rejected");
+		assert!(
+			alloc::format!("{err:?}").contains("not requested"),
+			"expected an unrequested-contract error, got {err:?}"
+		);
+	}
+
+	/// Control: an exactly-corresponding proof is not rejected by this check. With nothing
+	/// requested and nothing supplied the loop has no entries, so verification completes.
+	#[test]
+	fn an_exactly_corresponding_proof_is_accepted() {
+		let proof =
+			proof_with(EvmStateProof { contract_proof: vec![], storage_proof: BTreeMap::new() });
+
+		let values = verify_state_proof::<UnusedHasher>(vec![], H256::zero(), &proof, H160::zero())
+			.expect("an empty query with an empty proof must verify");
+		assert!(values.is_empty());
 	}
 
 	#[test]

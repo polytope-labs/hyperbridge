@@ -28,6 +28,7 @@ use subxt::{
 use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId,
+	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
 use ismp_abi::ecdsa_beefy::BeefyConsensusState;
@@ -95,26 +96,52 @@ where
 
 	/// The parts of the destination's consensus state this host reasons about.
 	///
-	/// The shape follows the variant this prover produces, since an apk client identifies a set
-	/// by a commitment to its keys where the others carry a merkle root. Only these three values
-	/// are wanted here, and both shapes have them.
-	fn state_summary(&self, encoded: &[u8]) -> Result<StateSummary, anyhow::Error> {
-		if matches!(self.prover, Prover::Apk(_)) {
-			let state = beefy_verifier_primitives::ApkConsensusState::decode(&mut &encoded[..])
-				.context("Could not decode apk consensus state")?;
-			Ok(StateSummary {
-				latest_beefy_height: state.latest_beefy_height,
-				current_set_id: state.current_authorities.id,
-				next_set_id: state.next_authorities.id,
-			})
-		} else {
-			let state = ConsensusState::decode(&mut &encoded[..])
-				.context("Could not decode consensus state")?;
-			Ok(StateSummary {
-				latest_beefy_height: state.latest_beefy_height,
-				current_set_id: state.current_authorities.id,
-				next_set_id: state.next_authorities.id,
-			})
+	/// Two things decide how the bytes are read. A solidity client stores its state abi-encoded
+	/// where a substrate one stores it SCALE-encoded, and an apk client identifies an authority
+	/// set by a commitment to its keys where the others carry a merkle root. Only these three
+	/// values are wanted here, and every shape has them.
+	fn state_summary(
+		&self,
+		encoded: &[u8],
+		destination: StateMachine,
+	) -> Result<StateSummary, anyhow::Error> {
+		use alloy_sol_types::SolType;
+
+		let summarise = |state: ConsensusState| StateSummary {
+			latest_beefy_height: state.latest_beefy_height,
+			current_set_id: state.current_authorities.id,
+			next_set_id: state.next_authorities.id,
+		};
+		let summarise_apk = |state: beefy_verifier_primitives::ApkConsensusState| StateSummary {
+			latest_beefy_height: state.latest_beefy_height,
+			current_set_id: state.current_authorities.id,
+			next_set_id: state.next_authorities.id,
+		};
+
+		let apk = matches!(self.prover, Prover::Apk(_));
+		match (matches!(destination, StateMachine::Evm(_)), apk) {
+			(true, true) => {
+				let state = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(encoded)
+					.context("Could not abi-decode apk consensus state")?;
+				let state: beefy_verifier_primitives::ApkConsensusState =
+					state.try_into().map_err(|e| anyhow!("{e}"))?;
+				Ok(summarise_apk(state))
+			},
+			(true, false) => {
+				let state = <BeefyConsensusState as SolType>::abi_decode(encoded)
+					.context("Could not abi-decode consensus state")?;
+				Ok(summarise(state.into()))
+			},
+			(false, true) => {
+				let state = beefy_verifier_primitives::ApkConsensusState::decode(&mut &encoded[..])
+					.context("Could not decode apk consensus state")?;
+				Ok(summarise_apk(state))
+			},
+			(false, false) => {
+				let state = ConsensusState::decode(&mut &encoded[..])
+					.context("Could not decode consensus state")?;
+				Ok(summarise(state))
+			},
 		}
 	}
 
@@ -234,7 +261,8 @@ where
 						.query_consensus_state(None, self.config.consensus_state_id)
 						.await
 						.context("Could not fetch consenus state")?; // somewhat fatal
-					let StateSummary { next_set_id, .. } = self.state_summary(&encoded)?;
+					let StateSummary { next_set_id, .. } =
+						self.state_summary(&encoded, counterparty_state_machine)?;
 
 					// just some sanity checks
 					if set_id < next_set_id {
@@ -313,7 +341,7 @@ where
 					.query_consensus_state(None, self.config.consensus_state_id)
 					.await?; // somewhat fatal
 				let StateSummary { latest_beefy_height, current_set_id, next_set_id } =
-					self.state_summary(&encoded)?;
+					self.state_summary(&encoded, counterparty_state_machine)?;
 
 				// check if the update is relevant to us.
 				if latest_beefy_height >= finalized_height {

@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.8.2
+
+### Patch Changes
+
+- Autopilot bid selection now attempts each ranked bid once per selection round. Any bid that fails simulation or execution—including an `already known` bundler response—is skipped immediately so the next bid can be attempted instead of restarting the polling round on the same bid.
+
 ## 2.8.1
 
 ### Patch Changes

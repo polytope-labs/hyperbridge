@@ -65,5 +65,7 @@ runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",
     "polkadot-sdk/runtime-benchmarks",
     "dep:hex-literal",
+    "beefy-verifier/apk",
+    "ismp-beefy/apk",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

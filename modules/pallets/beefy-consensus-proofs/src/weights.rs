@@ -36,6 +36,8 @@ pub trait WeightInfo {
 	fn set_reward_curve() -> Weight;
 	/// Weight of `set_apk_verifying_key`.
 	fn set_apk_verifying_key() -> Weight;
+	/// Cost of verifying an apk proof, charged on top of `submit_proof`.
+	fn verify_apk() -> Weight;
 }
 
 /// No-op [`WeightInfo`] for tests and genesis bootstrap.
@@ -56,6 +58,9 @@ impl WeightInfo for () {
 		Weight::zero()
 	}
 	fn set_apk_verifying_key() -> Weight {
+		Weight::zero()
+	}
+	fn verify_apk() -> Weight {
 		Weight::zero()
 	}
 }

@@ -374,7 +374,7 @@ pub mod pallet {
 		/// (first or uncle) refund their transaction fee via `Pays::No`; failed proofs
 		/// pay the fee, which is the spam deterrent.
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::submit_proof())]
+		#[pallet::weight(Pallet::<T>::submit_proof_weight(proof))]
 		pub fn submit_proof(
 			origin: OriginFor<T>,
 			proof: BoundedVec<u8, T::MaxProofSize>,
@@ -507,6 +507,19 @@ pub mod pallet {
 				latest_beefy_height,
 			});
 			Ok(())
+		}
+
+		/// Weight of a `submit_proof` call, which depends on what is being verified.
+		///
+		/// The benchmark covers the storage and the sp1 verification. An apk proof runs a PLONK
+		/// verification and a pairing instead, which is measured separately and added here.
+		/// Charging the same for both would let a block of apk proofs overrun its budget.
+		pub fn submit_proof_weight(proof: &BoundedVec<u8, T::MaxProofSize>) -> Weight {
+			let base = T::WeightInfo::submit_proof();
+			match proof.first() {
+				Some(&types::PROOF_TYPE_APK) => base.saturating_add(T::WeightInfo::verify_apk()),
+				_ => base,
+			}
 		}
 
 		/// Authority set ids out of a stored consensus state.

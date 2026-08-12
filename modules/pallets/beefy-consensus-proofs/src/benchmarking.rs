@@ -16,6 +16,7 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
+use alloy_sol_types::SolType;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use polkadot_sdk::*;
@@ -45,6 +46,15 @@ const WIRE_PROOF: [u8; 1281] = hex_literal::hex!("010000000000000000000000000000
 
 const FIXTURE_VKEY: H256 =
 	H256(hex_literal::hex!("007d1720c695842ed647a1a72e981751f9b5e26fc5ca038523b23430a1292f08"));
+
+/// The fixtures are hex text, shared with the solidity tests, so they are decoded here rather
+/// than duplicated as byte arrays.
+fn decode_hex(raw: &str) -> alloc::vec::Vec<u8> {
+	let trimmed = raw.trim().trim_start_matches("0x");
+	(0..trimmed.len() / 2)
+		.map(|i| u8::from_str_radix(&trimmed[i * 2..i * 2 + 2], 16).expect("fixture is hex"))
+		.collect()
+}
 
 #[benchmarks(
 	where
@@ -104,6 +114,54 @@ mod benchmarks {
 		// Uncle accepted at position 0; one submitter account recorded under height 0.
 		assert_eq!(pallet::ProverCount::<T>::get(0u64), 1);
 		assert_eq!(pallet::AcceptedProvers::<T>::get(0u64).len(), 1);
+	}
+
+	/// The cost an apk proof adds on top of what `submit_proof` already measures: decoding the
+	/// abi payload, the PLONK verification, the pairing that checks the aggregate signature and
+	/// binds `apk2`, the mmr leaf and the parachain header proof.
+	///
+	/// Measured on the verifier rather than through the extrinsic, because the fixture's
+	/// parachain header carries no ismp overlay root and the pallet requires one to settle a
+	/// proof. The cryptography is identical either way, and the storage the pallet writes around
+	/// it is what the `submit_proof` benchmark already covers.
+	///
+	/// Everything here is the fixture `BlsApkBeefy.sol` verifies and `apk_fixture.rs` runs
+	/// through the runtime verifier, so this is a real proof from a live relay.
+	#[benchmark]
+	fn verify_apk() {
+		let state_bytes = decode_hex(include_str!(
+			"../../../../evm/tests/foundry/fixtures/bls-apk-beefy-state.hex"
+		));
+		let proof_bytes = decode_hex(include_str!(
+			"../../../../evm/tests/foundry/fixtures/bls-apk-beefy-proof.hex"
+		));
+		let verifying_key =
+			include_bytes!("../../../../evm/tests/foundry/fixtures/apk-verifying-key.bin").to_vec();
+
+		let state: beefy_verifier_primitives::ApkConsensusState =
+			<ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(
+				&state_bytes,
+			)
+			.expect("apk state fixture decodes")
+			.try_into()
+			.expect("apk state fixture converts");
+
+		#[block]
+		{
+			let proof = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
+				&proof_bytes,
+			)
+			.expect("apk proof fixture decodes");
+			let message: beefy_verifier_primitives::ApkConsensusMessage =
+				proof.try_into().expect("apk proof fixture converts");
+
+			beefy_verifier::apk::verify_apk_consensus::<ismp_beefy::SubstrateCrypto>(
+				state.clone(),
+				message,
+				&verifying_key,
+			)
+			.expect("the fixture proof verifies");
+		}
 	}
 
 	#[benchmark]

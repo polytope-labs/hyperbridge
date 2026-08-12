@@ -421,10 +421,15 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
 			USDT: "0x55d398326f99059ff775485246999027b3197955",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
+			cNGN: "0xa8AEA66B361a8d53e8865c62D142167Af28Af058",
 		},
 		tokenDecimals: {
 			USDC: 18,
 			USDT: 18,
+			// 6, not 18 — cNGN keeps the same decimals it has on every other chain, unlike the
+			// Binance-pegged stables above. Every phantom standard_amount and pool rate divides
+			// by this, so the divergence from its neighbours here is load-bearing, not a typo.
+			cNGN: 6,
 			EXT: 18,
 		},
 		tokenStorageSlots: {

@@ -276,6 +276,10 @@
 				"0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3": {
 					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
+				},
+				"0xa8aea66b361a8d53e8865c62d142167af28af058": {
+					"description": "cNGN \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {

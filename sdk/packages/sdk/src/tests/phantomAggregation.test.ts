@@ -228,9 +228,17 @@ async function signedBidUserOp(opts: {
 	return { ...userOp, signature: concat([opts.commitment ?? COMMITMENT, solverSignature]) as HexString }
 }
 
+// The account a `balanceOf(address)` eth_call is asking about, lowercased.
+const balanceOfSubject = (data: string) => `0x${data.slice(-40)}`.toLowerCase()
+
 // Stands in for the Hyperbridge node and the destination chain's RPC: serves the given bids, the
-// given account code, and a fixed ERC-20 balance for any eth_call.
-function mockRpc(bids: PackedUserOperation[], codeFor: (account: string) => string): FetchLike {
+// given account code, and an ERC-20 balance for any eth_call — fixed by default, or per-holder
+// when a `balanceFor` is supplied.
+function mockRpc(
+	bids: PackedUserOperation[],
+	codeFor: (account: string) => string,
+	balanceFor: (holder: string) => bigint = () => SOLVER_BALANCE,
+): FetchLike {
 	return async (_url, init) => {
 		const payload = JSON.parse(init.body)
 		const result =
@@ -242,15 +250,19 @@ function mockRpc(bids: PackedUserOperation[], codeFor: (account: string) => stri
 					}))
 				: payload.method === "eth_getCode"
 					? codeFor(payload.params[0])
-					: toHex(SOLVER_BALANCE, { size: 32 })
+					: toHex(balanceFor(balanceOfSubject(payload.params[0].data)), { size: 32 })
 		return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
 	}
 }
 
 const delegatedTo = (target: string) => () => `0xef0100${target.slice(2)}`.toLowerCase()
 
-function aggregate(bids: PackedUserOperation[], codeFor: (account: string) => string) {
-	setAggregationFetch(mockRpc(bids, codeFor))
+function aggregate(
+	bids: PackedUserOperation[],
+	codeFor: (account: string) => string,
+	balanceFor?: (holder: string) => bigint,
+) {
+	setAggregationFetch(mockRpc(bids, codeFor, balanceFor))
 	return aggregatePhantomBids({
 		nodeUrl: NODE_URL,
 		evmRpcUrls: { [CHAIN]: "http://base.test" },
@@ -458,6 +470,38 @@ describe("aggregatePhantomBids bid verification", () => {
 		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT))
 
 		expect(result!.legs[0].bidders[0].acceptedSources).toEqual([])
+	})
+
+	// The weight IS the solver's output-token inventory on the destination chain. When every quote
+	// for a leg carries zero weight there is nothing to weight the median by, and weightedMedian
+	// can only pick by position — so on an even-sized set the highest quote wins and any solver
+	// holding nothing sets the published rate for free. Such legs are dropped, not priced.
+	it("drops a leg when no bidder holds the output token on the destination chain", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+
+		const result = await aggregate([userOp], delegatedTo(SOLVER_ACCOUNT), () => 0n)
+
+		expect(result).not.toBeNull()
+		expect(result!.legs).toEqual([])
+	})
+
+	// A zero-inventory co-bidder is excluded outright, not merely down-weighted: counting it would
+	// overstate how many solvers stand behind the price, and carrying it into `bidders` would mint
+	// a zero-capacity PoolBidder row and, through its declaration, a PoolRoute advertising a
+	// corridor nobody can actually fill.
+	it("keeps a leg backed by one solver but excludes its zero-inventory co-bidder", async () => {
+		const backed = privateKeyToAccount(SOLVER_KEY).address.toLowerCase()
+		const solver = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		const empty = await signedBidUserOp({ signingKey: IMPOSTOR_KEY })
+
+		const result = await aggregate([solver, empty], delegatedTo(SOLVER_ACCOUNT), (holder) =>
+			holder === backed ? SOLVER_BALANCE : 0n,
+		)
+
+		expect(result!.legs).toHaveLength(1)
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(result!.legs[0].bidders.map((b) => b.solver.toLowerCase())).toEqual([backed])
+		expect(result!.legs[0].bidders.map((b) => b.weight)).toEqual([SOLVER_BALANCE])
 	})
 
 	// One bundled order per configured chain means several aggregations run against the same

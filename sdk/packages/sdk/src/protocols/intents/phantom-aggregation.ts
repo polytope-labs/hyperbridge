@@ -188,10 +188,14 @@ export interface LpBalance {
 	balance: bigint
 }
 
-/** One verified solver behind a leg's quote. */
+/** One verified solver behind a leg's quote, holding inventory to deliver it. */
 export interface PhantomLegBidder {
 	solver: HexString
-	/** The solver's output-token inventory on the destination chain — its weight in the median. */
+	/**
+	 * The solver's output-token inventory on the destination chain — its weight in the median.
+	 * Always greater than zero: a solver quoting a leg it holds none of is dropped, not recorded
+	 * at zero, since it can deliver nothing at any price.
+	 */
 	weight: bigint
 	/**
 	 * Source chains the solver's signed paymasterAndData declaration accepts payment from. Null
@@ -209,14 +213,19 @@ export interface PhantomLegAggregation {
 	lowestPrice: bigint
 	highestPrice: bigint
 	medianPrice: bigint
+	/** Backed quotes behind the price. Quotes from solvers holding no inventory are not counted. */
 	bidCount: number
-	/** The verified solvers quoting this leg; bidCount === bidders.length. */
+	/** The verified, inventory-backed solvers quoting this leg; bidCount === bidders.length. */
 	bidders: PhantomLegBidder[]
 }
 
 /** The aggregated result for a single phantom order's bid window. */
 export interface PhantomAggregation {
-	/** One entry per leg that at least one solver quoted; legs nobody quoted are absent. */
+	/**
+	 * One entry per leg that at least one solver quoted AND at least one of those quotes is backed
+	 * by output-token inventory on the destination chain. Legs nobody quoted are absent, and so are
+	 * legs every bidder quoted on zero inventory — neither is a price anyone could trade against.
+	 */
 	legs: PhantomLegAggregation[]
 	lpBalances: LpBalance[]
 }
@@ -229,8 +238,14 @@ export interface AggregationLogger {
 // the solver's total balance for the output token across native + vault venues — so a solver that
 // can actually deliver size moves the price more than one quoting on thin liquidity. Returns the
 // lower weighted median: the smallest price whose cumulative weight reaches half of the total.
-// Zero-weight quotes contribute nothing; if every weight is zero it falls back to the unweighted
-// median so a price is still reported.
+// Zero-weight quotes contribute nothing.
+//
+// Callers must not hand this an entry set whose weights are all zero: with nothing to weight by it
+// can only pick a quote by position, and for an even-sized set that position is the upper of the
+// two middles — so "the median" becomes "whoever quoted higher", settable by a solver holding no
+// inventory at all. aggregatePhantomBids drops such legs instead of pricing them. The fallback
+// below stays only so an unguarded caller gets a number rather than a crash; treat reaching it as
+// a caller bug.
 export function weightedMedian(entries: { price: bigint; weight: bigint }[]): bigint {
 	const sorted = [...entries].sort((a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0))
 	const totalWeight = sorted.reduce((acc, e) => (e.weight > 0n ? acc + e.weight : acc), 0n)
@@ -697,19 +712,41 @@ export async function aggregatePhantomBids(params: {
 	// Each leg reports a single price: the liquidity-weighted median of the quotes for that leg.
 	// lowestPrice and highestPrice carry that same value rather than the raw min/max of the bid set,
 	// so consumers cannot read an outlier bid as if it were a tradeable bound.
+	//
+	// A quote's weight is the solver's inventory in THAT leg's output token on the destination
+	// chain, so a zero-weight quote is one its solver cannot deliver at any price. Those are
+	// dropped outright rather than merely down-weighted: they must not reach weightedMedian (with
+	// nothing to weight by it picks a quote by position, letting whoever quotes the extreme set the
+	// rate on zero capital), and they must not reach bidCount or `bidders`, where they would inflate
+	// the solver count behind a price and mint zero-capacity PoolBidder/PoolRoute rows downstream.
+	// A leg left with no backed quote at all is therefore absent entirely, exactly as if nobody had
+	// quoted it — no snapshot, and its depth zeroes out downstream.
 	const legs = [...quotesByLeg.entries()]
 		.sort(([a], [b]) => a - b)
-		.map(([legIndex, { outputToken, quotes, bidders }]) => {
-			const medianPrice = weightedMedian(quotes)
-			return {
-				legIndex,
-				outputToken,
-				lowestPrice: medianPrice,
-				highestPrice: medianPrice,
-				medianPrice,
-				bidCount: quotes.length,
-				bidders,
+		.flatMap(([legIndex, { outputToken, quotes, bidders }]) => {
+			// quotes and bidders are pushed in lockstep above, so the same predicate keeps them aligned.
+			const backedQuotes = quotes.filter((quote) => quote.weight > 0n)
+			const backedBidders = bidders.filter((bidder) => bidder.weight > 0n)
+			if (backedQuotes.length === 0) {
+				logger?.warn(
+					{ commitment, chain, legIndex, outputToken, quotes: quotes.length },
+					"Dropping phantom leg: no bidder holds the output token on this chain, so no quote is backed",
+				)
+				return []
 			}
+
+			const medianPrice = weightedMedian(backedQuotes)
+			return [
+				{
+					legIndex,
+					outputToken,
+					lowestPrice: medianPrice,
+					highestPrice: medianPrice,
+					medianPrice,
+					bidCount: backedQuotes.length,
+					bidders: backedBidders,
+				},
+			]
 		})
 
 	return { legs, lpBalances }

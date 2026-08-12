@@ -2326,6 +2326,12 @@ over this order's userOpHash that recovers to the sender, and that sender is EIP
 the chain's SolverAccount. It then records the output amount distribution across the surviving bids,
 weighting each by the solver's liquidity. A snapshot is only written when at least one bid passes
 verification and an EVM RPC endpoint is configured for the phantom order's destination chain.
+
+A leg is also skipped when every bid quoting it holds none of that leg's output token on the
+destination chain. The weight IS that inventory, so an all-zero leg has nothing to weight the
+median by and no bidder able to deliver it at any price — reporting one would let a solver with no
+capital set the published rate by quoting an extreme. Such legs get no snapshot, exactly as if
+nobody had quoted them.
 """
 type PhantomOrderPriceSnapshotV2 @entity {
 	"""
@@ -2405,7 +2411,8 @@ type PhantomOrderPriceSnapshotV2 @entity {
 	highestPrice: BigInt @index
 
 	"""
-	Number of verified bids that contributed to this snapshot.
+	Number of verified, inventory-backed bids that contributed to this snapshot. A solver quoting a
+	leg it holds none of the output token for is not counted — it could not deliver at any price.
 	"""
 	bidCount: Int!
 
@@ -2542,12 +2549,12 @@ type LiquidityPool @entity {
 	buyDepth: BigInt!
 
 	"""
-	Verified bidders currently backing the SELL side, summed across chains.
+	Verified, inventory-backed bidders currently backing the SELL side, summed across chains.
 	"""
 	sellBidCount: Int!
 
 	"""
-	Verified bidders currently backing the BUY side, summed across chains.
+	Verified, inventory-backed bidders currently backing the BUY side, summed across chains.
 	"""
 	buyBidCount: Int!
 
@@ -2586,8 +2593,10 @@ type LiquidityPool @entity {
 The latest phantom sample for one (pool, destination chain, direction) — the chain-distribution
 view of a pool. Overwritten in place each snapshot (price history lives in
 PhantomOrderPriceSnapshotV2), so the pool-level merge is recomputable from these rows alone.
-A depth of 0 with a fresh lastUpdatedBlock means the latest bid window had no valid quotes for
-this direction on this chain; rate then still carries the last known price.
+A depth of 0 with a fresh lastUpdatedBlock means the latest bid window produced no backed quotes
+for this direction on this chain — either nobody quoted it, or every bidder that did holds none of
+the output token here and so could not deliver at any price. Either way no new rate is published;
+rate still carries the last known price, which lastUpdatedBlock will show as stale.
 
 Solver inventories behind depth are read at the chain head when the snapshot is taken, not at a
 historical block, so a reindex reproduces prices but not necessarily depths.
@@ -2624,7 +2633,8 @@ type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]
 	depth: BigInt!
 
 	"""
-	Verified bidders behind the latest sample, including ones with zero inventory.
+	Verified bidders behind the latest sample. Inventory-backed only: a solver holding none of the
+	output token on this chain is excluded, so this never overstates the depth behind `rate`.
 	"""
 	bidCount: Int!
 
@@ -2637,7 +2647,7 @@ type PoolChainLiquidity @entity @compositeIndexes(fields: [["pool", "direction"]
 	unrestrictedDepth: BigInt!
 
 	"""
-	Bidders in the latest window with no accepted-source declaration.
+	Inventory-backed bidders in the latest window with no accepted-source declaration.
 	"""
 	unrestrictedBidCount: Int!
 
@@ -2694,8 +2704,9 @@ type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
 
 	"""
 	The bidder's output-token inventory on `chain` (raw ERC-20 plus redeemable ERC-4626 vault
-	positions), 18-decimal normalized. May be 0: the bid still counts towards bidCount but
-	contributes no depth, and route consumers should treat it as no capacity.
+	positions), 18-decimal normalized. Always greater than zero: a solver quoting a leg it holds
+	none of is dropped from the aggregation rather than recorded here at zero, so every row is a
+	bidder with capacity and the row set can be counted as well as summed.
 	"""
 	liquidity: BigInt! @index
 
@@ -2721,8 +2732,9 @@ type PoolBidder @entity @compositeIndexes(fields: [["pool", "chain"]]) {
 A currently-live cross-chain route into a pool, materialized from the bidders' explicit
 accepted-source declarations so routes are searchable in one query: filter on sourceChain for
 everything fillable from an origin, or on (sourceChain, chain) for one corridor. Rows reflect the
-latest bid window only and are removed when the last declaring bidder stops bidding, mirroring
-PoolBidder.
+latest bid window only and are removed when the last declaring bidder stops bidding — or runs its
+output-token inventory down to nothing, since a bidder that can deliver none of the token is
+dropped from the aggregation entirely. Mirrors PoolBidder.
 
 Only explicit declarations appear here. Bidders with no declaration (the legacy default: all
 CCTP/USDT0-covered chains) are not expanded into rows — which chains that default covers is a
@@ -2757,7 +2769,8 @@ type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["po
 
 	"""
 	Sum of the accepting bidders' output-token inventory on `chain`, 18-decimal normalized.
-	May be 0 when every accepting bidder currently holds nothing.
+	Always greater than zero — bidders holding nothing are excluded from the aggregation, so a
+	route row existing means real capacity, and the row set can be treated as the live routes.
 
 	An upper bound on fillable size, not a promise: the inventory is the solvers' global balance,
 	not earmarked for this route (the same tokens back every pool and route sharing them), solvers
@@ -2769,7 +2782,7 @@ type PoolRoute @entity @compositeIndexes(fields: [["sourceChain", "chain"], ["po
 	depth: BigInt!
 
 	"""
-	Bidders in the latest window that explicitly accept this source chain.
+	Inventory-backed bidders in the latest window that explicitly accept this source chain.
 	"""
 	bidCount: Int!
 

@@ -2,6 +2,12 @@ import type { ChainConfig, HexString } from "@hyperbridge/sdk"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
+/** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
+export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
+
+/** Below this the scanner would hammer the RPC faster than any chain produces blocks. */
+export const MIN_BLOCK_SCAN_INTERVAL_SECONDS = 0.1
+
 export interface UserProvidedChainConfig {
 	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
@@ -144,6 +150,13 @@ export interface FillerConfig {
 	 * accepted; a chain whose merged set is empty rejects every order.
 	 */
 	allowlist?: AllowlistConfig
+	/**
+	 * How often the block scanner polls each chain, in seconds. Defaults to 3.
+	 * Each tick costs one `eth_blockNumber` plus one `eth_getLogs` per chain per
+	 * endpoint, so raising it is the main lever for staying inside a
+	 * rate-limited RPC's budget — at the cost of seeing orders that much later.
+	 */
+	blockScanIntervalSeconds?: number
 }
 
 /**
@@ -514,6 +527,15 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/**
+	 * Block-scanner poll period in milliseconds — configured in seconds, consumed
+	 * by `setInterval`. Defaults to 3 seconds.
+	 */
+	getBlockScanIntervalMs(): number {
+		const seconds = this.fillerConfig?.blockScanIntervalSeconds ?? DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS
+		return Math.round(seconds * 1000)
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

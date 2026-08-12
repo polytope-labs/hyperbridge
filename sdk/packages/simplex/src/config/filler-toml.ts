@@ -4,6 +4,7 @@ import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/inte
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
+import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
 
@@ -129,6 +130,14 @@ export interface FillerTomlConfig {
 		solverAccountContractAddress?: string
 		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
 		targetGasUnits?: number
+		/**
+		 * Block-scanner poll period per chain in seconds. Defaults to 3, and
+		 * fractional values are allowed (0.5 = twice a second). Each tick costs
+		 * one `eth_blockNumber` + one `eth_getLogs` per chain per endpoint, so
+		 * raising this is the lever for fitting inside a rate-limited RPC's
+		 * budget; the cost is seeing new orders that much later.
+		 */
+		blockScanIntervalSeconds?: number
 		/** Gas fee bump (percentages added to base gasPrice). Defaults: priority=8%, max=10%. */
 		gasFeeBump?: {
 			maxPriorityFeePerGasBumpPercent?: number
@@ -272,6 +281,18 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")
+		}
+	}
+
+	// A zero/negative/NaN interval would spin the scanner as fast as the event
+	// loop allows and exhaust any RPC budget in minutes, so reject it at the gate
+	// rather than letting setInterval coerce it.
+	const scanInterval = config.simplex.blockScanIntervalSeconds
+	if (scanInterval !== undefined) {
+		if (!Number.isFinite(scanInterval) || scanInterval < MIN_BLOCK_SCAN_INTERVAL_SECONDS) {
+			throw new Error(
+				`simplex.blockScanIntervalSeconds must be a number >= ${MIN_BLOCK_SCAN_INTERVAL_SECONDS} (seconds); got ${scanInterval}`,
+			)
 		}
 	}
 

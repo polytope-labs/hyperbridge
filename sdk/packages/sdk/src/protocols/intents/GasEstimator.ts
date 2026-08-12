@@ -28,7 +28,9 @@ import { CryptoUtils } from "./CryptoUtils"
  * When a bundler URL is configured, estimation uses
  * `eth_estimateUserOperationGas` with realistic state overrides (token
  * balances, allowances, EntryPoint deposits, and optional solver account
- * bytecode). Without a bundler, it falls back to `estimateContractGas`.
+ * bytecode). Without a bundler, a fixed gas budget
+ * ({@link NO_BUNDLER_FILL_GAS_BASE} plus a per-output increment) is used
+ * instead of a live estimate.
  * Bundler-specific gas-price refinement is applied automatically:
  * Pimlico (`pimlico_getUserOperationGasPrice`) when the URL contains
  * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
@@ -51,6 +53,27 @@ import { CryptoUtils } from "./CryptoUtils"
  * track per-chain differences like L1 data costs.
  */
 export const RELAYER_MESSAGE_GAS = 1_000_000n
+
+/**
+ * Gas budget for `fillOrder` when no bundler is configured. Live estimation
+ * would need `eth_estimateGas` with state overrides, which public RPCs don't
+ * reliably support, so the budget is fixed: a base sized for a fill that
+ * unlocks and redeems a vault position plus the cross-chain dispatch, and a
+ * per-output-leg increment for each token approval + transfer. Out-of-gas is
+ * the expensive failure (a reverted op still bills the paymaster), so both
+ * numbers err high; the EntryPoint refunds unused limit less its 10% penalty.
+ */
+export const NO_BUNDLER_FILL_GAS_BASE = 700_000n
+export const NO_BUNDLER_FILL_GAS_PER_OUTPUT = 150_000n
+
+/**
+ * Paymaster gas assumed on the no-bundler path. The executing UserOp carries
+ * its real limits inside `paymasterAndData`; these mirror them (up to ~250k
+ * verification for a permit executed during validation, 100k postOp) so the
+ * cost quote covers what a paymaster-sponsored fill is actually charged.
+ */
+export const NO_BUNDLER_PAYMASTER_VERIFICATION_GAS = 250_000n
+export const NO_BUNDLER_PAYMASTER_POST_OP_GAS = 100_000n
 
 /** Internal pricing policy used by SDK order-fee quotes. */
 interface GasEstimationPricingOptions {
@@ -90,8 +113,10 @@ export class GasEstimator {
 	 * headroom. If the bundler is Pimlico, gas prices are refined with
 	 * `pimlico_getUserOperationGasPrice`.
 	 *
-	 * **Fallback path (no bundler):** calls `estimateContractGas` directly on
-	 * `fillOrder` with state overrides.
+	 * **Fallback path (no bundler):** uses a fixed budget
+	 * ({@link NO_BUNDLER_FILL_GAS_BASE} plus {@link NO_BUNDLER_FILL_GAS_PER_OUTPUT}
+	 * per output leg) — public RPCs don't reliably support estimation with
+	 * state overrides.
 	 *
 	 * @param params - Parameters including the order to estimate and optional
 	 *   percentage bumps for `maxPriorityFeePerGas` and `maxFeePerGas`.
@@ -135,15 +160,19 @@ export class GasEstimator {
 
 		const isSameChain = souceStateMachineId === destStateMachineId
 
+		// State overrides only feed the bundler estimate; without a bundler the
+		// gas budget is flat, so skip the storage-slot resolution entirely.
 		const [stateOverridesResult, crossChainFees] = await Promise.all([
-			this.buildStateOverride({
-				accountAddress: solverAccountAddress,
-				chain: destStateMachineId,
-				outputAssets: assetsForOverrides,
-				spenderAddress: intentGatewayV2Address,
-				intentGatewayV2Address,
-				entryPointAddress,
-			}),
+			this.ctx.bundlerUrl
+				? this.buildStateOverride({
+						accountAddress: solverAccountAddress,
+						chain: destStateMachineId,
+						outputAssets: assetsForOverrides,
+						spenderAddress: intentGatewayV2Address,
+						intentGatewayV2Address,
+						entryPointAddress,
+					})
+				: Promise.resolve({ viem: [], bundler: {} }),
 			isSameChain
 				? Promise.resolve({ postRequestFee: 0n, relayerFeeInSourceFeeToken: 0n })
 				: this.estimateCrossChainFees(
@@ -154,7 +183,7 @@ export class GasEstimator {
 					),
 		])
 
-		const { viem: stateOverrides, bundler: bundlerStateOverrides } = stateOverridesResult
+		const { bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
 			relayerFee: crossChainFees.postRequestFee,
@@ -322,20 +351,10 @@ export class GasEstimator {
 				console.warn("Bundler gas estimation failed, using fallback values:", e)
 			}
 		} else {
-			try {
-				const estimatedGas = await this.ctx.dest.client.estimateContractGas({
-					abi: IntentGatewayV2ABI,
-					address: intentGatewayV2Address,
-					functionName: "fillOrder",
-					args: [transformOrderForContract(order), fillOptions],
-					account: solverAccountAddress,
-					value: totalNativeValue,
-					stateOverride: stateOverrides as any,
-				})
-				callGasLimit = (estimatedGas * 105n) / 100n
-			} catch (e) {
-				console.warn("fillOrder gas estimation failed, using fallback:", e)
-			}
+			callGasLimit =
+				NO_BUNDLER_FILL_GAS_BASE + NO_BUNDLER_FILL_GAS_PER_OUTPUT * BigInt(order.output.assets.length)
+			paymasterVerificationGasLimit = NO_BUNDLER_PAYMASTER_VERIFICATION_GAS
+			paymasterPostOpGasLimit = NO_BUNDLER_PAYMASTER_POST_OP_GAS
 		}
 
 		const totalGas =

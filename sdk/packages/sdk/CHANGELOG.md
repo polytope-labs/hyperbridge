@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.8.1
+
+### Patch Changes
+
+- Recorded balance/allowance storage slots and decimals for cNGN, ZARP, EURC, XSGD, TRYB and USDR on Ethereum, Base and Polygon, so `GasEstimator` state overrides for these tokens resolve from config instead of requiring an RPC with `debug_traceCall`.
+
 ## 2.8.0
 
 ### Minor Changes

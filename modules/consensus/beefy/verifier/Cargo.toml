@@ -23,6 +23,7 @@ sp1-verifier = { git = "https://github.com/polytope-labs/sp1.git", branch = "pol
 alloy-sol-types = { workspace = true, default-features = false }
 
 sha2 = { version = "0.10", default-features = false, optional = true }
+hex-literal = { workspace = true, optional = true }
 ark-bls12-381 = { version = "0.5", default-features = false, features = ["curve"], optional = true }
 ark-ec = { version = "0.5", default-features = false, optional = true }
 ark-ff = { version = "0.5", default-features = false, optional = true }
@@ -82,6 +83,7 @@ bls-crypto = []
 apk = [
     "dep:gnark-plonk-verifier",
     "dep:sha2",
+    "dep:hex-literal",
     "dep:ark-bls12-381",
     "dep:ark-ec",
     "dep:ark-ff",

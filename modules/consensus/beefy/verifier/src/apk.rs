@@ -45,6 +45,17 @@ use crate::error::Error;
 /// Half of a G1 point, and the width of every coordinate the circuit's verifier deals in.
 const COORDINATE: usize = 48;
 
+/// The aggregate key reaches the circuit as six 64 bit limbs per coordinate.
+const APK_LIMBS: usize = 12;
+
+/// The seed point the circuit aggregates onto, `HashToG1(dst="gnark-apk-proofs", msg="apk-seed")`.
+/// Hardcoded in the circuit and in `ApkProof.sol`, packed here the same way a key is.
+const SEED: [u8; APK_G1_LEN] = hex_literal::hex!(
+	"054abdb6c5522fe2f71d55922d6f674a4908d39e2b33efcc62520c0621ca0d6a"
+	"6d84ee717b7fb1cb5f46687265be01ce06e518322165fd114cdf6b4ab59eb45e"
+	"9289cc4f6f7948d6b680cef9ecc0e0e0f96bd59a578d58c33c0e10db9c25b5ad"
+);
+
 /// Verify a whole update and return the new trusted state with the verified parachain headers.
 ///
 /// The order matters and mirrors the Solidity client. The commitment is only believed once the
@@ -187,15 +198,23 @@ fn verify_apk_proof(
 	let proof = gnark_plonk_verifier::PlonkProof::try_from((&mmr.apk_proof[..], vk.qcp.len()))
 		.map_err(|_| Error::ApkProofMalformed)?;
 
-	let mut public_inputs = Vec::with_capacity(APK_BITLIST_WORDS + 1 + 12);
+	let mut public_inputs = Vec::with_capacity(APK_BITLIST_WORDS + 1 + APK_LIMBS);
 	for word in mmr.bitlist.iter() {
 		public_inputs.push(Fr::from_be_bytes_mod_order(word));
 	}
 	public_inputs.push(Fr::from_be_bytes_mod_order(apk_commitment.as_bytes()));
-	// The aggregate key travels as public input too, as six limbs per coordinate, which is how
-	// the circuit represents a base field element it cannot hold in one scalar.
-	for coordinate in [&mmr.apk[..COORDINATE], &mmr.apk[COORDINATE..]] {
-		for limb in coordinate.chunks(8) {
+
+	// The circuit aggregates onto a fixed seed point, so what it proves about is `seed + apk`
+	// rather than the aggregate on its own. `ApkProof._encodePublicInputs` adds it the same way
+	// before handing the inputs to the PLONK verifier.
+	let seeded = (read_g1(&mmr.apk)?.into_group() + read_g1(&SEED)?).into_affine();
+	let (x, y) = seeded.xy().ok_or(Error::ApkPointInvalid)?;
+
+	// Each coordinate is too wide for one scalar, so it travels as six 64 bit limbs, least
+	// significant first.
+	for coordinate in [x, y] {
+		let bytes = coordinate.into_bigint().to_bytes_be();
+		for limb in bytes.chunks(8).rev() {
 			public_inputs.push(Fr::from_be_bytes_mod_order(limb));
 		}
 	}

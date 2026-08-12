@@ -21,7 +21,7 @@
 extern crate alloc;
 
 use alloc::{
-	collections::BTreeMap,
+	collections::{BTreeMap, BTreeSet},
 	string::{String, ToString},
 };
 use ismp::{
@@ -54,6 +54,13 @@ pub enum EvmStateMachineError {
 	/// A query key length didn't match any supported layout (20, 32, or 52 bytes).
 	#[error("Unsupported Key type, found a key whose length is not one of 20, 32 or 52")]
 	UnsupportedKeyLength,
+	/// The same key was supplied more than once.
+	///
+	/// Repeats resolve to the same value and collapse in the returned map, so the caller's
+	/// key-count check already rejects them — but only after each repeat has been verified.
+	/// Rejecting here keeps that cost off an input that was never going to be accepted.
+	#[error("Duplicate key in the query")]
+	DuplicateKey,
 	/// The proof is missing the storage trie for at least one referenced contract.
 	#[error("The storage proof is incomplete, missing some contract proofs")]
 	IncompleteStorageProof,
@@ -136,10 +143,22 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	proof: &Proof,
 	ismp_address: H160,
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+	// Reject repeats before doing any work at all. They are already an error — repeats collapse
+	// in the map returned below, so the caller's key-count check fails — but reaching that
+	// check means every repeat has been verified first, and for account queries that is a
+	// clone of the whole contract proof each time.
+	let mut seen_keys = BTreeSet::new();
+	for key in &keys {
+		if !seen_keys.insert(key.as_slice()) {
+			return Err(EvmStateMachineError::DuplicateKey.into());
+		}
+	}
+
 	let evm_state_proof = decode_evm_state_proof(proof)?;
 	let mut map = BTreeMap::new();
 	let mut contract_to_keys = BTreeMap::new();
 	let mut contract_account_queries = Vec::new();
+
 	// Group keys by the contract address they belong to
 	for key in keys {
 		// For keys that are 52 bytes we expect the first 20 bytes to be the contract address and
@@ -179,6 +198,14 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	}
 
 	for (contract_address, storage_proof) in evm_state_proof.storage_proof {
+		// Resolve the relevant contracts only. The proof may carry entries for contracts no key
+		// was requested for; those used to be resolved anyway, and since resolving one means
+		// cloning the whole contract proof and rebuilding its trie, the cost of a proof grew
+		// with the number of accounts padded into it rather than with the work asked for.
+		// Entries are skipped rather than rejected so an honest prover including extra accounts
+		// still verifies.
+		let Some(keys) = contract_to_keys.remove(&contract_address) else { continue };
+
 		let contract_root = get_contract_account::<H>(
 			evm_state_proof.contract_proof.clone(),
 			&contract_address,
@@ -188,13 +215,11 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		.0
 		.into();
 
-		if let Some(keys) = contract_to_keys.remove(&contract_address) {
-			let slot_hashes = keys.iter().map(|(_, slot_hash)| slot_hash.clone()).collect();
-			let values = get_values_from_proof::<H>(slot_hashes, contract_root, storage_proof)?;
-			keys.into_iter().zip(values).for_each(|((key, _), value)| {
-				map.insert(key, value);
-			});
-		}
+		let slot_hashes = keys.iter().map(|(_, slot_hash)| slot_hash.clone()).collect();
+		let values = get_values_from_proof::<H>(slot_hashes, contract_root, storage_proof)?;
+		keys.into_iter().zip(values).for_each(|((key, _), value)| {
+			map.insert(key, value);
+		});
 	}
 
 	for contract_address in contract_account_queries {
@@ -288,5 +313,102 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			return Err(EvmStateMachineError::MismatchedValuesAndKeys.into());
 		}
 		Ok(values)
+	}
+}
+
+#[cfg(test)]
+mod bounded_verification_tests {
+	use super::*;
+	use ismp::consensus::{StateMachineHeight, StateMachineId};
+	use ismp::host::StateMachine;
+
+	/// A proof whose bytes are irrelevant: the duplicate-key check runs before decoding, so
+	/// these tests never reach it. That ordering is the point — a repeated key costs nothing.
+	fn dummy_proof() -> Proof {
+		Proof {
+			height: StateMachineHeight {
+				id: StateMachineId {
+					state_id: StateMachine::Evm(1),
+					consensus_state_id: *b"ETH0",
+				},
+				height: 1,
+			},
+			proof: vec![0xde, 0xad, 0xbe, 0xef],
+		}
+	}
+
+	fn slot_key(byte: u8) -> Vec<u8> {
+		vec![byte; 52]
+	}
+
+	fn account_key(byte: u8) -> Vec<u8> {
+		vec![byte; 20]
+	}
+
+	/// Never invoked: the duplicate check runs before any key is hashed, and the control cases
+	/// stop at the undecodable proof. Panicking makes that ordering an assertion rather than an
+	/// assumption — if hashing is ever reached, these tests fail loudly.
+	struct UnusedHasher;
+	impl Keccak256 for UnusedHasher {
+		fn keccak256(_bytes: &[u8]) -> H256 {
+			panic!("hashing must not be reached before the duplicate-key check")
+		}
+	}
+
+	fn verify(keys: Vec<Vec<u8>>) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+		verify_state_proof::<UnusedHasher>(keys, H256::zero(), &dummy_proof(), H160::zero())
+	}
+
+	fn is_duplicate_key_error(err: &Error) -> bool {
+		alloc::format!("{err:?}").contains("Duplicate key")
+	}
+
+	/// The reported shape: many repeats of one account key. Each repeat used to cost a clone of
+	/// the whole contract proof and a trie rebuild before the caller's key-count check rejected
+	/// the batch anyway.
+	#[test]
+	fn rejects_repeated_account_keys_before_touching_the_proof() {
+		let keys = alloc::vec![account_key(0xaa); 64];
+		let err = verify(keys).expect_err("repeats must be rejected");
+		assert!(is_duplicate_key_error(&err), "expected a duplicate-key error, got {err:?}");
+	}
+
+	#[test]
+	fn rejects_repeated_slot_keys() {
+		let err = verify(vec![slot_key(0x11), slot_key(0x11)]).expect_err("repeats rejected");
+		assert!(is_duplicate_key_error(&err), "expected a duplicate-key error, got {err:?}");
+	}
+
+	/// A repeat anywhere in the batch is caught, not only an adjacent one.
+	#[test]
+	fn rejects_a_repeat_that_is_not_adjacent() {
+		let keys = vec![slot_key(0x01), account_key(0x02), slot_key(0x03), slot_key(0x01)];
+		let err = verify(keys).expect_err("repeats rejected");
+		assert!(is_duplicate_key_error(&err), "expected a duplicate-key error, got {err:?}");
+	}
+
+	/// Control: distinct keys must not be mistaken for repeats. These proceed past the check and
+	/// fail later on the deliberately undecodable proof, which is what proves the check let them
+	/// through rather than rejecting them up front.
+	#[test]
+	fn distinct_keys_pass_the_duplicate_check() {
+		let keys = vec![slot_key(0x01), slot_key(0x02), account_key(0x03), account_key(0x04)];
+		let err = verify(keys).expect_err("the dummy proof cannot decode");
+		assert!(
+			!is_duplicate_key_error(&err),
+			"distinct keys must not be rejected as duplicates, got {err:?}"
+		);
+	}
+
+	#[test]
+	fn empty_and_single_key_batches_pass_the_duplicate_check() {
+		for keys in [vec![], vec![slot_key(0x01)]] {
+			if let Err(err) = verify(keys) {
+				assert!(
+					!is_duplicate_key_error(&err),
+					"must not be rejected as a duplicate, got {err:?}"
+				);
+			}
+		}
 	}
 }

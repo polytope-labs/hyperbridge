@@ -1,0 +1,606 @@
+---
+title: Simplex
+description: API reference for Simplex - run a Hyperbridge intent filler inside your own process, with pluggable persistence and a typed event stream.
+---
+
+# Simplex
+
+The `Simplex` class is a running intent filler. It boots every service, delegates the filler account
+where solver selection is active, scans the configured chains, and exposes every runtime control as a
+namespaced controller.
+
+For a task-oriented walkthrough see [Simplex](/developers/sdk/simplex); for the standalone binary see
+[the Intent Gateway filler docs](/developers/evm/intent-gateway/simplex).
+
+```typescript lineNumbers
+class Simplex extends EventEmitter
+```
+
+```bash
+npm install @hyperbridge/simplex
+```
+
+## Static Methods
+
+### Simplex.start(options)
+
+Boots a filler and starts it. Resolves once chains are resolved, EIP-7702 delegation is in place
+where solver selection is active, and the scanners are live.
+
+```typescript lineNumbers
+static async start(options: SimplexOptions): Promise<Simplex>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `options.config` | `SimplexConfig` | The filler configuration. Same shape the binary's `filler-config.toml` parses into |
+| `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
+| `options.configPath` | `string` | Optional. Where the config was loaded from; only used to write runtime edits back to disk |
+| `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
+| `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
+| `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
+
+**Returns:** `Promise<Simplex>` — a filler that is already scanning
+
+**Throws:** If the config is invalid, a chain's RPCs are unreachable, or EIP-7702 delegation fails on
+every chain. A partially-started filler is never returned, so there is no readiness state to poll.
+
+**Example:**
+
+```typescript lineNumbers
+import { Simplex } from "@hyperbridge/simplex"
+import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
+
+const simplex = await Simplex.start({
+    config,
+    data: new SqliteDataStore("./simplex-data"),
+    onConfigChange: async (config) => db.settings.put("filler-config", config),
+})
+```
+
+<Callout type="warn">
+    The default `MemoryDataStore` keeps nothing across a restart. A filler that submits bids should
+    pass a durable store: a successful bid locks a deposit that is only reclaimable by retraction,
+    and the retraction sweep finds what to reclaim by querying the bid store.
+</Callout>
+
+## Properties
+
+### pairs, chains, vaults, assets, wallet, rebalancing
+
+The controllers. Each is documented in its own section below.
+
+```typescript lineNumbers
+readonly pairs: PairController
+readonly chains: ChainController
+readonly vaults: VaultController
+readonly assets: AssetController
+readonly wallet: WalletController
+readonly rebalancing: RebalanceController
+```
+
+### address
+
+The filler's EVM account — the address that signs fills and holds inventory.
+
+```typescript lineNumbers
+get address(): HexString
+```
+
+### startedAt
+
+Epoch milliseconds at which this filler started.
+
+```typescript lineNumbers
+get startedAt(): number
+```
+
+## Lifecycle
+
+### pause()
+
+Stops analysing and filling new orders. Monitoring continues and in-flight fills complete; orders
+arriving while paused are dropped, not queued, so resuming does not replay them. The pause is
+written to the state store, so it survives a restart.
+
+```typescript lineNumbers
+async pause(): Promise<void>
+```
+
+### resume()
+
+```typescript lineNumbers
+async resume(): Promise<void>
+```
+
+### isPaused()
+
+```typescript lineNumbers
+isPaused(): boolean
+```
+
+### stop()
+
+Drains the filler, unwinds every vault position marked `redeemOnShutdown` back to its underlying
+asset, and closes the data store. Idempotent, and never calls `process.exit`.
+
+```typescript lineNumbers
+async stop(): Promise<void>
+```
+
+## Introspection
+
+### config()
+
+The live config, including every runtime edit applied so far.
+
+```typescript lineNumbers
+config(): Readonly<SimplexConfig>
+```
+
+### status()
+
+```typescript lineNumbers
+status(): SimplexStatus
+```
+
+**Returns:**
+
+| Field | Type | Description |
+|------|------|-------------|
+| `paused` | `boolean` | |
+| `halted` | `boolean` | Overfill protection has tripped |
+| `fillerAddress` | `HexString` | |
+| `startedAt` | `number` | Epoch ms |
+| `uptimeSec` | `number` | |
+| `chains` | `number[]` | Configured chain ids |
+| `watchOnly` | `Record<number, boolean>` | |
+| `pairs` | `number` | Count of configured pairs |
+
+### activity(limit?, beforeId?)
+
+Order-activity history, newest first. Pass `beforeId` to page backwards.
+
+```typescript lineNumbers
+activity(limit?: number, beforeId?: number): Promise<ActivityEvent[]>
+```
+
+### bids(limit?)
+
+Bids submitted to Hyperbridge, newest first.
+
+```typescript lineNumbers
+bids(limit?: number): Promise<StoredBid[]>
+```
+
+### bidStats()
+
+Bid counts by state.
+
+```typescript lineNumbers
+bidStats(): Promise<BidStats>
+```
+
+**Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
+`pendingRetraction` — those are deposits still locked in the solver-selection pallet.
+
+### isHalted() / resetHalt()
+
+Overfill protection halts the engine when consecutive orders clamp against the output ceiling, which
+usually means a systemic pricing error. A halted filler refuses every order until reset.
+
+```typescript lineNumbers
+isHalted(): boolean
+resetHalt(): void
+```
+
+### setAllowlist(allowlist)
+
+Restricts which order `user` addresses are processed. Pass `undefined` to accept all. Takes effect
+on the next order.
+
+```typescript lineNumbers
+setAllowlist(allowlist: AllowlistConfig | undefined): Promise<void>
+```
+
+### setLogLevel(level)
+
+```typescript lineNumbers
+setLogLevel(level: LogLevel): void
+```
+
+## Events
+
+### on(event, listener) / once(event, listener) / off(event, listener)
+
+Payloads are inferred from the event name, so a typo or a wrong field is a compile error.
+
+```typescript lineNumbers
+on<E extends keyof SimplexEvents>(event: E, listener: (payload: SimplexEvents[E]) => void): this
+```
+
+| Event | Payload |
+|------|---------|
+| `order:detected` | `{ order: Order; transactionHash: string }` |
+| `order:skipped` | `{ orderId: string; reason: string }` |
+| `order:filled` | `{ orderId: string; txHash?: HexString; chainId?: number; volumeUsd?: number; profitUsd?: number }` |
+| `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
+| `order:timing` | `{ orderId: string; phase: "evaluation" \| "confirmation" \| "queue_wait" \| "execution"; durationSec: number }` |
+| `order:filled-onchain` | `{ commitment: HexString; filler: string; chainId: number }` |
+| `rebalance` | `{ success: boolean; transferCount?: number; executedCount?: number; error?: string }` |
+| `activity` | `ActivityEvent` — every row written to the activity store |
+
+**Example:**
+
+```typescript lineNumbers
+simplex.on("order:filled", ({ orderId, profitUsd, chainId }) => {
+    metrics.fills.inc({ chain: String(chainId) })
+    log.info({ orderId, profitUsd }, "filled")
+})
+```
+
+This is the whole telemetry surface — the binary's Prometheus exporter is built on these same events,
+with no privileged access.
+
+## PairController
+
+`simplex.pairs`. Every mutation applies to the live engine and binds on the next order evaluation.
+
+### list()
+
+```typescript lineNumbers
+list(): PairView[]
+```
+
+**Returns:** one `PairView` per configured pair:
+
+| Field | Type | Description |
+|------|------|-------------|
+| `index` | `number` | Position in `config.pairs` |
+| `token0`, `token1` | `string` | Registry symbols |
+| `maxOrderSize` | `string` | Per-order cap in token0 units. Absent for reference-only pairs |
+| `bid`, `ask` | `PriceCurvePoint[]` | Absent when that direction is closed |
+| `sameToken` | `boolean` | `token0 === token1`: the same-asset cross-chain market |
+| `referenceOnly` | `boolean` | Price feed for the USD anchor graph; never opens a market |
+| `venuePriced` | `boolean` | No static curves — priced from a Uniswap V4 pool |
+
+### add(pair, options?)
+
+Opens a new market. Validated against the same rules boot applies, so a pair accepted here is one a
+restart would also accept.
+
+```typescript lineNumbers
+add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `pair` | `PairConfig` | `token0`, `token1`, `maxOrderSize`, and bid/ask curves |
+| `options.assets` | `Record<string, AssetDefinition>` | Optional. Custom tokens to register first, so the pair's symbols resolve |
+
+**Throws:** If the pair duplicates an existing market or its reverse, a symbol does not resolve to a
+deployed contract on any configured chain, or the resulting book has no USD anchor.
+
+### remove(index)
+
+Closes a market. Orders already in flight against it still complete.
+
+```typescript lineNumbers
+remove(index: number): Promise<void>
+```
+
+### setCurve(index, side, points)
+
+Replaces one side's price curve. Mutates the policy instance the engine prices with, so the new curve
+is live on the next evaluation.
+
+```typescript lineNumbers
+setCurve(index: number, side: "bid" | "ask", points: PriceCurvePoint[]): Promise<void>
+```
+
+**Example:**
+
+```typescript lineNumbers
+feed.on("tick", async ({ mid }) => {
+    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: (mid * 0.999).toFixed(4) }])
+    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: (mid * 1.001).toFixed(4) }])
+})
+```
+
+### clearCurve(index, side)
+
+Closes a direction — the pair becomes a one-sided LP. The other side keeps filling.
+
+```typescript lineNumbers
+clearCurve(index: number, side: "bid" | "ask"): Promise<void>
+```
+
+### setMaxOrderSize(index, value)
+
+Resizes the per-order cap, in token0 units.
+
+```typescript lineNumbers
+setMaxOrderSize(index: number, value: string): Promise<void>
+```
+
+**Throws:** If `value` is not a positive finite decimal string.
+
+## ChainController
+
+`simplex.chains`. Chains can be added, removed and repointed without a restart.
+
+### list()
+
+```typescript lineNumbers
+list(): ChainView[]
+```
+
+**Returns:** `{ chainId, stateMachineId, rpcUrls, bundlerUrl, watchOnly }` per chain.
+
+### add(chain)
+
+Brings a chain into the running filler: registers it, delegates on it if solver selection is active,
+then starts its scanner.
+
+```typescript lineNumbers
+add(chain: ChainInput): Promise<ChainView>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `chain.rpcUrls` | `string[]` | One or more endpoints. Multiple enables quorum log scanning |
+| `chain.bundlerUrl` | `string` | ERC-4337 bundler, required to submit fill UserOperations |
+| `chain.watchOnly` | `boolean` | Optional. Monitor without filling |
+| `chain.confirmationPolicy` | `ChainConfirmationPolicy` | Required for chains with no built-in curve (testnets, and anything outside Ethereum, BSC, Polygon, Base, Arbitrum and Unichain) |
+
+**Throws:** If the endpoints are unreachable or answer for a different chain, the chain is already
+configured, no confirmation curve covers it, or delegation fails. The endpoints are probed and the
+chain id read back before anything is mutated, and a failed add rolls itself back — a chain never
+ends up registered but unscanned.
+
+### remove(chainId)
+
+Stops the scanner first so nothing new is queued, then drains in-flight fills before dropping the
+chain.
+
+```typescript lineNumbers
+remove(chainId: number): Promise<void>
+```
+
+**Throws:** If a vault or Uniswap V4 position still names the chain. Those hydrate per chain at boot,
+and one left behind would fail the next start.
+
+### setRpcUrls(chainId, rpcUrls)
+
+Repoints a chain at new endpoints. Probes them first, then drops the cached viem clients and rebuilds
+the scanner **from its existing cursor**, so the swap leaves no gap in the scanned block range.
+
+```typescript lineNumbers
+setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
+```
+
+**Throws:** If the endpoints share a hostname, are unreachable, or answer for a different chain.
+
+### setBundlerUrl(chainId, bundlerUrl)
+
+```typescript lineNumbers
+setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void>
+```
+
+### setWatchOnly(chainId, watchOnly)
+
+Monitor without filling. Takes effect on the next order.
+
+```typescript lineNumbers
+setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
+```
+
+## VaultController
+
+`simplex.vaults`. ERC-4626 treasury vaults the filler sources fills from and sweeps idle balance into.
+
+```typescript lineNumbers
+list(): VaultToml[]
+preflight(vaults: VaultToml[]): Promise<void>
+set(vaults: VaultToml[], options?: { sweepIntervalMs?: number }): Promise<void>
+sweepNow(): Promise<void>
+redeemAll(): Promise<void>
+```
+
+`preflight` hydrates a prospective set against chain state without touching the live venue, so
+unconfigured chains, same-asset duplicates and non-vault addresses surface before you commit to
+`set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor;
+`redeemAll` unwinds every position back to its underlying asset.
+
+**Throws:** All five throw if the filler was started without a vault treasury.
+
+## AssetController
+
+`simplex.assets`. Symbol-to-address resolution for the configured chains.
+
+```typescript lineNumbers
+add(defs: Record<string, AssetDefinition>): Promise<void>
+resolve(symbol: string, chain: string): HexString | null
+```
+
+`add` registers custom tokens the built-in registry does not ship. Existing symbols cannot be
+redefined — repointing one under a running market would silently redirect its fills. `resolve`
+returns `null` when the asset is not deployed or not known on that chain.
+
+The registry ships USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD and TRYB.
+
+## WalletController
+
+`simplex.wallet`.
+
+```typescript lineNumbers
+get address(): HexString
+balances(): BalanceSnapshot
+send(params: { chain: string; token: string; amount: string; to: HexString }):
+    Promise<{ txHash: string; sponsored: boolean; redeemed: boolean }>
+history(limit?: number): Promise<WalletTx[]>
+```
+
+`balances()` returns the last refreshed snapshot — `updatedAt` is `null` until the first refresh
+lands, and the shape is `{ updatedAt, chains: ChainBalanceRow[], hyperbridge? }`. `send` redeems
+vault shares to the recipient when the token is held in a vault, and reports whether a paymaster
+sponsored the gas. `history` covers operator sends plus vault sweeps and redeems, newest first.
+
+## RebalanceController
+
+`simplex.rebalancing`.
+
+```typescript lineNumbers
+set(rebalancing: RebalancingConfig | undefined): Promise<void>
+trigger(): Promise<unknown>
+```
+
+`set` replaces the settings; trigger checks read them live. `trigger` runs a check now instead of
+waiting for the timer, and throws if the filler was started without rebalancing configured.
+
+## Persistence
+
+Three things survive a restart: the bids submitted, the activity feed, and whether the operator
+paused. They live behind `SimplexDataStore`.
+
+```typescript lineNumbers
+interface SimplexDataStore {
+    bids: BidStore
+    activity: ActivityStore
+    state: StateStore
+    close?(): Promise<void>
+}
+```
+
+Every method is async — the bundled SQLite adapter is synchronous underneath and returns resolved
+promises. The async signature is what lets a consumer back these with Postgres, Redis or a hosted API.
+
+### BidStore
+
+```typescript lineNumbers
+store(bid: BidInsert): Promise<void>
+byCommitment(commitment: string): Promise<StoredBid | null>
+unretractedSuccessful(): Promise<StoredBid[]>
+expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
+markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
+markDead(commitment: string): Promise<boolean>
+recent(limit?: number): Promise<StoredBid[]>
+failed(limit?: number): Promise<StoredBid[]>
+byDateRange(from: Date, to: Date): Promise<StoredBid[]>
+stats(): Promise<BidStats>
+```
+
+<Callout type="warn">
+    The correctness-critical store. A successful bid locks a deposit only reclaimable by retraction,
+    and the sweep finds what to reclaim by querying here — an implementation that loses writes leaks
+    deposits. `store` must be durable before it resolves; do not buffer in memory and flush later.
+</Callout>
+
+`expiredUnretracted` returns bids that are successful, unretracted, and either older than `maxAgeMs`
+or flagged dead. Dead bids ignore the age cut because their deposit is reclaimable immediately, so a
+failed attempt retries on the next sweep rather than waiting out the TTL.
+
+`markRetracted` is also called when the chain reports `BidNotFound`: bids only leave the pallet by
+retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
+methods resolve `false` when nothing matched, which callers treat as success rather than an error.
+
+`StoredBid`: `id`, `commitment`, `extrinsicHash`, `blockHash`, `success`, `error`, `createdAt`,
+`retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`. `createdAt` is SQLite-style
+`"YYYY-MM-DD HH:MM:SS"` in UTC so it sorts lexicographically.
+
+### ActivityStore
+
+```typescript lineNumbers
+record(event: ActivityInsert): Promise<ActivityEvent>
+recent(limit?: number, beforeId?: number): Promise<ActivityEvent[]>
+fills(limit?: number): Promise<ActivityEvent[]>
+recordWalletTx(tx: Omit<WalletTx, "id" | "ts">): Promise<void>
+walletTxs(limit?: number): Promise<WalletTx[]>
+```
+
+Observability rather than correctness: dropping a row costs a line in the activity view and nothing
+else, so an implementation may prune, sample or cap history freely.
+
+`ActivityEvent`: `id`, `ts`, `type` (`"detected" | "filled" | "executed" | "skipped" | "rebalance"`),
+`orderId`, `chainId`, `strategy`, `success`, `reason`, `volumeUsd`, `profitUsd`, `txHash`.
+
+### StateStore
+
+```typescript lineNumbers
+get(): Promise<RuntimeState>
+set(state: RuntimeState): Promise<void>
+```
+
+`RuntimeState` is `{ paused?: boolean }`.
+
+### Implementations
+
+| Class | Import from | Notes |
+|------|-------------|-------|
+| `MemoryDataStore` | `@hyperbridge/simplex` | Default. Process-local, row-capped, lost on exit |
+| `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Needs the optional `better-sqlite3` native module |
+
+`SqliteDataStore(dataDir)` keeps `bids.db`, `activity.db` and `runtime-state.json` in the given
+directory, so a data directory written by the binary is picked up unchanged. It is a separate entry
+point precisely so the default install pulls in no native code.
+
+**Example — a custom backend:**
+
+```typescript lineNumbers
+import type { SimplexDataStore } from "@hyperbridge/simplex"
+
+const store: SimplexDataStore = {
+    bids: new PostgresBidStore(pool),
+    activity: new PostgresActivityStore(pool),
+    state: new RedisStateStore(redis),
+    close: () => pool.end(),
+}
+
+const simplex = await Simplex.start({ config, data: store })
+```
+
+## Validators
+
+All pure — no I/O, and they run the same rules boot applies, so a config that passes here starts.
+Useful for gating input from a form, a database or an API before committing to a start.
+
+| Function | Purpose |
+|----------|---------|
+| `validateConfig(config, cliWatchOnly?)` | The full config |
+| `validatePairConfigs(pairs, userAssets?, hasVenuePricing?)` | `pairs` against the asset table |
+| `validateAssetDefinitions(assets)` | Custom asset entries |
+| `assertConfirmationCoverage(policies, chainIds)` | Every configured chain has a confirmation curve |
+| `validateVaultToml(vault)` | Vault treasury entries |
+| `validateUniswapV4Positions(positions)` | V4 position entries |
+| `bookCrossedAt(bid, ask)` | First amount where bid ≤ ask, or `null`. A crossed book is legal but means a full round trip loses money |
+| `unanchoredToken0Symbols(pairs)` | token0 symbols with no path to a USD anchor |
+| `pickAnchorStable(pairs, symbol)` | Which USD stable can carry a reference feed for a symbol |
+| `normalizeSymbol(symbol)` | Trimmed, uppercased |
+| `isRegistrySymbol(symbol)` / `registrySymbols()` | Built-in registry membership |
+| `parseChainKey(key)` / `formatChainKey(id)` | `"EVM-1"` ↔ `1` |
+| `getLogger(module?)` / `configureLogger(level)` | pino logger access |
+
+`USD_STABLE_SYMBOLS` is the set of symbols pegged to one dollar, used to seed the USD anchor graph.
+
+## Types
+
+Exported from `@hyperbridge/simplex`:
+
+`SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
+`ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
+`CurveConfig`, `ChainConfirmationPolicy`, `QueueConfig`, `RebalancingConfig`, `BinanceConfig`,
+`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `SignerConfig`, `SignerType`,
+`PrivateKeySignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
+`UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
+`HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
+`BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,
+`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`.
+
+Controller classes are exported as types too: `PairController`, `ChainController`, `VaultController`,
+`AssetController`, `WalletController`, `RebalanceController`.

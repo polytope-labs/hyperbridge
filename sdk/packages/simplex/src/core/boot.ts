@@ -47,7 +47,7 @@ export interface BootOptions {
 	 * Event scanners this filler reads from. `Simplex.start` supplies the ones the
 	 * caller passed, or builds private ones from this config.
 	 */
-	streams: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
+	scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
 	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
@@ -478,7 +478,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		chainClientManager,
 		contractService,
 		runtimeSigner,
-		options.streams,
+		options.scanners,
 		rebalancingService,
 		bidStore,
 	)

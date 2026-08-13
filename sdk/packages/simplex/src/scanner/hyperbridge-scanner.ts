@@ -19,7 +19,7 @@ import type { HyperbridgeScanner as HyperbridgeScannerContract, HyperbridgeScann
  * stay on that instance's `IntentsCoprocessor`.
  */
 export class HyperbridgeScanner implements HyperbridgeScannerContract {
-	private readonly phantom = new FanOut<PhantomOrderEvent>("phantom")
+	private readonly phantom: FanOut<PhantomOrderEvent>
 	private readonly errors = new Set<(error: unknown) => void>()
 	private readonly logger: Logger
 
@@ -34,6 +34,9 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 		loggers: LoggerContext,
 	) {
 		this.logger = loggers.get("hyperbridge-scanner")
+		// Built here, not as a field initialiser: those run before `loggers` is bound,
+		// so the fan-out would fall back to the process-wide context.
+		this.phantom = new FanOut<PhantomOrderEvent>("phantom", loggers)
 	}
 
 	/**

@@ -49,7 +49,7 @@ export class EventMonitor extends EventEmitter {
 	private logger: Logger
 	private orderScanner: OrderScanner
 	private subscription?: Subscription
-	/** Chain ids this filler is configured for; the stream may carry more. */
+	/** Chain ids this filler is configured for; the scanner may carry more. */
 	private chains: Set<number> = new Set()
 	/** Order ids already delivered, newest last. Bounds the memory a replay can cost. */
 	private seen: Set<string> = new Set()
@@ -78,8 +78,8 @@ export class EventMonitor extends EventEmitter {
 	}
 
 	/**
-	 * Attaches to the stream. One subscription covers every chain it carries — a
-	 * stream shared with other fillers may cover more chains than this one is
+	 * Attaches to the scanner. One subscription covers every chain it carries — a
+	 * scanner shared with other fillers may cover more chains than this one is
 	 * configured for, so events are matched on `chainId` here.
 	 */
 	public async startListening(): Promise<void> {
@@ -96,9 +96,9 @@ export class EventMonitor extends EventEmitter {
 				this.handleFill(event.commitment, event.filler, event.chainId)
 			},
 			onError: (error, chainId) =>
-				this.logger.error({ chainId, err: error }, "Order stream reported a scan failure"),
+				this.logger.error({ chainId, err: error }, "Order scanner reported a scan failure"),
 		})
-		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order stream")
+		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order scanner")
 	}
 
 	private handleOrder(order: Order, transactionHash: string): void {
@@ -130,8 +130,8 @@ export class EventMonitor extends EventEmitter {
 	/**
 	 * Starts matching events for a chain added after boot.
 	 *
-	 * The stream must already carry the chain. `Simplex` adds it to a stream it
-	 * owns; when the stream was supplied by the caller it stays the caller's to
+	 * The scanner must already carry the chain. `Simplex` adds it to a scanner it
+	 * owns; when the scanner was supplied by the caller it stays the caller's to
 	 * manage, so that another filler reading from it is never surprised by a
 	 * chain appearing or vanishing underneath it.
 	 */
@@ -140,21 +140,21 @@ export class EventMonitor extends EventEmitter {
 			throw new Error(`Chain ${chainId} is already monitored`)
 		}
 		if (!this.orderScanner.chains().includes(chainId)) {
-			throw new Error(`Chain ${chainId} is not in the order stream — add it there first`)
+			throw new Error(`Chain ${chainId} is not in the order scanner — add it there first`)
 		}
 		this.chains.add(chainId)
 		this.logger.info({ chainId }, "Monitoring chain")
 	}
 
-	/** Stops matching events for a chain. The stream keeps scanning it for others. */
+	/** Stops matching events for a chain. The scanner keeps scanning it for others. */
 	public async removeChain(chainId: number): Promise<void> {
 		this.chains.delete(chainId)
 		this.logger.info({ chainId }, "Stopped monitoring chain")
 	}
 
 	/**
-	 * No-op against a stream: endpoints belong to the stream, not to a filler
-	 * reading from it. `Simplex.chains.setRpcUrls` rebuilds the chain on a stream
+	 * No-op against a scanner: endpoints belong to the scanner, not to a filler
+	 * reading from it. `Simplex.chains.setRpcUrls` swaps the endpoints on a scanner
 	 * it owns and rejects the call on one it does not.
 	 */
 	public async rebuildChain(chainId: number): Promise<void> {
@@ -163,7 +163,7 @@ export class EventMonitor extends EventEmitter {
 		}
 	}
 
-	/** Events dropped because this filler could not keep up with the stream. */
+	/** Events dropped because this filler could not keep up with the scanner. */
 	public droppedEvents(): number {
 		return this.subscription?.dropped ?? 0
 	}

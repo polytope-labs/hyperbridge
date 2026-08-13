@@ -11,7 +11,7 @@ import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
  *
  * Sharing is something you do on purpose: build a scanner, hand it to the fillers
  * that should share it, and close it when you are done. A filler started without
- * one builds its own private stream and closes it on `stop()`, so nothing is
+ * one builds its own private scanner and closes it on `stop()`, so nothing is
  * ever shared behind your back.
  */
 
@@ -61,7 +61,7 @@ export interface OrderScannerHandlers {
 	onOrder(event: ScannedOrder): void
 	onFill(event: ScannedFill): void
 	/**
-	 * A scan failed. Informational — the stream retries on its own schedule and
+	 * A scan failed. Informational — the scanner retries on its own schedule and
 	 * never advances its cursor past a range it could not read.
 	 */
 	onError?(error: unknown, chainId: number): void
@@ -91,6 +91,8 @@ export interface OrderScanner {
 	chains(): number[]
 	/** Begins scanning another chain. */
 	addChain(chain: ScannerChainConfig): Promise<number>
+	/** Points a chain at different endpoints, keeping its cursor so no block is skipped. */
+	setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
 	/** Stops scanning a chain. Subscribers simply stop seeing it. */
 	removeChain(chainId: number): Promise<void>
 	/** Stops every scan loop. The scanner cannot be reused afterwards. */

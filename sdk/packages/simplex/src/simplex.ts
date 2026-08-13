@@ -404,7 +404,7 @@ export class ChainController {
 			// caller's scanner is theirs, so say so rather than mutating it.
 			if (!this.ownedScanner) {
 				throw new Error(
-					`Chain ${chainId} is not in the order scanner. This filler was started with a scanner you own — ` +
+					`Chain ${chainId} is not in the order scanner. This solver was started with a scanner you own — ` +
 						`add the chain to it with scanner.addChain(...) before adding it here.`,
 				)
 			}
@@ -502,16 +502,17 @@ export class ChainController {
 			if (!this.ownedScanner) {
 				throw new Error(
 					`Endpoints for chain ${chainId} belong to the order scanner you supplied — change them there, ` +
-						`so the other fillers reading it are not repointed underneath them.`,
+						`so the other solvers reading it are not repointed underneath them.`,
 				)
 			}
 
 			const chainKey = formatChainKey(chainId)
 			this.runtime.configService.setRpcUrls(chainId, rpcUrls)
 			this.runtime.chainClientManager.invalidate(chainKey)
-			// Rebuild the scan loop on the new endpoints, then the monitor's view of it.
-			await this.ownedScanner.removeChain(chainId)
-			await this.ownedScanner.addChain({ rpcUrls, chainId })
+			// Swap the scan loop's endpoints in place, then rebuild the monitor's view
+			// of it. Not remove-then-add: that would drop the cursor and restart from
+			// the head, skipping every block since the last scan.
+			await this.ownedScanner.setRpcUrls(chainId, rpcUrls)
 			await this.runtime.intentFiller.monitor.rebuildChain(chainId)
 
 			this.runtime.resolvedChains[index].rpcUrls = rpcUrls
@@ -724,7 +725,7 @@ export class Simplex extends EventEmitter {
 	private constructor(
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
-		/** Streams this filler built for itself, and must therefore close. */
+		/** Scanners this filler built for itself, and must therefore close. */
 		private ownedScanners: { orders?: OrderScanner; hyperbridge?: HyperbridgeScanner } = {},
 	) {
 		super()
@@ -765,7 +766,7 @@ export class Simplex extends EventEmitter {
 
 		const runtime = await bootFiller(options.config, {
 			loggers,
-			streams: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
+			scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 			configPath: options.configPath,
 			data: options.data ?? new MemoryDataStore(),
 			dataDir: options.dataDir,
@@ -838,7 +839,7 @@ export class Simplex extends EventEmitter {
 		if (this.stopped) return
 		this.stopped = true
 		await this.runtime.shutdown("Simplex.stop")
-		// Only streams this filler built. One handed in by the caller keeps running
+		// Only scanners this filler built. One handed in by the caller keeps running
 		// for whoever else is reading it.
 		await this.ownedScanners.orders?.close()
 		await this.ownedScanners.hyperbridge?.close()

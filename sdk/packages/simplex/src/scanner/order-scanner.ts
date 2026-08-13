@@ -28,14 +28,19 @@ import type {
  */
 export class OrderScanner implements OrderScannerContract {
 	private readonly scanners = new Map<number, ChainScanner>()
-	private readonly orders = new FanOut<ScannedOrder>("orders")
-	private readonly fills = new FanOut<ScannedFill>("fills")
+	private readonly orders: FanOut<ScannedOrder>
+	private readonly fills: FanOut<ScannedFill>
 	private readonly errors = new Set<(error: unknown, chainId: number) => void>()
 	private readonly logger: Logger
 	private closed = false
 
 	private constructor(private readonly loggers: LoggerContext) {
 		this.logger = loggers.get("order-scanner")
+		// Built here, not as field initialisers: those run before `loggers` is
+		// assigned, so the fan-outs would fall back to the process-wide context and
+		// a filler with its own sinks would leak these records into the host.
+		this.orders = new FanOut<ScannedOrder>("orders", loggers)
+		this.fills = new FanOut<ScannedFill>("fills", loggers)
 	}
 
 	/**
@@ -115,8 +120,35 @@ export class OrderScanner implements OrderScannerContract {
 
 		this.scanners.set(chainId, scanner)
 		scanner.start()
-		this.logger.info({ chainId, gateway }, "Streaming gateway events")
+		this.logger.info({ chainId, gateway }, "Scanning gateway events")
 		return chainId
+	}
+
+	/**
+	 * Points a chain's scan loop at different endpoints, keeping its cursor.
+	 *
+	 * The new endpoints are probed first and must answer for the chain being
+	 * edited — pointing Base's loop at a Polygon endpoint would otherwise publish
+	 * Polygon orders tagged as Base to every filler reading this scanner. Nothing
+	 * is mutated until that check passes.
+	 *
+	 * @throws if the chain is not in this scanner, or the endpoints are invalid,
+	 *   unreachable, or answer for a different chain.
+	 */
+	async setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void> {
+		if (this.closed) throw new Error("This OrderScanner is closed")
+
+		const scanner = this.scanners.get(chainId)
+		if (!scanner) throw new Error(`Chain ${chainId} is not in this scanner`)
+
+		const validated = validateRpcUrls(rpcUrls)
+		const answered = await fetchChainId(validated[0])
+		if (answered !== chainId) {
+			throw new Error(`Endpoints for chain ${chainId} answer for chain ${answered}`)
+		}
+
+		await scanner.setRpcUrls(validated)
+		this.logger.info({ chainId }, "Swapped gateway event endpoints")
 	}
 
 	async removeChain(chainId: number): Promise<void> {
@@ -124,7 +156,7 @@ export class OrderScanner implements OrderScannerContract {
 		if (!scanner) return
 		this.scanners.delete(chainId)
 		await scanner.stop()
-		this.logger.info({ chainId }, "Stopped streaming gateway events")
+		this.logger.info({ chainId }, "Stopped scanning gateway events")
 	}
 
 	async close(): Promise<void> {

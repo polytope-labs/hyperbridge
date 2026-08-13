@@ -125,8 +125,8 @@ describe("ConfirmationPolicy runtime coverage", () => {
 })
 
 describe("EventMonitor chain lifecycle", () => {
-	/** A monitor wired to a stub stream, so nothing touches the network. */
-	function monitorFor(chainIds: number[], streamChains = chainIds) {
+	/** A monitor wired to a stub scanner, so nothing touches the network. */
+	function monitorFor(chainIds: number[], scannerChains = chainIds) {
 		const service = configService()
 		for (const chainId of chainIds.slice(1)) {
 			service.addChain({ chainId, rpcUrls: [`https://rpc-${chainId}.example`] })
@@ -134,13 +134,14 @@ describe("EventMonitor chain lifecycle", () => {
 
 		let handlers: OrderScannerHandlers | undefined
 		let closed = false
-		const stream: OrderScanner = {
+		const scanner: OrderScanner = {
 			subscribe: (h) => {
 				handlers = h
 				return { close: () => (closed = true), dropped: 0 }
 			},
-			chains: () => [...streamChains],
+			chains: () => [...scannerChains],
 			addChain: async () => 0,
+			setRpcUrls: async () => {},
 			removeChain: async () => {},
 			close: async () => {},
 		}
@@ -150,9 +151,9 @@ describe("EventMonitor chain lifecycle", () => {
 			service,
 			{} as unknown as ChainClientManager,
 			FILLER,
-			stream,
+			scanner,
 		)
-		return { monitor, service, stream, handlers: () => handlers, wasClosed: () => closed }
+		return { monitor, service, scanner, handlers: () => handlers, wasClosed: () => closed }
 	}
 
 	it("takes one subscription for every chain it watches", async () => {
@@ -163,7 +164,7 @@ describe("EventMonitor chain lifecycle", () => {
 	})
 
 	it("ignores events for chains it is not configured for", async () => {
-		// A shared stream may carry more chains than this filler wants.
+		// A shared scanner may carry more chains than this filler wants.
 		const { monitor, handlers } = monitorFor([1], [1, 8453])
 		await monitor.startListening()
 
@@ -183,7 +184,7 @@ describe("EventMonitor chain lifecycle", () => {
 		const seen: string[] = []
 		monitor.on("newOrder", ({ order }) => seen.push(order.id))
 
-		// At-least-once: a stream resuming from a cursor re-delivers, and the fill
+		// At-least-once: a scanner resuming from a cursor re-delivers, and the fill
 		// path has no idempotency of its own.
 		const event = { order: { id: "0xorder" }, transactionHash: "0xtx", chainId: 1 }
 		handlers()!.onOrder(event as never)
@@ -207,7 +208,7 @@ describe("EventMonitor chain lifecycle", () => {
 		expect(seen).toEqual(["0xmine"])
 	})
 
-	it("starts matching a chain added after boot, once the stream carries it", async () => {
+	it("starts matching a chain added after boot, once the scanner carries it", async () => {
 		const { monitor, handlers } = monitorFor([1], [1, 8453])
 		await monitor.startListening()
 		await monitor.addChain(8453)
@@ -219,10 +220,10 @@ describe("EventMonitor chain lifecycle", () => {
 		expect(seen).toEqual(["0xnew"])
 	})
 
-	it("refuses a chain the stream does not carry", async () => {
+	it("refuses a chain the scanner does not carry", async () => {
 		const { monitor } = monitorFor([1], [1])
 		await monitor.startListening()
-		await expect(monitor.addChain(8453)).rejects.toThrow(/not in the order stream/)
+		await expect(monitor.addChain(8453)).rejects.toThrow(/not in the order scanner/)
 	})
 
 	it("refuses to add a chain it already monitors", async () => {
@@ -230,7 +231,7 @@ describe("EventMonitor chain lifecycle", () => {
 		await expect(monitor.addChain(1)).rejects.toThrow(/already monitored/)
 	})
 
-	it("stops matching a removed chain but leaves the stream alone", async () => {
+	it("stops matching a removed chain but leaves the scanner alone", async () => {
 		const { monitor, handlers } = monitorFor([1, 8453])
 		await monitor.startListening()
 		await monitor.removeChain(8453)

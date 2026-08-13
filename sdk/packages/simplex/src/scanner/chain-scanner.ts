@@ -40,7 +40,7 @@ const MAX_BLOCK_RANGE = 1_000n
  * the loop never advances past a range it failed to read.
  */
 export class ChainScanner {
-	private readonly quorumClient: QuorumPublicClient
+	private quorumClient: QuorumPublicClient
 	private readonly mutex = new Mutex()
 	private orderHandler: (event: ScannedOrder) => void = () => {}
 	private fillHandler: (event: ScannedFill) => void = () => {}
@@ -114,6 +114,25 @@ export class ChainScanner {
 				}
 			})
 		}, SCAN_INTERVAL_MS)
+	}
+
+	/**
+	 * Points this loop at different endpoints, keeping the cursor.
+	 *
+	 * Under the mutex, so the swap cannot land mid-scan and leave a pass that read
+	 * its head from one provider set reading its logs from another. Keeping the
+	 * cursor is the whole point: tearing the loop down and building a new one
+	 * restarts from the head, silently skipping every block since the last scan.
+	 */
+	async setRpcUrls(rpcUrls: string[]): Promise<void> {
+		await this.mutex.runExclusive(async () => {
+			this.target.rpcUrls = rpcUrls
+			this.quorumClient = new QuorumPublicClient(this.target.chainId, rpcUrls)
+			this.logger.info(
+				{ chainId: this.target.chainId, providerCount: this.quorumClient.size, cursor: this.cursor },
+				"Swapped block scanner endpoints",
+			)
+		})
 	}
 
 	private async scan(): Promise<void> {

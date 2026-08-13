@@ -140,7 +140,8 @@ simplex.on("activity", (event) => {
 })
 ```
 
-Payloads are inferred from the event name, so a typo or a wrong field is a compile error. This is
+Payloads are inferred from the event name, so a wrong field is a compile error. A misspelled event
+name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string. This is
 the whole telemetry surface — the binary's Prometheus exporter is built on these same events, with
 no privileged access.
 
@@ -197,9 +198,9 @@ await simplex.chains.remove(137)
 ```
 
 `add` probes the endpoints and reads the chain id back from them before mutating anything, so a
-wrong or unreachable RPC is rejected rather than half-applied. `setRpcUrls` rebuilds the chain's
-scanner from its existing cursor, so the swap leaves no gap in the scanned block range. `remove`
-stops the scanner first, then drains in-flight fills before dropping the chain.
+wrong or unreachable RPC is rejected rather than half-applied. `setRpcUrls` swaps the scan loop's
+endpoints while keeping its block cursor, so the change leaves no gap in the scanned range. `remove`
+drains in-flight fills first, then stops scanning the chain.
 
 ### Vaults, assets, rebalancing
 
@@ -272,7 +273,7 @@ if (simplex.isHalted()) {
 }
 ```
 
-## Running more than one
+## Multiple Simplex Instances
 
 Instances share no state, so several solvers can run in one process — different keys, different
 chains, different books:
@@ -295,11 +296,12 @@ as theirs to retract.
 
 Started like that, each solver scans the chains itself. Two solvers watching Base issue two
 identical `getLogs` streams forever, because the filter carries nothing solver-specific — so at any
-real fleet size the scanning, not the filling, is what exhausts an RPC quota. Share a stream instead.
+real fleet size the scanning, not the filling, is what exhausts an RPC quota.
 
-## Sharing a scanner
+### Singleton Scanners
 
-Build an `OrderScanner` and hand it to the solvers that should share it:
+Build one `OrderScanner` and one `HyperbridgeScanner` and hand them to every solver that should
+share them. The scan runs once, and each solver receives every event:
 
 ```ts lineNumbers
 import { Simplex, OrderScanner, HyperbridgeScanner } from "@hyperbridge/simplex"
@@ -329,38 +331,45 @@ await hyperbridge.close()
 through. Entries without a `chainId` have it read back from their own endpoints, which also proves
 they answer for one chain before a solver depends on them.
 
-The Hyperbridge stream matters more than it looks: phantom polling re-reads *every* Hyperbridge
-block, and it goes through `offchain_localStorageGet`, which requires `--rpc-methods=unsafe` — so it
-can only ever hit your own node. Bid submission is unaffected either way; it is signed with each
-solver's own substrate key on its own connection.
+`HyperbridgeScanner` carries phantom orders — the quote requests solvers respond to, which is how
+Hyperbridge indexes prices. One poll feeds every solver reading it.
+
+A scanner you build is yours. Solvers subscribe and unsubscribe; none of them closes it, and a
+solver's `stop()` leaves it running for whoever else is reading.
 
 <Callout type="info">
-    Omit both and a solver builds private streams from its own config and closes them on `stop()`.
+    Omit both and a solver builds private scanners from its own config and closes them on `stop()`.
     Nothing is ever shared implicitly — sharing is something you do on purpose.
 </Callout>
 
-### Who owns what
+### Scanner Management
 
-A stream you pass in is yours. Solvers subscribe and unsubscribe; none of them closes it, and
-`stop()` leaves it running for whoever else is reading.
+A shared scanner is edited through the scanner, so every solver reading it sees the same change:
 
-That rule reaches the chain controls. `chains.add`, `chains.remove` and `chains.setRpcUrls` edit a
-stream the solver built for itself, and refuse on one you supplied:
+```ts lineNumbers
+// Add a chain. Every solver on this scanner starts seeing it.
+await orders.addChain({
+    rpcUrls: ["https://polygon.example"],
+    bundlerUrl: "https://bundler.example/polygon",
+})
 
-> Endpoints for chain 8453 belong to the order stream you supplied — change them there, so the other
-> solvers reading it are not repointed underneath them.
+// Swap endpoints. The cursor is kept, so no block goes unscanned.
+await orders.setRpcUrls(8453, ["https://base-new.example"])
 
-Manage a shared stream through the stream: `orders.addChain({ rpcUrls, bundlerUrl })`,
-`orders.removeChain(chainId)`, `orders.chains()`.
+// Stop scanning one, then list what is left.
+await orders.removeChain(137)
+orders.chains() // [8453]
+```
 
-### What sharing costs you
+`addChain` reads the chain id back from the endpoints when you omit it, and rejects a chain the
+scanner already has. `setRpcUrls` checks the new endpoints answer for that same chain before
+swapping them in. `removeChain` stops that scan loop; subscribers simply stop seeing the chain.
 
-Delivery is at-least-once, so a stream that resumes from a cursor after a reconnect re-delivers.
-Solvers de-duplicate on `order.id`; a custom subscriber must too.
+`simplex.chains.add` and `.setRpcUrls` only reach a scanner that solver built for itself. On one you
+supplied they throw rather than repoint endpoints underneath the other solvers reading it:
 
-A stream never blocks on a slow subscriber — one would otherwise stall every other solver reading
-it. A subscriber that falls behind loses its oldest events instead, and `subscription.dropped`
-counts them, so the loss is visible rather than silent.
+> Endpoints for chain 8453 belong to the order scanner you supplied — change them there, so the
+> other solvers reading it are not repointed underneath them.
 
 ## Logging
 
@@ -406,7 +415,7 @@ const [eu, apac] = await Promise.all([
     Simplex.start({ config: apacConfig, logger: apacLog }),
 ])
 
-await eu.setLogLevel("debug")     // apac stays at its own level
+eu.setLogLevel("debug")          // apac stays at its own level
 eu.addLogSink(auditStream)        // and its own sinks
 ```
 

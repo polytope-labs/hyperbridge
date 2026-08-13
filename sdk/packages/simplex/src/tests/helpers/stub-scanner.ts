@@ -1,7 +1,7 @@
 import type { HyperbridgeScanner, OrderScanner, OrderScannerHandlers } from "@/scanner/types"
 
 /**
- * An order stream that scans nothing.
+ * An order scanner that scans nothing.
  *
  * `IntentFiller` requires one, but plenty of tests exercise paths that never
  * involve a scan — retraction, phantom gating, strategy pricing. `emit` lets a
@@ -18,6 +18,7 @@ export function stubOrderScanner(chains: number[] = []): OrderScanner & {
 		},
 		chains: () => [...chains],
 		addChain: async () => 0,
+		setRpcUrls: async () => {},
 		removeChain: async () => {},
 		close: async () => {},
 		emit: {

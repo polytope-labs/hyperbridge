@@ -41,7 +41,7 @@ static async start(options: SimplexOptions): Promise<Simplex>
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the solver logs nothing |
-| `options.orderScanner` | `OrderScanner` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private stream and closes it on `stop()` |
+| `options.orderScanner` | `OrderScanner` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private scanner and closes it on `stop()` |
 | `options.hyperbridgeScanner` | `HyperbridgeScanner` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the solver builds a private one |
 | `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
 
@@ -237,7 +237,7 @@ on<E extends keyof SimplexEvents>(
 | `order:filled` | `{ orderId: string; txHash?: HexString; chainId?: number; volumeUsd?: number; profitUsd?: number }` |
 | `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
 | `order:timing` | `{ orderId: string; phase: "evaluation" \| "confirmation" \| "queue_wait" \| "execution"; durationSec: number }` |
-| `order:filled-onchain` | `{ commitment: HexString; solver: string; chainId: number }` |
+| `order:filled-onchain` | `{ commitment: HexString; filler: string; chainId: number }` |
 | `rebalance` | `{ success: boolean; transferCount?: number; executedCount?: number; error?: string }` |
 | `activity` | `ActivityEvent` — every row written to the activity store |
 
@@ -396,14 +396,16 @@ and one left behind would fail the next start.
 
 ### setRpcUrls(chainId, rpcUrls)
 
-Repoints a chain at new endpoints. Probes them first, then drops the cached viem clients and rebuilds
-the scanner **from its existing cursor**, so the swap leaves no gap in the scanned block range.
+Repoints a chain at new endpoints. Probes them first, then drops the cached viem clients and swaps
+the scan loop's endpoints **keeping its block cursor**, so the change leaves no gap in the scanned
+block range.
 
 ```typescript lineNumbers
 setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
 ```
 
-**Throws:** If the endpoints share a hostname, are unreachable, or answer for a different chain.
+**Throws:** If the endpoints share a hostname, are unreachable, answer for a different chain, or
+belong to a scanner you supplied — see [Scanner ownership](#scanner-ownership).
 
 ### setBundlerUrl(chainId, bundlerUrl)
 
@@ -591,14 +593,14 @@ const store: SimplexDataStore = {
 const simplex = await Simplex.start({ config, data: store })
 ```
 
-## Streams
+## Scanners
 
 Scanning a chain is identical work for every solver — the `getLogs` filter carries no solver-specific
-term — so N solvers pointed at one chain issue N copies of the same request stream. A stream runs the
+term — so N solvers pointed at one chain issue N copies of the same request stream. A scanner runs the
 scan once and feeds every solver you hand it to.
 
-Sharing is explicit. A solver started without a stream builds a private one from its own config and
-closes it on `stop()`; a stream you build is yours, and `stop()` leaves it running.
+Sharing is explicit. A solver started without a scanner builds a private one from its own config and
+closes it on `stop()`; a scanner you build is yours, and `stop()` leaves it running.
 
 ### OrderScanner.create(chains, options?)
 
@@ -627,26 +629,31 @@ static async create(
 subscribe(handlers: OrderScannerHandlers): Subscription
 chains(): number[]
 addChain(chain: ScannerChainConfig): Promise<number>
+setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
 removeChain(chainId: number): Promise<void>
 close(): Promise<void>
 ```
 
-A subscription receives events for **every** chain in the stream, so subscribers match on
-`event.chainId` — a shared stream may carry more chains than a given solver wants.
+A subscription receives events for **every** chain in the scanner, so subscribers match on
+`event.chainId` — a shared scanner may carry more chains than a given solver wants.
+
+`setRpcUrls` probes the new endpoints and rejects them unless they answer for the chain being edited,
+then swaps them in **keeping that chain's block cursor** — so an endpoint change leaves no unscanned
+gap. It throws on a chain the scanner does not have.
 
 | Handler | Payload |
 |---------|---------|
 | `onOrder` | `ScannedOrder` — `{ order, transactionHash, blockNumber, blockHash, logIndex, chain, chainId }` |
-| `onFill` | `ScannedFill` — `{ commitment, solver, chainId, blockNumber, blockHash, logIndex }` |
-| `onError` | `(error, chainId)` — informational; the stream retries and never advances its cursor past an unread range |
+| `onFill` | `ScannedFill` — `{ commitment, filler, chainId, blockNumber, blockHash, logIndex }` |
+| `onError` | `(error, chainId)` — informational; the scanner retries and never advances its cursor past an unread range |
 
 `Subscription` is `{ close(): void; readonly dropped: number }`.
 
 <Callout type="warn">
-    Delivery is at-least-once and per-chain FIFO. A stream that resumes from a cursor after a
-    reconnect re-delivers, so subscribers de-duplicate on `order.id`. A stream also never blocks on a
-    slow subscriber — that would stall every other solver reading it — so one that falls behind loses
-    its oldest events and counts them in `dropped`.
+    Delivery is at-least-once and per-chain FIFO. A scanner that resumes from a cursor after a
+    reconnect re-delivers, so subscribers de-duplicate on `order.id`. A scanner also never blocks on
+    a slow subscriber — that would stall every other solver reading it — so one that falls behind
+    loses its oldest events and counts them in `dropped`.
 </Callout>
 
 Every `ScannedFill` reaches every subscriber: `filler` is `indexed: false` on both `OrderFilled` and
@@ -667,17 +674,20 @@ subscribe(handlers: {
 close(): Promise<void>
 ```
 
-One phantom-order poll per endpoint instead of one per solver. This is the heavier of the two to
-share: phantom polling re-reads every Hyperbridge block through `offchain_localStorageGet`, which
-requires `--rpc-methods=unsafe`, so it can only ever hit your own node.
+Carries phantom orders — the quote requests solvers respond to, which is how Hyperbridge indexes
+prices. One poll feeds every solver reading it, instead of one poll per solver.
 
 Reads only. Bids are signed with a solver's own substrate key on its own connection.
 
-### Stream ownership
+### Scanner ownership
 
-`chains.add`, `chains.remove` and `chains.setRpcUrls` edit a stream the solver built for itself, and
-throw on one you supplied — repointing endpoints under the other solvers reading it would be action
-at a distance. Manage a shared stream through the stream.
+`chains.add` and `chains.setRpcUrls` edit a scanner the solver built for itself, and throw on one you
+supplied — repointing endpoints under the other solvers reading it would be action at a distance.
+Manage a shared scanner through the scanner.
+
+`chains.remove` does **not** throw on a supplied scanner: it stops this solver from matching the
+chain and leaves the shared scan loop running for everyone else, which is the correct outcome for a
+scanner you own.
 
 ## Logging
 

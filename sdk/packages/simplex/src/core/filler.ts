@@ -67,7 +67,7 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		signer: SigningAccount,
-		streams: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
+		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
 	) {
@@ -84,9 +84,9 @@ export class IntentFiller {
 			configService,
 			this.chainClientManager,
 			this.fillerAddress,
-			streams.orders,
+			scanners.orders,
 		)
-		this.hyperbridgeScanner = streams.hyperbridge
+		this.hyperbridgeScanner = scanners.hyperbridge
 		this.strategies = strategies
 		this.config = config
 
@@ -978,8 +978,8 @@ export class IntentFiller {
 
 	private startPhantomBidding(): void {
 		if (!this.hyperbridge) return
-		const stream = this.hyperbridgeScanner
-		if (!stream) return
+		const scanner = this.hyperbridgeScanner
+		if (!scanner) return
 		this.hyperbridge
 			.then((coprocessor) => {
 				// connect() can resolve long after stop() was called against a slow
@@ -988,7 +988,7 @@ export class IntentFiller {
 				// Reads come from the shared poller — every filler used to re-read every
 				// Hyperbridge block itself. Bids still go through this instance's own
 				// coprocessor, which holds its substrate key.
-				this.phantomSubscription = stream.subscribe({
+				this.phantomSubscription = scanner.subscribe({
 					onPhantomOrder: (order: PhantomOrderEvent) => {
 						// The queued promise is nobody's return value, so an escaping throw would be an
 						// unhandled rejection — which this process has no handler for and Node turns into

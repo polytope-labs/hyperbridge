@@ -41,8 +41,8 @@ static async start(options: SimplexOptions): Promise<Simplex>
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the solver logs nothing |
-| `options.orderStream` | `OrderStream` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private stream and closes it on `stop()` |
-| `options.hyperbridgeStream` | `HyperbridgeStream` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the solver builds a private one |
+| `options.orderScanner` | `OrderScanner` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private stream and closes it on `stop()` |
+| `options.hyperbridgeScanner` | `HyperbridgeScanner` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the solver builds a private one |
 | `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
 
 **Returns:** `Promise<Simplex>` — a solver that is already scanning
@@ -600,20 +600,20 @@ scan once and feeds every solver you hand it to.
 Sharing is explicit. A solver started without a stream builds a private one from its own config and
 closes it on `stop()`; a stream you build is yours, and `stop()` leaves it running.
 
-### OrderStream.create(chains, options?)
+### OrderScanner.create(chains, options?)
 
 ```typescript lineNumbers
 static async create(
-    chains: StreamChainConfig[],
+    chains: ScannerChainConfig[],
     options?: { loggers?: LoggerContext },
-): Promise<OrderStream>
+): Promise<OrderScanner>
 ```
 
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `chains` | `StreamChainConfig[]` | Same shape as the config's `chains`, so it can be passed straight through |
+| `chains` | `ScannerChainConfig[]` | Same shape as the config's `chains`, so it can be passed straight through |
 | `chains[].rpcUrls` | `string[]` | Endpoints to scan with. Several enables quorum log scanning |
 | `chains[].bundlerUrl` | `string` | Carried so a config array passes through unchanged; unused for scanning |
 | `chains[].chainId` | `number` | Optional. Read back from the endpoints when omitted |
@@ -621,12 +621,12 @@ static async create(
 
 **Throws:** if an endpoint set is invalid or unreachable, or if two entries resolve to the same chain.
 
-### OrderStream methods
+### OrderScanner methods
 
 ```typescript lineNumbers
-subscribe(handlers: OrderStreamHandlers): Subscription
+subscribe(handlers: OrderScannerHandlers): Subscription
 chains(): number[]
-addChain(chain: StreamChainConfig): Promise<number>
+addChain(chain: ScannerChainConfig): Promise<number>
 removeChain(chainId: number): Promise<void>
 close(): Promise<void>
 ```
@@ -652,13 +652,13 @@ A subscription receives events for **every** chain in the stream, so subscribers
 Every `ScannedFill` reaches every subscriber: `filler` is `indexed: false` on both `OrderFilled` and
 `PartialFill`, so it can never be narrowed to a topic filter.
 
-### HyperbridgeStream.create(wsUrl, options?)
+### HyperbridgeScanner.create(wsUrl, options?)
 
 ```typescript lineNumbers
 static async create(
     wsUrl: string,
     options?: { loggers?: LoggerContext },
-): Promise<HyperbridgeStream>
+): Promise<HyperbridgeScanner>
 
 subscribe(handlers: {
     onPhantomOrder(event: PhantomOrderEvent): void
@@ -792,8 +792,8 @@ Exported from `@hyperbridge/simplex`:
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
 `BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,
-`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`, `OrderStream`,
-`HyperbridgeStream`, `OrderStreamHandlers`, `HyperbridgeStreamHandlers`, `StreamChainConfig`,
+`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`, `OrderScanner`,
+`HyperbridgeScanner`, `OrderScannerHandlers`, `HyperbridgeScannerHandlers`, `ScannerChainConfig`,
 `ScannedOrder`, `ScannedFill`, `Subscription`.
 
 Controller classes are exported as types too: `PairController`, `ChainController`, `VaultController`,

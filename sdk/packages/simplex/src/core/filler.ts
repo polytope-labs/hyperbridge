@@ -18,7 +18,7 @@ import type { Address } from "viem"
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
 import type { BidStore } from "@/data/types"
-import type { HyperbridgeStream, OrderStream, Subscription } from "@/scanner/types"
+import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
@@ -56,7 +56,7 @@ export class IntentFiller {
 	private signer: SigningAccount
 	private fillerAddress: HexString
 	private logger: Logger
-	private hyperbridgeStream?: HyperbridgeStream
+	private hyperbridgeScanner?: HyperbridgeScanner
 	private phantomSubscription?: Subscription
 
 	constructor(
@@ -67,7 +67,7 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		signer: SigningAccount,
-		streams: { orders: OrderStream; hyperbridge?: HyperbridgeStream },
+		streams: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
 	) {
@@ -86,7 +86,7 @@ export class IntentFiller {
 			this.fillerAddress,
 			streams.orders,
 		)
-		this.hyperbridgeStream = streams.hyperbridge
+		this.hyperbridgeScanner = streams.hyperbridge
 		this.strategies = strategies
 		this.config = config
 
@@ -978,7 +978,7 @@ export class IntentFiller {
 
 	private startPhantomBidding(): void {
 		if (!this.hyperbridge) return
-		const stream = this.hyperbridgeStream
+		const stream = this.hyperbridgeScanner
 		if (!stream) return
 		this.hyperbridge
 			.then((coprocessor) => {

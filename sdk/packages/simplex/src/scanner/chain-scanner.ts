@@ -6,7 +6,7 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import { reconstructOrdersFromLogs } from "./reconstruct"
 import type { ScannedFill, ScannedOrder } from "./types"
 
-/** What one scan loop watches. Resolved by OrderStream before construction. */
+/** What one scan loop watches. Resolved by OrderScanner before construction. */
 export interface ScanTarget {
 	chain: string
 	chainId: number
@@ -95,8 +95,8 @@ export class ChainScanner {
 	 *
 	 * There is deliberately no initial head read here: `scan()` already sets the
 	 * cursor from the head on its first pass, so awaiting one would only make
-	 * creating a stream block on every chain's first round trip — and fail the
-	 * whole stream over an endpoint that is briefly slow, when the interval would
+	 * creating a scanner block on every chain's first round trip — and fail the
+	 * whole scanner over an endpoint that is briefly slow, when the interval would
 	 * have recovered on its own.
 	 */
 	start(): void {

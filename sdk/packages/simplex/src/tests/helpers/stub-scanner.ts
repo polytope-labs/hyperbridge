@@ -1,4 +1,4 @@
-import type { HyperbridgeStream, OrderStream, OrderStreamHandlers } from "@/scanner/types"
+import type { HyperbridgeScanner, OrderScanner, OrderScannerHandlers } from "@/scanner/types"
 
 /**
  * An order stream that scans nothing.
@@ -7,10 +7,10 @@ import type { HyperbridgeStream, OrderStream, OrderStreamHandlers } from "@/scan
  * involve a scan — retraction, phantom gating, strategy pricing. `emit` lets a
  * test push an event through as if a chain had produced it.
  */
-export function stubOrderStream(chains: number[] = []): OrderStream & {
-	emit: OrderStreamHandlers
+export function stubOrderScanner(chains: number[] = []): OrderScanner & {
+	emit: OrderScannerHandlers
 } {
-	let handlers: OrderStreamHandlers | undefined
+	let handlers: OrderScannerHandlers | undefined
 	return {
 		subscribe: (h) => {
 			handlers = h
@@ -28,7 +28,7 @@ export function stubOrderStream(chains: number[] = []): OrderStream & {
 	}
 }
 
-export function stubHyperbridgeStream(): HyperbridgeStream {
+export function stubHyperbridgeScanner(): HyperbridgeScanner {
 	return {
 		subscribe: () => ({ close: () => {}, dropped: 0 }),
 		close: async () => {},

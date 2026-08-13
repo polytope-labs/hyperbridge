@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
-import { stubOrderStream } from "../helpers/stub-stream"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
  * Regression tests for #1074: the filler's handling of retraction outcomes.
@@ -50,7 +50,7 @@ describe("IntentFiller bid retraction", () => {
 			{} as any, // ChainClientManager — unused with no chains configured
 			{} as any, // ContractInteractionService — unused on the retraction path
 			{ account: { address: OUR_ADDRESS } } as any,
-			{ orders: stubOrderStream() },
+			{ orders: stubOrderScanner() },
 			undefined,
 			bidStorage,
 		)

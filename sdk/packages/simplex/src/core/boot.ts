@@ -28,7 +28,7 @@ import { initializeSignerFromToml } from "@/services/wallet"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import { ActivityRecorder } from "@/data/recorder"
 import type { SimplexDataStore } from "@/data/types"
-import type { HyperbridgeStream, OrderStream } from "@/scanner/types"
+import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
@@ -44,10 +44,10 @@ export interface BootOptions {
 	 */
 	loggers: LoggerContext
 	/**
-	 * Event streams this filler reads from. `Simplex.start` supplies the ones the
+	 * Event scanners this filler reads from. `Simplex.start` supplies the ones the
 	 * caller passed, or builds private ones from this config.
 	 */
-	streams: { orders: OrderStream; hyperbridge?: HyperbridgeStream }
+	streams: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
 	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean

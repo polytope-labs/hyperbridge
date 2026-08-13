@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { OrderStream } from "@/scanner/order-stream"
+import { OrderScanner } from "@/scanner/order-scanner"
 import type { ScannedOrder } from "@/scanner/types"
 
 /**
@@ -28,19 +28,19 @@ function orderOn(chainId: number, id: string): ScannedOrder {
 	}
 }
 
-describe("OrderStream", () => {
+describe("OrderScanner", () => {
 	it("scans exactly the chains it was created with", async () => {
-		const stream = await OrderStream.create(CHAINS)
+		const stream = await OrderScanner.create(CHAINS)
 		expect(stream.chains().sort()).toEqual([8453, 42161].sort())
 		await stream.close()
 	})
 
 	it("rejects two entries for the same chain", async () => {
-		await expect(OrderStream.create([CHAINS[0], { ...CHAINS[0] }])).rejects.toThrow(/already in this stream/)
+		await expect(OrderScanner.create([CHAINS[0], { ...CHAINS[0] }])).rejects.toThrow(/already in this scanner/)
 	})
 
 	it("delivers one scanned order to every subscriber", async () => {
-		const stream = await OrderStream.create([CHAINS[0]])
+		const stream = await OrderScanner.create([CHAINS[0]])
 		const a: string[] = []
 		const b: string[] = []
 		stream.subscribe({ onOrder: (e) => a.push(e.order.id!), onFill: () => {} })
@@ -57,7 +57,7 @@ describe("OrderStream", () => {
 	})
 
 	it("stops delivering to a closed subscriber but keeps going for the rest", async () => {
-		const stream = await OrderStream.create([CHAINS[0]])
+		const stream = await OrderScanner.create([CHAINS[0]])
 		const a: string[] = []
 		const b: string[] = []
 		const first = stream.subscribe({ onOrder: (e) => a.push(e.order.id!), onFill: () => {} })
@@ -74,7 +74,7 @@ describe("OrderStream", () => {
 	})
 
 	it("carries chains added and removed at runtime", async () => {
-		const stream = await OrderStream.create([CHAINS[0]])
+		const stream = await OrderScanner.create([CHAINS[0]])
 		await stream.addChain(CHAINS[1])
 		expect(stream.chains().sort()).toEqual([8453, 42161].sort())
 
@@ -84,7 +84,7 @@ describe("OrderStream", () => {
 	})
 
 	it("refuses to be used after closing", async () => {
-		const stream = await OrderStream.create([CHAINS[0]])
+		const stream = await OrderScanner.create([CHAINS[0]])
 		await stream.close()
 
 		expect(() => stream.subscribe({ onOrder: () => {}, onFill: () => {} })).toThrow(/closed/)
@@ -92,7 +92,7 @@ describe("OrderStream", () => {
 	})
 
 	it("is idempotent on close", async () => {
-		const stream = await OrderStream.create([CHAINS[0]])
+		const stream = await OrderScanner.create([CHAINS[0]])
 		await stream.close()
 		await expect(stream.close()).resolves.toBeUndefined()
 	})

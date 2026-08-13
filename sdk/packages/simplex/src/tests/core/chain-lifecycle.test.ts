@@ -3,7 +3,7 @@ import { FillerConfigService } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { EventMonitor } from "@/core/event-monitor"
-import type { OrderStream, OrderStreamHandlers } from "@/scanner/types"
+import type { OrderScanner, OrderScannerHandlers } from "@/scanner/types"
 import type { HexString } from "@hyperbridge/sdk"
 
 /**
@@ -132,9 +132,9 @@ describe("EventMonitor chain lifecycle", () => {
 			service.addChain({ chainId, rpcUrls: [`https://rpc-${chainId}.example`] })
 		}
 
-		let handlers: OrderStreamHandlers | undefined
+		let handlers: OrderScannerHandlers | undefined
 		let closed = false
-		const stream: OrderStream = {
+		const stream: OrderScanner = {
 			subscribe: (h) => {
 				handlers = h
 				return { close: () => (closed = true), dropped: 0 }

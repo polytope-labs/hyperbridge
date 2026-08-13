@@ -12,7 +12,7 @@ import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
-import type { OrderStream, Subscription } from "@/scanner/types"
+import type { OrderScanner, Subscription } from "@/scanner/types"
 
 // Re-exported from its original home so existing importers keep working.
 export { reconstructOrdersFromLogs }
@@ -47,7 +47,7 @@ export class EventMonitor extends EventEmitter {
 	private clientManager: ChainClientManager
 	private fillerAddress: string
 	private logger: Logger
-	private orderStream: OrderStream
+	private orderScanner: OrderScanner
 	private subscription?: Subscription
 	/** Chain ids this filler is configured for; the stream may carry more. */
 	private chains: Set<number> = new Set()
@@ -60,14 +60,14 @@ export class EventMonitor extends EventEmitter {
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		fillerAddress: HexString,
-		orderStream: OrderStream,
+		orderScanner: OrderScanner,
 	) {
 		super()
 		this.logger = moduleLogger(configService.loggers, "event-monitor")
 		this.configService = configService
 		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()
-		this.orderStream = orderStream
+		this.orderScanner = orderScanner
 
 		chainConfigs.forEach((config) => this.registerChain(config.chainId))
 	}
@@ -86,7 +86,7 @@ export class EventMonitor extends EventEmitter {
 		if (this.listening) return
 		this.listening = true
 
-		this.subscription = this.orderStream.subscribe({
+		this.subscription = this.orderScanner.subscribe({
 			onOrder: (event) => {
 				if (!this.chains.has(event.chainId)) return
 				this.handleOrder(event.order, event.transactionHash)
@@ -139,7 +139,7 @@ export class EventMonitor extends EventEmitter {
 		if (this.chains.has(chainId)) {
 			throw new Error(`Chain ${chainId} is already monitored`)
 		}
-		if (!this.orderStream.chains().includes(chainId)) {
+		if (!this.orderScanner.chains().includes(chainId)) {
 			throw new Error(`Chain ${chainId} is not in the order stream — add it there first`)
 		}
 		this.chains.add(chainId)

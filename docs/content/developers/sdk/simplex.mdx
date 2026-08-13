@@ -299,25 +299,25 @@ real fleet size the scanning, not the filling, is what exhausts an RPC quota. Sh
 
 ## Sharing a scanner
 
-Build an `OrderStream` and hand it to the solvers that should share it:
+Build an `OrderScanner` and hand it to the solvers that should share it:
 
 ```ts lineNumbers
-import { Simplex, OrderStream, HyperbridgeStream } from "@hyperbridge/simplex"
+import { Simplex, OrderScanner, HyperbridgeScanner } from "@hyperbridge/simplex"
 
-const orders = await OrderStream.create(config.chains)
-const hyperbridge = await HyperbridgeStream.create(
+const orders = await OrderScanner.create(config.chains)
+const hyperbridge = await HyperbridgeScanner.create(
     config.simplex.hyperbridgeWsUrl,
 )
 
 const eu = await Simplex.start({
     config: euConfig,
-    orderStream: orders,
-    hyperbridgeStream: hyperbridge,
+    orderScanner: orders,
+    hyperbridgeScanner: hyperbridge,
 })
 const apac = await Simplex.start({
     config: apacConfig,
-    orderStream: orders,
-    hyperbridgeStream: hyperbridge,
+    orderScanner: orders,
+    hyperbridgeScanner: hyperbridge,
 })
 
 // Yours to close, whenever both solvers are done with it.
@@ -325,7 +325,7 @@ await orders.close()
 await hyperbridge.close()
 ```
 
-`OrderStream.create` takes the same array as your config's `chains`, so it can be passed straight
+`OrderScanner.create` takes the same array as your config's `chains`, so it can be passed straight
 through. Entries without a `chainId` have it read back from their own endpoints, which also proves
 they answer for one chain before a solver depends on them.
 

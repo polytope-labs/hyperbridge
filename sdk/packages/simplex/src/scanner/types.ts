@@ -1,7 +1,7 @@
 import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
 
 /**
- * Shared event streams.
+ * Shared event scanners.
  *
  * Scanning a chain is identical work for every filler: the `getLogs` filter is
  * `{ address: gateway, events: [OrderPlaced, OrderFilled, PartialFill] }` with
@@ -9,14 +9,14 @@ import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
  * function needing no further RPC. So N fillers on a chain issue N copies of the
  * same request stream unless they share one.
  *
- * Sharing is something you do on purpose: build a stream, hand it to the fillers
+ * Sharing is something you do on purpose: build a scanner, hand it to the fillers
  * that should share it, and close it when you are done. A filler started without
  * one builds its own private stream and closes it on `stop()`, so nothing is
  * ever shared behind your back.
  */
 
 /** A chain to scan. The same shape as a `chains` entry in the filler config. */
-export interface StreamChainConfig {
+export interface ScannerChainConfig {
 	/** One or more endpoints. Several enables quorum log scanning. */
 	rpcUrls: string[]
 	/** Carried so a config's `chains` array can be passed through unchanged; unused for scanning. */
@@ -57,7 +57,7 @@ export interface ScannedFill {
 	logIndex: number
 }
 
-export interface OrderStreamHandlers {
+export interface OrderScannerHandlers {
 	onOrder(event: ScannedOrder): void
 	onFill(event: ScannedFill): void
 	/**
@@ -68,11 +68,11 @@ export interface OrderStreamHandlers {
 }
 
 export interface Subscription {
-	/** Detaches this subscriber. Does not stop the stream. */
+	/** Detaches this subscriber. Does not stop the scanner. */
 	close(): void
 	/**
 	 * Events dropped because this subscriber could not keep up. Non-zero means
-	 * orders were missed: a stream never blocks on a slow subscriber, because one
+	 * orders were missed: a scanner never blocks on a slow subscriber, because one
 	 * would otherwise stall every other filler reading from it.
 	 */
 	readonly dropped: number
@@ -84,20 +84,20 @@ export interface Subscription {
  * Delivery is at-least-once and per-chain FIFO. Subscribers de-duplicate on
  * `order.id` — `EventMonitor` does, and a custom subscriber must too.
  */
-export interface OrderStream {
-	/** Receives events for every chain in the stream; subscribers match on `chainId`. */
-	subscribe(handlers: OrderStreamHandlers): Subscription
+export interface OrderScanner {
+	/** Receives events for every chain in the scanner; subscribers match on `chainId`. */
+	subscribe(handlers: OrderScannerHandlers): Subscription
 	/** Chain ids currently scanned. */
 	chains(): number[]
 	/** Begins scanning another chain. */
-	addChain(chain: StreamChainConfig): Promise<number>
+	addChain(chain: ScannerChainConfig): Promise<number>
 	/** Stops scanning a chain. Subscribers simply stop seeing it. */
 	removeChain(chainId: number): Promise<void>
-	/** Stops every scan loop. The stream cannot be reused afterwards. */
+	/** Stops every scan loop. The scanner cannot be reused afterwards. */
 	close(): Promise<void>
 }
 
-export interface HyperbridgeStreamHandlers {
+export interface HyperbridgeScannerHandlers {
 	onPhantomOrder(event: PhantomOrderEvent): void
 	onError?(error: unknown): void
 }
@@ -112,7 +112,7 @@ export interface HyperbridgeStreamHandlers {
  * Reads only. Bids are signed with a filler's own substrate key on its own
  * connection and never come through here.
  */
-export interface HyperbridgeStream {
-	subscribe(handlers: HyperbridgeStreamHandlers): Subscription
+export interface HyperbridgeScanner {
+	subscribe(handlers: HyperbridgeScannerHandlers): Subscription
 	close(): Promise<void>
 }

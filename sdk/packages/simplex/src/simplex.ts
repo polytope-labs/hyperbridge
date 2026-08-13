@@ -11,8 +11,8 @@ import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/se
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
-import { OrderStream } from "@/scanner/order-stream"
-import { HyperbridgeStream } from "@/scanner/hyperbridge-stream"
+import { OrderScanner } from "@/scanner/order-scanner"
+import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 
 /** Configuration for a filler. The same shape the TOML file parses into. */
@@ -49,23 +49,23 @@ export interface SimplexOptions {
 	/**
 	 * Gateway events for this filler.
 	 *
-	 * Build one with `OrderStream.create(chains)` and pass the same instance to
+	 * Build one with `OrderScanner.create(chains)` and pass the same instance to
 	 * every filler that should share it — that is how N fillers cost one chain's
-	 * worth of RPC instead of N. The stream is yours: closing it is your call, and
+	 * worth of RPC instead of N. The scanner is yours: closing it is your call, and
 	 * `stop()` leaves it running.
 	 *
-	 * Omit it and the filler builds a private stream from `config.chains` and
+	 * Omit it and the filler builds a private scanner from `config.chains` and
 	 * closes it on `stop()`. Nothing is ever shared implicitly.
 	 */
-	orderStream?: OrderStream
+	orderScanner?: OrderScanner
 	/**
-	 * Hyperbridge phantom orders. Same ownership rule as `orderStream`. Omitted
+	 * Hyperbridge phantom orders. Same ownership rule as `orderScanner`. Omitted
 	 * with a `hyperbridgeWsUrl` configured, the filler builds a private one.
 	 *
 	 * Bid submission is unaffected either way — it is signed with this filler's
 	 * own substrate key on its own connection.
 	 */
-	hyperbridgeStream?: HyperbridgeStream
+	hyperbridgeScanner?: HyperbridgeScanner
 	/**
 	 * Called after any mutation that changes the effective config, so a host can
 	 * persist it however it likes.
@@ -338,8 +338,8 @@ export class ChainController {
 	constructor(
 		private runtime: FillerRuntime,
 		private persist: () => void | Promise<void>,
-		/** Set only when this filler built its own stream and may therefore edit it. */
-		private ownedStream?: OrderStream,
+		/** Set only when this filler built its own scanner and may therefore edit it. */
+		private ownedScanner?: OrderScanner,
 	) {}
 
 	private serialise<T>(work: () => Promise<T>): Promise<T> {
@@ -400,15 +400,15 @@ export class ChainController {
 			// added later. `chain.watchOnly` still wins when given explicitly.
 			if (chain.watchOnly ?? this.runtime.globalWatchOnly) intentFiller.setWatchOnly(chainId, true)
 
-			// The stream has to carry the chain before the monitor can match it. A
-			// caller's stream is theirs, so say so rather than mutating it.
-			if (!this.ownedStream) {
+			// The scanner has to carry the chain before the monitor can match it. A
+			// caller's scanner is theirs, so say so rather than mutating it.
+			if (!this.ownedScanner) {
 				throw new Error(
-					`Chain ${chainId} is not in the order stream. This filler was started with a stream you own — ` +
-						`add the chain to it with stream.addChain(...) before adding it here.`,
+					`Chain ${chainId} is not in the order scanner. This filler was started with a scanner you own — ` +
+						`add the chain to it with scanner.addChain(...) before adding it here.`,
 				)
 			}
-			await this.ownedStream.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
+			await this.ownedScanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
 
 			try {
 				// Drop anything cached from a previous life of this chain id, or the
@@ -419,7 +419,7 @@ export class ChainController {
 				// Roll back so a failed add cannot leave a chain that reads as
 				// configured but is not being scanned.
 				configService.removeChain(chainId)
-				await this.ownedStream.removeChain(chainId).catch(() => {})
+				await this.ownedScanner.removeChain(chainId).catch(() => {})
 				throw error
 			}
 
@@ -465,7 +465,7 @@ export class ChainController {
 			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
 
 			await intentFiller.removeChain(chainId)
-			await this.ownedStream?.removeChain(chainId)
+			await this.ownedScanner?.removeChain(chainId)
 			configService.removeChain(chainId)
 			this.runtime.confirmationPolicy?.remove(chainId)
 			this.runtime.chainClientManager.invalidate(chainKey)
@@ -499,9 +499,9 @@ export class ChainController {
 				throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
 			}
 
-			if (!this.ownedStream) {
+			if (!this.ownedScanner) {
 				throw new Error(
-					`Endpoints for chain ${chainId} belong to the order stream you supplied — change them there, ` +
+					`Endpoints for chain ${chainId} belong to the order scanner you supplied — change them there, ` +
 						`so the other fillers reading it are not repointed underneath them.`,
 				)
 			}
@@ -510,8 +510,8 @@ export class ChainController {
 			this.runtime.configService.setRpcUrls(chainId, rpcUrls)
 			this.runtime.chainClientManager.invalidate(chainKey)
 			// Rebuild the scan loop on the new endpoints, then the monitor's view of it.
-			await this.ownedStream.removeChain(chainId)
-			await this.ownedStream.addChain({ rpcUrls, chainId })
+			await this.ownedScanner.removeChain(chainId)
+			await this.ownedScanner.addChain({ rpcUrls, chainId })
 			await this.runtime.intentFiller.monitor.rebuildChain(chainId)
 
 			this.runtime.resolvedChains[index].rpcUrls = rpcUrls
@@ -725,13 +725,13 @@ export class Simplex extends EventEmitter {
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
 		/** Streams this filler built for itself, and must therefore close. */
-		private ownedStreams: { orders?: OrderStream; hyperbridge?: HyperbridgeStream } = {},
+		private ownedScanners: { orders?: OrderScanner; hyperbridge?: HyperbridgeScanner } = {},
 	) {
 		super()
 		this.logger = runtime.loggers.get("simplex")
 		const persist = () => this.persistConfig()
 		this.pairs = new PairController(runtime, persist)
-		this.chains = new ChainController(runtime, persist, ownedStreams.orders)
+		this.chains = new ChainController(runtime, persist, ownedScanners.orders)
 		this.vaults = new VaultController(runtime, persist)
 		this.assets = new AssetController(runtime, persist)
 		this.wallet = new WalletController(runtime)
@@ -753,27 +753,27 @@ export class Simplex extends EventEmitter {
 			level: options.config.simplex.logging as LogLevel | undefined,
 			sink: options.logger,
 		})
-		// Build private streams when none were supplied, and remember that we own
-		// them: a caller's stream outlives this filler and is theirs to close.
-		const orderStream = options.orderStream ?? (await OrderStream.create(options.config.chains, { loggers }))
-		const ownsOrderStream = !options.orderStream
+		// Build private scanners when none were supplied, and remember that we own
+		// them: a caller's scanner outlives this filler and is theirs to close.
+		const orderScanner = options.orderScanner ?? (await OrderScanner.create(options.config.chains, { loggers }))
+		const ownsOrderScanner = !options.orderScanner
 
 		const wsUrl = options.config.simplex.hyperbridgeWsUrl
-		const hyperbridgeStream =
-			options.hyperbridgeStream ?? (wsUrl ? await HyperbridgeStream.create(wsUrl, { loggers }) : undefined)
-		const ownsHyperbridgeStream = !options.hyperbridgeStream && Boolean(hyperbridgeStream)
+		const hyperbridgeScanner =
+			options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScanner.create(wsUrl, { loggers }) : undefined)
+		const ownsHyperbridgeScanner = !options.hyperbridgeScanner && Boolean(hyperbridgeScanner)
 
 		const runtime = await bootFiller(options.config, {
 			loggers,
-			streams: { orders: orderStream, hyperbridge: hyperbridgeStream },
+			streams: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 			configPath: options.configPath,
 			data: options.data ?? new MemoryDataStore(),
 			dataDir: options.dataDir,
 			watchOnlyOverride: options.watchOnly,
 		})
 		return new Simplex(runtime, options, {
-			orders: ownsOrderStream ? orderStream : undefined,
-			hyperbridge: ownsHyperbridgeStream ? hyperbridgeStream : undefined,
+			orders: ownsOrderScanner ? orderScanner : undefined,
+			hyperbridge: ownsHyperbridgeScanner ? hyperbridgeScanner : undefined,
 		})
 	}
 
@@ -840,8 +840,8 @@ export class Simplex extends EventEmitter {
 		await this.runtime.shutdown("Simplex.stop")
 		// Only streams this filler built. One handed in by the caller keeps running
 		// for whoever else is reading it.
-		await this.ownedStreams.orders?.close()
-		await this.ownedStreams.hyperbridge?.close()
+		await this.ownedScanners.orders?.close()
+		await this.ownedScanners.hyperbridge?.close()
 		this.removeAllListeners()
 	}
 

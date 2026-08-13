@@ -1,4 +1,4 @@
-import { stubOrderStream } from "../helpers/stub-stream"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -417,7 +417,7 @@ async function createIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
-		{ orders: stubOrderStream() },
+		{ orders: stubOrderScanner() },
 	)
 	return { intentFiller, strategy }
 }

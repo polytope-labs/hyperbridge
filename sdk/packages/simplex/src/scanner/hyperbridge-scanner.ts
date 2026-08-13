@@ -3,7 +3,7 @@ import { IntentsCoprocessor, type PhantomOrderEvent } from "@hyperbridge/sdk"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { FanOut } from "./fan-out"
-import type { HyperbridgeStream as HyperbridgeStreamContract, HyperbridgeStreamHandlers, Subscription } from "./types"
+import type { HyperbridgeScanner as HyperbridgeScannerContract, HyperbridgeScannerHandlers, Subscription } from "./types"
 
 /**
  * One phantom-order poll per Hyperbridge endpoint, feeding any number of fillers.
@@ -18,7 +18,7 @@ import type { HyperbridgeStream as HyperbridgeStreamContract, HyperbridgeStreamH
  * Only reads live here. Bids are signed with an instance's own substrate key and
  * stay on that instance's `IntentsCoprocessor`.
  */
-export class HyperbridgeStream implements HyperbridgeStreamContract {
+export class HyperbridgeScanner implements HyperbridgeScannerContract {
 	private readonly phantom = new FanOut<PhantomOrderEvent>("phantom")
 	private readonly errors = new Set<(error: unknown) => void>()
 	private readonly logger: Logger
@@ -33,33 +33,33 @@ export class HyperbridgeStream implements HyperbridgeStreamContract {
 		private readonly wsUrl: string,
 		loggers: LoggerContext,
 	) {
-		this.logger = loggers.get("hyperbridge-stream")
+		this.logger = loggers.get("hyperbridge-scanner")
 	}
 
 	/**
 	 * Connects and begins polling.
 	 *
 	 * ```ts
-	 * const hyperbridge = await HyperbridgeStream.create(config.simplex.hyperbridgeWsUrl)
-	 * const filler = await Simplex.start({ config, hyperbridgeStream: hyperbridge })
+	 * const hyperbridge = await HyperbridgeScanner.create(config.simplex.hyperbridgeWsUrl)
+	 * const filler = await Simplex.start({ config, hyperbridgeScanner: hyperbridge })
 	 * ```
 	 *
 	 * @throws if the endpoint cannot be reached.
 	 */
-	static async create(wsUrl: string, options: { loggers?: LoggerContext } = {}): Promise<HyperbridgeStream> {
-		const stream = new HyperbridgeStream(wsUrl, options.loggers ?? defaultLoggerContext())
-		await stream.start()
-		if (!stream.connectionOpen) {
+	static async create(wsUrl: string, options: { loggers?: LoggerContext } = {}): Promise<HyperbridgeScanner> {
+		const scanner = new HyperbridgeScanner(wsUrl, options.loggers ?? defaultLoggerContext())
+		await scanner.start()
+		if (!scanner.connectionOpen) {
 			throw new Error(`Could not connect to Hyperbridge at ${wsUrl}`)
 		}
-		return stream
+		return scanner
 	}
 
 	private get connectionOpen(): boolean {
 		return Boolean(this.connection)
 	}
 
-	subscribe(handlers: HyperbridgeStreamHandlers): Subscription {
+	subscribe(handlers: HyperbridgeScannerHandlers): Subscription {
 		const consumer = this.phantom.add(handlers.onPhantomOrder)
 		if (handlers.onError) this.errors.add(handlers.onError)
 

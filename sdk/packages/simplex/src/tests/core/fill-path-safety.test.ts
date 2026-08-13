@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
-import { stubOrderStream } from "../helpers/stub-stream"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
  * The fill path holds money. By the time `executeOrder` returns, a bid may
@@ -41,7 +41,7 @@ function build(result: Record<string, unknown>) {
 		{} as never,
 		{} as never,
 		{ account: { address: OUR_ADDRESS } } as never,
-		{ orders: stubOrderStream([1]) },
+		{ orders: stubOrderScanner([1]) },
 		undefined,
 		data.bids,
 	)

@@ -4,11 +4,11 @@ import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { ChainScanner } from "./chain-scanner"
 import { FanOut } from "./fan-out"
 import type {
-	OrderStream as OrderStreamContract,
-	OrderStreamHandlers,
+	OrderScanner as OrderScannerContract,
+	OrderScannerHandlers,
 	ScannedFill,
 	ScannedOrder,
-	StreamChainConfig,
+	ScannerChainConfig,
 	Subscription,
 } from "./types"
 
@@ -16,17 +16,17 @@ import type {
  * One scan loop per chain, feeding every filler you hand it to.
  *
  * ```ts
- * const orders = await OrderStream.create(config.chains)
- * const eu = await Simplex.start({ config: euConfig, orderStream: orders })
- * const apac = await Simplex.start({ config: apacConfig, orderStream: orders })
+ * const orders = await OrderScanner.create(config.chains)
+ * const eu = await Simplex.start({ config: euConfig, orderScanner: orders })
+ * const apac = await Simplex.start({ config: apacConfig, orderScanner: orders })
  * await orders.close()
  * ```
  *
  * You own it: the fillers you pass it to subscribe and unsubscribe, but none of
- * them closes it. A filler started without one builds a private stream from its
+ * them closes it. A filler started without one builds a private scanner from its
  * own config and closes it on `stop()`.
  */
-export class OrderStream implements OrderStreamContract {
+export class OrderScanner implements OrderScannerContract {
 	private readonly scanners = new Map<number, ChainScanner>()
 	private readonly orders = new FanOut<ScannedOrder>("orders")
 	private readonly fills = new FanOut<ScannedFill>("fills")
@@ -35,7 +35,7 @@ export class OrderStream implements OrderStreamContract {
 	private closed = false
 
 	private constructor(private readonly loggers: LoggerContext) {
-		this.logger = loggers.get("order-stream")
+		this.logger = loggers.get("order-scanner")
 	}
 
 	/**
@@ -50,18 +50,18 @@ export class OrderStream implements OrderStreamContract {
 	 *   resolve to the same chain.
 	 */
 	static async create(
-		chains: StreamChainConfig[],
+		chains: ScannerChainConfig[],
 		options: { loggers?: LoggerContext } = {},
-	): Promise<OrderStream> {
-		const stream = new OrderStream(options.loggers ?? defaultLoggerContext())
+	): Promise<OrderScanner> {
+		const scanner = new OrderScanner(options.loggers ?? defaultLoggerContext())
 		// Sequential: two entries resolving to the same chain must be caught, and the
 		// only network call is the chain-id probe for entries that omit it.
-		for (const chain of chains) await stream.addChain(chain)
-		return stream
+		for (const chain of chains) await scanner.addChain(chain)
+		return scanner
 	}
 
-	subscribe(handlers: OrderStreamHandlers): Subscription {
-		if (this.closed) throw new Error("This OrderStream is closed")
+	subscribe(handlers: OrderScannerHandlers): Subscription {
+		if (this.closed) throw new Error("This OrderScanner is closed")
 
 		const orderConsumer = this.orders.add(handlers.onOrder)
 		const fillConsumer = this.fills.add(handlers.onFill)
@@ -88,13 +88,13 @@ export class OrderStream implements OrderStreamContract {
 		return this.orders.size
 	}
 
-	async addChain(chain: StreamChainConfig): Promise<number> {
-		if (this.closed) throw new Error("This OrderStream is closed")
+	async addChain(chain: ScannerChainConfig): Promise<number> {
+		if (this.closed) throw new Error("This OrderScanner is closed")
 
 		const rpcUrls = validateRpcUrls(chain.rpcUrls)
 		const chainId = chain.chainId ?? (await fetchChainId(rpcUrls[0]))
 		if (this.scanners.has(chainId)) {
-			throw new Error(`Chain ${chainId} is already in this stream`)
+			throw new Error(`Chain ${chainId} is already in this scanner`)
 		}
 
 		const name = `EVM-${chainId}`
@@ -108,7 +108,7 @@ export class OrderStream implements OrderStreamContract {
 				try {
 					handler(error, chainId)
 				} catch {
-					// One subscriber's error handler must not break the stream for the rest.
+					// One subscriber's error handler must not break the scanner for the rest.
 				}
 			}
 		})
@@ -133,6 +133,6 @@ export class OrderStream implements OrderStreamContract {
 		await Promise.all([...this.scanners.values()].map((scanner) => scanner.stop()))
 		this.scanners.clear()
 		this.errors.clear()
-		this.logger.info("Order stream closed")
+		this.logger.info("Order scanner closed")
 	}
 }

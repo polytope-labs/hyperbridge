@@ -430,6 +430,14 @@ pub fn verify_non_existence_proof(
 			return Err(Error::SiblingNibbleMismatch);
 		}
 
+		// Bound the sibling path the same way the main path is bounded at entry. Without this
+		// the combined walk is only rejected once `verify_proof_walk` runs past the nibble
+		// range, so an oversized sibling path is paid for — a copy of the parent path plus the
+		// whole appended branch — before being thrown away.
+		if parent_nodes.len().saturating_add(sib.proof_path.len()) > MAX_PROOF_DEPTH {
+			return Err(Error::ProofTooDeep);
+		}
+
 		let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
 		combined.extend_from_slice(&sib.proof_path);
 
@@ -1018,6 +1026,73 @@ mod tests {
 		// past the end of the 32-byte key hash.
 		assert_eq!(nibble_at_depth(&full_hash, 64), None);
 		assert_eq!(nibble_at_depth(&full_hash, 65), None);
+	}
+
+	/// Regression: the main proof path is bounded on entry, but a sibling path was not, so an
+	/// oversized branch was copied and walked before `verify_proof_walk` rejected it for
+	/// running past the nibble range. The bound now applies to the combined path, and the
+	/// rejection happens before the copy.
+	#[test]
+	fn test_over_deep_sibling_path_rejected_before_walk() {
+		let query_key = b"missing_key";
+		let key_hash = sha256(query_key);
+		let msu_slot = *query_key.last().unwrap() as usize;
+		let queried_nibble = nibble_at_depth(&key_hash, 0).unwrap() as usize;
+		let sibling_slot = (queried_nibble + 1) % INTERNAL_NODE_SLOTS;
+		let query_last_byte = *query_key.last().unwrap();
+
+		let (sib_key, _) = (0u32..)
+			.map(|i| {
+				let mut k = b"sibling_".to_vec();
+				k.extend_from_slice(&i.to_le_bytes());
+				k.push(query_last_byte);
+				let h = sha256(&k);
+				(k, h)
+			})
+			.find(|(_, h)| nibble_at_depth(h, 0).unwrap() as usize == sibling_slot)
+			.unwrap();
+
+		let sib_leaf = make_leaf(&sib_key, b"v");
+		let sib_leaf_hash = sha256(&sib_leaf);
+
+		let mut anchor_data = vec![0u8; INTERNAL_NODE_LEN];
+		let s = INTERNAL_NODE_HEADER + sibling_slot * INTERNAL_NODE_SLOT_SIZE;
+		anchor_data[s..s + 32].copy_from_slice(&sib_leaf_hash);
+		let anchor_hash = hash_internal_node(&anchor_data);
+
+		let msu_root = make_msu_root_with_child(msu_slot, &anchor_hash);
+		let root = sha256(&msu_root);
+		let msu_offset = (msu_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let proof = vec![
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(anchor_data, 0, 0),
+			node(vec![0u8; INTERNAL_NODE_LEN], 0, 0),
+		];
+
+		// Control: the honest single-node sibling path still verifies.
+		let honest = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: sib_key.clone(),
+			proof_path: vec![node(sib_leaf.clone(), 0, 0)],
+		};
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[honest]).is_ok());
+
+		// The same sibling with filler prepended so the combined path exceeds the bound.
+		let mut padded: Vec<PharosProofNode> = (0..=MAX_PROOF_DEPTH)
+			.map(|_| node(vec![0u8; INTERNAL_NODE_LEN], 0, 0))
+			.collect();
+		padded.push(node(sib_leaf, 0, 0));
+
+		let oversized = SiblingLeftmostLeafProof {
+			slot_index: sibling_slot as u8,
+			leftmost_leaf_key: sib_key,
+			proof_path: padded,
+		};
+		assert!(matches!(
+			verify_non_existence_proof(&proof, query_key, &root, &[oversized]),
+			Err(Error::ProofTooDeep)
+		));
 	}
 
 	#[test]

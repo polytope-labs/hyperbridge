@@ -396,7 +396,6 @@ function makeFiller(pairs: TradingPair[]) {
 		...resolver,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
-		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const registry = new AssetRegistry(configService, {
 		CNGN: { [CHAIN]: CNGN },
@@ -523,7 +522,6 @@ describe("FXFiller pairs engine", () => {
 			getCNgnAsset: () => undefined,
 			getMaxOverfillBps: () => 500n,
 			getMaxConsecutiveClamps: () => 3,
-			getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 		} as any
 		const contractService = makeContractService()
 		// Extend the decimals mock for the 18-decimal deployment.
@@ -576,7 +574,6 @@ describe("FXFiller pairs engine", () => {
 			...resolver,
 			getMaxOverfillBps: () => 500n,
 			getMaxConsecutiveClamps: () => 3,
-			getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 		} as any
 		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
 		const signer = { account: { address: SOLVER } } as any
@@ -604,7 +601,7 @@ describe("FXFiller pairs engine", () => {
 		const build = (pairs: TradingPair[]) =>
 			new FXFiller(
 				signer,
-				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3, getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }) } as any,
+				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any,
 				{} as any,
 				makeContractService(),
 				pairs,
@@ -622,7 +619,7 @@ describe("FXFiller pairs engine", () => {
 		const registry = new AssetRegistry(resolver as any)
 		const signer = { account: { address: SOLVER } } as any
 		const build = (pair: TradingPair) =>
-			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3, getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }) } as any, {} as any, makeContractService(), [pair], registry)
+			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
 
 		expect(() =>
 			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.995"), bidPricePolicy: flat("0.995") }),
@@ -677,7 +674,6 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
-		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const signer = { account: { address: SOLVER } } as any
 	const usdcUsdc = (): TradingPair[] => [
@@ -728,7 +724,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
-		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const signer = { account: { address: SOLVER } } as any
 

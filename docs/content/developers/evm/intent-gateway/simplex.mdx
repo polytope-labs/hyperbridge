@@ -54,21 +54,15 @@ Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated
 
 ### Partial fills
 
-A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the full gas. The spread has to carry the whole cost on its own, so partial fills are gated harder than full ones:
+A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the gas. So a partial earns its spread net of gas, and that net is what the profitability score reports; an order scoring at or below zero is not bid on, same as any other.
 
-- Same-chain only. The cross-chain path reverts on any under-fill, so an oversized cross-chain order is still skipped.
-- Never for orders carrying output calldata: the attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
-- Never for an order another solver has already partially filled — its escrow is drawn down, and Simplex would misprice the remainder.
-- The slice must be at least `minFillBps` of the request (default 10%), and its realized spread must beat execution cost by `minProfitMultiple` (default 3x). The multiple also prices out spam: an attacker has to post three dollars of real edge to burn one of the solver's gas.
+Three cases are still skipped outright, because the fill would revert or be mispriced rather than merely be unprofitable:
 
-A pair priced from a venue, or one-sided, has no opposite curve to value the open side against, so no edge can be proven and its oversized orders are still skipped.
+- **Cross-chain.** That path reverts on any under-fill, so an oversized cross-chain order is skipped.
+- **Orders carrying output calldata.** The attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
+- **Orders another solver has already partially filled.** Their escrow is drawn down, so Simplex cannot price the remainder from the order alone.
 
-```toml lineNumbers
-[simplex.partialFills]
-enabled           = true
-minFillBps        = 1000   # fill at least 10% of the request, or skip
-minProfitMultiple = 3      # spread must beat gas by this much
-```
+A pair priced from a venue, or one-sided, has no opposite curve to value the open side against, so its spread cannot be measured and its oversized orders are skipped too.
 
 Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 

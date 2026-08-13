@@ -39,7 +39,6 @@ function makeFiller(priceGuard?: Record<string, { referencePrice: string; maxDev
 		getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
-		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 		getMaxConsecutiveClamps: () => 3,
 	} as any
 	const contractService = {} as any
@@ -107,7 +106,6 @@ describe("FXFiller price guard on confirmation sizing (referenceRate)", () => {
 			getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 			getCNgnAsset: () => undefined,
 			getMaxOverfillBps: () => 500n,
-			getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 			getMaxConsecutiveClamps: () => 3,
 		} as any
 		const signer = { account: { address: "0x3333333333333333333333333333333333333333" } } as any

@@ -149,8 +149,6 @@ export class FXFiller implements FillerStrategy {
 	private readonly maxOverfillBps: bigint
 	/** Consecutive clamped evaluations before halting. Sourced from filler config. */
 	private readonly maxConsecutiveClamps: number
-	/** When and how small an oversized order may be partially filled. */
-	private readonly partialFills: { enabled: boolean; minFillBps: number; minProfitMultiple: number }
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	/**
@@ -234,7 +232,6 @@ export class FXFiller implements FillerStrategy {
 
 		this.signer = signer
 		this.maxOverfillBps = configService.getMaxOverfillBps()
-		this.partialFills = configService.getPartialFillPolicy()
 		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
@@ -540,7 +537,6 @@ export class FXFiller implements FillerStrategy {
 			//    while the P&L below reads `order.inputs[i].amount` as if it were
 			//    intact. Refuse rather than mis-price it.
 			const partialEligible =
-				this.partialFills.enabled &&
 				sourceChain === destChain &&
 				(order.output.call ?? "0x").length <= 2 &&
 				!(await this.hasExistingPartialFill(order, destChain))
@@ -730,9 +726,7 @@ export class FXFiller implements FillerStrategy {
 				}
 
 				if (capLimited) {
-					const floorOutput =
-						(output.amount * BigInt(this.partialFills.minFillBps)) / 10_000n
-					if (!partialEligible || desiredOutput < floorOutput) {
+					if (!partialEligible) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -741,11 +735,9 @@ export class FXFiller implements FillerStrategy {
 								maxOrderSize: leg.pair.maxOrderSize.toString(),
 								desiredOutput: desiredOutput.toString(),
 								userRequested: output.amount.toString(),
-								floorOutput: floorOutput.toString(),
 								crossChain: sourceChain !== destChain,
-								reason: !partialEligible ? "not eligible for a partial fill" : "below the minimum fill fraction",
 							},
-							"Skipping order: maxOrderSize caps the leg and it cannot be partially filled",
+							"Skipping order: maxOrderSize caps the leg and this order cannot be partially filled",
 						)
 						return 0
 					}
@@ -906,32 +898,13 @@ export class FXFiller implements FillerStrategy {
 			const executionCostUsd = new Decimal(formatUnits(executionCost, feeTokenDecimals))
 			const partialEdgeUsd = sameTokenEdgeUsd.plus(fxMarginUsd)
 
-			if (partialFill) {
-				// GATE 1-P — the fee-less variant. A partial fill collects NO
-				// `order.fees`: the gateway releases those only to whoever completes
-				// the order (`_withdraw(..., finalize)` with `finalize = isFullyFilled`).
-				// So the spread has to carry the whole cost on its own, by a margin —
-				// which also prices out spam, since an attacker must post a real edge
-				// of `minProfitMultiple x` our gas to make us spend it.
-				const requiredUsd = executionCostUsd.mul(this.partialFills.minProfitMultiple)
-				if (partialEdgeUsd.lte(requiredUsd)) {
-					this.logger.info(
-						{
-							orderId: order.id,
-							edgeUsd: partialEdgeUsd.toString(),
-							executionCostUsd: executionCostUsd.toString(),
-							requiredUsd: requiredUsd.toString(),
-							minProfitMultiple: this.partialFills.minProfitMultiple,
-							// Zero on a venue-priced or one-sided pair: there is no opposite
-							// curve to mark the open side against, so no edge can be proven
-							// and the partial is refused by construction.
-							fxMarginUsd: fxMarginUsd.toString(),
-						},
-						"Skipping partial fill: spread does not cover execution cost by the required multiple",
-					)
-					return 0
-				}
-			} else if (order.fees < executionCost) {
+			// GATE 1 — full fills only. A partial collects NO `order.fees`: the gateway
+			// releases those to whoever completes the order (`_withdraw(..., finalize)`
+			// with `finalize = isFullyFilled`), so there is no fee revenue to test. What
+			// a partial earns instead is its spread net of gas, which is exactly what
+			// `totalProfit` reports below — and the caller already refuses anything that
+			// does not score above zero.
+			if (!partialFill && order.fees < executionCost) {
 				this.logger.info(
 					{
 						orderId: order.id,

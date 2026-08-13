@@ -126,14 +126,22 @@ pub struct ProverConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
 	pub query_batch_size: Option<u32>,
-	/// The `gnark-apk-proofs` prover binary, run once per proof. Only read by the `Apk` variant,
-	/// which cannot link the prover directly, see `apk_beefy::command`.
+	/// The `gnark-apk-proofs` prover binary. Only read by the `Apk` variant, which cannot link the
+	/// prover directly, see `apk_beefy::command`.
 	#[serde(default)]
 	pub apk_prover_binary: Option<std::path::PathBuf>,
-	/// Where the prover exchanges its input and proof files. Defaults to a directory beside the
-	/// binary when unset.
+	/// Where a one shot prover exchanges its input and proof files. Ignored when the prover is
+	/// kept alive, which is the default.
 	#[serde(default)]
 	pub apk_prover_dir: Option<std::path::PathBuf>,
+	/// Run the prover once per proof instead of keeping it alive. Costs the circuit setup, four
+	/// minutes, on every proof, so it is only worth it for a prover with no serve mode.
+	#[serde(default)]
+	pub apk_prover_one_shot: bool,
+	/// Where the circuit's structured reference string lives, passed to the prover. Left unset it
+	/// falls back to the prover's own default.
+	#[serde(default)]
+	pub apk_srs_dir: Option<std::path::PathBuf>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
@@ -683,12 +691,20 @@ where
 					.apk_prover_binary
 					.clone()
 					.ok_or_else(|| anyhow!("`apk_prover_binary` is required by the apk variant"))?;
-				let work_dir = config
-					.apk_prover_dir
-					.clone()
-					.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
-				let apk_prover = apk_beefy::CommandProver::new(binary, work_dir)?;
-				Prover::Apk(apk_beefy::Prover::new(prover, Arc::new(apk_prover)))
+				let apk_prover: Arc<dyn apk_beefy::ApkProver> = if config.apk_prover_one_shot {
+					let work_dir = config
+						.apk_prover_dir
+						.clone()
+						.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
+					Arc::new(apk_beefy::CommandProver::new(binary, work_dir)?)
+				} else {
+					// Setup runs here, before any proving, so the first proof is not four minutes
+					// slower than the rest.
+					Arc::new(
+						apk_beefy::ServiceProver::new(binary, config.apk_srs_dir.clone()).await?,
+					)
+				};
+				Prover::Apk(apk_beefy::Prover::new(prover, apk_prover))
 			},
 		};
 

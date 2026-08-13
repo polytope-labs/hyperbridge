@@ -228,7 +228,12 @@ async fn writes_initial_state_for_bootstrapping() {
 	// into the next set before it has ever seen a header digest, and a set with no commitment is
 	// refused rather than checked against zero. After this the digests take over.
 	let current = H256(prover.current_apk_commitment(latest).await.unwrap());
-	let next = H256(prover.next_apk_commitment(latest).await.unwrap());
+	// Leaving the next set empty is how forward chaining gets demonstrated: the client then has
+	// to learn that commitment from a header digest rather than being handed it here.
+	let next = match std::env::var("APK_SEED_NEXT").as_deref() {
+		Ok("0") => H256::zero(),
+		_ => H256(prover.next_apk_commitment(latest).await.unwrap()),
+	};
 	let state = ApkConsensusState {
 		latest_beefy_height: trusted.latest_beefy_height,
 		beefy_activation_block: trusted.beefy_activation_block,

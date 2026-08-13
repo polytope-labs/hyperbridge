@@ -43,6 +43,9 @@ use ismp_abi::bls_apk_beefy::BlsApkBeefy;
 mod command;
 pub use command::CommandProver;
 
+mod service;
+pub use service::ServiceProver;
+
 #[cfg(feature = "local")]
 mod local;
 #[cfg(feature = "local")]

@@ -43,7 +43,8 @@ export const POOL_TOKENS: Record<string, Record<string, { symbol: string; decima
 	"EVM-56": {
 		"0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": { symbol: "USDC", decimals: 18 },
 		"0x55d398326f99059ff775485246999027b3197955": { symbol: "USDT", decimals: 18 },
-		"0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3": { symbol: "DAI", decimals: 18 }
+		"0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3": { symbol: "DAI", decimals: 18 },
+		"0xa8aea66b361a8d53e8865c62d142167af28af058": { symbol: "cNGN", decimals: 6 }
 	},
 	"EVM-100": {
 		"0xe91d153e0b41518a2ce8dd3d7944fa863463a97d": { symbol: "DAI", decimals: 18 },

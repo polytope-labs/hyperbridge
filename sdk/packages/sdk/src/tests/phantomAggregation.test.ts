@@ -11,6 +11,7 @@ import {
 	splitBidSignature,
 	weightedMedian,
 	encodeAcceptedSourceChains,
+	AGGREGATION_ATTEMPTS,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
 	type FetchLike,
@@ -503,6 +504,150 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs[0].bidders.map((b) => b.solver.toLowerCase())).toEqual([backed])
 		expect(result!.legs[0].bidders.map((b) => b.weight)).toEqual([SOLVER_BALANCE])
 	})
+
+	// Production incident: a throttled destination-chain RPC answered eth_getCode with a body that
+	// had no `result`, the delegation check read that as "not a delegated solver", and the bid was
+	// dropped. The four legs only that solver quoted vanished and its pool reported zero depth
+	// against ~60M cNGN it actually held. An unreadable node must never look like a verdict.
+	it("gives up rather than dropping a bid whose delegation could not be read", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let getCodeCalls = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "eth_getCode") {
+				getCodeCalls += 1
+				// A throttle response: HTTP 200, valid JSON, no `result`.
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
+			}
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
+					: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		await expect(
+			aggregatePhantomBids({
+				nodeUrl: NODE_URL,
+				evmRpcUrls: { [CHAIN]: "http://base.test" },
+				chain: CHAIN,
+				gatewayAddress: GATEWAY,
+				commitment: COMMITMENT,
+				yieldVaults: { [CHAIN]: { [USDT]: [] } },
+				solverAccount: SOLVER_ACCOUNT,
+			}),
+		).rejects.toThrow()
+		// Every attempt re-read; the failure was never cached as a verdict.
+		expect(getCodeCalls).toBeGreaterThanOrEqual(AGGREGATION_ATTEMPTS)
+	}, 30_000)
+
+	// The dedupe that collapses one solver's bid across N fillers runs AFTER verification, so
+	// without a cache every copy re-asked the chain the same question — and every retry re-asked
+	// it for every solver, hammering the endpoint most likely to be throttled.
+	it("reads a solver's delegation once per aggregation, not once per duplicate bid", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let getCodeCalls = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "eth_getCode") getCodeCalls += 1
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [userOp, userOp, userOp].map((op) => ({
+							commitment: COMMITMENT,
+							filler: `0x${"ab".repeat(32)}`,
+							user_op: encodeUserOpScale(op),
+						}))
+					: payload.method === "eth_getCode"
+						? delegatedTo(SOLVER_ACCOUNT)()
+						: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+		})
+
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(getCodeCalls).toBe(1)
+	})
+
+	it("does not re-read a verified solver's delegation when a retry is forced elsewhere", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let getCodeCalls = 0
+		let runs = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "intents_getBidsForOrder") runs += 1
+			if (payload.method === "eth_getCode") getCodeCalls += 1
+			// The first run dies on a balance read, long after delegation was settled.
+			if (payload.method === "eth_call" && runs < 2) {
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
+			}
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
+					: payload.method === "eth_getCode"
+						? delegatedTo(SOLVER_ACCOUNT)()
+						: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+		})
+
+		expect(runs).toBeGreaterThan(1)
+		expect(result!.legs[0].bidders[0].weight).toBe(SOLVER_BALANCE)
+		// Verified on the first run and still trusted on the second.
+		expect(getCodeCalls).toBe(1)
+	}, 30_000)
+
+	it("retries the whole run and succeeds once the RPC recovers", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let attempts = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "intents_getBidsForOrder") attempts += 1
+			// First run's balance reads fail outright; later runs are healthy.
+			if (payload.method === "eth_call" && attempts < 2) {
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
+			}
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
+					: payload.method === "eth_getCode"
+						? delegatedTo(SOLVER_ACCOUNT)()
+						: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+			// A shared memo must not carry the first run's failure into the retry.
+			getBalance: memoizedSolverBalance({ [CHAIN]: { [USDT]: [] } }),
+		})
+
+		expect(attempts).toBeGreaterThan(1)
+		expect(result!.legs[0].bidders[0].weight).toBe(SOLVER_BALANCE)
+	}, 30_000)
 
 	// One bundled order per configured chain means several aggregations run against the same
 	// block; a caller-supplied reader lets them share one point-in-time balance cache.

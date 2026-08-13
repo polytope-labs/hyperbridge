@@ -39,10 +39,27 @@ function rpcFetch(): FetchLike {
 	return f
 }
 
+/**
+ * An RPC read the aggregation depends on could not be completed. Distinct from a bid being
+ * rejected: a rejected bid is a fact about the bid, this is the absence of a fact. The two must
+ * never be conflated — treating an unreachable node as "not delegated" or as "holds nothing"
+ * silently drops a real solver from the snapshot, which then publishes a price and a depth
+ * computed from whoever happened to answer.
+ */
+export class PhantomRpcError extends Error {
+	constructor(
+		message: string,
+		readonly cause?: unknown,
+	) {
+		super(message)
+		this.name = "PhantomRpcError"
+	}
+}
+
 // POSTs a JSON-RPC payload and returns the parsed response, retrying with a short backoff. The node
 // intermittently returns an empty body under concurrent load (a 200 with no payload), which makes
 // response.json() throw; without a retry a single blip would silently drop a bid's quote or a whole
-// window (fetchBids throws). Throws if every attempt fails.
+// window (fetchBids throws). Throws PhantomRpcError if every attempt fails.
 async function rpcCall(url: string, payload: object): Promise<any> {
 	let lastErr: unknown
 	for (let attempt = 0; attempt < 4; attempt++) {
@@ -63,14 +80,21 @@ async function rpcCall(url: string, payload: object): Promise<any> {
 				}),
 				timeout,
 			])
-			return await response.json()
+			const body = await response.json()
+			// A JSON-RPC error body is a failed read, not an answer. Rate limiting arrives this way,
+			// so letting it through as `undefined` is what turns throttling into fabricated data.
+			if (body?.error) {
+				lastErr = new Error(`rpc error: ${JSON.stringify(body.error).slice(0, 200)}`)
+				continue
+			}
+			return body
 		} catch (err) {
 			lastErr = err
 		} finally {
 			if (timer) clearTimeout(timer)
 		}
 	}
-	throw lastErr
+	throw new PhantomRpcError(`RPC call failed after 4 attempts: ${url}`, lastErr)
 }
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
@@ -376,10 +400,49 @@ async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, so
 		method: "eth_getCode",
 		params: [account, "latest"],
 	})
-	const code = typeof response.result === "string" ? response.result.toLowerCase() : ""
+	// Anything that is not a code string means the node did not answer the question. Reading that
+	// as "no delegation" is how a throttled endpoint silently unseats a real solver: the bid is
+	// dropped, the legs only it quoted vanish, and the pool reports zero depth it actually has.
+	if (typeof response.result !== "string") {
+		throw new PhantomRpcError(`eth_getCode returned no code for ${account} on ${evmRpcUrl}`)
+	}
+
+	const code = response.result.toLowerCase()
 	if (!code.startsWith(DELEGATION_INDICATOR_PREFIX)) return false
 
 	return `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}` === solverAccount.toLowerCase()
+}
+
+/** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
+type DelegationReader = (evmRpcUrl: string, account: string, solverAccount: string) => Promise<boolean>
+
+/**
+ * Caches the delegation check for the life of one aggregation, retries included.
+ *
+ * Two reads are otherwise repeated for nothing. A solver running several fillers has its bid
+ * copied under each, and the dedupe that collapses them runs only AFTER verification, so every
+ * copy re-interrogated the chain for the same answer. And a retry re-verifies every solver, even
+ * when the run was abandoned over an unrelated read — so the endpoint most likely to be throttled
+ * got up to five times the load from the very code meant to survive it.
+ *
+ * Rejections are evicted, so a retry re-reads rather than replaying a failure as a verdict. A
+ * negative result is cached: an EOA cannot gain a delegation part-way through one bid window, and
+ * "not our solver" is an answer, unlike an unreachable node.
+ */
+function memoizedDelegationCheck(): DelegationReader {
+	const cache = new Map<string, Promise<boolean>>()
+	return (evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> => {
+		const key = `${evmRpcUrl}|${account.toLowerCase()}|${solverAccount.toLowerCase()}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccount).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
 }
 
 /** Chain id out of an EVM state machine id ("EVM-8453" -> 8453n); null for any other format. */
@@ -407,10 +470,22 @@ async function isVerifiedSolverBid(params: {
 	evmRpcUrl: string
 	recoverSigner: RecoverBidSigner
 	bidNonceKey: BidNonceKeyFn
+	/** Cached per aggregation, so duplicate fillers and retries do not re-read the same answer. */
+	isDelegated: DelegationReader
 	logger?: AggregationLogger
 }): Promise<boolean> {
-	const { userOp, commitment, sessionKey, chainId, solverAccount, evmRpcUrl, recoverSigner, bidNonceKey, logger } =
-		params
+	const {
+		userOp,
+		commitment,
+		sessionKey,
+		chainId,
+		solverAccount,
+		evmRpcUrl,
+		recoverSigner,
+		bidNonceKey,
+		isDelegated,
+		logger,
+	} = params
 	const solver = userOp.sender
 
 	const parsed = splitBidSignature(userOp.signature)
@@ -446,7 +521,7 @@ async function isVerifiedSolverBid(params: {
 		return false
 	}
 
-	if (!(await isDelegatedToSolverAccount(evmRpcUrl, solver, solverAccount))) {
+	if (!(await isDelegated(evmRpcUrl, solver, solverAccount))) {
 		logger?.warn({ solver, commitment, solverAccount }, "Rejecting phantom bid: sender is not a delegated solver")
 		return false
 	}
@@ -464,19 +539,22 @@ export async function fetchBidsForOrder(nodeUrl: string, commitment: string): Pr
 	return Array.isArray(data.result) ? (data.result as RpcBidInfo[]) : []
 }
 
+// A balance read that fails is NOT a balance of zero. Zero weight now removes a leg from the
+// snapshot entirely, so swallowing the failure would delete real liquidity on an RPC blip and
+// leave a pool reporting depth it has. Only "0x" — the call reverted or there is no code at the
+// address, i.e. the node did answer — is a genuine zero; everything else propagates.
 async function ethCallUint(evmRpcUrl: string, to: string, data: string): Promise<bigint> {
-	try {
-		const result = await rpcCall(evmRpcUrl, {
-			id: 1,
-			jsonrpc: "2.0",
-			method: "eth_call",
-			params: [{ to, data }, "latest"],
-		})
-		if (result.error || !result.result || result.result === "0x") return 0n
-		return BigInt(result.result)
-	} catch {
-		return 0n
+	const result = await rpcCall(evmRpcUrl, {
+		id: 1,
+		jsonrpc: "2.0",
+		method: "eth_call",
+		params: [{ to, data }, "latest"],
+	})
+	if (result.result === "0x") return 0n
+	if (typeof result.result !== "string") {
+		throw new PhantomRpcError(`eth_call returned no result for ${to} on ${evmRpcUrl}`)
 	}
+	return BigInt(result.result)
 }
 
 // Sums the solver's redeemable balance of a single token on its destination chain: the raw ERC-20
@@ -498,12 +576,7 @@ async function getTotalSolverBalance(
 }
 
 /** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
-export type SolverBalanceReader = (
-	evmRpcUrl: string,
-	chain: string,
-	token: string,
-	solver: string,
-) => Promise<bigint>
+export type SolverBalanceReader = (evmRpcUrl: string, chain: string, token: string, solver: string) => Promise<bigint>
 
 // One aggregation run reads the same (chain, token, solver) balance from several places — once
 // per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
@@ -518,7 +591,13 @@ export function memoizedSolverBalance(yieldVaults: YieldVaultMap): SolverBalance
 		const key = `${chain}|${token.toLowerCase()}|${solver.toLowerCase()}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults)
+			// Evict on rejection. Caching a failure would make it permanent for the memo's lifetime —
+			// every retry would replay the same failed read, and a block-scoped memo would carry one
+			// blip across every order closing on that block.
+			pending = getTotalSolverBalance(evmRpcUrl, chain, token, solver, yieldVaults).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
 			cache.set(key, pending)
 		}
 		return pending
@@ -572,29 +651,63 @@ function toAddress(token: string): HexString {
  * `extractFill` decodes a bid's ERC-7821 calldata into the fill's order/output and `recoverSigner`
  * recovers its solver signature; both default to the viem implementations, but the indexer injects
  * VM2-safe variants (viem's keccak throws in the SubQuery sandbox).
+ *
+ * The whole run is retried up to {@link AGGREGATION_ATTEMPTS} times on any error, because every
+ * error that escapes the per-bid handling means some input could not be read, and a snapshot
+ * computed from a partial bid set is worse than none: it publishes a confident price and zeroes
+ * depth that exists. Throws if every attempt fails, leaving the window unsnapshotted — consumers
+ * see the previous rate with a stale lastUpdatedBlock, which is a state they can already detect.
  */
-export async function aggregatePhantomBids(params: {
-	nodeUrl: string
-	/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
-	evmRpcUrls: Record<string, string>
-	chain: string
-	gatewayAddress: string
-	commitment: string
-	yieldVaults: YieldVaultMap
-	/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
-	solverAccount: string
-	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
-	recoverSigner?: RecoverBidSigner
-	bidNonceKey?: BidNonceKeyFn
-	orderCommitment?: OrderCommitmentFn
-	/**
-	 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
-	 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
-	 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
-	 */
-	getBalance?: SolverBalanceReader
-	logger?: AggregationLogger
-}): Promise<PhantomAggregation | null> {
+export async function aggregatePhantomBids(
+	params: Parameters<typeof runAggregation>[0],
+): Promise<PhantomAggregation | null> {
+	// Built out here, not per attempt: delegation cannot change within a bid window, so a retry
+	// forced by one unrelated failed read must not re-interrogate every solver it already verified.
+	const isDelegated = memoizedDelegationCheck()
+	let lastErr: unknown
+	for (let attempt = 1; attempt <= AGGREGATION_ATTEMPTS; attempt++) {
+		try {
+			return await runAggregation(params, isDelegated)
+		} catch (err) {
+			lastErr = err
+			params.logger?.warn(
+				{ err, commitment: params.commitment, chain: params.chain, attempt, of: AGGREGATION_ATTEMPTS },
+				"Phantom aggregation attempt failed",
+			)
+			if (attempt < AGGREGATION_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
+		}
+	}
+	throw lastErr
+}
+
+/** How many times a failed aggregation run is retried before the window is given up on. */
+export const AGGREGATION_ATTEMPTS = 5
+
+async function runAggregation(
+	params: {
+		nodeUrl: string
+		/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
+		evmRpcUrls: Record<string, string>
+		chain: string
+		gatewayAddress: string
+		commitment: string
+		yieldVaults: YieldVaultMap
+		/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
+		solverAccount: string
+		extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
+		recoverSigner?: RecoverBidSigner
+		bidNonceKey?: BidNonceKeyFn
+		orderCommitment?: OrderCommitmentFn
+		/**
+		 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
+		 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
+		 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
+		 */
+		getBalance?: SolverBalanceReader
+		logger?: AggregationLogger
+	},
+	isDelegated: DelegationReader,
+): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
 	const extractFill = params.extractFill ?? extractFillData
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
@@ -667,6 +780,7 @@ export async function aggregatePhantomBids(params: {
 				evmRpcUrl: destUrl,
 				recoverSigner,
 				bidNonceKey,
+				isDelegated,
 				logger,
 			})
 			if (!verified) continue
@@ -703,6 +817,10 @@ export async function aggregatePhantomBids(params: {
 			// bid rather than per leg, since it measures the solver's whole inventory either way.
 			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance)))
 		} catch (err) {
+			// A malformed bid is this bid's problem — skip it and price the rest. An unreachable RPC
+			// is the snapshot's problem: continuing would silently price the order from whichever
+			// bids happened to be readable, so abandon the run and let the retry above re-read.
+			if (err instanceof PhantomRpcError) throw err
 			logger?.warn({ err, filler: bid.filler }, "Failed to process bid for price snapshot")
 		}
 	}

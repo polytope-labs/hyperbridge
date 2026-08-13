@@ -106,6 +106,12 @@ describe("AssetRegistry", () => {
 		expect(registry.getAddress("USDR", "EVM-1")).toBe("0x9623DfB044D5612Ce0c0F1606973CCAEFd03CD05")
 		expect(registry.getAddress("USDR", "EVM-8453")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
 		expect(registry.getAddress("usdr", "EVM-137")).toBe("0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c")
+		expect(registry.getAddress("CNGN", "EVM-56")).toBe("0xa8AEA66B361a8d53e8865c62D142167Af28Af058")
+		// cNGN on BNB Chain is 6-decimal while the Binance-pegged stables beside it are 18. Every
+		// rate divides by this, so pin it: inheriting 18 from its neighbours would silently scale
+		// every cNGN quote on that chain by 1e12.
+		expect(sdk.getCNgnDecimals("EVM-56")).toBe(6)
+		expect(sdk.getUsdcDecimals("EVM-56")).toBe(18)
 		// Not deployed there → absent, not an error.
 		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
 		expect(registry.getAddress("USDR", "EVM-42161")).toBeNull()

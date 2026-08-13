@@ -62,7 +62,7 @@ Three cases are still skipped outright, because the fill would revert or be misp
 - **Orders carrying output calldata.** The attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
 - **Orders another solver has already partially filled.** Their escrow is drawn down, so Simplex cannot price the remainder from the order alone.
 
-A pair priced from a venue, or one-sided, has no opposite curve to value the open side against, so its spread cannot be measured and its oversized orders are skipped too.
+A pair priced from a venue, or one-sided, has no opposite curve to value the open side against. Those legs are valued against the solver's own quote instead: the difference between what its curve was willing to pay out and what the order actually asked for is surplus it keeps, so they partially fill on the same terms as any other pair. An order priced exactly at the solver's curve leaves no surplus, and is skipped once gas is counted.
 
 Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 

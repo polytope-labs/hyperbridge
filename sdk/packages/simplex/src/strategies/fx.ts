@@ -548,6 +548,15 @@ export class FXFiller implements FillerStrategy {
 			// *surviving* leg, not the k-th leg. The valuation pass below realigns to the
 			// original input/leg via this array rather than by position.
 			const fillerOutputLegs: number[] = []
+			/**
+			 * What our own curve was willing to pay out for each leg's allocation.
+			 *
+			 * A one-sided or venue-priced pair has no opposite curve to mark the open
+			 * side against, so `fxMarginUsd` skips it entirely. Our quote is still a
+			 * real reference though: handing over less than we were willing to is
+			 * surplus we keep, and it is measurable for every leg type.
+			 */
+			const policyOutputByLeg = new Map<number, bigint>()
 			// Rate context per original leg index, captured during the leg loop so the
 			// margin pass below prices with the same numbers.
 			const legRatesByIndex = new Map<number, LegRates>()
@@ -765,6 +774,7 @@ export class FXFiller implements FillerStrategy {
 				const walletRemaining = balance - walletContribution
 				balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
+				policyOutputByLeg.set(i, policyMaxOutput)
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
 				fillerOutputLegs.push(i)
 			}
@@ -806,6 +816,8 @@ export class FXFiller implements FillerStrategy {
 			// while it only ranks orders and GATE 2 checks the sign — but a fee-less
 			// partial fill has to compare an edge against gas, so it needs real dollars.
 			let sameTokenEdgeUsd = new Decimal(0)
+			/** Surplus over our own quote, for legs with no opposite curve to mark against. */
+			let curveSurplusUsd = new Decimal(0)
 			let fxMarginUsd = new Decimal(0)
 			let hasSameTokenSpread = false
 			let sameTokenAllProfitable = true
@@ -858,7 +870,25 @@ export class FXFiller implements FillerStrategy {
 				}
 
 				const rates = legRatesByIndex.get(legIndex)
-				if (!rates?.oppositeRate) continue
+				if (!rates?.oppositeRate) {
+					// One-sided or venue-priced: no opposite curve exists, so the
+					// round-trip mark `fxMarginUsd` uses is undefined. Fall back to the
+					// surplus over our own quote — we were willing to pay
+					// `policyMaxOutput` and paid `output.amount`, and the difference is
+					// ours. Measured against the order's rate rather than a second
+					// curve, so it works wherever a curve exists at all.
+					const quoted = policyOutputByLeg.get(legIndex)
+					if (quoted !== undefined && quoted > output.amount) {
+						const outputSymbol = leg.inputIsToken0 ? leg.pair.token1 : leg.pair.token0
+						const outputUsdFactor = usdFactorBySymbol.get(normalizeSymbol(outputSymbol))
+						if (outputUsdFactor) {
+							curveSurplusUsd = curveSurplusUsd.plus(
+								new Decimal(formatUnits(quoted - output.amount, outputDecimals)).mul(outputUsdFactor),
+							)
+						}
+					}
+					continue
+				}
 
 				const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 				const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
@@ -896,7 +926,9 @@ export class FXFiller implements FillerStrategy {
 			// magnitudes are read as dollars here — the same assumption `totalProfit`
 			// has always made for the fee surplus.
 			const executionCostUsd = new Decimal(formatUnits(executionCost, feeTokenDecimals))
-			const partialEdgeUsd = sameTokenEdgeUsd.plus(fxMarginUsd)
+			// Never double-counted: `fxMarginUsd` covers legs that have an opposite
+			// curve, `curveSurplusUsd` covers exactly the legs that do not.
+			const partialEdgeUsd = sameTokenEdgeUsd.plus(fxMarginUsd).plus(curveSurplusUsd)
 
 			// GATE 1 — full fills only. A partial collects NO `order.fees`: the gateway
 			// releases those to whoever completes the order (`_withdraw(..., finalize)`

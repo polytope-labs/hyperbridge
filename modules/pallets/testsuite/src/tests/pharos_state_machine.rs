@@ -236,8 +236,21 @@ async fn test_pharos_multiple_storage_proofs() {
 	println!("Storage proof [epochLength] verification: PASSED");
 }
 
+// Disabled: the RPC is returning incomplete sibling proofs.
+//
+// `sibling_leftmost_leaf_proofs` comes back empty while the anchor the verifier selects still
+// has non-empty sibling slots, so `verify_non_existence_proof` rejects with
+// `SiblingCountMismatch` before any of the assertions below are reached. The count check is
+// what enforces that every non-empty slot beside the queried one is pinned to the root, so it
+// cannot simply be relaxed — an unpinned slot is what lets a genuinely present key be passed
+// off as absent.
+//
+// The failure is in what the node supplies, not in the proof format: the all-zero terminal
+// assertion above still holds. Re-enable once the node emits a sibling proof per non-empty
+// anchor slot, or once the anchor the verifier settles on is reconciled with the one the node
+// is pinning against.
 #[tokio::test]
-#[ignore]
+#[ignore = "Pharos RPC returns incomplete sibling proofs; verification fails with SiblingCountMismatch"]
 async fn test_pharos_non_existence_account_proof() {
 	let rpc_url =
 		std::env::var("PHAROS_ATLANTIC_RPC").expect("PHAROS_ATLANTIC_RPC env variable must be set");
@@ -287,8 +300,11 @@ async fn test_pharos_non_existence_account_proof() {
 	println!("Membership returns None as expected: PASSED");
 }
 
+// Disabled for the same reason as the account-proof test above: the RPC returns no sibling
+// proofs for a storage slot whose anchor still has non-empty sibling slots, so verification
+// stops at `SiblingCountMismatch`.
 #[tokio::test]
-#[ignore]
+#[ignore = "Pharos RPC returns incomplete sibling proofs; verification fails with SiblingCountMismatch"]
 async fn test_pharos_non_existence_storage_proof() {
 	let rpc_url =
 		std::env::var("PHAROS_ATLANTIC_RPC").expect("PHAROS_ATLANTIC_RPC env variable must be set");

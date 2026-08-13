@@ -291,6 +291,18 @@ export class ConfirmationPolicy {
 	}
 
 	/**
+	 * Copies one chain's curve across from another policy set.
+	 *
+	 * Used when a chain is added at runtime and covered by a built-in default: the
+	 * defaults are only materialised inside a freshly constructed policy, so the
+	 * live one adopts the entry rather than re-deriving it.
+	 */
+	adopt(chainId: number, from: ConfirmationPolicy): void {
+		const curve = from.policies.get(chainId)
+		if (curve) this.policies.set(chainId, curve)
+	}
+
+	/**
 	 * Startup guard: every configured chain must have a confirmation curve.
 	 * Without this, a missing policy only surfaces as a per-order throw at
 	 * fill time — cross-chain orders sourced on that chain silently dropped.

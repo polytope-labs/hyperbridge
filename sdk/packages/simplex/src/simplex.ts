@@ -324,12 +324,33 @@ export class PairController {
 
 /** The chain set of the running filler. */
 export class ChainController {
+	/**
+	 * Serialises mutations.
+	 *
+	 * Every method here awaits an RPC probe partway through, and `resolvedChains`
+	 * is index-aligned with `config.chains`. Two overlapping calls would splice
+	 * against indexes the other had already shifted, silently pairing a chain with
+	 * another's endpoints.
+	 */
+	private queue = Promise.resolve()
+
 	constructor(
 		private runtime: FillerRuntime,
 		private persist: () => void | Promise<void>,
 		/** Set only when this filler built its own stream and may therefore edit it. */
 		private ownedStream?: OrderStream,
 	) {}
+
+	private serialise<T>(work: () => Promise<T>): Promise<T> {
+		const result = this.queue.then(work, work)
+		// Keep the chain alive past a rejection so one failed edit does not wedge
+		// every later one.
+		this.queue = result.then(
+			() => undefined,
+			() => undefined,
+		)
+		return result
+	}
 
 	list(): ChainView[] {
 		return this.runtime.resolvedChains.map((chain) => ({
@@ -350,54 +371,72 @@ export class ChainController {
 	 * chain scanning without a curve drops every cross-chain order sourced on it.
 	 */
 	async add(chain: ChainInput): Promise<ChainView> {
-		validateRpcUrls(chain.rpcUrls)
-		if (!chain.bundlerUrl?.trim()) {
-			throw new Error("A bundler URL is required to submit fill UserOperations")
-		}
+		return this.serialise(async () => {
+			validateRpcUrls(chain.rpcUrls)
+			if (!chain.bundlerUrl?.trim()) {
+				throw new Error("A bundler URL is required to submit fill UserOperations")
+			}
 
-		const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }])
-		const { chainId } = resolved
-		const { configService, config, intentFiller } = this.runtime
+			const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }])
+			const { chainId } = resolved
+			const { configService, config, intentFiller } = this.runtime
 
-		if (configService.getConfiguredChainIds().includes(chainId)) {
-			throw new Error(`Chain ${chainId} is already configured`)
-		}
+			if (configService.getConfiguredChainIds().includes(chainId)) {
+				throw new Error(`Chain ${chainId} is already configured`)
+			}
 
-		const confirmationPolicies = { ...(config.confirmationPolicies ?? {}) }
-		if (chain.confirmationPolicy) confirmationPolicies[String(chainId)] = chain.confirmationPolicy
-		// Throws when the chain has neither a built-in default nor a supplied curve.
-		assertConfirmationCoverage(confirmationPolicies, [...configService.getConfiguredChainIds(), chainId])
+			const confirmationPolicies = { ...(config.confirmationPolicies ?? {}) }
+			if (chain.confirmationPolicy) confirmationPolicies[String(chainId)] = chain.confirmationPolicy
+			// Throws when the chain has neither a built-in default nor a supplied curve,
+			// and hands back the resolved set so the curve can be installed live below.
+			const resolvedPolicy = assertConfirmationCoverage(confirmationPolicies, [
+				...configService.getConfiguredChainIds(),
+				chainId,
+			])
 
-		configService.addChain(resolved)
-		if (chain.watchOnly) intentFiller.setWatchOnly(chainId, true)
+			configService.addChain(resolved)
+			// A filler the operator put in watch-only must not start filling on a chain
+			// added later. `chain.watchOnly` still wins when given explicitly.
+			if (chain.watchOnly ?? this.runtime.globalWatchOnly) intentFiller.setWatchOnly(chainId, true)
 
-		// The stream has to carry the chain before the monitor can match it. A
-		// caller's stream is theirs, so say so rather than mutating it.
-		if (!this.ownedStream) {
-			throw new Error(
-				`Chain ${chainId} is not in the order stream. This filler was started with a stream you own — ` +
-					`add the chain to it with stream.addChain(...) before adding it here.`,
-			)
-		}
-		await this.ownedStream.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
+			// The stream has to carry the chain before the monitor can match it. A
+			// caller's stream is theirs, so say so rather than mutating it.
+			if (!this.ownedStream) {
+				throw new Error(
+					`Chain ${chainId} is not in the order stream. This filler was started with a stream you own — ` +
+						`add the chain to it with stream.addChain(...) before adding it here.`,
+				)
+			}
+			await this.ownedStream.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
 
-		try {
-			await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
-		} catch (error) {
-			// Roll back so a failed add cannot leave a chain that reads as
-			// configured but is not being scanned.
-			configService.removeChain(chainId)
-			await this.ownedStream.removeChain(chainId).catch(() => {})
-			throw error
-		}
+			try {
+				await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
+			} catch (error) {
+				// Roll back so a failed add cannot leave a chain that reads as
+				// configured but is not being scanned.
+				configService.removeChain(chainId)
+				await this.ownedStream.removeChain(chainId).catch(() => {})
+				throw error
+			}
 
-		this.runtime.resolvedChains.push(resolved)
-		config.chains = [...config.chains, { rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }]
-		if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
-		this.syncWatchOnlyToConfig()
+			// Without this the engine has no curve for the chain and every cross-chain
+			// order sourced on it throws per order and is swallowed as a generic error.
+			const curve = confirmationPolicies[String(chainId)]
+			if (curve) this.runtime.confirmationPolicy?.add(chainId, curve)
+			else if (!this.runtime.confirmationPolicy?.has(chainId)) {
+				// assertConfirmationCoverage passed, so a built-in default covers this
+				// chain; copy it across from the set it just resolved.
+				this.runtime.confirmationPolicy?.adopt(chainId, resolvedPolicy)
+			}
 
-		await this.persist()
-		return this.list().find((row) => row.chainId === chainId)!
+			this.runtime.resolvedChains.push(resolved)
+			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }]
+			if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
+			this.syncWatchOnlyToConfig()
+
+			await this.persist()
+			return this.list().find((row) => row.chainId === chainId)!
+		})
 	}
 
 	/**
@@ -407,28 +446,31 @@ export class ChainController {
 	 * hydrate per chain at boot, and one left behind would fail the next start.
 	 */
 	async remove(chainId: number): Promise<void> {
-		const { config, configService, intentFiller } = this.runtime
-		const chainKey = formatChainKey(chainId)
+		return this.serialise(async () => {
+			const { config, configService, intentFiller } = this.runtime
+			const chainKey = formatChainKey(chainId)
 
-		if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
-			throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
-		}
-		if (config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
-			throw new Error(`${chainKey} still holds a Uniswap V4 position — remove it first`)
-		}
+			if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
+				throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
+			}
+			if (config.vault?.uniswapV4?.positions?.some((position) => position.chain === chainKey)) {
+				throw new Error(`${chainKey} still holds a Uniswap V4 position — remove it first`)
+			}
 
-		const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
-		if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
+			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
+			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
 
-		await intentFiller.removeChain(chainId)
-		await this.ownedStream?.removeChain(chainId)
-		configService.removeChain(chainId)
-		this.runtime.chainClientManager.invalidate(chainKey)
-		this.runtime.resolvedChains.splice(index, 1)
-		config.chains = config.chains.filter((_, i) => i !== index)
-		this.syncWatchOnlyToConfig()
+			await intentFiller.removeChain(chainId)
+			await this.ownedStream?.removeChain(chainId)
+			configService.removeChain(chainId)
+			this.runtime.confirmationPolicy?.remove(chainId)
+			this.runtime.chainClientManager.invalidate(chainKey)
+			this.runtime.resolvedChains.splice(index, 1)
+			config.chains = config.chains.filter((_, i) => i !== index)
+			this.syncWatchOnlyToConfig()
 
-		await this.persist()
+			await this.persist()
+		})
 	}
 
 	/**
@@ -439,60 +481,68 @@ export class ChainController {
 	 * leaves no gap in the scanned block range.
 	 */
 	async setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void> {
-		validateRpcUrls(rpcUrls)
-		const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
-		if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
+		return this.serialise(async () => {
+			validateRpcUrls(rpcUrls)
+			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
+			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
 
-		// Probe before mutating: an endpoint answering for another chain would
-		// otherwise silently feed this scanner the wrong chain's logs.
-		const [probed] = await resolveChainConfigs([
-			{ rpcUrls, bundlerUrl: this.runtime.resolvedChains[index].bundlerUrl ?? "" },
-		])
-		if (probed.chainId !== chainId) {
-			throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
-		}
+			// Probe before mutating: an endpoint answering for another chain would
+			// otherwise silently feed this scanner the wrong chain's logs.
+			const [probed] = await resolveChainConfigs([
+				{ rpcUrls, bundlerUrl: this.runtime.resolvedChains[index].bundlerUrl ?? "" },
+			])
+			if (probed.chainId !== chainId) {
+				throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
+			}
 
-		if (!this.ownedStream) {
-			throw new Error(
-				`Endpoints for chain ${chainId} belong to the order stream you supplied — change them there, ` +
-					`so the other fillers reading it are not repointed underneath them.`,
-			)
-		}
+			if (!this.ownedStream) {
+				throw new Error(
+					`Endpoints for chain ${chainId} belong to the order stream you supplied — change them there, ` +
+						`so the other fillers reading it are not repointed underneath them.`,
+				)
+			}
 
-		const chainKey = formatChainKey(chainId)
-		this.runtime.configService.setRpcUrls(chainId, rpcUrls)
-		this.runtime.chainClientManager.invalidate(chainKey)
-		// Rebuild the scan loop on the new endpoints, then the monitor's view of it.
-		await this.ownedStream.removeChain(chainId)
-		await this.ownedStream.addChain({ rpcUrls, chainId })
-		await this.runtime.intentFiller.monitor.rebuildChain(chainId)
+			const chainKey = formatChainKey(chainId)
+			this.runtime.configService.setRpcUrls(chainId, rpcUrls)
+			this.runtime.chainClientManager.invalidate(chainKey)
+			// Rebuild the scan loop on the new endpoints, then the monitor's view of it.
+			await this.ownedStream.removeChain(chainId)
+			await this.ownedStream.addChain({ rpcUrls, chainId })
+			await this.runtime.intentFiller.monitor.rebuildChain(chainId)
 
-		this.runtime.resolvedChains[index].rpcUrls = rpcUrls
-		this.runtime.config.chains[index].rpcUrls = rpcUrls
-		await this.persist()
+			this.runtime.resolvedChains[index].rpcUrls = rpcUrls
+			this.runtime.config.chains[index].rpcUrls = rpcUrls
+			await this.persist()
+		})
 	}
 
 	async setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void> {
-		if (!bundlerUrl?.trim()) throw new Error("A bundler URL is required")
-		const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
-		if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
+		return this.serialise(async () => {
+			if (!bundlerUrl?.trim()) throw new Error("A bundler URL is required")
+			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
+			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
 
-		this.runtime.configService.setBundlerUrl(chainId, bundlerUrl)
-		this.runtime.resolvedChains[index].bundlerUrl = bundlerUrl
-		this.runtime.config.chains[index].bundlerUrl = bundlerUrl
-		await this.persist()
+			this.runtime.configService.setBundlerUrl(chainId, bundlerUrl)
+			this.runtime.resolvedChains[index].bundlerUrl = bundlerUrl
+			this.runtime.config.chains[index].bundlerUrl = bundlerUrl
+			await this.persist()
+		})
 	}
 
 	/** Monitor without filling. Takes effect on the next order. */
 	async setWatchOnly(chainId: number, watchOnly: boolean): Promise<void> {
-		this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
-		this.syncWatchOnlyToConfig()
-		await this.persist()
+		return this.serialise(async () => {
+			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
+			this.syncWatchOnlyToConfig()
+			await this.persist()
+		})
 	}
 
 	/** A global boolean is left alone — expanding it per chain changes how the config validates. */
 	private syncWatchOnlyToConfig(): void {
-		if (typeof this.runtime.config.simplex.watchOnly === "boolean") return
+		// Only a standing global `true` stays global; an explicit `false` expands, so a
+		// per-chain edit is actually written back instead of silently dropped.
+		if (this.runtime.config.simplex.watchOnly === true) return
 		const perChain = Object.entries(this.runtime.intentFiller.getWatchOnly())
 			.filter(([, value]) => value === true)
 			.map(([chainId]) => [chainId, true] as const)

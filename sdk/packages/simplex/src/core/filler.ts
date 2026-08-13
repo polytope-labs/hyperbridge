@@ -25,6 +25,9 @@ import type { SigningAccount } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
 
+/** How long to wait for a Hyperbridge connection before giving up on it. */
+const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
+
 export class IntentFiller {
 	public monitor: EventMonitor
 	private strategies: FillerStrategy[]
@@ -37,6 +40,7 @@ export class IntentFiller {
 	private bidStorage?: BidStore
 	private retractionQueue: pQueue
 	private paused = false
+	private stopping = false
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
@@ -101,7 +105,23 @@ export class IntentFiller {
 		const substrateKey = configService.getSubstratePrivateKey()
 
 		if (hyperbridgeWsUrl && substrateKey) {
-			this.hyperbridge = IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey)
+			// Raced against a timeout: ApiPromise.create retries a dead endpoint
+			// indefinitely, and this promise is awaited on the fill path — so an
+			// unreachable node would hang every order and stop() with it.
+			this.hyperbridge = Promise.race([
+				IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey),
+				new Promise<never>((_, reject) =>
+					setTimeout(
+						() => reject(new Error(`Timed out connecting to Hyperbridge at ${hyperbridgeWsUrl}`)),
+						HYPERBRIDGE_CONNECT_TIMEOUT_MS,
+					).unref(),
+				),
+			])
+			// Nobody may await this before the fill path does; without a handler the
+			// rejection is unhandled and takes the process down.
+			this.hyperbridge.catch((err) =>
+				this.logger.error({ err, hyperbridgeWsUrl }, "Hyperbridge connection failed"),
+			)
 		}
 
 		// Set up event handlers
@@ -404,6 +424,7 @@ export class IntentFiller {
 	}
 
 	public async stop(): Promise<void> {
+		this.stopping = true
 		this.monitor.stopListening()
 
 		this.phantomSubscription?.close()
@@ -955,6 +976,9 @@ export class IntentFiller {
 		if (!stream) return
 		this.hyperbridge
 			.then((coprocessor) => {
+				// connect() can resolve long after stop() was called against a slow
+				// endpoint; installing the poller then would leave it running forever.
+				if (this.stopping) return
 				// Reads come from the shared poller — every filler used to re-read every
 				// Hyperbridge block itself. Bids still go through this instance's own
 				// coprocessor, which holds its substrate key.

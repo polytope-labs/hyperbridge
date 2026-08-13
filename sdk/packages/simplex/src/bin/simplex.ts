@@ -26,7 +26,6 @@ import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { initializeSignerFromToml, type SigningAccount } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
-import { SqliteDataStore } from "@/data/sqlite"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -73,6 +72,28 @@ function consoleSink(): LogSink {
 // two pino instances writing into a single pino-pretty transform interleave
 // their chunks and it echoes the unparseable remainder as raw NDJSON.
 addLogSink(consoleSink())
+
+/**
+ * Opens the CLI's persistent store.
+ *
+ * Imported lazily and by name so `--help`, `init` and a config error all still
+ * work when the optional `better-sqlite3` native module failed to build — and so
+ * that failure reports what to do instead of a module-resolution stack trace.
+ * There is no memory fallback: the CLI submits bids, and bid records are how
+ * locked deposits are found again.
+ */
+async function openDataStore(dataDir?: string) {
+	try {
+		const { SqliteDataStore } = await import("@/data/sqlite")
+		return new SqliteDataStore(resolveDataDir(dataDir))
+	} catch (err) {
+		throw new Error(
+			"Could not load better-sqlite3, which simplex needs to record the bids it submits. " +
+				"Reinstall so its native module builds (it is an optional dependency, so a failed " +
+				`build is not fatal to installation): ${err instanceof Error ? err.message : String(err)}`,
+		)
+	}
+}
 
 /**
  * Where the CLI keeps its SQLite databases and runtime state. Matches the
@@ -273,7 +294,7 @@ program
 					config,
 					configPath: path,
 					logger: consoleSink(),
-					data: new SqliteDataStore(resolveDataDir(options.dataDir)),
+					data: await openDataStore(options.dataDir),
 					dataDir: options.dataDir,
 					watchOnly: options.watchOnly,
 				})

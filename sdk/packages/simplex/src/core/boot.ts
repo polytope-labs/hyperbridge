@@ -17,6 +17,7 @@ import {
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import type { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { UserOpSender } from "@/services/UserOpSender"
@@ -68,6 +69,14 @@ export interface FillerRuntime {
 	configService: FillerConfigService
 	/** Owns the per-chain viem clients; chain edits invalidate through it. */
 	chainClientManager: ChainClientManager
+	/**
+	 * True when the operator asked for watch-only across the board, rather than
+	 * per chain. Boot expands it over the chains it knows; keeping the intent is
+	 * what lets a chain added later inherit it instead of quietly filling.
+	 */
+	globalWatchOnly: boolean
+	/** The live confirmation policy the engine prices with; runtime chain adds install into it. */
+	confirmationPolicy?: ConfirmationPolicy
 	/** This filler's logging destination. */
 	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
@@ -206,6 +215,21 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	logger.info("Initializing services...")
 
+	// Everything constructed past this point needs tearing down if a later step
+	// throws. `initialize()` legitimately rejects (delegation on an unfunded EOA),
+	// and without this the Hyperbridge socket, scanners and timers outlive the
+	// failure with nothing holding a reference to stop them.
+	const started: Array<() => Promise<void> | void> = []
+	const unwind = async () => {
+		for (const stop of started.reverse()) {
+			try {
+				await stop()
+			} catch (err) {
+				logger.warn({ err }, "Cleanup step failed while unwinding a failed boot")
+			}
+		}
+	}
+
 	logger.info("Resolving chain IDs from RPC endpoints...")
 	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
@@ -235,6 +259,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Create filler configuration
 	// Handle watchOnly: can be boolean (global) or Record<string, boolean> (per-chain)
 	let watchOnlyConfig: Record<number, boolean> | undefined
+	const globalWatchOnly = options.watchOnlyOverride === true || config.simplex.watchOnly === true
 	if (options.watchOnlyOverride) {
 		// CLI flag overrides config - apply to all chains
 		watchOnlyConfig = {}
@@ -345,6 +370,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// server mutates the exact policy instances the engine prices with.
 	const adminStrategies: AdminStrategy[] = []
 	const strategies: FXFiller[] = []
+	// Held so ChainController can install a curve for a chain added at runtime.
+	let confirmationPolicy: ConfirmationPolicy | undefined
 	let tradingPairs: TradingPair[] | undefined
 	let engine: FXFiller | undefined
 	if (config.pairs?.length) {
@@ -358,7 +385,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		// included), so each needs a confirmation curve — fail at boot,
 		// not with silently dropped orders at fill time. Same construction the
 		// wizard write gates run against the selected chain ids.
-		const confirmationPolicy = assertConfirmationCoverage(
+		confirmationPolicy = assertConfirmationCoverage(
 			config.confirmationPolicies,
 			resolvedChains.map((c) => c.chainId),
 		)
@@ -461,8 +488,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		bidStore,
 	)
 
+	started.push(() => intentFiller.stop())
+
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
-	await intentFiller.initialize()
+	try {
+		await intentFiller.initialize()
+	} catch (error) {
+		await unwind()
+		throw error
+	}
 
 	// Order-activity feed for the operator UI
 	const activity = new ActivityRecorder(options.data.activity, options.loggers)
@@ -507,17 +541,32 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
 
+	// Read operator state BEFORE anything starts: this is a call into a
+	// caller-supplied store, and a rejection after start() would leave a filler
+	// committing capital with no shutdown handle while boot reports failure.
+	let restoredState: Awaited<ReturnType<typeof options.data.state.get>>
+	try {
+		restoredState = await options.data.state.get()
+	} catch (error) {
+		await unwind()
+		throw error
+	}
+
 	// Start the filler
 	intentFiller.start()
 
 	// An operator-initiated pause survives restarts
-	if ((await options.data.state.get()).paused) {
+	if (restoredState.paused) {
 		intentFiller.pause()
 	}
 
+
+
 	// Start the vault threshold-sweep timer (lifecycle owned here, not by the filler)
+	started.push(() => vaultVenue?.stopSweeping())
 	vaultVenue?.startSweeping()
 
+	started.push(() => balanceProvider.stop())
 	balanceProvider.start()
 
 	const watchOnlyChains = watchOnlyConfig
@@ -562,6 +611,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		data: options.data,
 		configService,
 		chainClientManager,
+		globalWatchOnly,
+		confirmationPolicy,
 		loggers: options.loggers,
 		assetRegistry,
 		engine,

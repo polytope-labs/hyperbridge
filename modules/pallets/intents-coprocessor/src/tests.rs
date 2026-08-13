@@ -22,7 +22,7 @@ use alloc::vec;
 use frame_support::{
 	assert_noop, assert_ok, parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	BoundedVec,
+	BoundedBTreeMap, BoundedVec,
 };
 use frame_system::EnsureRoot;
 use ismp::{consensus::StateMachineId, host::StateMachine};
@@ -599,29 +599,35 @@ fn phantom_pair(token_a: u8, token_b: u8) -> types::PhantomTokenPair {
 	}
 }
 
-fn phantom_chain(evm_id: u32, pairs: alloc::vec::Vec<types::PhantomTokenPair>) -> types::PhantomChainConfiguration {
-	types::PhantomChainConfiguration {
-		chain: StateMachineId { state_id: StateMachine::Evm(evm_id), consensus_state_id: *b"ETH0" },
-		token_pairs: BoundedVec::try_from(pairs).unwrap(),
-	}
+fn chain_id(evm_id: u32) -> StateMachineId {
+	StateMachineId { state_id: StateMachine::Evm(evm_id), consensus_state_id: *b"ETH0" }
+}
+
+/// A configuration carrying one chain's pairs.
+fn phantom_config(
+	chain: StateMachineId,
+	pairs: alloc::vec::Vec<types::PhantomTokenPair>,
+	interval_blocks: u32,
+) -> types::PhantomOrderConfiguration {
+	phantom_config_chains(vec![(chain, pairs)], interval_blocks)
 }
 
 fn phantom_config_chains(
+	chains: alloc::vec::Vec<(StateMachineId, alloc::vec::Vec<types::PhantomTokenPair>)>,
 	interval_blocks: u32,
-	chains: alloc::vec::Vec<types::PhantomChainConfiguration>,
 ) -> types::PhantomOrderConfiguration {
-	types::PhantomOrderConfiguration { chains: BoundedVec::try_from(chains).unwrap(), interval_blocks }
+	let chains = chains
+		.into_iter()
+		.map(|(chain, pairs)| (chain, BoundedVec::try_from(pairs).unwrap()))
+		.collect::<alloc::collections::BTreeMap<_, _>>();
+	types::PhantomOrderConfiguration {
+		chains: BoundedBTreeMap::try_from(chains).unwrap(),
+		interval_blocks,
+	}
 }
 
-fn phantom_config_with(
-	interval_blocks: u32,
-	pairs: alloc::vec::Vec<types::PhantomTokenPair>,
-) -> types::PhantomOrderConfiguration {
-	phantom_config_chains(interval_blocks, vec![phantom_chain(1, pairs)])
-}
-
-fn phantom_config(interval_blocks: u32) -> types::PhantomOrderConfiguration {
-	phantom_config_with(interval_blocks, vec![phantom_pair(1, 2)])
+fn one_pair(chain: StateMachineId, interval_blocks: u32) -> types::PhantomOrderConfiguration {
+	phantom_config(chain, vec![phantom_pair(1, 2)], interval_blocks)
 }
 
 #[test]
@@ -630,28 +636,42 @@ fn set_phantom_order_config_rejects_window_not_shorter_than_interval() {
 		// Default PhantomBidWindow is 0, so the effective window is the fallback constant (100).
 		// An interval equal to or below the window must be rejected.
 		assert_noop!(
-			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(100)),
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), one_pair(chain_id(1), 100)),
 			Error::<Test>::PhantomBidWindowNotShorterThanInterval
 		);
 		assert_noop!(
-			Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(50)),
+			Intents::set_phantom_order_config(RuntimeOrigin::root(), one_pair(chain_id(1), 50)),
 			Error::<Test>::PhantomBidWindowNotShorterThanInterval
 		);
 
 		// An interval strictly greater than the window is accepted.
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			one_pair(chain_id(1), 200)
+		));
 
 		// interval_blocks == 0 means generate-once (no regeneration), so the invariant is vacuous.
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(0)));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			one_pair(chain_id(1), 0)
+		));
 	});
 }
 
 #[test]
 fn set_phantom_bid_window_rejects_window_not_shorter_than_interval() {
 	new_test_ext().execute_with(|| {
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), phantom_config(200)));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			one_pair(chain_id(1), 200)
+		));
+		// Every chain generates on the one interval, so the check has a single value to make.
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			one_pair(chain_id(10), 200)
+		));
 
-		// A window equal to or above the active interval must be rejected.
+		// A window equal to or above the shared interval must be rejected.
 		assert_noop!(
 			Intents::set_phantom_bid_window(RuntimeOrigin::root(), 200),
 			Error::<Test>::PhantomBidWindowNotShorterThanInterval
@@ -663,7 +683,7 @@ fn set_phantom_bid_window_rejects_window_not_shorter_than_interval() {
 
 		// A window of 0 resolves to the fallback constant (100), which is < 200.
 		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 0));
-		// An explicit window below the interval is accepted.
+		// An explicit window below every interval is accepted.
 		assert_ok!(Intents::set_phantom_bid_window(RuntimeOrigin::root(), 50));
 	});
 }
@@ -682,7 +702,7 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_with(200, vec![])
+				phantom_config(chain_id(1), vec![], 200)
 			),
 			Error::<Test>::EmptyPhantomTokenPairs
 		);
@@ -690,9 +710,10 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_with(
-					200,
-					vec![phantom_pair(1, 2), phantom_pair(3, 4), phantom_pair(1, 2)]
+				phantom_config(
+					chain_id(1),
+					vec![phantom_pair(1, 2), phantom_pair(3, 4), phantom_pair(1, 2)],
+					200
 				)
 			),
 			Error::<Test>::DuplicatePhantomTokenPair
@@ -703,7 +724,7 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(2, 1)])
+				phantom_config(chain_id(1), vec![phantom_pair(1, 2), phantom_pair(2, 1)], 200)
 			),
 			Error::<Test>::DuplicatePhantomTokenPair
 		);
@@ -713,7 +734,7 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_with(200, vec![zero_amount])
+				phantom_config(chain_id(1), vec![zero_amount], 200)
 			),
 			Error::<Test>::ZeroPhantomStandardAmount
 		);
@@ -723,7 +744,7 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_with(200, vec![zero_reverse])
+				phantom_config(chain_id(1), vec![zero_reverse], 200)
 			),
 			Error::<Test>::ZeroPhantomStandardAmount
 		);
@@ -734,9 +755,11 @@ fn set_phantom_order_config_rejects_empty_and_duplicate_pairs() {
 fn phantom_generation_bundles_every_pair_into_one_order() {
 	new_test_ext().execute_with(|| {
 		let pairs = vec![phantom_pair(1, 2), phantom_pair(3, 4)];
-		let config = phantom_config_with(200, pairs.clone());
-		let chain = config.chains[0].chain;
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		let chain = chain_id(1);
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain, pairs.clone(), 200)
+		));
 
 		// The hook reads the latest confirmed height and uses it as the order's deadline.
 		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
@@ -771,13 +794,19 @@ fn phantom_generation_bundles_every_pair_into_one_order() {
 #[test]
 fn phantom_generation_emits_one_order_per_configured_chain() {
 	new_test_ext().execute_with(|| {
-		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
-		let chain_b = phantom_chain(10, vec![phantom_pair(5, 6)]);
-		let config = phantom_config_chains(200, vec![chain_a.clone(), chain_b.clone()]);
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		let (chain_a, pairs_a) = (chain_id(1), vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
+		let (chain_b, pairs_b) = (chain_id(10), vec![phantom_pair(5, 6)]);
+		// The config carries a map, so one call can configure both chains at once.
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config_chains(
+				vec![(chain_a, pairs_a.clone()), (chain_b, pairs_b.clone())],
+				200
+			)
+		));
 
-		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
-		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_b.chain, 77u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_b, 77u64);
 
 		System::set_block_number(1);
 		System::reset_events();
@@ -786,8 +815,8 @@ fn phantom_generation_emits_one_order_per_configured_chain() {
 		// One bundled order per chain, each committing to its own chain's legs and deadline.
 		let active = CurrentPhantomOrder::<Test>::get().unwrap();
 		assert_eq!(active.len(), 2);
-		let legs_a = types::phantom_order_legs(&chain_a.token_pairs);
-		let legs_b = types::phantom_order_legs(&chain_b.token_pairs);
+		let legs_a = types::phantom_order_legs(&pairs_a);
+		let legs_b = types::phantom_order_legs(&pairs_b);
 		let (expected_a, _) = types::phantom_order_commitment(1, b"EVM-1", &legs_a, 42);
 		let (expected_b, _) = types::phantom_order_commitment(1, b"EVM-10", &legs_b, 77);
 		assert_eq!(active[0].0, expected_a);
@@ -798,14 +827,16 @@ fn phantom_generation_emits_one_order_per_configured_chain() {
 		let registered = System::events()
 			.into_iter()
 			.filter_map(|record| match record.event {
-				RuntimeEvent::Intents(Event::PhantomOrderRegistered { commitment, legs, .. }) =>
-					Some((commitment, legs.to_vec())),
+				RuntimeEvent::Intents(Event::PhantomOrderRegistered {
+					commitment, legs, ..
+				}) => Some((commitment, legs.to_vec())),
 				_ => None,
 			})
 			.collect::<alloc::vec::Vec<_>>();
 		assert_eq!(registered, vec![(expected_a, legs_a), (expected_b, legs_b)]);
 
-		// Both chains' bid windows close together, and each order signals its own exhaustion.
+		// Both chains generated on the same block here, so each order signals its own exhaustion
+		// when the shared window closes.
 		let closing = 1 + 100;
 		System::set_block_number(closing);
 		System::reset_events();
@@ -823,15 +854,163 @@ fn phantom_generation_emits_one_order_per_configured_chain() {
 }
 
 #[test]
+fn every_chain_shares_one_generation_interval() {
+	new_test_ext().execute_with(|| {
+		let (chain_a, chain_b) = (chain_id(1), chain_id(10));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain_a, vec![phantom_pair(1, 2)], 200)
+		));
+		// The interval rides on the call but is stored once, so the last value set is the one
+		// every chain generates on.
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain_b, vec![phantom_pair(5, 6)], 300)
+		));
+		assert_eq!(PhantomOrderInterval::<Test>::get(), 300);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_b, 77u64);
+
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+		let first = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(first.len(), 2);
+		assert_eq!(LastPhantomGeneration::<Test>::get(), Some(1));
+
+		// Nothing regenerates before the shared interval elapses...
+		System::set_block_number(300);
+		Intents::on_initialize(300);
+		assert_eq!(CurrentPhantomOrder::<Test>::get().unwrap(), first);
+
+		// ...and when it does, every chain regenerates on the same block, so their bid windows
+		// close together.
+		System::set_block_number(301);
+		Intents::on_initialize(301);
+		let second = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(second.len(), 2);
+		assert_ne!(second[0].0, first[0].0);
+		assert_ne!(second[1].0, first[1].0);
+		assert_eq!(second[0].1.created_at_block, 301);
+		assert_eq!(second[1].1.created_at_block, 301);
+		assert_eq!(LastPhantomGeneration::<Test>::get(), Some(301));
+	});
+}
+
+#[test]
+fn set_phantom_order_config_leaves_other_chains_configured() {
+	new_test_ext().execute_with(|| {
+		let (reconfigured, untouched) = (chain_id(1), chain_id(10));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(reconfigured, vec![phantom_pair(1, 2)], 200)
+		));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(untouched, vec![phantom_pair(5, 6)], 200)
+		));
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(reconfigured, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(untouched, 77u64);
+
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+		assert_eq!(CurrentPhantomOrder::<Test>::get().unwrap().len(), 2);
+
+		// Reconfiguring one chain rewrites only its pairs; the shared cycle restarts so no bid
+		// can be placed against a commitment the new pairs no longer describe.
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(reconfigured, vec![phantom_pair(3, 4)], 200)
+		));
+		assert_eq!(
+			PhantomOrderConfig::<Test>::get(reconfigured).unwrap().to_vec(),
+			vec![phantom_pair(3, 4)]
+		);
+		assert_eq!(
+			PhantomOrderConfig::<Test>::get(untouched).unwrap().to_vec(),
+			vec![phantom_pair(5, 6)]
+		);
+		assert!(CurrentPhantomOrder::<Test>::get().is_none());
+		assert!(LastPhantomGeneration::<Test>::get().is_none());
+
+		// Both chains are back on the next block, the reconfigured one with its new pairs.
+		System::set_block_number(2);
+		Intents::on_initialize(2);
+		let active = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(active.len(), 2);
+		let legs = types::phantom_order_legs(&[phantom_pair(3, 4)]);
+		let (expected, _) = types::phantom_order_commitment(2, b"EVM-1", &legs, 42);
+		assert_eq!(active[0].0, expected);
+	});
+}
+
+#[test]
+fn remove_phantom_order_config_stops_only_that_chain() {
+	new_test_ext().execute_with(|| {
+		let (removed, kept) = (chain_id(1), chain_id(10));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(removed, vec![phantom_pair(1, 2)], 200)
+		));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(kept, vec![phantom_pair(5, 6)], 200)
+		));
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(removed, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(kept, 77u64);
+
+		System::set_block_number(1);
+		Intents::on_initialize(1);
+		let before = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(before.len(), 2);
+
+		assert_ok!(Intents::remove_phantom_order_config(RuntimeOrigin::root(), removed));
+		assert!(PhantomOrderConfig::<Test>::get(removed).is_none());
+		assert!(!PhantomChains::<Test>::get().contains(&removed));
+		// Its active order goes with it, so no further bids can be placed against it, and the
+		// chain that stays keeps the order it is still taking bids on.
+		assert_eq!(CurrentPhantomOrder::<Test>::get().unwrap().to_vec(), vec![before[1].clone()]);
+		assert_eq!(LastPhantomGeneration::<Test>::get(), Some(1));
+
+		// The removed chain never generates again; the other stays on the shared cycle.
+		System::set_block_number(201);
+		Intents::on_initialize(201);
+		let active = CurrentPhantomOrder::<Test>::get().unwrap();
+		assert_eq!(active.len(), 1);
+		assert_eq!(active[0].1.chain, b"EVM-10".to_vec());
+		assert_eq!(active[0].1.created_at_block, 201);
+
+		// Removing the last chain empties the batch rather than leaving an empty vec behind.
+		assert_ok!(Intents::remove_phantom_order_config(RuntimeOrigin::root(), kept));
+		assert!(CurrentPhantomOrder::<Test>::get().is_none());
+		assert!(PhantomChains::<Test>::get().is_empty());
+	});
+}
+
+#[test]
+fn remove_phantom_order_config_rejects_unconfigured_chains() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::remove_phantom_order_config(RuntimeOrigin::root(), chain_id(1)),
+			Error::<Test>::PhantomChainNotConfigured
+		);
+	});
+}
+
+#[test]
 fn phantom_generation_skips_chains_without_a_confirmed_height() {
 	new_test_ext().execute_with(|| {
-		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2)]);
-		let chain_b = phantom_chain(10, vec![phantom_pair(5, 6)]);
-		let config = phantom_config_chains(200, vec![chain_a.clone(), chain_b.clone()]);
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		let (chain_a, chain_b) = (chain_id(1), chain_id(10));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain_a, vec![phantom_pair(1, 2)], 200)
+		));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain_b, vec![phantom_pair(5, 6)], 200)
+		));
 
 		// Only chain A has a confirmed height; chain B must be skipped, not sink the batch.
-		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a, 42u64);
 
 		System::set_block_number(1);
 		Intents::on_initialize(1);
@@ -839,15 +1018,20 @@ fn phantom_generation_skips_chains_without_a_confirmed_height() {
 		let active = CurrentPhantomOrder::<Test>::get().unwrap();
 		assert_eq!(active.len(), 1);
 		assert_eq!(active[0].1.chain, b"EVM-1".to_vec());
+		// The shared marker still advances: A generated, so the batch is not retried until the
+		// next interval and B simply misses this cycle.
+		assert_eq!(LastPhantomGeneration::<Test>::get(), Some(1));
 	});
 }
 
 #[test]
 fn phantom_generation_retries_when_no_chain_has_a_confirmed_height() {
 	new_test_ext().execute_with(|| {
-		let chain_a = phantom_chain(1, vec![phantom_pair(1, 2)]);
-		let config = phantom_config_chains(200, vec![chain_a.clone()]);
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		let chain = chain_id(1);
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain, vec![phantom_pair(1, 2)], 200)
+		));
 
 		// No confirmed height anywhere: nothing is generated and the generation marker stays
 		// clear, so the hook retries on the very next block instead of waiting an interval.
@@ -856,7 +1040,7 @@ fn phantom_generation_retries_when_no_chain_has_a_confirmed_height() {
 		assert!(CurrentPhantomOrder::<Test>::get().is_none());
 		assert!(LastPhantomGeneration::<Test>::get().is_none());
 
-		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain_a.chain, 42u64);
+		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
 		System::set_block_number(2);
 		Intents::on_initialize(2);
 		assert_eq!(CurrentPhantomOrder::<Test>::get().unwrap().len(), 1);
@@ -865,30 +1049,88 @@ fn phantom_generation_retries_when_no_chain_has_a_confirmed_height() {
 }
 
 #[test]
-fn set_phantom_order_config_rejects_empty_and_duplicate_chains() {
+fn set_phantom_order_config_rejects_a_second_consensus_state_id_per_chain() {
 	new_test_ext().execute_with(|| {
-		assert_noop!(
-			Intents::set_phantom_order_config(
-				RuntimeOrigin::root(),
-				phantom_config_chains(200, vec![])
-			),
-			Error::<Test>::EmptyPhantomChains
-		);
+		let chain = chain_id(1);
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), one_pair(chain, 200)));
 
-		// Each chain gets exactly one bundled order, so its pairs must live in a single entry.
+		// An order commits to the state machine, not the consensus state id, so a second entry
+		// for the same chain would generate a colliding order.
 		assert_noop!(
 			Intents::set_phantom_order_config(
 				RuntimeOrigin::root(),
-				phantom_config_chains(
-					200,
-					vec![
-						phantom_chain(1, vec![phantom_pair(1, 2)]),
-						phantom_chain(1, vec![phantom_pair(3, 4)]),
-					]
+				one_pair(
+					StateMachineId { state_id: chain.state_id, consensus_state_id: *b"ETH1" },
+					200
 				)
 			),
 			Error::<Test>::DuplicatePhantomChain
 		);
+
+		// Two entries for it in the same call are rejected the same way.
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_chains(
+					vec![
+						(chain_id(10), vec![phantom_pair(1, 2)]),
+						(
+							StateMachineId {
+								state_id: StateMachine::Evm(10),
+								consensus_state_id: *b"ETH1"
+							},
+							vec![phantom_pair(3, 4)]
+						),
+					],
+					200
+				)
+			),
+			Error::<Test>::DuplicatePhantomChain
+		);
+
+		// Re-setting the same chain under the same consensus state id is an update, not a
+		// duplicate.
+		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), one_pair(chain, 200)));
+	});
+}
+
+#[test]
+fn set_phantom_order_config_rejects_an_empty_chain_map() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				phantom_config_chains(vec![], 200)
+			),
+			Error::<Test>::EmptyPhantomChains
+		);
+	});
+}
+
+#[test]
+fn set_phantom_order_config_rejects_more_than_max_chains() {
+	new_test_ext().execute_with(|| {
+		for evm_id in 0..types::MAX_PHANTOM_CHAINS {
+			assert_ok!(Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				one_pair(chain_id(evm_id), 200)
+			));
+		}
+
+		assert_noop!(
+			Intents::set_phantom_order_config(
+				RuntimeOrigin::root(),
+				one_pair(chain_id(types::MAX_PHANTOM_CHAINS), 200)
+			),
+			Error::<Test>::TooManyPhantomChains
+		);
+
+		// Freeing a slot lets the next chain in.
+		assert_ok!(Intents::remove_phantom_order_config(RuntimeOrigin::root(), chain_id(0)));
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			one_pair(chain_id(types::MAX_PHANTOM_CHAINS), 200)
+		));
 	});
 }
 
@@ -970,7 +1212,7 @@ fn phantom_order_at_max_pairs_stays_within_budget() {
 	let legs = types::phantom_order_legs(&pairs);
 	assert_eq!(legs.len() as u32, types::MAX_PHANTOM_ORDER_LEGS);
 	let (_, encoded) = types::phantom_order_commitment(1, b"EVM-8453", &legs, 42);
-	let config = phantom_config_with(200, pairs);
+	let config = phantom_config(chain_id(8453), pairs, 200);
 	let event_payload = (H256::repeat_byte(1), b"EVM-8453".to_vec(), 1u64, legs).encode();
 
 	// The whole batch now rides in one order body, one config value and one event, so each has
@@ -1001,9 +1243,11 @@ fn phantom_order_at_max_pairs_stays_within_budget() {
 #[test]
 fn phantom_bid_window_exhausted_fires_once_for_the_active_order() {
 	new_test_ext().execute_with(|| {
-		let config = phantom_config_with(200, vec![phantom_pair(1, 2), phantom_pair(3, 4)]);
-		let chain = config.chains[0].chain;
-		assert_ok!(Intents::set_phantom_order_config(RuntimeOrigin::root(), config));
+		let chain = chain_id(1);
+		assert_ok!(Intents::set_phantom_order_config(
+			RuntimeOrigin::root(),
+			phantom_config(chain, vec![phantom_pair(1, 2), phantom_pair(3, 4)], 200)
+		));
 		pallet_ismp::LatestStateMachineHeight::<Test>::insert(chain, 42u64);
 
 		System::set_block_number(1);

@@ -100,11 +100,13 @@ async function seedStateMachineHeight(api: ApiPromise, chainId: number, height: 
  * Uses a single token pair of zero-address tokens as a probe.
  */
 async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalBlocks: number): Promise<void> {
+	const chain = { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID }
 	const config = {
-		chains: [
-			{
-				chain: { state_id: { Evm: chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
-				token_pairs: [
+		// `chains` is a map from state machine id to that chain's token pairs.
+		chains: new Map([
+			[
+				chain,
+				[
 					{
 						token_a: "0x0101010101010101010101010101010101010101",
 						token_b: "0x0202020202020202020202020202020202020202",
@@ -112,8 +114,8 @@ async function setPhantomOrderConfig(api: ApiPromise, chainId: number, intervalB
 						standard_amount_b: 1_000_000_000_000_000_000n,
 					},
 				],
-			},
-		],
+			],
+		]),
 		interval_blocks: intervalBlocks,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))
@@ -361,12 +363,7 @@ describe("Phantom Order E2E (simnode)", () => {
 		await sudoAndSeal(
 			api,
 			api.tx.intentsCoprocessor.setPhantomOrderConfig({
-				chains: [
-					{
-						chain: { state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID },
-						token_pairs: pairs,
-					},
-				],
+				chains: new Map([[{ state_id: { Evm: 8453 }, consensus_state_id: ETH0_CONSENSUS_ID }, pairs]]),
 				interval_blocks: 10,
 			}),
 		)

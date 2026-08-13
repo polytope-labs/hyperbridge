@@ -19,7 +19,7 @@ use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use ismp::consensus::StateMachineId;
-use polkadot_sdk::frame_support::{traits::ConstU32, BoundedVec};
+use polkadot_sdk::frame_support::{traits::ConstU32, BoundedBTreeMap, BoundedVec};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
 use sp_io;
@@ -159,8 +159,8 @@ pub struct GatewayInfo {
 /// encoded body written to offchain storage.
 pub const MAX_PHANTOM_TOKEN_PAIRS: u32 = 64;
 
-/// Upper bound on the chains a phantom order configuration may cover. Each chain gets its own
-/// bundled order per interval, so this also bounds `CurrentPhantomOrder` and the work
+/// Upper bound on the chains that may carry a phantom order configuration at once. Bounds the
+/// `PhantomChains` set the hook walks, and with it `CurrentPhantomOrder` and the work
 /// `on_initialize` performs on a generation block.
 pub const MAX_PHANTOM_CHAINS: u32 = 16;
 
@@ -259,22 +259,29 @@ pub fn phantom_order_legs(pairs: &[PhantomTokenPair]) -> Vec<PhantomOrderLeg> {
 	pairs.iter().flat_map(PhantomTokenPair::legs).collect()
 }
 
-/// The token pairs probed on one chain. Every pair here rides in that chain's single bundled
-/// phantom order. The `chain` carries the consensus state id so the hook can look up the
-/// latest confirmed height directly instead of scanning every state machine.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PhantomChainConfiguration {
-	pub chain: StateMachineId,
-	pub token_pairs: BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>,
-}
+/// The token pairs probed on one chain — every pair here rides in that chain's single bundled
+/// phantom order.
+///
+/// Stored per chain in the `PhantomOrderConfig` map, keyed by the chain's `StateMachineId`,
+/// whose consensus state id lets the hook look up the latest confirmed height directly instead
+/// of scanning every state machine.
+pub type PhantomTokenPairs = BoundedVec<PhantomTokenPair, ConstU32<MAX_PHANTOM_TOKEN_PAIRS>>;
 
-/// Governance-settable configuration for autonomous phantom order generation.
-/// Stored in `PhantomOrderConfig`; the pallet hook reads it every block and emits one bundled
-/// order per configured chain every `interval_blocks`. The interval is shared so all chains
-/// generate on the same block and their bid windows close together.
+/// Governance-settable phantom order configuration, as `set_phantom_order_config` takes it.
+///
+/// The chains are a map so each one's pairs are addressed by its state machine id and land in
+/// their own `PhantomOrderConfig` entry: a call carries only the chains it means to configure
+/// and leaves every other chain's entry alone. `interval_blocks` is the one exception — it is a
+/// single value shared by every configured chain, so they all generate on the same block and
+/// their bid windows close together, and a call therefore sets it for all of them.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PhantomOrderConfiguration {
-	pub chains: BoundedVec<PhantomChainConfiguration, ConstU32<MAX_PHANTOM_CHAINS>>,
+	/// The token pairs — and their standard amounts — to probe on each chain, keyed by the
+	/// chain's state machine id. The consensus state id it carries lets the generator look up
+	/// that chain's latest confirmed height directly.
+	pub chains: BoundedBTreeMap<StateMachineId, PhantomTokenPairs, ConstU32<MAX_PHANTOM_CHAINS>>,
+	/// Blocks between generations, shared by every configured chain. Zero means generate once
+	/// and never regenerate.
 	pub interval_blocks: u32,
 }
 

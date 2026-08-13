@@ -1,0 +1,496 @@
+---
+title: Simplex
+description: Embed a Simplex intent filler in your own Node application — start it from a config object, drive it through the Simplex class, plug in your own persistence, plus the full API reference.
+---
+
+# Simplex
+
+[Simplex](/developers/evm/intent-gateway/simplex) is an automated filler for the Intent Gateway. It
+ships as a binary, and as `@hyperbridge/simplex` — the same engine, running inside your own process.
+No TOML file, no separate service, and every runtime control the web dashboard offers is a method on
+the object you get back.
+
+Reach for the library when the filler is one component of a larger system: you already have a
+database, a dashboard, an alerting pipeline, or pricing logic that needs to move curves as the market
+does. If you just want a filler running, the [binary](/developers/evm/intent-gateway/simplex) is
+less work.
+
+```bash
+npm install @hyperbridge/simplex
+```
+
+Node.js 18 or later. The package ships ESM and CJS builds with bundled types.
+
+## Starting a filler
+
+`Simplex.start` takes a plain config object and returns once the filler is running: chains resolved,
+EIP-7702 delegation in place where solver selection is active, scanners live.
+
+```ts
+import { Simplex, SignerType, type SimplexConfig } from "@hyperbridge/simplex"
+
+const config: SimplexConfig = {
+    simplex: {
+        signer: { type: SignerType.PrivateKey, key: process.env.FILLER_KEY as `0x${string}` },
+        maxConcurrentOrders: 5,
+        queue: { maxRechecks: 10, recheckDelayMs: 30_000 },
+        substratePrivateKey: process.env.SUBSTRATE_KEY!,
+        hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
+    },
+    chains: [
+        { rpcUrls: ["https://base.example"], bundlerUrl: "https://bundler.example/base" },
+        { rpcUrls: ["https://arbitrum.example"], bundlerUrl: "https://bundler.example/arb" },
+    ],
+    pairs: [
+        {
+            token0: "USDC",
+            token1: "USDC",
+            maxOrderSize: "5000",
+            // Same-asset market: ask-only, strictly below par. The gap to 1 is your spread.
+            askPriceCurve: [{ amount: "0", price: "0.9995" }],
+        },
+    ],
+}
+
+const simplex = await Simplex.start({ config })
+```
+
+`start` rejects if the config is invalid, a chain's RPCs are unreachable, or delegation fails on
+every chain. It never returns a half-started filler, so there is no "is it ready yet" state to poll.
+
+Stop it with `await simplex.stop()` — idempotent, drains in-flight fills, unwinds any vault position
+marked `redeemOnShutdown`, and never calls `process.exit`.
+
+<Callout type="warn">
+    The config object is the same shape the binary's `filler-config.toml` parses into. The
+    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every field;
+    read the TOML tables there as object keys.
+</Callout>
+
+## Persistence
+
+Simplex remembers three things across a restart: the bids it submitted, its activity feed, and
+whether the operator paused it. That lives behind the `SimplexDataStore` interface.
+
+The default is in-memory and lost on exit, which is fine for tests and watch-only observers. **A
+filler that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
+that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
+querying the bid store. Lose those records and you leak deposits.
+
+The bundled SQLite store is a separate entry point, so the default install pulls in no native
+modules:
+
+```ts
+import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
+
+const simplex = await Simplex.start({
+    config,
+    data: new SqliteDataStore("./simplex-data"),
+})
+```
+
+To use your own backend — Postgres, Redis, a hosted API — implement the interface:
+
+```ts
+import type { SimplexDataStore } from "@hyperbridge/simplex"
+
+const store: SimplexDataStore = {
+    bids: myBidStore,        // store, byCommitment, expiredUnretracted, markRetracted, markDead, …
+    activity: myActivityLog, // record, recent, fills, recordWalletTx, walletTxs
+    state: myStateStore,     // get, set
+}
+```
+
+Every method is async. Only `bids` is correctness-critical: `store` must be durable before it
+resolves. `activity` is observability — prune, sample or cap it freely.
+
+## Reacting to orders
+
+The filler emits a typed event for everything it does.
+
+```ts
+simplex.on("order:detected", ({ order, transactionHash }) => { /* … */ })
+simplex.on("order:skipped", ({ orderId, reason }) => { /* … */ })
+simplex.on("order:filled", ({ orderId, txHash, chainId, volumeUsd, profitUsd }) => { /* … */ })
+simplex.on("order:executed", ({ orderId, success, strategy, commitment, error }) => { /* … */ })
+simplex.on("order:timing", ({ orderId, phase, durationSec }) => { /* … */ })
+simplex.on("rebalance", ({ success, transferCount, executedCount }) => { /* … */ })
+simplex.on("activity", (event) => { /* every row written to the activity store */ })
+```
+
+Payloads are inferred from the event name, so a typo or a wrong field is a compile error. This is
+the whole telemetry surface — the binary's Prometheus exporter is built on these same events, with
+no privileged access.
+
+## Changing things while it runs
+
+Every mutation applies to the live filler and binds on the next order. Nothing here needs a restart.
+
+### Pairs
+
+```ts
+simplex.pairs.list()
+await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+await simplex.pairs.setMaxOrderSize(0, "10000")
+await simplex.pairs.clearCurve(0, "bid")          // one-sided LP: stop buying token1
+await simplex.pairs.add({ token0: "USDC", token1: "CNGN", maxOrderSize: "5000",
+                          askPriceCurve: [{ amount: "0", price: "1550" }] })
+await simplex.pairs.remove(1)
+```
+
+`setCurve` mutates the policy instance the engine prices with, so the new curve is live on the next
+evaluation. New pairs are validated against the same rules boot applies — a pair accepted here is
+one a restart would also accept.
+
+Repricing from a market feed is the common case:
+
+```ts
+feed.on("tick", async ({ mid }) => {
+    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: (mid * 0.999).toFixed(4) }])
+    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: (mid * 1.001).toFixed(4) }])
+})
+```
+
+### Chains
+
+```ts
+await simplex.chains.add({
+    rpcUrls: ["https://polygon.example"],
+    bundlerUrl: "https://bundler.example/polygon",
+    // Required for chains with no built-in confirmation curve.
+    confirmationPolicy: { points: [{ amount: "1000", value: 2 }, { amount: "100000", value: 32 }] },
+})
+
+await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
+await simplex.chains.setWatchOnly(8453, true)
+await simplex.chains.remove(137)
+```
+
+`add` probes the endpoints and reads the chain id back from them before mutating anything, so a
+wrong or unreachable RPC is rejected rather than half-applied. `setRpcUrls` rebuilds the chain's
+scanner from its existing cursor, so the swap leaves no gap in the scanned block range. `remove`
+stops the scanner first, then drains in-flight fills before dropping the chain.
+
+### Vaults, assets, rebalancing
+
+```ts
+await simplex.vaults.preflight(vaults)   // validate against chain state, change nothing
+await simplex.vaults.set(vaults)
+await simplex.vaults.sweepNow()
+await simplex.vaults.redeemAll()
+
+await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
+simplex.assets.resolve("USDC", "EVM-8453")
+
+await simplex.rebalancing.set({ triggerPercentage: 20, baseBalances: { USDC: { "EVM-8453": "10000" } } })
+await simplex.rebalancing.trigger()
+```
+
+### Wallet and lifecycle
+
+```ts
+simplex.wallet.address
+simplex.wallet.balances()
+await simplex.wallet.send({ chain: "EVM-8453", token: "0x…", amount: "100", to: "0x…" })
+await simplex.wallet.history()
+
+await simplex.pause()      // stop filling; monitoring continues, persisted across restarts
+await simplex.resume()
+simplex.status()
+await simplex.activity()
+await simplex.bidStats()   // watch `pendingRetraction`: deposits still locked
+```
+
+## Persisting runtime edits
+
+Mutations update the live config object, so `simplex.config()` always reflects what is actually
+running. Pass `onConfigChange` to persist it however you like:
+
+```ts
+const simplex = await Simplex.start({
+    config,
+    data: new SqliteDataStore("./simplex-data"),
+    onConfigChange: async (config) => {
+        await db.settings.put("filler-config", config)
+    },
+})
+```
+
+Without it, edits apply live but do not survive a restart. The binary supplies a handler that writes
+the TOML file back.
+
+## Self-halt
+
+Overfill protection halts the engine if consecutive orders clamp against the output ceiling, which
+usually means a systemic pricing error. A halted filler refuses every order until an operator
+clears it:
+
+```ts
+if (simplex.isHalted()) {
+    await alert("simplex halted — check pricing")
+    simplex.resetHalt()
+}
+```
+
+## Running more than one
+
+Instances share no state, so several fillers can run in one process — different keys, different
+chains, different books:
+
+```ts
+const [eu, apac] = await Promise.all([
+    Simplex.start({ config: euConfig, data: new SqliteDataStore("./data/eu") }),
+    Simplex.start({ config: apacConfig, data: new SqliteDataStore("./data/apac") }),
+])
+```
+
+Give each its own data directory. Two fillers sharing one bid store would each see the other's bids
+as theirs to retract.
+
+## Logging
+
+The filler logs through [pino](https://getpino.io). Set the level before starting to capture boot:
+
+```ts
+import { configureLogger, getLogger } from "@hyperbridge/simplex"
+
+configureLogger("debug")
+const log = getLogger("my-app")
+```
+
+`simplex.setLogLevel("warn")` changes it on a running filler.
+
+## Validating a config without starting
+
+The validators are pure and run the same rules boot does, so you can gate a config — from a form, a
+database, an API — before committing to a start:
+
+```ts
+import { validateConfig, validatePairConfigs, bookCrossedAt } from "@hyperbridge/simplex"
+
+validateConfig(config)                       // throws with a descriptive message
+validatePairConfigs(config.pairs!)
+
+// A crossed book is legal but means a full round trip loses money — worth warning on.
+const crossed = bookCrossedAt(pair.bidPriceCurve!, pair.askPriceCurve!)
+if (crossed) console.warn(`book crosses at ${crossed.amount}`)
+```
+
+---
+
+# API reference
+
+## `Simplex`
+
+The running filler. Construct it with `Simplex.start`; the constructor is private.
+
+| Member | Signature | Notes |
+|---|---|---|
+| `Simplex.start` | `(options: SimplexOptions) => Promise<Simplex>` | Boots and starts. Rejects rather than returning a half-started filler. |
+| `pause` | `() => Promise<void>` | Stops analysing and filling. Monitoring continues, in-flight fills complete. Persisted. |
+| `resume` | `() => Promise<void>` | |
+| `isPaused` | `() => boolean` | |
+| `stop` | `() => Promise<void>` | Drains, unwinds `redeemOnShutdown` vaults, closes the store. Idempotent; never calls `process.exit`. |
+| `address` | `HexString` | The filler's EVM account. |
+| `startedAt` | `number` | Epoch ms. |
+| `config` | `() => Readonly<SimplexConfig>` | The live config, including every runtime edit. |
+| `status` | `() => SimplexStatus` | |
+| `activity` | `(limit?: number, beforeId?: number) => Promise<ActivityEvent[]>` | Newest first; page backwards with `beforeId`. |
+| `bids` | `(limit?: number) => Promise<StoredBid[]>` | Newest first. |
+| `bidStats` | `() => Promise<BidStats>` | Watch `pendingRetraction` — those are deposits still locked. |
+| `isHalted` | `() => boolean` | Overfill protection tripped. |
+| `resetHalt` | `() => void` | |
+| `setAllowlist` | `(allowlist?: AllowlistConfig) => Promise<void>` | Omit to accept all users. |
+| `setLogLevel` | `(level: LogLevel) => void` | |
+| `on` / `once` / `off` | `<E extends keyof SimplexEvents>(event: E, listener: (payload: SimplexEvents[E]) => void) => this` | Payloads inferred from the event name. |
+
+Controllers: `pairs`, `chains`, `vaults`, `assets`, `wallet`, `rebalancing`.
+
+### `SimplexOptions`
+
+| Field | Type | Notes |
+|---|---|---|
+| `config` | `SimplexConfig` | Required. Same shape the binary's TOML parses into. |
+| `data` | `SimplexDataStore` | Defaults to `MemoryDataStore` — lost on exit. Use a durable store if you bid. |
+| `configPath` | `string` | Only used to write runtime edits back to disk. |
+| `dataDir` | `string` | For anything written outside the data store. |
+| `watchOnly` | `boolean` | Forces watch-only on every chain. |
+| `onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Called after any mutation that changes the effective config. |
+
+### `SimplexStatus`
+
+`paused`, `halted`, `fillerAddress`, `startedAt`, `uptimeSec`, `chains: number[]`,
+`watchOnly: Record<number, boolean>`, `pairs: number`.
+
+## `simplex.pairs`
+
+| Method | Signature |
+|---|---|
+| `list` | `() => PairView[]` |
+| `add` | `(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }) => Promise<PairView>` |
+| `remove` | `(index: number) => Promise<void>` |
+| `setCurve` | `(index: number, side: "bid" \| "ask", points: PriceCurvePoint[]) => Promise<void>` |
+| `clearCurve` | `(index: number, side: "bid" \| "ask") => Promise<void>` |
+| `setMaxOrderSize` | `(index: number, value: string) => Promise<void>` |
+
+`add` runs the same validation boot does, so a pair accepted here is one a restart would also accept.
+`setCurve` mutates the policy instance the engine prices with — live on the next evaluation.
+`clearCurve` closes a direction (one-sided LP).
+
+`PairView`: `index`, `token0`, `token1`, `maxOrderSize?`, `bid?`, `ask?`, `sameToken`,
+`referenceOnly`, `venuePriced`.
+
+## `simplex.chains`
+
+| Method | Signature |
+|---|---|
+| `list` | `() => ChainView[]` |
+| `add` | `(chain: ChainInput) => Promise<ChainView>` |
+| `remove` | `(chainId: number) => Promise<void>` |
+| `setRpcUrls` | `(chainId: number, rpcUrls: string[]) => Promise<void>` |
+| `setBundlerUrl` | `(chainId: number, bundlerUrl: string) => Promise<void>` |
+| `setWatchOnly` | `(chainId: number, watchOnly: boolean) => Promise<void>` |
+
+`add` probes the endpoints and reads the chain id back from them before mutating anything, then rolls
+back if delegation fails. `setRpcUrls` rebuilds the chain's scanner from its existing cursor, so the
+swap leaves no gap in the scanned block range. `remove` stops the scanner first, then drains
+in-flight fills; it refuses while a vault or Uniswap V4 position still names the chain.
+
+`ChainInput`: `rpcUrls`, `bundlerUrl`, `watchOnly?`, `confirmationPolicy?` (required for chains with
+no built-in curve). `ChainView`: `chainId`, `stateMachineId`, `rpcUrls`, `bundlerUrl`, `watchOnly`.
+
+## `simplex.vaults`
+
+| Method | Signature |
+|---|---|
+| `list` | `() => VaultToml[]` |
+| `preflight` | `(vaults: VaultToml[]) => Promise<void>` |
+| `set` | `(vaults: VaultToml[], options?: { sweepIntervalMs?: number }) => Promise<void>` |
+| `sweepNow` | `() => Promise<void>` |
+| `redeemAll` | `() => Promise<void>` |
+
+`preflight` hydrates a prospective set against chain state without touching the live venue, so
+unconfigured chains, same-asset duplicates and non-vault addresses surface before you commit.
+
+## `simplex.assets`
+
+| Method | Signature |
+|---|---|
+| `add` | `(defs: Record<string, AssetDefinition>) => Promise<void>` |
+| `resolve` | `(symbol: string, chain: string) => HexString \| null` |
+
+Existing symbols cannot be redefined — repointing one under a running market would silently redirect
+its fills.
+
+## `simplex.wallet`
+
+| Member | Signature |
+|---|---|
+| `address` | `HexString` |
+| `balances` | `() => BalanceSnapshot` |
+| `send` | `(params: { chain: string; token: string; amount: string; to: HexString }) => Promise<{ txHash: string; sponsored: boolean; redeemed: boolean }>` |
+| `history` | `(limit?: number) => Promise<WalletTx[]>` |
+
+`balances()` returns the last refreshed snapshot; `updatedAt` is null until the first refresh lands.
+`send` redeems vault shares to the recipient when the token is held in a vault.
+
+## `simplex.rebalancing`
+
+| Method | Signature |
+|---|---|
+| `set` | `(rebalancing?: RebalancingConfig) => Promise<void>` |
+| `trigger` | `() => Promise<unknown>` |
+
+## Events
+
+| Event | Payload |
+|---|---|
+| `order:detected` | `{ order, transactionHash }` |
+| `order:skipped` | `{ orderId, reason }` |
+| `order:filled` | `{ orderId, txHash?, chainId?, volumeUsd?, profitUsd? }` |
+| `order:executed` | `{ orderId, success, strategy?, commitment?, txHash?, error? }` |
+| `order:timing` | `{ orderId, phase: "evaluation" \| "confirmation" \| "queue_wait" \| "execution", durationSec }` |
+| `order:filled-onchain` | `{ commitment, filler, chainId }` |
+| `rebalance` | `{ success, transferCount?, executedCount?, error? }` |
+| `activity` | `ActivityEvent` — every row written to the activity store |
+
+This is the whole telemetry surface. The binary's Prometheus exporter is built on these same events,
+with no privileged access.
+
+## Persistence interfaces
+
+`SimplexDataStore` is `{ bids, activity, state, close? }`. Every method is async.
+
+### `BidStore`
+
+| Method | Signature |
+|---|---|
+| `store` | `(bid: BidInsert) => Promise<void>` |
+| `byCommitment` | `(commitment: string) => Promise<StoredBid \| null>` |
+| `unretractedSuccessful` | `() => Promise<StoredBid[]>` |
+| `expiredUnretracted` | `(maxAgeMs: number) => Promise<StoredBid[]>` |
+| `markRetracted` | `(commitment: string, retractExtrinsicHash: string \| null) => Promise<boolean>` |
+| `markDead` | `(commitment: string) => Promise<boolean>` |
+| `recent` / `failed` | `(limit?: number) => Promise<StoredBid[]>` |
+| `byDateRange` | `(from: Date, to: Date) => Promise<StoredBid[]>` |
+| `stats` | `() => Promise<BidStats>` |
+
+<Callout type="warn">
+    This is the correctness-critical store. `store` must be durable before it resolves — do not
+    buffer in memory and flush later. `expiredUnretracted` returns bids that are successful,
+    unretracted, and either older than `maxAgeMs` or flagged dead; dead bids ignore the age cut
+    because their deposit is reclaimable immediately.
+</Callout>
+
+### `ActivityStore`
+
+| Method | Signature |
+|---|---|
+| `record` | `(event: ActivityInsert) => Promise<ActivityEvent>` |
+| `recent` | `(limit?: number, beforeId?: number) => Promise<ActivityEvent[]>` |
+| `fills` | `(limit?: number) => Promise<ActivityEvent[]>` |
+| `recordWalletTx` | `(tx: Omit<WalletTx, "id" \| "ts">) => Promise<void>` |
+| `walletTxs` | `(limit?: number) => Promise<WalletTx[]>` |
+
+Observability rather than correctness — prune, sample or cap history freely.
+
+### `StateStore`
+
+`get(): Promise<RuntimeState>` / `set(state: RuntimeState): Promise<void>`, where `RuntimeState` is
+`{ paused?: boolean }`.
+
+### Implementations
+
+| Class | Entry point | Notes |
+|---|---|---|
+| `MemoryDataStore` | `@hyperbridge/simplex` | Default. Process-local, capped, lost on exit. |
+| `SqliteDataStore` | `@hyperbridge/simplex/sqlite` | Durable. Needs the optional `better-sqlite3` native module. |
+
+## Validators and helpers
+
+All pure — no I/O, safe to run against user input before starting anything.
+
+| Export | Purpose |
+|---|---|
+| `validateConfig` | Full config, the same rules boot applies |
+| `validatePairConfigs` | `[[pairs]]` against the asset table |
+| `validateAssetDefinitions` | Custom `assets` entries |
+| `assertConfirmationCoverage` | Every configured chain has a confirmation curve |
+| `validateVaultToml`, `validateUniswapV4Positions` | Vault and V4 position entries |
+| `bookCrossedAt` | First amount where bid ≤ ask, or null |
+| `unanchoredToken0Symbols` | token0 symbols with no path to a USD anchor |
+| `pickAnchorStable` | Which USD stable can carry a reference feed for a symbol |
+| `normalizeSymbol`, `isRegistrySymbol`, `registrySymbols`, `USD_STABLE_SYMBOLS` | Symbol registry helpers |
+| `parseChainKey`, `formatChainKey` | `"EVM-1"` ↔ `1` |
+| `getLogger`, `configureLogger` | pino logger access |
+
+## Exported types
+
+`SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
+`ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
+`CurveConfig`, `SignerConfig` (+ `SignerType`, and the private-key / MPCVault / Turnkey variants),
+`AllowlistConfig`, `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`,
+`ChainBalanceRow`, `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`,
+`StateStore`, `StoredBid`, `BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`,
+`WalletTx`, `WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, and the vault/queue/rebalancing
+config types.

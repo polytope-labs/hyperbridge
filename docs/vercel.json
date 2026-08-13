@@ -1,11 +1,6 @@
 {
   "redirects": [
     {
-      "source": "/docs/developers/evm/intent-gateway/simplex",
-      "destination": "/docs/developers/evm/simplex/overview",
-      "permanent": true
-    },
-    {
       "source": "/docs/developers/explore/permissionless-relayers",
       "destination": "/docs/developers/explore/relayers",
       "permanent": true

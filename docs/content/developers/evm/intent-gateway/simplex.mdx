@@ -1,15 +1,11 @@
 ---
-title: Running the binary
-description: Run Simplex as a standalone filler binary or Docker container — quick start, market configuration, and the full filler-config.toml reference.
+title: Simplex
+description: Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably, earning fees by providing liquidity and execution services.
 ---
 
-# Running the binary
+# Simplex
 
-The `simplex` binary is a complete, self-contained filler: point it at a config and it runs.
-This page covers that path end to end. To drive a filler from your own Node application
-instead, see [Running as a library](/developers/evm/simplex/library).
-
-Simplex monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, prices each order against the configured trading pairs, and fills when profitable. Fillers earn the difference between order inputs and outputs.
+Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, prices each order against the configured trading pairs, and fills when profitable. Fillers earn the difference between order inputs and outputs.
 
 ## Quick Start
 

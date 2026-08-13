@@ -153,7 +153,7 @@
 		"defi",
 		"intent-gateway"
 	],
-	"homepage": "https://docs.hyperbridge.network/developers/evm/simplex/overview",
+	"homepage": "https://docs.hyperbridge.network/developers/evm/intent-gateway/simplex",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/polytope-labs/hyperbridge.git",

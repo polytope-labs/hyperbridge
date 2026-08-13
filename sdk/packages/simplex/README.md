@@ -4,7 +4,7 @@ Automated intent filler for the Hyperbridge IntentGateway. Run it as a standalon
 it in your own Node application.
 
 Full documentation:
-[docs.hyperbridge.network/developers/evm/simplex/overview](https://docs.hyperbridge.network/developers/evm/simplex/overview)
+[docs.hyperbridge.network/developers/evm/intent-gateway/simplex](https://docs.hyperbridge.network/developers/evm/intent-gateway/simplex)
 
 ## As a library
 
@@ -38,7 +38,7 @@ running. Persistence is pluggable: the default store is in-memory, `SqliteDataSt
 else. A filler that submits bids should use a durable store, since bid records are how locked
 deposits are found again for retraction.
 
-See [Running as a library](https://docs.hyperbridge.network/developers/evm/simplex/library).
+See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
 
 ## As a binary
 

@@ -3,7 +3,8 @@
     "pages": [
         "overview",
         "placing-orders",
-        "cancelling-orders"
+        "cancelling-orders",
+        "simplex"
     ],
     "defaultOpen": false
 }

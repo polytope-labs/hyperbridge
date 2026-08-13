@@ -73,7 +73,6 @@ pub enum Error {
 	/// The SP1 Groth16 verifier rejected the proof bytes.
 	#[error("SP1 proof verification failed")]
 	Sp1VerificationFailed,
-
 	// -- ismp-beefy client wrapper --
 	/// The trusted state failed to SCALE-decode into a `ConsensusState`.
 	#[error("Cannot decode consensus state: {0}")]

@@ -1,0 +1,43 @@
+[package]
+name = "pallet-beefy-apk-digest"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+description = "Commits the relay chain's BEEFY BLS public keys to a header digest for APK proofs"
+publish = false
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+log = { workspace = true }
+
+apk-commitment = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
+cumulus-pallet-parachain-system = { workspace = true, default-features = false }
+
+ark-bls12-381 = { version = "0.4.0", features = ["curve"], default-features = false }
+ark-serialize = { version = "0.4.0", default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-io", "sp-runtime"]
+default-features = false
+
+[dev-dependencies]
+hex = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "log/std",
+    "polkadot-sdk/std",
+    "apk-commitment/std",
+    "beefy-verifier-primitives/std",
+    "cumulus-pallet-parachain-system/std",
+    "ark-bls12-381/std",
+    "ark-serialize/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

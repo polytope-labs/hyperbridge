@@ -173,6 +173,63 @@ struct BeefyConsensusProof {
     ParachainProof parachain;
 }
 
+// An authority set identified by its APK commitment rather than by a merkle root over keys.
+//
+// The commitment is Poseidon2 over the validators' BLS12-381 G1 keys, padded to the circuit's
+// fixed width. Unlike the keyset root it does not come from the MMR leaf: hyperbridge publishes it
+// in a header digest, and a client picks it up from a header it has already verified. That is why
+// it is carried in the consensus state rather than supplied with each proof.
+struct ApkAuthoritySet {
+    /// Id of the set.
+    uint64 id;
+    /// Number of validators in the set, for the two-thirds threshold.
+    uint32 len;
+    /// Poseidon2 commitment over the set's G1 public keys.
+    bytes32 apkCommitment;
+}
+
+struct BlsApkConsensusState {
+    /// block number for the latest mmr_root_hash
+    uint256 latestHeight;
+    /// Block number that the beefy protocol was activated on the relay chain.
+    uint256 beefyActivationBlock;
+    /// authorities for the current round
+    ApkAuthoritySet currentAuthoritySet;
+    /// authorities for the next round
+    ApkAuthoritySet nextAuthoritySet;
+}
+
+// A BEEFY relay chain proof verified by a SNARK over the aggregate public key, rather than by a
+// merkle multi-proof of each signer's key.
+//
+// The saving is that nothing here grows with the number of signers: the bitlist is fixed width and
+// the proof is constant size, where the merkle path costs roughly 17k gas per signer.
+struct BlsApkRelayChainProof {
+    // A commitment to the finalized state
+    Commitment commitment;
+    // Which validators signed, one bit each, 1024 slots over five words
+    uint256[5] bitlist;
+    // Aggregate public key in G1, proven correct against the set's APK commitment
+    bytes32[3] apk;
+    // The same aggregate in G2, bound to `apk` by the pairing check inside ApkProof
+    bytes32[6] apk2;
+    // PLONK proof that `apk` is the aggregate of exactly the validators in `bitlist`
+    bytes apkProof;
+    // Sum of the signers' BLS signatures, a G1 point
+    bytes32[3] signature;
+    // Latest leaf added to mmr
+    BeefyMmrLeaf latestMmrLeaf;
+    // Proof for the latest mmr leaf
+    bytes32[] mmrProof;
+}
+
+struct BlsApkBeefyConsensusProof {
+    // The proof items for the relay chain consensus
+    BlsApkRelayChainProof relay;
+    // Proof items for parachain headers
+    ParachainProof parachain;
+}
+
 struct DigestItem {
     bytes4 consensusId;
     bytes data;
@@ -203,6 +260,8 @@ library HeaderImpl {
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
     /// ConsensusID for the ISMP timestamp digest deposited by pallet-ismp
     bytes4 public constant ISMP_TIMESTAMP_ID = bytes4("ISTM");
+    /// ConsensusID for the APK commitment digest deposited by pallet-beefy-apk-digest
+    bytes4 public constant APK_COMMITMENT_ID = bytes4("APKC");
 
     error TimestampNotFound();
 
@@ -228,5 +287,35 @@ library HeaderImpl {
         if (timestamp == 0) revert TimestampNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
+    }
+
+    /// @dev The commitment to the relay chain's next BEEFY authority set, if this header carries
+    /// one. Written by `pallet-beefy-apk-digest` on the block a set finishes being absorbed, so
+    /// most headers do not have it and `found` is false for those.
+    ///
+    /// The header itself is already authenticated, through the parachain heads root in the BEEFY
+    /// MMR leaf, so no further proof is needed: `commitment` can go straight to `ApkProof.verify`
+    /// as `publicKeysCommitment`, and `setId` says which authority set it describes.
+    ///
+    /// Payload is SCALE: a u64 set id little-endian, then the 32 byte commitment.
+    function apkCommitment(Header memory self)
+        internal
+        pure
+        returns (bool found, uint64 setId, bytes32 commitment)
+    {
+        for (uint256 j = 0; j < self.digests.length; j++) {
+            if (!self.digests[j].isConsensus) continue;
+            if (self.digests[j].consensus.consensusId != APK_COMMITMENT_ID) continue;
+
+            bytes memory data = self.digests[j].consensus.data;
+            // Ignore a malformed item rather than reverting: a wrong length means some other
+            // producer wrote under this engine id, and the caller should see "absent", not fail.
+            if (data.length != 40) continue;
+
+            setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
+            commitment = Bytes.toBytes32(Bytes.substr(data, 8));
+            return (true, setId, commitment);
+        }
+        return (false, 0, bytes32(0));
     }
 }

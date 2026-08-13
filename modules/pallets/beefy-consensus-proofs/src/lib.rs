@@ -480,6 +480,9 @@ pub mod pallet {
 					}
 					Some(nonce)
 				},
+				// Only SP1 proofs are bound to a prover account. The naive path verifies
+				// signatures the relay chain's validators produced, so there is nothing
+				// prover-specific in it to bind and no anti-theft gate to apply.
 				types::PROOF_TYPE_NAIVE => None,
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};

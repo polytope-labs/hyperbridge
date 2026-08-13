@@ -73,13 +73,57 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 			(justfication.0 == sp_consensus_beefy::BEEFY_ENGINE_ID).then(|| justfication.1)
 		})
 		.expect("Should have valid beefy justification");
-	let VersionedFinalityProof::V1(signed_commitment) = VersionedFinalityProof::<
-		u32,
-		sp_consensus_beefy::ecdsa_crypto::Signature,
-	>::decode(&mut &*beefy_justification)
-	.expect("Beefy justification should decode correctly");
+	let signed_commitment = decode_beefy_justification(&beefy_justification)?;
 
 	Ok((signed_commitment, latest_beefy_finalized))
+}
+
+/// Decode a BEEFY justification into a `SignedCommitment` carrying 65-byte ECDSA signatures.
+///
+/// On a plain-ECDSA relay the signatures decode directly. With the `bls` feature (a relay whose
+/// BEEFY authorities use the paired `ecdsa_bls_crypto` key type) the on-wire signatures are
+/// 177-byte paired signatures; we decode them and keep only the ECDSA half (the first 65 bytes, a
+/// keccak-ECDSA recoverable signature). Both paths return the same type, so commitment hashing,
+/// signature recovery and the ECDSA verifier all stay as they are.
+pub fn decode_beefy_justification(
+	bytes: &[u8],
+) -> Result<SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, anyhow::Error> {
+	#[cfg(not(feature = "bls"))]
+	{
+		let VersionedFinalityProof::V1(signed_commitment) = VersionedFinalityProof::<
+			u32,
+			sp_consensus_beefy::ecdsa_crypto::Signature,
+		>::decode(&mut &*bytes)?;
+		Ok(signed_commitment)
+	}
+	#[cfg(feature = "bls")]
+	{
+		/// A 177-byte paired (ECDSA, BLS12-381) signature exactly as SCALE-encoded on the wire.
+		struct Sig177([u8; 177]);
+		impl codec::Decode for Sig177 {
+			fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+				let mut bytes = [0u8; 177];
+				input.read(&mut bytes)?;
+				Ok(Sig177(bytes))
+			}
+		}
+
+		let VersionedFinalityProof::V1(paired) =
+			VersionedFinalityProof::<u32, Sig177>::decode(&mut &*bytes)?;
+		let signatures = paired
+			.signatures
+			.into_iter()
+			.map(|maybe_sig| {
+				maybe_sig
+					.map(|sig| {
+						// The ECDSA half is the first 65 bytes: r || s || v.
+						sp_consensus_beefy::ecdsa_crypto::Signature::decode(&mut &sig.0[..65])
+					})
+					.transpose()
+			})
+			.collect::<Result<Vec<_>, _>>()?;
+		Ok(SignedCommitment { commitment: paired.commitment, signatures })
+	}
 }
 
 /// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
@@ -184,11 +228,7 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 		if (current_set_id..=(current_set_id + 1)).contains(&set_id) &&
 			beefy_justification.is_some()
 		{
-			let VersionedFinalityProof::V1(signed_commitment) =
-				VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(
-					&mut &*beefy_justification.unwrap(),
-				)
-				.expect("Beefy justification should decode correctly");
+			let signed_commitment = decode_beefy_justification(&beefy_justification.unwrap())?;
 			break (signed_commitment, block_hash);
 		}
 		block_hash = SubstrateHeader::<u32, T::Hasher>::decode(&mut &*block.block.header.encode())
@@ -258,14 +298,23 @@ pub async fn query_mmr_leaf<T: Config>(
 	let leaf_extra = {
 		let heads = paras_parachains(rpc, Some(parent_hash)).await?;
 
-		// Calculate leaf hashes from the parachain headers
-		let leaf_hashes = heads.iter().map(|leaf| keccak_256(&leaf.encode())).collect::<Vec<_>>();
+		if heads.is_empty() {
+			// A relay chain with no registered parachains commits an empty parachain-heads root.
+			// The runtime uses `binary_merkle_tree::merkle_root`, which returns `H::Out::default()`
+			// for an empty leaf set. `rs_merkle`'s empty tree has no root (`.root()` is `None`), so
+			// mirror the runtime here instead of erroring.
+			H256::default()
+		} else {
+			// Calculate leaf hashes from the parachain headers
+			let leaf_hashes =
+				heads.iter().map(|leaf| keccak_256(&leaf.encode())).collect::<Vec<_>>();
 
-		let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaf_hashes);
-		let root = tree
-			.root()
-			.ok_or_else(|| anyhow!("Failed to parachain heads calculate root!"))?;
-		H256(root)
+			let tree = MerkleTree::<MerkleHasher>::from_leaves(&leaf_hashes);
+			let root = tree
+				.root()
+				.ok_or_else(|| anyhow!("Failed to parachain heads calculate root!"))?;
+			H256(root)
+		}
 	};
 	let leaf = MmrLeaf {
 		version: MmrLeafVersion::new(0, 0),

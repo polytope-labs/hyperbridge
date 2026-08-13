@@ -57,7 +57,16 @@ class MemoryBidStore implements BidStore {
 			retractExtrinsicHash: null,
 			dead: false,
 		})
-		if (this.rows.length > MAX_ROWS) this.rows.splice(0, this.rows.length - MAX_ROWS)
+		if (this.rows.length > MAX_ROWS) {
+			// Only ever drop rows with nothing left to reclaim. A successful or pending
+			// bid holds a Hyperbridge deposit that the sweep finds by querying this
+			// store, so evicting one by age strands it — and this store is the
+			// library's default, which is exactly where that is least survivable.
+			const settled = this.rows.filter((row) => row.retracted || (!row.success && !row.pending))
+			const excess = this.rows.length - MAX_ROWS
+			const drop = new Set(settled.slice(0, excess))
+			if (drop.size > 0) this.rows = this.rows.filter((row) => !drop.has(row))
+		}
 	}
 
 	async byCommitment(commitment: string): Promise<StoredBid | null> {

@@ -29,6 +29,8 @@ const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
  */
 const DEFAULT_SCAN_INTERVAL_MS = DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS * 1000
 const MAX_BLOCK_RANGE = 1_000n
+/** How long stop() waits for an in-flight scan before giving up on a clean drain. */
+const STOP_DRAIN_TIMEOUT_MS = 5_000
 
 /**
  * One block-scan loop for one (chain, gateway, endpoint set), feeding any number
@@ -260,8 +262,15 @@ export class ChainScanner {
 			this.timer = undefined
 		}
 		// Wait out an in-flight scan so nothing is still retrying or publishing after
-		// this resolves — otherwise a host that stopped every filler still refuses to exit.
-		await this.mutex.runExclusive(async () => {})
+		// this resolves — otherwise a host that stopped every filler still refuses to
+		// exit. Bounded, though: a scan blocked on an unresponsive endpoint sits
+		// inside a retry ladder that can run for minutes, and shutdown must not.
+		// `stopped` is already set, so a scan that outlives the wait publishes
+		// nothing and its interval is cleared.
+		await Promise.race([
+			this.mutex.runExclusive(async () => {}),
+			new Promise<void>((resolve) => setTimeout(resolve, STOP_DRAIN_TIMEOUT_MS).unref?.()),
+		])
 		this.logger.info({ chainId: this.target.chainId }, "Shared block scanner stopped")
 	}
 }

@@ -162,18 +162,24 @@ await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "0.999" }])
 await simplex.pairs.setMaxOrderSize(0, "10000")
 
 // Open a cross-asset market — it lands at index 1.
-await simplex.pairs.add({ token0: "USDC", token1: "CNGN",
-                          maxOrderSize: "5000",
-                          bidPriceCurve: [{ amount: "0", price: "1545" }],
-                          askPriceCurve: [{ amount: "0", price: "1550" }] })
+await simplex.pairs.add({
+    token0: "USDC",
+    token1: "CNGN",
+    maxOrderSize: "5000",
+    // Both curves are CNGN per USDC. Bid is the solver buying CNGN, so it
+    // wants more CNGN per USDC; ask is selling, so it wants to give fewer.
+    // An uncrossed book therefore has bid ABOVE ask — the gap is the spread.
+    bidPriceCurve: [{ amount: "0", price: "1550" }],
+    askPriceCurve: [{ amount: "0", price: "1545" }],
+})
 
 // One-sided LP: stop buying CNGN, keep selling it.
 await simplex.pairs.clearCurve(1, "bid")
-await simplex.pairs.remove(1)
 ```
 
 `setCurve` mutates the policy instance the engine prices with, so the new curve is live on the next
-evaluation. New pairs are validated against the same rules boot applies — a pair accepted here is
+evaluation. `pairs.remove(index)` closes a market; indices shift down, so remove from the highest
+index first if you are closing several. New pairs are validated against the same rules boot applies — a pair accepted here is
 one a restart would also accept.
 
 Repricing from a market feed is the common case:
@@ -182,8 +188,8 @@ Repricing from a market feed is the common case:
 // Pair 1 is the cross-asset market added above — two-sided, so both
 // curves apply. A same-token pair takes an ask curve only.
 feed.on("tick", async ({ mid }) => {
-    const bid = (mid * 0.999).toFixed(4)
-    const ask = (mid * 1.001).toFixed(4)
+    const bid = (mid * 1.001).toFixed(4)
+    const ask = (mid * 0.999).toFixed(4)
     await simplex.pairs.setCurve(1, "bid", [{ amount: "0", price: bid }])
     await simplex.pairs.setCurve(1, "ask", [{ amount: "0", price: ask }])
 })
@@ -227,8 +233,11 @@ await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
 simplex.assets.resolve("USDC", "EVM-8453")
 
 await simplex.rebalancing.set({
-    triggerPercentage: 20,
-    baseBalances: { USDC: { "EVM-8453": "10000" } },
+    // A fraction, not a percentage: rebalance once the balance falls to
+    // (1 - triggerPercentage) x base, so 0.2 triggers at 80% of base.
+    triggerPercentage: 0.2,
+    // Keyed by numeric chain id as a string, not the state machine id.
+    baseBalances: { USDC: { "8453": "10000" } },
 })
 await simplex.rebalancing.trigger()
 ```
@@ -270,8 +279,8 @@ const simplex = await Simplex.start({
 ```
 
 Without it, edits apply live but do not survive a restart — `configPath` alone does not persist them;
-it is informational. The binary does not persist runtime edits either: it passes no handler, so its
-edits are live-only too.
+it is informational. The binary persists its own edits by a different route — its dashboard writes
+the TOML file directly — so `onConfigChange` is the library's equivalent, not a wrapper around it.
 
 ## Multiple Simplex Instances
 

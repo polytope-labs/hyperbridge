@@ -30,8 +30,11 @@ export interface SimplexOptions {
 	 */
 	data?: SimplexDataStore
 	/**
-	 * Where this config was loaded from, if anywhere. Only used to write runtime
-	 * edits back to disk; omit it and edits apply live but do not survive a restart.
+	 * Where this config was loaded from, if anywhere. Informational — it is
+	 * surfaced in logs and to the bundled dashboard, which does write the file.
+	 * The library itself never writes it: persisting a runtime edit is what
+	 * `onConfigChange` is for, and without that handler edits apply live but do
+	 * not survive a restart.
 	 */
 	configPath?: string
 	/** Directory for anything the filler writes outside the data store. */

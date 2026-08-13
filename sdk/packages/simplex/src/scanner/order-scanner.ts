@@ -31,9 +31,15 @@ export class OrderScanner implements OrderScannerContract {
 	private readonly scanners = new Map<number, ChainScanner>()
 	private readonly orders: FanOut<ScannedOrder>
 	private readonly fills: FanOut<ScannedFill>
-	private readonly errors = new Set<(error: unknown, chainId: number) => void>()
+	// Boxed per subscription, not a Set of raw functions: two subscribers passing
+	// the same handler reference — the common case when one module wires several
+	// fillers — would otherwise share a single Set entry, and the first to close
+	// would silently deafen the rest.
+	private readonly errors = new Set<{ handler: (error: unknown, chainId: number) => void }>()
 	private readonly logger: Logger
 	private closed = false
+	/** Serialises edits, so one suspended on an RPC probe cannot race close(). */
+	private edits: Promise<void> = Promise.resolve()
 
 	private constructor(
 		private readonly loggers: LoggerContext,
@@ -93,13 +99,14 @@ export class OrderScanner implements OrderScannerContract {
 
 		const orderConsumer = this.orders.add(handlers.onOrder)
 		const fillConsumer = this.fills.add(handlers.onFill)
-		if (handlers.onError) this.errors.add(handlers.onError)
+		const errorEntry = handlers.onError ? { handler: handlers.onError } : undefined
+		if (errorEntry) this.errors.add(errorEntry)
 
 		return {
 			close: () => {
 				orderConsumer.close()
 				fillConsumer.close()
-				if (handlers.onError) this.errors.delete(handlers.onError)
+				if (errorEntry) this.errors.delete(errorEntry)
 			},
 			get dropped() {
 				return orderConsumer.dropped + fillConsumer.dropped
@@ -117,10 +124,25 @@ export class OrderScanner implements OrderScannerContract {
 	}
 
 	async addChain(chain: ScannerChainConfig): Promise<number> {
+		// Serialised: resolving a chain id is a network probe, and an add that
+		// suspended there would otherwise resume after a close() that had already
+		// seen an empty map — installing a scan loop nothing can reap, on an
+		// interval that keeps the host's event loop alive forever.
+		const run = this.edits.then(() => this.addChainNow(chain))
+		this.edits = run.then(
+			() => undefined,
+			() => undefined,
+		)
+		return run
+	}
+
+	private async addChainNow(chain: ScannerChainConfig): Promise<number> {
 		if (this.closed) throw new Error("This OrderScanner is closed")
 
 		const rpcUrls = validateRpcUrls(chain.rpcUrls)
 		const chainId = chain.chainId ?? (await fetchChainId(rpcUrls[0]))
+		// Re-checked after the probe: close() may have run while it was in flight.
+		if (this.closed) throw new Error("This OrderScanner is closed")
 		if (this.scanners.has(chainId)) {
 			throw new Error(`Chain ${chainId} is already in this scanner`)
 		}
@@ -136,9 +158,9 @@ export class OrderScanner implements OrderScannerContract {
 		scanner.onOrder((event) => this.orders.publish(event))
 		scanner.onFill((event) => this.fills.publish(event))
 		scanner.onError((error) => {
-			for (const handler of this.errors) {
+			for (const entry of this.errors) {
 				try {
-					handler(error, chainId)
+					entry.handler(error, chainId)
 				} catch {
 					// One subscriber's error handler must not break the scanner for the rest.
 				}
@@ -189,6 +211,9 @@ export class OrderScanner implements OrderScannerContract {
 	async close(): Promise<void> {
 		if (this.closed) return
 		this.closed = true
+		// Let an addChain that is mid-probe finish and fail its own closed check,
+		// so it cannot install a loop behind us.
+		await this.edits
 		await Promise.all([...this.scanners.values()].map((scanner) => scanner.stop()))
 		this.scanners.clear()
 		this.errors.clear()

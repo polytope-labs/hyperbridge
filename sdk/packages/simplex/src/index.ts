@@ -107,7 +107,8 @@ export type { AllowlistConfig, UserProvidedChainConfig, ResolvedChainConfig } fr
 export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/services/BalanceProvider"
 
 // ─── Logging ────────────────────────────────────────────────────────────────
-// The filler logs through pino. Set the level before starting to capture boot.
+// Silent until a sink is registered — `SimplexOptions.logger` is the usual way,
+// and `addLogSink` covers anything logged outside a filler's lifetime.
 
-export { getLogger, configureLogger } from "@/services/Logger"
-export type { LogLevel, Logger } from "@/services/Logger"
+export { addLogSink, configureLogger, getLogger } from "@/services/Logger"
+export type { LogLevel, Logger, LogSink } from "@/services/Logger"

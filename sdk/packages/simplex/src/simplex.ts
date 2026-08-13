@@ -8,7 +8,7 @@ import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
-import { configureLogger, getLogger, type LogLevel } from "@/services/Logger"
+import { addLogSink, configureLogger, getLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
@@ -35,6 +35,15 @@ export interface SimplexOptions {
 	dataDir?: string
 	/** Forces watch-only on every chain, whatever the config says. */
 	watchOnly?: boolean
+	/**
+	 * Where to send log records, one NDJSON line per record. Anything
+	 * Writable-shaped works: `process.stdout`, a file stream, a socket, a
+	 * `pino-pretty` transform, or an object that forwards into your own logger.
+	 *
+	 * Omit it and the filler logs nothing. A library writing to its host's stdout
+	 * uninvited is the host's problem to clean up, so silence is the default.
+	 */
+	logger?: LogSink
 	/**
 	 * Called after any mutation that changes the effective config, so a host can
 	 * persist it however it likes.
@@ -615,6 +624,7 @@ export class Simplex extends EventEmitter {
 	private constructor(
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
+		private detachLogger?: () => void,
 	) {
 		super()
 		const persist = () => this.persistConfig()
@@ -635,18 +645,26 @@ export class Simplex extends EventEmitter {
 	 * never returned. On success the filler is already scanning.
 	 */
 	static async start(options: SimplexOptions): Promise<Simplex> {
-		// bootFiller validates before it touches anything; the log level is set
-		// first only so boot's own output honours it.
+		// Sink and level are wired first so boot's own output is captured at the
+		// configured verbosity; bootFiller validates before it touches anything.
 		if (options.config.simplex.logging) {
 			configureLogger(options.config.simplex.logging as LogLevel)
 		}
-		const runtime = await bootFiller(options.config, {
+		const detachLogger = options.logger ? addLogSink(options.logger) : undefined
+		let runtime: FillerRuntime
+		try {
+			runtime = await bootFiller(options.config, {
 			configPath: options.configPath,
-			data: options.data ?? new MemoryDataStore(),
-			dataDir: options.dataDir,
-			watchOnlyOverride: options.watchOnly,
-		})
-		return new Simplex(runtime, options)
+				data: options.data ?? new MemoryDataStore(),
+				dataDir: options.dataDir,
+				watchOnlyOverride: options.watchOnly,
+			})
+		} catch (error) {
+			// A filler that never started has no stop() to detach in.
+			detachLogger?.()
+			throw error
+		}
+		return new Simplex(runtime, options, detachLogger)
 	}
 
 	/** Re-emits the filler's internal events under their public names. */
@@ -698,6 +716,8 @@ export class Simplex extends EventEmitter {
 		this.stopped = true
 		await this.runtime.shutdown("Simplex.stop")
 		this.removeAllListeners()
+		// Last, so shutdown's own output still reaches the host's sink.
+		this.detachLogger?.()
 	}
 
 	// ─── Introspection ──────────────────────────────────────────────────────

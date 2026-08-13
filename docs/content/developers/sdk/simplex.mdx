@@ -249,16 +249,47 @@ as theirs to retract.
 
 ## Logging
 
-The filler logs through [pino](https://getpino.io). Set the level before starting to capture boot:
+**The library writes nothing anywhere until you tell it where.** Importing
+`@hyperbridge/simplex` does not touch your stdout, install a formatter, or spawn a transport worker —
+a library has no business logging into a host process uninvited.
+
+Point `logger` at any sink: it receives one NDJSON record per line, and anything Writable-shaped
+works.
 
 ```ts
-import { configureLogger, getLogger } from "@hyperbridge/simplex"
+import { createWriteStream } from "node:fs"
 
-configureLogger("debug")
-const log = getLogger("my-app")
+const simplex = await Simplex.start({
+    config,
+    logger: createWriteStream("filler.log", { flags: "a" }),
+})
 ```
 
-`simplex.setLogLevel("warn")` changes it on a running filler.
+Forwarding into a logger you already have is the same shape:
+
+```ts
+const simplex = await Simplex.start({
+    config,
+    logger: { write: (line) => myLogger.write(JSON.parse(line)) },
+})
+```
+
+Or `process.stdout` if you do want it on the console. For the binary's colourised output, pipe
+through `pino-pretty` yourself — formatting is a presentation choice that belongs to your
+application, not to this package.
+
+Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on a running filler,
+which applies immediately including to services already constructed. Level alone produces no output;
+a sink is still required.
+
+`addLogSink(sink)` registers a destination outside a filler's lifetime and returns a function that
+removes it — useful for capturing what validators log before you start anything.
+
+<Callout type="info">
+    Sinks are process-wide rather than per-filler, so two `Simplex` instances in one process both
+    write to every registered sink. Records carry a `moduleTag` but not an instance id; tag your
+    sinks if you need to tell two fillers apart.
+</Callout>
 
 ## Validating a config without starting
 

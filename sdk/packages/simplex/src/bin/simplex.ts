@@ -14,7 +14,8 @@ import { Simplex } from "@/simplex"
 import { MetricsService } from "@/cli/metrics"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
-import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import { addLogSink, getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import prettyStream from "pino-pretty"
 import {
 	FillerConfigService,
 	type ResolvedChainConfig,
@@ -45,6 +46,25 @@ const packageJsonPath = resolve(__dirname, "../../package.json")
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
 
 const DEFAULT_UI_PORT = 8686
+
+/**
+ * Sends the library's log records to this process's stdout, pretty-printed.
+ *
+ * The library logs nowhere until something registers a sink — correct for an
+ * embedded filler, and the CLI *is* the application, so opting in here is the
+ * whole point. Formatting happens in-process rather than through pino's
+ * worker-thread transport, which keeps startup off the thread-stream path.
+ */
+function attachConsoleLogging(): void {
+	const pretty = prettyStream({
+		colorize: true,
+		singleLine: true,
+		ignore: "pid,hostname,moduleTag",
+		messageFormat: "{moduleTag}: {msg}",
+	})
+	pretty.pipe(process.stdout)
+	addLogSink(pretty)
+}
 
 /**
  * Where the CLI keeps its SQLite databases and runtime state. Matches the
@@ -398,6 +418,10 @@ program
 			process.exit(1)
 		}
 	})
+
+// The library is silent until a sink is registered; as the application, the CLI
+// registers stdout for every subcommand.
+attachConsoleLogging()
 
 // Parse command line arguments
 program.parse(process.argv)

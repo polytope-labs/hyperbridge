@@ -33,7 +33,8 @@ await simplex.stop()
 ```
 
 `Simplex.start` takes a plain config object — no TOML file required — and returns once the filler is
-running. Persistence is pluggable: the default store is in-memory, `SqliteDataStore` is durable, and
+running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
+your stdout. Persistence is pluggable: the default store is in-memory, `SqliteDataStore` is durable, and
 `SimplexDataStore` is a small async interface you can implement over Postgres, Redis or anything
 else. A filler that submits bids should use a durable store, since bid records are how locked
 deposits are found again for retraction.

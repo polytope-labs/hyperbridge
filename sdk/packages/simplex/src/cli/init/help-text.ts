@@ -1,6 +1,6 @@
 /**
  * One-line "why" explanations shown before each prompt. Sourced from
- * docs/content/developers/evm/intent-gateway/simplex.mdx — keep the two in sync.
+ * docs/content/developers/evm/simplex/binary.mdx — keep the two in sync.
  */
 export const WHY = {
 	chains: "Simplex listens for orders and fills only on the chains you pick. Each chain needs its own RPC, an ERC-4337 bundler, and funded balances (native gas + stablecoins).",

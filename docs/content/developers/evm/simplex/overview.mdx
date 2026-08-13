@@ -1,0 +1,84 @@
+---
+title: Overview
+description: Simplex is an automated filler for the Hyperbridge Intent Gateway. Run it as a standalone binary or embed it in your own Node application.
+---
+
+# Simplex
+
+Simplex is an automated filler for the [Intent Gateway](/developers/evm/intent-gateway/overview). It
+watches configured chains for `OrderPlaced` events, waits for the confirmation depth its risk policy
+requires, prices each order against your trading pairs, and fills the profitable ones. Fillers earn
+the difference between order inputs and outputs.
+
+There are two ways to run it, and they are the same filler underneath.
+
+## Running the binary
+
+The `simplex` binary is the complete package: a setup wizard, a config file, a local web dashboard,
+Prometheus metrics and a Docker image. Point it at a `filler-config.toml` and it runs.
+
+```bash
+docker run -d --name simplex --restart unless-stopped \
+    -p 127.0.0.1:8686:8686 \
+    -v simplex-data:/data \
+    polytopelabs/simplex:latest
+```
+
+This is the right choice if you want a filler running and nothing else. See
+[Running the binary](/developers/evm/simplex/binary).
+
+## Running as a library
+
+`@hyperbridge/simplex` exposes the same filler as a class, so you can start one inside your own
+process, drive it from your own control plane, and persist its state wherever you already keep data.
+
+```ts
+import { Simplex } from "@hyperbridge/simplex"
+
+const simplex = await Simplex.start({ config })
+
+simplex.on("order:filled", ({ orderId, profitUsd }) => {
+    console.log(`filled ${orderId} for $${profitUsd}`)
+})
+```
+
+This is the right choice if the filler is one component of a larger system — you already have a
+database, a dashboard, an alerting pipeline, or your own pricing logic that needs to update curves
+as the market moves. See [Running as a library](/developers/evm/simplex/library).
+
+## Which to choose
+
+| | Binary | Library |
+|---|---|---|
+| Configuration | `filler-config.toml` | plain config object |
+| Control surface | web dashboard + JSON API | the `Simplex` class |
+| Persistence | SQLite in a data directory | any `SimplexDataStore` you implement |
+| Observability | Prometheus endpoint, activity feed | typed event stream |
+| Runs in | its own process or container | your process |
+
+Everything the dashboard can change at runtime — price curves, per-order caps, trading pairs,
+chains and RPC endpoints, vaults, the allowlist — the library exposes as methods, because the
+dashboard is built on the same class.
+
+## How filling works
+
+An order is filled only when **two independent checks both pass**:
+
+1. **Fees cover execution.** `order.fees` must cover the fill gas and, for a cross-chain order, the
+   relayer fee for delivering the escrow-release message back to the source chain. The swap spread
+   is never credited toward this — fees must stand on their own.
+2. **The swap is profitable.** The filler's margin must be positive on every leg individually, in
+   that leg's own quote asset.
+
+Markets are declared as **pairs**: `token0`/`token1` symbols with bid and ask price curves quoted in
+token1 per token0. A pair whose two sides are the same symbol (`USDC`/`USDC`) is the same-asset
+cross-chain market. Both the binary and the library use the same pair model — the
+[configuration reference](/developers/evm/simplex/binary#configuration) documents it once, and the
+library takes the same fields as an object.
+
+## Requirements
+
+- A funded EOA on each chain you fill on, holding the assets your pairs quote
+- An ERC-4337 bundler endpoint per chain
+- A Hyperbridge account and WebSocket endpoint — Simplex always bids through solver selection
+- Node.js 18+ for the library; nothing but Docker for the container

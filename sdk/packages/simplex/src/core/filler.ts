@@ -17,13 +17,8 @@ import {
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import type { Address } from "viem"
 import pQueue from "p-queue"
-import {
-	BidStorageService,
-	ChainClientManager,
-	ContractInteractionService,
-	DelegationService,
-	RebalancingService,
-} from "@/services"
+import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
+import type { BidStore } from "@/data/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
@@ -48,7 +43,7 @@ export class IntentFiller {
 	private contractService: ContractInteractionService
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
-	private bidStorage?: BidStorageService
+	private bidStorage?: BidStore
 	private retractionQueue: pQueue
 	private paused = false
 	private pendingRetractions = new Set<string>()
@@ -82,7 +77,7 @@ export class IntentFiller {
 		contractService: ContractInteractionService,
 		signer: SigningAccount,
 		rebalancingService?: RebalancingService,
-		bidStorage?: BidStorageService,
+		bidStorage?: BidStore,
 	) {
 		this.configService = configService
 		this.signer = signer
@@ -120,7 +115,10 @@ export class IntentFiller {
 		})
 
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId }) => {
-			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId)
+			this.handleOrderFilledOnChain(commitment as HexString, filler, chainId).catch((err) => {
+				// The retraction sweep still picks this bid up on its next cycle.
+				this.logger.error({ commitment, err }, "Failed to handle on-chain fill")
+			})
 		})
 	}
 
@@ -136,10 +134,15 @@ export class IntentFiller {
 	}
 
 	public async initialize(): Promise<void> {
-		// Check which chains have solver selection active
-		const chainIds = this.configService.getConfiguredChainIds()
-		const chainsWithSolverSelection: string[] = []
+		const chains = await this.solverSelectionChains(this.configService.getConfiguredChainIds())
+		// Boot tolerates partial failure: as long as one chain delegated, the
+		// filler is useful. Only a total failure is fatal.
+		await this.setupSolverSelection(chains, { requireAll: false })
+	}
 
+	/** Chains that both fill and have solver selection active, as state machine ids. */
+	private async solverSelectionChains(chainIds: number[]): Promise<string[]> {
+		const active: string[] = []
 		for (const chainId of chainIds) {
 			// Watch-only chains never fill, so they never need EIP-7702 delegation
 			// or an EntryPoint deposit. Skipping them lets a signerless watch-only
@@ -147,58 +150,109 @@ export class IntentFiller {
 			// delegation that would fail on the unfunded account.
 			if (this.isChainWatchOnly(chainId)) continue
 			const chain = `EVM-${chainId}`
-			const isActive = await this.contractService.isSolverSelectionActive(chain)
-			if (isActive) {
-				chainsWithSolverSelection.push(chain)
+			if (await this.contractService.isSolverSelectionActive(chain)) {
+				active.push(chain)
 				this.logger.info({ chain }, "Solver selection is active on chain")
 			}
 		}
+		return active
+	}
 
-		// Set up delegation service on chains where solver selection is active
-		if (chainsWithSolverSelection.length > 0 && this.hyperbridge) {
-			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.signer)
-			this.logger.info(
-				{ chains: chainsWithSolverSelection },
-				"Setting up EIP-7702 delegation on chains with solver selection",
-			)
-			const result = await this.delegationService.setupDelegationOnChains(chainsWithSolverSelection)
-			if (!result.success) {
-				const failedChains = Object.entries(result.results)
-					.filter(([, ok]) => !ok)
-					.map(([chain]) => chain)
-				const allFailed = failedChains.length === chainsWithSolverSelection.length
-				if (allFailed) {
-					this.logger.error(
-						{ results: result.results },
-						"EIP-7702 delegation failed on all chains; shutting down",
-					)
-					throw new Error(
-						`EIP-7702 delegation failed on all chains: ${failedChains.join(", ")}. Shutting down for restart.`,
-					)
-				}
-				this.logger.warn(
-					{ failedChains, results: result.results },
-					"Some chains failed EIP-7702 delegation setup; continuing on remaining chains",
+	/**
+	 * Delegates the filler EOA via EIP-7702 and tops up EntryPoint deposits.
+	 *
+	 * `requireAll` distinguishes the two callers. At boot a partial failure is
+	 * survivable and only a total one shuts the filler down. When a single chain
+	 * is being added at runtime, any failure must reject the call so the caller
+	 * can roll the chain back — a chain left scanning but unable to bid would
+	 * look configured while silently declining every order on it.
+	 */
+	private async setupSolverSelection(chains: string[], { requireAll }: { requireAll: boolean }): Promise<void> {
+		if (chains.length === 0 || !this.hyperbridge) return
+
+		this.delegationService ??= new DelegationService(this.chainClientManager, this.configService, this.signer)
+		this.logger.info({ chains }, "Setting up EIP-7702 delegation on chains with solver selection")
+
+		const result = await this.delegationService.setupDelegationOnChains(chains)
+		if (!result.success) {
+			const failedChains = Object.entries(result.results)
+				.filter(([, ok]) => !ok)
+				.map(([chain]) => chain)
+			if (requireAll) {
+				throw new Error(`EIP-7702 delegation failed on ${failedChains.join(", ")}`)
+			}
+			if (failedChains.length === chains.length) {
+				this.logger.error({ results: result.results }, "EIP-7702 delegation failed on all chains; shutting down")
+				throw new Error(
+					`EIP-7702 delegation failed on all chains: ${failedChains.join(", ")}. Shutting down for restart.`,
 				)
 			}
+			this.logger.warn(
+				{ failedChains, results: result.results },
+				"Some chains failed EIP-7702 delegation setup; continuing on remaining chains",
+			)
+		}
 
-			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have any paymaster (Circle or Simplex) configured.
-			// Chains with a paymaster pay gas in stablecoins instead.
-			// Paymaster authorization is handled per-order inside buildPaymasterAndData.
-			const targetGasUnits = this.configService.getTargetGasUnits()
-			for (const chain of chainsWithSolverSelection) {
-				if (hasPaymaster(chain, this.configService)) {
-					this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
-					continue
-				}
-				try {
-					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
-				} catch (err) {
-					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
-				}
+		// Ensure EntryPoint deposit covers target gas units on chains
+		// that do NOT have any paymaster (Circle or Simplex) configured.
+		// Chains with a paymaster pay gas in stablecoins instead.
+		// Paymaster authorization is handled per-order inside buildPaymasterAndData.
+		const targetGasUnits = this.configService.getTargetGasUnits()
+		for (const chain of chains) {
+			if (hasPaymaster(chain, this.configService)) {
+				this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
+				continue
+			}
+			try {
+				await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
+			} catch (err) {
+				// Non-fatal on both paths: the deposit is topped up again after
+				// every fill, so a transient RPC failure here self-heals.
+				this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
 			}
 		}
+	}
+
+	/**
+	 * Brings a chain into the running filler: gives it an execution queue,
+	 * delegates on it if solver selection is active, then starts its scanner.
+	 *
+	 * Ordering matters. The queue exists before the scanner starts, because an
+	 * order arriving on a chain with no queue would throw at execution time; and
+	 * the scanner starts last, so a chain that fails delegation never sees an
+	 * order at all. Any failure rolls the queue back and rethrows.
+	 */
+	public async addChain(chainConfig: ChainConfig): Promise<void> {
+		const { chainId } = chainConfig
+		if (this.chainQueues.has(chainId)) {
+			throw new Error(`Chain ${chainId} is already running`)
+		}
+		// 1 order per chain at a time due to EVM constraints
+		this.chainQueues.set(chainId, new pQueue({ concurrency: 1 }))
+		try {
+			await this.setupSolverSelection(await this.solverSelectionChains([chainId]), { requireAll: true })
+			await this.monitor.addChain(chainId)
+		} catch (error) {
+			this.chainQueues.delete(chainId)
+			throw error
+		}
+		this.logger.info({ chainId }, "Chain added to the running filler")
+	}
+
+	/**
+	 * Removes a chain. Stops the scanner first so nothing new is queued, then
+	 * drains what is already in flight — dropping the queue under a running fill
+	 * would strand it mid-execution.
+	 */
+	public async removeChain(chainId: number): Promise<void> {
+		await this.monitor.removeChain(chainId)
+		const queue = this.chainQueues.get(chainId)
+		if (queue) {
+			await queue.onIdle()
+			this.chainQueues.delete(chainId)
+		}
+		if (this.config.watchOnly) delete this.config.watchOnly[chainId]
+		this.logger.info({ chainId }, "Chain removed from the running filler")
 	}
 
 	/**
@@ -207,10 +261,7 @@ export class IntentFiller {
 	 * Returns the number of bids queued for retraction.
 	 */
 	public async retractStaleBids(maxAgeMs = 60 * 60 * 1000): Promise<number> {
-		if (!this.bidStorage || !this.hyperbridge) return 0
-		const expired = this.bidStorage.getExpiredUnretractedBids(maxAgeMs)
-		await this.sweepExpiredBids(maxAgeMs)
-		return expired.length
+		return this.sweepExpiredBids(maxAgeMs)
 	}
 
 	public start(): void {
@@ -338,21 +389,23 @@ export class IntentFiller {
 		this.logger.info("Periodic retraction sweep started (every 5 minutes; 1h TTL, dead bids swept next cycle)")
 	}
 
-	private async sweepExpiredBids(maxAgeMs: number): Promise<void> {
+	/** Enqueues retraction for every due bid; returns how many were queued. */
+	private async sweepExpiredBids(maxAgeMs: number): Promise<number> {
 		if (!this.bidStorage || !this.hyperbridge) {
-			return
+			return 0
 		}
 
-		const expired = this.bidStorage.getExpiredUnretractedBids(maxAgeMs)
+		const expired = await this.bidStorage.expiredUnretracted(maxAgeMs)
 		if (expired.length === 0) {
-			return
+			return 0
 		}
 
 		this.logger.info({ count: expired.length }, "Sweeping expired unretracted bids")
 
 		for (const bid of expired) {
-			this.enqueueRetraction(bid.commitment)
+			this.enqueueRetraction(bid.commitment as HexString)
 		}
+		return expired.length
 	}
 
 	public async stop(): Promise<void> {
@@ -674,7 +727,11 @@ export class IntentFiller {
 				},
 				"Order detected in watch-only mode (execution skipped)",
 			)
-			this.monitor.emit("orderDetected", { orderId: order.id, order, watchOnly: true })
+			// Emitted as a skip, not a bespoke "detected" event: every other
+			// not-filled path reports `orderSkipped`, and nothing consumed the old
+			// event — so watch-only orders were absent from the activity feed and
+			// the skip metric entirely.
+			this.monitor.emit("orderSkipped", { orderId: order.id, reason: "watch-only" })
 			return null
 		}
 
@@ -771,7 +828,10 @@ export class IntentFiller {
 
 				if (result.commitment) {
 					const commitment = result.commitment as HexString
-					this.bidStorage?.storeBid({
+					// Awaited, not fired and forgotten: the pendingRetractions check below
+					// reads its own write, and a deposit whose bid record never landed is a
+					// deposit the retraction sweep will never find.
+					await this.bidStorage?.store({
 						commitment,
 						extrinsicHash: (result.txHash as HexString) || undefined,
 						success: result.success,
@@ -780,7 +840,7 @@ export class IntentFiller {
 
 					if (this.pendingRetractions.delete(commitment)) {
 						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
-						this.bidStorage?.markBidAsDead(commitment)
+						await this.bidStorage?.markDead(commitment)
 						this.enqueueRetraction(commitment)
 					}
 				}
@@ -793,7 +853,7 @@ export class IntentFiller {
 		})
 	}
 
-	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
+	private async handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): Promise<void> {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
@@ -810,13 +870,24 @@ export class IntentFiller {
 			return
 		}
 
-		const bid = this.bidStorage.getBidByCommitment(commitment)
+		// Flag the deferral before reading, not after. The bid write on the fill path
+		// is now awaited, so it can land in the gap between these two statements; with
+		// the old read-then-add order that bid would sit in pendingRetractions with
+		// nobody left to claim it, and wait out the full stale-bid TTL. Adding first
+		// means whichever side observes the other's write does the retraction, and
+		// `delete` returning a boolean keeps exactly one of them doing it.
+		this.pendingRetractions.add(commitment)
+
+		const bid = await this.bidStorage.byCommitment(commitment)
 		if (!bid) {
-			this.pendingRetractions.add(commitment)
 			this.logger.debug(
 				{ commitment, filler, chainId },
 				"OrderFilled received before bid stored, deferring retraction",
 			)
+			return
+		}
+		if (!this.pendingRetractions.delete(commitment)) {
+			// The fill path claimed it while we were reading.
 			return
 		}
 
@@ -828,7 +899,7 @@ export class IntentFiller {
 		// The order is filled, so the bid is dead weight from here on. Should the immediate
 		// retraction below not confirm, the sweep re-attempts dead bids on its next cycle
 		// instead of waiting out the stale-bid TTL.
-		this.bidStorage.markBidAsDead(commitment)
+		await this.bidStorage.markDead(commitment)
 		this.enqueueRetraction(commitment)
 	}
 
@@ -837,7 +908,7 @@ export class IntentFiller {
 			try {
 				// Both OrderFilled and the periodic sweep can enqueue the same commitment; a fresh
 				// read at dequeue time skips the duplicate instead of paying for a BidNotFound.
-				if (this.bidStorage!.getBidByCommitment(commitment)?.retracted) {
+				if ((await this.bidStorage!.byCommitment(commitment))?.retracted) {
 					return
 				}
 
@@ -847,14 +918,14 @@ export class IntentFiller {
 				const result = await coprocessor.retractBid(commitment)
 
 				if (result.success) {
-					this.bidStorage!.markBidAsRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
+					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else if (result.error?.includes("BidNotFound")) {
 					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
 					// means there is nothing left to reclaim — an earlier submission of ours landed,
 					// someone retracted manually, or the placement never landed. Anything else seeds
 					// a zombie the sweep re-retracts forever.
-					this.bidStorage!.markBidAsRetracted(commitment, null)
+					await this.bidStorage!.markRetracted(commitment, null)
 					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
 				} else if (result.pending) {
 					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce

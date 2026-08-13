@@ -1,6 +1,5 @@
 import { Decimal } from "decimal.js"
 import { IntentFiller } from "@/core/filler"
-import { loadRuntimeState } from "@/core/runtime-state"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
@@ -24,37 +23,40 @@ import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
-import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml } from "@/services/wallet"
-import { MetricsService } from "@/services/MetricsService"
 import { BalanceProvider } from "@/services/BalanceProvider"
-import { ActivityLogService } from "@/services/ActivityLogService"
+import { ActivityRecorder } from "@/data/recorder"
+import type { SimplexDataStore } from "@/data/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
 
 export interface BootOptions {
-	configPath: string
+	/** Where the config was loaded from, when it came from a file. Purely informational. */
+	configPath?: string
+	/** Persistence backend. Required — `Simplex.start` defaults it to a MemoryDataStore. */
+	data: SimplexDataStore
 	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
-	/** Prometheus bind, when -p was passed with a valid value. */
-	metricsBind?: { host: string; port: number }
 }
 
 /** Everything a running filler exposes to the UI server and the CLI. */
 export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
-	metrics?: MetricsService
 	vaultVenue?: VaultFundingPlanner
 	/** Live FillerPricePolicy handles shared with the trading engine, one per curve-priced pair. */
 	adminStrategies: AdminStrategy[]
 	/** Self-halt visibility/reset for the trading engine (overfill protection). */
 	haltControls: HaltControl[]
-	activityLog: ActivityLogService
-	bidStorage: BidStorageService
+	/** Live order-activity bridge; emits `event` per stored row. */
+	activity: ActivityRecorder
+	/** The persistence backend this filler was started with. */
+	data: SimplexDataStore
 	configService: FillerConfigService
+	/** Owns the per-chain viem clients; chain edits invalidate through it. */
+	chainClientManager: ChainClientManager
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
 	/** The live trading engine, absent when the config declared no pairs. */
@@ -68,7 +70,8 @@ export interface FillerRuntime {
 	fillerAddress: HexString
 	watchOnly?: Record<number, boolean>
 	config: FillerTomlConfig
-	configPath: string
+	/** Where the config came from, when it came from a file. */
+	configPath?: string
 	/**
 	 * Hydrates throwaway state for a prospective vault set (read-only on-chain
 	 * calls) so hydration-time errors — unconfigured chain, same-asset
@@ -274,13 +277,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		sharedCacheService,
 	)
 
-	// Initialize bid storage service for persistent storage of bid transaction hashes
-	// This enables later cleanup and fund recovery from Hyperbridge
-	const bidStorageService = new BidStorageService(configService.getDataDir())
-	logger.info(
-		{ dataDir: configService.getDataDir() || ".filler-data" },
-		"Bid storage initialized for fund recovery tracking",
-	)
+	// Bid records are how submitted deposits are found again for retraction, so
+	// the store is wired in before anything can bid.
+	const bidStore = options.data.bids
 
 	// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
 	// Circle paymaster so gas is paid in USDC instead of native token.
@@ -441,19 +440,19 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		contractService,
 		runtimeSigner,
 		rebalancingService,
-		bidStorageService,
+		bidStore,
 	)
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 	await intentFiller.initialize()
 
-	// Persistent order-activity feed for the operator UI
-	const activityLog = new ActivityLogService(options.dataDir)
-	activityLog.attach(intentFiller.monitor)
+	// Order-activity feed for the operator UI
+	const activity = new ActivityRecorder(options.data.activity)
+	activity.attach(intentFiller.monitor)
 	if (vaultVenue) {
 		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
-			try {
-				activityLog.recordWalletTx({
+			options.data.activity
+				.recordWalletTx({
 					kind,
 					chainId: parseChainKey(chain),
 					token: null,
@@ -462,9 +461,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 					txHash,
 					sponsored,
 				})
-			} catch (err) {
-				logger.warn({ err }, "Failed to record vault tx in wallet history")
-			}
+				.catch((err) => logger.warn({ err }, "Failed to record vault tx in wallet history"))
 		}
 	}
 
@@ -492,23 +489,11 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
 
-	// Start optional Prometheus metrics server
-	let metrics: MetricsService | undefined
-	if (options.metricsBind) {
-		metrics = new MetricsService({
-			monitor: intentFiller.monitor,
-			bidStorage: bidStorageService,
-			balances: balanceProvider,
-			dataDir: options.dataDir,
-		})
-		metrics.start(options.metricsBind.port, options.metricsBind.host)
-	}
-
 	// Start the filler
 	intentFiller.start()
 
 	// An operator-initiated pause survives restarts
-	if (loadRuntimeState(options.dataDir).paused) {
+	if ((await options.data.state.get()).paused) {
 		intentFiller.pause()
 	}
 
@@ -540,25 +525,25 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (stopping) return
 		stopping = true
 		logger.warn(`Shutting down intent filler (${signal})...`)
-		metrics?.stop()
 		balanceProvider.stop()
 		vaultVenue?.stopSweeping()
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()
-		activityLog.close()
+		activity.detach()
+		await options.data.close?.()
 	}
 
 	return {
 		intentFiller,
 		balanceProvider,
-		metrics,
 		vaultVenue,
 		adminStrategies,
 		haltControls,
-		activityLog,
-		bidStorage: bidStorageService,
+		activity,
+		data: options.data,
 		configService,
+		chainClientManager,
 		assetRegistry,
 		engine,
 		tradingPairs,

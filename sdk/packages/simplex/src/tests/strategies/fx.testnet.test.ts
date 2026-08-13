@@ -1,6 +1,5 @@
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -8,6 +7,7 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { SqliteDataStore } from "@/data/sqlite"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
@@ -516,7 +516,7 @@ async function createFxIntentFiller(
 		}),
 	]
 
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,

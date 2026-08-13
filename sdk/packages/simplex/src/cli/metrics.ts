@@ -3,10 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { networkInterfaces } from "node:os"
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "prom-client"
-import type { EventMonitor } from "@/core/event-monitor"
-import type { BidStorageService } from "./BidStorageService"
-import type { BalanceProvider } from "./BalanceProvider"
-import { getLogger } from "./Logger"
+import type { Simplex } from "@/simplex"
+import { getLogger } from "@/services/Logger"
 
 function getLocalNetworkIp(): string | null {
 	const nets = networkInterfaces()
@@ -21,9 +19,13 @@ function getLocalNetworkIp(): string | null {
 }
 
 export interface MetricsServiceOptions {
-	monitor: EventMonitor
-	bidStorage: BidStorageService | undefined
-	balances: BalanceProvider
+	/**
+	 * The running filler. Metrics are derived entirely from its public surface —
+	 * the typed event stream, `wallet.balances()` and `bidStats()` — which is why
+	 * this lives in the CLI rather than the library: an embedded consumer wires
+	 * its own telemetry to the same events.
+	 */
+	simplex: Simplex
 	dataDir?: string
 }
 
@@ -224,7 +226,7 @@ export class MetricsService {
 
 			if (path === "/metrics") {
 				this.uptimeSeconds.set((Date.now() - this.startTime) / 1000)
-				this.refreshBidStats()
+				await this.refreshBidStats()
 				this.applyBalanceSnapshot()
 
 				res.writeHead(200, { "Content-Type": this.registry.contentType })
@@ -316,7 +318,7 @@ export class MetricsService {
 	// ─── Balances from the shared provider ───────────────────────────────────────
 
 	private applyBalanceSnapshot(): void {
-		const snapshot = this.options.balances.getSnapshot()
+		const snapshot = this.options.simplex.wallet.balances()
 		for (const row of snapshot.chains) {
 			const chainLabel = String(row.chainId)
 			if (row.native) {
@@ -339,14 +341,14 @@ export class MetricsService {
 	private orderDetectionTimes = new Map<string, number>()
 
 	private setupMonitorListeners(): void {
-		const { monitor } = this.options
+		const { simplex } = this.options
 
-		monitor.on("newOrder", ({ order }) => {
+		simplex.on("order:detected", ({ order }) => {
 			this.ordersDetectedTotal.inc()
-			this.orderDetectionTimes.set(order.id, Date.now())
+			if (order.id) this.orderDetectionTimes.set(order.id, Date.now())
 		})
 
-		monitor.on("orderFilled", ({ volumeUsd, profitUsd, chainId }: { volumeUsd?: number; profitUsd?: number; chainId?: number }) => {
+		simplex.on("order:filled", ({ volumeUsd, profitUsd, chainId }) => {
 			this.ordersFilledTotal.inc()
 			const chain = String(chainId ?? "unknown")
 			if (volumeUsd != null && volumeUsd > 0) {
@@ -357,7 +359,7 @@ export class MetricsService {
 			}
 		})
 
-		monitor.on("orderExecuted", ({ orderId, success, strategy, commitment, error }) => {
+		simplex.on("order:executed", ({ orderId, success, strategy, commitment }) => {
 			this.ordersExecutedTotal.inc({ success: String(success), strategy: strategy ?? "unknown" })
 
 			// Record processing duration
@@ -373,20 +375,19 @@ export class MetricsService {
 			}
 		})
 
-		monitor.on("orderSkipped", () => {
+		simplex.on("order:skipped", () => {
 			this.ordersSkippedTotal.inc()
 		})
 
-		monitor.on("orderTiming", ({ phase, durationSec }: { orderId: string; phase: string; durationSec: number }) => {
+		simplex.on("order:timing", ({ phase, durationSec }) => {
 			this.orderPhaseDuration.observe({ phase }, durationSec)
 		})
 	}
 
 	// ─── Bid Stats from SQLite ───────────────────────────────────────────────────
 
-	private refreshBidStats(): void {
-		if (!this.options.bidStorage) return
-		const stats = this.options.bidStorage.getStats()
+	private async refreshBidStats(): Promise<void> {
+		const stats = await this.options.simplex.bidStats()
 		this.bidsSuccessful.set(stats.successful)
 		this.bidsFailed.set(stats.failed)
 		this.bidsRetracted.set(stats.retracted)

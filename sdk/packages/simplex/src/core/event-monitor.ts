@@ -79,10 +79,18 @@ export function reconstructOrdersFromLogs(
 	return out
 }
 
+/** Gateway events every chain scanner subscribes to. */
+const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
+	(item) =>
+		item.type === "event" &&
+		(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
+)
+
 export class EventMonitor extends EventEmitter {
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
 	private listening: boolean = false
 	private configService: FillerConfigService
+	private clientManager: ChainClientManager
 	private fillerAddress: string
 	private logger = getLogger("event-monitor")
 	private lastScannedBlock: Map<number, bigint> = new Map()
@@ -97,79 +105,133 @@ export class EventMonitor extends EventEmitter {
 	) {
 		super()
 		this.configService = configService
+		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()
 
-		chainConfigs.forEach((config) => {
-			const chainName = `EVM-${config.chainId}`
-			this.scanningMutexes.set(config.chainId, new Mutex())
+		chainConfigs.forEach((config) => this.registerChain(config.chainId))
+	}
 
-			// Shared quorum client over the operator's configured endpoints, also
-			// used by the cross-chain confirmation waiter in the filler core.
-			const quorumClient = clientManager.getQuorumClient(chainName)
-			this.quorumClients.set(config.chainId, quorumClient)
-			if (quorumClient.size > 1) {
-				this.logger.info(
-					{ chainId: config.chainId, providerCount: quorumClient.size, threshold: quorumClient.threshold },
-					"Quorum log scanning enabled",
-				)
-			}
-		})
+	/** Caches the shared quorum client and scan mutex for a chain. */
+	private registerChain(chainId: number): void {
+		this.scanningMutexes.set(chainId, new Mutex())
+
+		// Shared quorum client over the operator's configured endpoints, also
+		// used by the cross-chain confirmation waiter in the filler core.
+		const quorumClient = this.clientManager.getQuorumClient(`EVM-${chainId}`)
+		this.quorumClients.set(chainId, quorumClient)
+		if (quorumClient.size > 1) {
+			this.logger.info(
+				{ chainId, providerCount: quorumClient.size, threshold: quorumClient.threshold },
+				"Quorum log scanning enabled",
+			)
+		}
 	}
 
 	public async startListening(): Promise<void> {
 		if (this.listening) return
 		this.listening = true
 
-		const gatewayEvents = INTENT_GATEWAY_V2_ABI.filter(
-			(item) =>
-				item.type === "event" &&
-				(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
-		)
-
-		const scanIntervalMs = this.configService.getBlockScanIntervalMs()
-
 		for (const chainId of this.quorumClients.keys()) {
 			try {
-				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
-
-				const quorumClient = this.quorumClients.get(chainId)
-				if (!quorumClient) {
-					throw new Error(`Chain ${chainId} has no quorum client`)
-				}
-
-				const startBlock = await retryPromise(() => quorumClient.getBlockNumber(), {
-					maxRetries: 3,
-					backoffMs: 250,
-					logMessage: "Failed to get start block number",
-				})
-				this.lastScannedBlock.set(chainId, startBlock - 1n)
-
-				this.logger.info({ chainId, startBlock }, "Initializing block scanner")
-
-				const scanInterval = setInterval(async () => {
-					const mutex = this.scanningMutexes.get(chainId)
-					if (!mutex) return
-
-					if (mutex.isLocked()) {
-						return
-					}
-
-					await mutex.runExclusive(async () => {
-						try {
-							await this.scanBlocks(chainId, quorumClient, intentGatewayAddress, gatewayEvents)
-						} catch (error) {
-							this.logger.error({ chainId, err: error }, "Error in block scanner")
-						}
-					})
-				}, scanIntervalMs)
-
-				this.blockScanIntervals.set(chainId, scanInterval)
-
-				this.logger.info({ chainId, scanIntervalMs }, "Started monitoring for new orders and fills")
+				await this.startScanner(chainId)
 			} catch (error) {
 				this.logger.error({ chainId, err: error }, "Failed to start block scanner")
 			}
 		}
+	}
+
+	/**
+	 * Starts (or restarts) one chain's scan loop from the current head.
+	 *
+	 * `fromBlock` lets a restart resume an existing cursor instead of skipping
+	 * whatever landed while the scanner was down — an RPC swap must not open a
+	 * hole in the scanned range.
+	 */
+	private async startScanner(chainId: number, fromBlock?: bigint): Promise<void> {
+		const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
+
+		const quorumClient = this.quorumClients.get(chainId)
+		if (!quorumClient) {
+			throw new Error(`Chain ${chainId} has no quorum client`)
+		}
+
+		const startBlock =
+			fromBlock ??
+			(await retryPromise(() => quorumClient.getBlockNumber(), {
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get start block number",
+			})) - 1n
+		this.lastScannedBlock.set(chainId, startBlock)
+
+		this.logger.info({ chainId, startBlock }, "Initializing block scanner")
+
+		const scanInterval = setInterval(async () => {
+			const mutex = this.scanningMutexes.get(chainId)
+			if (!mutex) return
+
+			if (mutex.isLocked()) {
+				return
+			}
+
+			await mutex.runExclusive(async () => {
+				try {
+					await this.scanBlocks(chainId, quorumClient, intentGatewayAddress, GATEWAY_EVENTS)
+				} catch (error) {
+					this.logger.error({ chainId, err: error }, "Error in block scanner")
+				}
+			})
+		}, 1000)
+
+		this.blockScanIntervals.set(chainId, scanInterval)
+
+		this.logger.info({ chainId }, "Started monitoring for new orders and fills")
+	}
+
+	/** Stops one chain's scan loop, returning the cursor so a restart can resume it. */
+	private async stopScanner(chainId: number): Promise<bigint | undefined> {
+		const interval = this.blockScanIntervals.get(chainId)
+		if (interval) {
+			clearInterval(interval)
+			this.blockScanIntervals.delete(chainId)
+		}
+		// Let an in-flight scan finish so the cursor we return is settled.
+		await this.scanningMutexes.get(chainId)?.runExclusive(async () => {})
+		return this.lastScannedBlock.get(chainId)
+	}
+
+	/** Begins scanning a chain added after boot. */
+	public async addChain(chainId: number): Promise<void> {
+		if (this.quorumClients.has(chainId)) {
+			throw new Error(`Chain ${chainId} is already monitored`)
+		}
+		this.registerChain(chainId)
+		if (this.listening) await this.startScanner(chainId)
+	}
+
+	/** Stops scanning a chain and forgets its cursor. */
+	public async removeChain(chainId: number): Promise<void> {
+		await this.stopScanner(chainId)
+		this.quorumClients.delete(chainId)
+		this.scanningMutexes.delete(chainId)
+		this.lastScannedBlock.delete(chainId)
+		this.logger.info({ chainId }, "Stopped monitoring chain")
+	}
+
+	/**
+	 * Rebuilds a chain's client against its current RPC URLs, preserving the scan
+	 * cursor. `ChainClientManager.invalidate` must have run first — this re-reads
+	 * the quorum client it dropped.
+	 */
+	public async rebuildChain(chainId: number): Promise<void> {
+		if (!this.quorumClients.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not monitored`)
+		}
+		const cursor = await this.stopScanner(chainId)
+		this.quorumClients.delete(chainId)
+		this.registerChain(chainId)
+		if (this.listening) await this.startScanner(chainId, cursor)
+		this.logger.info({ chainId, cursor }, "Rebuilt chain scanner on new endpoints")
 	}
 
 	private isBlockRangeError(error: any): boolean {

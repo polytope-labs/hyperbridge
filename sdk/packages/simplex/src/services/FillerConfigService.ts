@@ -206,6 +206,50 @@ export class FillerConfigService {
 		return this.fillerConfig?.allowlist
 	}
 
+	/**
+	 * Registers a chain at runtime. `getConfiguredChainIds` derives from the RPC
+	 * override map, so this is what makes a chain "configured" — every address
+	 * lookup already resolves through the SDK's chain registry, which knows the
+	 * chain whether or not this filler was started with it.
+	 *
+	 * Rejects a chain that is already registered: silently replacing its
+	 * endpoints would leave the event monitor scanning the old ones. Use
+	 * {@link setRpcUrls} for that.
+	 */
+	addChain(chain: ResolvedChainConfig): void {
+		if (this.rpcOverrides.has(chain.chainId)) {
+			throw new Error(`Chain ${chain.chainId} is already configured — use setRpcUrls to change its endpoints`)
+		}
+		this.rpcOverrides.set(chain.chainId, validateRpcUrls(chain.rpcUrls))
+		if (chain.bundlerUrl) this.bundlerUrls.set(chain.chainId, chain.bundlerUrl)
+	}
+
+	/** Drops a chain from the configured set. */
+	removeChain(chainId: number): void {
+		this.rpcOverrides.delete(chainId)
+		this.bundlerUrls.delete(chainId)
+	}
+
+	/**
+	 * Replaces a chain's RPC endpoints. Callers must invalidate the cached viem
+	 * clients (`ChainClientManager.invalidate`) and rebuild the chain's scanner
+	 * afterwards — a client bakes its transport in at construction, so this
+	 * change is invisible to anything already holding one.
+	 */
+	setRpcUrls(chainId: number, rpcUrls: string[]): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.rpcOverrides.set(chainId, validateRpcUrls(rpcUrls))
+	}
+
+	setBundlerUrl(chainId: number, bundlerUrl: string): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.bundlerUrls.set(chainId, bundlerUrl)
+	}
+
 	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
 	setRebalancing(rebalancing: RebalancingConfig | undefined): void {
 		if (this.fillerConfig) this.fillerConfig.rebalancing = rebalancing

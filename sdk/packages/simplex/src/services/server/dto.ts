@@ -54,7 +54,8 @@ export interface StatusOperator {
 	chains: number[]
 	strategies: Array<{ index: number; exotic?: string }>
 	strategyTypes: string[]
-	configPath: string
+	/** Absent when the filler was started from a config object rather than a file. */
+	configPath?: string
 	addresses?: { evm: string; substrate?: string }
 	chainLabels?: Record<string, string>
 }
@@ -169,7 +170,8 @@ export interface WalletTxDto {
 
 /** GET /api/config */
 export interface ConfigDto {
-	configPath: string
+	/** Absent when the filler was started from a config object rather than a file. */
+	configPath?: string
 	toml: string
 	logLevel: string
 	vaultConfigured: boolean

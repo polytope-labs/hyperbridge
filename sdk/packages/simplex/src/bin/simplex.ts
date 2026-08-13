@@ -9,7 +9,9 @@ import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
-import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
+import { adminStrategyFor, tradingPairFrom, type FillerRuntime } from "@/core/boot"
+import { Simplex } from "@/simplex"
+import { MetricsService } from "@/cli/metrics"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
@@ -23,6 +25,7 @@ import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
 import { initializeSignerFromToml, type SigningAccount } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
+import { SqliteDataStore } from "@/data/sqlite"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -42,6 +45,15 @@ const packageJsonPath = resolve(__dirname, "../../package.json")
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
 
 const DEFAULT_UI_PORT = 8686
+
+/**
+ * Where the CLI keeps its SQLite databases and runtime state. Matches the
+ * directory the pre-interface storage services defaulted to, so an existing
+ * install keeps its bid history (and therefore its reclaimable deposits).
+ */
+function resolveDataDir(dataDir?: string): string {
+	return dataDir || resolve(process.cwd(), ".simplex-data")
+}
 
 /** Parses a `[host:]port` spec; returns undefined when the port is invalid. */
 function parseBind(spec: string, defaultHost: string): { host: string; port: number } | undefined {
@@ -118,8 +130,9 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 			await runtime.shutdown("UI")
 			process.exit(0)
 		},
-		activity: runtime.activityLog,
-		bids: runtime.bidStorage,
+		activity: runtime.activity,
+		bids: runtime.data.bids,
+		setPaused: (paused) => runtime.data.state.set({ paused }),
 		vault: runtime.vaultVenue
 			? {
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
@@ -221,15 +234,35 @@ program
 				}
 			}
 
+			let simplex: Simplex | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
+			let metrics: MetricsService | undefined
+
+			/** Starts the filler and everything the CLI layers on top of it. */
+			const startFiller = async (config: FillerTomlConfig, path: string) => {
+				simplex = await Simplex.start({
+					config,
+					configPath: path,
+					data: new SqliteDataStore(resolveDataDir(options.dataDir)),
+					dataDir: options.dataDir,
+					watchOnly: options.watchOnly,
+				})
+				runtime = simplex.internals
+				if (metricsBind) {
+					metrics = new MetricsService({ simplex, dataDir: options.dataDir })
+					metrics.start(metricsBind.port, metricsBind.host)
+				}
+				return simplex
+			}
 
 			// Registered once, up front: during init mode there is no runtime yet
 			// (ctrl-c just closes the server); once save-and-start assigns `runtime`,
 			// the same handler drains the filler. Nothing is re-registered on transition.
 			const shutdown = async (signal: string) => {
 				uiServer?.stop()
-				if (runtime) await runtime.shutdown(signal)
+				metrics?.stop()
+				if (simplex) await simplex.stop()
 				process.exit(0)
 			}
 			process.on("SIGINT", () => void shutdown("SIGINT"))
@@ -242,12 +275,7 @@ program
 				const config = parse(tomlContent) as FillerTomlConfig
 				validateConfig(config, options.watchOnly === true)
 
-				runtime = await bootFiller(config, {
-					configPath,
-					dataDir: options.dataDir,
-					watchOnlyOverride: options.watchOnly,
-					metricsBind,
-				})
+				await startFiller(config, configPath)
 
 				// Local web UI (status, pause/resume, inflight price curve updates).
 				// On by default at 127.0.0.1; disable with --no-ui.
@@ -255,7 +283,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(runtime),
+						operator: await operatorContextFrom(runtime!),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -286,13 +314,8 @@ program
 				setup: {
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
-						runtime = await bootFiller(config, {
-							configPath: path,
-							dataDir: options.dataDir,
-							watchOnlyOverride: options.watchOnly,
-							metricsBind,
-						})
-						server.enterOperatorMode(await operatorContextFrom(runtime))
+						await startFiller(config, path)
+						server.enterOperatorMode(await operatorContextFrom(runtime!))
 					},
 				},
 			})

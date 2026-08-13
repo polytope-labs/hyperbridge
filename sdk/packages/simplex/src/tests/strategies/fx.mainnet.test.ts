@@ -1,6 +1,5 @@
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -9,6 +8,7 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { SqliteDataStore } from "@/data/sqlite"
 import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
@@ -886,7 +886,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+		const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -1219,7 +1219,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+		const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -2161,7 +2161,7 @@ async function createCrossChainFxIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,
@@ -2219,7 +2219,7 @@ async function createFxOnlyIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,

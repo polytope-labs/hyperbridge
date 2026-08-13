@@ -271,6 +271,26 @@ export class ConfirmationPolicy {
 	}
 
 	/**
+	 * Installs a curve for a chain added at runtime. Validates before it mutates,
+	 * so a rejected curve leaves the policy set untouched — a chain that started
+	 * scanning without a curve would drop every cross-chain order sourced on it
+	 * with a per-order throw.
+	 */
+	add(chainId: number, config: CurveConfig): void {
+		const curve = new InterpolatedCurve(config, `Chain ${chainId} confirmation policy`)
+		this.policies.set(chainId, curve)
+	}
+
+	/** Whether a chain has a confirmation curve. */
+	has(chainId: number): boolean {
+		return this.policies.has(chainId)
+	}
+
+	remove(chainId: number): void {
+		this.policies.delete(chainId)
+	}
+
+	/**
 	 * Startup guard: every configured chain must have a confirmation curve.
 	 * Without this, a missing policy only surfaces as a per-order throw at
 	 * fill time — cross-chain orders sourced on that chain silently dropped.

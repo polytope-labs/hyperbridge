@@ -35,7 +35,6 @@ import { privateKeyToAccount } from "viem/accounts"
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -43,6 +42,7 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { SqliteDataStore } from "@/data/sqlite"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
@@ -309,7 +309,7 @@ async function buildPhantomFiller(opts: {
 		contractService,
 		signer,
 		undefined,
-		new BidStorageService(configService.getDataDir()),
+		new SqliteDataStore(configService.getDataDir() || ".simplex-data").bids,
 	)
 	await filler.initialize()
 	filler.start()

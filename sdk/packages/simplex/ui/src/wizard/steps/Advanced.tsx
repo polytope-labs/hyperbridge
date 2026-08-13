@@ -11,8 +11,6 @@ export function StepAdvanced({ state, setState }: StepProps) {
 
 			<div className="row">
 				<Field label="Max concurrent orders (lower if your RPCs rate-limit)" style={{ maxWidth: "14rem" }} value={state.maxConcurrentOrders} onChange={(maxConcurrentOrders) => setState((s) => ({ ...s, maxConcurrentOrders }))} />
-				<Field label="Max re-checks per queued order" style={{ maxWidth: "14rem" }} value={state.maxRechecks} onChange={(maxRechecks) => setState((s) => ({ ...s, maxRechecks }))} />
-				<Field label="Re-check delay (ms)" style={{ maxWidth: "14rem" }} value={state.recheckDelayMs} onChange={(recheckDelayMs) => setState((s) => ({ ...s, recheckDelayMs }))} />
 				<label className="field" style={{ maxWidth: "10rem" }}>
 					<span>Log level</span>
 					<select value={state.logging} onChange={(e) => setState((s) => ({ ...s, logging: e.target.value }))}>

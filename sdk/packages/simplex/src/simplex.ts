@@ -12,8 +12,8 @@ import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/servi
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
-import type { OrderScanner } from "@/scanner/types"
-import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
+import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
+import { HyperbridgeScanner as HyperbridgeScannerImpl } from "@/scanner/hyperbridge-scanner"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 
 /** Configuration for a filler. The same shape the TOML file parses into. */
@@ -762,26 +762,37 @@ export class Simplex extends EventEmitter {
 		})
 		// Build private scanners when none were supplied, and remember that we own
 		// them: a caller's scanner outlives this filler and is theirs to close.
-		const orderScanner = options.orderScanner ?? (await OrderScannerImpl.create(options.config.chains, { loggers }))
 		const ownsOrderScanner = !options.orderScanner
-
+		const ownsHyperbridgeScanner = !options.hyperbridgeScanner
 		const wsUrl = options.config.simplex.hyperbridgeWsUrl
-		const hyperbridgeScanner =
-			options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScanner.create(wsUrl, { loggers }) : undefined)
-		const ownsHyperbridgeScanner = !options.hyperbridgeScanner && Boolean(hyperbridgeScanner)
 
-		const runtime = await bootFiller(options.config, {
-			loggers,
-			scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
-			configPath: options.configPath,
-			data: options.data ?? new MemoryDataStore(),
-			dataDir: options.dataDir,
-			watchOnlyOverride: options.watchOnly,
-		})
-		return new Simplex(runtime, options, {
-			orders: ownsOrderScanner ? orderScanner : undefined,
-			hyperbridge: ownsHyperbridgeScanner ? hyperbridgeScanner : undefined,
-		})
+		let orderScanner: OrderScanner | undefined
+		let hyperbridgeScanner: HyperbridgeScanner | undefined
+		try {
+			orderScanner = options.orderScanner ?? (await OrderScannerImpl.create(options.config.chains, { loggers }))
+			hyperbridgeScanner =
+				options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScannerImpl.create(wsUrl, { loggers }) : undefined)
+
+			const runtime = await bootFiller(options.config, {
+				loggers,
+				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
+				configPath: options.configPath,
+				data: options.data ?? new MemoryDataStore(),
+				dataDir: options.dataDir,
+				watchOnlyOverride: options.watchOnly,
+			})
+			return new Simplex(runtime, options, {
+				orders: ownsOrderScanner ? orderScanner : undefined,
+				hyperbridge: ownsHyperbridgeScanner && hyperbridgeScanner ? hyperbridgeScanner : undefined,
+			})
+		} catch (error) {
+			// A scanner we built has live timers and sockets, and the caller never
+			// receives a handle to close them — so a failed start would otherwise keep
+			// the host process alive forever. One a caller supplied is theirs; leave it.
+			if (ownsOrderScanner) await orderScanner?.close().catch(() => {})
+			if (ownsHyperbridgeScanner) await hyperbridgeScanner?.close().catch(() => {})
+			throw error
+		}
 	}
 
 	/** Re-emits the filler's internal events under their public names. */
@@ -843,13 +854,30 @@ export class Simplex extends EventEmitter {
 	 */
 	async stop(): Promise<void> {
 		if (this.stopped) return
-		this.stopped = true
-		await this.runtime.shutdown("Simplex.stop")
+		// Every step runs even if an earlier one rejects, and `stopped` latches only
+		// once they all have: latching first would make a single failure permanent,
+		// since the retry would return early and leave the rest running.
+		const failures: unknown[] = []
+		const attempt = async (step: () => Promise<unknown> | undefined) => {
+			try {
+				await step()
+			} catch (error) {
+				failures.push(error)
+			}
+		}
+
+		await attempt(() => this.runtime.shutdown("Simplex.stop"))
 		// Only scanners this filler built. One handed in by the caller keeps running
 		// for whoever else is reading it.
-		await this.ownedScanners.orders?.close()
-		await this.ownedScanners.hyperbridge?.close()
+		await attempt(() => this.ownedScanners.orders?.close())
+		await attempt(() => this.ownedScanners.hyperbridge?.close())
 		this.removeAllListeners()
+		this.stopped = true
+
+		if (failures.length > 0) {
+			this.logger.error({ failures: failures.map(String) }, "Errors while stopping")
+			throw failures[0]
+		}
 	}
 
 	// ─── Introspection ──────────────────────────────────────────────────────

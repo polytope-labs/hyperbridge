@@ -86,8 +86,6 @@ export interface WizardState {
 	vaults: VaultDraft[]
 	allowlistUsers: string[]
 	maxConcurrentOrders: string
-	maxRechecks: string
-	recheckDelayMs: string
 	logging: string
 }
 
@@ -182,8 +180,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		vaults: [],
 		allowlistUsers: [],
 		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
-		maxRechecks: String(defaults.queue.maxRechecks),
-		recheckDelayMs: String(defaults.queue.recheckDelayMs),
 		logging: "info",
 	}
 }
@@ -336,10 +332,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: Number(state.maxConcurrentOrders) || defaults.maxConcurrentOrders,
-			queue: {
-				maxRechecks: Number(state.maxRechecks) || defaults.queue.maxRechecks,
-				recheckDelayMs: Number(state.recheckDelayMs) || defaults.queue.recheckDelayMs,
-			},
 			...(state.logging !== "info" ? { logging: state.logging } : {}),
 			...(watchOnlyEntries.length > 0 ? { watchOnly: Object.fromEntries(watchOnlyEntries) } : {}),
 			substratePrivateKey: state.substrateKey.trim(),

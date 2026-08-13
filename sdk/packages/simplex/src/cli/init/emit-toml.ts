@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -43,7 +44,7 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 
 	push("[simplex]")
 	push("# Maximum number of orders processed concurrently. Lower this if your RPCs rate-limit (429s).")
-	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders))
+	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS))
 	if (config.simplex.logging !== undefined) {
 		push("# Log verbosity: trace, debug, info, warn, error")
 		push(kv("logging", config.simplex.logging))

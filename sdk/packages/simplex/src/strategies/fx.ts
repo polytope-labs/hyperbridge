@@ -483,6 +483,9 @@ export class FXFiller implements FillerStrategy {
 	 * outputs if the pair pricing makes that attractive. This is how we stay competitive.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
+			// Cleared up front: the caller exempts partial fills from its profit floor,
+			// so a stale `true` from an earlier evaluation would let a refusal through.
+			if (order.id) this.contractService.cacheService.clearPartialFill(order.id)
 		if (this.halted) {
 			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
 			return 0
@@ -753,6 +756,31 @@ export class FXFiller implements FillerStrategy {
 					partialFill = true
 				}
 
+				// Any shortfall makes this an under-fill, whatever caused it — the cap, or
+				// simply not holding enough of the output token. The gateway does not care
+				// which: an under-fill on a cross-chain order or one carrying output
+				// calldata reverts, so both must clear the same eligibility check the
+				// cap-limited path does. Only the cross-chain half used to be tested, so
+				// a calldata order the wallet could not cover was bid on and reverted.
+				if (finalOutputAmount < output.amount) {
+					if (!partialEligible) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								available: finalOutputAmount.toString(),
+								userRequested: output.amount.toString(),
+								crossChain: sourceChain !== destChain,
+								hasCalldata: (order.output.call ?? "0x").length > 2,
+							},
+							"Skipping order: cannot fill it in full and it cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
+				}
+
 				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
 					this.logger.info(
 						{
@@ -976,6 +1004,10 @@ export class FXFiller implements FillerStrategy {
 			const totalProfit = partialFill
 				? partialEdgeUsd.toNumber()
 				: parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+
+			// Past both gates, so this is the evaluation's answer rather than a plan it
+			// may still abandon. Only now may the caller treat it as a partial.
+			if (order.id) this.contractService.cacheService.setPartialFill(order.id, partialFill)
 
 			this.logger.info(
 				{

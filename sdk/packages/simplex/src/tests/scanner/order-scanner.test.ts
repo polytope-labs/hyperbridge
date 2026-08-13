@@ -147,3 +147,31 @@ describe("OrderScanner", () => {
 		await expect(scanner.close()).resolves.toBeUndefined()
 	})
 })
+
+describe("OrderScanner failure cleanup", () => {
+	/**
+	 * A rejected `create` never hands the caller a scanner, so anything it started
+	 * before the failure could scan forever with nobody able to stop it.
+	 */
+	it("stops the loops it already started when a later chain fails", async () => {
+		chainIdOfEndpoint = 8453
+		const started: OrderScanner[] = []
+		const realAdd = OrderScanner.prototype.addChain
+		const spy = vi.spyOn(OrderScanner.prototype, "addChain").mockImplementation(async function (
+			this: OrderScanner,
+			chain,
+		) {
+			started.push(this)
+			if (chain.chainId === 42161) throw new Error("unreachable endpoint")
+			return realAdd.call(this, chain)
+		})
+
+		await expect(OrderScanner.create(CHAINS)).rejects.toThrow(/unreachable endpoint/)
+
+		// The half-built instance is closed, so its first chain is no longer scanned.
+		const scanner = started[0]
+		expect(scanner.chains()).toEqual([])
+		await expect(scanner.addChain(CHAINS[0])).rejects.toThrow(/closed/)
+		spy.mockRestore()
+	})
+})

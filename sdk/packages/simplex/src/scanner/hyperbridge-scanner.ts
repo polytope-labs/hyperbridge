@@ -5,6 +5,9 @@ import { defaultLoggerContext, type Logger, type LoggerContext } from "@/service
 import { FanOut } from "./fan-out"
 import type { HyperbridgeScanner as HyperbridgeScannerContract, HyperbridgeScannerHandlers, Subscription } from "./types"
 
+/** How long to wait for the node before giving up, rather than retrying forever. */
+const CONNECT_TIMEOUT_MS = 30_000
+
 /**
  * One phantom-order poll per Hyperbridge endpoint, feeding any number of fillers.
  *
@@ -93,13 +96,36 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 				// to the same node per instance purely to read balances. `fromApi` marks the
 				// coprocessor as not owning the connection, so only `stop()` closes it.
 				const { ApiPromise, WsProvider } = await import("@polkadot/api")
-				this.connection = await ApiPromise.create({
-					provider: new WsProvider(this.wsUrl),
-					typesBundle: { spec: { nexus: { hasher: keccakAsU8a }, gargantua: { hasher: keccakAsU8a } } },
+				const provider = new WsProvider(this.wsUrl)
+				// `ApiPromise.create` retries a dead endpoint forever rather than
+				// rejecting, so without this race `Simplex.start` never settles on a
+				// typo'd or unreachable node — no error, no timeout, just a hang.
+				const connection = await Promise.race([
+					ApiPromise.create({
+						provider,
+						typesBundle: { spec: { nexus: { hasher: keccakAsU8a }, gargantua: { hasher: keccakAsU8a } } },
+					}),
+					new Promise<never>((_, reject) =>
+						setTimeout(
+							() => reject(new Error(`Timed out connecting to Hyperbridge at ${this.wsUrl}`)),
+							CONNECT_TIMEOUT_MS,
+						).unref?.(),
+					),
+				]).catch(async (error) => {
+					// The provider keeps its reconnect loop running after the race is lost.
+					await provider.disconnect().catch(() => {})
+					throw error
 				})
+
+				// Adopted only after the close check, so a `close()` that landed while we
+				// were connecting cannot leave this socket owned by nobody.
+				if (this.stopped) {
+					await connection.disconnect().catch(() => {})
+					return
+				}
+				this.connection = connection
 				// No signing key: nothing on this connection signs.
 				this.coprocessor = IntentsCoprocessor.fromApi(this.connection)
-				if (this.stopped) return
 
 				this.stopPolling = this.coprocessor.pollPhantomOrders(
 					(order) => this.phantom.publish(order),

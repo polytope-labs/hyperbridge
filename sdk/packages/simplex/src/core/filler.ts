@@ -801,20 +801,17 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Whether the outputs a strategy just planned fall short of what the order
-	 * asked for.
+	 * Whether the strategy's evaluation concluded in a deliberate partial fill.
 	 *
-	 * Derived from the outputs cached during evaluation rather than signalled by
-	 * the strategy, so it reflects what will actually be submitted on-chain.
+	 * Read from a flag the strategy sets only once it has an answer, never inferred
+	 * from the outputs it cached along the way: those are written before the profit
+	 * gates run, so an order the strategy went on to REFUSE still has a plan sitting
+	 * in the cache. Inferring from it exempted those refusals from the floor below
+	 * and filled them.
 	 */
 	private fillsPartially(order: Order): boolean {
 		if (!order.id) return false
-		const planned = this.contractService.cacheService.getFillerOutputs(order.id)
-		if (!planned) return false
-		return planned.some((output, i) => {
-			const requested = order.output.assets[i]?.amount
-			return requested !== undefined && output.amount < requested
-		})
+		return this.contractService.cacheService.isPartialFill(order.id)
 	}
 
 	private executeOrder(

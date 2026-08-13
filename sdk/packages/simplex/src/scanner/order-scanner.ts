@@ -59,9 +59,16 @@ export class OrderScanner implements OrderScannerContract {
 		options: { loggers?: LoggerContext } = {},
 	): Promise<OrderScanner> {
 		const scanner = new OrderScanner(options.loggers ?? defaultLoggerContext())
-		// Sequential: two entries resolving to the same chain must be caught, and the
-		// only network call is the chain-id probe for entries that omit it.
-		for (const chain of chains) await scanner.addChain(chain)
+		try {
+			// Sequential: two entries resolving to the same chain must be caught, and the
+			// only network call is the chain-id probe for entries that omit it.
+			for (const chain of chains) await scanner.addChain(chain)
+		} catch (error) {
+			// The caller never gets a handle to a rejected create, so the loops already
+			// started here would scan forever with nobody able to stop them.
+			await scanner.close().catch(() => {})
+			throw error
+		}
 		return scanner
 	}
 

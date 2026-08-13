@@ -29,6 +29,11 @@ export function sqliteDatetime(date: Date): string {
 	return date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
 }
 
+/** A bid whose deposit may be locked on Hyperbridge: confirmed, or still pooled. */
+function reclaimable(row: StoredBid): boolean {
+	return row.success || row.pending
+}
+
 function capLimit(limit: number): number {
 	return Math.min(Math.max(limit, 1), MAX_LIMIT)
 }
@@ -44,6 +49,7 @@ class MemoryBidStore implements BidStore {
 			extrinsicHash: bid.extrinsicHash ?? null,
 			blockHash: bid.blockHash ?? null,
 			success: bid.success,
+			pending: bid.pending === true,
 			error: bid.error ?? null,
 			createdAt: sqliteDatetime(new Date()),
 			retracted: false,
@@ -62,14 +68,14 @@ class MemoryBidStore implements BidStore {
 		return null
 	}
 
-	async unretractedSuccessful(): Promise<StoredBid[]> {
-		return this.rows.filter((row) => row.success && !row.retracted).map((row) => ({ ...row }))
+	async unretractedReclaimable(): Promise<StoredBid[]> {
+		return this.rows.filter((row) => reclaimable(row) && !row.retracted).map((row) => ({ ...row }))
 	}
 
 	async expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]> {
 		const cutoff = sqliteDatetime(new Date(Date.now() - maxAgeMs))
 		return this.rows
-			.filter((row) => row.success && !row.retracted && (row.dead || row.createdAt < cutoff))
+			.filter((row) => reclaimable(row) && !row.retracted && (row.dead || row.createdAt < cutoff))
 			.map((row) => ({ ...row }))
 	}
 
@@ -125,7 +131,7 @@ class MemoryBidStore implements BidStore {
 			successful: this.rows.filter((row) => row.success).length,
 			failed: this.rows.filter((row) => !row.success).length,
 			retracted: this.rows.filter((row) => row.retracted).length,
-			pendingRetraction: this.rows.filter((row) => row.success && !row.retracted).length,
+			pendingRetraction: this.rows.filter((row) => reclaimable(row) && !row.retracted).length,
 		}
 	}
 }

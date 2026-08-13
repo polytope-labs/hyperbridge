@@ -10,6 +10,7 @@ const BID_COLUMNS = `
 	extrinsic_hash as extrinsicHash,
 	block_hash as blockHash,
 	success,
+	pending,
 	error,
 	created_at as createdAt,
 	retracted,
@@ -41,6 +42,7 @@ export class SqliteBidStore implements BidStore {
 				extrinsic_hash TEXT,
 				block_hash TEXT,
 				success INTEGER NOT NULL,
+				pending INTEGER NOT NULL DEFAULT 0,
 				error TEXT,
 				created_at TEXT NOT NULL DEFAULT (datetime('now')),
 				retracted INTEGER NOT NULL DEFAULT 0,
@@ -55,11 +57,12 @@ export class SqliteBidStore implements BidStore {
 			CREATE INDEX IF NOT EXISTS idx_bids_created_at ON bids(created_at);
 		`)
 
-		// Databases created before the column existed need it added in place.
+		// Databases created before a column existed need it added in place.
 		const columns = this.db.pragma("table_info(bids)") as { name: string }[]
-		if (!columns.some((column) => column.name === "dead")) {
-			this.db.exec("ALTER TABLE bids ADD COLUMN dead INTEGER NOT NULL DEFAULT 0")
-			this.logger.info("Migrated bid storage schema: added 'dead' column")
+		for (const column of ["dead", "pending"] as const) {
+			if (columns.some((existing) => existing.name === column)) continue
+			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
+			this.logger.info({ column }, "Migrated bid storage schema")
 		}
 	}
 
@@ -68,6 +71,7 @@ export class SqliteBidStore implements BidStore {
 		return {
 			...row,
 			success: Boolean(row.success),
+			pending: Boolean(row.pending),
 			retracted: Boolean(row.retracted),
 			dead: Boolean(row.dead),
 		}
@@ -76,14 +80,15 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, error)
-				VALUES (?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, extrinsic_hash, block_hash, success, pending, error)
+				VALUES (?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
 				bid.extrinsicHash || null,
 				bid.blockHash || null,
 				bid.success ? 1 : 0,
+				bid.pending ? 1 : 0,
 				bid.error || null,
 			)
 
@@ -97,9 +102,9 @@ export class SqliteBidStore implements BidStore {
 		return row ? this.toStoredBid(row) : null
 	}
 
-	async unretractedSuccessful(): Promise<StoredBid[]> {
+	async unretractedReclaimable(): Promise<StoredBid[]> {
 		const rows = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 1 AND retracted = 0 ORDER BY created_at ASC`)
+			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE (success = 1 OR pending = 1) AND retracted = 0 ORDER BY created_at ASC`)
 			.all()
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[]).map((row) => this.toStoredBid(row))
@@ -112,7 +117,7 @@ export class SqliteBidStore implements BidStore {
 			.prepare(`
 				SELECT ${BID_COLUMNS}
 				FROM bids
-				WHERE success = 1 AND retracted = 0 AND (dead = 1 OR created_at < ?)
+				WHERE (success = 1 OR pending = 1) AND retracted = 0 AND (dead = 1 OR created_at < ?)
 				ORDER BY created_at ASC
 			`)
 			.all(cutoff)
@@ -164,7 +169,7 @@ export class SqliteBidStore implements BidStore {
 					SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
 					SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed,
 					SUM(CASE WHEN retracted = 1 THEN 1 ELSE 0 END) as retracted,
-					SUM(CASE WHEN success = 1 AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
+					SUM(CASE WHEN (success = 1 OR pending = 1) AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
 				FROM bids
 			`)
 			// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row

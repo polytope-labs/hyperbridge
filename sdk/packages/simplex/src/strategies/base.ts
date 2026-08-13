@@ -1,4 +1,17 @@
 import { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
+
+/**
+ * An execution outcome that can also report a still-pooled bid.
+ *
+ * `submitBid` can time out with the extrinsic still in Hyperbridge's pool. That
+ * is neither success nor failure: the extrinsic may yet land and reserve a
+ * deposit, so the bid record has to be reclaimable even though `success` is
+ * false. Widened here rather than on the SDK's `ExecutionResult` so simplex does
+ * not need an unreleased SDK.
+ */
+export interface FillResult extends ExecutionResult {
+	pending?: boolean
+}
 import { Decimal } from "decimal.js"
 
 export interface FillerStrategy {
@@ -8,7 +21,7 @@ export interface FillerStrategy {
 
 	calculateProfitability(order: Order): Promise<number>
 
-	executeOrder(order: Order, hyperbridge?: IntentsCoprocessor): Promise<ExecutionResult>
+	executeOrder(order: Order, hyperbridge?: IntentsCoprocessor): Promise<FillResult>
 
 	/**
 	 * Optional hook for strategies to provide a USD value for the full input basket.

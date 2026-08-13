@@ -58,8 +58,8 @@ const backends: Array<{ name: string; create: () => BidStore; backdate: Backdate
 		// The memory store has no clock seam, so re-store the bid with the row
 		// mutated in place through the only handle a test legitimately has.
 		backdate: async (bids, commitment, ageMs) => {
-			const rows = await bids.unretractedSuccessful()
-			const row = rows.find((r) => r.commitment === commitment)
+			const rows = await bids.unretractedReclaimable()
+			const row = rows.find((r: { commitment: string }) => r.commitment === commitment)
 			if (!row) throw new Error("bid not found")
 			const past = new Date(Date.now() - ageMs)
 				.toISOString()

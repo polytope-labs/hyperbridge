@@ -1,5 +1,5 @@
 import { EventMonitor } from "./event-monitor"
-import { FillerStrategy } from "@/strategies/base"
+import type { FillerStrategy } from "@/strategies/base"
 import {
 	Order,
 	FillerConfig,
@@ -805,6 +805,29 @@ export class IntentFiller {
 				})
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
+				// Persist the bid FIRST, before any telemetry. By this point the bid is
+				// already on Hyperbridge holding a deposit, and the only way to reclaim
+				// it is to retract it — which the sweep can only do for bids it can find
+				// here. Anything between the submission and this write is something that
+				// can strand money: a consumer's event listener throwing, an
+				// operator-supplied store rejecting on a connection blip, a disk error.
+				if (result.commitment) {
+					const commitment = result.commitment as HexString
+					await this.bidStorage?.store({
+						commitment,
+						extrinsicHash: (result.txHash as HexString) || undefined,
+						success: result.success,
+						pending: result.pending === true,
+						error: result.error,
+					})
+
+					if (this.pendingRetractions.delete(commitment)) {
+						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
+						await this.bidStorage?.markDead(commitment)
+						this.enqueueRetraction(commitment)
+					}
+				}
+
 				if (result.success) {
 					this.monitor.emit("orderFilled", {
 						orderId: order.id,
@@ -823,31 +846,16 @@ export class IntentFiller {
 					error: result.error,
 				})
 
-				if (result.commitment) {
-					const commitment = result.commitment as HexString
-					// Awaited, not fired and forgotten: the pendingRetractions check below
-					// reads its own write, and a deposit whose bid record never landed is a
-					// deposit the retraction sweep will never find.
-					await this.bidStorage?.store({
-						commitment,
-						extrinsicHash: (result.txHash as HexString) || undefined,
-						success: result.success,
-						error: result.error,
-					})
-
-					if (this.pendingRetractions.delete(commitment)) {
-						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
-						await this.bidStorage?.markDead(commitment)
-						this.enqueueRetraction(commitment)
-					}
-				}
-
 				return result
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
 				throw error
 			}
-		})
+			// The queued promise is nobody's return value, so the rethrow above would be an
+			// unhandled rejection — which this process has no handler for and Node turns
+			// into an exit, stopping the retraction sweep for every other outstanding bid.
+			// Same guard the phantom path already applies.
+		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
 	}
 
 	private async handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): Promise<void> {

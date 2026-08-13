@@ -727,10 +727,23 @@ export class Simplex extends EventEmitter {
 	private forwardEvents(): void {
 		for (const [internal, published] of Object.entries(EVENT_MAP)) {
 			this.runtime.intentFiller.monitor.on(internal, (payload: Record<string, unknown>) => {
-				this.emit(published, this.normalizePayload(published, payload))
+				// Isolated: emit is synchronous, and these events are relayed from inside
+				// the fill path. A host listener that throws would otherwise unwind into
+				// it and abort a fill mid-flight.
+				try {
+					this.emit(published, this.normalizePayload(published, payload))
+				} catch (err) {
+					this.logger.error({ err, event: published }, "Event listener threw; continuing")
+				}
 			})
 		}
-		this.runtime.activity.on("event", (row: ActivityEvent) => this.emit("activity", row))
+		this.runtime.activity.on("event", (row: ActivityEvent) => {
+			try {
+				this.emit("activity", row)
+			} catch (err) {
+				this.logger.error({ err, event: "activity" }, "Event listener threw; continuing")
+			}
+		})
 	}
 
 	/** Renames the couple of internal payload keys that differ from the public shape. */

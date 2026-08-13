@@ -1,4 +1,4 @@
-import { FillerStrategy } from "@/strategies/base"
+import type { FillResult, FillerStrategy } from "@/strategies/base"
 import {
 	Order,
 	ExecutionResult,
@@ -930,7 +930,7 @@ export class FXFiller implements FillerStrategy {
 		order: Order,
 		startTime: number,
 		intentsCoprocessor: IntentsCoprocessor,
-	): Promise<ExecutionResult> {
+	): Promise<FillResult> {
 		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
 		if (!entryPointAddress) {
 			return {
@@ -962,8 +962,16 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		this.logger.error({ commitment, error: bidResult.error }, "Bid submission failed")
-		return { success: false, error: bidResult.error, commitment }
+		this.logger.error({ commitment, error: bidResult.error, pending: bidResult.pending }, "Bid submission failed")
+		// `pending` and the hash ride along: a pooled extrinsic that later lands
+		// reserves a deposit, so the sweep must be able to find and trace it.
+		return {
+			success: false,
+			pending: bidResult.pending === true,
+			txHash: bidResult.extrinsicHash,
+			error: bidResult.error,
+			commitment,
+		}
 	}
 
 	// =========================================================================

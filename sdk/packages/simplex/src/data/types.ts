@@ -32,6 +32,12 @@ export interface StoredBid {
 	extrinsicHash: string | null
 	blockHash: string | null
 	success: boolean
+	/**
+	 * The submission timed out with the extrinsic still in Hyperbridge's pool. It
+	 * may yet land and reserve a deposit, so the sweep treats it as reclaimable
+	 * even though `success` is false.
+	 */
+	pending: boolean
 	error: string | null
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. Sorts lexicographically. */
 	createdAt: string
@@ -47,6 +53,8 @@ export interface BidInsert {
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
+	/** Submission is still in the pool; see {@link StoredBid.pending}. */
+	pending?: boolean
 	error?: string
 }
 
@@ -55,6 +63,7 @@ export interface BidStats {
 	successful: number
 	failed: number
 	retracted: number
+	/** Deposits still locked: successful or pending, and not yet retracted. */
 	pendingRetraction: number
 }
 
@@ -71,11 +80,13 @@ export interface BidStore {
 	store(bid: BidInsert): Promise<void>
 	/** The most recent bid for a commitment, or null. */
 	byCommitment(commitment: string): Promise<StoredBid | null>
-	/** Successful bids that have not been retracted — every reclaimable deposit. */
-	unretractedSuccessful(): Promise<StoredBid[]>
+	/** Unretracted bids whose deposit may still be locked: confirmed or pooled. */
+	unretractedReclaimable(): Promise<StoredBid[]>
 	/**
-	 * Bids due for retraction: successful, unretracted, and either older than
-	 * `maxAgeMs` or flagged dead. Dead bids ignore the age cut — their deposit is
+	 * Bids due for retraction: successful *or still pending*, unretracted, and
+	 * either older than `maxAgeMs` or flagged dead. Pending counts because a
+	 * pooled extrinsic that later lands reserves a deposit exactly like a
+	 * confirmed one. Dead bids ignore the age cut — their deposit is
 	 * reclaimable immediately, so a failed attempt retries on the next sweep
 	 * rather than waiting out the TTL.
 	 */

@@ -58,6 +58,18 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * The endpoint SDK helpers should use for `chain`: the first configured RPC,
+	 * matching the one viem's `fallback` transport tries first.
+	 */
+	private primaryRpcUrl(chain: string): string {
+		const [rpcUrl] = this.configService.getRpcUrls(chain)
+		if (!rpcUrl) {
+			throw new Error(`No RPC URL configured for ${chain}`)
+		}
+		return rpcUrl
+	}
+
+	/**
 	 * Gets the SDK helper for a given source and destination chain.
 	 * Instances are cached and reused to avoid redundant RPC calls.
 	 */
@@ -69,18 +81,22 @@ export class ContractInteractionService {
 			return cached
 		}
 
-		const sourceClient = this.clientManager.getPublicClient(source)
-		const destinationClient = this.clientManager.getPublicClient(destination)
+		// Read the endpoint from the config, NOT from `publicClient.transport.url`:
+		// a multi-URL chain is built on a viem `fallback` transport, whose `url`
+		// is undefined. Passing that through leaves the SDK's EvmChain with no
+		// RPC, so viem silently substitutes the chain's built-in public default
+		// (e.g. polygon.drpc.org for Polygon) and the operator's endpoints are
+		// bypassed entirely on this path.
 		const sourceEvmChain = EvmChain.fromParams({
 			chainId: getChainId(source)!,
 			host: this.configService.getHostAddress(source),
-			rpcUrl: sourceClient.transport.url,
+			rpcUrl: this.primaryRpcUrl(source),
 		})
 		const bundlerUrl = this.configService.getBundlerUrl(destination)
 		const destinationEvmChain = EvmChain.fromParams({
 			chainId: getChainId(destination)!,
 			host: this.configService.getHostAddress(destination),
-			rpcUrl: destinationClient.transport.url,
+			rpcUrl: this.primaryRpcUrl(destination),
 			bundlerUrl,
 		})
 

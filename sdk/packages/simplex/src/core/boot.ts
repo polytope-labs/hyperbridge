@@ -199,6 +199,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		dataDir: options.dataDir,
 		rebalancing: config.rebalancing,
 		targetGasUnits: config.simplex.targetGasUnits,
+		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
 		gasFeeBump: config.simplex.gasFeeBump,
 		overfillProtection: config.simplex.overfillProtection,
 		allowlist: config.allowlist,

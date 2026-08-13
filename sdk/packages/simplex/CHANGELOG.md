@@ -1,5 +1,13 @@
 # @hyperbridge/filler
 
+## 0.9.2
+
+### Patch Changes
+
+- SDK helpers now take their endpoint from the operator's configured `rpcUrls` instead of `publicClient.transport.url`. A chain with more than one RPC is served by a viem `fallback` transport, whose `url` is `undefined`; passing that through left the SDK's `EvmChain` with no RPC, so viem silently substituted the chain's built-in public default (`polygon.drpc.org` on Polygon, `eth.merkle.io` on Ethereum) and every `IntentGateway` call — phantom bids included — bypassed the configured endpoints. Quorum configs were affected on every chain with two or more URLs. An unconfigured chain now throws instead of degrading to a public endpoint.
+- Block-scanner poll period is configurable via `simplex.blockScanIntervalSeconds`, and the default drops from the previously hardcoded 1 second to **3 seconds**. Each tick costs one `eth_blockNumber` plus one `eth_getLogs` per chain per endpoint, so this takes a chain from ~172k to ~58k requests per endpoint per day — the difference between exhausting a free RPC's quota and fitting inside it. The cost is seeing new orders up to 3 seconds later, which matters in a contested market: set `blockScanIntervalSeconds = 1` to restore the old cadence. Fractional values are allowed (0.5 polls twice a second) with a 0.1 minimum; zero, negative and non-numeric values are rejected at config-parse time rather than being coerced by `setInterval` into a spin loop.
+- Error logging no longer dumps the contract ABI. viem hangs the full ABI off its errors and repeats the message once per wrapper in the cause chain, so a single failed `readContract` printed roughly 1,800 lines; the log serialiser now keeps the type, short message, details, failing endpoint and root cause, and trims the stack to six frames — the same failure prints 10 lines. The endpoint and root cause are newly surfaced as their own fields.
+
 ## 0.9.0
 
 ### Minor Changes

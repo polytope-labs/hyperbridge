@@ -126,6 +126,8 @@ export class EventMonitor extends EventEmitter {
 				(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
 		)
 
+		const scanIntervalMs = this.configService.getBlockScanIntervalMs()
+
 		for (const chainId of this.quorumClients.keys()) {
 			try {
 				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
@@ -159,11 +161,11 @@ export class EventMonitor extends EventEmitter {
 							this.logger.error({ chainId, err: error }, "Error in block scanner")
 						}
 					})
-				}, 1000)
+				}, scanIntervalMs)
 
 				this.blockScanIntervals.set(chainId, scanInterval)
 
-				this.logger.info({ chainId }, "Started monitoring for new orders and fills")
+				this.logger.info({ chainId, scanIntervalMs }, "Started monitoring for new orders and fills")
 			} catch (error) {
 				this.logger.error({ chainId, err: error }, "Failed to start block scanner")
 			}

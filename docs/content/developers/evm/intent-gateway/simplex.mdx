@@ -285,7 +285,11 @@ Total profit:     ~$14.20
 
 ```toml lineNumbers
 [simplex]
+# Optional — defaults to 5
 maxConcurrentOrders = 5
+# How often each chain is scanned for gateway events, in seconds.
+# Optional — defaults to 3. Minimum 0.1.
+blockScanIntervalSeconds = 3
 # trace | debug | info | warn | error
 logging             = "info"
 
@@ -488,6 +492,20 @@ points = [
 Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
 </Callout>
 
+### Block scan interval
+
+Each configured chain is polled for gateway events on its own interval, set by **`blockScanIntervalSeconds`** under `[simplex]`. It defaults to **3 seconds** and must be at least `0.1` — a zero or negative value would spin the scanner as fast as the event loop allows and exhaust an RPC budget in minutes, so it is rejected at startup rather than left for `setInterval` to coerce.
+
+The interval is the main lever on RPC spend. Each tick costs one `eth_blockNumber` plus one `eth_getLogs` per chain, per endpoint in that chain's quorum — so halving the interval doubles the request rate against every provider. Lower it if you are losing orders to faster solvers; raise it if you are being rate-limited.
+
+```toml lineNumbers
+[simplex]
+# Poll twice a second — faster pickup, ~6x the requests of the default.
+blockScanIntervalSeconds = 0.5
+```
+
+Orders are still evaluated against the confirmation policy after they are seen, so a shorter interval brings detection forward but does not change how long a cross-chain order waits before it can be filled.
+
 ### RPC Quorum
 
 Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the solver starts.
@@ -569,10 +587,11 @@ volumes:
 <Tab value="config.toml">
 ```toml lineNumbers
 [simplex]
-maxConcurrentOrders = 5
-logging             = "info"
-hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
-substratePrivateKey = ""
+maxConcurrentOrders      = 5
+blockScanIntervalSeconds = 3
+logging                  = "info"
+hyperbridgeWsUrl         = "wss://nexus.rpc.polytope.technology"
+substratePrivateKey      = ""
 
 [simplex.signer]
 type                          = "mpcVault"

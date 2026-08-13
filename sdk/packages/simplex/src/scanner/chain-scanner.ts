@@ -2,6 +2,7 @@ import { Mutex } from "async-mutex"
 import { type DecodedOrderPlacedLog, type HexString, retryPromise } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
+import { DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { reconstructOrdersFromLogs } from "./reconstruct"
 import type { ScannedFill, ScannedOrder } from "./types"
@@ -21,7 +22,12 @@ const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
 		(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
 )
 
-const SCAN_INTERVAL_MS = 1_000
+/**
+ * Fallback when the scanner is built without one — the same default the config
+ * service applies, so a scanner built directly scans at the rate a configured
+ * one would. `blockScanIntervalSeconds` overrides it.
+ */
+const DEFAULT_SCAN_INTERVAL_MS = DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS * 1000
 const MAX_BLOCK_RANGE = 1_000n
 
 /**
@@ -54,6 +60,7 @@ export class ChainScanner {
 	constructor(
 		private readonly target: ScanTarget,
 		loggers: LoggerContext = defaultLoggerContext(),
+		private readonly scanIntervalMs: number = DEFAULT_SCAN_INTERVAL_MS,
 	) {
 		this.logger = loggers.get("chain-scanner")
 		this.quorumClient = new QuorumPublicClient(target.chainId, target.rpcUrls)
@@ -124,7 +131,7 @@ export class ChainScanner {
 					this.errorHandler(error)
 				}
 			})
-		}, SCAN_INTERVAL_MS)
+		}, this.scanIntervalMs)
 	}
 
 	/**

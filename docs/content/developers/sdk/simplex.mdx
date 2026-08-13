@@ -36,6 +36,8 @@ const config: SimplexConfig = {
             key: process.env.SOLVER_KEY as `0x${string}`,
         },
         maxConcurrentOrders: 5,
+        // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
+        blockScanIntervalSeconds: 3,
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },
@@ -326,7 +328,16 @@ await hyperbridge.close()
 ```
 
 `OrderScanner.create` takes the same array as your config's `chains`, so it can be passed straight
-through. Entries without a `chainId` have it read back from the first endpoint listed, which also proves
+through. It scans every 3 seconds by default; pass `scanIntervalMs` to change that. A solver that
+builds its own scanner reads the interval from `config.simplex.blockScanIntervalSeconds` instead —
+one you supply keeps whatever interval you gave it, since the solvers reading it may disagree:
+
+```ts lineNumbers
+const orders = await OrderScanner.create(config.chains, {
+    scanIntervalMs: 500,
+})
+```
+ Entries without a `chainId` have it read back from the first endpoint listed, which also proves
 that endpoint answers before a solver depends on it.
 
 `HyperbridgeScanner` carries phantom orders — the quote requests solvers respond to, which is how

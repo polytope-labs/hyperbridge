@@ -35,7 +35,7 @@ static async start(options: SimplexOptions): Promise<Simplex>
 
 | Name | Type | Description |
 |------|------|-------------|
-| `options.config` | `SimplexConfig` | The solver configuration. Same shape the binary's `filler-config.toml` parses into |
+| `options.config` | `SimplexConfig` | The solver configuration. Same shape the binary's `filler-config.toml` parses into. `simplex.blockScanIntervalSeconds` sets the scan rate of a scanner the solver builds; one passed via `orderScanner` keeps its own |
 | `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
 | `options.configPath` | `string` | Optional. Where the config was loaded from. Informational — it is surfaced in logs and to the bundled dashboard. The library never writes it; use `onConfigChange` to persist runtime edits |
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
@@ -598,7 +598,7 @@ closes it on `stop()`; a scanner you build is yours, and `stop()` leaves it runn
 ```typescript lineNumbers
 static async create(
     chains: ScannerChainConfig[],
-    options?: { loggers?: LoggerContext },
+    options?: { loggers?: LoggerContext; scanIntervalMs?: number },
 ): Promise<OrderScanner>
 ```
 
@@ -611,6 +611,7 @@ static async create(
 | `chains[].bundlerUrl` | `string` | Carried so a config array passes through unchanged; unused for scanning |
 | `chains[].chainId` | `number` | Optional. Read back from the endpoints when omitted |
 | `chains[].gateway` | `HexString` | Optional. Taken from the SDK chain registry when omitted |
+| `options.scanIntervalMs` | `number` | Optional. Milliseconds between scans of each chain. Defaults to 3000, the same default `blockScanIntervalSeconds` carries |
 
 **Throws:** if an endpoint set is invalid or unreachable, or if two entries resolve to the same chain.
 

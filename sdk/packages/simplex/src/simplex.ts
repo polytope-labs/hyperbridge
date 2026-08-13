@@ -11,6 +11,7 @@ import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/se
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
+import type { HyperbridgeSource, OrderSource } from "@/scanner/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 
 /** Configuration for a filler. The same shape the TOML file parses into. */
@@ -44,6 +45,21 @@ export interface SimplexOptions {
 	 * uninvited is the host's problem to clean up, so silence is the default.
 	 */
 	logger?: LogSink
+	/**
+	 * Where gateway events come from. Defaults to a process-local shared scanner:
+	 * fillers watching the same chain through the same endpoints share one scan
+	 * loop, so N instances cost one chain's worth of RPC rather than N.
+	 *
+	 * Supply your own to feed fillers from somewhere else — a scanner in another
+	 * process, an indexer, a message bus.
+	 */
+	orderSource?: OrderSource
+	/**
+	 * Where Hyperbridge phantom orders come from. Defaults to a process-local
+	 * shared poller, one per endpoint. Bid submission is unaffected — it is signed
+	 * with this filler's own substrate key.
+	 */
+	hyperbridgeSource?: HyperbridgeSource
 	/**
 	 * Called after any mutation that changes the effective config, so a host can
 	 * persist it however it likes.
@@ -653,6 +669,7 @@ export class Simplex extends EventEmitter {
 		})
 		const runtime = await bootFiller(options.config, {
 			loggers,
+			sources: { orders: options.orderSource, hyperbridge: options.hyperbridgeSource },
 			configPath: options.configPath,
 			data: options.data ?? new MemoryDataStore(),
 			dataDir: options.dataDir,

@@ -3,6 +3,7 @@ import { FillerConfigService } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { EventMonitor } from "@/core/event-monitor"
+import type { OrderSource, OrderSourceHandlers } from "@/scanner/types"
 import type { HexString } from "@hyperbridge/sdk"
 
 /**
@@ -124,43 +125,53 @@ describe("ConfirmationPolicy runtime coverage", () => {
 })
 
 describe("EventMonitor chain lifecycle", () => {
-	/** A monitor whose scanners never touch the network. */
+	/** A monitor wired to a stub source, so nothing touches the network. */
 	function monitorFor(chainIds: number[]) {
 		const service = configService()
 		for (const chainId of chainIds.slice(1)) {
 			service.addChain({ chainId, rpcUrls: [`https://rpc-${chainId}.example`] })
 		}
-		const quorumClients = new Map<number, { getBlockNumber: () => Promise<bigint>; size: number; threshold: number }>()
-		const clientManager = {
-			getQuorumClient: (chain: string) => {
-				const chainId = Number(chain.replace("EVM-", ""))
-				// A fresh object per call, so the test can tell a rebuild from a reuse.
-				const client = { getBlockNumber: vi.fn(async () => 100n), size: 1, threshold: 1 }
-				quorumClients.set(chainId, client)
-				return client
+
+		const subscribed: number[] = []
+		const closed: number[] = []
+		const handlers = new Map<number, OrderSourceHandlers>()
+		const source: OrderSource = {
+			subscribe: (target, h) => {
+				subscribed.push(target.chainId)
+				handlers.set(target.chainId, h)
+				return {
+					close: () => closed.push(target.chainId),
+					dropped: 0,
+				}
 			},
-		} as unknown as ChainClientManager
+			activeChains: () => [...new Set(subscribed)],
+		}
 
 		const monitor = new EventMonitor(
 			chainIds.map((chainId) => ({ chainId }) as never),
 			service,
-			clientManager,
+			{} as unknown as ChainClientManager,
 			FILLER,
+			source,
 		)
-		return { monitor, service, quorumClients }
+		return { monitor, service, source, subscribed, closed, handlers }
 	}
 
-	it("tracks the chains it was constructed with", () => {
-		const { monitor } = monitorFor([1])
-		expect((monitor as any).quorumClients.has(1)).toBe(true)
+	it("subscribes to every constructed chain once listening", async () => {
+		const { monitor, subscribed } = monitorFor([1, 8453])
+		expect(subscribed).toEqual([])
+		await monitor.startListening()
+		expect(subscribed.sort()).toEqual([1, 8453])
 	})
 
-	it("adds a chain without starting a scanner while idle", async () => {
-		const { monitor } = monitorFor([1])
+	it("subscribes a chain added after boot, and not before listening", async () => {
+		const { monitor, subscribed } = monitorFor([1])
 		await monitor.addChain(8453)
-		expect((monitor as any).quorumClients.has(8453)).toBe(true)
-		// Not listening yet, so no interval was armed.
-		expect((monitor as any).blockScanIntervals.has(8453)).toBe(false)
+		// Not listening yet, so nothing was subscribed.
+		expect(subscribed).toEqual([])
+
+		await monitor.startListening()
+		expect(subscribed.sort()).toEqual([1, 8453])
 	})
 
 	it("refuses to add a chain it already monitors", async () => {
@@ -168,31 +179,69 @@ describe("EventMonitor chain lifecycle", () => {
 		await expect(monitor.addChain(1)).rejects.toThrow(/already monitored/)
 	})
 
-	it("forgets a removed chain's client, mutex and cursor", async () => {
-		const { monitor } = monitorFor([1, 8453])
+	it("releases a removed chain's subscription and leaves the others alone", async () => {
+		const { monitor, closed, subscribed } = monitorFor([1, 8453])
+		await monitor.startListening()
+
 		await monitor.removeChain(8453)
-		expect((monitor as any).quorumClients.has(8453)).toBe(false)
-		expect((monitor as any).scanningMutexes.has(8453)).toBe(false)
-		expect((monitor as any).lastScannedBlock.has(8453)).toBe(false)
-		// The surviving chain is untouched.
-		expect((monitor as any).quorumClients.has(1)).toBe(true)
+		expect(closed).toEqual([8453])
+		// The surviving chain is untouched — and the shared loop it holds keeps running.
+		expect(subscribed).toContain(1)
 	})
 
-	it("rebuilds a chain's client while preserving its scan cursor", async () => {
-		const { monitor } = monitorFor([1])
-		const before = (monitor as any).quorumClients.get(1)
-		// Pretend a scan has advanced the cursor.
-		;(monitor as any).lastScannedBlock.set(1, 4242n)
+	it("resubscribes on rebuild so the filler moves to the loop for its new endpoints", async () => {
+		const { monitor, service, closed, subscribed } = monitorFor([1])
+		await monitor.startListening()
+		expect(subscribed).toEqual([1])
 
+		service.setRpcUrls(1, ["https://new.example"])
 		await monitor.rebuildChain(1)
 
-		expect((monitor as any).quorumClients.get(1)).not.toBe(before)
-		// A gap here would mean orders in the skipped range are never seen.
-		expect((monitor as any).lastScannedBlock.get(1)).toBe(4242n)
+		expect(closed).toEqual([1])
+		expect(subscribed).toEqual([1, 1])
 	})
 
 	it("refuses to rebuild a chain it does not monitor", async () => {
 		const { monitor } = monitorFor([1])
 		await expect(monitor.rebuildChain(999)).rejects.toThrow(/not monitored/)
+	})
+
+	it("re-emits orders from the source, and drops a replayed one", async () => {
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		const seen: string[] = []
+		monitor.on("newOrder", ({ order }) => seen.push(order.id))
+
+		const event = {
+			order: { id: "0xorder" },
+			transactionHash: "0xtx",
+			blockNumber: 1n,
+			blockHash: "0xblock",
+			logIndex: 0,
+			chain: "EVM-1",
+			chainId: 1,
+		}
+		// At-least-once: a shared feed resuming from a cursor re-delivers, and the fill
+		// path has no idempotency of its own.
+		handlers.get(1)!.onOrder(event as never)
+		handlers.get(1)!.onOrder(event as never)
+
+		expect(seen).toEqual(["0xorder"])
+	})
+
+	it("only re-emits fills credited to this filler", async () => {
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		const seen: string[] = []
+		monitor.on("orderFilledOnChain", ({ commitment }) => seen.push(commitment))
+
+		// `filler` is indexed:false in the ABI, so every consumer receives every fill
+		// and narrows it locally.
+		handlers.get(1)!.onFill({ commitment: "0xmine", filler: FILLER.toLowerCase(), chainId: 1 } as never)
+		handlers.get(1)!.onFill({ commitment: "0xtheirs", filler: "0xBBBB", chainId: 1 } as never)
+
+		expect(seen).toEqual(["0xmine"])
 	})
 })

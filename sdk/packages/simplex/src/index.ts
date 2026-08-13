@@ -106,6 +106,25 @@ export type {
 export type { AllowlistConfig, UserProvidedChainConfig, ResolvedChainConfig } from "@/services/FillerConfigService"
 export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/services/BalanceProvider"
 
+// ─── Shared scanners ────────────────────────────────────────────────────────
+// Scanning a chain is identical work for every filler, so the default sources
+// share one loop per (chain, gateway, endpoints) and one Hyperbridge poll per
+// endpoint across every Simplex in the process. Implement these contracts to
+// feed fillers from somewhere else — another process, an indexer, a bus.
+
+export { SharedOrderSource, SharedHyperbridgeSource, sharedScanners } from "@/scanner/registry"
+export { scanKey } from "@/scanner/types"
+export type {
+	OrderSource,
+	OrderSourceHandlers,
+	HyperbridgeSource,
+	HyperbridgeHandlers,
+	ScanTarget,
+	ScannedOrder,
+	ScannedFill,
+	Subscription,
+} from "@/scanner/types"
+
 // ─── Logging ────────────────────────────────────────────────────────────────
 // Silent until a sink is registered. Each filler owns a LoggerContext, so
 // `SimplexOptions.logger` and `simplex.setLogLevel` are scoped to that filler.

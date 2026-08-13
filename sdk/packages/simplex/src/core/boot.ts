@@ -27,6 +27,7 @@ import { initializeSignerFromToml } from "@/services/wallet"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import { ActivityRecorder } from "@/data/recorder"
 import type { SimplexDataStore } from "@/data/types"
+import type { HyperbridgeSource, OrderSource } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { SigningAccount } from "@/services/wallet"
@@ -41,6 +42,12 @@ export interface BootOptions {
 	 * here, so two fillers in one process never write into each other's sinks.
 	 */
 	loggers: LoggerContext
+	/**
+	 * Shared event sources. Defaulted by `Simplex.start` to process-local shared
+	 * scanners, so several fillers in one process issue one scan per chain rather
+	 * than one each.
+	 */
+	sources?: { orders?: OrderSource; hyperbridge?: HyperbridgeSource }
 	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
@@ -452,6 +459,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		runtimeSigner,
 		rebalancingService,
 		bidStore,
+		options.sources ?? {},
 	)
 
 	// Initialize (sets up EIP-7702 delegation if solver selection is configured)

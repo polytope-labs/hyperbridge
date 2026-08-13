@@ -8,362 +8,184 @@ import {
 	DecodedOrderPlacedLog,
 	HexString,
 } from "@hyperbridge/sdk"
-import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
-import { QuorumPublicClient } from "@/services/QuorumPublicClient"
-import { Mutex } from "async-mutex"
+import { type Logger, moduleLogger } from "@/services/Logger"
+import { SharedOrderSource } from "@/scanner/registry"
+import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
+import type { OrderSource, ScanTarget, Subscription } from "@/scanner/types"
 
-export interface ReconstructDeps {
-	onError?: (err: unknown, log: DecodedOrderPlacedLog) => void
-}
+// Re-exported from its original home so existing importers keep working.
+export { reconstructOrdersFromLogs }
+export type { ReconstructDeps, ReconstructedOrder }
+
+/** Order ids retained for de-duplication. Roughly an hour of mainnet flow. */
+const SEEN_LIMIT = 5_000
 
 /**
- * Pure reconstruction of `OrderPlaced` logs into `Order` structs with
- * commitments. Every log carries the complete order — including both call
- * payloads — so each order is rebuilt from its log alone.
+ * Per-instance event bus for one filler.
+ *
+ * This used to own a block-scan loop per chain. It no longer does: scanning is
+ * identical work for every filler on a chain, so it moved to a shared
+ * {@link OrderSource} and this class subscribes to it. Everything else stays —
+ * the monitor is the filler's event bus, not merely a source. `IntentFiller`
+ * emits `orderTiming`, `orderSkipped`, `orderFilled`, `orderExecuted` and
+ * `rebalanceExecuted` on it, `ActivityRecorder` attaches to it, and `Simplex`
+ * re-exposes it as the public event surface.
+ *
+ * Two things must stay on this side of the boundary:
+ *  - the `OrderFilled` filler-address filter. `filler` is `indexed: false` on
+ *    both `OrderFilled` and `PartialFill`, so it can never be a topic filter;
+ *    every consumer receives every fill and narrows it locally.
+ *  - de-duplication. Exactly-once used to be emergent — a private monotonic
+ *    cursor made a repeat impossible. A shared feed can replay from a cursor
+ *    after a reconnect, so the seen-set below is what preserves the property
+ *    the filler has always assumed.
  */
-export function reconstructOrdersFromLogs(
-	logs: DecodedOrderPlacedLog[],
-	deps: ReconstructDeps = {},
-): { order: Order; transactionHash: string }[] {
-	const out: { order: Order; transactionHash: string }[] = []
-
-	for (const decodedLog of logs) {
-		try {
-			const { predispatchCall, outputCall } = decodedLog.args
-			if (predispatchCall === undefined || outputCall === undefined) {
-				throw new Error("OrderPlaced log is missing its call payloads; pre-#1092 gateways are not supported")
-			}
-
-			const order: Order = {
-				user: decodedLog.args.user,
-				source: normalizeStateMachineId(decodedLog.args.source) as HexString,
-				destination: normalizeStateMachineId(decodedLog.args.destination) as HexString,
-				deadline: decodedLog.args.deadline,
-				nonce: decodedLog.args.nonce,
-				fees: decodedLog.args.fees,
-				session: decodedLog.args.session,
-				predispatch: {
-					assets: decodedLog.args.predispatch.map(
-						(predispatch: { token: HexString; amount: bigint }) => ({
-							token: predispatch.token,
-							amount: predispatch.amount,
-						}),
-					),
-					call: predispatchCall,
-				},
-				output: {
-					beneficiary: decodedLog.args.beneficiary,
-					assets: decodedLog.args.outputs.map((output: { token: HexString; amount: bigint }) => ({
-						token: output.token,
-						amount: output.amount,
-					})),
-					call: outputCall,
-				},
-				inputs: decodedLog.args.inputs.map((input: { token: HexString; amount: bigint }) => ({
-					token: input.token,
-					amount: input.amount,
-				})),
-			}
-
-			order.id = orderCommitment(order)
-
-			out.push({ order, transactionHash: decodedLog.transactionHash as string })
-		} catch (error) {
-			if (deps.onError) deps.onError(error, decodedLog)
-		}
-	}
-
-	return out
-}
-
-/** Gateway events every chain scanner subscribes to. */
-const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
-	(item) =>
-		item.type === "event" &&
-		(item.name === "OrderPlaced" || item.name === "OrderFilled" || item.name === "PartialFill"),
-)
-
 export class EventMonitor extends EventEmitter {
-	private quorumClients: Map<number, QuorumPublicClient> = new Map()
-	private listening: boolean = false
+	private listening = false
 	private configService: FillerConfigService
 	private clientManager: ChainClientManager
 	private fillerAddress: string
 	private logger: Logger
-	private lastScannedBlock: Map<number, bigint> = new Map()
-	private blockScanIntervals: Map<number, NodeJS.Timeout> = new Map()
-	private scanningMutexes: Map<number, Mutex> = new Map()
+	private orderSource: OrderSource
+	private subscriptions: Map<number, Subscription> = new Map()
+	private chains: Map<number, ScanTarget> = new Map()
+	/** Order ids already delivered, newest last. Bounds the memory a replay can cost. */
+	private seen: Set<string> = new Set()
+	private seenOrder: string[] = []
 
 	constructor(
 		chainConfigs: ChainConfig[],
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		fillerAddress: HexString,
+		orderSource?: OrderSource,
 	) {
 		super()
 		this.logger = moduleLogger(configService.loggers, "event-monitor")
 		this.configService = configService
 		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()
+		this.orderSource = orderSource ?? new SharedOrderSource(configService.loggers)
 
 		chainConfigs.forEach((config) => this.registerChain(config.chainId))
 	}
 
-	/** Caches the shared quorum client and scan mutex for a chain. */
+	/** Records the scan target for a chain. Subscribing happens in startListening. */
 	private registerChain(chainId: number): void {
-		this.scanningMutexes.set(chainId, new Mutex())
-
-		// Shared quorum client over the operator's configured endpoints, also
-		// used by the cross-chain confirmation waiter in the filler core.
-		const quorumClient = this.clientManager.getQuorumClient(`EVM-${chainId}`)
-		this.quorumClients.set(chainId, quorumClient)
-		if (quorumClient.size > 1) {
-			this.logger.info(
-				{ chainId, providerCount: quorumClient.size, threshold: quorumClient.threshold },
-				"Quorum log scanning enabled",
-			)
-		}
+		const chain = `EVM-${chainId}`
+		this.chains.set(chainId, {
+			chain,
+			chainId,
+			gateway: this.configService.getIntentGatewayAddress(chain),
+			rpcUrls: this.configService.getRpcUrls(chain),
+		})
 	}
 
 	public async startListening(): Promise<void> {
 		if (this.listening) return
 		this.listening = true
 
-		for (const chainId of this.quorumClients.keys()) {
+		for (const chainId of this.chains.keys()) {
 			try {
-				await this.startScanner(chainId)
+				this.subscribe(chainId)
 			} catch (error) {
-				this.logger.error({ chainId, err: error }, "Failed to start block scanner")
+				this.logger.error({ chainId, err: error }, "Failed to subscribe to the order source")
 			}
 		}
 	}
 
-	/**
-	 * Starts (or restarts) one chain's scan loop from the current head.
-	 *
-	 * `fromBlock` lets a restart resume an existing cursor instead of skipping
-	 * whatever landed while the scanner was down — an RPC swap must not open a
-	 * hole in the scanned range.
-	 */
-	private async startScanner(chainId: number, fromBlock?: bigint): Promise<void> {
-		const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
+	private subscribe(chainId: number): void {
+		const target = this.chains.get(chainId)
+		if (!target || this.subscriptions.has(chainId)) return
 
-		const quorumClient = this.quorumClients.get(chainId)
-		if (!quorumClient) {
-			throw new Error(`Chain ${chainId} has no quorum client`)
-		}
+		this.subscriptions.set(
+			chainId,
+			this.orderSource.subscribe(target, {
+				onOrder: ({ order, transactionHash }) => this.handleOrder(order, transactionHash),
+				onFill: ({ commitment, filler, chainId: fillChainId }) => this.handleFill(commitment, filler, fillChainId),
+				onError: (error, erroredChain) =>
+					this.logger.error({ chainId: erroredChain, err: error }, "Order source reported a scan failure"),
+			}),
+		)
+		this.logger.info({ chainId }, "Subscribed to gateway events")
+	}
 
-		const startBlock =
-			fromBlock ??
-			(await retryPromise(() => quorumClient.getBlockNumber(), {
-				maxRetries: 3,
-				backoffMs: 250,
-				logMessage: "Failed to get start block number",
-			})) - 1n
-		this.lastScannedBlock.set(chainId, startBlock)
-
-		this.logger.info({ chainId, startBlock }, "Initializing block scanner")
-
-		const scanInterval = setInterval(async () => {
-			const mutex = this.scanningMutexes.get(chainId)
-			if (!mutex) return
-
-			if (mutex.isLocked()) {
+	private handleOrder(order: Order, transactionHash: string): void {
+		const id = order.id
+		if (id) {
+			// At-least-once delivery: a shared feed that resumes from a cursor can
+			// re-deliver, and the fill path has no idempotency of its own.
+			if (this.seen.has(id)) {
+				this.logger.debug({ orderId: id }, "Duplicate order from the source, ignoring")
 				return
 			}
-
-			await mutex.runExclusive(async () => {
-				try {
-					await this.scanBlocks(chainId, quorumClient, intentGatewayAddress, GATEWAY_EVENTS)
-				} catch (error) {
-					this.logger.error({ chainId, err: error }, "Error in block scanner")
-				}
-			})
-		}, 1000)
-
-		this.blockScanIntervals.set(chainId, scanInterval)
-
-		this.logger.info({ chainId }, "Started monitoring for new orders and fills")
-	}
-
-	/** Stops one chain's scan loop, returning the cursor so a restart can resume it. */
-	private async stopScanner(chainId: number): Promise<bigint | undefined> {
-		const interval = this.blockScanIntervals.get(chainId)
-		if (interval) {
-			clearInterval(interval)
-			this.blockScanIntervals.delete(chainId)
+			this.seen.add(id)
+			this.seenOrder.push(id)
+			if (this.seenOrder.length > SEEN_LIMIT) {
+				const evicted = this.seenOrder.shift()
+				if (evicted) this.seen.delete(evicted)
+			}
 		}
-		// Let an in-flight scan finish so the cursor we return is settled.
-		await this.scanningMutexes.get(chainId)?.runExclusive(async () => {})
-		return this.lastScannedBlock.get(chainId)
+		this.emit("newOrder", { order, transactionHash })
 	}
 
-	/** Begins scanning a chain added after boot. */
+	private handleFill(commitment: HexString, filler: string, chainId: number): void {
+		// Never a topic filter — see the class comment.
+		if (filler?.toLowerCase() !== this.fillerAddress) return
+		this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
+		this.emit("orderFilledOnChain", { commitment, filler, chainId })
+	}
+
+	/** Begins watching a chain added after boot. */
 	public async addChain(chainId: number): Promise<void> {
-		if (this.quorumClients.has(chainId)) {
+		if (this.chains.has(chainId)) {
 			throw new Error(`Chain ${chainId} is already monitored`)
 		}
 		this.registerChain(chainId)
-		if (this.listening) await this.startScanner(chainId)
+		if (this.listening) this.subscribe(chainId)
 	}
 
-	/** Stops scanning a chain and forgets its cursor. */
+	/** Stops watching a chain. The shared loop keeps running for any other filler on it. */
 	public async removeChain(chainId: number): Promise<void> {
-		await this.stopScanner(chainId)
-		this.quorumClients.delete(chainId)
-		this.scanningMutexes.delete(chainId)
-		this.lastScannedBlock.delete(chainId)
+		this.subscriptions.get(chainId)?.close()
+		this.subscriptions.delete(chainId)
+		this.chains.delete(chainId)
 		this.logger.info({ chainId }, "Stopped monitoring chain")
 	}
 
 	/**
-	 * Rebuilds a chain's client against its current RPC URLs, preserving the scan
-	 * cursor. `ChainClientManager.invalidate` must have run first — this re-reads
-	 * the quorum client it dropped.
+	 * Re-subscribes a chain against its current endpoints.
+	 *
+	 * The endpoints are part of the scan key, so new ones mean a different shared
+	 * loop: releasing the old subscription and taking a new one is what moves this
+	 * filler across. The old loop keeps running only if another filler still holds it.
 	 */
 	public async rebuildChain(chainId: number): Promise<void> {
-		if (!this.quorumClients.has(chainId)) {
+		if (!this.chains.has(chainId)) {
 			throw new Error(`Chain ${chainId} is not monitored`)
 		}
-		const cursor = await this.stopScanner(chainId)
-		this.quorumClients.delete(chainId)
+		this.subscriptions.get(chainId)?.close()
+		this.subscriptions.delete(chainId)
 		this.registerChain(chainId)
-		if (this.listening) await this.startScanner(chainId, cursor)
-		this.logger.info({ chainId, cursor }, "Rebuilt chain scanner on new endpoints")
+		if (this.listening) this.subscribe(chainId)
+		this.logger.info({ chainId }, "Resubscribed chain on new endpoints")
 	}
 
-	private isBlockRangeError(error: any): boolean {
-		const message = String(error?.message || error?.details || "")
-		return (
-			message.includes("block range extends beyond current head block") ||
-			message.includes("invalid block range params")
-		)
-	}
-
-	private async scanBlocks(
-		chainId: number,
-		quorumClient: QuorumPublicClient,
-		intentGatewayAddress: `0x${string}`,
-		gatewayEvents: any[],
-	): Promise<void> {
-		const lastScanned = this.lastScannedBlock.get(chainId)
-		if (!lastScanned) return
-
-		const currentBlock = await retryPromise(() => quorumClient.getBlockNumber(), {
-			maxRetries: 3,
-			backoffMs: 250,
-			logMessage: "Failed to get current block number",
-		})
-
-		if (currentBlock <= lastScanned) return
-
-		const fromBlock = lastScanned + 1n
-		const maxBlockRange = 1000n
-		const toBlock = fromBlock + maxBlockRange > currentBlock ? currentBlock : fromBlock + maxBlockRange
-
-		this.logger.debug({ chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) }, "Scanning blocks")
-
-		let logs: any[]
-		try {
-			logs = await retryPromise(
-				() =>
-					quorumClient.getLogs({
-						address: intentGatewayAddress,
-						events: gatewayEvents,
-						fromBlock,
-						toBlock,
-					}),
-				{
-					maxRetries: 3,
-					backoffMs: 250,
-					logMessage: "Failed to get gateway event logs",
-				},
-			)
-		} catch (error: any) {
-			// RPC hasn't indexed these blocks yet — don't advance the cursor,
-			// just wait for the next tick to retry.
-			if (this.isBlockRangeError(error)) return
-			throw error
-		}
-
-		const placedLogs = logs.filter((l: any) => l.eventName === "OrderPlaced")
-		const filledLogs = logs.filter((l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill")
-
-		if (placedLogs.length > 0) {
-			this.logger.info(
-				{ chainId, fromBlock, toBlock, eventCount: placedLogs.length },
-				"Found OrderPlaced events in block scan",
-			)
-			this.processOrderPlacedLogs(placedLogs)
-		}
-
-		if (filledLogs.length > 0) {
-			this.logger.info(
-				{ chainId, fromBlock, toBlock, eventCount: filledLogs.length },
-				"Found OrderFilled events in block scan",
-			)
-			this.processOrderFilledLogs(chainId, filledLogs)
-		}
-
-		this.lastScannedBlock.set(chainId, toBlock)
-	}
-
-	private processOrderPlacedLogs(logs: any[]): void {
-		const results = reconstructOrdersFromLogs(logs as DecodedOrderPlacedLog[], {
-			onError: (err, decodedLog) => {
-				this.logger.error({ err, log: decodedLog }, "Error parsing event log")
-			},
-		})
-
-		for (const { order, transactionHash } of results) {
-			this.logger.info({ orderId: order.id, txHash: transactionHash }, "New order detected")
-			this.emit("newOrder", { order, transactionHash })
-		}
-	}
-
-	private processOrderFilledLogs(chainId: number, logs: any[]): void {
-		for (const log of logs) {
-			try {
-				const commitment = log.args?.commitment as HexString | undefined
-				const filler = log.args?.filler as string | undefined
-
-				if (!commitment) {
-					this.logger.warn({ log }, "OrderFilled log missing commitment")
-					continue
-				}
-
-				if (filler?.toLowerCase() !== this.fillerAddress) {
-					continue
-				}
-
-				this.logger.info({ chainId, commitment, filler }, "OrderFilled event detected for this filler")
-				this.emit("orderFilledOnChain", { commitment, filler, chainId })
-			} catch (error) {
-				this.logger.error({ err: error, log }, "Error parsing OrderFilled log")
-			}
-		}
+	/** Events dropped because this filler could not keep up with the shared feed. */
+	public droppedEvents(): number {
+		let total = 0
+		for (const subscription of this.subscriptions.values()) total += subscription.dropped
+		return total
 	}
 
 	public async stopListening(): Promise<void> {
 		this.listening = false
-
-		for (const [chainId, interval] of this.blockScanIntervals.entries()) {
-			clearInterval(interval)
-			this.logger.info({ chainId }, "Stopped block scanner")
-		}
-		this.blockScanIntervals.clear()
-
-		const mutexPromises = Array.from(this.scanningMutexes.values()).map((mutex) =>
-			mutex.runExclusive(async () => {
-				// Empty function - just wait for any ongoing operations to complete
-			}),
-		)
-		await Promise.allSettled(mutexPromises)
-
-		this.scanningMutexes.clear()
-		this.lastScannedBlock.clear()
+		for (const subscription of this.subscriptions.values()) subscription.close()
+		this.subscriptions.clear()
+		this.chains.clear()
+		this.seen.clear()
+		this.seenOrder = []
 	}
 }

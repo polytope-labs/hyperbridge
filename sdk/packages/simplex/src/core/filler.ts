@@ -8,7 +8,6 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
-	type PhantomBid,
 	type PhantomOrderEvent,
 	orderCommitment,
 	bytes32ToBytes20,
@@ -19,20 +18,13 @@ import type { Address } from "viem"
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
 import type { BidStore } from "@/data/types"
+import { SharedHyperbridgeSource } from "@/scanner/registry"
+import type { HyperbridgeSource, OrderSource, Subscription } from "@/scanner/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
-
-/** One chain's phantom bid, quoted and built, waiting to ride in the interval's batch. */
-interface PreparedPhantomBid {
-	chain: string
-	/** Legs that got a non-zero quote, and how many the order carried — for logging only. */
-	quotedLegs: number
-	legs: number
-	bid: PhantomBid
-}
 
 export class IntentFiller {
 	public monitor: EventMonitor
@@ -55,18 +47,13 @@ export class IntentFiller {
 	// retracts exactly the one it replaces.
 	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
-	/**
-	 * The filler's Hyperbridge connection, so other services can share it rather than opening a
-	 * second socket to the same node.
-	 */
-	get hyperbridgeConnection(): Promise<IntentsCoprocessor> | undefined {
-		return this.hyperbridge
-	}
 	private config: FillerConfig
 	private configService: FillerConfigService
 	private signer: SigningAccount
 	private fillerAddress: HexString
 	private logger: Logger
+	private hyperbridgeSource: HyperbridgeSource
+	private phantomSubscription?: Subscription
 
 	constructor(
 		chainConfigs: ChainConfig[],
@@ -78,6 +65,7 @@ export class IntentFiller {
 		signer: SigningAccount,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
+		sources: { orders?: OrderSource; hyperbridge?: HyperbridgeSource } = {},
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -87,7 +75,14 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
+		this.monitor = new EventMonitor(
+			chainConfigs,
+			configService,
+			this.chainClientManager,
+			this.fillerAddress,
+			sources.orders,
+		)
+		this.hyperbridgeSource = sources.hyperbridge ?? new SharedHyperbridgeSource(configService.loggers)
 		this.strategies = strategies
 		this.config = config
 
@@ -412,6 +407,8 @@ export class IntentFiller {
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
 
+		this.phantomSubscription?.close()
+		this.phantomSubscription = undefined
 		if (this.stopPhantomPolling) {
 			this.stopPhantomPolling()
 			this.stopPhantomPolling = null
@@ -947,24 +944,29 @@ export class IntentFiller {
 
 	private startPhantomBidding(): void {
 		if (!this.hyperbridge) return
+		const wsUrl = this.configService.getHyperbridgeWsUrl()
+		if (!wsUrl) return
 		this.hyperbridge
 			.then((coprocessor) => {
-				this.stopPhantomPolling = coprocessor.pollPhantomOrders(
-					(orders) => {
+				// Reads come from the shared poller — every filler used to re-read every
+				// Hyperbridge block itself. Bids still go through this instance's own
+				// coprocessor, which holds its substrate key.
+				this.phantomSubscription = this.hyperbridgeSource.subscribe(wsUrl, {
+					onPhantomOrder: (order) => {
 						// The queued promise is nobody's return value, so an escaping throw would be an
 						// unhandled rejection — which this process has no handler for and Node turns into
 						// an exit. Contain it here so a bad phantom order can never take the filler down.
 						void this.globalQueue
-							.add(() => this.handlePhantomOrders(orders, coprocessor))
+							.add(() => this.handlePhantomOrder(order, coprocessor))
 							.catch((err) =>
 								this.logger.error(
-									{ err, chains: orders.map((order) => order.chain) },
-									"Unhandled error while processing phantom orders",
+									{ err, chain: order.chain, commitment: order.commitment },
+									"Unhandled error while processing a phantom order",
 								),
 							)
 					},
-					{ onError: (err) => this.logger.warn({ err }, "Phantom order poll failed, will retry") },
-				)
+					onError: (err) => this.logger.warn({ err }, "Phantom order poll failed, will retry"),
+				})
 				this.logger.info("Phantom order polling active")
 			})
 			.catch((err) => {
@@ -1004,15 +1006,7 @@ export class IntentFiller {
 		return null
 	}
 
-	/**
-	 * Quotes and builds one chain's phantom bid, ready to be batched with the rest of the interval's.
-	 * Returns null when the chain is skipped, nothing quoted, or the userOp could not be built —
-	 * one chain dropping out never costs the others their bid.
-	 */
-	private async preparePhantomBid(
-		event: PhantomOrderEvent,
-		coprocessor: IntentsCoprocessor,
-	): Promise<PreparedPhantomBid | null> {
+	private async handlePhantomOrder(event: PhantomOrderEvent, coprocessor: IntentsCoprocessor): Promise<void> {
 		// A phantom bid is a public quote — it advertises that this filler stands ready to fill that
 		// chain's pairs at the quoted rate. The pallet registers one order per chain *it* knows about,
 		// which is a superset of what any single operator runs, and the strategies price legs off the
@@ -1023,17 +1017,17 @@ export class IntentFiller {
 		const chainId = getChainId(event.chain)
 		if (chainId === undefined || !this.configService.getConfiguredChainIds().includes(chainId)) {
 			this.logger.debug({ chain: event.chain }, "Phantom order chain is not configured, skipping")
-			return null
+			return
 		}
 		if (this.isChainWatchOnly(chainId)) {
 			this.logger.debug({ chain: event.chain }, "Phantom order chain is watch-only, skipping")
-			return null
+			return
 		}
 
 		const entryPointAddress = this.configService.getEntryPointAddress(`EVM-${chainId}`)
 		if (!entryPointAddress) {
 			this.logger.debug({ chain: event.chain }, "No entry point configured for phantom order chain, skipping")
-			return null
+			return
 		}
 
 		// Fetch the exact ABI-encoded order the pallet committed to from offchain storage. The read
@@ -1048,14 +1042,14 @@ export class IntentFiller {
 				"Could not read the phantom order from offchain storage — the Hyperbridge node must run with " +
 					"--enable-offchain-indexing=true and expose offchain_localStorageGet (--rpc-methods=unsafe)",
 			)
-			return null
+			return
 		}
 		if (!phantomOrder) {
 			this.logger.warn(
 				{ commitment: event.commitment, chain: event.chain },
 				"Phantom order not found in offchain storage — node may not be an offchain worker or order expired",
 			)
-			return null
+			return
 		}
 
 		// Every leg of every configured pair rides in this one order, so quote leg by leg —
@@ -1072,7 +1066,7 @@ export class IntentFiller {
 
 		if (fillerOutputs.every((output) => output.amount === 0n)) {
 			this.logger.debug({ chain: event.chain }, "No strategy quoted any leg of the phantom order")
-			return null
+			return
 		}
 
 		const solverAccountAddress = this.signer.account.address as HexString
@@ -1084,91 +1078,47 @@ export class IntentFiller {
 				solverAccountAddress,
 				fillerOutputs,
 				this.config.acceptedSourceChains,
-				// Positions are declared per chain because the bid is: the tokenIds that back a quote
-				// on this chain are the ones held here.
-				this.config.uniswapV4PositionsByChain?.[event.chain],
 			)
 
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity
 			// divergence if the encode round-trip doesn't perfectly reproduce the pallet's bytes.
-			// When the previous interval's bid on this chain is still live it rides along as a
-			// retraction, so the old deposit comes back in the same extrinsic.
+			// When the previous interval's bid on this chain is still live, retract it and place the
+			// new bid in one utility.batch so the old deposit is reclaimed even if the new bid fails.
 			const prevCommitment = this.lastPhantomCommitmentByChain.get(event.chain)
-			return {
-				chain: event.chain,
-				quotedLegs: fillerOutputs.filter((output) => output.amount > 0n).length,
-				legs: fillerOutputs.length,
-				bid: {
-					commitment: event.commitment,
-					userOp,
-					retractCommitment:
-						prevCommitment && prevCommitment !== event.commitment ? prevCommitment : undefined,
-				},
-			}
-		} catch (err) {
-			this.logger.error({ err, chain: event.chain }, "Failed to prepare phantom bid")
-			return null
-		}
-	}
-
-	/**
-	 * Bids on every phantom order registered in one block, in a single extrinsic.
-	 *
-	 * The pallet registers one order per configured chain in the same block, so this is the whole
-	 * interval's set. Quoting stays per chain and runs concurrently; only the submission is shared.
-	 * One bid per chain used to mean one extrinsic per chain, each waiting for inclusion behind the
-	 * last because submissions are serialised on the account nonce — so the final chain's bid was
-	 * many blocks behind the first, against a bid window measured in tens of blocks.
-	 */
-	private async handlePhantomOrders(events: PhantomOrderEvent[], coprocessor: IntentsCoprocessor): Promise<void> {
-		const prepared = (await Promise.all(events.map((event) => this.preparePhantomBid(event, coprocessor)))).filter(
-			(entry): entry is PreparedPhantomBid => entry !== null,
-		)
-		if (prepared.length === 0) return
-
-		const result = await coprocessor.submitPhantomBids(prepared.map((entry) => entry.bid))
-
-		const landed: string[] = []
-		prepared.forEach((entry, index) => {
-			const outcome = result.bids[index]
-			if (outcome?.success) {
-				landed.push(entry.chain)
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
-				return
-			}
-			if (result.pending) {
+			const result =
+				prevCommitment && prevCommitment !== event.commitment
+					? await coprocessor.submitBidWithRetraction(prevCommitment, event.commitment, userOp)
+					: await coprocessor.submitBid(event.commitment, userOp)
+			if (result.success) {
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
+				this.logger.info(
+					{
+						commitment: event.commitment,
+						chain: event.chain,
+						quotedLegs: fillerOutputs.filter((output) => output.amount > 0n).length,
+						legs: fillerOutputs.length,
+						txHash: result.extrinsicHash,
+						blockHash: result.blockHash,
+					},
+					"Phantom bid submitted",
+				)
+			} else if (result.pending) {
 				// The extrinsic reached the tx pool but inclusion wasn't observed — it will almost
 				// certainly land. Record the commitment so the next interval's batch retracts it;
 				// if it never lands, that retraction degrades to a harmless trailing BidNotFound.
-				this.lastPhantomCommitmentByChain.set(entry.chain, entry.bid.commitment)
-				return
+				this.lastPhantomCommitmentByChain.set(event.chain, event.commitment)
+				this.logger.info(
+					{ commitment: event.commitment, chain: event.chain, error: result.error },
+					"Phantom bid in flight, inclusion not yet observed",
+				)
+			} else {
+				this.logger.warn(
+					{ commitment: event.commitment, chain: event.chain, error: result.error },
+					"Phantom bid rejected",
+				)
 			}
-			this.logger.warn(
-				{ commitment: entry.bid.commitment, chain: entry.chain, error: outcome?.error ?? result.error },
-				"Phantom bid rejected",
-			)
-		})
-
-		if (result.pending) {
-			this.logger.info(
-				{ bids: prepared.length, chains: prepared.map((entry) => entry.chain), error: result.error },
-				"Phantom bids in flight, inclusion not yet observed",
-			)
-			return
+		} catch (err) {
+			this.logger.error({ err, chain: event.chain }, "Failed to prepare or submit phantom bid")
 		}
-
-		this.logger.info(
-			{
-				bids: prepared.length,
-				landed: landed.length,
-				chains: landed,
-				quotedLegs: prepared.reduce((sum, entry) => sum + entry.quotedLegs, 0),
-				legs: prepared.reduce((sum, entry) => sum + entry.legs, 0),
-				txHash: result.extrinsicHash,
-				blockHash: result.blockHash,
-				error: result.error,
-			},
-			landed.length > 0 ? "Phantom bids submitted" : "Phantom bid batch landed no bids",
-		)
 	}
 }

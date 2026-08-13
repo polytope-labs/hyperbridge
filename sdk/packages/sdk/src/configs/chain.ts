@@ -437,6 +437,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout, as on Base
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",

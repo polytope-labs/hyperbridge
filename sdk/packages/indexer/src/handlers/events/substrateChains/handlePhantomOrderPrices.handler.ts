@@ -139,8 +139,11 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			logger,
 		})
 	} catch (err) {
+		// aggregatePhantomBids already retried the whole run; reaching here means an input stayed
+		// unreadable, so there is no honest snapshot to write. Skipping leaves each chain row on its
+		// previous rate with a stale lastUpdatedBlock — visibly old, rather than confidently wrong.
 		const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-		logger.warn({ err, commitment }, `Phantom bid aggregation failed: ${msg}`)
+		logger.error({ err, commitment, blockNumber }, `Phantom bid aggregation failed, skipping window: ${msg}`)
 		return
 	}
 	if (!aggregate) return

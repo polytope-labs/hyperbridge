@@ -11,9 +11,8 @@ import {
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger, moduleLogger } from "@/services/Logger"
-import { SharedOrderSource } from "@/scanner/registry"
 import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
-import type { OrderSource, ScanTarget, Subscription } from "@/scanner/types"
+import type { OrderStream, Subscription } from "@/scanner/types"
 
 // Re-exported from its original home so existing importers keep working.
 export { reconstructOrdersFromLogs }
@@ -48,9 +47,10 @@ export class EventMonitor extends EventEmitter {
 	private clientManager: ChainClientManager
 	private fillerAddress: string
 	private logger: Logger
-	private orderSource: OrderSource
-	private subscriptions: Map<number, Subscription> = new Map()
-	private chains: Map<number, ScanTarget> = new Map()
+	private orderStream: OrderStream
+	private subscription?: Subscription
+	/** Chain ids this filler is configured for; the stream may carry more. */
+	private chains: Set<number> = new Set()
 	/** Order ids already delivered, newest last. Bounds the memory a replay can cost. */
 	private seen: Set<string> = new Set()
 	private seenOrder: string[] = []
@@ -60,56 +60,45 @@ export class EventMonitor extends EventEmitter {
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		fillerAddress: HexString,
-		orderSource?: OrderSource,
+		orderStream: OrderStream,
 	) {
 		super()
 		this.logger = moduleLogger(configService.loggers, "event-monitor")
 		this.configService = configService
 		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()
-		this.orderSource = orderSource ?? new SharedOrderSource(configService.loggers)
+		this.orderStream = orderStream
 
 		chainConfigs.forEach((config) => this.registerChain(config.chainId))
 	}
 
-	/** Records the scan target for a chain. Subscribing happens in startListening. */
+	/** Marks a chain as one this filler cares about. */
 	private registerChain(chainId: number): void {
-		const chain = `EVM-${chainId}`
-		this.chains.set(chainId, {
-			chain,
-			chainId,
-			gateway: this.configService.getIntentGatewayAddress(chain),
-			rpcUrls: this.configService.getRpcUrls(chain),
-		})
+		this.chains.add(chainId)
 	}
 
+	/**
+	 * Attaches to the stream. One subscription covers every chain it carries — a
+	 * stream shared with other fillers may cover more chains than this one is
+	 * configured for, so events are matched on `chainId` here.
+	 */
 	public async startListening(): Promise<void> {
 		if (this.listening) return
 		this.listening = true
 
-		for (const chainId of this.chains.keys()) {
-			try {
-				this.subscribe(chainId)
-			} catch (error) {
-				this.logger.error({ chainId, err: error }, "Failed to subscribe to the order source")
-			}
-		}
-	}
-
-	private subscribe(chainId: number): void {
-		const target = this.chains.get(chainId)
-		if (!target || this.subscriptions.has(chainId)) return
-
-		this.subscriptions.set(
-			chainId,
-			this.orderSource.subscribe(target, {
-				onOrder: ({ order, transactionHash }) => this.handleOrder(order, transactionHash),
-				onFill: ({ commitment, filler, chainId: fillChainId }) => this.handleFill(commitment, filler, fillChainId),
-				onError: (error, erroredChain) =>
-					this.logger.error({ chainId: erroredChain, err: error }, "Order source reported a scan failure"),
-			}),
-		)
-		this.logger.info({ chainId }, "Subscribed to gateway events")
+		this.subscription = this.orderStream.subscribe({
+			onOrder: (event) => {
+				if (!this.chains.has(event.chainId)) return
+				this.handleOrder(event.order, event.transactionHash)
+			},
+			onFill: (event) => {
+				if (!this.chains.has(event.chainId)) return
+				this.handleFill(event.commitment, event.filler, event.chainId)
+			},
+			onError: (error, chainId) =>
+				this.logger.error({ chainId, err: error }, "Order stream reported a scan failure"),
+		})
+		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order stream")
 	}
 
 	private handleOrder(order: Order, transactionHash: string): void {
@@ -138,52 +127,51 @@ export class EventMonitor extends EventEmitter {
 		this.emit("orderFilledOnChain", { commitment, filler, chainId })
 	}
 
-	/** Begins watching a chain added after boot. */
+	/**
+	 * Starts matching events for a chain added after boot.
+	 *
+	 * The stream must already carry the chain. `Simplex` adds it to a stream it
+	 * owns; when the stream was supplied by the caller it stays the caller's to
+	 * manage, so that another filler reading from it is never surprised by a
+	 * chain appearing or vanishing underneath it.
+	 */
 	public async addChain(chainId: number): Promise<void> {
 		if (this.chains.has(chainId)) {
 			throw new Error(`Chain ${chainId} is already monitored`)
 		}
-		this.registerChain(chainId)
-		if (this.listening) this.subscribe(chainId)
+		if (!this.orderStream.chains().includes(chainId)) {
+			throw new Error(`Chain ${chainId} is not in the order stream — add it there first`)
+		}
+		this.chains.add(chainId)
+		this.logger.info({ chainId }, "Monitoring chain")
 	}
 
-	/** Stops watching a chain. The shared loop keeps running for any other filler on it. */
+	/** Stops matching events for a chain. The stream keeps scanning it for others. */
 	public async removeChain(chainId: number): Promise<void> {
-		this.subscriptions.get(chainId)?.close()
-		this.subscriptions.delete(chainId)
 		this.chains.delete(chainId)
 		this.logger.info({ chainId }, "Stopped monitoring chain")
 	}
 
 	/**
-	 * Re-subscribes a chain against its current endpoints.
-	 *
-	 * The endpoints are part of the scan key, so new ones mean a different shared
-	 * loop: releasing the old subscription and taking a new one is what moves this
-	 * filler across. The old loop keeps running only if another filler still holds it.
+	 * No-op against a stream: endpoints belong to the stream, not to a filler
+	 * reading from it. `Simplex.chains.setRpcUrls` rebuilds the chain on a stream
+	 * it owns and rejects the call on one it does not.
 	 */
 	public async rebuildChain(chainId: number): Promise<void> {
 		if (!this.chains.has(chainId)) {
 			throw new Error(`Chain ${chainId} is not monitored`)
 		}
-		this.subscriptions.get(chainId)?.close()
-		this.subscriptions.delete(chainId)
-		this.registerChain(chainId)
-		if (this.listening) this.subscribe(chainId)
-		this.logger.info({ chainId }, "Resubscribed chain on new endpoints")
 	}
 
-	/** Events dropped because this filler could not keep up with the shared feed. */
+	/** Events dropped because this filler could not keep up with the stream. */
 	public droppedEvents(): number {
-		let total = 0
-		for (const subscription of this.subscriptions.values()) total += subscription.dropped
-		return total
+		return this.subscription?.dropped ?? 0
 	}
 
 	public async stopListening(): Promise<void> {
 		this.listening = false
-		for (const subscription of this.subscriptions.values()) subscription.close()
-		this.subscriptions.clear()
+		this.subscription?.close()
+		this.subscription = undefined
 		this.chains.clear()
 		this.seen.clear()
 		this.seenOrder = []

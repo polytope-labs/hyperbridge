@@ -112,14 +112,14 @@ export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/ser
 // endpoint across every Simplex in the process. Implement these contracts to
 // feed fillers from somewhere else — another process, an indexer, a bus.
 
-export { SharedOrderSource, SharedHyperbridgeSource, sharedScanners } from "@/scanner/registry"
-export { scanKey } from "@/scanner/types"
+export { OrderStream } from "@/scanner/order-stream"
+export { HyperbridgeStream } from "@/scanner/hyperbridge-stream"
 export type {
-	OrderSource,
-	OrderSourceHandlers,
-	HyperbridgeSource,
-	HyperbridgeHandlers,
-	ScanTarget,
+	OrderStream as OrderStreamContract,
+	OrderStreamHandlers,
+	HyperbridgeStream as HyperbridgeStreamContract,
+	HyperbridgeStreamHandlers,
+	StreamChainConfig,
 	ScannedOrder,
 	ScannedFill,
 	Subscription,

@@ -1,4 +1,4 @@
-import { getLogger, type Logger, type LoggerContext, defaultLoggerContext } from "@/services/Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 
 /**
  * Delivers each event to every consumer without letting any of them slow the
@@ -116,59 +116,5 @@ export class Consumer<T> {
 		this.closed = true
 		this.queue = []
 		this.onClose()
-	}
-}
-
-/**
- * Keeps one shared resource alive per key for as long as anyone holds it.
- *
- * Both scanners are per-key singletons: a scan loop per (chain, gateway,
- * endpoints), and a poller per Hyperbridge endpoint. Fillers come and go —
- * `chains.add`/`chains.remove` at runtime, whole instances starting and
- * stopping — so lifetime is refcounted rather than owned by whoever happened to
- * ask first.
- */
-export class RefCounted<T extends { stop(): void | Promise<void> }> {
-	private readonly entries = new Map<string, { value: T; refs: number }>()
-	private readonly logger = getLogger("scanner")
-
-	constructor(private readonly kind: string) {}
-
-	acquire(key: string, create: () => T): { value: T; release: () => void } {
-		let entry = this.entries.get(key)
-		if (!entry) {
-			entry = { value: create(), refs: 0 }
-			this.entries.set(key, entry)
-			this.logger.info({ kind: this.kind, key }, "Started shared scanner")
-		}
-		entry.refs++
-
-		let released = false
-		return {
-			value: entry.value,
-			release: () => {
-				if (released) return
-				released = true
-				const current = this.entries.get(key)
-				if (!current) return
-				current.refs--
-				if (current.refs > 0) return
-				this.entries.delete(key)
-				this.logger.info({ kind: this.kind, key }, "Stopped shared scanner (last consumer released)")
-				void Promise.resolve(current.value.stop()).catch((err) =>
-					this.logger.warn({ kind: this.kind, key, err }, "Shared scanner failed to stop cleanly"),
-				)
-			},
-		}
-	}
-
-	/** Keys currently held. */
-	keys(): string[] {
-		return [...this.entries.keys()]
-	}
-
-	/** Live handle for a key, if any consumer holds it. */
-	peek(key: string): T | undefined {
-		return this.entries.get(key)?.value
 	}
 }

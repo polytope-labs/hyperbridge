@@ -27,6 +27,7 @@
  *
  * Override endpoints via SIMNODE_URL / ANVIL_URL / ANVIL2_URL.
  */
+import { stubOrderStream } from "./helpers/stub-stream"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
 import { hexToU8a, u8aToString } from "@polkadot/util"
 import { keccakAsU8a } from "@polkadot/util-crypto"
@@ -308,6 +309,7 @@ async function buildPhantomFiller(opts: {
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderStream() },
 		undefined,
 		new SqliteDataStore(configService.getDataDir() || ".simplex-data").bids,
 	)

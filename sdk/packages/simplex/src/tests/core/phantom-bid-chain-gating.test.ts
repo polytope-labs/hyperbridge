@@ -1,3 +1,4 @@
+import { stubOrderStream } from "../helpers/stub-stream"
 import { describe, expect, it, vi } from "vitest"
 import type { HexString, PhantomOrderEvent } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
@@ -34,6 +35,7 @@ function build(watchOnly: Record<number, boolean> = {}) {
 		{} as any, // ChainClientManager — the gate returns before any client is touched
 		{} as any, // ContractInteractionService — likewise
 		{ account: { address: "0xAAAA00000000000000000000000000000000AAAA" as HexString } } as any,
+		{ orders: stubOrderStream() },
 	)
 
 	// Returning null stops the handler right after the fetch, so the call itself is the signal

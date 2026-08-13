@@ -4,8 +4,15 @@ import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { reconstructOrdersFromLogs } from "./reconstruct"
-import { FanOut } from "./fan-out"
-import type { OrderSourceHandlers, ScanTarget, ScannedFill, ScannedOrder, Subscription } from "./types"
+import type { ScannedFill, ScannedOrder } from "./types"
+
+/** What one scan loop watches. Resolved by OrderStream before construction. */
+export interface ScanTarget {
+	chain: string
+	chainId: number
+	gateway: HexString
+	rpcUrls: string[]
+}
 
 /** Gateway events every scan subscribes to. */
 const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
@@ -34,16 +41,15 @@ const MAX_BLOCK_RANGE = 1_000n
  */
 export class ChainScanner {
 	private readonly quorumClient: QuorumPublicClient
-	private readonly orders = new FanOut<ScannedOrder>("orders")
-	private readonly fills = new FanOut<ScannedFill>("fills")
-	private readonly errors = new Set<(error: unknown, chainId: number) => void>()
 	private readonly mutex = new Mutex()
+	private orderHandler: (event: ScannedOrder) => void = () => {}
+	private fillHandler: (event: ScannedFill) => void = () => {}
+	private errorHandler: (error: unknown) => void = () => {}
 	private readonly logger: Logger
 
 	private timer?: NodeJS.Timeout
 	private cursor: bigint | undefined
 	private stopped = false
-	private starting?: Promise<void>
 
 	constructor(
 		private readonly target: ScanTarget,
@@ -72,58 +78,31 @@ export class ChainScanner {
 		return this.cursor
 	}
 
-	/** Attaches a consumer, starting the loop if this is the first one. */
-	subscribe(handlers: OrderSourceHandlers): Subscription {
-		const orderConsumer = this.orders.add(handlers.onOrder)
-		const fillConsumer = this.fills.add(handlers.onFill)
-		if (handlers.onError) this.errors.add(handlers.onError)
-
-		void this.start()
-
-		return {
-			close: () => {
-				orderConsumer.close()
-				fillConsumer.close()
-				if (handlers.onError) this.errors.delete(handlers.onError)
-			},
-			get dropped() {
-				return orderConsumer.dropped + fillConsumer.dropped
-			},
-		}
+	onOrder(handler: (event: ScannedOrder) => void): void {
+		this.orderHandler = handler
 	}
 
-	/** Idempotent. Called on every subscribe; only the first one arms the timer. */
-	async start(): Promise<void> {
+	onFill(handler: (event: ScannedFill) => void): void {
+		this.fillHandler = handler
+	}
+
+	onError(handler: (error: unknown) => void): void {
+		this.errorHandler = handler
+	}
+
+	/**
+	 * Arms the scan loop. Idempotent, and does not wait on the network.
+	 *
+	 * There is deliberately no initial head read here: `scan()` already sets the
+	 * cursor from the head on its first pass, so awaiting one would only make
+	 * creating a stream block on every chain's first round trip — and fail the
+	 * whole stream over an endpoint that is briefly slow, when the interval would
+	 * have recovered on its own.
+	 */
+	start(): void {
 		if (this.timer || this.stopped) return
-		// Concurrent subscribers await the same in-flight start rather than racing to
-		// arm two intervals, and stop() has something to wait on.
-		if (this.starting) return this.starting
-		this.starting = this.begin()
-		return this.starting
-	}
 
-	private async begin(): Promise<void> {
-		try {
-			const head = await retryPromise(() => this.quorumClient.getBlockNumber(), {
-				maxRetries: 3,
-				backoffMs: 250,
-				logMessage: "Failed to get start block number",
-			})
-			// Scan from the head itself, not past it.
-			this.cursor = head - 1n
-		} catch (error) {
-			// Leave the cursor unset and let the interval retry; a scanner that
-			// cannot read the head yet must not silently report itself healthy.
-			this.logger.error({ chainId: this.target.chainId, err: error }, "Failed to read start block")
-		}
-
-		// The head read above can take a while against a slow or unreachable endpoint,
-		// and the last consumer may have released in the meantime. Arming the interval
-		// now would leave a loop nobody is listening to holding the process open.
-		if (this.stopped) return
-
-		this.logger.info({ chainId: this.target.chainId, startBlock: this.cursor }, "Shared block scanner started")
-
+		this.logger.info({ chainId: this.target.chainId }, "Block scanner started")
 		this.timer = setInterval(() => {
 			if (this.mutex.isLocked()) return
 			void this.mutex.runExclusive(async () => {
@@ -131,13 +110,7 @@ export class ChainScanner {
 					await this.scan()
 				} catch (error) {
 					this.logger.error({ chainId: this.target.chainId, err: error }, "Error in block scanner")
-					for (const onError of this.errors) {
-						try {
-							onError(error, this.target.chainId)
-						} catch {
-							// A consumer's error handler must not break the loop for everyone else.
-						}
-					}
+					this.errorHandler(error)
 				}
 			})
 		}, SCAN_INTERVAL_MS)
@@ -214,7 +187,7 @@ export class ChainScanner {
 
 		for (const entry of rebuilt) {
 			this.logger.info({ orderId: entry.order.id, txHash: entry.transactionHash }, "New order detected")
-			this.orders.publish({ ...entry, chain: this.target.chain, chainId: this.target.chainId })
+			this.orderHandler({ ...entry, chain: this.target.chain, chainId: this.target.chainId })
 		}
 	}
 
@@ -228,7 +201,7 @@ export class ChainScanner {
 					continue
 				}
 				const coords = log as unknown as LogCoords
-				this.fills.publish({
+				this.fillHandler({
 					commitment,
 					filler: args?.filler ?? "",
 					chainId: this.target.chainId,
@@ -249,15 +222,9 @@ export class ChainScanner {
 			clearInterval(this.timer)
 			this.timer = undefined
 		}
-		// Wait out both an in-flight start and an in-flight scan, so nothing is still
-		// retrying or publishing after this resolves — otherwise a host process that
-		// stopped every filler still refuses to exit.
-		await this.starting?.catch(() => {})
+		// Wait out an in-flight scan so nothing is still retrying or publishing after
+		// this resolves — otherwise a host that stopped every filler still refuses to exit.
 		await this.mutex.runExclusive(async () => {})
-		if (this.timer) {
-			clearInterval(this.timer)
-			this.timer = undefined
-		}
 		this.logger.info({ chainId: this.target.chainId }, "Shared block scanner stopped")
 	}
 }

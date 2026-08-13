@@ -18,8 +18,7 @@ import type { Address } from "viem"
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
 import type { BidStore } from "@/data/types"
-import { SharedHyperbridgeSource } from "@/scanner/registry"
-import type { HyperbridgeSource, OrderSource, Subscription } from "@/scanner/types"
+import type { HyperbridgeStream, OrderStream, Subscription } from "@/scanner/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
@@ -52,7 +51,7 @@ export class IntentFiller {
 	private signer: SigningAccount
 	private fillerAddress: HexString
 	private logger: Logger
-	private hyperbridgeSource: HyperbridgeSource
+	private hyperbridgeStream?: HyperbridgeStream
 	private phantomSubscription?: Subscription
 
 	constructor(
@@ -63,9 +62,9 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		signer: SigningAccount,
+		streams: { orders: OrderStream; hyperbridge?: HyperbridgeStream },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
-		sources: { orders?: OrderSource; hyperbridge?: HyperbridgeSource } = {},
 	) {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
@@ -80,9 +79,9 @@ export class IntentFiller {
 			configService,
 			this.chainClientManager,
 			this.fillerAddress,
-			sources.orders,
+			streams.orders,
 		)
-		this.hyperbridgeSource = sources.hyperbridge ?? new SharedHyperbridgeSource(configService.loggers)
+		this.hyperbridgeStream = streams.hyperbridge
 		this.strategies = strategies
 		this.config = config
 
@@ -944,15 +943,15 @@ export class IntentFiller {
 
 	private startPhantomBidding(): void {
 		if (!this.hyperbridge) return
-		const wsUrl = this.configService.getHyperbridgeWsUrl()
-		if (!wsUrl) return
+		const stream = this.hyperbridgeStream
+		if (!stream) return
 		this.hyperbridge
 			.then((coprocessor) => {
 				// Reads come from the shared poller — every filler used to re-read every
 				// Hyperbridge block itself. Bids still go through this instance's own
 				// coprocessor, which holds its substrate key.
-				this.phantomSubscription = this.hyperbridgeSource.subscribe(wsUrl, {
-					onPhantomOrder: (order) => {
+				this.phantomSubscription = stream.subscribe({
+					onPhantomOrder: (order: PhantomOrderEvent) => {
 						// The queued promise is nobody's return value, so an escaping throw would be an
 						// unhandled rejection — which this process has no handler for and Node turns into
 						// an exit. Contain it here so a bad phantom order can never take the filler down.
@@ -965,7 +964,7 @@ export class IntentFiller {
 								),
 							)
 					},
-					onError: (err) => this.logger.warn({ err }, "Phantom order poll failed, will retry"),
+					onError: (err: unknown) => this.logger.warn({ err }, "Phantom order poll failed, will retry"),
 				})
 				this.logger.info("Phantom order polling active")
 			})

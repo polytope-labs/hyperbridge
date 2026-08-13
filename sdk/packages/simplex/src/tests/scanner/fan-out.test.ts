@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest"
-import { FanOut, RefCounted } from "@/scanner/fan-out"
+import { describe, expect, it } from "vitest"
+import { FanOut } from "@/scanner/fan-out"
 
 /** Lets the microtask-based drain run to completion. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -74,55 +74,5 @@ describe("FanOut", () => {
 		fan.publish(1)
 		// Delivery is deferred to a microtask, so the scan loop is never blocked by it.
 		expect(delivered).toBe(0)
-	})
-})
-
-describe("RefCounted", () => {
-	it("creates once and stops only when the last holder releases", async () => {
-		const refs = new RefCounted<{ stop(): void }>("test")
-		const stop = vi.fn()
-		const create = vi.fn(() => ({ stop }))
-
-		const first = refs.acquire("k", create)
-		const second = refs.acquire("k", create)
-		expect(create).toHaveBeenCalledTimes(1)
-		expect(first.value).toBe(second.value)
-
-		first.release()
-		expect(stop).not.toHaveBeenCalled()
-
-		second.release()
-		expect(stop).toHaveBeenCalledTimes(1)
-		expect(refs.keys()).toEqual([])
-	})
-
-	it("keeps different keys independent", () => {
-		const refs = new RefCounted<{ stop(): void }>("test")
-		const a = refs.acquire("a", () => ({ stop: vi.fn() }))
-		const b = refs.acquire("b", () => ({ stop: vi.fn() }))
-		expect(a.value).not.toBe(b.value)
-		expect(refs.keys().sort()).toEqual(["a", "b"])
-	})
-
-	it("ignores a double release rather than dropping someone else's refcount", () => {
-		const refs = new RefCounted<{ stop(): void }>("test")
-		const stop = vi.fn()
-		const first = refs.acquire("k", () => ({ stop }))
-		const second = refs.acquire("k", () => ({ stop }))
-
-		first.release()
-		first.release()
-
-		expect(stop).not.toHaveBeenCalled()
-		second.release()
-		expect(stop).toHaveBeenCalledTimes(1)
-	})
-
-	it("recreates after the last release", () => {
-		const refs = new RefCounted<{ stop(): void }>("test")
-		const create = vi.fn(() => ({ stop: vi.fn() }))
-		refs.acquire("k", create).release()
-		refs.acquire("k", create)
-		expect(create).toHaveBeenCalledTimes(2)
 	})
 })

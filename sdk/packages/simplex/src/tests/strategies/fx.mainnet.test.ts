@@ -1,3 +1,4 @@
+import { stubOrderStream } from "../helpers/stub-stream"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -896,6 +897,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainClientManager,
 			contractService,
 			signer,
+			{ orders: stubOrderStream() },
 			undefined,
 			bidStorage,
 		)
@@ -1229,6 +1231,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainClientManager,
 			contractService,
 			signer,
+			{ orders: stubOrderStream() },
 			undefined,
 			bidStorage,
 		)
@@ -2171,6 +2174,7 @@ async function createCrossChainFxIntentFiller(
 		chainClientManager,
 		contractService,
 		fillerSigner,
+		{ orders: stubOrderStream() },
 		undefined,
 		bidStorage,
 	)
@@ -2229,6 +2233,7 @@ async function createFxOnlyIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderStream() },
 		undefined,
 		bidStorage,
 	)

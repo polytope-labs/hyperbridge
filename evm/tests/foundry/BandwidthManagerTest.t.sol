@@ -159,6 +159,33 @@ contract BandwidthManagerTest is Test {
         manager.purchase(hex"", TIER1, 1, APP_CHAIN);
     }
 
+    /// The pallet stores `app` in a 32-byte-bounded key and rejects anything longer, so a
+    /// purchase carrying more can never be credited. The tier price is flat regardless of body
+    /// length, so the excess is payload the buyer pays nothing extra for — reject it here rather
+    /// than take the fee for a message hyperbridge will drop.
+    function testRejectsOversizedApp() public {
+        bytes memory oversized = new bytes(manager.MAX_APP_LENGTH() + 1);
+        vm.expectRevert(BandwidthManager.InvalidPurchase.selector);
+        vm.prank(BUYER);
+        manager.purchase(oversized, TIER1, 1, APP_CHAIN);
+    }
+
+    /// The bound itself stays valid — the rejection is for what exceeds it, not for identifiers
+    /// longer than the 20-byte address the happy path uses.
+    function testAcceptsAppAtMaxLength() public {
+        bytes memory atBound = new bytes(manager.MAX_APP_LENGTH());
+        feeToken.mint(BUYER, TIER1_PRICE_18D);
+
+        vm.startPrank(BUYER);
+        feeToken.approve(address(manager), TIER1_PRICE_18D);
+        vm.recordLogs();
+        manager.purchase(atBound, TIER1, 1, APP_CHAIN);
+        vm.stopPrank();
+
+        BandwidthPurchaseMsg memory body = _findDispatchedBody(vm.getRecordedLogs(), address(host));
+        assertEq(body.app, atBound);
+    }
+
     function testRejectsEmptyAppChain() public {
         vm.expectRevert(BandwidthManager.InvalidPurchase.selector);
         vm.prank(BUYER);

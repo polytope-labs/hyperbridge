@@ -5,7 +5,7 @@ description: Simplex is an automated binary that monitors Intent Gateway orders 
 
 # Simplex
 
-Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, prices each order against the configured trading pairs, and fills when profitable. Fillers earn the difference between order inputs and outputs.
+Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, prices each order against the configured trading pairs, and fills when profitable. Solvers earn the difference between order inputs and outputs.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ docker run -d --name simplex --restart unless-stopped \
     polytopelabs/simplex:latest
 ```
 
-Then open `http://localhost:8686`. The wizard writes `filler-config.toml` into `/data` and transitions straight into running the filler; on restart the container finds that config and runs directly. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard, or run it in the terminal instead with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
+Then open `http://localhost:8686`. The wizard writes `filler-config.toml` into `/data` and transitions straight into running the solver; on restart the container finds that config and runs directly. Mount a config you already have with `-v /path/to/filler-config.toml:/data/filler-config.toml:ro` to skip the wizard, or run it in the terminal instead with `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
 
 The command works verbatim in PowerShell on Windows (use a backtick instead of `\` for line continuations, or put it on one line). Ports have to be published — the container binds `0.0.0.0` internally because Docker Desktop on macOS and Windows runs the daemon inside a VM and offers no `--network host`. The container's network namespace is the boundary there, so keep the `127.0.0.1:` prefix on the published ports: the UI is unauthenticated, and the wizard handles private keys.
 
@@ -42,17 +42,17 @@ Same-chain orders (`source == destination`) are filled immediately without waiti
 An order is filled only when **two independent checks both pass**:
 
 1. **Fees cover execution.** `order.fees` must cover the fill gas and, for a cross-chain order, the **relayer fee** for delivering the escrow-release message back to the source chain (a ~1M-gas cost priced on the source chain; zero for same-chain fills). The swap spread is never credited toward this — fees must stand on their own.
-2. **The swap is profitable.** The filler's margin must be positive on **every leg individually, in that leg's own quote asset**: the below-par spread on a same-token market, or the bid/ask spread on a cross-asset pair. Legs are never summed across pairs — margins in different quote assets share no unit, and a winning leg in one currency must not mask a losing leg in another. Two-sided books must also be **uncrossed** (bid above ask at every curve point): a crossed or zero-spread book would mark every fill as a loss and silently reject everything, so it fails at startup instead. Skew both curves to manage inventory, or use a one-sided pair for a deliberate directional position. A one-sided (directional) pair has no measurable per-fill spread and is not subject to this check — configuring it is an explicit choice to take that position.
+2. **The swap is profitable.** The solver's margin must be positive on **every leg individually, in that leg's own quote asset**: the below-par spread on a same-token market, or the bid/ask spread on a cross-asset pair. Legs are never summed across pairs — margins in different quote assets share no unit, and a winning leg in one currency must not mask a losing leg in another. Two-sided books must also be **uncrossed** (bid above ask at every curve point): a crossed or zero-spread book would mark every fill as a loss and silently reject everything, so it fails at startup instead. Skew both curves to manage inventory, or use a one-sided pair for a deliberate directional position. A one-sided (directional) pair has no measurable per-fill spread and is not subject to this check — configuring it is an explicit choice to take that position.
 
-The filler holds inventory on both sides of its pairs. When a user swaps token0→token1 the filler sells token1 at the pair's ask price; when the user swaps token1→token0 the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
+The solver holds inventory on both sides of its pairs. When a user swaps token0→token1 the solver sells token1 at the pair's ask price; when the user swaps token1→token0 the solver buys at the bid price. The spread between the two curves is the solver's margin per trade.
 
-Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the filler owes less token0 per token1 received (it profits more buying token1). A lower ask means the filler sends fewer token1 per token0 received (it profits more selling token1).
+Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the solver owes less token0 per token1 received (it profits more buying token1). A lower ask means the solver sends fewer token1 per token0 received (it profits more selling token1).
 
-Each pair's **`maxOrderSize`** caps the filler's exposure per order, denominated in that pair's token0. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
+Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated in that pair's token0. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
 Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 
-On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. A paymaster covers the delegation tx (and subsequent fills) in stablecoins on chains where one is deployed: the Circle Paymaster (USDC) is tried first, then the `SimplexPaymaster` (USDC or USDT), which is live on Ethereum, Arbitrum, Base, Polygon, and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet). On chains without any paymaster, Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
+On startup, Simplex automatically delegates the solver's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. A paymaster covers the delegation tx (and subsequent fills) in stablecoins on chains where one is deployed: the Circle Paymaster (USDC) is tried first, then the `SimplexPaymaster` (USDC or USDT), which is live on Ethereum, Arbitrum, Base, Polygon, and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet). On chains without any paymaster, Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
 
 ```toml lineNumbers
 # Trading pairs — assets are referenced by symbol from Simplex's built-in
@@ -136,10 +136,10 @@ Unlike cross-asset fills, the same-token spread is **realized in-kind on the fil
 
 #### One-sided LP
 
-With both curves set a pair fills in both directions. Omitting one curve restricts that pair to a single direction, so the filler keeps accumulating one asset while only giving away the other — and each pair is gated independently:
+With both curves set a pair fills in both directions. Omitting one curve restricts that pair to a single direction, so the solver keeps accumulating one asset while only giving away the other — and each pair is gated independently:
 
-- **Ask only** (omit `bidPriceCurve`) — the filler only *sells* token1 on that pair, filling orders where the user sends token0 and receives token1. It accumulates token0 and gives away token1 (for example, take USDC, hand out cNGN).
-- **Bid only** (omit `askPriceCurve`) — the filler only *buys* token1 on that pair, filling orders where the user sends token1 and receives token0.
+- **Ask only** (omit `bidPriceCurve`) — the solver only *sells* token1 on that pair, filling orders where the user sends token0 and receives token1. It accumulates token0 and gives away token1 (for example, take USDC, hand out cNGN).
+- **Bid only** (omit `askPriceCurve`) — the solver only *buys* token1 on that pair, filling orders where the user sends token1 and receives token0.
 
 Orders in the disabled direction are rejected before bidding (an order with mixed-direction legs is rejected as a whole, since the IntentGateway settles all legs atomically).
 
@@ -235,7 +235,7 @@ Startup validation requires a pricing source per pair: **either** bid/ask price 
 
 #### Uniswap price guards
 
-Pool-based pricing trusts the live pool, which leaves the filler exposed to a manipulated, stale, or thin pool returning a bad quote. To bound that risk, give a position a **`referencePrice`** and **`maxDeviationBps`**. Whenever the pool quote on that chain drifts more than `maxDeviationBps` above or below the reference, the filler refuses to fill — the order is rejected before any bid is submitted.
+Pool-based pricing trusts the live pool, which leaves the solver exposed to a manipulated, stale, or thin pool returning a bad quote. To bound that risk, give a position a **`referencePrice`** and **`maxDeviationBps`**. Whenever the pool quote on that chain drifts more than `maxDeviationBps` above or below the reference, the solver refuses to fill — the order is rejected before any bid is submitted.
 
 `referencePrice` is expressed in **exotic tokens per USD**, the same units as the bid/ask curves. The two fields must be set together; omit both to leave the chain unguarded.
 
@@ -253,8 +253,8 @@ For a \$1000 USDC → cNGN order, the curve interpolates to bid 1575, ask 1555 a
 
 ```
 User sends:       $1000 USDC
-Filler delivers:  1,555,000 cNGN      (1000 × ask 1555)
-Filler's cost:    1,555,000 / 1575    = $987.30  (valued at bid)
+Solver delivers:  1,555,000 cNGN      (1000 × ask 1555)
+Solver's cost:    1,555,000 / 1575    = $987.30  (valued at bid)
 Spread profit:    $1000 − $987.30     = $12.70
 Fee profit:       $2.80 − $1.30 costs = $1.50
 Total profit:     ~$14.20
@@ -325,16 +325,16 @@ Create an API keypair in the Turnkey Dashboard under user details. The <code>sig
 
 ### Delegation & Gas Payment
 
-Solver selection requires each filler's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
+Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
 
-- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT) — and the filler holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin (via EIP-2612 permit, or a small capped approval for tokens without permit support such as BSC stables) so the filler never needs native gas for delegation.
-- **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the filler's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT) — and the solver holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin (via EIP-2612 permit, or a small capped approval for tokens without permit support such as BSC stables) so the solver never needs native gas for delegation.
+- **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the solver's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
 
 No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
 
 ### Overfill Protection
 
-Bounds per-leg loss if the filler's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the filler clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount` — this ceiling applies to every strategy. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the **HyperFX** strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. HyperFX additionally rejects any order where the total output USD value ≥ total input USD value.
+Bounds per-leg loss if the solver's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the solver clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount` — this ceiling applies to every strategy. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the **HyperFX** strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. HyperFX additionally rejects any order where the total output USD value ≥ total input USD value.
 
 Defaults are sensible (`maxOverfillBps = 500` ≈ 5% ceiling, `maxConsecutiveClamps = 3`). Override under `[simplex.overfillProtection]`:
 
@@ -346,7 +346,7 @@ maxConsecutiveClamps = 3     # halt threshold (HyperFX)
 
 ### Vault treasury (ERC-4626)
 
-The optional top-level `[vault]` section configures a **filler-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Only the vault address is required; the underlying asset and its decimals are resolved on-chain at startup.
+The optional top-level `[vault]` section configures a **solver-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Only the vault address is required; the underlying asset and its decimals are resolved on-chain at startup.
 
 <Callout type="info">
 This is distinct from the [`[vault.uniswapV4]`](#uniswap-v4-lp-funding) source, which shares the `[vault]` section. The ERC-4626 treasury sources **stablecoins**; `[vault.uniswapV4]` sources and prices the **exotic** token.
@@ -356,7 +356,7 @@ One vault list drives three behaviours:
 
 1. **Sourcing** — when wallet balance is short on a fill, Simplex withdraws the deficit from the solver's vault position. The withdrawal is prepended to the UserOperation as ERC-7821 batch calls, so it is atomic with the fill.
 2. **Sweeping** — a timer (`sweepIntervalMs`, default 5 min) waits for wallet balance to reach the `threshold` high-water mark, then deposits everything down to `minBalance`. Size `minBalance` to cover working fill float plus gas/paymaster spend; the `threshold`–`minBalance` gap is the guaranteed minimum sweep size, so balance oscillates between the two without thrashing on dust.
-3. **Shutdown** — on stop, positions are kept across restarts by default. Set `redeemOnShutdown = true` on a vault to instead redeem its position back to the underlying asset when the filler stops.
+3. **Shutdown** — on stop, positions are kept across restarts by default. Set `redeemOnShutdown = true` on a vault to instead redeem its position back to the underlying asset when the solver stops.
 
 Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing + shutdown, no sweeping) for that token.
 
@@ -400,7 +400,7 @@ triggerPercentage = 0.5   # trigger when balance ≤ 50% of base
 
 ### Allowlist
 
-The optional `[allowlist]` section restricts which order `user` addresses the filler will process. Omit the section entirely to accept orders from all users (the default). When present, only listed users are accepted; address comparisons are case-insensitive.
+The optional `[allowlist]` section restricts which order `user` addresses the solver will process. Omit the section entirely to accept orders from all users (the default). When present, only listed users are accepted; address comparisons are case-insensitive.
 
 ```toml lineNumbers
 [allowlist]
@@ -471,7 +471,7 @@ Confirmation policies are optional — built-in defaults cover Ethereum, BNB Cha
 
 ### RPC Quorum
 
-Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the filler starts.
+Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the solver starts.
 
 ```toml lineNumbers
 [[chains]]  # Ethereum
@@ -495,7 +495,7 @@ Cross-chain orders wait for source-chain confirmations (per the confirmation pol
 
 #### Why this matters for cross-chain orders
 
-On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `OrderFilled`) event on the source chain and then commits capital on the destination chain. Unlike same-chain fills — where the destination `fillOrder` call will revert if the source-chain order does not exist — cross-chain bids submitted through Hyperbridge are evaluated from the filler's own reading of source-chain state. A single RPC is therefore both an availability and an integrity choke point: if it lies about which orders were placed, the filler can be induced to pay out against events that never happened, and there is no on-chain safety net to catch it after the fact.
+On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `OrderFilled`) event on the source chain and then commits capital on the destination chain. Unlike same-chain fills — where the destination `fillOrder` call will revert if the source-chain order does not exist — cross-chain bids submitted through Hyperbridge are evaluated from the solver's own reading of source-chain state. A single RPC is therefore both an availability and an integrity choke point: if it lies about which orders were placed, the solver can be induced to pay out against events that never happened, and there is no on-chain safety net to catch it after the fact.
 
 <Callout type="warn">
 Co-opted RPC nodes are not hypothetical. LayerZero has publicly disclosed an incident where an RPC endpoint serving part of their relaying path was compromised — see [LayerZero's post-mortem thread](https://x.com/LayerZero_Core/status/2046081551574983137?s=20). Quorum queries turn that failure mode from "one bad node silently succeeds" into "one bad node fails the batch and halts the scan".
@@ -513,7 +513,7 @@ simplex          # browser wizard: opens automatically when no config exists
 simplex init     # the same flow in the terminal
 ```
 
-Both ask only for the minimum needed to run (chains, RPCs, bundler, signer, Hyperbridge account, markets), explain what each value is for as they ask, derive sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validate every endpoint live before writing the file. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the filler — no restart. A local web UI (status, pause/resume, balances, inflight price-curve edits) stays available at `127.0.0.1:8686` while the filler runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference below.
+Both ask only for the minimum needed to run (chains, RPCs, bundler, signer, Hyperbridge account, markets), explain what each value is for as they ask, derive sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validate every endpoint live before writing the file. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, inflight price-curve edits) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference below.
 
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">
@@ -566,7 +566,7 @@ recheckDelayMs = 30000
 # maxOverfillBps       = 500
 # maxConsecutiveClamps = 3
 
-# Optional filler-wide ERC-4626 stablecoin treasury (sourcing + sweeping + shutdown)
+# Optional solver-wide ERC-4626 stablecoin treasury (sourcing + sweeping + shutdown)
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
 vaults = [
@@ -639,7 +639,7 @@ bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 ## Requirements
 
-You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
+You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the solver stops.
 
 RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` — see [RPC Quorum](#rpc-quorum).
 
@@ -663,7 +663,7 @@ Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
 ---
 
 ### **HyperFX bid submission fails**
-Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with a paymaster (Circle or Simplex), make sure the filler's smart account holds at least 1 USDC (or 1 USDT, for the `SimplexPaymaster`) so the paymaster can cover gas. On chains without any paymaster, the filler needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
+Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT, for the `SimplexPaymaster`) so the paymaster can cover gas. On chains without any paymaster, the solver needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
 
 ---
 

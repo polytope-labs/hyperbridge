@@ -1,18 +1,18 @@
 ---
 title: Simplex
-description: Embed a Simplex intent filler in your own Node application — start it from a config object, drive it through the Simplex class, plug in your own persistence, plus the full API reference.
+description: Embed a Simplex intent solver in your own Node application — start it from a config object, drive it through the Simplex class, plug in your own persistence, plus the full API reference.
 ---
 
 # Simplex
 
-[Simplex](/developers/evm/intent-gateway/simplex) is an automated filler for the Intent Gateway. It
+[Simplex](/developers/evm/intent-gateway/simplex) is an automated solver for the Intent Gateway. It
 ships as a binary, and as `@hyperbridge/simplex` — the same engine, running inside your own process.
 No TOML file, no separate service, and every runtime control the web dashboard offers is a method on
 the object you get back.
 
-Reach for the library when the filler is one component of a larger system: you already have a
+Reach for the library when the solver is one component of a larger system: you already have a
 database, a dashboard, an alerting pipeline, or pricing logic that needs to move curves as the market
-does. If you just want a filler running, the [binary](/developers/evm/intent-gateway/simplex) is
+does. If you just want a solver running, the [binary](/developers/evm/intent-gateway/simplex) is
 less work.
 
 ```bash
@@ -21,9 +21,9 @@ npm install @hyperbridge/simplex
 
 Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
 
-## Starting a filler
+## Starting a solver
 
-`Simplex.start` takes a plain config object and returns once the filler is running: chains resolved,
+`Simplex.start` takes a plain config object and returns once the solver is running: chains resolved,
 EIP-7702 delegation in place where solver selection is active, scanners live.
 
 ```ts
@@ -31,7 +31,7 @@ import { Simplex, SignerType, type SimplexConfig } from "@hyperbridge/simplex"
 
 const config: SimplexConfig = {
     simplex: {
-        signer: { type: SignerType.PrivateKey, key: process.env.FILLER_KEY as `0x${string}` },
+        signer: { type: SignerType.PrivateKey, key: process.env.SOLVER_KEY as `0x${string}` },
         maxConcurrentOrders: 5,
         queue: { maxRechecks: 10, recheckDelayMs: 30_000 },
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
@@ -56,7 +56,7 @@ const simplex = await Simplex.start({ config })
 ```
 
 `start` rejects if the config is invalid, a chain's RPCs are unreachable, or delegation fails on
-every chain. It never returns a half-started filler, so there is no "is it ready yet" state to poll.
+every chain. It never returns a half-started solver, so there is no "is it ready yet" state to poll.
 
 Stop it with `await simplex.stop()` — idempotent, drains in-flight fills, unwinds any vault position
 marked `redeemOnShutdown`, and never calls `process.exit`.
@@ -73,7 +73,7 @@ Simplex remembers three things across a restart: the bids it submitted, its acti
 whether the operator paused it. That lives behind the `SimplexDataStore` interface.
 
 The default is in-memory and lost on exit, which is fine for tests and watch-only observers. **A
-filler that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
+solver that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
 that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
 querying the bid store. Lose those records and you leak deposits.
 
@@ -106,7 +106,7 @@ resolves. `activity` is observability — prune, sample or cap it freely.
 
 ## Reacting to orders
 
-The filler emits a typed event for everything it does.
+The solver emits a typed event for everything it does.
 
 ```ts
 simplex.on("order:detected", ({ order, transactionHash }) => { /* … */ })
@@ -124,7 +124,7 @@ no privileged access.
 
 ## Changing things while it runs
 
-Every mutation applies to the live filler and binds on the next order. Nothing here needs a restart.
+Every mutation applies to the live solver and binds on the next order. Nothing here needs a restart.
 
 ### Pairs
 
@@ -222,7 +222,7 @@ it is informational. The binary supplies a handler that writes the TOML file bac
 ## Self-halt
 
 Overfill protection halts the engine if consecutive orders clamp against the output ceiling, which
-usually means a systemic pricing error. A halted filler refuses every order until an operator
+usually means a systemic pricing error. A halted solver refuses every order until an operator
 clears it:
 
 ```ts
@@ -234,7 +234,7 @@ if (simplex.isHalted()) {
 
 ## Running more than one
 
-Instances share no state, so several fillers can run in one process — different keys, different
+Instances share no state, so several solvers can run in one process — different keys, different
 chains, different books:
 
 ```ts
@@ -244,16 +244,16 @@ const [eu, apac] = await Promise.all([
 ])
 ```
 
-Give each its own data directory. Two fillers sharing one bid store would each see the other's bids
+Give each its own data directory. Two solvers sharing one bid store would each see the other's bids
 as theirs to retract.
 
-Started like that, each filler scans the chains itself. Two fillers watching Base issue two
-identical `getLogs` streams forever, because the filter carries nothing filler-specific — so at any
+Started like that, each solver scans the chains itself. Two solvers watching Base issue two
+identical `getLogs` streams forever, because the filter carries nothing solver-specific — so at any
 real fleet size the scanning, not the filling, is what exhausts an RPC quota. Share a stream instead.
 
 ## Sharing a scanner
 
-Build an `OrderStream` and hand it to the fillers that should share it:
+Build an `OrderStream` and hand it to the solvers that should share it:
 
 ```ts
 import { Simplex, OrderStream, HyperbridgeStream } from "@hyperbridge/simplex"
@@ -264,35 +264,35 @@ const hyperbridge = await HyperbridgeStream.create(config.simplex.hyperbridgeWsU
 const eu   = await Simplex.start({ config: euConfig,   orderStream: orders, hyperbridgeStream: hyperbridge })
 const apac = await Simplex.start({ config: apacConfig, orderStream: orders, hyperbridgeStream: hyperbridge })
 
-// Yours to close, whenever both fillers are done with it.
+// Yours to close, whenever both solvers are done with it.
 await orders.close()
 await hyperbridge.close()
 ```
 
 `OrderStream.create` takes the same array as your config's `chains`, so it can be passed straight
 through. Entries without a `chainId` have it read back from their own endpoints, which also proves
-they answer for one chain before a filler depends on them.
+they answer for one chain before a solver depends on them.
 
 The Hyperbridge stream matters more than it looks: phantom polling re-reads *every* Hyperbridge
 block, and it goes through `offchain_localStorageGet`, which requires `--rpc-methods=unsafe` — so it
 can only ever hit your own node. Bid submission is unaffected either way; it is signed with each
-filler's own substrate key on its own connection.
+solver's own substrate key on its own connection.
 
 <Callout type="info">
-    Omit both and a filler builds private streams from its own config and closes them on `stop()`.
+    Omit both and a solver builds private streams from its own config and closes them on `stop()`.
     Nothing is ever shared implicitly — sharing is something you do on purpose.
 </Callout>
 
 ### Who owns what
 
-A stream you pass in is yours. Fillers subscribe and unsubscribe; none of them closes it, and
+A stream you pass in is yours. Solvers subscribe and unsubscribe; none of them closes it, and
 `stop()` leaves it running for whoever else is reading.
 
 That rule reaches the chain controls. `chains.add`, `chains.remove` and `chains.setRpcUrls` edit a
-stream the filler built for itself, and refuse on one you supplied:
+stream the solver built for itself, and refuse on one you supplied:
 
 > Endpoints for chain 8453 belong to the order stream you supplied — change them there, so the other
-> fillers reading it are not repointed underneath them.
+> solvers reading it are not repointed underneath them.
 
 Manage a shared stream through the stream: `orders.addChain({ rpcUrls, bundlerUrl })`,
 `orders.removeChain(chainId)`, `orders.chains()`.
@@ -300,9 +300,9 @@ Manage a shared stream through the stream: `orders.addChain({ rpcUrls, bundlerUr
 ### What sharing costs you
 
 Delivery is at-least-once, so a stream that resumes from a cursor after a reconnect re-delivers.
-Fillers de-duplicate on `order.id`; a custom subscriber must too.
+Solvers de-duplicate on `order.id`; a custom subscriber must too.
 
-A stream never blocks on a slow subscriber — one would otherwise stall every other filler reading
+A stream never blocks on a slow subscriber — one would otherwise stall every other solver reading
 it. A subscriber that falls behind loses its oldest events instead, and `subscription.dropped`
 counts them, so the loss is visible rather than silent.
 
@@ -320,7 +320,7 @@ import { createWriteStream } from "node:fs"
 
 const simplex = await Simplex.start({
     config,
-    logger: createWriteStream("filler.log", { flags: "a" }),
+    logger: createWriteStream("solver.log", { flags: "a" }),
 })
 ```
 
@@ -337,12 +337,12 @@ Or `process.stdout` if you do want it on the console. For the binary's colourise
 through `pino-pretty` yourself — formatting is a presentation choice that belongs to your
 application, not to this package.
 
-Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on a running filler,
+Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on a running solver,
 which applies immediately including to services already constructed. Level alone produces no output;
 a sink is still required.
 
-Logging is scoped to the filler, not the process. Each `Simplex` owns its own destination and level,
-so several fillers in one process keep their records apart:
+Logging is scoped to the solver, not the process. Each `Simplex` owns its own destination and level,
+so several solvers in one process keep their records apart:
 
 ```ts
 const [eu, apac] = await Promise.all([
@@ -355,8 +355,8 @@ eu.addLogSink(auditStream)        // and its own sinks
 ```
 
 `addLogSink(sink)` at module level registers a destination on the process-wide fallback context,
-which is what code outside a filler's lifetime uses — the validators, and the `simplex` binary
-itself. A running filler never writes there.
+which is what code outside a solver's lifetime uses — the validators, and the `simplex` binary
+itself. A running solver never writes there.
 
 ## Validating a config without starting
 

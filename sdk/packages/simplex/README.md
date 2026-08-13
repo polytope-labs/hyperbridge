@@ -1,6 +1,6 @@
 # @hyperbridge/simplex
 
-Automated intent filler for the Hyperbridge IntentGateway. Run it as a standalone binary, or embed
+Automated intent solver for the Hyperbridge IntentGateway. Run it as a standalone binary, or embed
 it in your own Node application.
 
 Full documentation:
@@ -32,11 +32,11 @@ await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
 await simplex.stop()
 ```
 
-`Simplex.start` takes a plain config object — no TOML file required — and returns once the filler is
+`Simplex.start` takes a plain config object — no TOML file required — and returns once the solver is
 running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
 your stdout. Persistence is pluggable: the default store is in-memory, `SqliteDataStore` is durable, and
 `SimplexDataStore` is a small async interface you can implement over Postgres, Redis or anything
-else. A filler that submits bids should use a durable store, since bid records are how locked
+else. A solver that submits bids should use a durable store, since bid records are how locked
 deposits are found again for retraction.
 
 See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
@@ -49,11 +49,11 @@ simplex
 
 With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
 (chains, RPCs, bundlers, signer, Hyperbridge account, strategies), validates every endpoint live,
-writes a commented `filler-config.toml` (mode 600) and starts the filler in the same process.
+writes a commented `filler-config.toml` (mode 600) and starts the solver in the same process.
 `simplex init` is the equivalent terminal wizard.
 
 With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `-c <path>`),
-`simplex` runs the filler directly.
+`simplex` runs the solver directly.
 
 ### Docker
 
@@ -71,7 +71,7 @@ docker run -d --name simplex --restart unless-stopped \
 ```
 
 With no config in the volume this serves the setup wizard at `http://localhost:8686`, writes
-`filler-config.toml` into `/data` and starts the filler in the same process; later restarts find
+`filler-config.toml` into `/data` and starts the solver in the same process; later restarts find
 that config and run directly. Two alternatives to the browser wizard: mount a config you already
 have (`-v /path/to/filler-config.toml:/data/filler-config.toml:ro`), or run the terminal wizard with
 `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
@@ -87,7 +87,7 @@ wizard is up, since it collects private keys. If you override the command, carry
 
 ### Web UI
 
-The filler serves a local web UI at `127.0.0.1:8686` by default:
+The solver serves a local web UI at `127.0.0.1:8686` by default:
 
 - setup wizard (when no config exists) — private key, MPCVault or Turnkey signer, static curves or Uniswap V4 pool pricing
 - status, pause/resume (persists across restarts), graceful stop, balances per chain
@@ -127,7 +127,7 @@ pnpm install
 pnpm build            # library + CLI bundles, then the vite web UI into dist/ui
 pnpm test
 pnpm cli run -c filler-config.toml
-pnpm ui:dev           # web UI dev server with /api proxied to a running filler
+pnpm ui:dev           # web UI dev server with /api proxied to a running solver
 ```
 
 The build emits two shapes from one source tree: the library entry points

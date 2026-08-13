@@ -1,16 +1,16 @@
 ---
 title: Simplex
-description: API reference for Simplex - run a Hyperbridge intent filler inside your own process, with pluggable persistence and a typed event stream.
+description: API reference for Simplex - run a Hyperbridge intent solver inside your own process, with pluggable persistence and a typed event stream.
 ---
 
 # Simplex
 
-The `Simplex` class is a running intent filler. It boots every service, delegates the filler account
+The `Simplex` class is a running intent solver. It boots every service, delegates the solver account
 where solver selection is active, scans the configured chains, and exposes every runtime control as a
 namespaced controller.
 
 For a task-oriented walkthrough see [Simplex](/developers/sdk/simplex); for the standalone binary see
-[the Intent Gateway filler docs](/developers/evm/intent-gateway/simplex).
+[the Intent Gateway solver docs](/developers/evm/intent-gateway/simplex).
 
 ```typescript lineNumbers
 class Simplex extends EventEmitter
@@ -24,7 +24,7 @@ npm install @hyperbridge/simplex
 
 ### Simplex.start(options)
 
-Boots a filler and starts it. Resolves once chains are resolved, EIP-7702 delegation is in place
+Boots a solver and starts it. Resolves once chains are resolved, EIP-7702 delegation is in place
 where solver selection is active, and the scanners are live.
 
 ```typescript lineNumbers
@@ -35,20 +35,20 @@ static async start(options: SimplexOptions): Promise<Simplex>
 
 | Name | Type | Description |
 |------|------|-------------|
-| `options.config` | `SimplexConfig` | The filler configuration. Same shape the binary's `filler-config.toml` parses into |
+| `options.config` | `SimplexConfig` | The solver configuration. Same shape the binary's `filler-config.toml` parses into |
 | `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
 | `options.configPath` | `string` | Optional. Where the config was loaded from. Informational — it is surfaced in logs and to the bundled dashboard. The library never writes it; use `onConfigChange` to persist runtime edits |
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
-| `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the filler logs nothing |
-| `options.orderStream` | `OrderStream` | Optional. Gateway events for this filler. Pass one instance to several fillers to share a scan loop. Omit and the filler builds a private stream and closes it on `stop()` |
-| `options.hyperbridgeStream` | `HyperbridgeStream` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the filler builds a private one |
+| `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the solver logs nothing |
+| `options.orderStream` | `OrderStream` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private stream and closes it on `stop()` |
+| `options.hyperbridgeStream` | `HyperbridgeStream` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the solver builds a private one |
 | `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
 
-**Returns:** `Promise<Simplex>` — a filler that is already scanning
+**Returns:** `Promise<Simplex>` — a solver that is already scanning
 
 **Throws:** If the config is invalid, a chain's RPCs are unreachable, or EIP-7702 delegation fails on
-every chain. A partially-started filler is never returned, so there is no readiness state to poll.
+every chain. A partially-started solver is never returned, so there is no readiness state to poll.
 
 **Example:**
 
@@ -64,7 +64,7 @@ const simplex = await Simplex.start({
 ```
 
 <Callout type="warn">
-    The default `MemoryDataStore` keeps nothing across a restart. A filler that submits bids should
+    The default `MemoryDataStore` keeps nothing across a restart. A solver that submits bids should
     pass a durable store: a successful bid locks a deposit that is only reclaimable by retraction,
     and the retraction sweep finds what to reclaim by querying the bid store.
 </Callout>
@@ -86,7 +86,7 @@ readonly rebalancing: RebalanceController
 
 ### address
 
-The filler's EVM account — the address that signs fills and holds inventory.
+The solver's EVM account — the address that signs fills and holds inventory.
 
 ```typescript lineNumbers
 get address(): HexString
@@ -94,7 +94,7 @@ get address(): HexString
 
 ### startedAt
 
-Epoch milliseconds at which this filler started.
+Epoch milliseconds at which this solver started.
 
 ```typescript lineNumbers
 get startedAt(): number
@@ -126,7 +126,7 @@ isPaused(): boolean
 
 ### stop()
 
-Drains the filler, unwinds every vault position marked `redeemOnShutdown` back to its underlying
+Drains the solver, unwinds every vault position marked `redeemOnShutdown` back to its underlying
 asset, and closes the data store. Idempotent, and never calls `process.exit`.
 
 ```typescript lineNumbers
@@ -192,7 +192,7 @@ bidStats(): Promise<BidStats>
 ### isHalted() / resetHalt()
 
 Overfill protection halts the engine when consecutive orders clamp against the output ceiling, which
-usually means a systemic pricing error. A halted filler refuses every order until reset.
+usually means a systemic pricing error. A halted solver refuses every order until reset.
 
 ```typescript lineNumbers
 isHalted(): boolean
@@ -210,7 +210,7 @@ setAllowlist(allowlist: AllowlistConfig | undefined): Promise<void>
 
 ### setLogLevel(level)
 
-Sets verbosity on the running filler. Applies immediately, including to services already
+Sets verbosity on the running solver. Applies immediately, including to services already
 constructed. Produces no output on its own — a sink is still required.
 
 ```typescript lineNumbers
@@ -234,7 +234,7 @@ on<E extends keyof SimplexEvents>(event: E, listener: (payload: SimplexEvents[E]
 | `order:filled` | `{ orderId: string; txHash?: HexString; chainId?: number; volumeUsd?: number; profitUsd?: number }` |
 | `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
 | `order:timing` | `{ orderId: string; phase: "evaluation" \| "confirmation" \| "queue_wait" \| "execution"; durationSec: number }` |
-| `order:filled-onchain` | `{ commitment: HexString; filler: string; chainId: number }` |
+| `order:filled-onchain` | `{ commitment: HexString; solver: string; chainId: number }` |
 | `rebalance` | `{ success: boolean; transferCount?: number; executedCount?: number; error?: string }` |
 | `activity` | `ActivityEvent` — every row written to the activity store |
 
@@ -349,7 +349,7 @@ list(): ChainView[]
 
 ### add(chain)
 
-Brings a chain into the running filler: registers it, delegates on it if solver selection is active,
+Brings a chain into the running solver: registers it, delegates on it if solver selection is active,
 then starts its scanner.
 
 ```typescript lineNumbers
@@ -409,7 +409,7 @@ setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
 
 ## VaultController
 
-`simplex.vaults`. ERC-4626 treasury vaults the filler sources fills from and sweeps idle balance into.
+`simplex.vaults`. ERC-4626 treasury vaults the solver sources fills from and sweeps idle balance into.
 
 ```typescript lineNumbers
 list(): VaultToml[]
@@ -424,7 +424,7 @@ unconfigured chains, same-asset duplicates and non-vault addresses surface befor
 `set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor;
 `redeemAll` unwinds every position back to its underlying asset.
 
-**Throws:** `set`, `sweepNow` and `redeemAll` throw if the filler was started without a vault treasury. `list` returns `[]` and `preflight` does not require one.
+**Throws:** `set`, `sweepNow` and `redeemAll` throw if the solver was started without a vault treasury. `list` returns `[]` and `preflight` does not require one.
 
 ## AssetController
 
@@ -467,8 +467,8 @@ set(rebalancing: RebalancingConfig | undefined): Promise<void>
 trigger(): Promise<unknown>
 ```
 
-`set` replaces the settings; trigger checks read them live. It cannot *enable* rebalancing on a filler that booted without it — the service is constructed at boot — so that still needs a restart. `trigger` runs a check now instead of
-waiting for the timer, and throws if the filler was started without rebalancing configured.
+`set` replaces the settings; trigger checks read them live. It cannot *enable* rebalancing on a solver that booted without it — the service is constructed at boot — so that still needs a restart. `trigger` runs a check now instead of
+waiting for the timer, and throws if the solver was started without rebalancing configured.
 
 ## Persistence
 
@@ -578,11 +578,11 @@ const simplex = await Simplex.start({ config, data: store })
 
 ## Streams
 
-Scanning a chain is identical work for every filler — the `getLogs` filter carries no filler-specific
-term — so N fillers pointed at one chain issue N copies of the same request stream. A stream runs the
-scan once and feeds every filler you hand it to.
+Scanning a chain is identical work for every solver — the `getLogs` filter carries no solver-specific
+term — so N solvers pointed at one chain issue N copies of the same request stream. A stream runs the
+scan once and feeds every solver you hand it to.
 
-Sharing is explicit. A filler started without a stream builds a private one from its own config and
+Sharing is explicit. A solver started without a stream builds a private one from its own config and
 closes it on `stop()`; a stream you build is yours, and `stop()` leaves it running.
 
 ### OrderStream.create(chains, options?)
@@ -617,12 +617,12 @@ close(): Promise<void>
 ```
 
 A subscription receives events for **every** chain in the stream, so subscribers match on
-`event.chainId` — a shared stream may carry more chains than a given filler wants.
+`event.chainId` — a shared stream may carry more chains than a given solver wants.
 
 | Handler | Payload |
 |---------|---------|
 | `onOrder` | `ScannedOrder` — `{ order, transactionHash, blockNumber, blockHash, logIndex, chain, chainId }` |
-| `onFill` | `ScannedFill` — `{ commitment, filler, chainId, blockNumber, blockHash, logIndex }` |
+| `onFill` | `ScannedFill` — `{ commitment, solver, chainId, blockNumber, blockHash, logIndex }` |
 | `onError` | `(error, chainId)` — informational; the stream retries and never advances its cursor past an unread range |
 
 `Subscription` is `{ close(): void; readonly dropped: number }`.
@@ -630,7 +630,7 @@ A subscription receives events for **every** chain in the stream, so subscribers
 <Callout type="warn">
     Delivery is at-least-once and per-chain FIFO. A stream that resumes from a cursor after a
     reconnect re-delivers, so subscribers de-duplicate on `order.id`. A stream also never blocks on a
-    slow subscriber — that would stall every other filler reading it — so one that falls behind loses
+    slow subscriber — that would stall every other solver reading it — so one that falls behind loses
     its oldest events and counts them in `dropped`.
 </Callout>
 
@@ -645,16 +645,16 @@ subscribe(handlers: { onPhantomOrder(event: PhantomOrderEvent): void; onError?(e
 close(): Promise<void>
 ```
 
-One phantom-order poll per endpoint instead of one per filler. This is the heavier of the two to
+One phantom-order poll per endpoint instead of one per solver. This is the heavier of the two to
 share: phantom polling re-reads every Hyperbridge block through `offchain_localStorageGet`, which
 requires `--rpc-methods=unsafe`, so it can only ever hit your own node.
 
-Reads only. Bids are signed with a filler's own substrate key on its own connection.
+Reads only. Bids are signed with a solver's own substrate key on its own connection.
 
 ### Stream ownership
 
-`chains.add`, `chains.remove` and `chains.setRpcUrls` edit a stream the filler built for itself, and
-throw on one you supplied — repointing endpoints under the other fillers reading it would be action
+`chains.add`, `chains.remove` and `chains.setRpcUrls` edit a stream the solver built for itself, and
+throw on one you supplied — repointing endpoints under the other solvers reading it would be action
 at a distance. Manage a shared stream through the stream.
 
 ## Logging
@@ -673,7 +673,7 @@ transform all work as-is, as does an object literal that forwards into your own 
 
 ### simplex.addLogSink(sink)
 
-Adds another destination for **this filler's** records and returns a function that removes it.
+Adds another destination for **this solver's** records and returns a function that removes it.
 Other instances are unaffected.
 
 ```typescript lineNumbers
@@ -683,7 +683,7 @@ addLogSink(sink: LogSink): () => void
 ### addLogSink(sink)
 
 The module-level function registers on the process-wide fallback context instead — for records
-logged outside any filler's lifetime, such as by the validators. A running filler never writes there.
+logged outside any solver's lifetime, such as by the validators. A running solver never writes there.
 
 ```typescript lineNumbers
 addLogSink(sink: LogSink): () => void
@@ -702,7 +702,7 @@ detach()
 
 ### configureLogger(level)
 
-Sets verbosity on the process-wide fallback context. Does not affect running fillers — use
+Sets verbosity on the process-wide fallback context. Does not affect running solvers — use
 `simplex.setLogLevel` for those.
 
 ```typescript lineNumbers
@@ -712,8 +712,8 @@ configureLogger(level: LogLevel): void
 ### LoggerContext
 
 An isolated destination: its own sinks, level and pino instance. Each `Simplex` constructs one from
-`SimplexOptions.logger`, which is what keeps two fillers' records apart. Construct one directly only
-if you want to share a destination across something the filler does not own.
+`SimplexOptions.logger`, which is what keeps two solvers' records apart. Construct one directly only
+if you want to share a destination across something the solver does not own.
 
 ```typescript lineNumbers
 new LoggerContext(options?: { level?: LogLevel; sink?: LogSink })
@@ -732,7 +732,7 @@ getLogger(module?: string | { module?: string }): Logger
 ```
 
 <Callout type="info">
-    Logging is scoped per filler. Two `Simplex` instances in one process write to their own sinks at
+    Logging is scoped per solver. Two `Simplex` instances in one process write to their own sinks at
     their own levels — `eu.setLogLevel("debug")` leaves `apac` alone.
 </Callout>
 

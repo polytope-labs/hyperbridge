@@ -543,6 +543,7 @@ export class IntentGatewayV3Service {
 				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
 				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
+				await VolumeService.updateVolume(`IntentGatewayV3.FILLED`, outputUSD.total, timestamp)
 
 				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
 				const pointsToAward = orderValue.floor().toNumber()

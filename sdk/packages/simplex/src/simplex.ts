@@ -50,7 +50,7 @@ export interface SimplexOptions {
 	/**
 	 * Gateway events for this filler.
 	 *
-	 * Build one with `OrderScanner.create(chains)` and pass the same instance to
+	 * Build one with `OrderScanner.create({ chains })` and pass the same instance to
 	 * every filler that should share it — that is how N fillers cost one chain's
 	 * worth of RPC instead of N. The scanner is yours: closing it is your call, and
 	 * `stop()` leaves it running.
@@ -777,7 +777,15 @@ export class Simplex extends EventEmitter {
 		let orderScanner: OrderScanner | undefined
 		let hyperbridgeScanner: HyperbridgeScanner | undefined
 		try {
-			orderScanner = options.orderScanner ?? (await OrderScannerImpl.create(options.config.chains, { loggers }))
+			orderScanner =
+				options.orderScanner ??
+				(await OrderScannerImpl.create({
+					chains: options.config.chains,
+					loggers,
+					// Honour `blockScanIntervalSeconds` on a scanner we build. One the
+					// caller supplied carries whatever interval they chose for it.
+					scanIntervalSecs: options.config.simplex.blockScanIntervalSeconds,
+				}))
 			hyperbridgeScanner =
 				options.hyperbridgeScanner ?? (wsUrl ? await HyperbridgeScannerImpl.create(wsUrl, { loggers }) : undefined)
 

@@ -39,17 +39,17 @@ function orderOn(chainId: number, id: string): ScannedOrder {
 
 describe("OrderScanner", () => {
 	it("scans exactly the chains it was created with", async () => {
-		const scanner = await OrderScanner.create(CHAINS)
+		const scanner = await OrderScanner.create({ chains: CHAINS })
 		expect(scanner.chains().sort()).toEqual([8453, 42161].sort())
 		await scanner.close()
 	})
 
 	it("rejects two entries for the same chain", async () => {
-		await expect(OrderScanner.create([CHAINS[0], { ...CHAINS[0] }])).rejects.toThrow(/already in this scanner/)
+		await expect(OrderScanner.create({ chains: [CHAINS[0], { ...CHAINS[0] }] })).rejects.toThrow(/already in this scanner/)
 	})
 
 	it("delivers one scanned order to every subscriber", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		const a: string[] = []
 		const b: string[] = []
 		scanner.subscribe({ onOrder: (e) => a.push(e.order.id!), onFill: () => {} })
@@ -66,7 +66,7 @@ describe("OrderScanner", () => {
 	})
 
 	it("stops delivering to a closed subscriber but keeps going for the rest", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		const a: string[] = []
 		const b: string[] = []
 		const first = scanner.subscribe({ onOrder: (e) => a.push(e.order.id!), onFill: () => {} })
@@ -83,7 +83,7 @@ describe("OrderScanner", () => {
 	})
 
 	it("carries chains added and removed at runtime", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		await scanner.addChain(CHAINS[1])
 		expect(scanner.chains().sort()).toEqual([8453, 42161].sort())
 
@@ -99,7 +99,7 @@ describe("OrderScanner", () => {
 	 */
 	it("keeps the block cursor when endpoints are swapped", async () => {
 		chainIdOfEndpoint = 8453
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		const loop = (scanner as unknown as { scanners: Map<number, ChainScanner> }).scanners.get(8453)!
 		;(loop as unknown as { cursor: bigint }).cursor = 4_242n
 
@@ -113,7 +113,7 @@ describe("OrderScanner", () => {
 
 	it("refuses endpoints that answer for a different chain", async () => {
 		chainIdOfEndpoint = 8453
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 
 		chainIdOfEndpoint = 137
 		await expect(scanner.setRpcUrls(8453, ["https://polygon.example"])).rejects.toThrow(
@@ -125,7 +125,7 @@ describe("OrderScanner", () => {
 	})
 
 	it("refuses to repoint a chain it does not have", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		await expect(scanner.setRpcUrls(137, ["https://polygon.example"])).rejects.toThrow(
 			/not in this scanner/,
 		)
@@ -133,7 +133,7 @@ describe("OrderScanner", () => {
 	})
 
 	it("refuses to be used after closing", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		await scanner.close()
 
 		expect(() => scanner.subscribe({ onOrder: () => {}, onFill: () => {} })).toThrow(/closed/)
@@ -142,7 +142,7 @@ describe("OrderScanner", () => {
 	})
 
 	it("is idempotent on close", async () => {
-		const scanner = await OrderScanner.create([CHAINS[0]])
+		const scanner = await OrderScanner.create({ chains: [CHAINS[0]] })
 		await scanner.close()
 		await expect(scanner.close()).resolves.toBeUndefined()
 	})
@@ -166,7 +166,7 @@ describe("OrderScanner failure cleanup", () => {
 			return realAdd.call(this, chain)
 		})
 
-		await expect(OrderScanner.create(CHAINS)).rejects.toThrow(/unreachable endpoint/)
+		await expect(OrderScanner.create({ chains: CHAINS })).rejects.toThrow(/unreachable endpoint/)
 
 		// The half-built instance is closed, so its first chain is no longer scanned.
 		const scanner = started[0]

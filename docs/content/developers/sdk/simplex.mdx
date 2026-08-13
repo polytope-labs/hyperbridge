@@ -306,7 +306,7 @@ share them. The scan runs once, and each solver receives every event:
 ```ts lineNumbers
 import { Simplex, OrderScanner, HyperbridgeScanner } from "@hyperbridge/simplex"
 
-const orders = await OrderScanner.create(config.chains)
+const orders = await OrderScanner.create({ chains: config.chains })
 const hyperbridge = await HyperbridgeScanner.create(
     config.simplex.hyperbridgeWsUrl,
 )
@@ -327,14 +327,16 @@ await orders.close()
 await hyperbridge.close()
 ```
 
-`OrderScanner.create` takes the same array as your config's `chains`, so it can be passed straight
-through. It scans every 3 seconds by default; pass `scanIntervalMs` to change that. A solver that
-builds its own scanner reads the interval from `config.simplex.blockScanIntervalSeconds` instead —
-one you supply keeps whatever interval you gave it, since the solvers reading it may disagree:
+`chains` takes the same array as your config's, so it can be passed straight through. The scanner
+polls every 3 seconds by default; `scanIntervalSecs` changes that, with the same 0.1 minimum the
+TOML validator applies. A solver that builds its own scanner reads the interval from
+`config.simplex.blockScanIntervalSeconds` instead — one you supply keeps whatever interval you gave
+it, since the solvers reading it may disagree:
 
 ```ts lineNumbers
-const orders = await OrderScanner.create(config.chains, {
-    scanIntervalMs: 500,
+const orders = await OrderScanner.create({
+    chains: config.chains,
+    scanIntervalSecs: 0.5,
 })
 ```
  Entries without a `chainId` have it read back from the first endpoint listed, which also proves

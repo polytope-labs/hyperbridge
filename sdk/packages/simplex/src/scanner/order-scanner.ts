@@ -1,11 +1,12 @@
 import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
-import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
+import { fetchChainId, MIN_BLOCK_SCAN_INTERVAL_SECONDS, validateRpcUrls } from "@/services/FillerConfigService"
 import { ChainScanner } from "./chain-scanner"
 import { FanOut } from "./fan-out"
 import type {
 	OrderScanner as OrderScannerContract,
 	OrderScannerHandlers,
+	OrderScannerOptions,
 	ScannedFill,
 	ScannedOrder,
 	ScannerChainConfig,
@@ -16,7 +17,7 @@ import type {
  * One scan loop per chain, feeding every filler you hand it to.
  *
  * ```ts
- * const orders = await OrderScanner.create(config.chains)
+ * const orders = await OrderScanner.create({ chains: config.chains })
  * const eu = await Simplex.start({ config: euConfig, orderScanner: orders })
  * const apac = await Simplex.start({ config: apacConfig, orderScanner: orders })
  * await orders.close()
@@ -34,7 +35,10 @@ export class OrderScanner implements OrderScannerContract {
 	private readonly logger: Logger
 	private closed = false
 
-	private constructor(private readonly loggers: LoggerContext) {
+	private constructor(
+		private readonly loggers: LoggerContext,
+		private readonly scanIntervalMs?: number,
+	) {
 		this.logger = loggers.get("order-scanner")
 		// Built here, not as field initialisers: those run before `loggers` is
 		// assigned, so the fan-outs would fall back to the process-wide context and
@@ -51,14 +55,26 @@ export class OrderScanner implements OrderScannerContract {
 	 * back from its own endpoints, which also proves they answer for one chain
 	 * before a filler ever depends on them.
 	 *
-	 * @throws if an endpoint set is invalid or unreachable, or if two entries
-	 *   resolve to the same chain.
+	 * @throws if an endpoint set is invalid or unreachable, if two entries resolve
+	 *   to the same chain, or if `scanIntervalSecs` is below the minimum.
 	 */
-	static async create(
-		chains: ScannerChainConfig[],
-		options: { loggers?: LoggerContext } = {},
-	): Promise<OrderScanner> {
-		const scanner = new OrderScanner(options.loggers ?? defaultLoggerContext())
+	static async create(options: OrderScannerOptions): Promise<OrderScanner> {
+		const { chains, scanIntervalSecs, loggers } = options
+		if (scanIntervalSecs !== undefined) {
+			// Same gate the TOML validator applies: a zero or negative interval would
+			// spin the loop as fast as the event loop allows and exhaust an RPC budget
+			// in minutes, and setInterval would coerce it rather than complain.
+			if (!Number.isFinite(scanIntervalSecs) || scanIntervalSecs < MIN_BLOCK_SCAN_INTERVAL_SECONDS) {
+				throw new Error(
+					`scanIntervalSecs must be a number >= ${MIN_BLOCK_SCAN_INTERVAL_SECONDS} (seconds); got ${scanIntervalSecs}`,
+				)
+			}
+		}
+
+		const scanner = new OrderScanner(
+			loggers ?? defaultLoggerContext(),
+			scanIntervalSecs === undefined ? undefined : Math.round(scanIntervalSecs * 1000),
+		)
 		try {
 			// Sequential: two entries resolving to the same chain must be caught, and the
 			// only network call is the chain-id probe for entries that omit it.
@@ -112,7 +128,11 @@ export class OrderScanner implements OrderScannerContract {
 		const name = `EVM-${chainId}`
 		const gateway = chain.gateway ?? (new ChainConfigService({}).getIntentGatewayAddress(name) as HexString)
 
-		const scanner = new ChainScanner({ chain: name, chainId, gateway, rpcUrls }, this.loggers)
+		const scanner = new ChainScanner(
+			{ chain: name, chainId, gateway, rpcUrls },
+			this.loggers,
+			this.scanIntervalMs,
+		)
 		scanner.onOrder((event) => this.orders.publish(event))
 		scanner.onFill((event) => this.fills.publish(event))
 		scanner.onError((error) => {

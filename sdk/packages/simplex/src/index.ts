@@ -123,6 +123,7 @@ export { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 export type {
 	OrderScanner as OrderScannerContract,
 	OrderScannerHandlers,
+	OrderScannerOptions,
 	HyperbridgeScanner as HyperbridgeScannerContract,
 	HyperbridgeScannerHandlers,
 	ScannerChainConfig,

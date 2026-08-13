@@ -593,27 +593,28 @@ scan once and feeds every solver you hand it to.
 Sharing is explicit. A solver started without a scanner builds a private one from its own config and
 closes it on `stop()`; a scanner you build is yours, and `stop()` leaves it running.
 
-### OrderScanner.create(chains, options?)
+### OrderScanner.create(options)
 
 ```typescript lineNumbers
-static async create(
-    chains: ScannerChainConfig[],
-    options?: { loggers?: LoggerContext; scanIntervalMs?: number },
-): Promise<OrderScanner>
+static async create(options: {
+    chains: ScannerChainConfig[]
+    scanIntervalSecs?: number
+    loggers?: LoggerContext
+}): Promise<OrderScanner>
 ```
 
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `chains` | `ScannerChainConfig[]` | Same shape as the config's `chains`, so it can be passed straight through |
-| `chains[].rpcUrls` | `string[]` | Endpoints to scan with. Several enables quorum log scanning |
-| `chains[].bundlerUrl` | `string` | Carried so a config array passes through unchanged; unused for scanning |
-| `chains[].chainId` | `number` | Optional. Read back from the endpoints when omitted |
-| `chains[].gateway` | `HexString` | Optional. Taken from the SDK chain registry when omitted |
-| `options.scanIntervalMs` | `number` | Optional. Milliseconds between scans of each chain. Defaults to 3000, the same default `blockScanIntervalSeconds` carries |
+| `options.chains` | `ScannerChainConfig[]` | Same shape as the config's `chains`, so it can be passed straight through |
+| `options.chains[].rpcUrls` | `string[]` | Endpoints to scan with. Several enables quorum log scanning |
+| `options.chains[].bundlerUrl` | `string` | Carried so a config array passes through unchanged; unused for scanning |
+| `options.chains[].chainId` | `number` | Optional. Read back from the endpoints when omitted |
+| `options.chains[].gateway` | `HexString` | Optional. Taken from the SDK chain registry when omitted |
+| `options.scanIntervalSecs` | `number` | Optional. Seconds between scans of each chain. Defaults to 3, the same default `blockScanIntervalSeconds` carries. Minimum 0.1 |
 
-**Throws:** if an endpoint set is invalid or unreachable, or if two entries resolve to the same chain.
+**Throws:** if an endpoint set is invalid or unreachable, if two entries resolve to the same chain, or if `scanIntervalSecs` is below 0.1.
 
 ### OrderScanner methods
 

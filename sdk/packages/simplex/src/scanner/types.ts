@@ -1,4 +1,5 @@
 import type { HexString, Order, PhantomOrderEvent } from "@hyperbridge/sdk"
+import type { LoggerContext } from "@/services/Logger"
 
 /**
  * Shared event scanners.
@@ -55,6 +56,19 @@ export interface ScannedFill {
 	blockNumber: bigint
 	blockHash: string
 	logIndex: number
+}
+
+/** What {@link OrderScanner.create} needs to start scanning. */
+export interface OrderScannerOptions {
+	/** Chains to scan. The same shape as the filler config's `chains` array. */
+	chains: ScannerChainConfig[]
+	/**
+	 * Seconds between scans of each chain. Defaults to 3, the same default
+	 * `blockScanIntervalSeconds` carries. Minimum 0.1.
+	 */
+	scanIntervalSecs?: number
+	/** Where this scanner logs. Defaults to the process-wide fallback context. */
+	loggers?: LoggerContext
 }
 
 export interface OrderScannerHandlers {

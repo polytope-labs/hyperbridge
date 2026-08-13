@@ -247,6 +247,65 @@ const [eu, apac] = await Promise.all([
 Give each its own data directory. Two fillers sharing one bid store would each see the other's bids
 as theirs to retract.
 
+Started like that, each filler scans the chains itself. Two fillers watching Base issue two
+identical `getLogs` streams forever, because the filter carries nothing filler-specific — so at any
+real fleet size the scanning, not the filling, is what exhausts an RPC quota. Share a stream instead.
+
+## Sharing a scanner
+
+Build an `OrderStream` and hand it to the fillers that should share it:
+
+```ts
+import { Simplex, OrderStream, HyperbridgeStream } from "@hyperbridge/simplex"
+
+const orders      = await OrderStream.create(config.chains)
+const hyperbridge = await HyperbridgeStream.create(config.simplex.hyperbridgeWsUrl)
+
+const eu   = await Simplex.start({ config: euConfig,   orderStream: orders, hyperbridgeStream: hyperbridge })
+const apac = await Simplex.start({ config: apacConfig, orderStream: orders, hyperbridgeStream: hyperbridge })
+
+// Yours to close, whenever both fillers are done with it.
+await orders.close()
+await hyperbridge.close()
+```
+
+`OrderStream.create` takes the same array as your config's `chains`, so it can be passed straight
+through. Entries without a `chainId` have it read back from their own endpoints, which also proves
+they answer for one chain before a filler depends on them.
+
+The Hyperbridge stream matters more than it looks: phantom polling re-reads *every* Hyperbridge
+block, and it goes through `offchain_localStorageGet`, which requires `--rpc-methods=unsafe` — so it
+can only ever hit your own node. Bid submission is unaffected either way; it is signed with each
+filler's own substrate key on its own connection.
+
+<Callout type="info">
+    Omit both and a filler builds private streams from its own config and closes them on `stop()`.
+    Nothing is ever shared implicitly — sharing is something you do on purpose.
+</Callout>
+
+### Who owns what
+
+A stream you pass in is yours. Fillers subscribe and unsubscribe; none of them closes it, and
+`stop()` leaves it running for whoever else is reading.
+
+That rule reaches the chain controls. `chains.add`, `chains.remove` and `chains.setRpcUrls` edit a
+stream the filler built for itself, and refuse on one you supplied:
+
+> Endpoints for chain 8453 belong to the order stream you supplied — change them there, so the other
+> fillers reading it are not repointed underneath them.
+
+Manage a shared stream through the stream: `orders.addChain({ rpcUrls, bundlerUrl })`,
+`orders.removeChain(chainId)`, `orders.chains()`.
+
+### What sharing costs you
+
+Delivery is at-least-once, so a stream that resumes from a cursor after a reconnect re-delivers.
+Fillers de-duplicate on `order.id`; a custom subscriber must too.
+
+A stream never blocks on a slow subscriber — one would otherwise stall every other filler reading
+it. A subscriber that falls behind loses its oldest events instead, and `subscription.dropped`
+counts them, so the loss is visible rather than silent.
+
 ## Logging
 
 **The library writes nothing anywhere until you tell it where.** Importing

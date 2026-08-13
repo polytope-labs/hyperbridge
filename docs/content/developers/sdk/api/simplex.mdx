@@ -41,6 +41,8 @@ static async start(options: SimplexOptions): Promise<Simplex>
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the filler logs nothing |
+| `options.orderStream` | `OrderStream` | Optional. Gateway events for this filler. Pass one instance to several fillers to share a scan loop. Omit and the filler builds a private stream and closes it on `stop()` |
+| `options.hyperbridgeStream` | `HyperbridgeStream` | Optional. Phantom orders, same ownership rule. Omit with a `hyperbridgeWsUrl` configured and the filler builds a private one |
 | `options.onConfigChange` | `(config: SimplexConfig) => void \| Promise<void>` | Optional. Called after any mutation that changes the effective config |
 
 **Returns:** `Promise<Simplex>` — a filler that is already scanning
@@ -490,7 +492,7 @@ promises. The async signature is what lets a consumer back these with Postgres, 
 ```typescript lineNumbers
 store(bid: BidInsert): Promise<void>
 byCommitment(commitment: string): Promise<StoredBid | null>
-unretractedSuccessful(): Promise<StoredBid[]>
+unretractedReclaimable(): Promise<StoredBid[]>
 expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
 markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
 markDead(commitment: string): Promise<boolean>
@@ -514,8 +516,13 @@ failed attempt retries on the next sweep rather than waiting out the TTL.
 retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
 methods resolve `false` when nothing matched, which callers treat as success rather than an error.
 
-`StoredBid`: `id`, `commitment`, `extrinsicHash`, `blockHash`, `success`, `error`, `createdAt`,
-`retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`. `createdAt` is SQLite-style
+`StoredBid`: `id`, `commitment`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
+`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`.
+
+`pending` marks a submission that timed out with its extrinsic still in Hyperbridge's pool. It is
+neither success nor failure: the extrinsic may yet land and reserve a deposit, so a pending row
+counts as reclaimable in `unretractedReclaimable`, `expiredUnretracted` and the `pendingRetraction`
+stat. Treating it as a plain failure is how a deposit goes unnoticed and unreclaimed. `createdAt` is SQLite-style
 `"YYYY-MM-DD HH:MM:SS"` in UTC so it sorts lexicographically.
 
 ### ActivityStore
@@ -568,6 +575,87 @@ const store: SimplexDataStore = {
 
 const simplex = await Simplex.start({ config, data: store })
 ```
+
+## Streams
+
+Scanning a chain is identical work for every filler — the `getLogs` filter carries no filler-specific
+term — so N fillers pointed at one chain issue N copies of the same request stream. A stream runs the
+scan once and feeds every filler you hand it to.
+
+Sharing is explicit. A filler started without a stream builds a private one from its own config and
+closes it on `stop()`; a stream you build is yours, and `stop()` leaves it running.
+
+### OrderStream.create(chains, options?)
+
+```typescript lineNumbers
+static async create(
+    chains: StreamChainConfig[],
+    options?: { loggers?: LoggerContext },
+): Promise<OrderStream>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `chains` | `StreamChainConfig[]` | Same shape as the config's `chains`, so it can be passed straight through |
+| `chains[].rpcUrls` | `string[]` | Endpoints to scan with. Several enables quorum log scanning |
+| `chains[].bundlerUrl` | `string` | Carried so a config array passes through unchanged; unused for scanning |
+| `chains[].chainId` | `number` | Optional. Read back from the endpoints when omitted |
+| `chains[].gateway` | `HexString` | Optional. Taken from the SDK chain registry when omitted |
+
+**Throws:** if an endpoint set is invalid or unreachable, or if two entries resolve to the same chain.
+
+### OrderStream methods
+
+```typescript lineNumbers
+subscribe(handlers: OrderStreamHandlers): Subscription
+chains(): number[]
+addChain(chain: StreamChainConfig): Promise<number>
+removeChain(chainId: number): Promise<void>
+close(): Promise<void>
+```
+
+A subscription receives events for **every** chain in the stream, so subscribers match on
+`event.chainId` — a shared stream may carry more chains than a given filler wants.
+
+| Handler | Payload |
+|---------|---------|
+| `onOrder` | `ScannedOrder` — `{ order, transactionHash, blockNumber, blockHash, logIndex, chain, chainId }` |
+| `onFill` | `ScannedFill` — `{ commitment, filler, chainId, blockNumber, blockHash, logIndex }` |
+| `onError` | `(error, chainId)` — informational; the stream retries and never advances its cursor past an unread range |
+
+`Subscription` is `{ close(): void; readonly dropped: number }`.
+
+<Callout type="warn">
+    Delivery is at-least-once and per-chain FIFO. A stream that resumes from a cursor after a
+    reconnect re-delivers, so subscribers de-duplicate on `order.id`. A stream also never blocks on a
+    slow subscriber — that would stall every other filler reading it — so one that falls behind loses
+    its oldest events and counts them in `dropped`.
+</Callout>
+
+Every `ScannedFill` reaches every subscriber: `filler` is `indexed: false` on both `OrderFilled` and
+`PartialFill`, so it can never be narrowed to a topic filter.
+
+### HyperbridgeStream.create(wsUrl, options?)
+
+```typescript lineNumbers
+static async create(wsUrl: string, options?: { loggers?: LoggerContext }): Promise<HyperbridgeStream>
+subscribe(handlers: { onPhantomOrder(event: PhantomOrderEvent): void; onError?(error: unknown): void }): Subscription
+close(): Promise<void>
+```
+
+One phantom-order poll per endpoint instead of one per filler. This is the heavier of the two to
+share: phantom polling re-reads every Hyperbridge block through `offchain_localStorageGet`, which
+requires `--rpc-methods=unsafe`, so it can only ever hit your own node.
+
+Reads only. Bids are signed with a filler's own substrate key on its own connection.
+
+### Stream ownership
+
+`chains.add`, `chains.remove` and `chains.setRpcUrls` edit a stream the filler built for itself, and
+throw on one you supplied — repointing endpoints under the other fillers reading it would be action
+at a distance. Manage a shared stream through the stream.
 
 ## Logging
 
@@ -682,7 +770,9 @@ Exported from `@hyperbridge/simplex`:
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
 `BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,
-`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`.
+`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`, `OrderStream`,
+`HyperbridgeStream`, `OrderStreamHandlers`, `HyperbridgeStreamHandlers`, `StreamChainConfig`,
+`ScannedOrder`, `ScannedFill`, `Subscription`.
 
 Controller classes are exported as types too: `PairController`, `ChainController`, `VaultController`,
 `AssetController`, `WalletController`, `RebalanceController`.

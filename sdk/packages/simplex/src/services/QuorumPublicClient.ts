@@ -316,8 +316,8 @@ export class QuorumPublicClient {
 				}
 				const responders = [...groups.values()].reduce((n, g) => n + g.providerIdxs.length, 0)
 				throw new QuorumError(
-					`Quorum not reached for getLogs: no result agreed on by a quorum (${this.threshold}). ` +
-						`${this.describeResponders(responders)}. ` +
+					`Quorum not reached for getLogs(${describeLogsParams(params)}): no result agreed on by a ` +
+						`quorum (${this.threshold}). ${this.describeResponders(responders)}. ` +
 						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 				)
 			},
@@ -332,12 +332,46 @@ export class QuorumPublicClient {
 		if (failures.length === 0) return "No provider errors."
 		const parts = failures.map((f) => {
 			const url = f.idx >= 0 ? this.rpcUrls[f.idx] : "unknown"
-			const message = f.error instanceof Error ? f.error.message : String(f.error)
 			const label = isRateLimited(f.error) ? " [rate-limited]" : ""
-			return `${url}${label}: ${message}`
+			return `${url}${label}: ${providerMessage(f.error)}`
 		})
 		return `Failures (${failures.length}): ${parts.join("; ")}`
 	}
+}
+
+/**
+ * The provider's own complaint, not viem's wrapper.
+ *
+ * viem maps every JSON-RPC code to a fixed sentence — a `-32602` always reads
+ * "Invalid parameters were provided to the RPC method", whether the endpoint
+ * objected to a block range, a topic count or an address. What it actually said
+ * is on `details`, so walk the cause chain and take the innermost one.
+ */
+function providerMessage(error: unknown): string {
+	if (!(error instanceof Error)) return String(error)
+	let detail: string | undefined
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const e = current as { details?: string; cause?: unknown }
+		if (typeof e.details === "string" && e.details.trim()) detail = e.details.trim()
+		current = e.cause
+	}
+	return detail ? `${error.message} (${detail})` : error.message
+}
+
+/** The parts of a getLogs request an operator needs to see when one is rejected. */
+function describeLogsParams(params: {
+	address?: unknown
+	fromBlock?: unknown
+	toBlock?: unknown
+}): string {
+	const address = Array.isArray(params.address) ? `${params.address.length} addresses` : String(params.address ?? "any")
+	const from = params.fromBlock
+	const to = params.toBlock
+	// The span is the usual culprit: public endpoints cap eth_getLogs ranges well
+	// below the 1000 blocks the scanner asks for when it is catching up.
+	const span = typeof from === "bigint" && typeof to === "bigint" ? `, ${to - from + 1n} blocks` : ""
+	return `${address}, ${String(from ?? "?")}..${String(to ?? "?")}${span}`
 }
 
 /** One endpoint's receipt answer for {@link aggregateConfirmations}. */

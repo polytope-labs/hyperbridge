@@ -109,7 +109,18 @@ export class ChainScanner {
 				try {
 					await this.scan()
 				} catch (error) {
-					this.logger.error({ chainId: this.target.chainId, err: error }, "Error in block scanner")
+					// The cursor and endpoints are what an operator needs to act: the
+					// error alone does not say which range failed or which provider set
+					// produced it.
+					this.logger.error(
+						{
+							chainId: this.target.chainId,
+							cursor: this.cursor?.toString(),
+							rpcUrls: this.target.rpcUrls,
+							err: error,
+						},
+						"Error in block scanner",
+					)
 					this.errorHandler(error)
 				}
 			})

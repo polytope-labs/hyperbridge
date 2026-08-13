@@ -347,22 +347,6 @@ Solver selection requires each solver's EOA to be delegated to the `SolverAccoun
 
 No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
 
-### Overfill Protection
-
-Detects a computed output that overshoots what the user asked for, which usually means the solver's own pricing is wrong (a bug, a stale cache, a manipulated venue). For every order the solver compares its computed output against `(1 + maxOverfillBps/10000) × user-requested amount` and logs `"Overfill ceiling exceeded — clamp disabled, filling unclamped amount"` when it goes over.
-
-<Callout type="warn">
-    **This is detection only — the clamp is disabled.** The solver fills the full computed amount even when it exceeds the ceiling, so there is no per-leg loss bound in the current release. The `maxConsecutiveClamps` halt is wired to the same counter and therefore never fires; `isHalted()` on the library API always returns `false`. Treat the warning as the signal and alert on it.
-</Callout>
-
-Defaults are `maxOverfillBps = 500` (≈ 5% ceiling) and `maxConsecutiveClamps = 3`. Override under `[simplex.overfillProtection]`:
-
-```toml lineNumbers
-[simplex.overfillProtection]
-maxOverfillBps       = 500   # 5% ceiling above user-requested output
-maxConsecutiveClamps = 3     # halt threshold; dormant while the clamp is disabled
-```
-
 ### Vault treasury (ERC-4626)
 
 The optional top-level `[vault]` section configures a **solver-wide stablecoin treasury** backed by ERC-4626 vaults. Any ERC-4626 vault works — for example Aave's `stataToken` for USDC — so idle treasury earns yield while remaining available for fills. Each entry needs a `chain` and a `vault` address; the underlying asset and its decimals are resolved on-chain at startup.
@@ -596,11 +580,6 @@ callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 [simplex.queue]
 maxRechecks    = 10
 recheckDelayMs = 30000
-
-# Optional — defaults: maxOverfillBps = 500, maxConsecutiveClamps = 3
-# [simplex.overfillProtection]
-# maxOverfillBps       = 500
-# maxConsecutiveClamps = 3
 
 # Optional solver-wide ERC-4626 stablecoin treasury
 # (sourcing + sweeping + shutdown)

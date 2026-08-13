@@ -154,7 +154,6 @@ status(): SimplexStatus
 | Field | Type | Description |
 |------|------|-------------|
 | `paused` | `boolean` | |
-| `halted` | `boolean` | Overfill protection has tripped. Always `false` today — see [isHalted()](#ishalted--resethalt) |
 | `address` | `HexString` | The solver's EVM account; same value as `simplex.address` |
 | `startedAt` | `number` | Epoch ms |
 | `uptimeSec` | `number` | |
@@ -188,22 +187,6 @@ bidStats(): Promise<BidStats>
 
 **Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
 `pendingRetraction` — those are deposits still locked in the solver-selection pallet.
-
-### isHalted() / resetHalt()
-
-Overfill protection was designed to halt the engine after consecutive orders clamped against the
-output ceiling. A halted solver refuses every order until reset.
-
-```typescript lineNumbers
-isHalted(): boolean
-resetHalt(): void
-```
-
-<Callout type="warn">
-    **`isHalted()` always returns `false` in the current release.** The overfill clamp is disabled, so
-    no order is ever clamped, the consecutive-clamp counter never advances, and nothing sets the halt.
-    Do not use it as a safety monitor — alert on the `"Overfill ceiling exceeded"` warning instead.
-</Callout>
 
 ### setAllowlist(allowlist)
 

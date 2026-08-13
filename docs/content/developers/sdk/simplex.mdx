@@ -272,30 +272,6 @@ Without it, edits apply live but do not survive a restart — `configPath` alone
 it is informational. The binary does not persist runtime edits either: it passes no handler, so its
 edits are live-only too.
 
-## Overfill detection
-
-When the solver computes an output that overshoots what the user asked for by more than
-`maxOverfillBps`, it logs a warning naming the leg, the price source, and the two amounts. An
-overshoot usually means the solver's own pricing is wrong — a stale cache, a bug, a manipulated
-venue — so it is worth alerting on:
-
-```ts lineNumbers
-// The overfill warning arrives on your log sink, not as an event.
-sink.on("record", (line) => {
-    const record = JSON.parse(line)
-    if (record.msg?.startsWith("Overfill ceiling exceeded")) {
-        alert(`overfill on order ${record.orderId} — check pricing`)
-    }
-})
-```
-
-<Callout type="warn">
-    **The clamp is disabled, so the solver fills the unclamped amount.** There is no per-leg loss
-    bound in the current release, and the halt wired to the same counter never fires —
-    `simplex.isHalted()` always returns `false` and `resetHalt()` has nothing to clear. Do not build a
-    safety monitor on them; watch the warning above instead.
-</Callout>
-
 ## Multiple Simplex Instances
 
 Instances share no state, so several solvers can run in one process — different keys, different

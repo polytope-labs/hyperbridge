@@ -9,6 +9,7 @@ description = "Builds BEEFY consensus proofs carrying an aggregate public key pr
 anyhow = "1.0.79"
 async-trait = { workspace = true }
 hex = { workspace = true }
+codec = { package = "parity-scale-codec", version = "3.2.2" }
 alloy-primitives = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
 sp-consensus-beefy = { workspace = true }
@@ -22,10 +23,11 @@ ark-bls12-381 = { version = "0.4.0", features = ["curve"], default-features = fa
 ark-ec = { version = "0.4.0", default-features = false }
 ark-ff = { version = "0.4.0", default-features = false }
 ark-serialize = { version = "0.4.0", default-features = false }
+json = { workspace = true, default-features = true }
 
 [dependencies.gnark-apk-prover]
 git = "https://github.com/polytope-labs/gnark-apk-proofs"
-rev = "ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+rev = "48e6aa504994a58fb41465e22eb90b1df6a190f8"
 optional = true
 
 [dependencies.ark-serialize-05]
@@ -35,8 +37,17 @@ optional = true
 
 [dependencies.tokio]
 workspace = true
-features = ["rt"]
+features = ["fs", "process", "rt"]
 
 [features]
 default = []
 local = ["dep:gnark-apk-prover", "dep:ark-serialize-05"]
+
+[dev-dependencies]
+alloy-sol-types = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+subxt-utils = { workspace = true, default-features = true }
+beefy-verifier = { workspace = true, default-features = true, features = ["apk"] }
+polkadot-sdk = { workspace = true, default-features = true, features = ["sp-io"] }
+ismp = { workspace = true, default-features = true }
+primitive-types = { workspace = true, default-features = true }

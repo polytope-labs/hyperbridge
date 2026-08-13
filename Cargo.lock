@@ -956,6 +956,7 @@ name = "apk-beefy"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives 1.5.7",
+ "alloy-sol-types 1.5.7",
  "anyhow",
  "apk-commitment",
  "ark-bls12-381 0.4.0",
@@ -965,12 +966,19 @@ dependencies = [
  "ark-serialize 0.5.0",
  "async-trait",
  "beefy-prover",
+ "beefy-verifier",
  "beefy-verifier-primitives",
  "gnark-apk-prover",
  "hex",
+ "ismp",
  "ismp-abi",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "serde_json",
  "sp-consensus-beefy",
  "subxt 0.42.1",
+ "subxt-utils",
  "tokio",
 ]
 
@@ -2980,7 +2988,7 @@ dependencies = [
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "futures",
- "gnark-plonk-verifier 0.1.0 (git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8)",
+ "gnark-plonk-verifier",
  "hex",
  "hex-literal 0.4.1",
  "ismp",
@@ -8670,18 +8678,18 @@ dependencies = [
 [[package]]
 name = "gnark-apk-ffi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
 
 [[package]]
 name = "gnark-apk-prover"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
 dependencies = [
  "ark-bls12-381 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "gnark-apk-ffi",
- "gnark-plonk-verifier 0.1.0 (git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4)",
+ "gnark-plonk-verifier",
  "thiserror 2.0.18",
 ]
 
@@ -8695,20 +8703,6 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
  "once_cell",
- "sha2 0.10.9",
- "sha3 0.10.8",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gnark-plonk-verifier"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4#ee8c879fac84ba737a9b0bfbfead8fbb2d0228a4"
-dependencies = [
- "ark-bls12-381 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
  "sha2 0.10.9",
  "sha3 0.10.8",
  "thiserror 2.0.18",

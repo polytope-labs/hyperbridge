@@ -56,7 +56,6 @@ workspace = true
 features = ["sp-runtime"]
 
 [features]
-apk-local = ["apk-beefy/local"]
 # a feature that tells the tests to write a new consensus state
 new-consensus-state = []
 

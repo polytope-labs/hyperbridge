@@ -126,10 +126,14 @@ pub struct ProverConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
 	pub query_batch_size: Option<u32>,
-	/// Where the apk circuit's structured reference string lives. Only read by the `Apk` variant,
-	/// and left unset it falls back to `$HOME/.config/gnark-apk-proofs/srs`.
+	/// The `gnark-apk-proofs` prover binary, run once per proof. Only read by the `Apk` variant,
+	/// which cannot link the prover directly, see `apk_beefy::command`.
 	#[serde(default)]
-	pub apk_srs_dir: Option<std::path::PathBuf>,
+	pub apk_prover_binary: Option<std::path::PathBuf>,
+	/// Where the prover exchanges its input and proof files. Defaults to a directory beside the
+	/// binary when unset.
+	#[serde(default)]
+	pub apk_prover_dir: Option<std::path::PathBuf>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
@@ -674,20 +678,18 @@ where
 				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover, account))
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
-			// Setup compiles the circuit and generates the proving key, minutes of cpu, so it is
-			// done once here rather than per proof and kept off the runtime's worker threads.
-			#[cfg(feature = "apk-local")]
 			ProofVariant::Apk => {
-				let srs_dir = config.apk_srs_dir.clone();
-				let apk_prover =
-					tokio::task::spawn_blocking(move || apk_beefy::LocalProver::new(srs_dir))
-						.await??;
+				let binary = config
+					.apk_prover_binary
+					.clone()
+					.ok_or_else(|| anyhow!("`apk_prover_binary` is required by the apk variant"))?;
+				let work_dir = config
+					.apk_prover_dir
+					.clone()
+					.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
+				let apk_prover = apk_beefy::CommandProver::new(binary, work_dir)?;
 				Prover::Apk(apk_beefy::Prover::new(prover, Arc::new(apk_prover)))
 			},
-			#[cfg(not(feature = "apk-local"))]
-			ProofVariant::Apk => Err(anyhow!(
-				"This binary was built without apk proving, rebuild with the `apk-local` feature"
-			))?,
 		};
 
 		Ok(prover)

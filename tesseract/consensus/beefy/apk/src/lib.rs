@@ -29,6 +29,7 @@ use ark_bls12_381::{Fq, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::CanonicalDeserialize;
+use codec::Decode;
 use std::sync::Arc;
 use subxt::config::HashFor;
 
@@ -38,6 +39,9 @@ use beefy_prover::bls::{
 };
 use beefy_verifier_primitives::{ConsensusState, BLS_G1_SIGNATURE_LEN};
 use ismp_abi::bls_apk_beefy::BlsApkBeefy;
+
+mod command;
+pub use command::CommandProver;
 
 #[cfg(feature = "local")]
 mod local;
@@ -230,6 +234,26 @@ where
 		apk_commitment_of(&keys)
 	}
 
+	/// Poseidon2 over the relay's *next* BEEFY keys at `at`.
+	///
+	/// Bootstrapping a client cold needs both, since the first proof it sees may already be the
+	/// rotation into the next set, and a set without a commitment is refused rather than checked
+	/// against zero.
+	pub async fn next_apk_commitment(&self, at: HashFor<R>) -> Result<[u8; 32], anyhow::Error> {
+		let data = self
+			.inner
+			.relay_rpc
+			.state_get_storage(&beefy_verifier_primitives::RELAY_BEEFY_NEXT_AUTHORITIES, Some(at))
+			.await?
+			.ok_or_else(|| anyhow!("No next beefy authorities found"))?;
+
+		let keys = Vec::<beefy_verifier_primitives::PairedAuthority>::decode(&mut data.as_ref())?
+			.iter()
+			.map(beefy_verifier_primitives::PairedAuthority::g1)
+			.collect::<Vec<_>>();
+		apk_commitment_of(&keys)
+	}
+
 	/// Sum the signers' keys in both groups and their signatures, and note who they were.
 	///
 	/// The G1 halves are what the circuit binds to and the G2 halves are what BEEFY's signature
@@ -296,7 +320,7 @@ pub(crate) fn apk_commitment_of(
 	Ok(apk_commitment::public_keys_commitment_bytes(&padded))
 }
 
-fn decompress_g1(key: &[u8; BLS_G1_SIGNATURE_LEN]) -> Result<G1Affine, anyhow::Error> {
+pub(crate) fn decompress_g1(key: &[u8; BLS_G1_SIGNATURE_LEN]) -> Result<G1Affine, anyhow::Error> {
 	G1Affine::deserialize_compressed(&key[..]).map_err(|_| anyhow!("Malformed G1 point"))
 }
 

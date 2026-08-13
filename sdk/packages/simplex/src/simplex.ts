@@ -156,7 +156,8 @@ export interface ChainInput {
 export interface SimplexStatus {
 	paused: boolean
 	halted: boolean
-	fillerAddress: HexString
+	/** The solver's EVM account — the same value as `simplex.address`. */
+	address: HexString
 	startedAt: number
 	uptimeSec: number
 	chains: number[]
@@ -863,7 +864,7 @@ export class Simplex extends EventEmitter {
 		return {
 			paused: this.isPaused(),
 			halted: this.isHalted(),
-			fillerAddress: this.runtime.fillerAddress,
+			address: this.runtime.fillerAddress,
 			startedAt: this.runtime.startedAt,
 			uptimeSec: (Date.now() - this.runtime.startedAt) / 1000,
 			chains: this.runtime.resolvedChains.map((chain) => chain.chainId),

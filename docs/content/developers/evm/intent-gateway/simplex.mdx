@@ -89,7 +89,8 @@ maxOrderSize = "90000"      # 90,000 ZARP per order
 bidPriceCurve = [ { amount = "0", price = "86" } ]   # CNGN per ZARP
 askPriceCurve = [ { amount = "0", price = "84" } ]
 
-# A same-asset cross-chain market (USDC→USDC): ask price below par IS the spread.
+# A same-asset cross-chain market (USDC→USDC):
+# the ask price below par IS the spread.
 [[pairs]]
 token0 = "USDC"
 token1 = "USDC"
@@ -242,8 +243,9 @@ Pool-based pricing trusts the live pool, which leaves the solver exposed to a ma
 ```toml lineNumbers
 [vault.uniswapV4]
 positions = [
-    # referencePrice is the expected cNGN per USD; reject if the quote is more than 2% off
-    { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575", maxDeviationBps = 200 },
+    # referencePrice is the expected cNGN per USD;
+    # reject if the quote is more than 2% off
+    { chain = "EVM-8453", tokenId = "2087350", referencePrice = "1575" },
 ]
 ```
 
@@ -267,11 +269,14 @@ Total profit:     ~$14.20
 ```toml lineNumbers
 [simplex]
 maxConcurrentOrders = 5
-logging             = "info"                     # trace | debug | info | warn | error
+# trace | debug | info | warn | error
+logging             = "info"
 
 # Required for HyperFX / solver selection
-substratePrivateKey = "0x.."                     # Hex seed or mnemonic for Hyperbridge extrinsics
-hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"  # Hyperbridge WebSocket endpoint
+# Hex seed or mnemonic for Hyperbridge extrinsics
+substratePrivateKey = "0x.."
+# Hyperbridge WebSocket endpoint
+hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 [simplex.queue]
 maxRechecks    = 10
@@ -363,12 +368,20 @@ Omit `threshold`/`minBalance` on a vault to make it **withdraw-only** (sourcing 
 ```toml lineNumbers
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
-vaults = [
-    # Aave stataUSDC on Base — once balance hits $5,000, sweep down to $3,000
-    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" },
-    # Aave stataUSDT on Arbitrum
-    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" },
-]
+
+# Aave stataUSDC on Base — once balance hits $5,000, sweep down to $3,000
+[[vault.vaults]]
+chain      = "EVM-8453"
+vault      = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
+threshold  = "5000"
+minBalance = "3000"
+
+# Aave stataUSDT on Arbitrum
+[[vault.vaults]]
+chain      = "EVM-42161"
+vault      = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F"
+threshold  = "5000"
+minBalance = "3000"
 ```
 
 | Field | Required | Description |
@@ -409,10 +422,13 @@ users = [
     "0x1111111111111111111111111111111111111111",
 ]
 
-# Per-source-chain overrides, keyed by state-machine ID. Merged with the global list.
+# Per-source-chain overrides, keyed by state-machine ID.
+# Merged with the global list.
 [allowlist.bySource]
-"EVM-1"     = ["0x2222222222222222222222222222222222222222"]   # Ethereum-only partner
-"EVM-42161" = ["0x3333333333333333333333333333333333333333"]   # Arbitrum-only partner
+# Ethereum-only partner
+"EVM-1"     = ["0x2222222222222222222222222222222222222222"]
+# Arbitrum-only partner
+"EVM-42161" = ["0x3333333333333333333333333333333333333333"]
 ```
 
 A source chain whose merged set (global `users` + its `bySource` override) is empty rejects every order from that chain.
@@ -423,7 +439,8 @@ UserOperation gas prices are bumped above the base `gasPrice` by configurable pe
 
 ```toml lineNumbers
 [simplex.gasFeeBump]
-maxPriorityFeePerGasBumpPercent = 8    # added to base gasPrice for the priority fee
+# added to base gasPrice for the priority fee
+maxPriorityFeePerGasBumpPercent = 8
 maxFeePerGasBumpPercent         = 10   # added to base gasPrice for the max fee
 ```
 
@@ -508,7 +525,7 @@ The practical guidance is to configure **at least two organisationally independe
 
 The fastest way to produce a working `config.toml` is one of the interactive wizards:
 
-```bash
+```bash lineNumbers
 simplex          # browser wizard: opens automatically when no config exists
 simplex init     # the same flow in the terminal
 ```
@@ -525,9 +542,14 @@ services:
         container_name: simplex
         restart: unless-stopped
         command:
-            ["run", "--config", "/data/filler-config.toml", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
+            ["run",
+             "--config", "/data/filler-config.toml",
+             "--data-dir", "/data",
+             "--ui", "0.0.0.0:8686",
+             "-p", "0.0.0.0:9090"]
         ports:
-            - "127.0.0.1:8686:8686" # web UI (unauthenticated — keep it on loopback)
+            # web UI (unauthenticated — keep it on loopback)
+            - "127.0.0.1:8686:8686"
             - "127.0.0.1:9090:9090" # Prometheus metrics
         volumes:
             - simplex-data:/data # bids database + runtime state
@@ -566,13 +588,24 @@ recheckDelayMs = 30000
 # maxOverfillBps       = 500
 # maxConsecutiveClamps = 3
 
-# Optional solver-wide ERC-4626 stablecoin treasury (sourcing + sweeping + shutdown)
+# Optional solver-wide ERC-4626 stablecoin treasury
+# (sourcing + sweeping + shutdown)
 [vault]
 sweepIntervalMs = 300000   # optional, default 5 min
-vaults = [
-    { chain = "EVM-8453",  vault = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6", threshold = "5000", minBalance = "3000" }, # Aave stataUSDC on Base
-    { chain = "EVM-42161", vault = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F", threshold = "5000", minBalance = "3000" }, # Aave stataUSDT on Arbitrum
-]
+
+# Aave stataUSDC on Base
+[[vault.vaults]]
+chain      = "EVM-8453"
+vault      = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
+threshold  = "5000"
+minBalance = "3000"
+
+# Aave stataUSDT on Arbitrum
+[[vault.vaults]]
+chain      = "EVM-42161"
+vault      = "0xa6D12574eFB239FC1D2099732bd8b5dC6306897F"
+threshold  = "5000"
+minBalance = "3000"
 
 # Same-asset cross-chain markets (USDC→USDC, USDT→USDT): ask below par = spread
 [[pairs]]

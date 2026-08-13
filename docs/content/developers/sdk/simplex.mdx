@@ -15,7 +15,7 @@ database, a dashboard, an alerting pipeline, or pricing logic that needs to move
 does. If you just want a solver running, the [binary](/developers/evm/intent-gateway/simplex) is
 less work.
 
-```bash
+```bash lineNumbers
 npm install @hyperbridge/simplex
 ```
 
@@ -26,27 +26,37 @@ Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
 `Simplex.start` takes a plain config object and returns once the solver is running: chains resolved,
 EIP-7702 delegation in place where solver selection is active, scanners live.
 
-```ts
+```ts lineNumbers
 import { Simplex, SignerType, type SimplexConfig } from "@hyperbridge/simplex"
 
 const config: SimplexConfig = {
     simplex: {
-        signer: { type: SignerType.PrivateKey, key: process.env.SOLVER_KEY as `0x${string}` },
+        signer: {
+            type: SignerType.PrivateKey,
+            key: process.env.SOLVER_KEY as `0x${string}`,
+        },
         maxConcurrentOrders: 5,
         queue: { maxRechecks: 10, recheckDelayMs: 30_000 },
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },
     chains: [
-        { rpcUrls: ["https://base.example"], bundlerUrl: "https://bundler.example/base" },
-        { rpcUrls: ["https://arbitrum.example"], bundlerUrl: "https://bundler.example/arb" },
+        {
+            rpcUrls: ["https://base.example"],
+            bundlerUrl: "https://bundler.example/base",
+        },
+        {
+            rpcUrls: ["https://arbitrum.example"],
+            bundlerUrl: "https://bundler.example/arb",
+        },
     ],
     pairs: [
         {
             token0: "USDC",
             token1: "USDC",
             maxOrderSize: "5000",
-            // Same-asset market: ask-only, strictly below par. The gap to 1 is your spread.
+            // Same-asset market: ask-only, strictly below par.
+            // The gap to 1 is your spread.
             askPriceCurve: [{ amount: "0", price: "0.9995" }],
         },
     ],
@@ -80,7 +90,7 @@ querying the bid store. Lose those records and you leak deposits.
 The bundled SQLite store is a separate entry point, so the default install pulls in no native
 modules:
 
-```ts
+```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
 
 const simplex = await Simplex.start({
@@ -91,13 +101,16 @@ const simplex = await Simplex.start({
 
 To use your own backend — Postgres, Redis, a hosted API — implement the interface:
 
-```ts
+```ts lineNumbers
 import type { SimplexDataStore } from "@hyperbridge/simplex"
 
 const store: SimplexDataStore = {
-    bids: myBidStore,        // store, byCommitment, expiredUnretracted, markRetracted, markDead, …
-    activity: myActivityLog, // record, recent, fills, recordWalletTx, walletTxs
-    state: myStateStore,     // get, set
+    // store, byCommitment, expiredUnretracted, markRetracted, markDead, …
+    bids: myBidStore,
+    // record, recent, fills, recordWalletTx, walletTxs
+    activity: myActivityLog,
+    // get, set
+    state: myStateStore,
 }
 ```
 
@@ -108,14 +121,23 @@ resolves. `activity` is observability — prune, sample or cap it freely.
 
 The solver emits a typed event for everything it does.
 
-```ts
+```ts lineNumbers
 simplex.on("order:detected", ({ order, transactionHash }) => { /* … */ })
 simplex.on("order:skipped", ({ orderId, reason }) => { /* … */ })
-simplex.on("order:filled", ({ orderId, txHash, chainId, volumeUsd, profitUsd }) => { /* … */ })
-simplex.on("order:executed", ({ orderId, success, strategy, commitment, error }) => { /* … */ })
+simplex.on("order:filled", ({ orderId, txHash, volumeUsd, profitUsd }) => {
+    /* … */
+})
+simplex.on("order:executed", ({ orderId, success, strategy, error }) => {
+    /* … */
+})
 simplex.on("order:timing", ({ orderId, phase, durationSec }) => { /* … */ })
-simplex.on("rebalance", ({ success, transferCount, executedCount }) => { /* … */ })
-simplex.on("activity", (event) => { /* every row written to the activity store */ })
+simplex.on("rebalance", ({ success, transferCount, executedCount }) => {
+    /* … */
+})
+// Every row written to the activity store.
+simplex.on("activity", (event) => {
+    /* … */
+})
 ```
 
 Payloads are inferred from the event name, so a typo or a wrong field is a compile error. This is
@@ -128,11 +150,12 @@ Every mutation applies to the live solver and binds on the next order. Nothing h
 
 ### Pairs
 
-```ts
+```ts lineNumbers
 simplex.pairs.list()
 await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
 await simplex.pairs.setMaxOrderSize(0, "10000")
-await simplex.pairs.clearCurve(0, "bid")          // one-sided LP: stop buying token1
+// One-sided LP: stop buying token1.
+await simplex.pairs.clearCurve(0, "bid")
 await simplex.pairs.add({ token0: "USDC", token1: "CNGN", maxOrderSize: "5000",
                           askPriceCurve: [{ amount: "0", price: "1550" }] })
 await simplex.pairs.remove(1)
@@ -144,21 +167,28 @@ one a restart would also accept.
 
 Repricing from a market feed is the common case:
 
-```ts
+```ts lineNumbers
 feed.on("tick", async ({ mid }) => {
-    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: (mid * 0.999).toFixed(4) }])
-    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: (mid * 1.001).toFixed(4) }])
+    const bid = (mid * 0.999).toFixed(4)
+    const ask = (mid * 1.001).toFixed(4)
+    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: bid }])
+    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: ask }])
 })
 ```
 
 ### Chains
 
-```ts
+```ts lineNumbers
 await simplex.chains.add({
     rpcUrls: ["https://polygon.example"],
     bundlerUrl: "https://bundler.example/polygon",
     // Required for chains with no built-in confirmation curve.
-    confirmationPolicy: { points: [{ amount: "1000", value: 2 }, { amount: "100000", value: 32 }] },
+    confirmationPolicy: {
+        points: [
+            { amount: "1000", value: 2 },
+            { amount: "100000", value: 32 },
+        ],
+    },
 })
 
 await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
@@ -173,8 +203,9 @@ stops the scanner first, then drains in-flight fills before dropping the chain.
 
 ### Vaults, assets, rebalancing
 
-```ts
-await simplex.vaults.preflight(vaults)   // validate against chain state, change nothing
+```ts lineNumbers
+// Validate against chain state, change nothing.
+await simplex.vaults.preflight(vaults)
 await simplex.vaults.set(vaults)
 await simplex.vaults.sweepNow()
 await simplex.vaults.redeemAll()
@@ -182,19 +213,28 @@ await simplex.vaults.redeemAll()
 await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
 simplex.assets.resolve("USDC", "EVM-8453")
 
-await simplex.rebalancing.set({ triggerPercentage: 20, baseBalances: { USDC: { "EVM-8453": "10000" } } })
+await simplex.rebalancing.set({
+    triggerPercentage: 20,
+    baseBalances: { USDC: { "EVM-8453": "10000" } },
+})
 await simplex.rebalancing.trigger()
 ```
 
 ### Wallet and lifecycle
 
-```ts
+```ts lineNumbers
 simplex.wallet.address
 simplex.wallet.balances()
-await simplex.wallet.send({ chain: "EVM-8453", token: "0x…", amount: "100", to: "0x…" })
+await simplex.wallet.send({
+    chain: "EVM-8453",
+    token: "0x…",
+    amount: "100",
+    to: "0x…",
+})
 await simplex.wallet.history()
 
-await simplex.pause()      // stop filling; monitoring continues, persisted across restarts
+// Stop filling; monitoring continues, and the pause survives a restart.
+await simplex.pause()
 await simplex.resume()
 simplex.status()
 await simplex.activity()
@@ -206,7 +246,7 @@ await simplex.bidStats()   // watch `pendingRetraction`: deposits still locked
 Mutations update the live config object, so `simplex.config()` always reflects what is actually
 running. Pass `onConfigChange` to persist it however you like:
 
-```ts
+```ts lineNumbers
 const simplex = await Simplex.start({
     config,
     data: new SqliteDataStore("./simplex-data"),
@@ -225,7 +265,7 @@ Overfill protection halts the engine if consecutive orders clamp against the out
 usually means a systemic pricing error. A halted solver refuses every order until an operator
 clears it:
 
-```ts
+```ts lineNumbers
 if (simplex.isHalted()) {
     await alert("simplex halted — check pricing")
     simplex.resetHalt()
@@ -237,10 +277,16 @@ if (simplex.isHalted()) {
 Instances share no state, so several solvers can run in one process — different keys, different
 chains, different books:
 
-```ts
+```ts lineNumbers
 const [eu, apac] = await Promise.all([
-    Simplex.start({ config: euConfig, data: new SqliteDataStore("./data/eu") }),
-    Simplex.start({ config: apacConfig, data: new SqliteDataStore("./data/apac") }),
+    Simplex.start({
+        config: euConfig,
+        data: new SqliteDataStore("./data/eu"),
+    }),
+    Simplex.start({
+        config: apacConfig,
+        data: new SqliteDataStore("./data/apac"),
+    }),
 ])
 ```
 
@@ -255,14 +301,24 @@ real fleet size the scanning, not the filling, is what exhausts an RPC quota. Sh
 
 Build an `OrderStream` and hand it to the solvers that should share it:
 
-```ts
+```ts lineNumbers
 import { Simplex, OrderStream, HyperbridgeStream } from "@hyperbridge/simplex"
 
-const orders      = await OrderStream.create(config.chains)
-const hyperbridge = await HyperbridgeStream.create(config.simplex.hyperbridgeWsUrl)
+const orders = await OrderStream.create(config.chains)
+const hyperbridge = await HyperbridgeStream.create(
+    config.simplex.hyperbridgeWsUrl,
+)
 
-const eu   = await Simplex.start({ config: euConfig,   orderStream: orders, hyperbridgeStream: hyperbridge })
-const apac = await Simplex.start({ config: apacConfig, orderStream: orders, hyperbridgeStream: hyperbridge })
+const eu = await Simplex.start({
+    config: euConfig,
+    orderStream: orders,
+    hyperbridgeStream: hyperbridge,
+})
+const apac = await Simplex.start({
+    config: apacConfig,
+    orderStream: orders,
+    hyperbridgeStream: hyperbridge,
+})
 
 // Yours to close, whenever both solvers are done with it.
 await orders.close()
@@ -315,7 +371,7 @@ a library has no business logging into a host process uninvited.
 Point `logger` at any sink: it receives one NDJSON record per line, and anything Writable-shaped
 works.
 
-```ts
+```ts lineNumbers
 import { createWriteStream } from "node:fs"
 
 const simplex = await Simplex.start({
@@ -326,7 +382,7 @@ const simplex = await Simplex.start({
 
 Forwarding into a logger you already have is the same shape:
 
-```ts
+```ts lineNumbers
 const simplex = await Simplex.start({
     config,
     logger: { write: (line) => myLogger.write(JSON.parse(line)) },
@@ -344,7 +400,7 @@ a sink is still required.
 Logging is scoped to the solver, not the process. Each `Simplex` owns its own destination and level,
 so several solvers in one process keep their records apart:
 
-```ts
+```ts lineNumbers
 const [eu, apac] = await Promise.all([
     Simplex.start({ config: euConfig, logger: euLog }),
     Simplex.start({ config: apacConfig, logger: apacLog }),
@@ -363,13 +419,19 @@ itself. A running solver never writes there.
 The validators are pure and run the same rules boot does, so you can gate a config — from a form, a
 database, an API — before committing to a start:
 
-```ts
-import { validateConfig, validatePairConfigs, bookCrossedAt } from "@hyperbridge/simplex"
+```ts lineNumbers
+import {
+    validateConfig,
+    validatePairConfigs,
+    bookCrossedAt,
+} from "@hyperbridge/simplex"
 
-validateConfig(config)                       // throws with a descriptive message
+// Both throw with a descriptive message.
+validateConfig(config)
 validatePairConfigs(config.pairs!)
 
-// A crossed book is legal but means a full round trip loses money — worth warning on.
+// A crossed book is legal but means a full round trip loses money —
+// worth warning on.
 const crossed = bookCrossedAt(pair.bidPriceCurve!, pair.askPriceCurve!)
 if (crossed) console.warn(`book crosses at ${crossed.amount}`)
 ```

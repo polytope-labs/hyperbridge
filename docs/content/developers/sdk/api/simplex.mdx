@@ -16,7 +16,7 @@ For a task-oriented walkthrough see [Simplex](/developers/sdk/simplex); for the 
 class Simplex extends EventEmitter
 ```
 
-```bash
+```bash lineNumbers
 npm install @hyperbridge/simplex
 ```
 
@@ -224,7 +224,10 @@ setLogLevel(level: LogLevel): void
 Payloads are inferred from the event name, so a wrong field is a compile error. A misspelled event name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string.
 
 ```typescript lineNumbers
-on<E extends keyof SimplexEvents>(event: E, listener: (payload: SimplexEvents[E]) => void): this
+on<E extends keyof SimplexEvents>(
+    event: E,
+    listener: (payload: SimplexEvents[E]) => void,
+): this
 ```
 
 | Event | Payload |
@@ -278,7 +281,10 @@ Opens a new market. Validated against the same rules boot applies, so a pair acc
 restart would also accept.
 
 ```typescript lineNumbers
-add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView>
+add(
+    pair: PairConfig,
+    options?: { assets?: Record<string, AssetDefinition> },
+): Promise<PairView>
 ```
 
 **Parameters:**
@@ -305,15 +311,21 @@ Replaces one side's price curve. Mutates the policy instance the engine prices w
 is live on the next evaluation.
 
 ```typescript lineNumbers
-setCurve(index: number, side: "bid" | "ask", points: PriceCurvePoint[]): Promise<void>
+setCurve(
+    index: number,
+    side: "bid" | "ask",
+    points: PriceCurvePoint[],
+): Promise<void>
 ```
 
 **Example:**
 
 ```typescript lineNumbers
 feed.on("tick", async ({ mid }) => {
-    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: (mid * 0.999).toFixed(4) }])
-    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: (mid * 1.001).toFixed(4) }])
+    const bid = (mid * 0.999).toFixed(4)
+    const ask = (mid * 1.001).toFixed(4)
+    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: bid }])
+    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: ask }])
 })
 ```
 
@@ -494,7 +506,10 @@ store(bid: BidInsert): Promise<void>
 byCommitment(commitment: string): Promise<StoredBid | null>
 unretractedReclaimable(): Promise<StoredBid[]>
 expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
-markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
+markRetracted(
+    commitment: string,
+    retractExtrinsicHash: string | null,
+): Promise<boolean>
 markDead(commitment: string): Promise<boolean>
 recent(limit?: number): Promise<StoredBid[]>
 failed(limit?: number): Promise<StoredBid[]>
@@ -640,8 +655,15 @@ Every `ScannedFill` reaches every subscriber: `filler` is `indexed: false` on bo
 ### HyperbridgeStream.create(wsUrl, options?)
 
 ```typescript lineNumbers
-static async create(wsUrl: string, options?: { loggers?: LoggerContext }): Promise<HyperbridgeStream>
-subscribe(handlers: { onPhantomOrder(event: PhantomOrderEvent): void; onError?(error: unknown): void }): Subscription
+static async create(
+    wsUrl: string,
+    options?: { loggers?: LoggerContext },
+): Promise<HyperbridgeStream>
+
+subscribe(handlers: {
+    onPhantomOrder(event: PhantomOrderEvent): void
+    onError?(error: unknown): void
+}): Subscription
 close(): Promise<void>
 ```
 

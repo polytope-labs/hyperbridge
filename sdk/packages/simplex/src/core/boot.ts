@@ -69,6 +69,8 @@ export interface FillerRuntime {
 	configService: FillerConfigService
 	/** Owns the per-chain viem clients; chain edits invalidate through it. */
 	chainClientManager: ChainClientManager
+	/** The order scanner this filler reads from, whether it built it or was handed one. */
+	orderScanner: OrderScanner
 	/**
 	 * True when the operator asked for watch-only across the board, rather than
 	 * per chain. Boot expands it over the chains it knows; keeping the intent is
@@ -606,6 +608,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		data: options.data,
 		configService,
 		chainClientManager,
+		orderScanner: options.scanners.orders,
 		globalWatchOnly,
 		confirmationPolicy,
 		loggers: options.loggers,

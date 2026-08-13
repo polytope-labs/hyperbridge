@@ -87,8 +87,9 @@ solver that submits bids needs a durable store** — a successful bid locks a de
 that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
 querying the bid store. Lose those records and you leak deposits.
 
-The bundled SQLite store is a separate entry point, so the default install pulls in no native
-modules:
+The bundled SQLite store is a separate entry point, so nothing native is loaded unless you import
+it. `better-sqlite3` is an optional dependency — installed by default, but free to fail to build
+without breaking the package:
 
 ```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
@@ -153,12 +154,20 @@ Every mutation applies to the live solver and binds on the next order. Nothing h
 
 ```ts lineNumbers
 simplex.pairs.list()
-await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "1550" }])
+
+// Pair 0 above is the same-token USDC/USDC market: ask-only, strictly
+// below par. Widen its spread to 10 bps.
+await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "0.999" }])
 await simplex.pairs.setMaxOrderSize(0, "10000")
-// One-sided LP: stop buying token1.
-await simplex.pairs.clearCurve(0, "bid")
-await simplex.pairs.add({ token0: "USDC", token1: "CNGN", maxOrderSize: "5000",
+
+// Open a cross-asset market — it lands at index 1.
+await simplex.pairs.add({ token0: "USDC", token1: "CNGN",
+                          maxOrderSize: "5000",
+                          bidPriceCurve: [{ amount: "0", price: "1545" }],
                           askPriceCurve: [{ amount: "0", price: "1550" }] })
+
+// One-sided LP: stop buying CNGN, keep selling it.
+await simplex.pairs.clearCurve(1, "bid")
 await simplex.pairs.remove(1)
 ```
 
@@ -169,11 +178,13 @@ one a restart would also accept.
 Repricing from a market feed is the common case:
 
 ```ts lineNumbers
+// Pair 1 is the cross-asset market added above — two-sided, so both
+// curves apply. A same-token pair takes an ask curve only.
 feed.on("tick", async ({ mid }) => {
     const bid = (mid * 0.999).toFixed(4)
     const ask = (mid * 1.001).toFixed(4)
-    await simplex.pairs.setCurve(0, "bid", [{ amount: "0", price: bid }])
-    await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: ask }])
+    await simplex.pairs.setCurve(1, "bid", [{ amount: "0", price: bid }])
+    await simplex.pairs.setCurve(1, "ask", [{ amount: "0", price: ask }])
 })
 ```
 
@@ -258,20 +269,32 @@ const simplex = await Simplex.start({
 ```
 
 Without it, edits apply live but do not survive a restart — `configPath` alone does not persist them;
-it is informational. The binary supplies a handler that writes the TOML file back.
+it is informational. The binary does not persist runtime edits either: it passes no handler, so its
+edits are live-only too.
 
-## Self-halt
+## Overfill detection
 
-Overfill protection halts the engine if consecutive orders clamp against the output ceiling, which
-usually means a systemic pricing error. A halted solver refuses every order until an operator
-clears it:
+When the solver computes an output that overshoots what the user asked for by more than
+`maxOverfillBps`, it logs a warning naming the leg, the price source, and the two amounts. An
+overshoot usually means the solver's own pricing is wrong — a stale cache, a bug, a manipulated
+venue — so it is worth alerting on:
 
 ```ts lineNumbers
-if (simplex.isHalted()) {
-    await alert("simplex halted — check pricing")
-    simplex.resetHalt()
-}
+// The overfill warning arrives on your log sink, not as an event.
+sink.on("record", (line) => {
+    const record = JSON.parse(line)
+    if (record.msg?.startsWith("Overfill ceiling exceeded")) {
+        alert(`overfill on order ${record.orderId} — check pricing`)
+    }
+})
 ```
+
+<Callout type="warn">
+    **The clamp is disabled, so the solver fills the unclamped amount.** There is no per-leg loss
+    bound in the current release, and the halt wired to the same counter never fires —
+    `simplex.isHalted()` always returns `false` and `resetHalt()` has nothing to clear. Do not build a
+    safety monitor on them; watch the warning above instead.
+</Callout>
 
 ## Multiple Simplex Instances
 
@@ -328,8 +351,8 @@ await hyperbridge.close()
 ```
 
 `OrderScanner.create` takes the same array as your config's `chains`, so it can be passed straight
-through. Entries without a `chainId` have it read back from their own endpoints, which also proves
-they answer for one chain before a solver depends on them.
+through. Entries without a `chainId` have it read back from the first endpoint listed, which also proves
+that endpoint answers before a solver depends on it.
 
 `HyperbridgeScanner` carries phantom orders — the quote requests solvers respond to, which is how
 Hyperbridge indexes prices. One poll feeds every solver reading it.
@@ -344,10 +367,10 @@ solver's `stop()` leaves it running for whoever else is reading.
 
 ### Scanner Management
 
-A shared scanner is edited through the scanner, so every solver reading it sees the same change:
+A shared scanner is edited through the scanner, so every solver reading it sees the same events:
 
 ```ts lineNumbers
-// Add a chain. Every solver on this scanner starts seeing it.
+// Start scanning a chain. Solvers still opt in individually — see below.
 await orders.addChain({
     rpcUrls: ["https://polygon.example"],
     bundlerUrl: "https://bundler.example/polygon",
@@ -364,6 +387,15 @@ orders.chains() // [8453]
 `addChain` reads the chain id back from the endpoints when you omit it, and rejects a chain the
 scanner already has. `setRpcUrls` checks the new endpoints answer for that same chain before
 swapping them in. `removeChain` stops that scan loop; subscribers simply stop seeing the chain.
+
+Adding a chain to the scanner does **not** by itself put a solver to work on it. Each solver
+matches incoming events against its own configured chains, so tell it separately — the scanner
+supplies the events, the solver decides which it wants:
+
+```ts lineNumbers
+await orders.addChain({ rpcUrls, bundlerUrl })   // the scanner sees it
+await eu.chains.add({ rpcUrls, bundlerUrl })     // this solver acts on it
+```
 
 `simplex.chains.add` and `.setRpcUrls` only reach a scanner that solver built for itself. On one you
 supplied they throw rather than repoint endpoints underneath the other solvers reading it:
@@ -437,7 +469,7 @@ import {
 
 // Both throw with a descriptive message.
 validateConfig(config)
-validatePairConfigs(config.pairs!)
+validatePairConfigs(config.pairs!, config.assets, false)
 
 // A crossed book is legal but means a full round trip loses money —
 // worth warning on.

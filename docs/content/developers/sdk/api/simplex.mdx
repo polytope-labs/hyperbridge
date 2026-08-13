@@ -154,7 +154,7 @@ status(): SimplexStatus
 | Field | Type | Description |
 |------|------|-------------|
 | `paused` | `boolean` | |
-| `halted` | `boolean` | Overfill protection has tripped |
+| `halted` | `boolean` | Overfill protection has tripped. Always `false` today — see [isHalted()](#ishalted--resethalt) |
 | `address` | `HexString` | The solver's EVM account; same value as `simplex.address` |
 | `startedAt` | `number` | Epoch ms |
 | `uptimeSec` | `number` | |
@@ -191,13 +191,19 @@ bidStats(): Promise<BidStats>
 
 ### isHalted() / resetHalt()
 
-Overfill protection halts the engine when consecutive orders clamp against the output ceiling, which
-usually means a systemic pricing error. A halted solver refuses every order until reset.
+Overfill protection was designed to halt the engine after consecutive orders clamped against the
+output ceiling. A halted solver refuses every order until reset.
 
 ```typescript lineNumbers
 isHalted(): boolean
 resetHalt(): void
 ```
+
+<Callout type="warn">
+    **`isHalted()` always returns `false` in the current release.** The overfill clamp is disabled, so
+    no order is ever clamped, the consecutive-clamp counter never advances, and nothing sets the halt.
+    Do not use it as a safety monitor — alert on the `"Overfill ceiling exceeded"` warning instead.
+</Callout>
 
 ### setAllowlist(allowlist)
 
@@ -379,13 +385,14 @@ add(chain: ChainInput): Promise<ChainView>
 
 **Throws:** If the endpoints are unreachable or answer for a different chain, the chain is already
 configured, no confirmation curve covers it, or delegation fails. The endpoints are probed and the
-chain id read back before anything is mutated, and a failed add rolls itself back — a chain never
-ends up registered but unscanned.
+chain id read back before anything is mutated, and a failed add rolls itself back.
+
+On a scanner you supplied, `add` requires the scanner to already carry the chain — call
+`scanner.addChain(...)` first, then this. On a scanner the solver owns, it is added for you.
 
 ### remove(chainId)
 
-Stops the scanner first so nothing new is queued, then drains in-flight fills before dropping the
-chain.
+Drains in-flight fills first, then stops scanning the chain and drops it from the config.
 
 ```typescript lineNumbers
 remove(chainId: number): Promise<void>
@@ -436,7 +443,7 @@ redeemAll(): Promise<void>
 `preflight` hydrates a prospective set against chain state without touching the live venue, so
 unconfigured chains, same-asset duplicates and non-vault addresses surface before you commit to
 `set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor;
-`redeemAll` unwinds every position back to its underlying asset.
+`redeemAll` unwinds every position flagged `redeemOnShutdown` back to its underlying asset; positions without the flag are left in place.
 
 **Throws:** `set`, `sweepNow` and `redeemAll` throw if the solver was started without a vault treasury. `list` returns `[]` and `preflight` does not require one.
 
@@ -525,7 +532,7 @@ stats(): Promise<BidStats>
     deposits. `store` must be durable before it resolves; do not buffer in memory and flush later.
 </Callout>
 
-`expiredUnretracted` returns bids that are successful, unretracted, and either older than `maxAgeMs`
+`expiredUnretracted` returns bids that are successful or still pending, unretracted, and either older than `maxAgeMs`
 or flagged dead. Dead bids ignore the age cut because their deposit is reclaimable immediately, so a
 failed attempt retries on the next sweep rather than waiting out the TTL.
 
@@ -576,7 +583,8 @@ set(state: RuntimeState): Promise<void>
 
 `SqliteDataStore(dataDir)` keeps `bids.db`, `activity.db` and `runtime-state.json` in the given
 directory, so a data directory written by the binary is picked up unchanged. It is a separate entry
-point precisely so the default install pulls in no native code.
+point so nothing native is loaded unless you import it — `better-sqlite3` is an optional dependency,
+installed by default but free to fail to build without breaking the package.
 
 **Example — a custom backend:**
 
@@ -714,8 +722,9 @@ addLogSink(sink: LogSink): () => void
 
 ### addLogSink(sink)
 
-The module-level function registers on the process-wide fallback context instead — for records
-logged outside any solver's lifetime, such as by the validators. A running solver never writes there.
+The module-level function registers on the process-wide fallback context instead. Nothing in the
+library writes there during normal operation — a running solver logs to its own context, and the
+validators throw rather than log — so this is a safety net, not a feed.
 
 ```typescript lineNumbers
 addLogSink(sink: LogSink): () => void
@@ -779,7 +788,7 @@ Useful for gating input from a form, a database or an API before committing to a
 | `validatePairConfigs(pairs, userAssets?, hasVenuePricing?)` | `pairs` against the asset table |
 | `validateAssetDefinitions(assets)` | Custom asset entries |
 | `assertConfirmationCoverage(policies, chainIds)` | Every configured chain has a confirmation curve |
-| `validateVaultToml(vault)` | Vault treasury entries |
+| `validateVaultToml(vaults)` | Vault treasury entries; takes the array, not one entry |
 | `validateUniswapV4Positions(positions)` | V4 position entries |
 | `bookCrossedAt(bid, ask)` | First amount where bid ≤ ask, or `null`. A crossed book is legal but means a full round trip loses money |
 | `unanchoredToken0Symbols(pairs)` | token0 symbols with no path to a USD anchor. Each entry needs `{ token0, token1, hasCurve }` |

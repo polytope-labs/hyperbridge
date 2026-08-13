@@ -11,7 +11,8 @@ import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/se
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
-import { OrderScanner } from "@/scanner/order-scanner"
+import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
+import type { OrderScanner } from "@/scanner/types"
 import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 
@@ -338,8 +339,10 @@ export class ChainController {
 	constructor(
 		private runtime: FillerRuntime,
 		private persist: () => void | Promise<void>,
-		/** Set only when this filler built its own scanner and may therefore edit it. */
-		private ownedScanner?: OrderScanner,
+		/** The scanner this solver reads from, whoever built it. */
+		private scanner: OrderScanner,
+		/** Whether this solver built it, and may therefore edit it. */
+		private ownsScanner: boolean,
 	) {}
 
 	private serialise<T>(work: () => Promise<T>): Promise<T> {
@@ -400,15 +403,18 @@ export class ChainController {
 			// added later. `chain.watchOnly` still wins when given explicitly.
 			if (chain.watchOnly ?? this.runtime.globalWatchOnly) intentFiller.setWatchOnly(chainId, true)
 
-			// The scanner has to carry the chain before the monitor can match it. A
-			// caller's scanner is theirs, so say so rather than mutating it.
-			if (!this.ownedScanner) {
-				throw new Error(
-					`Chain ${chainId} is not in the order scanner. This solver was started with a scanner you own — ` +
-						`add the chain to it with scanner.addChain(...) before adding it here.`,
-				)
+			// The scanner has to carry the chain before the monitor can match it. On a
+			// scanner this solver built, add it. On the caller's, it is theirs to
+			// extend — but if they already have, there is nothing to object to.
+			if (!this.scanner.chains().includes(chainId)) {
+				if (!this.ownsScanner) {
+					throw new Error(
+						`Chain ${chainId} is not in the order scanner. This solver was started with a scanner you ` +
+							`own — add the chain to it with scanner.addChain(...) before adding it here.`,
+					)
+				}
+				await this.scanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
 			}
-			await this.ownedScanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
 
 			try {
 				// Drop anything cached from a previous life of this chain id, or the
@@ -419,7 +425,7 @@ export class ChainController {
 				// Roll back so a failed add cannot leave a chain that reads as
 				// configured but is not being scanned.
 				configService.removeChain(chainId)
-				await this.ownedScanner.removeChain(chainId).catch(() => {})
+				if (this.ownsScanner) await this.scanner.removeChain(chainId).catch(() => {})
 				throw error
 			}
 
@@ -465,7 +471,7 @@ export class ChainController {
 			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
 
 			await intentFiller.removeChain(chainId)
-			await this.ownedScanner?.removeChain(chainId)
+			if (this.ownsScanner) await this.scanner.removeChain(chainId)
 			configService.removeChain(chainId)
 			this.runtime.confirmationPolicy?.remove(chainId)
 			this.runtime.chainClientManager.invalidate(chainKey)
@@ -499,7 +505,7 @@ export class ChainController {
 				throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
 			}
 
-			if (!this.ownedScanner) {
+			if (!this.ownsScanner) {
 				throw new Error(
 					`Endpoints for chain ${chainId} belong to the order scanner you supplied — change them there, ` +
 						`so the other solvers reading it are not repointed underneath them.`,
@@ -512,7 +518,7 @@ export class ChainController {
 			// Swap the scan loop's endpoints in place, then rebuild the monitor's view
 			// of it. Not remove-then-add: that would drop the cursor and restart from
 			// the head, skipping every block since the last scan.
-			await this.ownedScanner.setRpcUrls(chainId, rpcUrls)
+			await this.scanner.setRpcUrls(chainId, rpcUrls)
 			await this.runtime.intentFiller.monitor.rebuildChain(chainId)
 
 			this.runtime.resolvedChains[index].rpcUrls = rpcUrls
@@ -732,7 +738,7 @@ export class Simplex extends EventEmitter {
 		this.logger = runtime.loggers.get("simplex")
 		const persist = () => this.persistConfig()
 		this.pairs = new PairController(runtime, persist)
-		this.chains = new ChainController(runtime, persist, ownedScanners.orders)
+		this.chains = new ChainController(runtime, persist, runtime.orderScanner, ownedScanners.orders !== undefined)
 		this.vaults = new VaultController(runtime, persist)
 		this.assets = new AssetController(runtime, persist)
 		this.wallet = new WalletController(runtime)
@@ -756,7 +762,7 @@ export class Simplex extends EventEmitter {
 		})
 		// Build private scanners when none were supplied, and remember that we own
 		// them: a caller's scanner outlives this filler and is theirs to close.
-		const orderScanner = options.orderScanner ?? (await OrderScanner.create(options.config.chains, { loggers }))
+		const orderScanner = options.orderScanner ?? (await OrderScannerImpl.create(options.config.chains, { loggers }))
 		const ownsOrderScanner = !options.orderScanner
 
 		const wsUrl = options.config.simplex.hyperbridgeWsUrl

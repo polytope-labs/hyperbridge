@@ -29,69 +29,113 @@ type LoggerOptions = {
 	module?: string
 }
 
-let logLevel: LogLevel = "info"
-const sinks = new Set<LogSink>()
-
-let base: pino.Logger | undefined
-const children = new Map<string, pino.Logger>()
-
 /**
- * Drops the memoized loggers so the next call rebuilds at the current level and
- * sink set. Callers hold `ModuleLogger` wrappers rather than pino instances
- * precisely so this takes effect on loggers that already exist — the previous
- * implementation replaced the base logger, which left every service that had
- * already captured a child logging at the old level forever.
+ * An isolated logging destination: its own sinks, its own level, its own pino
+ * instance.
+ *
+ * Each `Simplex` owns one, so two fillers in a process log to their own sinks at
+ * their own verbosity and never cross-contaminate. Services receive the context
+ * their filler was started with and resolve module loggers from it.
  */
-function invalidate(): void {
-	base = undefined
-	children.clear()
-}
+export class LoggerContext {
+	private level: LogLevel
+	private readonly sinks = new Set<LogSink>()
+	private base: pino.Logger | undefined
+	private readonly children = new Map<string, pino.Logger>()
 
-function baseLogger(): pino.Logger {
-	if (base) return base
-	base = pino(
-		{
-			// With no sink registered nothing can consume a record, so don't pay to
-			// serialize one. This is what makes an unconfigured library free as well
-			// as silent.
-			level: sinks.size === 0 ? "silent" : logLevel,
-			serializers: {
-				error: stdSerializers.err,
-				err: stdSerializers.err,
-			},
-		},
-		{
-			write(line: string) {
-				for (const sink of sinks) {
-					try {
-						sink.write(line)
-					} catch {
-						// A broken sink is the host's problem, not a reason to fail a fill.
-					}
-				}
-			},
-		},
-	)
-	return base
-}
-
-function childFor(module?: string): pino.Logger {
-	if (!module) return baseLogger()
-	let child = children.get(module)
-	if (!child) {
-		child = baseLogger().child({ moduleTag: `[${module}]` })
-		children.set(module, child)
+	constructor(options: { level?: LogLevel; sink?: LogSink } = {}) {
+		this.level = options.level ?? "info"
+		if (options.sink) this.sinks.add(options.sink)
 	}
-	return child
+
+	/**
+	 * Drops the memoized loggers so the next call rebuilds at the current level
+	 * and sink set. Module loggers are wrappers rather than pino instances
+	 * precisely so this reaches loggers that already exist — replacing the base
+	 * logger would leave every service that had captured a child logging at the
+	 * old level forever.
+	 */
+	private invalidate(): void {
+		this.base = undefined
+		this.children.clear()
+	}
+
+	private baseLogger(): pino.Logger {
+		if (this.base) return this.base
+		const sinks = this.sinks
+		this.base = pino(
+			{
+				// With no sink registered nothing can consume a record, so don't pay to
+				// serialize one. This is what makes an unconfigured filler free as well
+				// as silent.
+				level: sinks.size === 0 ? "silent" : this.level,
+				serializers: {
+					error: stdSerializers.err,
+					err: stdSerializers.err,
+				},
+			},
+			{
+				write(line: string) {
+					for (const sink of sinks) {
+						try {
+							sink.write(line)
+						} catch {
+							// A broken sink is the host's problem, not a reason to fail a fill.
+						}
+					}
+				},
+			},
+		)
+		return this.base
+	}
+
+	private childFor(module?: string): pino.Logger {
+		if (!module) return this.baseLogger()
+		let child = this.children.get(module)
+		if (!child) {
+			child = this.baseLogger().child({ moduleTag: `[${module}]` })
+			this.children.set(module, child)
+		}
+		return child
+	}
+
+	/** Registers a destination and returns a function that removes it. */
+	addSink(sink: LogSink): () => void {
+		this.sinks.add(sink)
+		this.invalidate()
+		return () => {
+			this.sinks.delete(sink)
+			this.invalidate()
+		}
+	}
+
+	/** Sets verbosity, including for loggers already handed out. */
+	setLevel(level: LogLevel): void {
+		this.level = level
+		this.invalidate()
+	}
+
+	/** A logger tagged with `module`. Safe to hold; it resolves the current state per call. */
+	get(module?: string): Logger {
+		return new ModuleLogger(this, module)
+	}
+
+	/** @internal — used by {@link ModuleLogger} to resolve per call. */
+	resolve(module?: string): pino.Logger {
+		return this.childFor(module)
+	}
 }
 
-/** Resolves the current logger per call, so level and sink changes apply immediately. */
+/** Resolves through its context per call, so level and sink changes apply immediately. */
 class ModuleLogger implements Logger {
-	constructor(private readonly module?: string) {}
+	constructor(
+		private readonly context: LoggerContext,
+		private readonly module?: string,
+	) {}
 
 	private forward(method: keyof Logger): LogFn {
 		// biome-ignore lint/suspicious/noExplicitAny: pino's LogFn overloads don't survive a generic forward
-		return (...args: any[]) => (childFor(this.module)[method] as (...a: any[]) => void)(...args)
+		return (...args: any[]) => (this.context.resolve(this.module)[method] as (...a: any[]) => void)(...args)
 	}
 
 	trace = this.forward("trace")
@@ -103,38 +147,51 @@ class ModuleLogger implements Logger {
 }
 
 /**
- * Registers a destination for log records, one NDJSON line per record, and
- * returns a function that removes it.
+ * The fallback context, used by code that is not scoped to a single filler: the
+ * CLI, the setup wizard, and anything constructed before a `Simplex` exists.
  *
- * **Nothing is logged until a sink is registered.** A library has no business
- * writing to its host's stdout uninvited, so the default is silence — the CLI
- * opts into pretty-printed stdout, and an embedded filler logs wherever
- * `SimplexOptions.logger` points.
- *
- * Sinks are process-wide, not per-filler: two `Simplex` instances in one process
- * both write to every registered sink. Records carry a `moduleTag` but not an
- * instance id, so tag your sinks if you need to tell two fillers apart.
+ * An embedded filler never logs here — `Simplex` creates its own context — so
+ * leaving this unconfigured is what keeps the library silent in a host process.
  */
-export function addLogSink(sink: LogSink): () => void {
-	sinks.add(sink)
-	invalidate()
-	return () => {
-		sinks.delete(sink)
-		invalidate()
-	}
-}
+const processContext = new LoggerContext()
 
 /**
- * Sets the verbosity of every logger, including ones already handed out. Level
- * alone produces no output — a sink is still required.
+ * Registers a destination on the process-wide context and returns a function
+ * that removes it.
+ *
+ * This is for the application layer. To capture a specific filler's output, pass
+ * `SimplexOptions.logger` instead — a filler's records go to its own context,
+ * not here.
  */
-export function configureLogger(level: LogLevel): void {
-	logLevel = level
-	invalidate()
+export function addLogSink(sink: LogSink): () => void {
+	return processContext.addSink(sink)
 }
 
+/** Sets the level of the process-wide context. Does not affect running fillers. */
+export function configureLogger(level: LogLevel): void {
+	processContext.setLevel(level)
+}
+
+/** A logger on the process-wide context. Instance-scoped code resolves from its own {@link LoggerContext}. */
 export function getLogger(moduleOrOptions?: string | LoggerOptions): Logger {
 	const options: LoggerOptions =
 		typeof moduleOrOptions === "string" ? { module: moduleOrOptions } : moduleOrOptions || {}
-	return new ModuleLogger(options.module)
+	return processContext.get(options.module)
+}
+
+/** The fallback context, for constructors that were given none. */
+export function defaultLoggerContext(): LoggerContext {
+	return processContext
+}
+
+/**
+ * Resolves a module logger from a context that may be absent.
+ *
+ * Services read their context off the `FillerConfigService` or
+ * `ChainClientManager` they were constructed with, and `bootFiller` always
+ * supplies real ones. Hand-built test doubles generally do not, so this falls
+ * back to the process context rather than forcing every mock to carry a logger.
+ */
+export function moduleLogger(context: LoggerContext | undefined, module: string): Logger {
+	return (context ?? processContext).get(module)
 }

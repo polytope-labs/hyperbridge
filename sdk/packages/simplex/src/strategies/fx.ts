@@ -12,7 +12,7 @@ import {
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { unanchoredToken0Symbols } from "@/config/pairs"
@@ -140,7 +140,7 @@ export class FXFiller implements FillerStrategy {
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
 	private signer: SigningAccount
-	private logger = getLogger("fx-simplex")
+	private logger: Logger
 	/** Consecutive orders where overfill clamp activated. */
 	private consecutiveClamps = 0
 	/** Once set, the filler refuses all orders until restart — systemic pricing error suspected. */
@@ -192,6 +192,7 @@ export class FXFiller implements FillerStrategy {
 			side?: "bid" | "ask"
 		},
 	) {
+		this.logger = moduleLogger(configService.loggers, "fx-simplex")
 		const { confirmationPolicy, fundingVenues = [], priceGuard, side } = options ?? {}
 
 		if (pairs.length === 0) {

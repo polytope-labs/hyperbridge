@@ -2,7 +2,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { concat, formatEther, keccak256, toHex, toRlp, zeroAddress } from "viem"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
+import { getLogger, type Logger , moduleLogger} from "./Logger"
 import type { SigningAccount } from "./wallet"
 import { hasPaymaster } from "./paymaster"
 import { UserOpSender } from "./UserOpSender"
@@ -25,7 +25,7 @@ const DELEGATION_TX_GAS_FLOOR = 650_000n
  * direct type-0x04 tx if the bundler path is unavailable.
  */
 export class DelegationService {
-	private logger = getLogger("delegation-service")
+	private logger: Logger
 	private readonly userOpSender: UserOpSender
 
 	constructor(
@@ -33,6 +33,7 @@ export class DelegationService {
 		private configService: FillerConfigService,
 		private signer: SigningAccount,
 	) {
+		this.logger = moduleLogger(clientManager.loggers, "delegation-service")
 		this.userOpSender = new UserOpSender(clientManager, configService, signer)
 	}
 

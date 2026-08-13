@@ -24,7 +24,7 @@ import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { CacheService } from "./CacheService"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
@@ -39,7 +39,7 @@ Decimal.config({ precision: 28, rounding: 4 })
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
-	private logger = getLogger("contract-service")
+	private logger: Logger
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private signer: SigningAccount
@@ -50,6 +50,7 @@ export class ContractInteractionService {
 		signer: SigningAccount,
 		sharedCacheService?: CacheService,
 	) {
+		this.logger = moduleLogger(configService.loggers, "contract-service")
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
 		this.signer = signer

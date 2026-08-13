@@ -1,4 +1,5 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
+import { defaultLoggerContext, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
@@ -164,6 +165,12 @@ export interface FillerConfig {
  * and only requires minimal user configuration (RPC URLs, private keys, etc.)
  */
 export class FillerConfigService {
+	/**
+	 * This filler's logging destination. Services resolve their module loggers
+	 * from here rather than from the process-wide context, which is what keeps
+	 * two fillers in one process from writing into each other's sinks.
+	 */
+	readonly loggers: LoggerContext
 	private chainConfigService: ChainConfigService
 	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
@@ -173,7 +180,8 @@ export class FillerConfigService {
 	/** Lowercased per-source allowlist users keyed by state machine id, or undefined when no per-source list is configured. */
 	private allowlistBySource?: Map<string, Set<string>>
 
-	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
+	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig, loggers?: LoggerContext) {
+		this.loggers = loggers ?? defaultLoggerContext()
 		chainConfigs.forEach((config) => {
 			if (config.rpcUrls && config.rpcUrls.length > 0) {
 				// Re-validate in case the caller constructed a ResolvedChainConfig directly

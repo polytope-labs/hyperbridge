@@ -13,6 +13,7 @@ import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
 import { FillerConfigService } from "./FillerConfigService"
 import { parseChainKey } from "@/config/interpolated-curve"
+import type { LoggerContext } from "./Logger"
 import { QuorumPublicClient } from "./QuorumPublicClient"
 import type { SigningAccount } from "./wallet"
 import { createPrivateKeySigningAccount } from "./wallet/accounts/privatekey"
@@ -116,6 +117,11 @@ export class ChainClientManager {
 	private configService: FillerConfigService
 	private clientFactory = new ViemClientFactoryImpl()
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
+
+	/** This filler's logging destination, relayed from the config service. */
+	get loggers(): LoggerContext {
+		return this.configService.loggers
+	}
 
 	constructor(configService: FillerConfigService, signer?: SigningAccount) {
 		this.configService = configService

@@ -3,7 +3,7 @@ import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
+import { getLogger, type Logger , moduleLogger} from "./Logger"
 import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
@@ -68,11 +68,12 @@ export class BalanceProvider {
 	private initialTimeout?: NodeJS.Timeout
 	private refreshInterval?: NodeJS.Timeout
 	private hyperbridgeInterval?: NodeJS.Timeout
-	private logger = getLogger("balances")
+	private logger: Logger
 	private options: BalanceProviderOptions
 	private intervalMs: number
 
 	constructor(options: BalanceProviderOptions) {
+		this.logger = moduleLogger(options.configService.loggers, "balances")
 		this.options = options
 		this.intervalMs = options.refreshIntervalMs ?? 60_000
 	}

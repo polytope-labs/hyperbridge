@@ -3,7 +3,7 @@ import { toHex, type PublicClient } from "viem"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
+import { getLogger, type Logger , moduleLogger} from "./Logger"
 import type { SigningAccount } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
@@ -89,13 +89,15 @@ const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
  *   caller must NOT fall back (the op may still land) — retry on the next cycle.
  */
 export class UserOpSender {
-	private logger = getLogger("userop-sender")
+	private logger: Logger
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly configService: FillerConfigService,
 		private readonly signer: SigningAccount,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "userop-sender")
+	}
 
 	/** True when a sponsored UserOp is even possible on this chain (paymaster + bundler configured). */
 	canSponsor(chain: string): boolean {

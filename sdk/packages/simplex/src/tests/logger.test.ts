@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { addLogSink, configureLogger, getLogger, type LogSink } from "@/services/Logger"
+import { addLogSink, configureLogger, getLogger, LoggerContext, type LogSink } from "@/services/Logger"
 
 /**
  * A library must not write to its host's stdout uninvited, so logging is silent
@@ -100,5 +100,101 @@ describe("logging", () => {
 		// A broken sink is the host's problem; it must not propagate into a fill.
 		expect(() => getLogger("x").info("still delivered")).not.toThrow()
 		expect(good.lines).toHaveLength(1)
+	})
+})
+
+describe("LoggerContext isolation", () => {
+	it("keeps two contexts' sinks apart", () => {
+		const a = collector()
+		const b = collector()
+		const ctxA = new LoggerContext({ sink: a })
+		const ctxB = new LoggerContext({ sink: b })
+
+		ctxA.get("filler").info("from A")
+		ctxB.get("filler").info("from B")
+
+		// The whole point: one filler's records never reach another's sink.
+		expect(a.records.map((r) => r.msg)).toEqual(["from A"])
+		expect(b.records.map((r) => r.msg)).toEqual(["from B"])
+	})
+
+	it("keeps levels independent", () => {
+		const a = collector()
+		const b = collector()
+		const ctxA = new LoggerContext({ sink: a })
+		const ctxB = new LoggerContext({ sink: b })
+
+		ctxA.setLevel("debug")
+		ctxA.get("x").debug("A debug")
+		ctxB.get("x").debug("B debug")
+
+		expect(a.records.map((r) => r.msg)).toEqual(["A debug"])
+		expect(b.lines).toHaveLength(0)
+	})
+
+	it("does not write to the process-wide context", () => {
+		const instance = collector()
+		const process = collector()
+		attach(process)
+
+		new LoggerContext({ sink: instance }).get("filler").info("instance only")
+
+		expect(instance.lines).toHaveLength(1)
+		expect(process.lines).toHaveLength(0)
+	})
+
+	it("takes an initial level and accepts more sinks later", () => {
+		const first = collector()
+		const second = collector()
+		const context = new LoggerContext({ level: "debug", sink: first })
+
+		const detach = context.addSink(second)
+		context.get("x").debug("both")
+		detach()
+		context.get("x").debug("first only")
+
+		expect(first.records.map((r) => r.msg)).toEqual(["both", "first only"])
+		expect(second.records.map((r) => r.msg)).toEqual(["both"])
+	})
+})
+
+describe("service wiring", () => {
+	it("routes services through their filler's context, not the process one", async () => {
+		const { FillerConfigService } = await import("@/services/FillerConfigService")
+		const { ChainClientManager } = await import("@/services/ChainClientManager")
+		const { CacheService } = await import("@/services/CacheService")
+
+		const instance = collector()
+		const process = collector()
+		attach(process)
+
+		const loggers = new LoggerContext({ level: "debug", sink: instance })
+		const configService = new FillerConfigService(
+			[{ chainId: 1, rpcUrls: ["https://rpc.example"] }],
+			undefined,
+			loggers,
+		)
+
+		// The context reaches services through the config service, and through the
+		// client manager for everything constructed from one.
+		expect(configService.loggers).toBe(loggers)
+		expect(new ChainClientManager(configService).loggers).toBe(loggers)
+
+		new CacheService(loggers)
+
+		// Whatever any of them logged went to the filler's sink; the process-wide
+		// context — which a host would never have configured — stayed empty.
+		expect(process.lines).toHaveLength(0)
+	})
+
+	it("gives two config services independent contexts", async () => {
+		const { FillerConfigService } = await import("@/services/FillerConfigService")
+		const a = new LoggerContext({ sink: collector() })
+		const b = new LoggerContext({ sink: collector() })
+		const chains = [{ chainId: 1, rpcUrls: ["https://rpc.example"] }]
+
+		expect(new FillerConfigService(chains, undefined, a).loggers).not.toBe(
+			new FillerConfigService(chains, undefined, b).loggers,
+		)
 	})
 })

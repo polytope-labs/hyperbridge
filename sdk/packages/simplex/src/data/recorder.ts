@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events"
 import type { EventMonitor } from "@/core/event-monitor"
-import { getLogger } from "@/services/Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { ActivityEvent, ActivityInsert, ActivityStore, WalletTx } from "./types"
 
 /**
@@ -17,13 +17,17 @@ import type { ActivityEvent, ActivityInsert, ActivityStore, WalletTx } from "./t
  * and `Simplex`'s `activity` event).
  */
 export class ActivityRecorder extends EventEmitter {
-	private logger = getLogger("activity")
+	private logger: Logger
 	private monitor?: EventMonitor
 	// biome-ignore lint/suspicious/noExplicitAny: EventEmitter listeners are untyped by construction
 	private handlers: Array<[string, (payload: any) => void]> = []
 
-	constructor(private store: ActivityStore) {
+	constructor(
+		private store: ActivityStore,
+		loggers: LoggerContext = defaultLoggerContext(),
+	) {
 		super()
+		this.logger = loggers.get("activity")
 	}
 
 	/** Subscribes to the filler's order lifecycle events. Idempotent per monitor. */

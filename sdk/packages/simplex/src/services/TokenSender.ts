@@ -3,11 +3,10 @@ import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultToml } from "@/config/filler-toml"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, isAddress, parseUnits } from "viem"
 
-const logger = getLogger("token-sender")
 
 export interface SendTokenParams {
 	/** State machine id, e.g. "EVM-8453". */
@@ -36,13 +35,17 @@ export interface SendTokenResult {
  * leave as the underlying asset.
  */
 export class TokenSender {
+	private readonly logger: Logger
+
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly solver: HexString,
 		/** Live view of the configured vaults so runtime vault edits are honored. */
 		private readonly getVaults: () => VaultToml[],
 		private readonly userOpSender?: UserOpSender,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "token-sender")
+	}
 
 	async send(params: SendTokenParams): Promise<SendTokenResult> {
 		const { chain, token, amount, to } = params
@@ -99,7 +102,7 @@ export class TokenSender {
 		}
 
 		const result = await this.submit(chain, calls)
-		logger.warn({ chain, token, amount, to, redeemed, ...result }, "Operator send executed")
+		this.logger.warn({ chain, token, amount, to, redeemed, ...result }, "Operator send executed")
 		return { ...result, redeemed }
 	}
 
@@ -151,7 +154,7 @@ export class TokenSender {
 				paymasterVerificationGasLimit: 140_000n,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
-			logger.warn({ chain }, "Sponsored send unavailable, sending native tx")
+			this.logger.warn({ chain }, "Sponsored send unavailable, sending native tx")
 		}
 
 		const walletClient = this.clientManager.getWalletClient(chain)

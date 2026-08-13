@@ -107,8 +107,10 @@ export type { AllowlistConfig, UserProvidedChainConfig, ResolvedChainConfig } fr
 export type { BalanceSnapshot, ChainBalanceRow, HyperbridgeBalance } from "@/services/BalanceProvider"
 
 // ─── Logging ────────────────────────────────────────────────────────────────
-// Silent until a sink is registered — `SimplexOptions.logger` is the usual way,
-// and `addLogSink` covers anything logged outside a filler's lifetime.
+// Silent until a sink is registered. Each filler owns a LoggerContext, so
+// `SimplexOptions.logger` and `simplex.setLogLevel` are scoped to that filler.
+// The `addLogSink`/`configureLogger`/`getLogger` trio drives the process-wide
+// fallback context, which only code outside a filler's lifetime writes to.
 
-export { addLogSink, configureLogger, getLogger } from "@/services/Logger"
+export { addLogSink, configureLogger, getLogger, LoggerContext } from "@/services/Logger"
 export type { LogLevel, Logger, LogSink } from "@/services/Logger"

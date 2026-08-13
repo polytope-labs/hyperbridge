@@ -2,11 +2,10 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultConfig, HydratedVault } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
 
-const logger = getLogger("vault-state")
 
 /**
  * Backstop expiry for a reservation whose bid never executes (lost auction,
@@ -29,6 +28,8 @@ const RESERVATION_TTL_MS = 60_000
  * Concurrent access is serialised by the planner's per-chain mutex.
  */
 export class VaultLiquidityState {
+	private readonly logger: Logger
+
 	/** Keyed by underlying asset address, lowercased. */
 	private vaults = new Map<string, HydratedVault>()
 	private hydrated = false
@@ -47,7 +48,9 @@ export class VaultLiquidityState {
 		private readonly configs: VaultConfig[],
 		private readonly solver: HexString,
 		private readonly clientManager: ChainClientManager,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "vault-state")
+	}
 
 	// =========================================================================
 	// Initialisation & refresh
@@ -105,7 +108,7 @@ export class VaultLiquidityState {
 		this.hydrated = true
 
 		for (const v of this.vaults.values()) {
-			logger.info(
+			this.logger.info(
 				{
 					chain: this.chain,
 					vault: v.vault,
@@ -117,7 +120,7 @@ export class VaultLiquidityState {
 				"Vault hydrated",
 			)
 		}
-		logger.info({ chain: this.chain, vaults: this.configs.length }, "Vault liquidity state hydrated")
+		this.logger.info({ chain: this.chain, vaults: this.configs.length }, "Vault liquidity state hydrated")
 	}
 
 	/**
@@ -171,7 +174,7 @@ export class VaultLiquidityState {
 			v.maxWithdrawable = maxWithdrawable
 			v.remaining = maxWithdrawable > reserved ? maxWithdrawable - reserved : 0n
 
-			logger.debug(
+			this.logger.debug(
 				{
 					chain: this.chain,
 					vault: v.vault,

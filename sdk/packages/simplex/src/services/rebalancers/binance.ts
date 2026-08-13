@@ -4,7 +4,7 @@ import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { UnifiedRebalanceOptions } from "."
 
@@ -119,7 +119,7 @@ export class BinanceRebalancer {
 		this.configService = configService
 		this.account = this.chainClientManager.getSigner().account
 		this.config = config
-		this.logger = getLogger("BinanceRebalancer")
+		this.logger = moduleLogger(chainClientManager.loggers, "BinanceRebalancer")
 
 		this.pollIntervalMs = config.pollIntervalMs ?? 15_000
 		this.travelRuleQuestionnaire = config.travelRuleQuestionnaire ?? null

@@ -3,7 +3,7 @@ import type { Account } from "viem/accounts"
 import { bytes20ToBytes32, type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { OFT_ABI } from "@/config/abis/Oft"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { RebalanceOptions } from "."
@@ -41,7 +41,7 @@ export class Usdt0Rebalancer {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
 		this.account = this.chainClientManager.getSigner().account
-		this.logger = getLogger("Usdt0Rebalancer")
+		this.logger = moduleLogger(chainClientManager.loggers, "Usdt0Rebalancer")
 	}
 
 	async sendUsdt0(options: RebalanceOptions): Promise<Usdt0TransferResult> {

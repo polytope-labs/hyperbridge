@@ -282,14 +282,22 @@ Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on
 which applies immediately including to services already constructed. Level alone produces no output;
 a sink is still required.
 
-`addLogSink(sink)` registers a destination outside a filler's lifetime and returns a function that
-removes it — useful for capturing what validators log before you start anything.
+Logging is scoped to the filler, not the process. Each `Simplex` owns its own destination and level,
+so several fillers in one process keep their records apart:
 
-<Callout type="info">
-    Sinks are process-wide rather than per-filler, so two `Simplex` instances in one process both
-    write to every registered sink. Records carry a `moduleTag` but not an instance id; tag your
-    sinks if you need to tell two fillers apart.
-</Callout>
+```ts
+const [eu, apac] = await Promise.all([
+    Simplex.start({ config: euConfig, logger: euLog }),
+    Simplex.start({ config: apacConfig, logger: apacLog }),
+])
+
+await eu.setLogLevel("debug")     // apac stays at its own level
+eu.addLogSink(auditStream)        // and its own sinks
+```
+
+`addLogSink(sink)` at module level registers a destination on the process-wide fallback context,
+which is what code outside a filler's lifetime uses — the validators, and the `simplex` binary
+itself. A running filler never writes there.
 
 ## Validating a config without starting
 

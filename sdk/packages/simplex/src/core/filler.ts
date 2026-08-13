@@ -20,7 +20,7 @@ import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
 import type { BidStore } from "@/data/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
@@ -66,7 +66,7 @@ export class IntentFiller {
 	private configService: FillerConfigService
 	private signer: SigningAccount
 	private fillerAddress: HexString
-	private logger = getLogger("intent-filler")
+	private logger: Logger
 
 	constructor(
 		chainConfigs: ChainConfig[],
@@ -79,6 +79,7 @@ export class IntentFiller {
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
 	) {
+		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
 		this.signer = signer
 		this.fillerAddress = this.signer.account.address

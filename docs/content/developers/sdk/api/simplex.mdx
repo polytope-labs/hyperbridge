@@ -583,11 +583,19 @@ interface LogSink {
 Node's `Writable` satisfies it, so `process.stdout`, a file stream, a socket or a `pino-pretty`
 transform all work as-is, as does an object literal that forwards into your own logger.
 
+### simplex.addLogSink(sink)
+
+Adds another destination for **this filler's** records and returns a function that removes it.
+Other instances are unaffected.
+
+```typescript lineNumbers
+addLogSink(sink: LogSink): () => void
+```
+
 ### addLogSink(sink)
 
-Registers a destination and returns a function that removes it. `SimplexOptions.logger` is the usual
-way in; use this directly to capture records logged outside a filler's lifetime, such as by the
-validators.
+The module-level function registers on the process-wide fallback context instead — for records
+logged outside any filler's lifetime, such as by the validators. A running filler never writes there.
 
 ```typescript lineNumbers
 addLogSink(sink: LogSink): () => void
@@ -606,10 +614,24 @@ detach()
 
 ### configureLogger(level)
 
-Sets verbosity for every logger, including ones already handed out. Level alone produces no output.
+Sets verbosity on the process-wide fallback context. Does not affect running fillers — use
+`simplex.setLogLevel` for those.
 
 ```typescript lineNumbers
 configureLogger(level: LogLevel): void
+```
+
+### LoggerContext
+
+An isolated destination: its own sinks, level and pino instance. Each `Simplex` constructs one from
+`SimplexOptions.logger`, which is what keeps two fillers' records apart. Construct one directly only
+if you want to share a destination across something the filler does not own.
+
+```typescript lineNumbers
+new LoggerContext(options?: { level?: LogLevel; sink?: LogSink })
+addSink(sink: LogSink): () => void
+setLevel(level: LogLevel): void
+get(module?: string): Logger
 ```
 
 ### getLogger(module?)
@@ -622,9 +644,8 @@ getLogger(module?: string | { module?: string }): Logger
 ```
 
 <Callout type="info">
-    Sinks and level are process-wide rather than per-filler: two `Simplex` instances in one process
-    both write to every registered sink and share one level. Records carry a `moduleTag` but not an
-    instance id, so tag your sinks if you need to tell two fillers apart.
+    Logging is scoped per filler. Two `Simplex` instances in one process write to their own sinks at
+    their own levels — `eu.setLogLevel("debug")` leaves `apac` alone.
 </Callout>
 
 ## Validators
@@ -661,7 +682,7 @@ Exported from `@hyperbridge/simplex`:
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,
 `BidInsert`, `BidStats`, `ActivityEvent`, `ActivityInsert`, `ActivityType`, `WalletTx`,
-`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`.
+`WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`.
 
 Controller classes are exported as types too: `PairController`, `ChainController`, `VaultController`,
 `AssetController`, `WalletController`, `RebalanceController`.

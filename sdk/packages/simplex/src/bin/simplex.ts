@@ -14,7 +14,7 @@ import { Simplex } from "@/simplex"
 import { MetricsService } from "@/cli/metrics"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
-import { addLogSink, getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
 import prettyStream from "pino-pretty"
 import {
 	FillerConfigService,
@@ -55,16 +55,24 @@ const DEFAULT_UI_PORT = 8686
  * whole point. Formatting happens in-process rather than through pino's
  * worker-thread transport, which keeps startup off the thread-stream path.
  */
-function attachConsoleLogging(): void {
-	const pretty = prettyStream({
+function consoleSink(): LogSink {
+	// `destination`, not `.pipe(process.stdout)`: piped, pino-pretty echoes each
+	// record's raw NDJSON alongside the formatted line, so every log appears twice.
+	return prettyStream({
 		colorize: true,
 		singleLine: true,
 		ignore: "pid,hostname,moduleTag",
 		messageFormat: "{moduleTag}: {msg}",
+		destination: process.stdout,
 	})
-	pretty.pipe(process.stdout)
-	addLogSink(pretty)
 }
+
+// The process-wide context covers everything outside a filler: the setup wizard,
+// config validation, the keeper command. A running filler logs to its own
+// context and gets a stream of its own below — one transform per writer, because
+// two pino instances writing into a single pino-pretty transform interleave
+// their chunks and it echoes the unparseable remainder as raw NDJSON.
+addLogSink(consoleSink())
 
 /**
  * Where the CLI keeps its SQLite databases and runtime state. Matches the
@@ -264,6 +272,7 @@ program
 				simplex = await Simplex.start({
 					config,
 					configPath: path,
+					logger: consoleSink(),
 					data: new SqliteDataStore(resolveDataDir(options.dataDir)),
 					dataDir: options.dataDir,
 					watchOnly: options.watchOnly,
@@ -418,10 +427,6 @@ program
 			process.exit(1)
 		}
 	})
-
-// The library is silent until a sink is registered; as the application, the CLI
-// registers stdout for every subcommand.
-attachConsoleLogging()
 
 // Parse command line arguments
 program.parse(process.argv)

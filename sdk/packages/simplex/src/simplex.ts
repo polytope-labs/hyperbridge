@@ -8,7 +8,7 @@ import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
-import { addLogSink, configureLogger, getLogger, type LogLevel, type LogSink } from "@/services/Logger"
+import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { MemoryDataStore } from "@/data/memory"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
@@ -222,7 +222,7 @@ export class PairController {
 
 		const pairIndex = nextPairs.length - 1
 		const index = adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1
-		const adminStrategy = adminStrategyFor(tradingPair, pairIndex, index)
+		const adminStrategy = adminStrategyFor(tradingPair, pairIndex, index, this.runtime.loggers.get("cli"))
 		if (adminStrategy) adminStrategies.push(adminStrategy)
 
 		await this.persist()
@@ -618,15 +618,15 @@ export class Simplex extends EventEmitter {
 	readonly wallet: WalletController
 	readonly rebalancing: RebalanceController
 
-	private logger = getLogger("simplex")
+	private logger: Logger
 	private stopped = false
 
 	private constructor(
 		private runtime: FillerRuntime,
 		private options: SimplexOptions,
-		private detachLogger?: () => void,
 	) {
 		super()
+		this.logger = runtime.loggers.get("simplex")
 		const persist = () => this.persistConfig()
 		this.pairs = new PairController(runtime, persist)
 		this.chains = new ChainController(runtime, persist)
@@ -645,26 +645,20 @@ export class Simplex extends EventEmitter {
 	 * never returned. On success the filler is already scanning.
 	 */
 	static async start(options: SimplexOptions): Promise<Simplex> {
-		// Sink and level are wired first so boot's own output is captured at the
-		// configured verbosity; bootFiller validates before it touches anything.
-		if (options.config.simplex.logging) {
-			configureLogger(options.config.simplex.logging as LogLevel)
-		}
-		const detachLogger = options.logger ? addLogSink(options.logger) : undefined
-		let runtime: FillerRuntime
-		try {
-			runtime = await bootFiller(options.config, {
+		// This filler's own logging destination — not a process-wide one, so two
+		// fillers in a process keep their records apart.
+		const loggers = new LoggerContext({
+			level: options.config.simplex.logging as LogLevel | undefined,
+			sink: options.logger,
+		})
+		const runtime = await bootFiller(options.config, {
+			loggers,
 			configPath: options.configPath,
-				data: options.data ?? new MemoryDataStore(),
-				dataDir: options.dataDir,
-				watchOnlyOverride: options.watchOnly,
-			})
-		} catch (error) {
-			// A filler that never started has no stop() to detach in.
-			detachLogger?.()
-			throw error
-		}
-		return new Simplex(runtime, options, detachLogger)
+			data: options.data ?? new MemoryDataStore(),
+			dataDir: options.dataDir,
+			watchOnlyOverride: options.watchOnly,
+		})
+		return new Simplex(runtime, options)
 	}
 
 	/** Re-emits the filler's internal events under their public names. */
@@ -716,8 +710,6 @@ export class Simplex extends EventEmitter {
 		this.stopped = true
 		await this.runtime.shutdown("Simplex.stop")
 		this.removeAllListeners()
-		// Last, so shutdown's own output still reaches the host's sink.
-		this.detachLogger?.()
 	}
 
 	// ─── Introspection ──────────────────────────────────────────────────────
@@ -786,8 +778,17 @@ export class Simplex extends EventEmitter {
 	}
 
 	setLogLevel(level: LogLevel): void {
-		configureLogger(level)
+		this.runtime.loggers.setLevel(level)
 		this.runtime.config.simplex.logging = level
+	}
+
+	/**
+	 * Adds another destination for this filler's log records and returns a
+	 * function that removes it. Scoped to this filler — other instances are
+	 * unaffected.
+	 */
+	addLogSink(sink: LogSink): () => void {
+		return this.runtime.loggers.addSink(sink)
 	}
 
 	// ─── Typed events ───────────────────────────────────────────────────────

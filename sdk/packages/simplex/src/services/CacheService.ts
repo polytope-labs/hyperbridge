@@ -1,6 +1,6 @@
 import type { ERC7821Call } from "@hyperbridge/sdk"
 import { HexString } from "@hyperbridge/sdk"
-import { getLogger } from "./Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "./Logger"
 
 interface GasEstimateCache {
 	totalCostInSourceFeeToken: string
@@ -74,9 +74,10 @@ interface CacheData {
 export class CacheService {
 	private cacheData: CacheData
 	private readonly CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
-	private logger = getLogger("cache-service")
+	private logger: Logger
 
-	constructor() {
+	constructor(loggers: LoggerContext = defaultLoggerContext()) {
+		this.logger = loggers.get("cache-service")
 		this.cacheData = {
 			gasEstimates: {},
 			swapOperations: {},

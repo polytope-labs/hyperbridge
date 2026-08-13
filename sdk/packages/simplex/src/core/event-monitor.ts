@@ -11,7 +11,7 @@ import {
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
 import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { Mutex } from "async-mutex"
 
@@ -92,7 +92,7 @@ export class EventMonitor extends EventEmitter {
 	private configService: FillerConfigService
 	private clientManager: ChainClientManager
 	private fillerAddress: string
-	private logger = getLogger("event-monitor")
+	private logger: Logger
 	private lastScannedBlock: Map<number, bigint> = new Map()
 	private blockScanIntervals: Map<number, NodeJS.Timeout> = new Map()
 	private scanningMutexes: Map<number, Mutex> = new Map()
@@ -104,6 +104,7 @@ export class EventMonitor extends EventEmitter {
 		fillerAddress: HexString,
 	) {
 		super()
+		this.logger = moduleLogger(configService.loggers, "event-monitor")
 		this.configService = configService
 		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()

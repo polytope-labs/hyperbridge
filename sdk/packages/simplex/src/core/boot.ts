@@ -21,7 +21,7 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
-import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
+import { getLogger, configureLogger, type Logger, type LogLevel, type LoggerContext , moduleLogger} from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { initializeSignerFromToml } from "@/services/wallet"
 import { BalanceProvider } from "@/services/BalanceProvider"
@@ -36,6 +36,11 @@ export interface BootOptions {
 	configPath?: string
 	/** Persistence backend. Required — `Simplex.start` defaults it to a MemoryDataStore. */
 	data: SimplexDataStore
+	/**
+	 * This filler's logging destination. Every service resolves its logger from
+	 * here, so two fillers in one process never write into each other's sinks.
+	 */
+	loggers: LoggerContext
 	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
@@ -57,6 +62,8 @@ export interface FillerRuntime {
 	configService: FillerConfigService
 	/** Owns the per-chain viem clients; chain edits invalidate through it. */
 	chainClientManager: ChainClientManager
+	/** This filler's logging destination. */
+	loggers: LoggerContext
 	/** Symbol-to-address resolution for the configured chains (send options, balance labels). */
 	assetRegistry: AssetRegistry
 	/** The live trading engine, absent when the config declared no pairs. */
@@ -106,9 +113,13 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
  * the engine reads curve presence and the cap per order, so assignment opens or
  * closes a direction and resizes the market from the next evaluation.
  */
-export function adminStrategyFor(pair: TradingPair, pairIndex: number, index: number): AdminStrategy | null {
+export function adminStrategyFor(
+	pair: TradingPair,
+	pairIndex: number,
+	index: number,
+	logger: Logger = getLogger("cli"),
+): AdminStrategy | null {
 	if (!pair.bidPricePolicy && !pair.askPricePolicy) return null
-	const logger = getLogger("cli")
 	const sameToken = normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)
 	const adminStrategy: AdminStrategy = {
 		index,
@@ -183,7 +194,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configureLogger(config.simplex.logging as LogLevel)
 	}
 
-	const logger = getLogger("cli")
+	const logger = moduleLogger(options.loggers, "cli")
 	logger.info({ configPath: options.configPath }, "Loading configuration")
 	logger.info("Starting Filler...")
 
@@ -208,7 +219,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		allowlist: config.allowlist,
 	}
 
-	const configService = new FillerConfigService(resolvedChains, fillerConfigForService)
+	const configService = new FillerConfigService(resolvedChains, fillerConfigForService, options.loggers)
 
 	const chainConfigs: ChainConfig[] = resolvedChains.map((chain) => {
 		const chainName = `EVM-${chain.chainId}`
@@ -265,8 +276,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	} as FillerConfig
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections
-	const sharedCacheService = new CacheService()
-	const configuredSigner = await initializeSignerFromToml(config.simplex.signer)
+	const sharedCacheService = new CacheService(options.loggers)
+	const configuredSigner = await initializeSignerFromToml(config.simplex.signer, options.loggers.get("signer"))
 	const chainClientManager = new ChainClientManager(configService, configuredSigner)
 	const runtimeSigner: SigningAccount = chainClientManager.getSigner()
 
@@ -333,7 +344,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	if (config.pairs?.length) {
 		tradingPairs = config.pairs.map(tradingPairFrom)
 		tradingPairs.forEach((pair, pairIndex) => {
-			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length)
+			const adminStrategy = adminStrategyFor(pair, pairIndex, adminStrategies.length, logger)
 			if (adminStrategy) adminStrategies.push(adminStrategy)
 		})
 
@@ -447,7 +458,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	await intentFiller.initialize()
 
 	// Order-activity feed for the operator UI
-	const activity = new ActivityRecorder(options.data.activity)
+	const activity = new ActivityRecorder(options.data.activity, options.loggers)
 	activity.attach(intentFiller.monitor)
 	if (vaultVenue) {
 		vaultVenue.onTx = ({ chain, kind, txHash, sponsored }) => {
@@ -544,6 +555,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		data: options.data,
 		configService,
 		chainClientManager,
+		loggers: options.loggers,
 		assetRegistry,
 		engine,
 		tradingPairs,

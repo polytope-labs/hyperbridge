@@ -108,6 +108,21 @@ export interface RebalancingConfig {
 	}
 }
 
+/**
+ * When an order larger than a pair's `maxOrderSize` may be filled down to the
+ * cap instead of skipped. A partial fill collects no `order.fees` — the gateway
+ * releases those only to whoever completes the order — so both knobs exist to
+ * keep a fee-less fill from costing more in gas than its spread earns.
+ */
+export interface PartialFillConfig {
+	/** Default true. Cross-chain orders are never partially filled; the gateway reverts. */
+	enabled?: boolean
+	/** Refuse slices below this fraction of the request. Default 1000 (10%). */
+	minFillBps?: number
+	/** The slice's realised edge must beat execution cost by this multiple. Default 3. */
+	minProfitMultiple?: number
+}
+
 export interface OverfillProtectionConfig {
 	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 500 (5%). */
 	maxOverfillBps?: number
@@ -145,6 +160,8 @@ export interface FillerConfig {
 	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
 	 */
 	overfillProtection?: OverfillProtectionConfig
+	/** Partial fills of oversized orders. Defaults: enabled, 10% floor, 3x profit multiple. */
+	partialFills?: PartialFillConfig
 	/**
 	 * Restricts which order `user` addresses the filler processes. When omitted, all
 	 * users are accepted. When present, only listed users (global ∪ per-source) are
@@ -593,6 +610,31 @@ export class FillerConfigService {
 	/** Ceiling bps above user-requested output. Default 500 (5%). */
 	getMaxOverfillBps(): bigint {
 		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 500)
+	}
+
+	/**
+	 * Partial-fill policy for orders larger than a pair's `maxOrderSize`.
+	 *
+	 * `maxOrderSize` is a per-order exposure cap, so an oversized order is filled
+	 * down to the fraction the cap allows rather than skipped. Two knobs bound
+	 * the downside, because a partial fill collects **no** `order.fees` — the
+	 * gateway releases those only to whoever completes the order — while still
+	 * paying full gas:
+	 *
+	 *  - `minFillBps`: refuse slices below this fraction of the request, so a
+	 *    huge order does not turn into a dust fill that costs more in gas than
+	 *    the spread it earns. Default 10%.
+	 *  - `minProfitMultiple`: the slice's realised edge must exceed execution
+	 *    cost by this multiple. Default 3, which also makes a spam order an
+	 *    expensive way to burn our gas: an attacker pays 3x what we spend.
+	 */
+	getPartialFillPolicy(): { enabled: boolean; minFillBps: number; minProfitMultiple: number } {
+		const config = this.fillerConfig?.partialFills
+		return {
+			enabled: config?.enabled ?? true,
+			minFillBps: config?.minFillBps ?? 1000,
+			minProfitMultiple: config?.minProfitMultiple ?? 3,
+		}
 	}
 
 	/** Consecutive clamped evaluations before the strategy halts. Default 3. */

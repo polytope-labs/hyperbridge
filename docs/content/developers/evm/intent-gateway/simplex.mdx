@@ -50,7 +50,25 @@ The solver holds inventory on both sides of its pairs. When a user swaps token0�
 
 Curves are expressed in **token1 per 1 token0** and keyed by the order's token0 notional. A higher bid means the solver owes less token0 per token1 received (it profits more buying token1). A lower ask means the solver sends fewer token1 per token0 received (it profits more selling token1).
 
-Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated in that pair's token0. An order whose requested output exceeds what the cap allows is **skipped entirely**, not partially filled. The skip is logged with `limiter: "maxOrderSize"`, which distinguishes it from an order the solver declined because its own curve yields less than the user asked for (`limiter: "price"`) — the two have different operator fixes.
+Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated in that pair's token0. An order larger than the cap is **partially filled** down to it: the IntentGateway releases escrow strictly in proportion to the outputs provided, so filling a quarter of an order takes on a quarter of the exposure. An order the solver declines because its own curve yields less than the user asked for is a different case — that one is skipped outright, logged with `limiter: "price"`, since filling a smaller slice of a bad rate loses the same per unit and costs the same gas.
+
+### Partial fills
+
+A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the full gas. The spread has to carry the whole cost on its own, so partial fills are gated harder than full ones:
+
+- Same-chain only. The cross-chain path reverts on any under-fill, so an oversized cross-chain order is still skipped.
+- Never for orders carrying output calldata: the attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
+- Never for an order another solver has already partially filled — its escrow is drawn down, and Simplex would misprice the remainder.
+- The slice must be at least `minFillBps` of the request (default 10%), and its realized spread must beat execution cost by `minProfitMultiple` (default 3x). The multiple also prices out spam: an attacker has to post three dollars of real edge to burn one of the solver's gas.
+
+A pair priced from a venue, or one-sided, has no opposite curve to value the open side against, so no edge can be proven and its oversized orders are still skipped.
+
+```toml lineNumbers
+[simplex.partialFills]
+enabled           = true
+minFillBps        = 1000   # fill at least 10% of the request, or skip
+minProfitMultiple = 3      # spread must beat gas by this much
+```
 
 Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 

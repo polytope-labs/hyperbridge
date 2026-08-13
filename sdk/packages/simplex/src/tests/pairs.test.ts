@@ -396,6 +396,7 @@ function makeFiller(pairs: TradingPair[]) {
 		...resolver,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
+		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const registry = new AssetRegistry(configService, {
 		CNGN: { [CHAIN]: CNGN },
@@ -522,6 +523,7 @@ describe("FXFiller pairs engine", () => {
 			getCNgnAsset: () => undefined,
 			getMaxOverfillBps: () => 500n,
 			getMaxConsecutiveClamps: () => 3,
+			getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 		} as any
 		const contractService = makeContractService()
 		// Extend the decimals mock for the 18-decimal deployment.
@@ -574,6 +576,7 @@ describe("FXFiller pairs engine", () => {
 			...resolver,
 			getMaxOverfillBps: () => 500n,
 			getMaxConsecutiveClamps: () => 3,
+			getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 		} as any
 		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
 		const signer = { account: { address: SOLVER } } as any
@@ -601,7 +604,7 @@ describe("FXFiller pairs engine", () => {
 		const build = (pairs: TradingPair[]) =>
 			new FXFiller(
 				signer,
-				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any,
+				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3, getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }) } as any,
 				{} as any,
 				makeContractService(),
 				pairs,
@@ -619,7 +622,7 @@ describe("FXFiller pairs engine", () => {
 		const registry = new AssetRegistry(resolver as any)
 		const signer = { account: { address: SOLVER } } as any
 		const build = (pair: TradingPair) =>
-			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
+			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3, getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }) } as any, {} as any, makeContractService(), [pair], registry)
 
 		expect(() =>
 			build({ token0: "USDC", token1: "USDC", maxOrderSize: size("5000"), askPricePolicy: flat("0.995"), bidPricePolicy: flat("0.995") }),
@@ -674,6 +677,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
+		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const signer = { account: { address: SOLVER } } as any
 	const usdcUsdc = (): TradingPair[] => [
@@ -724,6 +728,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		getCNgnAsset: () => undefined,
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
+		getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	} as any
 	const signer = { account: { address: SOLVER } } as any
 
@@ -1199,5 +1204,73 @@ describe("assertPairSymbolsResolve", () => {
 		expect(() =>
 			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE", maxOrderSize: "1000" }], registry, ["EVM-8453"]),
 		).toThrow(/both resolve to/)
+	})
+})
+
+describe("FXFiller exposure cap", () => {
+	/** The cap fraction sizeOrder derives for an order's single pair. */
+	async function capFraction(filler: FXFiller, order: Order): Promise<string> {
+		const engine = filler as unknown as {
+			resolveOrderLegs(o: Order): unknown[] | null
+			sizeOrder(
+				o: Order,
+				legs: unknown[],
+				venueUsdPrice: () => Promise<Decimal | null>,
+			): Promise<{ capFractionByPair: Map<unknown, Decimal> } | null>
+		}
+		const legs = engine.resolveOrderLegs(order)!
+		const sized = await engine.sizeOrder(order, legs, async () => null)
+		return [...sized!.capFractionByPair.values()][0].toFixed(6)
+	}
+
+	it("does not scale an order inside the cap", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		const order = makeOrder(
+			"within-cap",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+		)
+		expect(await capFraction(filler, order)).toBe("1.000000")
+	})
+
+	it("scales an oversized order to the fraction the cap allows", async () => {
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("5000"), askPricePolicy: flat("1500") },
+		])
+		// 20,000 USDC of exposure against a 5,000 cap → fill a quarter of it.
+		const order = makeOrder(
+			"over-cap",
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("20000", 6) },
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("30000000", 18) },
+		)
+		expect(await capFraction(filler, order)).toBe("0.250000")
+	})
+
+	/**
+	 * The cap test must not move with the curve. `token0Used < legNotionals[i]`
+	 * — the limiter this replaced — compares a notional priced at the capped
+	 * point against one priced at the curve's origin, so on a sloped curve it
+	 * fires with the cap nowhere near binding, turning a full fill that collects
+	 * `order.fees` into a partial that collects none.
+	 */
+	it("reports no cap on a sloped curve when the cap does not bind", async () => {
+		const sloped = new FillerPricePolicy({
+			points: [
+				{ amount: "0", price: "1500" },
+				{ amount: "10000", price: "1400" },
+			],
+		})
+		const filler = makeFiller([
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("1000000"), bidPricePolicy: sloped },
+		])
+		// A token1-input (bid-direction) leg, well inside a huge cap.
+		const order = makeOrder(
+			"sloped-under-cap",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+		)
+		expect(await capFraction(filler, order)).toBe("1.000000")
 	})
 })

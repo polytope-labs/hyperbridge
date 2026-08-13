@@ -559,6 +559,34 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Output already delivered against this order by any solver, per output token.
+	 *
+	 * A partially filled order has had its escrow drawn down, so the pro-rata
+	 * release a later filler receives is computed against the *residual*, not
+	 * against `order.inputs[i].amount`. A strategy that prices off the original
+	 * inputs would overstate its take, which is why the partial-fill path refuses
+	 * any order this reports as already touched.
+	 *
+	 * Same-chain concept only — the cross-chain path has no partial-fill state.
+	 */
+	async partialFillsFor(order: Order, chain: string): Promise<bigint[]> {
+		const client = this.clientManager.getPublicClient(chain)
+		const address = this.configService.getIntentGatewayAddress(chain)
+		const commitment = orderCommitment(order)
+
+		return Promise.all(
+			order.output.assets.map((asset) =>
+				client.readContract({
+					address,
+					abi: INTENT_GATEWAY_V2_ABI,
+					functionName: "_partialFills",
+					args: [commitment, asset.token],
+				}) as Promise<bigint>,
+			),
+		)
+	}
+
+	/**
 	 * Prepares a signed PackedUserOperation for bid submission to Hyperbridge
 	 *
 	 * Uses cached gas estimates from prior profitability check (estimateGasFillPost)

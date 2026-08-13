@@ -155,6 +155,15 @@ export interface FillerTomlConfig {
 			maxConsecutiveClamps?: number
 		}
 		/**
+		 * Partial fills of orders larger than a pair's `maxOrderSize`. Defaults:
+		 * enabled=true, minFillBps=1000 (10%), minProfitMultiple=3.
+		 */
+		partialFills?: {
+			enabled?: boolean
+			minFillBps?: number
+			minProfitMultiple?: number
+		}
+		/**
 		 * Source chains (state machine ids, e.g. "EVM-8453") this filler accepts payment from,
 		 * declared inside its phantom bids. Omit to declare nothing (read downstream as "all
 		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.

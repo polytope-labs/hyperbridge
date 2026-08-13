@@ -46,6 +46,7 @@ const configService = {
 	getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getCNgnAsset: () => undefined,
 	getMaxOverfillBps: () => 500n,
+	getPartialFillPolicy: () => ({ enabled: true, minFillBps: 1000, minProfitMultiple: 3 }),
 	getMaxConsecutiveClamps: () => 3,
 } as any
 

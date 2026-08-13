@@ -398,33 +398,41 @@ export class ChainController {
 				chainId,
 			])
 
+			// Decided before anything is mutated. The scanner has to carry the chain
+			// before the monitor can match it; one this solver built it may extend, but
+			// the caller's is theirs. This check used to sit *below* the two mutations
+			// that follow, so refusing a supplied scanner still left the chain in the
+			// config service — invisible to `list()`, "already configured" on retry,
+			// and written into the persisted config by the next watch-only sync.
+			const inScanner = this.scanner.chains().includes(chainId)
+			if (!inScanner && !this.ownsScanner) {
+				throw new Error(
+					`Chain ${chainId} is not in the order scanner. This solver was started with a scanner you ` +
+						`own — add the chain to it with scanner.addChain(...) before adding it here.`,
+				)
+			}
+
 			configService.addChain(resolved)
 			// A filler the operator put in watch-only must not start filling on a chain
 			// added later. `chain.watchOnly` still wins when given explicitly.
-			if (chain.watchOnly ?? this.runtime.globalWatchOnly) intentFiller.setWatchOnly(chainId, true)
-
-			// The scanner has to carry the chain before the monitor can match it. On a
-			// scanner this solver built, add it. On the caller's, it is theirs to
-			// extend — but if they already have, there is nothing to object to.
-			if (!this.scanner.chains().includes(chainId)) {
-				if (!this.ownsScanner) {
-					throw new Error(
-						`Chain ${chainId} is not in the order scanner. This solver was started with a scanner you ` +
-							`own — add the chain to it with scanner.addChain(...) before adding it here.`,
-					)
-				}
-				await this.scanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
-			}
+			const watchOnly = chain.watchOnly ?? this.runtime.globalWatchOnly
+			if (watchOnly) intentFiller.setWatchOnly(chainId, true)
 
 			try {
+				if (!inScanner) {
+					await this.scanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
+				}
 				// Drop anything cached from a previous life of this chain id, or the
-			// clients keep pointing at whatever endpoints it had before.
-			this.runtime.chainClientManager.invalidate(formatChainKey(chainId))
-			await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
+				// clients keep pointing at whatever endpoints it had before.
+				this.runtime.chainClientManager.invalidate(formatChainKey(chainId))
+				await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
 			} catch (error) {
 				// Roll back so a failed add cannot leave a chain that reads as
-				// configured but is not being scanned.
+				// configured but is not being scanned. The scanner add is inside the try
+				// for the same reason: bad endpoints on an owned scanner used to throw
+				// past this block, leaving exactly the state it exists to prevent.
 				configService.removeChain(chainId)
+				if (watchOnly) intentFiller.clearWatchOnly(chainId)
 				if (this.ownsScanner) await this.scanner.removeChain(chainId).catch(() => {})
 				throw error
 			}

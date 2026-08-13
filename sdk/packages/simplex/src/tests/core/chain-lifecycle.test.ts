@@ -5,6 +5,15 @@ import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import { EventMonitor } from "@/core/event-monitor"
 import type { OrderScanner, OrderScannerHandlers } from "@/scanner/types"
 import type { HexString } from "@hyperbridge/sdk"
+import { ChainController } from "@/simplex"
+import type { FillerRuntime } from "@/core/boot"
+
+// `add` probes the endpoints for real; these are not endpoints.
+vi.mock("@/services/FillerConfigService", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/services/FillerConfigService")>()),
+	resolveChainConfigs: async (entries: { rpcUrls: string[]; bundlerUrl?: string }[]) =>
+		entries.map((entry) => ({ chainId: 8453, rpcUrls: entry.rpcUrls, bundlerUrl: entry.bundlerUrl })),
+}))
 
 /**
  * The plumbing behind runtime chain edits. Each piece is covered here rather
@@ -248,5 +257,52 @@ describe("EventMonitor chain lifecycle", () => {
 		await monitor.startListening()
 		await monitor.stopListening()
 		expect(wasClosed()).toBe(true)
+	})
+})
+
+describe("ChainController.add rollback", () => {
+	/**
+	 * Reported in review on #1123: the supplied-scanner refusal sat below
+	 * `configService.addChain`, so a rejected add left the chain registered but
+	 * unscanned — absent from `list()`, "already configured" on retry, and picked
+	 * up by the next `syncWatchOnlyToConfig()` into the persisted config.
+	 */
+	it("mutates nothing when it refuses a chain missing from a supplied scanner", async () => {
+		const service = configService()
+		const before = [...service.getConfiguredChainIds()]
+
+		const intentFiller = {
+			setWatchOnly: vi.fn(),
+			clearWatchOnly: vi.fn(),
+			addChain: vi.fn(),
+			getWatchOnly: () => ({}),
+		}
+		const runtime = {
+			configService: service,
+			config: { chains: [], confirmationPolicies: {} },
+			intentFiller,
+			globalWatchOnly: true,
+			resolvedChains: [],
+			chainClientManager: { invalidate: vi.fn() },
+		} as unknown as FillerRuntime
+
+		// A scanner the caller owns that does not carry the chain being added.
+		const supplied: OrderScanner = {
+			subscribe: () => ({ close: () => {}, dropped: 0 }),
+			chains: () => [],
+			addChain: vi.fn(async () => 0),
+			setRpcUrls: async () => {},
+			removeChain: async () => {},
+			close: async () => {},
+		}
+		const controller = new ChainController(runtime, async () => {}, supplied, false)
+
+		await expect(
+			controller.add({ rpcUrls: ["https://base.example"], bundlerUrl: "https://bundler.example" }),
+		).rejects.toThrow(/not in the order scanner/)
+
+		expect(service.getConfiguredChainIds()).toEqual(before)
+		expect(intentFiller.setWatchOnly).not.toHaveBeenCalled()
+		expect(supplied.addChain).not.toHaveBeenCalled()
 	})
 })

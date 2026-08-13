@@ -328,6 +328,17 @@ export class IntentFiller {
 		this.config.watchOnly[chainId] = value
 	}
 
+	/**
+	 * Forgets a chain's watch-only flag entirely, rather than setting it false.
+	 *
+	 * Used when an add is rolled back: leaving `{ [chainId]: false }` behind would
+	 * report a watch-only state for a chain that is no longer configured, and the
+	 * config sync would persist it.
+	 */
+	public clearWatchOnly(chainId: number): void {
+		if (this.config.watchOnly) delete this.config.watchOnly[chainId]
+	}
+
 	public getWatchOnly(): Record<number, boolean> {
 		return this.config.watchOnly ?? {}
 	}

@@ -481,10 +481,21 @@ pub mod pallet {
 							state_id: host.host_state_machine(),
 						},
 						StateCommitmentHeight {
-							height: 1,
+							// The chain this runs on is rarely at genesis, and a commitment at
+							// height 1 tells a prover to start from a block whose state has long
+							// been pruned.
+							height: {
+								use sp_runtime::SaturatedConversion;
+								frame_system::Pallet::<T>::block_number().saturated_into::<u64>()
+							},
 							commitment: StateCommitment {
 								timestamp: host.timestamp().as_secs(),
-								overlay_root: None,
+								// A seeded commitment outranks anything a proof later creates for
+								// an older height, so it has to carry a real overlay root or every
+								// proof settles against an empty one.
+								overlay_root: Some(H256::from_slice(
+									pallet_ismp::ChildTrieRoot::<T>::get().as_ref(),
+								)),
 								state_root: H256::zero(),
 							},
 						},

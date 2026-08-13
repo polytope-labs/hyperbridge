@@ -175,6 +175,17 @@ pub const APK_G2_LEN: usize = 192;
 /// The participation bitlist, one bit per validator slot.
 pub const APK_BITLIST_WORDS: usize = 5;
 
+/// `Beefy::NextAuthorities` on a relay chain.
+///
+/// The *next* set, not the current one. A client verifying under set N learns the commitment for
+/// set N+1, which is what lets it verify the update after a rotation. Note this is not
+/// `well_known_keys::NEXT_AUTHORITIES`, which is Babe's: both end in `twox_128("NextAuthorities")`
+/// and only the pallet prefix differs.
+pub const RELAY_BEEFY_NEXT_AUTHORITIES: [u8; 32] = [
+	0x08, 0xc4, 0x19, 0x74, 0xa9, 0x7d, 0xbf, 0x15, 0xcf, 0xbe, 0xc2, 0x83, 0x65, 0xbe, 0xa2, 0xda,
+	0xaa, 0xcf, 0x00, 0xb9, 0xb4, 0x1f, 0xda, 0x7a, 0x92, 0x68, 0x82, 0x1c, 0x2a, 0x2b, 0x3e, 0x4c,
+];
+
 /// Engine id of the digest item carrying an authority set's APK commitment.
 pub const APK_ENGINE_ID: [u8; 4] = *b"APKC";
 

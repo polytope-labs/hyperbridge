@@ -34,7 +34,9 @@ use alloc::vec::Vec;
 use apk_commitment::{PartialCommitment, NUM_VALIDATORS};
 use ark_bls12_381::G1Affine;
 use ark_serialize::CanonicalDeserialize;
-pub use beefy_verifier_primitives::{ApkCommitmentDigest, APK_ENGINE_ID};
+pub use beefy_verifier_primitives::{
+	ApkCommitmentDigest, APK_ENGINE_ID, RELAY_BEEFY_NEXT_AUTHORITIES,
+};
 use beefy_verifier_primitives::{PairedAuthority, BLS_G1_SIGNATURE_LEN};
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayChainStateProof;
@@ -43,20 +45,6 @@ use polkadot_sdk::*;
 use scale_info::TypeInfo;
 
 pub use pallet::*;
-
-/// `Beefy::NextAuthorities` on the relay chain.
-///
-/// The *next* set, not the current one, and the distinction is what makes the scheme work. A client
-/// verifying a header signed by set N reads this digest and thereby learns the commitment for set
-/// N+1, so it can verify the following update. Committing the current set instead would be
-/// circular: you would need set N's commitment to verify the header carrying set N's commitment.
-///
-/// Also note this is not `well_known_keys::AUTHORITIES`, which is `Babe::Authorities`; the BEEFY
-/// keys live under the `Beefy` prefix.
-pub const RELAY_BEEFY_NEXT_AUTHORITIES: [u8; 32] = [
-	0x08, 0xc4, 0x19, 0x74, 0xa9, 0x7d, 0xbf, 0x15, 0xcf, 0xbe, 0xc2, 0x83, 0x65, 0xbe, 0xa2, 0xda,
-	0xaa, 0xcf, 0x00, 0xb9, 0xb4, 0x1f, 0xda, 0x7a, 0x92, 0x68, 0x82, 0x1c, 0x2a, 0x2b, 0x3e, 0x4c,
-];
 
 /// `Beefy::ValidatorSetId` on the relay chain, the id of the *current* set. The digest reports
 /// `set_id + 1`, since it describes [`RELAY_BEEFY_NEXT_AUTHORITIES`].
@@ -115,7 +103,7 @@ pub mod pallet {
 
 	/// The last commitment published to a header digest, and the set it describes.
 	#[pallet::storage]
-	pub type Published<T: Config> = StorageValue<_, ([u8; 32], [u8; 32]), OptionQuery>;
+	pub type Published<T: Config> = StorageValue<_, (u64, [u8; 32], [u8; 32]), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -165,10 +153,19 @@ pub mod pallet {
 
 			let mut progress = match next_progress(
 				Pending::<T>::get().as_ref(),
-				Published::<T>::get().map(|(d, _)| d),
+				Published::<T>::get().map(|(id, digest, _)| (id, digest)),
+				set_id,
 				set_digest,
 			) {
-				Step::Done => return Ok(0),
+				// Already hashed this set, but the digest still goes in every header until it
+				// rotates. A verifier only reads the one header a proof happens to finalize, so
+				// publishing once would mean it almost never sees it.
+				Step::Done => {
+					if let Some((set_id, _, commitment)) = Published::<T>::get() {
+						Self::deposit_digest(set_id, commitment);
+					}
+					return Ok(0);
+				},
 				Step::Restart => {
 					Self::deposit_event(Event::CommitmentStarted { set_digest });
 					Progress::fresh(set_digest)
@@ -188,23 +185,30 @@ pub mod pallet {
 
 			if progress.absorbed as usize == NUM_VALIDATORS {
 				let commitment = progress.state;
-				let payload = ApkCommitmentDigest { set_id, commitment };
-
-				// The header is the delivery mechanism: a client that has already authenticated
-				// this header through the BEEFY MMR's parachain heads root can read the commitment
-				// straight out of it, with no further proof.
-				frame_system::Pallet::<T>::deposit_log(sp_runtime::DigestItem::Consensus(
-					APK_ENGINE_ID,
-					payload.encode(),
-				));
+				Self::deposit_digest(set_id, commitment);
 
 				Pending::<T>::kill();
-				Published::<T>::put((set_digest, commitment));
+				Published::<T>::put((set_id, set_digest, commitment));
 				Self::deposit_event(Event::CommitmentPublished { set_id, set_digest, commitment });
 			} else {
 				Pending::<T>::put(&progress);
 			}
 			Ok(take as u32)
+		}
+
+		/// Put the commitment in this block's header.
+		///
+		/// The header is the delivery mechanism: a client that has already authenticated it
+		/// through the BEEFY MMR's parachain heads root reads the commitment straight out of it,
+		/// with no further proof. It goes in every header the set covers rather than only the one
+		/// where the hashing finished, since a verifier only ever sees the single header a proof
+		/// finalizes and cannot choose which.
+		fn deposit_digest(set_id: u64, commitment: [u8; 32]) {
+			let payload = ApkCommitmentDigest { set_id, commitment };
+			frame_system::Pallet::<T>::deposit_log(sp_runtime::DigestItem::Consensus(
+				APK_ENGINE_ID,
+				payload.encode(),
+			));
 		}
 
 		/// The id of the set the commitment describes: the relay's current set id plus one, since
@@ -296,13 +300,17 @@ pub enum Step {
 /// set. Restarting is the only safe answer.
 pub fn next_progress(
 	pending: Option<&Progress>,
-	published: Option<[u8; 32]>,
+	published: Option<(u64, [u8; 32])>,
+	set_id: u64,
 	set_digest: [u8; 32],
 ) -> Step {
 	match pending {
 		Some(p) if p.set_digest != set_digest => Step::Restart,
 		Some(p) => Step::Continue(p.clone()),
-		None if published == Some(set_digest) => Step::Done,
+		// Keyed on the set id as well as the keys. A session can rotate without changing the
+		// membership, and a client tracks commitments per set id, so the same commitment has to be
+		// published again under the new one or the client never learns it and stalls there.
+		None if published == Some((set_id, set_digest)) => Step::Done,
 		None => Step::Restart,
 	}
 }
@@ -451,24 +459,32 @@ mod tests {
 
 	#[test]
 	fn a_fresh_chain_starts() {
-		assert_eq!(next_progress(None, None, SET_A), Step::Restart);
+		assert_eq!(next_progress(None, None, 1, SET_A), Step::Restart);
 	}
 
 	#[test]
 	fn an_already_published_set_is_left_alone() {
-		assert_eq!(next_progress(None, Some(SET_A), SET_A), Step::Done);
+		assert_eq!(next_progress(None, Some((1, SET_A)), 1, SET_A), Step::Done);
+	}
+
+	/// A session can rotate without the membership changing, which is common on small networks and
+	/// possible anywhere. The keys hash to the same digest, but the client files commitments under
+	/// the set id, so this has to publish again rather than deciding there is nothing to do.
+	#[test]
+	fn the_same_keys_under_a_new_set_id_are_published_again() {
+		assert_eq!(next_progress(None, Some((1, SET_A)), 2, SET_A), Step::Restart);
 	}
 
 	/// A new set arriving after one was published starts rather than stopping.
 	#[test]
 	fn a_new_set_starts_even_though_another_was_published() {
-		assert_eq!(next_progress(None, Some(SET_A), SET_B), Step::Restart);
+		assert_eq!(next_progress(None, Some((1, SET_A)), 2, SET_B), Step::Restart);
 	}
 
 	#[test]
 	fn work_in_progress_on_the_same_set_continues() {
 		let p = Progress { set_digest: SET_A, absorbed: 128, state: [1u8; 32] };
-		assert_eq!(next_progress(Some(&p), None, SET_A), Step::Continue(p));
+		assert_eq!(next_progress(Some(&p), None, 1, SET_A), Step::Continue(p));
 	}
 
 	/// The case this whole function exists for: the authority set changed while a commitment was
@@ -476,7 +492,7 @@ mod tests {
 	#[test]
 	fn a_rotation_part_way_through_restarts() {
 		let p = Progress { set_digest: SET_A, absorbed: 512, state: [1u8; 32] };
-		assert_eq!(next_progress(Some(&p), None, SET_B), Step::Restart);
+		assert_eq!(next_progress(Some(&p), None, 2, SET_B), Step::Restart);
 	}
 
 	/// And restarting has to mean *restarting*, not resuming with a relabelled set. If the state
@@ -502,7 +518,12 @@ mod tests {
 		let mut state = PartialCommitment::new().to_bytes();
 		state = absorb_slots(&first, 0, 300, state).unwrap();
 		assert_eq!(
-			next_progress(Some(&Progress { set_digest: SET_A, absorbed: 300, state }), None, SET_B),
+			next_progress(
+				Some(&Progress { set_digest: SET_A, absorbed: 300, state }),
+				None,
+				2,
+				SET_B
+			),
 			Step::Restart
 		);
 

@@ -38,6 +38,7 @@ export class VaultFundingPlanner implements FundingVenue {
 	private sweepMutexByChain = new Map<string, Mutex>()
 	private solver: HexString | null = null
 	private sweepInterval?: NodeJS.Timeout
+	private initialSweepTimer?: NodeJS.Timeout
 
 	/**
 	 * @param userOpSender When provided, sweep/redeem batches are sent as Circle-
@@ -223,7 +224,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		const intervalMs = this.config.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS
 
 		// Initial sweep shortly after start (lets the filler settle first).
-		setTimeout(() => {
+		this.initialSweepTimer = setTimeout(() => {
 			this.sweepExcessToVault().catch((err) => this.logger.error({ err }, "Vault initial sweep failed"))
 		}, 30_000)
 
@@ -235,6 +236,12 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	stopSweeping(): void {
+		// Tracked as well as the interval: the first sweep is a one-shot timer, and
+		// an untracked one fires after stop() has already resolved.
+		if (this.initialSweepTimer) {
+			clearTimeout(this.initialSweepTimer)
+			this.initialSweepTimer = undefined
+		}
 		if (this.sweepInterval) {
 			clearInterval(this.sweepInterval)
 			this.sweepInterval = undefined

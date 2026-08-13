@@ -204,11 +204,6 @@ export function adminStrategyFor(
 export async function bootFiller(config: FillerTomlConfig, options: BootOptions): Promise<FillerRuntime> {
 	validateConfig(config, options.watchOnlyOverride === true)
 
-	// Configure logger based on config BEFORE creating any services
-	if (config.simplex.logging) {
-		configureLogger(config.simplex.logging as LogLevel)
-	}
-
 	const logger = moduleLogger(options.loggers, "cli")
 	logger.info({ configPath: options.configPath }, "Loading configuration")
 	logger.info("Starting Filler...")

@@ -19,7 +19,7 @@ less work.
 npm install @hyperbridge/simplex
 ```
 
-Node.js 18 or later. The package ships ESM and CJS builds with bundled types.
+Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
 
 ## Starting a filler
 
@@ -216,8 +216,8 @@ const simplex = await Simplex.start({
 })
 ```
 
-Without it, edits apply live but do not survive a restart. The binary supplies a handler that writes
-the TOML file back.
+Without it, edits apply live but do not survive a restart — `configPath` alone does not persist them;
+it is informational. The binary supplies a handler that writes the TOML file back.
 
 ## Self-halt
 

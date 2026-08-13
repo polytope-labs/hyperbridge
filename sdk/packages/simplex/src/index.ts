@@ -26,21 +26,27 @@
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
-export { Simplex } from "@/simplex"
+// The controllers are classes you receive from a Simplex, never construct. They
+// are exported as values because that is what they are — exporting them as types
+// made the emitted .d.ts declare runtime bindings that do not exist, so
+// `import { PairController }` type-checked and was undefined at run time.
+export {
+	Simplex,
+	PairController,
+	ChainController,
+	VaultController,
+	AssetController,
+	WalletController,
+	RebalanceController,
+} from "@/simplex"
 export type {
 	SimplexOptions,
 	SimplexConfig,
 	SimplexEvents,
 	SimplexStatus,
-	PairController,
 	PairView,
-	ChainController,
 	ChainInput,
 	ChainView,
-	VaultController,
-	AssetController,
-	WalletController,
-	RebalanceController,
 } from "@/simplex"
 
 // ─── Persistence ────────────────────────────────────────────────────────────

@@ -109,6 +109,12 @@ export interface OperatorContext {
 	bids?: Pick<BidStore, "recent" | "stats">
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
+	/**
+	 * Sets the running filler's verbosity. Logging is scoped per filler, so
+	 * `configureLogger` alone moves only the process-wide fallback context and
+	 * leaves this filler's own output untouched.
+	 */
+	setLogLevel(level: LogLevel): void
 	vault?: {
 		sweepNow(): Promise<void>
 		redeemAll(): Promise<void>
@@ -1143,7 +1149,7 @@ export class UiServer {
 		if (!level || !(LOG_LEVELS as readonly string[]).includes(level)) {
 			return sendJson(res, 400, { error: `level must be one of ${LOG_LEVELS.join(", ")}` })
 		}
-		configureLogger(level as LogLevel)
+		this.operator!.setLogLevel(level as LogLevel)
 		this.operator!.config.simplex.logging = level
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")

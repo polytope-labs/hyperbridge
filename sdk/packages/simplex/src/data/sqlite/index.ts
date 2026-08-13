@@ -1,7 +1,7 @@
 import Database, { type Database as DatabaseType } from "better-sqlite3"
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { getLogger } from "@/services/Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { ActivityStore, BidStore, SimplexDataStore, StateStore } from "@/data/types"
 import { SqliteActivityStore } from "./activity"
 import { SqliteBidStore } from "./bids"
@@ -29,9 +29,10 @@ export class SqliteDataStore implements SimplexDataStore {
 	readonly state: StateStore
 
 	private databases: DatabaseType[]
-	private logger = getLogger("data-store")
+	private logger: Logger
 
-	constructor(dataDir: string) {
+	constructor(dataDir: string, loggers: LoggerContext = defaultLoggerContext()) {
+		this.logger = loggers.get("data-store")
 		if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 
 		const bidsDb = new Database(join(dataDir, "bids.db"))
@@ -39,8 +40,8 @@ export class SqliteDataStore implements SimplexDataStore {
 		activityDb.pragma("journal_mode = WAL")
 
 		this.databases = [bidsDb, activityDb]
-		this.bids = new SqliteBidStore(bidsDb)
-		this.activity = new SqliteActivityStore(activityDb)
+		this.bids = new SqliteBidStore(bidsDb, loggers)
+		this.activity = new SqliteActivityStore(activityDb, loggers)
 		this.state = new FileStateStore(dataDir)
 
 		this.logger.info({ dataDir }, "SQLite data store opened")

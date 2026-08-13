@@ -37,7 +37,7 @@ static async start(options: SimplexOptions): Promise<Simplex>
 |------|------|-------------|
 | `options.config` | `SimplexConfig` | The filler configuration. Same shape the binary's `filler-config.toml` parses into |
 | `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
-| `options.configPath` | `string` | Optional. Where the config was loaded from; only used to write runtime edits back to disk |
+| `options.configPath` | `string` | Optional. Where the config was loaded from. Informational — it is surfaced in logs and to the bundled dashboard. The library never writes it; use `onConfigChange` to persist runtime edits |
 | `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the filler logs nothing |
@@ -219,7 +219,7 @@ setLogLevel(level: LogLevel): void
 
 ### on(event, listener) / once(event, listener) / off(event, listener)
 
-Payloads are inferred from the event name, so a typo or a wrong field is a compile error.
+Payloads are inferred from the event name, so a wrong field is a compile error. A misspelled event name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string.
 
 ```typescript lineNumbers
 on<E extends keyof SimplexEvents>(event: E, listener: (payload: SimplexEvents[E]) => void): this
@@ -422,7 +422,7 @@ unconfigured chains, same-asset duplicates and non-vault addresses surface befor
 `set`. `sweepNow` deposits wallet balance above each vault's threshold down to its floor;
 `redeemAll` unwinds every position back to its underlying asset.
 
-**Throws:** All five throw if the filler was started without a vault treasury.
+**Throws:** `set`, `sweepNow` and `redeemAll` throw if the filler was started without a vault treasury. `list` returns `[]` and `preflight` does not require one.
 
 ## AssetController
 
@@ -465,7 +465,7 @@ set(rebalancing: RebalancingConfig | undefined): Promise<void>
 trigger(): Promise<unknown>
 ```
 
-`set` replaces the settings; trigger checks read them live. `trigger` runs a check now instead of
+`set` replaces the settings; trigger checks read them live. It cannot *enable* rebalancing on a filler that booted without it — the service is constructed at boot — so that still needs a restart. `trigger` runs a check now instead of
 waiting for the timer, and throws if the filler was started without rebalancing configured.
 
 ## Persistence
@@ -662,7 +662,7 @@ Useful for gating input from a form, a database or an API before committing to a
 | `validateVaultToml(vault)` | Vault treasury entries |
 | `validateUniswapV4Positions(positions)` | V4 position entries |
 | `bookCrossedAt(bid, ask)` | First amount where bid ≤ ask, or `null`. A crossed book is legal but means a full round trip loses money |
-| `unanchoredToken0Symbols(pairs)` | token0 symbols with no path to a USD anchor |
+| `unanchoredToken0Symbols(pairs)` | token0 symbols with no path to a USD anchor. Each entry needs `{ token0, token1, hasCurve }` |
 | `pickAnchorStable(pairs, symbol)` | Which USD stable can carry a reference feed for a symbol |
 | `normalizeSymbol(symbol)` | Trimmed, uppercased |
 | `isRegistrySymbol(symbol)` / `registrySymbols()` | Built-in registry membership |

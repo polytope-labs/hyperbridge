@@ -118,7 +118,7 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorContext> {
+async function operatorContextFrom(runtime: FillerRuntime, onStop?: () => void): Promise<OperatorContext> {
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
@@ -176,12 +176,16 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 		haltControls: runtime.haltControls,
 		config: runtime.config,
 		stop: async () => {
+			// Flush persisted counters before exiting, or the UI's Stop loses up to
+			// 30s of them where a signal-driven shutdown would not.
+			onStop?.()
 			await runtime.shutdown("UI")
 			process.exit(0)
 		},
 		activity: runtime.activity,
 		bids: runtime.data.bids,
 		setPaused: (paused) => runtime.data.state.set({ paused }),
+		setLogLevel: (level) => runtime.loggers.setLevel(level),
 		vault: runtime.vaultVenue
 			? {
 					sweepNow: () => runtime.vaultVenue!.sweepExcessToVault(),
@@ -333,7 +337,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(runtime!),
+						operator: await operatorContextFrom(runtime!, () => metrics?.stop()),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -365,7 +369,7 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(runtime!))
+						server.enterOperatorMode(await operatorContextFrom(runtime!, () => metrics?.stop()))
 					},
 				},
 			})

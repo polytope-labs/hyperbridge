@@ -1,6 +1,8 @@
 import pino, { stdSerializers } from "pino"
 
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
+export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
+
+export type LogLevel = (typeof LOG_LEVELS)[number]
 
 /**
  * Anything that accepts a line of text: `process.stdout`, a `fs` write stream, a
@@ -44,6 +46,12 @@ export class LoggerContext {
 	private readonly children = new Map<string, pino.Logger>()
 
 	constructor(options: { level?: LogLevel; sink?: LogSink } = {}) {
+		// Checked here rather than at the first log: pino throws on an unknown level,
+		// and with a silent default that throw would surface much later, from
+		// whatever happened to log first after a sink attached.
+		if (options.level && !LOG_LEVELS.includes(options.level)) {
+			throw new Error(`Unknown log level '${options.level}'. Use one of: ${LOG_LEVELS.join(", ")}`)
+		}
 		this.level = options.level ?? "info"
 		if (options.sink) this.sinks.add(options.sink)
 	}
@@ -111,6 +119,9 @@ export class LoggerContext {
 
 	/** Sets verbosity, including for loggers already handed out. */
 	setLevel(level: LogLevel): void {
+		if (!LOG_LEVELS.includes(level)) {
+			throw new Error(`Unknown log level '${level}'. Use one of: ${LOG_LEVELS.join(", ")}`)
+		}
 		this.level = level
 		this.invalidate()
 	}

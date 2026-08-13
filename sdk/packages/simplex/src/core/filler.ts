@@ -43,6 +43,7 @@ export class IntentFiller {
 	private stopping = false
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
+	private initialRebalanceTimer?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
 	private stopPhantomPolling: (() => void) | null = null
 	// Last phantom bid commitment per chain. The pallet bundles every configured pair into a single
@@ -336,8 +337,9 @@ export class IntentFiller {
 	 * Checks every 5 minutes for triggers and executes rebalancing if needed.
 	 */
 	private startRebalancing(): void {
-		// Run initial check after 30 seconds (to let the filler start up)
-		setTimeout(() => {
+		// Run initial check after 30 seconds (to let the filler start up). Tracked so
+		// it cannot fire after stop() has resolved.
+		this.initialRebalanceTimer = setTimeout(() => {
 			this.checkAndRebalance().catch((error) => {
 				this.logger.error({ error }, "Error in initial rebalancing check")
 			})
@@ -435,6 +437,10 @@ export class IntentFiller {
 		}
 
 		// Stop rebalancing interval
+		if (this.initialRebalanceTimer) {
+			clearTimeout(this.initialRebalanceTimer)
+			this.initialRebalanceTimer = undefined
+		}
 		if (this.rebalancingInterval) {
 			clearInterval(this.rebalancingInterval)
 			this.rebalancingInterval = undefined
@@ -844,8 +850,8 @@ export class IntentFiller {
 
 					if (this.pendingRetractions.delete(commitment)) {
 						this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
-						await this.bidStorage?.markDead(commitment)
 						this.enqueueRetraction(commitment)
+						await this.bidStorage?.markDead(commitment)
 					}
 				}
 
@@ -922,11 +928,11 @@ export class IntentFiller {
 			return
 		}
 
-		// The order is filled, so the bid is dead weight from here on. Should the immediate
-		// retraction below not confirm, the sweep re-attempts dead bids on its next cycle
-		// instead of waiting out the stale-bid TTL.
-		await this.bidStorage.markDead(commitment)
+		// Retract first, flag second. markDead only buys a faster *retry* — the sweep
+		// re-attempts dead bids without waiting out the TTL — so letting a failed
+		// flag-write suppress the retraction itself inverts the intent.
 		this.enqueueRetraction(commitment)
+		await this.bidStorage.markDead(commitment)
 	}
 
 	private enqueueRetraction(commitment: HexString): void {

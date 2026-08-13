@@ -3,7 +3,7 @@ import { Decimal } from "decimal.js"
 import type { HexString, Order } from "@hyperbridge/sdk"
 import { adminStrategyFor, bootFiller, tradingPairFrom, type FillerRuntime } from "@/core/boot"
 import { FillerPricePolicy, formatChainKey, type PriceCurvePoint } from "@/config/interpolated-curve"
-import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
+import { AssetRegistry, normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
@@ -410,7 +410,10 @@ export class ChainController {
 			await this.ownedStream.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
 
 			try {
-				await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
+				// Drop anything cached from a previous life of this chain id, or the
+			// clients keep pointing at whatever endpoints it had before.
+			this.runtime.chainClientManager.invalidate(formatChainKey(chainId))
+			await intentFiller.addChain(configService.getChainConfig(formatChainKey(chainId)))
 			} catch (error) {
 				// Roll back so a failed add cannot leave a chain that reads as
 				// configured but is not being scanned.

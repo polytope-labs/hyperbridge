@@ -8,6 +8,7 @@ import {
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
+import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
@@ -113,13 +114,15 @@ function fakeConfig(): FillerTomlConfig {
 	}
 }
 
-type TestOperator = OperatorContext & { data: MemoryDataStore }
+type TestOperator = OperatorContext & { data: MemoryDataStore; loggers: LoggerContext }
 
 function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
 	const data = new MemoryDataStore()
+	const loggers = new LoggerContext()
 	return {
 		data,
+		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
 		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
@@ -128,6 +131,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
 		setPaused: (paused: boolean) => data.state.set({ paused }),
+		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
 		applyRebalancing: vi.fn(),
 		version: "0.0.0-test",

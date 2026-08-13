@@ -1,5 +1,5 @@
 import type { Database as DatabaseType } from "better-sqlite3"
-import { getLogger } from "@/services/Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { sqliteDatetime } from "@/data/memory"
 import type { BidInsert, BidStats, BidStore, StoredBid } from "@/data/types"
 
@@ -28,9 +28,13 @@ const BID_COLUMNS = `
  * retraction sweep relies on.
  */
 export class SqliteBidStore implements BidStore {
-	private logger = getLogger("bid-storage")
+	private logger: Logger
 
-	constructor(private db: DatabaseType) {
+	constructor(
+		private db: DatabaseType,
+		loggers: LoggerContext = defaultLoggerContext(),
+	) {
+		this.logger = loggers.get("bid-storage")
 		this.initializeSchema()
 	}
 

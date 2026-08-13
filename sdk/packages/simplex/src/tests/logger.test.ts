@@ -141,7 +141,7 @@ describe("LoggerContext isolation", () => {
 
 		expect(instance.lines).toHaveLength(1)
 		expect(process.lines).toHaveLength(0)
-	})
+	}, 20_000)
 
 	it("takes an initial level and accepts more sinks later", () => {
 		const first = collector()
@@ -159,6 +159,8 @@ describe("LoggerContext isolation", () => {
 })
 
 describe("service wiring", () => {
+	// 20s: the dynamic imports below pull in the polkadot graph, whose WASM crypto
+	// init runs past the 5s default when the whole suite is warming up at once.
 	it("routes services through their filler's context, not the process one", async () => {
 		const { FillerConfigService } = await import("@/services/FillerConfigService")
 		const { ChainClientManager } = await import("@/services/ChainClientManager")
@@ -185,7 +187,7 @@ describe("service wiring", () => {
 		// Whatever any of them logged went to the filler's sink; the process-wide
 		// context — which a host would never have configured — stayed empty.
 		expect(process.lines).toHaveLength(0)
-	})
+	}, 20_000)
 
 	it("gives two config services independent contexts", async () => {
 		const { FillerConfigService } = await import("@/services/FillerConfigService")

@@ -11,16 +11,24 @@
 	},
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs",
-			"default": "./dist/index.js"
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
 		},
 		"./sqlite": {
-			"types": "./dist/sqlite.d.ts",
-			"import": "./dist/sqlite.js",
-			"require": "./dist/sqlite.cjs",
-			"default": "./dist/sqlite.js"
+			"import": {
+				"types": "./dist/sqlite.d.ts",
+				"default": "./dist/sqlite.js"
+			},
+			"require": {
+				"types": "./dist/sqlite.d.cts",
+				"default": "./dist/sqlite.cjs"
+			}
 		},
 		"./package.json": "./package.json"
 	},
@@ -75,9 +83,8 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"engineStrict": true,
 	"engines": {
-		"node": ">=18.0.0"
+		"node": ">=22.0.0"
 	},
 	"dependencies": {
 		"@binance/wallet": "^16.0.0",
@@ -164,6 +171,7 @@
 	},
 	"sideEffects": false,
 	"optionalDependencies": {
-		"better-sqlite3": "^13.0.3"
+		"better-sqlite3": "^13.0.3",
+		"@types/better-sqlite3": "^7.6.13"
 	}
 }

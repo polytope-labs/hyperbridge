@@ -1,5 +1,5 @@
 import type { Database as DatabaseType } from "better-sqlite3"
-import { getLogger } from "@/services/Logger"
+import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { ActivityEvent, ActivityInsert, ActivityStore, WalletTx } from "@/data/types"
 
 const MAX_ROWS = 10_000
@@ -35,10 +35,14 @@ function capLimit(limit: number): number {
  * swallowed — losing the trim must never fail the write that triggered it.
  */
 export class SqliteActivityStore implements ActivityStore {
-	private logger = getLogger("activity")
+	private logger: Logger
 	private insertsSincePrune = 0
 
-	constructor(private db: DatabaseType) {
+	constructor(
+		private db: DatabaseType,
+		loggers: LoggerContext = defaultLoggerContext(),
+	) {
+		this.logger = loggers.get("activity")
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS events (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,

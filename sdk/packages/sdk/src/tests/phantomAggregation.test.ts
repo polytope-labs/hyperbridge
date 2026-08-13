@@ -541,6 +541,79 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(getCodeCalls).toBeGreaterThanOrEqual(AGGREGATION_ATTEMPTS)
 	}, 30_000)
 
+	// The dedupe that collapses one solver's bid across N fillers runs AFTER verification, so
+	// without a cache every copy re-asked the chain the same question — and every retry re-asked
+	// it for every solver, hammering the endpoint most likely to be throttled.
+	it("reads a solver's delegation once per aggregation, not once per duplicate bid", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let getCodeCalls = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "eth_getCode") getCodeCalls += 1
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [userOp, userOp, userOp].map((op) => ({
+							commitment: COMMITMENT,
+							filler: `0x${"ab".repeat(32)}`,
+							user_op: encodeUserOpScale(op),
+						}))
+					: payload.method === "eth_getCode"
+						? delegatedTo(SOLVER_ACCOUNT)()
+						: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+		})
+
+		expect(result!.legs[0].bidCount).toBe(1)
+		expect(getCodeCalls).toBe(1)
+	})
+
+	it("does not re-read a verified solver's delegation when a retry is forced elsewhere", async () => {
+		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
+		let getCodeCalls = 0
+		let runs = 0
+		setAggregationFetch(async (_url, init) => {
+			const payload = JSON.parse(init.body)
+			if (payload.method === "intents_getBidsForOrder") runs += 1
+			if (payload.method === "eth_getCode") getCodeCalls += 1
+			// The first run dies on a balance read, long after delegation was settled.
+			if (payload.method === "eth_call" && runs < 2) {
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", error: { code: -32005 } }) }
+			}
+			const result =
+				payload.method === "intents_getBidsForOrder"
+					? [{ commitment: COMMITMENT, filler: `0x${"ab".repeat(32)}`, user_op: encodeUserOpScale(userOp) }]
+					: payload.method === "eth_getCode"
+						? delegatedTo(SOLVER_ACCOUNT)()
+						: toHex(SOLVER_BALANCE, { size: 32 })
+			return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+		})
+
+		const result = await aggregatePhantomBids({
+			nodeUrl: NODE_URL,
+			evmRpcUrls: { [CHAIN]: "http://base.test" },
+			chain: CHAIN,
+			gatewayAddress: GATEWAY,
+			commitment: COMMITMENT,
+			yieldVaults: { [CHAIN]: { [USDT]: [] } },
+			solverAccount: SOLVER_ACCOUNT,
+		})
+
+		expect(runs).toBeGreaterThan(1)
+		expect(result!.legs[0].bidders[0].weight).toBe(SOLVER_BALANCE)
+		// Verified on the first run and still trusted on the second.
+		expect(getCodeCalls).toBe(1)
+	}, 30_000)
+
 	it("retries the whole run and succeeds once the RPC recovers", async () => {
 		const userOp = await signedBidUserOp({ signingKey: SOLVER_KEY })
 		let attempts = 0

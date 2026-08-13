@@ -413,6 +413,38 @@ async function isDelegatedToSolverAccount(evmRpcUrl: string, account: string, so
 	return `0x${code.slice(DELEGATION_INDICATOR_PREFIX.length)}` === solverAccount.toLowerCase()
 }
 
+/** Promise-caching delegation reader produced by {@link memoizedDelegationCheck}. */
+type DelegationReader = (evmRpcUrl: string, account: string, solverAccount: string) => Promise<boolean>
+
+/**
+ * Caches the delegation check for the life of one aggregation, retries included.
+ *
+ * Two reads are otherwise repeated for nothing. A solver running several fillers has its bid
+ * copied under each, and the dedupe that collapses them runs only AFTER verification, so every
+ * copy re-interrogated the chain for the same answer. And a retry re-verifies every solver, even
+ * when the run was abandoned over an unrelated read — so the endpoint most likely to be throttled
+ * got up to five times the load from the very code meant to survive it.
+ *
+ * Rejections are evicted, so a retry re-reads rather than replaying a failure as a verdict. A
+ * negative result is cached: an EOA cannot gain a delegation part-way through one bid window, and
+ * "not our solver" is an answer, unlike an unreachable node.
+ */
+function memoizedDelegationCheck(): DelegationReader {
+	const cache = new Map<string, Promise<boolean>>()
+	return (evmRpcUrl: string, account: string, solverAccount: string): Promise<boolean> => {
+		const key = `${evmRpcUrl}|${account.toLowerCase()}|${solverAccount.toLowerCase()}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = isDelegatedToSolverAccount(evmRpcUrl, account, solverAccount).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
 /** Chain id out of an EVM state machine id ("EVM-8453" -> 8453n); null for any other format. */
 function evmChainId(chain: string): bigint | null {
 	const [prefix, id] = chain.split("-")
@@ -438,10 +470,22 @@ async function isVerifiedSolverBid(params: {
 	evmRpcUrl: string
 	recoverSigner: RecoverBidSigner
 	bidNonceKey: BidNonceKeyFn
+	/** Cached per aggregation, so duplicate fillers and retries do not re-read the same answer. */
+	isDelegated: DelegationReader
 	logger?: AggregationLogger
 }): Promise<boolean> {
-	const { userOp, commitment, sessionKey, chainId, solverAccount, evmRpcUrl, recoverSigner, bidNonceKey, logger } =
-		params
+	const {
+		userOp,
+		commitment,
+		sessionKey,
+		chainId,
+		solverAccount,
+		evmRpcUrl,
+		recoverSigner,
+		bidNonceKey,
+		isDelegated,
+		logger,
+	} = params
 	const solver = userOp.sender
 
 	const parsed = splitBidSignature(userOp.signature)
@@ -477,7 +521,7 @@ async function isVerifiedSolverBid(params: {
 		return false
 	}
 
-	if (!(await isDelegatedToSolverAccount(evmRpcUrl, solver, solverAccount))) {
+	if (!(await isDelegated(evmRpcUrl, solver, solverAccount))) {
 		logger?.warn({ solver, commitment, solverAccount }, "Rejecting phantom bid: sender is not a delegated solver")
 		return false
 	}
@@ -532,12 +576,7 @@ async function getTotalSolverBalance(
 }
 
 /** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
-export type SolverBalanceReader = (
-	evmRpcUrl: string,
-	chain: string,
-	token: string,
-	solver: string,
-) => Promise<bigint>
+export type SolverBalanceReader = (evmRpcUrl: string, chain: string, token: string, solver: string) => Promise<bigint>
 
 // One aggregation run reads the same (chain, token, solver) balance from several places — once
 // per leg the solver quoted in that token, and again in the liquidity sweep — and a bundled order
@@ -622,10 +661,13 @@ function toAddress(token: string): HexString {
 export async function aggregatePhantomBids(
 	params: Parameters<typeof runAggregation>[0],
 ): Promise<PhantomAggregation | null> {
+	// Built out here, not per attempt: delegation cannot change within a bid window, so a retry
+	// forced by one unrelated failed read must not re-interrogate every solver it already verified.
+	const isDelegated = memoizedDelegationCheck()
 	let lastErr: unknown
 	for (let attempt = 1; attempt <= AGGREGATION_ATTEMPTS; attempt++) {
 		try {
-			return await runAggregation(params)
+			return await runAggregation(params, isDelegated)
 		} catch (err) {
 			lastErr = err
 			params.logger?.warn(
@@ -641,28 +683,31 @@ export async function aggregatePhantomBids(
 /** How many times a failed aggregation run is retried before the window is given up on. */
 export const AGGREGATION_ATTEMPTS = 5
 
-async function runAggregation(params: {
-	nodeUrl: string
-	/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
-	evmRpcUrls: Record<string, string>
-	chain: string
-	gatewayAddress: string
-	commitment: string
-	yieldVaults: YieldVaultMap
-	/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
-	solverAccount: string
-	extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
-	recoverSigner?: RecoverBidSigner
-	bidNonceKey?: BidNonceKeyFn
-	orderCommitment?: OrderCommitmentFn
-	/**
-	 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
-	 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
-	 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
-	 */
-	getBalance?: SolverBalanceReader
-	logger?: AggregationLogger
-}): Promise<PhantomAggregation | null> {
+async function runAggregation(
+	params: {
+		nodeUrl: string
+		/** RPC URL per supported EVM chain (stateMachineId -> url); must include the destination chain. */
+		evmRpcUrls: Record<string, string>
+		chain: string
+		gatewayAddress: string
+		commitment: string
+		yieldVaults: YieldVaultMap
+		/** SolverAccount on `chain` that our solvers delegate to; bids from anyone else are dropped. */
+		solverAccount: string
+		extractFill?: (callData: HexString, gatewayAddress: string) => FillData | null
+		recoverSigner?: RecoverBidSigner
+		bidNonceKey?: BidNonceKeyFn
+		orderCommitment?: OrderCommitmentFn
+		/**
+		 * Balance reader shared across runs; defaults to a fresh per-run memo. Pass one built with
+		 * `memoizedSolverBalance` when aggregating several same-block orders, and build it from the
+		 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
+		 */
+		getBalance?: SolverBalanceReader
+		logger?: AggregationLogger
+	},
+	isDelegated: DelegationReader,
+): Promise<PhantomAggregation | null> {
 	const { nodeUrl, evmRpcUrls, chain, gatewayAddress, commitment, yieldVaults, solverAccount, logger } = params
 	const extractFill = params.extractFill ?? extractFillData
 	const recoverSigner = params.recoverSigner ?? recoverBidSignerViem
@@ -735,6 +780,7 @@ async function runAggregation(params: {
 				evmRpcUrl: destUrl,
 				recoverSigner,
 				bidNonceKey,
+				isDelegated,
 				logger,
 			})
 			if (!verified) continue

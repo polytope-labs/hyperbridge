@@ -769,8 +769,14 @@ export class IntentFiller {
 			}),
 		)
 
+		// A partial fill is exempt from the profit floor. It collects no `order.fees`
+		// and hands over less than the order asked for, so what it earns is the margin
+		// the operator already built into the pair's own curve — a figure the engine
+		// cannot see and therefore scores at or near zero. The decision to fill at
+		// that curve was made when the curve was configured.
+		const fillsPartially = this.fillsPartially(order)
 		const validStrategies = eligibleStrategies
-			.filter((s): s is NonNullable<typeof s> => s !== null && s.profitability > 0)
+			.filter((s): s is NonNullable<typeof s> => s !== null && (s.profitability > 0 || fillsPartially))
 			.sort((a, b) => b.profitability - a.profitability)
 
 		const evalDurationSec = (Date.now() - evalStartMs) / 1000
@@ -792,6 +798,23 @@ export class IntentFiller {
 		)
 
 		return validStrategies[0]
+	}
+
+	/**
+	 * Whether the outputs a strategy just planned fall short of what the order
+	 * asked for.
+	 *
+	 * Derived from the outputs cached during evaluation rather than signalled by
+	 * the strategy, so it reflects what will actually be submitted on-chain.
+	 */
+	private fillsPartially(order: Order): boolean {
+		if (!order.id) return false
+		const planned = this.contractService.cacheService.getFillerOutputs(order.id)
+		if (!planned) return false
+		return planned.some((output, i) => {
+			const requested = order.output.assets[i]?.amount
+			return requested !== undefined && output.amount < requested
+		})
 	}
 
 	private executeOrder(

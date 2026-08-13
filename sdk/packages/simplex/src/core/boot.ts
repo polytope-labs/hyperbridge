@@ -18,6 +18,7 @@ import {
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import type { ConfirmationPolicy } from "@/config/interpolated-curve"
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { UserOpSender } from "@/services/UserOpSender"
@@ -232,7 +233,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {
-		maxConcurrentOrders: config.simplex.maxConcurrentOrders,
+		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		logging: config.simplex.logging as LogLevel | undefined,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
@@ -288,8 +289,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	}
 
 	const fillerConfig: FillerConfig = {
-		maxConcurrentOrders: config.simplex.maxConcurrentOrders,
-		pendingQueueConfig: config.simplex.queue,
+		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		watchOnly: watchOnlyConfig,
 		acceptedSourceChains: config.simplex.acceptedSourceChains,
 		// Same list the V4 funding venue is built from, so a position can never back a fill without
@@ -576,7 +576,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		{
 			chains: resolvedChains.map((c) => c.chainId),
 			pairs: (config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
-			maxConcurrentOrders: config.simplex.maxConcurrentOrders,
+			maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 			watchOnlyChains: watchOnlyChains.length > 0 ? watchOnlyChains : undefined,
 		},
 		watchOnlyChains.length > 0

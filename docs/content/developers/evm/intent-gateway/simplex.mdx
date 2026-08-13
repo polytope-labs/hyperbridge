@@ -54,7 +54,7 @@ Each pair's **`maxOrderSize`** caps the solver's exposure per order, denominated
 
 ### Partial fills
 
-A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the gas. So a partial earns its spread net of gas, and that net is what the profitability score reports; an order scoring at or below zero is not bid on, same as any other.
+A partial fill collects **no `order.fees`** — the gateway releases those only to whoever completes the order — while the solver still pays the gas. What pays for that gas is the margin already built into the pair's own curve, which the engine cannot measure. So partial fills are exempt from the profitability floor that every other order must clear: configuring a curve is the decision to fill at it.
 
 Three cases are still skipped outright, because the fill would revert or be mispriced rather than merely be unprofitable:
 
@@ -62,7 +62,7 @@ Three cases are still skipped outright, because the fill would revert or be misp
 - **Orders carrying output calldata.** The attached call runs only on a full fill, and the gateway rejects a partial that would skip it.
 - **Orders another solver has already partially filled.** Their escrow is drawn down, so Simplex cannot price the remainder from the order alone.
 
-A pair priced from a venue, or one-sided, has no opposite curve to value the open side against. Those legs are valued against the solver's own quote instead: the difference between what its curve was willing to pay out and what the order actually asked for is surplus it keeps, so they partially fill on the same terms as any other pair. An order priced exactly at the solver's curve leaves no surplus, and is skipped once gas is counted.
+One-sided and venue-priced pairs partially fill on the same terms. They have no opposite curve to mark the open side against, so the reported profit for such a fill is only the surplus over the solver's own quote — often zero — but that figure no longer decides whether the fill happens.
 
 Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
 
@@ -295,15 +295,7 @@ substratePrivateKey = "0x.."
 # Hyperbridge WebSocket endpoint
 hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
-[simplex.queue]
-maxRechecks    = 10
-recheckDelayMs = 30000
 ```
-
-<Callout type="info">
-    `[simplex.queue]` is emitted by the wizards and parsed, but the engine does not read it yet —
-    changing these values has no effect on a running solver.
-</Callout>
 
 ### Signer Configuration
 
@@ -589,9 +581,6 @@ vaultUuid                     = ""
 accountAddress                = "0x..."
 callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 
-[simplex.queue]
-maxRechecks    = 10
-recheckDelayMs = 30000
 
 # Optional solver-wide ERC-4626 stablecoin treasury
 # (sourcing + sweeping + shutdown)

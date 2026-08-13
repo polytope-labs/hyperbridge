@@ -28,7 +28,6 @@ export interface SetupDefaults {
 	usdStables: string[]
 	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
-	queue: QueueConfig
 	maxConcurrentOrders: number
 	configPath: string
 	/** Registry symbols resolvable per chain (state machine id), addresses included. */

@@ -17,7 +17,6 @@ describe("CLI wizard update run", () => {
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
-			queue: { maxRechecks: 4, recheckDelayMs: 12000 },
 			logging: "warn",
 			watchOnly: { "56": true },
 			substratePrivateKey: "seed",
@@ -74,8 +73,7 @@ describe("CLI wizard update run", () => {
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
-		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders
-		state.queue = existing.simplex.queue
+		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 		state.logging = existing.simplex.logging
 		state.gasFeeBump = existing.simplex.gasFeeBump
 		state.overfillProtection = existing.simplex.overfillProtection

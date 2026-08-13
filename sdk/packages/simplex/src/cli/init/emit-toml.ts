@@ -111,12 +111,6 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push()
 	}
 
-	push("# How often a not-yet-fillable order is re-checked before being dropped.")
-	push("[simplex.queue]")
-	push(kv("maxRechecks", config.simplex.queue.maxRechecks))
-	push(kv("recheckDelayMs", config.simplex.queue.recheckDelayMs))
-	push()
-
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")
 		push("[rebalancing]")

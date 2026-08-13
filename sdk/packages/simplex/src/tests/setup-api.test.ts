@@ -49,7 +49,6 @@ describe("setup API", () => {
 			simplex: {
 				signer: { type: SignerType.PrivateKey, key: TEST_KEY },
 				maxConcurrentOrders: 5,
-				queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 				substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 				hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			},

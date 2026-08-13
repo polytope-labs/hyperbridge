@@ -36,7 +36,6 @@ const config: SimplexConfig = {
             key: process.env.SOLVER_KEY as `0x${string}`,
         },
         maxConcurrentOrders: 5,
-        queue: { maxRechecks: 10, recheckDelayMs: 30_000 },
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },

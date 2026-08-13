@@ -120,8 +120,13 @@ export interface FillerTomlConfig {
 	simplex: {
 		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
-		maxConcurrentOrders: number
-		queue: QueueConfig
+		/** Orders evaluated at once. Defaults to 5. */
+		maxConcurrentOrders?: number
+		/**
+		 * Accepted and ignored. Older configs and the wizard used to write it; the
+		 * engine never read it. Kept in the type so those configs still load.
+		 */
+		queue?: QueueConfig
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string

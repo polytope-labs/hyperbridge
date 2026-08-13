@@ -922,10 +922,6 @@ export class FXFiller implements FillerStrategy {
 			// (RELAYER_MESSAGE_GAS priced on the source chain; 0 for same-chain). The
 			// swap spread is NOT credited here — fees must cover cost on their own.
 			const executionCost = totalCostInSourceFeeToken + relayerFeeInSourceFeeToken
-			// The fee token is a USD stablecoin on every deployment, so fee-token
-			// magnitudes are read as dollars here — the same assumption `totalProfit`
-			// has always made for the fee surplus.
-			const executionCostUsd = new Decimal(formatUnits(executionCost, feeTokenDecimals))
 			// Never double-counted: `fxMarginUsd` covers legs that have an opposite
 			// curve, `curveSurplusUsd` covers exactly the legs that do not.
 			const partialEdgeUsd = sameTokenEdgeUsd.plus(fxMarginUsd).plus(curveSurplusUsd)
@@ -972,11 +968,13 @@ export class FXFiller implements FillerStrategy {
 			// magnitude is a rough signal rather than a true dollar figure; its sign is
 			// always correct. fxMarginUsd is reported in the log below but never summed in.
 			//
-			// Partial fill: no fees are collected and the gas is still ours, so the
-			// score is the proven USD edge net of cost. Same currency on both terms,
-			// which is what GATE 1-P just tested.
+			// Partial fill: the USD edge, gross. Gas is deliberately not netted off —
+			// a partial collects no fees, so netting gas would put every one of them
+			// at or below zero and nothing would ever fill. What pays for the gas is
+			// the margin in the operator's own curve, which the engine cannot measure;
+			// the caller exempts partials from the profit floor for the same reason.
 			const totalProfit = partialFill
-				? partialEdgeUsd.minus(executionCostUsd).toNumber()
+				? partialEdgeUsd.toNumber()
 				: parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
 
 			this.logger.info(

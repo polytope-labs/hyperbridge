@@ -125,7 +125,6 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 			...base.simplex,
 			signer: state.signer,
 			maxConcurrentOrders: state.maxConcurrentOrders,
-			queue: state.queue,
 			...(state.logging !== undefined ? { logging: state.logging } : {}),
 			substratePrivateKey: state.substratePrivateKey ?? "",
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl ?? "",

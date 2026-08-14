@@ -181,9 +181,15 @@ export class CryptoUtils {
 			domain: {
 				name: "ERC4337",
 				version: "1",
-				chainId: Number(chainId),
+				// Runtime number so JSON.stringify emits a canonical v4 numeric chainId for
+				// server-side hashers; viem's uint256 type mapping wants bigint but its
+				// runtime accepts numbers, hence the cast.
+				chainId: Number(chainId) as unknown as bigint,
 				verifyingContract: entryPoint,
 			},
+			// `as const`: viem derives the domain's TYPE from `types.EIP712Domain`, so the
+			// entries must stay string literals — widened `string` fields make viem's
+			// typed-data generics reject the payload at every call site.
 			types: {
 				EIP712Domain: [
 					{ name: "name", type: "string" },
@@ -201,7 +207,7 @@ export class CryptoUtils {
 					{ name: "gasFees", type: "bytes32" },
 					{ name: "paymasterAndData", type: "bytes" },
 				],
-			},
+			} as const,
 			primaryType: "PackedUserOperation" as const,
 			message: {
 				sender: userOp.sender,

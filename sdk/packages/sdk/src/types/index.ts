@@ -819,6 +819,18 @@ export interface FillerConfig {
 	 * chains"; an empty array declares that no source chain is accepted.
 	 */
 	acceptedSourceChains?: string[]
+
+	/**
+	 * Uniswap V4 position tokenIds this filler holds, per chain (state machine id -> tokenIds as
+	 * decimal strings), declared inside its phantom bids' paymasterAndData for the bid's own chain.
+	 *
+	 * Liquidity parked in a V4 position is invisible to the snapshot's inventory read, which sees
+	 * only ERC-20 balances and ERC-4626 vault shares — so without this a venue-funded filler is
+	 * weighted at zero and its quotes are discarded. The declaration is only a POINTER: the indexer
+	 * reads each position's liquidity on-chain and checks it is owned by the solver that signed the
+	 * bid, so naming a position cannot inflate it and naming someone else's achieves nothing.
+	 */
+	uniswapV4PositionsByChain?: Record<string, string[]>
 }
 
 /**

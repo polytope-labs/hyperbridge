@@ -10,7 +10,7 @@ import {
 	EvmChain,
 	getChainId,
 	orderCommitment,
-	encodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
 	encodeUserOpScale,
 	type PackedUserOperation,
 	type FillOptions,
@@ -672,6 +672,7 @@ export class ContractInteractionService {
 		solverAccountAddress: HexString,
 		fillerOutputs: TokenInfo[],
 		acceptedSourceChains?: string[],
+		uniswapV4PositionIds?: string[],
 	): Promise<{ commitment: HexString; userOp: HexString }> {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 		const client = this.clientManager.getPublicClient(order.destination)
@@ -683,12 +684,12 @@ export class ContractInteractionService {
 
 		let nonce = 0n
 		try {
-			nonce = await client.readContract({
+			nonce = (await client.readContract({
 				address: entryPointAddress,
 				abi: ENTRYPOINT_ABI,
 				functionName: "getNonce",
 				args: [solverAccountAddress, CryptoUtils.bidNonceKey(commitment, order.session)],
-			}) as bigint
+			})) as bigint
 		} catch {
 			// Nonce defaults to 0 for phantom bids — the bid is never executed on-chain
 		}
@@ -708,9 +709,13 @@ export class ContractInteractionService {
 			maxFeePerGas: gasPrice,
 			maxPriorityFeePerGas: gasPrice / 10n,
 			callData,
-			paymasterAndData: acceptedSourceChains
-				? encodeAcceptedSourceChains(acceptedSourceChains)
-				: ("0x" as HexString),
+			paymasterAndData:
+				acceptedSourceChains || uniswapV4PositionIds?.length
+					? encodePhantomBidDeclaration({
+							acceptedSourceChains,
+							uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),
+						})
+					: ("0x" as HexString),
 		})
 
 		return { commitment, userOp: encodeUserOpScale(userOp) }

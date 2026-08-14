@@ -99,34 +99,90 @@ async function rpcCall(url: string, payload: object): Promise<any> {
 
 export const FILL_ORDER_ABI = IntentGatewayV2.ABI
 
-// ─── accepted-source-chains declaration ─────────────────────────────────────────────────────────
+// ─── phantom bid declaration ────────────────────────────────────────────────────────────────────
 //
-// A same-chain phantom bid proves a solver operates on a chain, not which chains it will accept
-// payment FROM when filling a cross-chain order. Bids declare that set inside paymasterAndData,
-// which the userOpHash covers, so the declaration is authenticated by the solver's existing bid
-// signature (the `signature` field is excluded from the hash and therefore unusable). The
-// overload applies to phantom bids only: a real fill's paymasterAndData keeps its functional
-// EntryPoint semantics, and nothing on the real-fill path ever parses this format.
+// A same-chain phantom bid proves a solver operates on a chain, but not two things the snapshot
+// needs: which chains it will accept payment FROM when filling a cross-chain order, and which
+// Uniswap V4 positions stand behind its quote. Bids declare both inside paymasterAndData, which
+// the userOpHash covers, so the declaration is authenticated by the solver's existing bid
+// signature (the `signature` field is excluded from the hash and therefore unusable). The overload
+// applies to phantom bids only: a real fill's paymasterAndData keeps its functional EntryPoint
+// semantics, and nothing on the real-fill path ever parses this format.
 //
-// Layout: version(1) ‖ count(1) ‖ count × (length(1) ‖ utf8 state machine id). A declaration
-// with no entries is a deliberate "accepts no source chains" and is distinct from an absent
-// declaration ("0x"), which means the legacy default: all CCTP/USDT0-covered chains.
+// Layouts, by leading version byte:
+//
+//   v1  0x01 ‖ chainCount(1) ‖ chainCount × ( len(1) ‖ utf8 state machine id )
+//   v2  0x01-body ‖ posCount(1) ‖ posCount × ( len(1) ‖ big-endian tokenId )   with 0x02 leading
+//
+// v2 is v1 with a positions section appended, so decoding is one parser with an optional tail.
+// The encoder emits v1 whenever there are no positions, which keeps existing solvers' bids
+// byte-identical to what they produce today; a v1 blob decodes under v2 readers as "no positions".
+// A v2 blob read by a pre-v2 decoder fails its version check and reads as no declaration at all —
+// the same degradation as an absent blob, never a misparse, because both versions reject trailing
+// bytes rather than half-reading.
+//
+// Declared positions are implicitly on the order's own chain: a phantom bid is submitted per
+// chain, so the tokenIds a solver names in it are the ones it holds on that chain. The declaration
+// is a POINTER, not a claim of size — the indexer reads each position's liquidity on-chain and
+// checks the position is owned by the very solver that signed the bid, so a solver can point at
+// its own positions but cannot inflate them, nor borrow someone else's.
 
-const DECLARATION_VERSION = 0x01
+const DECLARATION_V1 = 0x01
+const DECLARATION_V2 = 0x02
 
-/** Upper bound on declared chains; one byte of count, and far beyond any real deployment. */
-const MAX_DECLARED_CHAINS = 255
+/** Upper bound on declared chains and positions alike; one byte of count each. */
+const MAX_DECLARED_ENTRIES = 255
+
+/** Widest tokenId the codec will carry — a uint256, as minted by the V4 PositionManager. */
+const MAX_TOKEN_ID_BYTES = 32
+
+/** What a phantom bid's paymasterAndData declares about the solver behind it. */
+export interface PhantomBidDeclaration {
+	/**
+	 * Source chains the solver accepts payment from. Null when the bid carries no parseable
+	 * declaration (the legacy default: the solver has not restricted its sources); an empty array
+	 * is an explicit accepts-nothing. Callers must preserve that distinction.
+	 */
+	acceptedSources: string[] | null
+	/**
+	 * Uniswap V4 position tokenIds the solver declares as backing this bid, on the order's own
+	 * chain. Empty when none are declared — including for every v1 bid, which predates the field.
+	 */
+	uniswapV4Positions: bigint[]
+}
+
+/** Minimal big-endian bytes of a non-negative tokenId; `[0]` for zero. */
+function tokenIdToBytes(tokenId: bigint): number[] {
+	if (tokenId < 0n) throw new Error(`Uniswap V4 tokenId cannot be negative: ${tokenId}`)
+	const bytes: number[] = []
+	let rest = tokenId
+	while (rest > 0n) {
+		bytes.unshift(Number(rest & 0xffn))
+		rest >>= 8n
+	}
+	return bytes.length > 0 ? bytes : [0]
+}
 
 /**
- * Encodes the accepted source chains (state machine ids, e.g. "EVM-8453") into the
- * paymasterAndData declaration blob.
+ * Encodes a phantom bid's declaration into the paymasterAndData blob. Emits the v1 layout when no
+ * positions are declared, so a solver that only names source chains produces exactly the bytes it
+ * produced before positions existed.
  */
-export function encodeAcceptedSourceChains(chains: string[]): HexString {
-	if (chains.length > MAX_DECLARED_CHAINS) {
-		throw new Error(`Cannot declare more than ${MAX_DECLARED_CHAINS} source chains`)
+export function encodePhantomBidDeclaration(declaration: {
+	acceptedSourceChains?: string[]
+	uniswapV4Positions?: bigint[]
+}): HexString {
+	const chains = declaration.acceptedSourceChains ?? []
+	const positions = declaration.uniswapV4Positions ?? []
+	if (chains.length > MAX_DECLARED_ENTRIES) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_ENTRIES} source chains`)
+	}
+	if (positions.length > MAX_DECLARED_ENTRIES) {
+		throw new Error(`Cannot declare more than ${MAX_DECLARED_ENTRIES} Uniswap V4 positions`)
 	}
 
-	const bytes: number[] = [DECLARATION_VERSION, chains.length]
+	const version = positions.length > 0 ? DECLARATION_V2 : DECLARATION_V1
+	const bytes: number[] = [version, chains.length]
 	for (const chain of chains) {
 		const encoded = stringToU8a(chain)
 		if (encoded.length === 0 || encoded.length > 255) {
@@ -134,35 +190,78 @@ export function encodeAcceptedSourceChains(chains: string[]): HexString {
 		}
 		bytes.push(encoded.length, ...encoded)
 	}
+
+	if (version === DECLARATION_V2) {
+		bytes.push(positions.length)
+		for (const tokenId of positions) {
+			const encoded = tokenIdToBytes(tokenId)
+			if (encoded.length > MAX_TOKEN_ID_BYTES) {
+				throw new Error(`Uniswap V4 tokenId exceeds uint256: ${tokenId}`)
+			}
+			bytes.push(encoded.length, ...encoded)
+		}
+	}
+
 	return u8aToHex(new Uint8Array(bytes)) as HexString
 }
 
 /**
- * Decodes a phantom bid's paymasterAndData into its declared source chains. Returns null for an
- * absent, unversioned or malformed blob — the legacy default — and an empty array only for an
- * explicit zero-entry declaration. Callers must preserve that distinction.
+ * Decodes a phantom bid's paymasterAndData. Understands both layout versions, so bids placed
+ * before positions existed keep decoding unchanged. Anything absent, unversioned or malformed
+ * yields a null `acceptedSources` with no positions — never a partial read.
  */
-export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
-	if (!paymasterAndData || !isHex(paymasterAndData)) return null
+export function decodePhantomBidDeclaration(paymasterAndData: string | undefined | null): PhantomBidDeclaration {
+	const absent: PhantomBidDeclaration = { acceptedSources: null, uniswapV4Positions: [] }
+	if (!paymasterAndData || !isHex(paymasterAndData)) return absent
 	const bytes = hexToU8a(paymasterAndData)
-	if (bytes.length < 2 || bytes[0] !== DECLARATION_VERSION) return null
+	if (bytes.length < 2) return absent
 
-	const count = bytes[1]
+	const version = bytes[0]
+	if (version !== DECLARATION_V1 && version !== DECLARATION_V2) return absent
+
 	const chains: string[] = []
 	let offset = 2
-	for (let entry = 0; entry < count; entry++) {
-		if (offset >= bytes.length) return null
+	for (let entry = 0; entry < bytes[1]; entry++) {
+		if (offset >= bytes.length) return absent
 		const length = bytes[offset]
 		offset += 1
-		if (length === 0 || offset + length > bytes.length) return null
+		if (length === 0 || offset + length > bytes.length) return absent
 		chains.push(u8aToString(bytes.subarray(offset, offset + length)))
 		offset += length
 	}
+
+	const positions: bigint[] = []
+	if (version === DECLARATION_V2) {
+		if (offset >= bytes.length) return absent
+		const count = bytes[offset]
+		offset += 1
+		for (let entry = 0; entry < count; entry++) {
+			if (offset >= bytes.length) return absent
+			const length = bytes[offset]
+			offset += 1
+			if (length === 0 || length > MAX_TOKEN_ID_BYTES || offset + length > bytes.length) return absent
+			let tokenId = 0n
+			for (const byte of bytes.subarray(offset, offset + length)) tokenId = (tokenId << 8n) | BigInt(byte)
+			positions.push(tokenId)
+			offset += length
+		}
+	}
+
 	// Trailing bytes mean this is not a declaration but something that happens to share the
 	// version byte, so treat the whole blob as unparseable rather than half-reading it.
-	if (offset !== bytes.length) return null
+	if (offset !== bytes.length) return absent
 
-	return chains
+	return { acceptedSources: chains, uniswapV4Positions: positions }
+}
+
+/** Back-compat wrapper: the source-chain half of {@link encodePhantomBidDeclaration}. */
+export function encodeAcceptedSourceChains(chains: string[]): HexString {
+	return encodePhantomBidDeclaration({ acceptedSourceChains: chains })
+}
+
+/** Back-compat wrapper: the source-chain half of {@link decodePhantomBidDeclaration}. */
+export function decodeAcceptedSourceChains(paymasterAndData: string | undefined | null): string[] | null {
+	return decodePhantomBidDeclaration(paymasterAndData).acceptedSources
 }
 
 /** ERC-4626 vaults per chain, keyed by chain id then lowercase underlying token address. */

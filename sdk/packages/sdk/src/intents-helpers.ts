@@ -6,7 +6,9 @@ export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
 export {
 	aggregatePhantomBids,
 	decodeAcceptedSourceChains,
+	decodePhantomBidDeclaration,
 	encodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
 	extractFillData,
 	fetchBidsForOrder,
 	memoizedSolverBalance,

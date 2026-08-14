@@ -727,6 +727,40 @@ describe("aggregatePhantomBids bid verification", () => {
 			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
 		})
 
+		// Regression: the Base StateView address was wrong, so slot0 answered "0x", every declared
+		// position resolved to null, and ~168k cNGN of real depth read as zero — silently, for as
+		// long as nobody thought to check. A misconfigured address must say so.
+		it("warns rather than silently skipping when slot0 reads back empty", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			const base = v4Rpc([userOp], solverAddress)
+			// Everything resolves except the StateView, exactly as a wrong address behaves.
+			setAggregationFetch(async (url, init) => {
+				const payload = JSON.parse(init.body)
+				if (payload.method === "eth_call" && payload.params[0].to === STATE_VIEW) {
+					return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result: "0x" }) }
+				}
+				return base(url, init)
+			})
+			const warnings: string[] = []
+
+			await aggregatePhantomBids({
+				nodeUrl: NODE_URL,
+				evmRpcUrls: { [CHAIN]: "http://base.test" },
+				chain: CHAIN,
+				gatewayAddress: GATEWAY,
+				commitment: COMMITMENT,
+				yieldVaults: { [CHAIN]: { [USDT]: [] } },
+				solverAccount: SOLVER_ACCOUNT,
+				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
+				logger: { warn: (_payload, message) => warnings.push(message) },
+			})
+
+			expect(warnings.some((w) => w.includes("StateView"))).toBe(true)
+		})
+
 		// The declaration is a pointer, not a claim — pointing at liquidity you do not own is the
 		// obvious way to fake depth, so ownership is checked against the signer on-chain.
 		it("ignores a declared position owned by someone else", async () => {

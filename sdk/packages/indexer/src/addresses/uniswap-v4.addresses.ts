@@ -15,6 +15,6 @@ export interface UniswapV4Deployment {
 export const UNISWAP_V4_ADDRESSES: Record<string, UniswapV4Deployment> = {
 	"EVM-8453": {
 		positionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
-		stateView: "0xd13dd3d6e93f276fafc9db9e6bb47c1180aee0c4",
+		stateView: "0xa3c0c9b65bad0b08107aa264b0f3db444b867a71",
 	},
 }

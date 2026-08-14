@@ -7,6 +7,14 @@ const records = new Map<string, any>()
 	set: jest.fn(async (entity: string, id: string, props: any) => {
 		records.set(`${entity}:${id}`, { ...props })
 	}),
+	getByFields: jest.fn(async (entity: string, _filter: any[], options: any = {}) => {
+		const all = [...records.entries()]
+			.filter(([key]) => key.startsWith(`${entity}:`))
+			.map(([, props]) => props)
+			.sort((a, b) => (a.id < b.id ? -1 : 1))
+		const offset = options.offset ?? 0
+		return all.slice(offset, offset + (options.limit ?? all.length))
+	}),
 	remove: jest.fn(),
 }
 
@@ -51,5 +59,78 @@ describe("VolumeService.updateVolume", () => {
 
 		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLER.0xabc.EVM-84532.${DAY}`)).toBeDefined()
 		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.${DAY}`)).toBeDefined()
+	})
+})
+
+describe("VolumeService.seedAggregateVolume", () => {
+	beforeEach(() => records.clear())
+
+	const plantCumulative = (id: string, volumeUSD: bigint, lastUpdatedAt: bigint) =>
+		records.set(`CumulativeVolumeUSD:${id}`, { id, volumeUSD, lastUpdatedAt })
+	const plantDaily = (id: string, last24HoursVolumeUSD: bigint, lastUpdatedAt: bigint) =>
+		records.set(`DailyVolumeUSD:${id}`, {
+			id,
+			last24HoursVolumeUSD,
+			lastUpdatedAt,
+			createdAt: new Date(`${id.slice(-10)}T00:00:00.000Z`),
+		})
+
+	const plantFillerHistory = () => {
+		plantCumulative("IntentGatewayV3.FILLER.0xaaa.EVM-84532", toScaledUsd("100"), 1000n)
+		plantCumulative("IntentGatewayV3.FILLER.0xbbb.EVM-84532", toScaledUsd("50"), 2000n)
+		plantCumulative("IntentGatewayV3.FILLER.0xaaa.EVM-97", toScaledUsd("999"), 3000n)
+		plantCumulative("Transfer.USDC.EVM-84532", toScaledUsd("777"), 3000n)
+		plantDaily("IntentGatewayV3.FILLER.0xaaa.EVM-84532.2023-11-13", toScaledUsd("60"), 1000n)
+		plantDaily("IntentGatewayV3.FILLER.0xbbb.EVM-84532.2023-11-13", toScaledUsd("40"), 900n)
+		plantDaily(`IntentGatewayV3.FILLER.0xaaa.EVM-84532.${DAY}`, toScaledUsd("40"), 1000n)
+		plantDaily("IntentGatewayV3.FILLER.0xaaa.EVM-97.2023-11-13", toScaledUsd("999"), 3000n)
+		plantDaily("IntentGatewayV3.USER.EVM-84532.2023-11-13", toScaledUsd("888"), 3000n)
+	}
+
+	it("seeds cumulative and per-day records from this chain's filler history only", async () => {
+		plantFillerHistory()
+
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+
+		const cumulative = records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532")
+		expect(cumulative.volumeUSD).toBe(toScaledUsd("150"))
+		expect(cumulative.lastUpdatedAt).toBe(2000n)
+
+		expect(records.get("DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.2023-11-13").last24HoursVolumeUSD).toBe(
+			toScaledUsd("100"),
+		)
+		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.${DAY}`).last24HoursVolumeUSD).toBe(
+			toScaledUsd("40"),
+		)
+	})
+
+	it("does not swallow the triggering fill: update after seeding still counts, even same-day", async () => {
+		plantFillerHistory()
+
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+		await VolumeService.updateVolume("IntentGatewayV3.FILLED", "10", T1)
+
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("160"))
+		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.${DAY}`).last24HoursVolumeUSD).toBe(
+			toScaledUsd("50"),
+		)
+	})
+
+	it("is a no-op once the aggregate cumulative record exists", async () => {
+		plantFillerHistory()
+
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+		plantCumulative("IntentGatewayV3.FILLER.0xccc.EVM-84532", toScaledUsd("1000"), 5000n)
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("150"))
+	})
+
+	it("creates a zero marker when no filler history exists (fresh reindex)", async () => {
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+
+		const cumulative = records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532")
+		expect(cumulative.volumeUSD).toBe(0n)
+		expect([...records.keys()].filter((key) => key.startsWith("DailyVolumeUSD:"))).toHaveLength(0)
 	})
 })

@@ -542,6 +542,8 @@ export class IntentGatewayV3Service {
 				// Volume
 				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
+				// Seed before this fill's own updates so the seed never counts it
+				await VolumeService.seedAggregateVolume(`IntentGatewayV3.FILLED`, `IntentGatewayV3.FILLER.`)
 				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
 				await VolumeService.updateVolume(`IntentGatewayV3.FILLED`, outputUSD.total, timestamp)
 

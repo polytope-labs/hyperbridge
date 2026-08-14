@@ -4,6 +4,14 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-14 — Gateway volume seeding uses the aggregate cumulative record as its own done-marker (#1085)
+
+Chosen: `VolumeService.seedAggregateVolume` runs on every fill but returns immediately when the aggregate's `CumulativeVolumeUSD` record exists; the record itself is the marker. Seeding runs lazily on the first fill per chain after deploy, before that fill's own volume updates.
+
+Alternatives considered: a dedicated migration-marker entity (extra schema and codegen for one boolean, and a marker that can drift from the data it describes); a block handler or one-off script outside event flow (SubQuery has no migration hook, and a script against the store bypasses block-atomic writes).
+
+Why this won: no schema change, per-chain by construction, and correct in both deployment modes with no configuration — on a resumed database the first fill seeds the full filler history, on a fresh from-genesis reindex the first fill sees no history and seeds a zero marker. Two invariants make the lazy placement safe and are worth preserving: the seed must run before the triggering fill's own `updateVolume` calls (otherwise that fill's filler record is summed and then added again), and the seeded cumulative record must carry the components' max `lastUpdatedAt` rather than the current timestamp (otherwise `updateCumulativeVolume`'s same-timestamp guard drops the triggering fill). Enumeration pages the whole table with `getByFields([], ...)` and filters IDs in code because the volume entities have no filterable columns — acceptable because it runs once per chain per deployment and the tables are small (series count, not event count).
+
 ## 2026-08-13 — Gateway daily volume reuses `DailyVolumeUSD` instead of a new indexed entity (#1085)
 
 Chosen: record gateway-level filled volume with base ID `IntentGatewayV3.FILLED` through the existing `VolumeService.updateVolume`, landing in the same `DailyVolumeUSD` / `CumulativeVolumeUSD` entities as the per-filler and per-user records.

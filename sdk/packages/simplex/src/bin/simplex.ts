@@ -117,7 +117,7 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorContext> {
+async function operatorContextFrom(runtime: FillerRuntime, dataDir?: string): Promise<OperatorContext> {
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
@@ -217,7 +217,7 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 		configPath: runtime.configPath,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
 		strategyTypes,
-		dataDir: runtime.dataDir,
+		dataDir,
 	}
 }
 
@@ -283,7 +283,6 @@ program
 					configPath: path,
 					logger: consoleSink(),
 					data: await openDataStore(options.dataDir),
-					dataDir: options.dataDir,
 					watchOnly: options.watchOnly,
 				})
 				runtime = simplex.internals
@@ -316,7 +315,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(runtime!),
+						operator: await operatorContextFrom(runtime!, options.dataDir),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -348,7 +347,7 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(runtime!))
+						server.enterOperatorMode(await operatorContextFrom(runtime!, options.dataDir))
 					},
 				},
 			})

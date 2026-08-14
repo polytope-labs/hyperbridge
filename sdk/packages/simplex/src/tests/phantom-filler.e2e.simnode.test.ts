@@ -311,7 +311,7 @@ async function buildPhantomFiller(opts: {
 		signer,
 		{ orders: stubOrderScanner() },
 		undefined,
-		new SqliteDataStore(configService.getDataDir() || ".simplex-data").bids,
+		new SqliteDataStore(".simplex-data").bids,
 	)
 	await filler.initialize()
 	filler.start()

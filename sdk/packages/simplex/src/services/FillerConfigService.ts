@@ -128,7 +128,6 @@ export interface FillerConfig {
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
-	dataDir?: string
 	/**
 	 * Optional gas fee bump configuration for UserOperation gas estimation.
 	 * If not provided, defaults will be used (8% for priority fee, 10% for max fee).
@@ -485,10 +484,6 @@ export class FillerConfigService {
 
 	getSolverAccountContractAddress(chain: string): HexString | undefined {
 		return this.chainConfigService.getSolverAccountAddress(chain) as HexString | undefined
-	}
-
-	getDataDir(): string | undefined {
-		return this.fillerConfig?.dataDir
 	}
 
 	getBundlerUrl(chain: string): string | undefined {

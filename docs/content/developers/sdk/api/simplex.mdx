@@ -38,7 +38,6 @@ static async start(options: SimplexOptions): Promise<Simplex>
 | `options.config` | `SimplexConfig` | The solver configuration. Same shape the binary's `filler-config.toml` parses into. `simplex.blockScanIntervalSeconds` sets the scan rate of a scanner the solver builds; one passed via `orderScanner` keeps its own |
 | `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
 | `options.configPath` | `string` | Optional. Where the config was loaded from. Informational — it is surfaced in logs and to the bundled dashboard. The library never writes it; use `onConfigChange` to persist runtime edits |
-| `options.dataDir` | `string` | Optional. Directory for anything written outside the data store |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
 | `options.logger` | `LogSink` | Optional. Where to send log records, one NDJSON line each. Omit and the solver logs nothing |
 | `options.orderScanner` | `OrderScanner` | Optional. Gateway events for this solver. Pass one instance to several solvers to share a scan loop. Omit and the solver builds a private scanner and closes it on `stop()` |

@@ -517,7 +517,7 @@ async function createFxIntentFiller(
 		}),
 	]
 
-	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,

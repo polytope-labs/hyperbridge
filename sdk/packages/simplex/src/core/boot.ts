@@ -49,7 +49,6 @@ export interface BootOptions {
 	 * caller passed, or builds private ones from this config.
 	 */
 	scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
-	dataDir?: string
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
 }
@@ -105,7 +104,6 @@ export interface FillerRuntime {
 	vaultPreflight(vaults: VaultToml[]): Promise<void>
 	/** Operator-initiated outbound transfers (dashboard Send). */
 	tokenSender: TokenSender
-	dataDir?: string
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
@@ -238,7 +236,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		substratePrivateKey: config.simplex.substratePrivateKey,
 		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 		entryPointAddress: config.simplex.entryPointAddress,
-		dataDir: options.dataDir,
 		rebalancing: config.rebalancing,
 		targetGasUnits: config.simplex.targetGasUnits,
 		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
@@ -622,7 +619,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		watchOnly: watchOnlyConfig,
 		config,
 		configPath: options.configPath,
-		dataDir: options.dataDir,
 		startedAt: Date.now(),
 		tokenSender: new TokenSender(
 			chainClientManager,

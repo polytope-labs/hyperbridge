@@ -887,7 +887,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
+		const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -1221,7 +1221,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
-		const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
+		const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 		const intentFiller = new IntentFiller(
 			chainConfigs,
@@ -2164,7 +2164,7 @@ async function createCrossChainFxIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,
@@ -2223,7 +2223,7 @@ async function createFxOnlyIntentFiller(
 	)
 
 	const strategies = [fxStrategy]
-	const bidStorage = new SqliteDataStore(chainConfigService.getDataDir() || ".simplex-data").bids
+	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
 	return new IntentFiller(
 		chainConfigs,

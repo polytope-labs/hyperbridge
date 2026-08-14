@@ -37,8 +37,6 @@ export interface SimplexOptions {
 	 * not survive a restart.
 	 */
 	configPath?: string
-	/** Directory for anything the filler writes outside the data store. */
-	dataDir?: string
 	/** Forces watch-only on every chain, whatever the config says. */
 	watchOnly?: boolean
 	/**
@@ -797,7 +795,6 @@ export class Simplex extends EventEmitter {
 				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
-				dataDir: options.dataDir,
 				watchOnlyOverride: options.watchOnly,
 			})
 			return new Simplex(runtime, options, {

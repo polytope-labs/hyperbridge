@@ -314,6 +314,15 @@ export interface LpBalance {
 	/** State machine id of the chain the balance was measured on (e.g. EVM-8453). */
 	chain: string
 	tokenAddress: HexString
+	/**
+	 * Wallet ERC-20, redeemable ERC-4626 vault shares, and the withdrawable amount held in the
+	 * solver's declared Uniswap V4 positions — the same total the leg weights are built from, so a
+	 * provider's reported inventory and the depth attributed to it cannot disagree.
+	 *
+	 * The V4 share is only ever included on the chain whose bid declared the positions: a bid is
+	 * per chain, so no other chain's sweep can know about them. Consumers must therefore treat the
+	 * larger of two readings for the same (chain, token, block) as the complete one.
+	 */
 	balance: bigint
 }
 
@@ -824,6 +833,8 @@ async function sweepSolverLiquidity(
 	yieldVaults: YieldVaultMap,
 	solver: string,
 	getBalance: ReturnType<typeof memoizedSolverBalance>,
+	/** Verified positions and the chain they sit on; only that chain's tokens can draw on them. */
+	positions: { chain: string; states: V4PositionState[] },
 ): Promise<LpBalance[]> {
 	const balances: LpBalance[] = []
 	for (const [chain, tokens] of Object.entries(yieldVaults)) {
@@ -831,8 +842,24 @@ async function sweepSolverLiquidity(
 		if (!url) continue
 		for (const token of Object.keys(tokens)) {
 			const balance = await getBalance(url, chain, token, solver)
-			if (balance === 0n) continue
-			balances.push({ solver, chain, tokenAddress: token as HexString, balance })
+			const uniswapV4Balance =
+				chain === positions.chain
+					? positions.states.reduce(
+							(total, state) =>
+								total +
+								positionAmountOfToken({
+									info: state.info,
+									liquidity: state.liquidity,
+									sqrtPriceX96: state.sqrtPriceX96,
+									outputToken: token,
+								}),
+							0n,
+						)
+					: 0n
+			// A token the solver neither holds nor has parked in a position is not a row.
+			const total = balance + uniswapV4Balance
+			if (total === 0n) continue
+			balances.push({ solver, chain, tokenAddress: token as HexString, balance: total })
 		}
 	}
 	return balances
@@ -1074,7 +1101,12 @@ async function runAggregation(
 
 			// Full liquidity picture: every configured token on every supported chain. Swept once per
 			// bid rather than per leg, since it measures the solver's whole inventory either way.
-			lpBalances.push(...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance)))
+			lpBalances.push(
+				...(await sweepSolverLiquidity(evmRpcUrls, yieldVaults, solver, getBalance, {
+					chain,
+					states: positions,
+				})),
+			)
 		} catch (err) {
 			// A malformed bid is this bid's problem — skip it and price the rest. An unreachable RPC
 			// is the snapshot's problem: continuing would silently price the order from whichever

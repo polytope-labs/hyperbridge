@@ -170,10 +170,21 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 		}
 		// One row per provider per (chain, token) per block so liquidity history is preserved.
 		// Every order closing on this block sweeps the same point-in-time balances, so the row is
-		// written by whichever of them runs first and skipped by the rest (and by replays); a
-		// solver first seen by a later order on the block still gets its rows here.
+		// written by whichever of them runs first; a solver first seen by a later order on the
+		// block still gets its rows here.
 		const id = `${lp.chain}-${lp.tokenAddress}-${blockNumber}-${lp.solver}`
-		if (await LiquidityProviderBalanceV2.get(id)) continue
+		const existing = await LiquidityProviderBalanceV2.get(id)
+		if (existing) {
+			// Only the chain whose own bid declared the positions can value them, and that order is
+			// not necessarily the one that wrote this row — every chain's sweep covers every chain,
+			// but sees V4 positions on its own chain alone. Take the larger reading so the stored
+			// value does not depend on which of the block's orders happened to run first.
+			if (lp.balance > existing.balance) {
+				existing.balance = lp.balance
+				await existing.save()
+			}
+			continue
+		}
 		await LiquidityProviderBalanceV2.create({
 			id,
 			providerId: lp.solver,

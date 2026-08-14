@@ -2484,8 +2484,12 @@ type LiquidityProviderBalanceV2 @entity {
 	tokenAddress: String! @index
 
 	"""
-	Provider balance for tokenAddress on `chain`,
-	including raw ERC-20 balance and redeemable ERC-4626 vault positions.
+	Provider balance for tokenAddress on `chain`: raw ERC-20, redeemable ERC-4626 vault positions,
+	and the withdrawable amount held in the Uniswap V4 positions the provider declared in that
+	chain's phantom bid and still owns, valued at the pool price when the snapshot was taken. The
+	V4 share is only visible on the chain whose bid declared it — a bid is per chain, so no other
+	chain's sweep can see those positions — and only for a token some yield-vault entry tracks,
+	since the sweep has no row to attach it to otherwise.
 	"""
 	balance: BigInt! @index
 

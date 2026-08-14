@@ -44,8 +44,14 @@ See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simpl
 ## As a binary
 
 ```bash
+npm install -g @hyperbridge/simplex
 simplex
 ```
+
+The scope matters: the bare `simplex` name on npm is an unrelated package. The installed command is
+still `simplex`. Prefer a container? The same binary ships as
+[`polytopelabs/simplex`](https://hub.docker.com/r/polytopelabs/simplex) — quickstart on the Docker
+Hub page.
 
 With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
 (chains, RPCs, bundlers, signer, Hyperbridge account, strategies), validates every endpoint live,
@@ -54,34 +60,6 @@ writes a commented `filler-config.toml` (mode 600) and starts the solver in the 
 
 With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `-c <path>`),
 `simplex` runs the solver directly.
-
-### Docker
-
-`polytopelabs/simplex` is published as a multi-arch manifest (`linux/amd64` + `linux/arm64`), so
-Linux, macOS (Intel and Apple Silicon) and Windows hosts each pull a natively-built image. The same
-commands run in bash and in PowerShell.
-
-```bash
-docker volume create simplex-data
-docker run -d --name simplex --restart unless-stopped \
-    -p 127.0.0.1:8686:8686 \
-    -v simplex-data:/data \
-    polytopelabs/simplex:latest
-```
-
-With no config in the volume this serves the setup wizard at `http://localhost:8686`, writes
-`filler-config.toml` into `/data` and starts the solver in the same process; later restarts find
-that config and run directly. Two alternatives to the browser wizard: mount a config you already
-have (`-v /path/to/filler-config.toml:/data/filler-config.toml:ro`), or run the terminal wizard with
-`docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
-
-The container's default command binds the UI server to `0.0.0.0` — a container-local loopback bind
-is unreachable from the host, and Docker Desktop on macOS and Windows has no `--network host` to
-fall back on. The container's network namespace is the boundary there, so the port stays private
-until published: keep the `127.0.0.1:` prefix above, particularly while the wizard is up, since it
-collects private keys. If you override the command, carry `--ui 0.0.0.0:8686` over with it.
-
-`scripts/docker-compose.yml` runs the same as a service.
 
 ### Web UI
 

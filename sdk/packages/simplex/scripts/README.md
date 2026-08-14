@@ -9,6 +9,9 @@ This directory contains utility scripts for Hyperbridge Simplex.
   `linux/arm64` manifest. The build context is the `sdk` workspace root, not this directory.
 - **docker-compose.yml**: Simplex as a service. Works unchanged on Linux, macOS and
   Windows — `docker compose -f scripts/docker-compose.yml up -d`.
+- **DOCKERHUB.md**: The Docker Hub overview for `polytopelabs/simplex`. Published by the
+  release workflow, so edits here land on the Hub page with the next `simplex-v*` tag —
+  do not edit it in the Hub UI, the next release overwrites it.
 - **docker.sh**: bash convenience wrapper around the two (Linux/macOS; on Windows call
   `docker compose` directly).
 

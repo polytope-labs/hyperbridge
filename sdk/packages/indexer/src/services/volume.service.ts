@@ -2,6 +2,7 @@ import Decimal from "decimal.js"
 
 import { CumulativeVolumeUSD, DailyVolumeUSD } from "@/configs/src/types"
 import { getDateFormatFromTimestamp, timestampToDate } from "@/utils/date.helpers"
+import { readAllPages } from "@/utils/store.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 /** Decimal places used for the BigInt fixed-point representation of USD volumes. */
@@ -75,66 +76,54 @@ export class VolumeService {
 	/**
 	 * One-time initialization of an aggregate volume series from already-indexed
 	 * component series, for aggregates introduced after their components had
-	 * accumulated history on a resumed database. Sums every cumulative and daily
-	 * record whose ID starts with `componentIdPrefix` (scoped to this chain) into
-	 * records under `aggregateBaseId`. The aggregate's cumulative record doubles as
-	 * the done-marker, so this is a cheap no-op on every call after the first.
+	 * accumulated history on a resumed database. Sums every daily record whose ID
+	 * starts with `componentIdPrefix` (scoped to this chain) into per-day records
+	 * under `aggregateBaseId`, and derives the aggregate's cumulative record from
+	 * those same daily sums. Daily records count every fill while cumulative
+	 * records drop same-timestamp updates, so the daily rows are the faithful
+	 * basis — and the only one the running code maintains for an aggregate, whose
+	 * cumulative record collides on any two same-block fills chain-wide, not just
+	 * one component's. The aggregate's cumulative record doubles as the
+	 * done-marker, so this is a cheap no-op on every call after the first.
 	 *
 	 * Must be called before the triggering event's own volume updates: the seed
-	 * assumes component records contain only history, and the seeded cumulative
-	 * record keeps the components' max `lastUpdatedAt` so the same-timestamp guard
-	 * in `updateCumulativeVolume` does not swallow the triggering event's volume.
+	 * assumes component records contain only history. The seeded cumulative record
+	 * keeps the components' max `lastUpdatedAt`; history is written by pre-deploy
+	 * indexing and the resume point is strictly after the last indexed block, so
+	 * that max is always older than the triggering event's timestamp and the
+	 * same-timestamp guard in `updateCumulativeVolume` cannot swallow the
+	 * triggering event's volume.
 	 */
 	static async seedAggregateVolume(aggregateBaseId: string, componentIdPrefix: string): Promise<void> {
 		const aggregateCumulativeId = this.getChainTypeId(aggregateBaseId)
 		if (await CumulativeVolumeUSD.get(aggregateCumulativeId)) return
 
 		const chainSuffix = `.${getHostStateMachine(chainId)}`
-		const PAGE_SIZE = 100
+		const dailyRows = await readAllPages((limit, offset) =>
+			DailyVolumeUSD.getByFields([], { limit, offset, orderBy: "id", orderDirection: "ASC" }),
+		)
+
+		const dailyTotals = new Map<string, { volume: bigint; lastUpdatedAt: bigint }>()
+		for (const record of dailyRows) {
+			// Component daily IDs end with `.<chain>.YYYY-MM-DD`
+			const date = record.id.slice(-10)
+			if (
+				!record.id.startsWith(componentIdPrefix) ||
+				!record.id.slice(0, -11).endsWith(chainSuffix) ||
+				!/^\d{4}-\d{2}-\d{2}$/.test(date)
+			)
+				continue
+			const bucket = dailyTotals.get(date) ?? { volume: 0n, lastUpdatedAt: 0n }
+			bucket.volume += record.last24HoursVolumeUSD
+			if (record.lastUpdatedAt > bucket.lastUpdatedAt) bucket.lastUpdatedAt = record.lastUpdatedAt
+			dailyTotals.set(date, bucket)
+		}
 
 		let cumulativeTotal = 0n
 		let cumulativeLastUpdatedAt = 0n
-		for (let offset = 0; ; offset += PAGE_SIZE) {
-			const page = await CumulativeVolumeUSD.getByFields([], {
-				limit: PAGE_SIZE,
-				offset,
-				orderBy: "id",
-				orderDirection: "ASC",
-			})
-			for (const record of page) {
-				if (!record.id.startsWith(componentIdPrefix) || !record.id.endsWith(chainSuffix)) continue
-				cumulativeTotal += record.volumeUSD
-				if (record.lastUpdatedAt > cumulativeLastUpdatedAt) cumulativeLastUpdatedAt = record.lastUpdatedAt
-			}
-			if (page.length < PAGE_SIZE) break
-		}
-
-		const dailyTotals = new Map<string, { volume: bigint; lastUpdatedAt: bigint }>()
-		for (let offset = 0; ; offset += PAGE_SIZE) {
-			const page = await DailyVolumeUSD.getByFields([], {
-				limit: PAGE_SIZE,
-				offset,
-				orderBy: "id",
-				orderDirection: "ASC",
-			})
-			for (const record of page) {
-				// Component daily IDs end with `.<chain>.YYYY-MM-DD`
-				const date = record.id.slice(-10)
-				if (
-					!record.id.startsWith(componentIdPrefix) ||
-					!record.id.slice(0, -11).endsWith(chainSuffix) ||
-					!/^\d{4}-\d{2}-\d{2}$/.test(date)
-				)
-					continue
-				const bucket = dailyTotals.get(date) ?? { volume: 0n, lastUpdatedAt: 0n }
-				bucket.volume += record.last24HoursVolumeUSD
-				if (record.lastUpdatedAt > bucket.lastUpdatedAt) bucket.lastUpdatedAt = record.lastUpdatedAt
-				dailyTotals.set(date, bucket)
-			}
-			if (page.length < PAGE_SIZE) break
-		}
-
 		for (const [date, bucket] of dailyTotals) {
+			cumulativeTotal += bucket.volume
+			if (bucket.lastUpdatedAt > cumulativeLastUpdatedAt) cumulativeLastUpdatedAt = bucket.lastUpdatedAt
 			await DailyVolumeUSD.create({
 				id: `${aggregateCumulativeId}.${date}`,
 				last24HoursVolumeUSD: bucket.volume,

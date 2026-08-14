@@ -87,14 +87,15 @@ describe("VolumeService.seedAggregateVolume", () => {
 		plantDaily("IntentGatewayV3.USER.EVM-84532.2023-11-13", toScaledUsd("888"), 3000n)
 	}
 
-	it("seeds cumulative and per-day records from this chain's filler history only", async () => {
+	it("seeds per-day records and a cumulative derived from them, from this chain's filler dailies only", async () => {
 		plantFillerHistory()
 
 		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
 
+		// 140 is the daily sum; the planted filler cumulatives sum to 150 and must not be scanned
 		const cumulative = records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532")
-		expect(cumulative.volumeUSD).toBe(toScaledUsd("150"))
-		expect(cumulative.lastUpdatedAt).toBe(2000n)
+		expect(cumulative.volumeUSD).toBe(toScaledUsd("140"))
+		expect(cumulative.lastUpdatedAt).toBe(1000n)
 
 		expect(records.get("DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.2023-11-13").last24HoursVolumeUSD).toBe(
 			toScaledUsd("100"),
@@ -110,7 +111,7 @@ describe("VolumeService.seedAggregateVolume", () => {
 		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
 		await VolumeService.updateVolume("IntentGatewayV3.FILLED", "10", T1)
 
-		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("160"))
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("150"))
 		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.${DAY}`).last24HoursVolumeUSD).toBe(
 			toScaledUsd("50"),
 		)
@@ -120,9 +121,33 @@ describe("VolumeService.seedAggregateVolume", () => {
 		plantFillerHistory()
 
 		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
-		plantCumulative("IntentGatewayV3.FILLER.0xccc.EVM-84532", toScaledUsd("1000"), 5000n)
+		plantDaily("IntentGatewayV3.FILLER.0xccc.EVM-84532.2023-11-13", toScaledUsd("1000"), 5000n)
 		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
 
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("140"))
+	})
+
+	// Known divergence, pinned deliberately: the cumulative same-timestamp guard fires per record,
+	// so the chain-wide FILLED aggregate drops the second of two same-block fills even when they
+	// come from different fillers, while the daily series and the per-filler cumulatives count both.
+	it("same-block fills by two fillers: FILLED daily counts both, FILLED cumulative drops the second", async () => {
+		plantFillerHistory()
+		await VolumeService.seedAggregateVolume("IntentGatewayV3.FILLED", "IntentGatewayV3.FILLER.")
+
+		await VolumeService.updateVolume("IntentGatewayV3.FILLER.0xaaa", "10", T1)
+		await VolumeService.updateVolume("IntentGatewayV3.FILLED", "10", T1)
+		await VolumeService.updateVolume("IntentGatewayV3.FILLER.0xbbb", "20", T1)
+		await VolumeService.updateVolume("IntentGatewayV3.FILLED", "20", T1)
+
+		expect(records.get(`DailyVolumeUSD:IntentGatewayV3.FILLED.EVM-84532.${DAY}`).last24HoursVolumeUSD).toBe(
+			toScaledUsd("70"),
+		)
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLER.0xaaa.EVM-84532").volumeUSD).toBe(
+			toScaledUsd("110"),
+		)
+		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLER.0xbbb.EVM-84532").volumeUSD).toBe(
+			toScaledUsd("70"),
+		)
 		expect(records.get("CumulativeVolumeUSD:IntentGatewayV3.FILLED.EVM-84532").volumeUSD).toBe(toScaledUsd("150"))
 	})
 

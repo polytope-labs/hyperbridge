@@ -4,6 +4,14 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-14 — Cumulative seed derives from daily rows, and a failed seed skips only the gateway update (#1085)
+
+Chosen: `seedAggregateVolume` scans only `DailyVolumeUSD` and derives the aggregate's cumulative record from the per-day sums (`lastUpdatedAt` from their max). The alternative — summing the component `CumulativeVolumeUSD` rows — was the original implementation and was dropped after review: `updateCumulativeVolume` skips same-timestamp updates per record, so a chain-wide aggregate's cumulative drops the second of any two same-block fills (even by different fillers), while per-filler cumulatives only collide within one filler. Seeding from summed filler cumulatives therefore bakes in the equality "FILLED cumulative equals the sum of FILLER cumulatives", which the guard breaks from the first multi-filler block onward. Daily rows have no such guard, count every fill, and are the series the aggregate is paired with. The forward divergence itself is accepted, not fixed — fixing it means removing the cumulative guard, which would change every existing volume series — and is pinned by a test.
+
+Also chosen: the seed call in `updateOrderStatus` has its own try/catch. A store error during the scan must not swallow the fill's status, points, and user activity (the handler's try/catch is around all of it). On failure, the gateway `updateVolume` call is skipped too, deliberately: writing it would create the cumulative record that doubles as the seed's done-marker, permanently preventing the backfill. Skipping leaves the marker absent so the next fill retries the seed, and the retry recovers the skipped fill's volume because it sums the filler daily rows, which include it. Nothing is lost or double-counted in either outcome.
+
+Accepted tradeoff, noted for future readers: the scan uses `getByFields([], ...)` with an empty filter, which returns zero rows with no diagnostic signal if something is wrong upstream (the reason `PendingStatusService` moved off empty-filter reads). Acceptable here because the seed runs once per chain per deployment and a wrongly-empty result degrades to a zero seed plus correct forward counting.
+
 ## 2026-08-14 — Gateway volume seeding uses the aggregate cumulative record as its own done-marker (#1085)
 
 Chosen: `VolumeService.seedAggregateVolume` runs on every fill but returns immediately when the aggregate's `CumulativeVolumeUSD` record exists; the record itself is the marker. Seeding runs lazily on the first fill per chain after deploy, before that fill's own volume updates.

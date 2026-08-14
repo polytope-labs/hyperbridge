@@ -712,6 +712,7 @@ async function readV4Position(
 	contracts: UniswapV4Contracts,
 	tokenId: bigint,
 	keccak: (hex: HexString) => HexString,
+	logger?: AggregationLogger,
 ): Promise<V4PositionState | null> {
 	const call = async (to: string, data: string): Promise<string | null> => {
 		const result = await rpcCall(evmRpcUrl, {
@@ -733,13 +734,31 @@ async function readV4Position(
 		call(contracts.positionManager, `${SELECTOR_POOL_AND_POSITION_INFO}${arg}`),
 		call(contracts.positionManager, `${SELECTOR_POSITION_LIQUIDITY}${arg}`),
 	])
-	if (!ownerData || !infoData || !liquidityData) return null
+	// An empty ownerOf is a tokenId that was never minted or has been burned — a solver may name a
+	// stale position, which is its problem and not ours.
+	if (!ownerData) return null
+	if (!infoData || !liquidityData) {
+		logger?.warn(
+			{ tokenId: tokenId.toString(), positionManager: contracts.positionManager },
+			"Uniswap V4 position exists but its pool info or liquidity did not read back — check the configured PositionManager",
+		)
+		return null
+	}
 
 	const info = decodePoolAndPositionInfo(infoData)
 	// The pool id is keccak of the PoolKey exactly as the chain returned it, so no re-encoding of
 	// ours can disagree with the hash the pool was registered under.
 	const slot0Data = await call(contracts.stateView, `${SELECTOR_GET_SLOT0}${keccak(info.poolKeyEncoded).slice(2)}`)
-	if (!slot0Data) return null
+	// The position resolved, so its pool exists — an empty slot0 means the call went somewhere that
+	// is not a StateView, i.e. a misconfigured address. Silence here is what let a wrong address
+	// zero out every declared position indefinitely instead of failing where someone would see it.
+	if (!slot0Data) {
+		logger?.warn(
+			{ tokenId: tokenId.toString(), stateView: contracts.stateView, evmRpcUrl },
+			"Uniswap V4 slot0 read returned nothing for a live position — the configured StateView address is wrong",
+		)
+		return null
+	}
 
 	return {
 		owner: `0x${ownerData.slice(-40)}`.toLowerCase(),
@@ -750,13 +769,13 @@ async function readV4Position(
 }
 
 /** Promise-caching position reader: one set of reads per position, reused across every leg. */
-function memoizedV4Position(keccak: (hex: HexString) => HexString) {
+function memoizedV4Position(keccak: (hex: HexString) => HexString, logger?: AggregationLogger) {
 	const cache = new Map<string, Promise<V4PositionState | null>>()
 	return (evmRpcUrl: string, chain: string, contracts: UniswapV4Contracts, tokenId: bigint) => {
 		const key = `${chain}|${tokenId}`
 		let pending = cache.get(key)
 		if (!pending) {
-			pending = readV4Position(evmRpcUrl, contracts, tokenId, keccak).catch((err) => {
+			pending = readV4Position(evmRpcUrl, contracts, tokenId, keccak, logger).catch((err) => {
 				cache.delete(key)
 				throw err
 			})
@@ -930,7 +949,7 @@ async function runAggregation(
 
 	// One set of reads per declared position, reused by every leg it backs.
 	const v4Contracts = params.uniswapV4?.[chain]
-	const readPosition = memoizedV4Position(params.keccak ?? keccak256)
+	const readPosition = memoizedV4Position(params.keccak ?? keccak256, logger)
 
 	// Balances repeat across legs and the sweep; one memo serves the whole run.
 	const getBalance = params.getBalance ?? memoizedSolverBalance(yieldVaults)

@@ -1,4 +1,4 @@
-import { stubOrderScanner } from "../helpers/stub-scanner"
+import { OrderScanner } from "@/scanner/order-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -173,7 +173,12 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
+		const { filler: intentFiller, orderScanner } = await createFxIntentFiller(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			polygonAmoyId,
+		)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -290,6 +295,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		expect(isFilled).toBe(true)
 
 		await intentFiller.stop()
+		await orderScanner.close()
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 
@@ -307,7 +313,12 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = await createFxIntentFiller(chainConfigs, fillerConfig, chainConfigService, polygonAmoyId)
+		const { filler: intentFiller, orderScanner } = await createFxIntentFiller(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			polygonAmoyId,
+		)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -454,6 +465,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		expect(isFilled).toBe(true)
 
 		await intentFiller.stop()
+		await orderScanner.close()
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 })
@@ -467,7 +479,7 @@ async function createFxIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	exoticChainId: string,
-): Promise<IntentFiller> {
+): Promise<{ filler: IntentFiller; orderScanner: OrderScanner }> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
@@ -519,7 +531,18 @@ async function createFxIntentFiller(
 
 	const bidStorage = new SqliteDataStore(".simplex-data").bids
 
-	return new IntentFiller(
+	// A real scanner: this E2E places a real order on-chain and the whole point
+	// is that the filler DETECTS it by scanning. A stub here blinds the filler
+	// and the test times out waiting for a fill that can never start.
+	const orderScanner = await OrderScanner.create({
+		chains: chainConfigs.map((chain) => ({
+			chainId: chain.chainId,
+			rpcUrls: [chain.rpcUrl],
+			gateway: chain.intentGatewayAddress as HexString,
+		})),
+	})
+
+	const filler = new IntentFiller(
 		chainConfigs,
 		strategies,
 		fillerConfig,
@@ -527,10 +550,11 @@ async function createFxIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
-		{ orders: stubOrderScanner() },
+		{ orders: orderScanner },
 		undefined,
 		bidStorage,
 	)
+	return { filler, orderScanner }
 }
 
 async function pollForOrderFilled(

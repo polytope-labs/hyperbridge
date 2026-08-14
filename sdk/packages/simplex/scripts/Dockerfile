@@ -107,5 +107,5 @@ WORKDIR /data
 # the filler once it is saved; with one, it runs the filler directly. `init` is the same
 # flow in the terminal, for headless hosts:
 #   docker run --rm -it -v simplex-data:/data <image> init -o /data/filler-config.toml
-ENTRYPOINT ["node", "/app/packages/simplex/dist/bin/simplex.js"]
+ENTRYPOINT ["node", "--enable-source-maps", "/app/packages/simplex/dist/bin/simplex.js"]
 CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686"]

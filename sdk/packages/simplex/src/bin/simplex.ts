@@ -1,4 +1,5 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --enable-source-maps
+
 import { Command } from "commander"
 import { readFileSync } from "fs"
 import { resolve, dirname } from "path"

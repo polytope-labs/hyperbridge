@@ -59,13 +59,19 @@ export default defineConfig([
 		// Keyed, not a bare path: with one entry tsup would flatten the output to
 		// dist/simplex.js and break the `bin` mapping.
 		entry: { "bin/simplex": "src/bin/simplex.ts" },
-		format: ["esm", "cjs"],
+		// ESM only: `bin` and the docker ENTRYPOINT both execute simplex.js, so a
+		// CJS twin was 15 MB of tarball nothing ever ran. Dropping it pays for the
+		// map below.
+		format: ["esm"],
 		dts: false,
 		splitting: false,
-		// No sourcemap: mapping a 15 MB single-file bundle costs ~29 MB per format
-		// and 4× the published tarball, for a stack trace nobody debugging their
-		// own app will read. The library entries keep theirs.
-		sourcemap: false,
+		// With the map, a crash names src files and lines. Without it, every report
+		// reads `at simplex.js:328059:15` — an offset into a 15 MB bundle that
+		// nobody, including us, can act on. The flag rides in the shebang
+		// (`env -S node --enable-source-maps`) and the docker ENTRYPOINT — the
+		// runtime API cannot map the very module it is called from, which a
+		// single-file bundle is.
+		sourcemap: true,
 		clean: false,
 		shims: true,
 		noExternal: [/.*/],

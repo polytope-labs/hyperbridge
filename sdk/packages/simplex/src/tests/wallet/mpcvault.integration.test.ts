@@ -1,7 +1,7 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { createMpcVaultAccount, MpcVaultService } from "@/services/wallet/mpcvault"
 import { describe, expect, it } from "vitest"
-import { isHex } from "viem"
+import { isHex, recoverAddress, recoverMessageAddress, recoverTypedDataAddress } from "viem"
 import "../setup"
 
 /**
@@ -101,7 +101,7 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		)
 	})
 
-	it("signRawHash completes create + execute and returns a 65-byte ECDSA hex signature", async () => {
+	it("signRawHash returns a 65-byte ECDSA signature that recovers the wallet address", async () => {
 		const service = createTestService()
 
 		const dummyHash = `0x${"ab".repeat(32)}` as HexString
@@ -109,9 +109,11 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132)
+		const recovered = await recoverAddress({ hash: dummyHash, signature: sig })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
-	it("signRawHashComponents returns r, s, yParity for the same raw hash flow", async () => {
+	it("signRawHashComponents returns r, s, yParity that recover the wallet address", async () => {
 		const service = createTestService()
 		const dummyHash = `0x${"ba".repeat(32)}` as HexString
 		const { r, s, yParity } = await service.signRawHashComponents(dummyHash)
@@ -121,9 +123,11 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		expect(r.length).toBe(66)
 		expect(s.length).toBe(66)
 		expect(yParity === 0 || yParity === 1).toBe(true)
+		const recovered = await recoverAddress({ hash: dummyHash, signature: { r, s, yParity } })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
-	it("signPersonalMessage completes and returns a 65-byte ECDSA hex signature", async () => {
+	it("signPersonalMessage returns an EIP-191 signature that recovers the wallet address", async () => {
 		const service = createTestService()
 
 		// A dummy 32-byte message hash, as if from keccak256("hello")
@@ -134,36 +138,44 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132) // 65 bytes = 130 hex chars + 0x prefix
+		const recovered = await recoverMessageAddress({ message: { raw: messageHash }, signature: sig })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
-	it("signTypedData completes and returns a 65-byte ECDSA hex signature", async () => {
-		const service = createTestService()
-		const chainId = testChainId()
+	// Signature must RECOVER to the wallet address, not just be well-formed: MPCVault's
+	// TYPE_SIGN_TYPED_DATA endpoint returns well-formed signatures that verify against
+	// nothing (#1132), which a length-only assertion cannot catch. The account adapter
+	// therefore hashes locally and signs via the raw-message path.
+	it("account.signTypedData returns a signature that recovers the wallet address", async () => {
+		const accountAddress = process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString
+		const { account } = createMpcVaultAccount({
+			apiToken: process.env.MPCVAULT_API_TOKEN as string,
+			vaultUuid: process.env.MPCVAULT_VAULT_UUID as string,
+			accountAddress,
+			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY as string,
+		})
 
 		const typedData = {
 			types: {
-				EIP712Domain: [
-					{ name: "name", type: "string" },
-					{ name: "version", type: "string" },
-					{ name: "chainId", type: "uint256" },
-				],
 				Test: [{ name: "value", type: "uint256" }],
 			},
 			primaryType: "Test",
 			domain: {
 				name: "TestDomain",
 				version: "1",
-				chainId,
+				chainId: testChainId(),
 			},
 			message: {
-				value: 12345,
+				value: 12345n,
 			},
-		}
+		} as const
 
-		const sig = await service.signTypedData(JSON.stringify(typedData), chainId)
+		const sig = await account.signTypedData!(typedData)
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132)
+		const recovered = await recoverTypedDataAddress({ ...typedData, signature: sig })
+		expect(recovered.toLowerCase()).toBe(accountAddress.toLowerCase())
 	}, 120_000)
 
 	it("signTransaction completes and returns a signed transaction hex", async () => {

@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.9.4
+
+### Patch Changes
+
+- MPCVault signer: all EIP-712 typed-data signing (bid UserOps, delegation-via-bundler UserOps, Circle Paymaster permits) now hashes the payload locally and signs the 32-byte digest through MPCVault's raw-message path instead of `TYPE_SIGN_TYPED_DATA`. Signatures returned by the typed-data endpoint do not verify against the submitted payload's EIP-712 digest — every bid and delegation UserOp signed through it fails on-chain validation ("Invalid account signature" / AA24 from bundlers), while raw-message signatures from the same vault validate and execute (see #1132). Trade-off until the endpoint's behaviour is clarified: the MPCVault console shows an opaque 32-byte hash instead of the structured message. The live integration tests now assert signature **recovery** against the wallet address rather than just shape — the gap that let this ship undetected.
+
 ## 0.9.2
 
 ### Patch Changes

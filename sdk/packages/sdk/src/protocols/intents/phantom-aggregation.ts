@@ -11,6 +11,12 @@ import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import type { PackedUserOperation } from "@/types"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
+import {
+	decodePoolAndPositionInfo,
+	positionAmountOfToken,
+	word,
+	type PoolAndPositionInfo,
+} from "@/protocols/intents/uniswap-v4-position"
 
 export type HexString = `0x${string}`
 
@@ -674,6 +680,92 @@ async function getTotalSolverBalance(
 	return vaultBalances.reduce((acc, b) => acc + b, raw)
 }
 
+/** PositionManager + StateView addresses for a chain's Uniswap V4 deployment. */
+export interface UniswapV4Contracts {
+	positionManager: string
+	stateView: string
+}
+
+/** Everything a declared position's contribution depends on, read once and reused across legs. */
+interface V4PositionState {
+	/** Current on-chain owner. Compared against the bid's signer, never trusted from the bid. */
+	owner: string
+	info: PoolAndPositionInfo
+	liquidity: bigint
+	sqrtPriceX96: bigint
+}
+
+const SELECTOR_OWNER_OF = "0x6352211e"
+const SELECTOR_POSITION_LIQUIDITY = "0x1efeed33"
+const SELECTOR_POOL_AND_POSITION_INFO = "0x7ba03aad"
+const SELECTOR_GET_SLOT0 = "0xc815641c"
+
+const uint256Arg = (value: bigint) => value.toString(16).padStart(64, "0")
+
+/**
+ * Reads a declared position: who owns it, how much liquidity it holds, and the price its pool is
+ * currently at. Null when the position does not exist — a solver may name a burned tokenId, which
+ * is not an RPC failure and must not sink the run.
+ */
+async function readV4Position(
+	evmRpcUrl: string,
+	contracts: UniswapV4Contracts,
+	tokenId: bigint,
+	keccak: (hex: HexString) => HexString,
+): Promise<V4PositionState | null> {
+	const call = async (to: string, data: string): Promise<string | null> => {
+		const result = await rpcCall(evmRpcUrl, {
+			id: 1,
+			jsonrpc: "2.0",
+			method: "eth_call",
+			params: [{ to, data }, "latest"],
+		})
+		if (result.result === "0x") return null
+		if (typeof result.result !== "string") {
+			throw new PhantomRpcError(`eth_call returned no result for ${to} on ${evmRpcUrl}`)
+		}
+		return result.result
+	}
+
+	const arg = uint256Arg(tokenId)
+	const [ownerData, infoData, liquidityData] = await Promise.all([
+		call(contracts.positionManager, `${SELECTOR_OWNER_OF}${arg}`),
+		call(contracts.positionManager, `${SELECTOR_POOL_AND_POSITION_INFO}${arg}`),
+		call(contracts.positionManager, `${SELECTOR_POSITION_LIQUIDITY}${arg}`),
+	])
+	if (!ownerData || !infoData || !liquidityData) return null
+
+	const info = decodePoolAndPositionInfo(infoData)
+	// The pool id is keccak of the PoolKey exactly as the chain returned it, so no re-encoding of
+	// ours can disagree with the hash the pool was registered under.
+	const slot0Data = await call(contracts.stateView, `${SELECTOR_GET_SLOT0}${keccak(info.poolKeyEncoded).slice(2)}`)
+	if (!slot0Data) return null
+
+	return {
+		owner: `0x${ownerData.slice(-40)}`.toLowerCase(),
+		info,
+		liquidity: word(liquidityData, 0),
+		sqrtPriceX96: word(slot0Data, 0),
+	}
+}
+
+/** Promise-caching position reader: one set of reads per position, reused across every leg. */
+function memoizedV4Position(keccak: (hex: HexString) => HexString) {
+	const cache = new Map<string, Promise<V4PositionState | null>>()
+	return (evmRpcUrl: string, chain: string, contracts: UniswapV4Contracts, tokenId: bigint) => {
+		const key = `${chain}|${tokenId}`
+		let pending = cache.get(key)
+		if (!pending) {
+			pending = readV4Position(evmRpcUrl, contracts, tokenId, keccak).catch((err) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		return pending
+	}
+}
+
 /** Promise-caching balance reader produced by [`memoizedSolverBalance`]. */
 export type SolverBalanceReader = (evmRpcUrl: string, chain: string, token: string, solver: string) => Promise<bigint>
 
@@ -803,6 +895,14 @@ async function runAggregation(
 		 * same `yieldVaults` passed here — the memo bakes in the vault map its balances include.
 		 */
 		getBalance?: SolverBalanceReader
+		/**
+		 * Uniswap V4 deployment per chain. Supply it to let bids that declare positions have those
+		 * positions counted; without it a declaration is simply ignored, and the weight stays the
+		 * plain balance as before.
+		 */
+		uniswapV4?: Record<string, UniswapV4Contracts>
+		/** keccak256 over hex; defaults to viem's, which the VM2 sandbox must replace. */
+		keccak?: (hex: HexString) => HexString
 		logger?: AggregationLogger
 	},
 	isDelegated: DelegationReader,
@@ -827,6 +927,10 @@ async function runAggregation(
 
 	const bids = await fetchBidsForOrder(nodeUrl, commitment)
 	if (bids.length === 0) return null
+
+	// One set of reads per declared position, reused by every leg it backs.
+	const v4Contracts = params.uniswapV4?.[chain]
+	const readPosition = memoizedV4Position(params.keccak ?? keccak256)
 
 	// Balances repeat across legs and the sweep; one memo serves the whole run.
 	const getBalance = params.getBalance ?? memoizedSolverBalance(yieldVaults)
@@ -893,16 +997,53 @@ async function runAggregation(
 
 			// The declaration rides in paymasterAndData, which the userOpHash covers, so it carries
 			// the same authenticity as the quote itself.
-			const acceptedSources = decodeAcceptedSourceChains(decoded.paymasterAndData)
+			const declaration = decodePhantomBidDeclaration(decoded.paymasterAndData)
+			const acceptedSources = declaration.acceptedSources
 
 			// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
 			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
 			// across legs still collapse to a single RPC round trip.
 			const quotedLegs = [...fillData.legs.entries()].filter(([, leg]) => leg.solverAmount !== 0n)
+
+			// Liquidity a solver parked in a Uniswap V4 position is real capacity but holds no ERC-20
+			// balance, so without this it reads as zero and the leg is dropped. The bid only NAMES
+			// the positions; ownership is checked against the signer here and the amounts come off
+			// the chain, so naming more, or naming someone else's, buys nothing.
+			const declaredPositions = v4Contracts ? declaration.uniswapV4Positions : []
+			const positions = (
+				await Promise.all(
+					declaredPositions.map((tokenId) => readPosition(destUrl, chain, v4Contracts!, tokenId)),
+				)
+			).filter((state, index): state is V4PositionState => {
+				if (!state) return false
+				if (state.owner !== normalizedSolver) {
+					logger?.warn(
+						{ solver, commitment, tokenId: declaredPositions[index].toString(), owner: state.owner },
+						"Ignoring declared Uniswap V4 position: not owned by the bidding solver",
+					)
+					return false
+				}
+				return true
+			})
+
 			const weights = await Promise.all(
 				// Price influence: the solver's liquidity in THIS leg's output token on the destination
 				// chain, so a leg is weighted by the inventory that actually backs it.
-				quotedLegs.map(([, leg]) => getBalance(destUrl, chain, toAddress(leg.outputToken), solver)),
+				quotedLegs.map(async ([, leg]) => {
+					const outputToken = toAddress(leg.outputToken)
+					const balance = await getBalance(destUrl, chain, outputToken, solver)
+					return positions.reduce(
+						(total, state) =>
+							total +
+							positionAmountOfToken({
+								info: state.info,
+								liquidity: state.liquidity,
+								sqrtPriceX96: state.sqrtPriceX96,
+								outputToken,
+							}),
+						balance,
+					)
+				}),
 			)
 			for (const [position, [legIndex, leg]] of quotedLegs.entries()) {
 				const weight = weights[position]

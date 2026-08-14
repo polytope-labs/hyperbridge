@@ -11,6 +11,7 @@ import {
 	splitBidSignature,
 	weightedMedian,
 	encodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
 	ENTRY_POINT_V08_ADDRESS,
 	FILL_ORDER_ABI,
@@ -648,6 +649,99 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(attempts).toBeGreaterThan(1)
 		expect(result!.legs[0].bidders[0].weight).toBe(SOLVER_BALANCE)
 	}, 30_000)
+
+	// Liquidity in a V4 position holds no ERC-20 balance, so a venue-funded solver weighs zero and
+	// its legs are dropped. A bid may name its positions; the amounts still come off the chain.
+	describe("declared Uniswap V4 positions", () => {
+		const POSITION_MANAGER = `0x${"aa".repeat(20)}`
+		const STATE_VIEW = `0x${"bb".repeat(20)}`
+		const TOKEN_ID = 2905215n
+		const solverAddress = privateKeyToAccount(SOLVER_KEY).address.toLowerCase()
+		const w = (v: bigint) => v.toString(16).padStart(64, "0")
+		const addrWord = (a: string) => a.replace(/^0x/, "").toLowerCase().padStart(64, "0")
+		// A wide range around the current price, so the position genuinely holds both sides.
+		const packInfo = (lo: number, hi: number) =>
+			(1n << 56n) | (BigInt.asUintN(24, BigInt(hi)) << 32n) | (BigInt.asUintN(24, BigInt(lo)) << 8n) | 1n
+		const LIQUIDITY = 10n ** 18n
+		const SQRT_PRICE_AT_TICK_0 = 1n << 96n
+
+		function v4Rpc(bids: PackedUserOperation[], owner: string): FetchLike {
+			return async (_url, init) => {
+				const payload = JSON.parse(init.body)
+				if (payload.method === "intents_getBidsForOrder") {
+					return {
+						json: async () => ({
+							id: payload.id,
+							jsonrpc: "2.0",
+							result: bids.map((op) => ({
+								commitment: COMMITMENT,
+								filler: `0x${"ab".repeat(32)}`,
+								user_op: encodeUserOpScale(op),
+							})),
+						}),
+					}
+				}
+				if (payload.method === "eth_getCode") {
+					return {
+						json: async () => ({ id: payload.id, jsonrpc: "2.0", result: delegatedTo(SOLVER_ACCOUNT)() }),
+					}
+				}
+				const { to, data } = payload.params[0]
+				const selector = data.slice(0, 10)
+				let result: string
+				if (to === POSITION_MANAGER && selector === "0x6352211e") result = `0x${addrWord(owner)}`
+				else if (to === POSITION_MANAGER && selector === "0x1efeed33") result = `0x${w(LIQUIDITY)}`
+				else if (to === POSITION_MANAGER && selector === "0x7ba03aad")
+					// PoolKey(currency0=USDT, currency1=other, fee, tickSpacing, hooks) ‖ packed info
+					result = `0x${addrWord(USDT)}${addrWord(`0x${"cc".repeat(20)}`)}${w(1500n)}${w(30n)}${addrWord(`0x${"00".repeat(20)}`)}${w(packInfo(-60, 60))}`
+				else if (to === STATE_VIEW && selector === "0xc815641c")
+					result = `0x${w(SQRT_PRICE_AT_TICK_0)}${w(0n)}${w(0n)}${w(0n)}`
+				else result = toHex(0n, { size: 32 }) // no ERC-20 balance anywhere
+				return { json: async () => ({ id: payload.id, jsonrpc: "2.0", result }) }
+			}
+		}
+
+		const aggregateWithV4 = (owner: string) =>
+			aggregatePhantomBids({
+				nodeUrl: NODE_URL,
+				evmRpcUrls: { [CHAIN]: "http://base.test" },
+				chain: CHAIN,
+				gatewayAddress: GATEWAY,
+				commitment: COMMITMENT,
+				yieldVaults: { [CHAIN]: { [USDT]: [] } },
+				solverAccount: SOLVER_ACCOUNT,
+				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
+			})
+
+		it("weights a leg by a declared position the solver owns, with zero token balance", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], solverAddress))
+
+			const result = await aggregateWithV4(solverAddress)
+
+			// Weighted purely by the position: the balance read returns zero for every token.
+			expect(result!.legs).toHaveLength(1)
+			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
+		})
+
+		// The declaration is a pointer, not a claim — pointing at liquidity you do not own is the
+		// obvious way to fake depth, so ownership is checked against the signer on-chain.
+		it("ignores a declared position owned by someone else", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], `0x${"99".repeat(20)}`))
+
+			const result = await aggregateWithV4(`0x${"99".repeat(20)}`)
+
+			// Nothing backs the leg once the borrowed position is discounted, so it is dropped.
+			expect(result!.legs).toEqual([])
+		})
+	})
 
 	// One bundled order per configured chain means several aggregations run against the same
 	// block; a caller-supplied reader lets them share one point-in-time balance cache.

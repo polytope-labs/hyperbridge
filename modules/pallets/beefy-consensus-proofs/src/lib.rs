@@ -931,6 +931,8 @@ pub mod pallet {
 				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
 			let (prev_current_set, _) = Self::authority_set_ids(&prev_state_bytes, proof_type)?;
+			let prev_commitment_unknown =
+				types::next_commitment_unknown(&prev_state_bytes, proof_type);
 			let prev_height = Self::latest_height()?;
 
 			let consensus_proof = match proof_type {
@@ -1020,6 +1022,13 @@ pub mod pallet {
 
 			let rotated = new_current_set > prev_current_set;
 
+			// An apk client learns each set's commitment from a digest in a parachain header, and
+			// the proof that carries it neither rotates nor has to finalize anything new. Without
+			// this the rules below would turn it away as pointless, and the client would sit on a
+			// set it can never rotate out of.
+			let learned_commitment = prev_commitment_unknown &&
+				!types::next_commitment_unknown(&new_state_bytes, proof_type);
+
 			// Messaging proofs must finalize a parachain head we haven't seen; one that doesn't
 			// carries no new work and is rejected. Rotation proofs are exempt: the session
 			// boundary justification carries whatever head the relay chain held at that block,
@@ -1029,7 +1038,7 @@ pub mod pallet {
 			// pinning the consensus state on the old set forever — the mandatory-block
 			// justification is the only one a prover can obtain for that session, so every
 			// retry fails identically.
-			if !rotated && latest_height <= prev_height {
+			if !rotated && !learned_commitment && latest_height <= prev_height {
 				Err(Error::<T>::StaleProof)?
 			}
 
@@ -1054,7 +1063,7 @@ pub mod pallet {
 			// Reject proofs that would be no-ops: no rotation and no new messages.
 			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
 			let has_new_messages = child_trie_root != last_rewarded && latest_height > prev_height;
-			if !rotated && !has_new_messages {
+			if !rotated && !learned_commitment && !has_new_messages {
 				Err(Error::<T>::NoNewWork)?
 			}
 

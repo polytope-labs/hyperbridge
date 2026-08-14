@@ -16,6 +16,7 @@
 //! Types for `pallet-beefy-consensus-proofs`.
 
 use alloc::vec::Vec;
+use codec::{Decode, Encode};
 
 /// Offchain-storage prefix for messaging proof bytes, combined with the proven parachain
 /// height.
@@ -91,6 +92,56 @@ mod tests {
 			rotation_offchain_key(7),
 			[b"beefy_consensus_proofs::rotation::".as_slice(), &7u64.to_be_bytes()].concat(),
 		);
+	}
+}
+
+/// Whether an apk state is still missing the commitment for the set it will rotate into.
+///
+/// A proof that fills this in is doing work even if it finalizes nothing new, since the client
+/// cannot accept the rotation until it knows the incoming set's keys.
+pub fn next_commitment_unknown(state: &[u8], proof_type: u8) -> bool {
+	proof_type == PROOF_TYPE_APK &&
+		beefy_verifier_primitives::ApkConsensusState::decode(&mut &state[..])
+			.map(|state| state.next_authorities.apk_commitment.is_zero())
+			.unwrap_or(false)
+}
+
+#[cfg(test)]
+mod commitment_tests {
+	use super::*;
+	use beefy_verifier_primitives::{ApkAuthoritySet, ApkConsensusState};
+	use primitive_types::H256;
+
+	fn state(next: H256) -> Vec<u8> {
+		ApkConsensusState {
+			latest_beefy_height: 100,
+			beefy_activation_block: 0,
+			mmr_root_hash: H256::zero(),
+			current_authorities: ApkAuthoritySet {
+				id: 7,
+				len: 2,
+				apk_commitment: H256::repeat_byte(1),
+			},
+			next_authorities: ApkAuthoritySet { id: 8, len: 2, apk_commitment: next },
+		}
+		.encode()
+	}
+
+	#[test]
+	fn an_empty_next_commitment_is_the_only_thing_worth_learning() {
+		assert!(next_commitment_unknown(&state(H256::zero()), PROOF_TYPE_APK));
+		assert!(!next_commitment_unknown(&state(H256::repeat_byte(2)), PROOF_TYPE_APK));
+	}
+
+	#[test]
+	fn other_proof_types_never_learn_a_commitment() {
+		assert!(!next_commitment_unknown(&state(H256::zero()), PROOF_TYPE_NAIVE));
+		assert!(!next_commitment_unknown(&state(H256::zero()), PROOF_TYPE_SP1));
+	}
+
+	#[test]
+	fn a_state_that_is_not_the_apk_shape_is_not_missing_anything() {
+		assert!(!next_commitment_unknown(&[0u8; 3], PROOF_TYPE_APK));
 	}
 }
 

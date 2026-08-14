@@ -175,6 +175,10 @@ pub const PROOF_TYPE_ECDSA: u8 = 0x00;
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
 /// Proof type identifier for aggregate public key proofs (BlsApkBeefy)
+/// How far back to look for a justification inside the session that is ending. A session is
+/// short on a test relay and long on a live one, and this only bounds the search.
+const SESSION_SEARCH_WINDOW: u64 = 2400;
+
 pub const PROOF_TYPE_APK: u8 = 0x02;
 
 impl<R, P, B, Q> BeefyProver<R, P, B, Q>
@@ -352,6 +356,43 @@ where
 
 	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
 	/// boundary
+	/// The last BEEFY justification strictly below `before`, searched back over `window` blocks.
+	///
+	/// Used to prove finality inside the session that is about to end, where scanning forward
+	/// would land on the session boundary itself and a justification signed by the incoming set.
+	pub async fn justification_before(
+		&self,
+		before: u64,
+		window: u64,
+	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
+		let relay_rpc = self.prover.inner().relay_rpc.clone();
+		for number in (before.saturating_sub(window)..before).rev() {
+			let Some(hash) = relay_rpc.chain_get_block_hash(Some(number.into())).await? else {
+				continue;
+			};
+			let Some(justifications) = relay_rpc
+				.chain_get_block(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("failed to find block for {hash:?}"))?
+				.justifications
+			else {
+				continue;
+			};
+			let beefy = justifications
+				.into_iter()
+				.find(|(id, _)| id == b"BEEF")
+				.map(|(_, encoded)| {
+					VersionedFinalityProof::<u32, Signature>::decode(&mut &*encoded)
+				})
+				.transpose()?
+				.map(|VersionedFinalityProof::V1(commitment)| commitment);
+			if beefy.is_some() {
+				return Ok(beefy);
+			}
+		}
+		Ok(None)
+	}
+
 	pub async fn epoch_justification_for(
 		&self,
 		start: u64,
@@ -440,6 +481,61 @@ where
 							target: crate::LOG_TARGET, "Fetched next authority set justification: {:?}",
 							commitment.commitment
 						);
+
+						// An apk client checks a proof against a commitment to the signing set's
+						// keys, and the justification that rotates into a set is signed by that
+						// same set, so a set whose commitment is still unknown can never be
+						// rotated into directly. The commitment reaches the client through a
+						// digest in a parachain header, and the header this rotation carries sits
+						// on the session boundary, where the relay's next set is only just being
+						// queued. Proving finality one block earlier carries a header from the end
+						// of the session instead, which does name the incoming set, and the
+						// rotation goes through on the next tick.
+						if matches!(self.prover, Prover::Apk(_)) &&
+							consensus_state.inner.next_authorities.keyset_commitment.is_zero()
+						{
+							let epoch_change_number: u64 = epoch_change_header.number().into();
+							let Some(commitment) = self
+								.justification_before(epoch_change_number, SESSION_SEARCH_WINDOW)
+								.await?
+							else {
+								tracing::warn!(
+									target: crate::LOG_TARGET,
+									"No justification below {epoch_change_number} to learn the commitment for {next_set_id} from"
+								);
+								return Ok(());
+							};
+
+							let consensus_proof = self
+								.consensus_proof(
+									commitment.clone(),
+									consensus_state.inner.clone(),
+								)
+								.await?;
+							let message = ConsensusProof {
+								finalized_height: commitment.commitment.block_number,
+								set_id: consensus_state.inner.current_authorities.id,
+								message: ConsensusMessage {
+									consensus_proof,
+									consensus_state_id: self.config.consensus_state_id,
+									signer: H256::random().encode(),
+								},
+							};
+
+							tracing::info!(
+								target: crate::LOG_TARGET,
+								"Proving finality at {} so the client learns the commitment for {next_set_id}",
+								commitment.commitment.block_number,
+							);
+							let destinations: Vec<StateMachine> =
+								self.config.state_machines.clone();
+							self.backend.send_messages_proof(&destinations, message).await?;
+
+							consensus_state.inner.latest_beefy_height =
+								commitment.commitment.block_number;
+							self.backend.save_state(&consensus_state).await?;
+							return Ok(());
+						}
 
 						let consensus_proof = self
 							.consensus_proof(commitment.clone(), consensus_state.inner.clone())

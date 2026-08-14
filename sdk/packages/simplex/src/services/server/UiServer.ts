@@ -159,7 +159,6 @@ export interface OperatorContext {
 	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
 	addresses?: { evm: string; substrate?: string }
-	dataDir?: string
 }
 
 export interface SetupContext {

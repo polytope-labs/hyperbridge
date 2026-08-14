@@ -16,7 +16,7 @@ import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
 import { tmpdir } from "os"
-import { join } from "path"
+import { dirname, join } from "path"
 import { parse } from "toml"
 import Decimal from "decimal.js"
 
@@ -139,7 +139,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		configPath: join(dataDir, "filler-config.toml"),
 		chains: [8453, 56],
 		strategyTypes: ["USDC/CNGN"],
-		dataDir,
 		...overrides,
 	}
 }
@@ -213,7 +212,7 @@ describe("UiServer (operator mode)", () => {
 			ask,
 			askOnly,
 			filler,
-			dataDir: operator.dataDir!,
+			dataDir: dirname(operator.configPath!),
 			operator,
 		}
 	}

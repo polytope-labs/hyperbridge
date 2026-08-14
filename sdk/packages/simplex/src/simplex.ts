@@ -563,6 +563,10 @@ export class ChainController {
 		// Only a standing global `true` stays global; an explicit `false` expands, so a
 		// per-chain edit is actually written back instead of silently dropped.
 		if (this.runtime.config.simplex.watchOnly === true) return
+		// A transient start option is not config. Under the override every chain reads
+		// watch-only, and writing that snapshot back would make one `--watch-only` run
+		// permanent for every run after it.
+		if (this.runtime.globalWatchOnly && this.runtime.config.simplex.watchOnly === undefined) return
 		const perChain = Object.entries(this.runtime.intentFiller.getWatchOnly())
 			.filter(([, value]) => value === true)
 			.map(([chainId]) => [chainId, true] as const)

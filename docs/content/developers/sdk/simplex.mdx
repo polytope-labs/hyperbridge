@@ -232,6 +232,8 @@ await simplex.vaults.redeemAll()
 await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
 simplex.assets.resolve("USDC", "EVM-8453")
 
+// Requires `rebalancing` in the boot config; on a solver started without
+// it, `set` throws rather than conjuring a rebalancer mid-flight.
 await simplex.rebalancing.set({
     // A fraction, not a percentage: rebalance once the balance falls to
     // (1 - triggerPercentage) x base, so 0.2 triggers at 80% of base.
@@ -434,7 +436,7 @@ const simplex = await Simplex.start({
     config,
     logger: process.stdout,
 })
-// {"level":30,"time":1755151200000,"module":"simplex","msg":"..."}
+// {"level":30,"time":1755151200000,"moduleTag":"[simplex]","msg":"..."}
 ```
 
 That prints raw NDJSON, one record per line. For the binary's colourised output, pipe through
@@ -458,9 +460,10 @@ solverA.setLogLevel("debug")      // solverB stays at its own level
 solverA.addLogSink(auditStream)   // and its own sinks
 ```
 
-`addLogSink(sink)` at module level registers a destination on the process-wide fallback context —
-a safety net for records logged outside any solver's lifetime. Nothing in the library writes there
-during normal operation; a running solver logs only to its own context.
+`addLogSink(sink)` at module level registers a destination on the process-wide fallback context. A
+running solver logs only to its own context — the one thing that writes to the fallback is a shared
+scanner built without a `loggers` option, so pass one there if you route scanner output somewhere
+specific.
 
 ## Validating a config without starting
 

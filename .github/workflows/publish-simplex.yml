@@ -139,9 +139,11 @@ jobs:
             - name: Inspect manifest
               run: docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:v${VERSION}"
 
-    # Publishes the npm library. Independent of the docker jobs: the image ships the
-    # bundled CLI, this ships the importable package, and one failing is no reason to
-    # withhold the other.
+    # Publishes the npm library. Runs independently of the docker jobs — the image
+    # ships the bundled CLI, this ships the importable package, and neither waits on
+    # the other. The GitHub release DOES wait on both (see generate-changelog): a
+    # release note announcing an npm package that failed to publish would lie, and a
+    # failed job is re-runnable from the Actions tab.
     publish-npm:
         runs-on: ubuntu-latest
         permissions:
@@ -203,7 +205,24 @@ jobs:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
             # pnpm rewrites the `workspace:*` dependency on @hyperbridge/sdk to its
-            # concrete version as it packs, so that version must already be on npm.
+            # concrete version as it packs. That version existing on npm is not enough:
+            # the registry copy must MATCH the workspace simplex was built and tested
+            # against, or consumers resolve types and a chain registry the build never
+            # saw. The sdk-v<version> tag marks what was published; commits touching
+            # packages/sdk after it mean "publish the sdk first".
+            - name: Refuse an unpublished @hyperbridge/sdk
+              run: |
+                  SDK_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
+                  if ! git tag -l "sdk-v${SDK_VERSION}" | grep -q .; then
+                    echo "::warning::No sdk-v${SDK_VERSION} tag found; cannot verify the npm sdk matches the workspace."
+                    exit 0
+                  fi
+                  if ! git diff --quiet "sdk-v${SDK_VERSION}" HEAD -- packages/sdk; then
+                    echo "packages/sdk changed since sdk-v${SDK_VERSION} was published." >&2
+                    echo "Publish @hyperbridge/sdk first, then re-tag simplex." >&2
+                    exit 1
+                  fi
+
             - name: Publish to npm
               run: pnpm --filter="@hyperbridge/simplex" publish --access public --no-git-checks
               env:

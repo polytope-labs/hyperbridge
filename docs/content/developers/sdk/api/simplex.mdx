@@ -706,9 +706,9 @@ addLogSink(sink: LogSink): () => void
 
 ### addLogSink(sink)
 
-The module-level function registers on the process-wide fallback context instead. Nothing in the
-library writes there during normal operation — a running solver logs to its own context, and the
-validators throw rather than log — so this is a safety net, not a feed.
+The module-level function registers on the process-wide fallback context instead. A running solver
+logs to its own context and the validators throw rather than log; the one library path that writes
+to the fallback is a shared scanner built without a `loggers` option.
 
 ```typescript lineNumbers
 addLogSink(sink: LogSink): () => void

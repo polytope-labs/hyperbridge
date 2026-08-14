@@ -61,6 +61,10 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+		// Bounded: undici waits ~300s for headers from a socket that accepted and went
+		// silent, and OrderScanner.close() awaits any edit suspended on this probe —
+		// an unbounded probe turns one dead endpoint into a stuck shutdown.
+		signal: AbortSignal.timeout(10_000),
 	})
 	if (!response.ok) {
 		throw new Error(`Failed to fetch chainId from ${rpcUrl}: HTTP ${response.status}`)
@@ -574,15 +578,6 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
-	}
-
-	/**
-	 * Block-scanner poll period in milliseconds — configured in seconds, consumed
-	 * by `setInterval`. Defaults to 3 seconds.
-	 */
-	getBlockScanIntervalMs(): number {
-		const seconds = this.fillerConfig?.blockScanIntervalSeconds ?? DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS
-		return Math.round(seconds * 1000)
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

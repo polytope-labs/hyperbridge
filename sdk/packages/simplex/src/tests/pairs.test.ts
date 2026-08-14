@@ -897,6 +897,34 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
 	})
 
+	it("fills fully at a sloped curve when the cap does not bind (cap test is curve-independent)", async () => {
+		// Regression guard for the old limiter `token0Used < legNotionals[i]`: those
+		// two are priced at different curve points, so an upward-sloping bid made it
+		// fire with the cap nowhere near binding — turning a full fill that collects
+		// order.fees into a skip (cross-chain) or a fee-less partial (same-chain).
+		// bid rises 1500 -> 1600 over 10k USDC. 1.5M CNGN = 1000 USDC at the origin
+		// rate but only ~993 at the capped rate; a curve-dependent cap test calls
+		// that capped. The real cap is 100k USDC and nowhere near binding.
+		const sloped = new FillerPricePolicy({
+			points: [
+				{ amount: "0", price: "1500" },
+				{ amount: "10000", price: "1600" },
+			],
+		})
+		const filler = gateFiller(
+			[{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: sloped }],
+			usdcOnBoth(),
+			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
+		)
+		const o = order(
+			"sloped-no-cap",
+			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+			{ token: bytes20ToBytes32(USDC), amount: parseUnits("990", 6) },
+			parseUnits("10", 6),
+		)
+		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
+	})
+
 	it("fills inside a crossed book when the order is within its own side's curve", async () => {
 		// bid 1392 / ask 1400 CNGN per USDC (crossed). The user wants 1396.3 CNGN
 		// for 1 USDC — within the 1400 the ask curve pays, so the filler bids.
@@ -1250,11 +1278,10 @@ describe("FXFiller exposure cap", () => {
 	})
 
 	/**
-	 * The cap test must not move with the curve. `token0Used < legNotionals[i]`
-	 * — the limiter this replaced — compares a notional priced at the capped
-	 * point against one priced at the curve's origin, so on a sloped curve it
-	 * fires with the cap nowhere near binding, turning a full fill that collects
-	 * `order.fees` into a partial that collects none.
+	 * capFraction is derived from referenceRate-based notionals on both sides, so
+	 * a sloped curve cannot perturb it by construction. The behavioural guard for
+	 * the old curve-dependent limiter lives in the profit-gates suite
+	 * ("fills fully at a sloped curve when the cap does not bind").
 	 */
 	it("reports no cap on a sloped curve when the cap does not bind", async () => {
 		const sloped = new FillerPricePolicy({

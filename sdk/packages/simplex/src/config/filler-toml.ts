@@ -131,7 +131,9 @@ export interface FillerTomlConfig {
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string
 		hyperbridgeWsUrl: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		entryPointAddress?: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		solverAccountContractAddress?: string
 		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
 		targetGasUnits?: number
@@ -286,6 +288,15 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")
+		}
+	}
+
+	// `|| 5` downstream reads 0 as "unset", and p-queue throws a bare TypeError on
+	// fractional or negative concurrency — surface both here with a named error.
+	const concurrent = config.simplex.maxConcurrentOrders
+	if (concurrent !== undefined) {
+		if (!Number.isInteger(concurrent) || concurrent < 1) {
+			throw new Error(`simplex.maxConcurrentOrders must be an integer >= 1; got ${concurrent}`)
 		}
 	}
 

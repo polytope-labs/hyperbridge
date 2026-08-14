@@ -12,7 +12,11 @@ import type {
 	WalletTx,
 } from "./types"
 
-/** Rows kept per collection before the oldest are dropped. Matches the SQLite adapter. */
+/**
+ * Rows kept per collection before pruning. Bid rows are pruned settled-first —
+ * a row whose deposit is still reclaimable (successful or pending, unretracted)
+ * survives any cap, since the retraction sweep finds work by querying this store.
+ */
 const MAX_ROWS = 10_000
 
 /** Newest-first reads are capped here however large a `limit` the caller passes. */
@@ -218,7 +222,7 @@ class MemoryStateStore implements StateStore {
  * Nothing survives the process. That is fine for tests, short-lived embedded
  * fillers and watch-only observers, but a filler that submits bids should use a
  * durable store: a lost bid record is a Hyperbridge deposit nobody retracts.
- * Rows are capped so a long-running process cannot grow unboundedly.
+ * Settled rows are evicted past a cap; live bids (deposits still reclaimable) are never dropped.
  */
 export class MemoryDataStore implements SimplexDataStore {
 	readonly bids: BidStore = new MemoryBidStore()

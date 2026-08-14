@@ -23,7 +23,10 @@ const CONNECT_TIMEOUT_MS = 30_000
  */
 export class HyperbridgeScanner implements HyperbridgeScannerContract {
 	private readonly phantom: FanOut<PhantomOrderEvent>
-	private readonly errors = new Set<(error: unknown) => void>()
+	// Boxed per subscription, not a Set of raw functions: two subscribers passing
+	// the same handler reference would share one entry, and the first to close
+	// would silently deafen the rest. Matches OrderScanner.
+	private readonly errors = new Set<{ handler: (error: unknown) => void }>()
 	private readonly logger: Logger
 
 	private connection?: ApiPromise
@@ -31,6 +34,8 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 	private stopPolling?: () => void
 	private starting?: Promise<void>
 	private stopped = false
+	/** The connect failure start() swallowed, kept so create() can surface it. */
+	private startError?: unknown
 
 	private constructor(
 		private readonly wsUrl: string,
@@ -56,7 +61,12 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 		const scanner = new HyperbridgeScanner(wsUrl, options.loggers ?? defaultLoggerContext())
 		await scanner.start()
 		if (!scanner.connectionOpen) {
-			throw new Error(`Could not connect to Hyperbridge at ${wsUrl}`)
+			// The cause carries the real failure — timeout, DNS, TLS — which the
+			// generic message alone sent operators off to guess at. Assigned, not
+			// passed as an option: the compile target predates ErrorOptions.
+			const error = new Error(`Could not connect to Hyperbridge at ${wsUrl}`)
+			;(error as Error & { cause?: unknown }).cause = scanner.startError
+			throw error
 		}
 		return scanner
 	}
@@ -67,12 +77,13 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 
 	subscribe(handlers: HyperbridgeScannerHandlers): Subscription {
 		const consumer = this.phantom.add(handlers.onPhantomOrder)
-		if (handlers.onError) this.errors.add(handlers.onError)
+		const errorEntry = handlers.onError ? { handler: handlers.onError } : undefined
+		if (errorEntry) this.errors.add(errorEntry)
 
 		return {
 			close: () => {
 				consumer.close()
-				if (handlers.onError) this.errors.delete(handlers.onError)
+				if (errorEntry) this.errors.delete(errorEntry)
 			},
 			get dropped() {
 				return consumer.dropped
@@ -132,9 +143,9 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 					{
 						onError: (err) => {
 							this.logger.warn({ err }, "Phantom order poll failed, will retry")
-							for (const onError of this.errors) {
+							for (const entry of this.errors) {
 								try {
-									onError(err)
+									entry.handler(err)
 								} catch {
 									// One consumer's handler must not break polling for the rest.
 								}
@@ -145,6 +156,7 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 				this.logger.info({ wsUrl: this.wsUrl }, "Shared phantom order polling active")
 			} catch (err) {
 				this.logger.error({ wsUrl: this.wsUrl, err }, "Failed to start shared phantom order polling")
+				this.startError = err
 				// Clear so a later subscriber retries rather than inheriting a dead scanner.
 				this.starting = undefined
 			}

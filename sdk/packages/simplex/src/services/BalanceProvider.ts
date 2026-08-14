@@ -55,7 +55,7 @@ export interface BalanceProviderOptions {
 /**
  * Periodically collects wallet balances (native, USDC, USDT, exotic per chain,
  * plus the BRIDGE balance of the substrate account) into a plain snapshot,
- * consumed by both the Prometheus gauges and the UI JSON API.
+ * consumed by the UI JSON API and `wallet.balances()`.
  */
 export class BalanceProvider {
 	private snapshot: BalanceSnapshot = { updatedAt: null, chains: [] }

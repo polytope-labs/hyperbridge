@@ -38,6 +38,7 @@ export class OrderScanner implements OrderScannerContract {
 	private readonly errors = new Set<{ handler: (error: unknown, chainId: number) => void }>()
 	private readonly logger: Logger
 	private closed = false
+	private closing?: Promise<void>
 	/** Serialises edits, so one suspended on an RPC probe cannot race close(). */
 	private edits: Promise<void> = Promise.resolve()
 
@@ -118,7 +119,7 @@ export class OrderScanner implements OrderScannerContract {
 		return [...this.scanners.keys()]
 	}
 
-	/** Events dropped across every subscriber, for health reporting. */
+	/** Live subscribers, for health reporting. */
 	get subscriberCount(): number {
 		return this.orders.size
 	}
@@ -185,6 +186,17 @@ export class OrderScanner implements OrderScannerContract {
 	 *   unreachable, or answer for a different chain.
 	 */
 	async setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void> {
+		// Same queue as addChain, for the same reason: this suspends on a network
+		// probe, and resuming after close() would swap clients on a stopped loop.
+		const run = this.edits.then(() => this.setRpcUrlsNow(chainId, rpcUrls))
+		this.edits = run.then(
+			() => undefined,
+			() => undefined,
+		)
+		return run
+	}
+
+	private async setRpcUrlsNow(chainId: number, rpcUrls: string[]): Promise<void> {
 		if (this.closed) throw new Error("This OrderScanner is closed")
 
 		const scanner = this.scanners.get(chainId)
@@ -192,6 +204,8 @@ export class OrderScanner implements OrderScannerContract {
 
 		const validated = validateRpcUrls(rpcUrls)
 		const answered = await fetchChainId(validated[0])
+		// Re-checked after the probe: close() may have run while it was in flight.
+		if (this.closed) throw new Error("This OrderScanner is closed")
 		if (answered !== chainId) {
 			throw new Error(`Endpoints for chain ${chainId} answer for chain ${answered}`)
 		}
@@ -209,8 +223,15 @@ export class OrderScanner implements OrderScannerContract {
 	}
 
 	async close(): Promise<void> {
-		if (this.closed) return
+		// One teardown, shared: a second close() awaits the first rather than
+		// resolving while loops are still draining.
+		if (this.closed) return this.closing
 		this.closed = true
+		this.closing = this.closeNow()
+		return this.closing
+	}
+
+	private async closeNow(): Promise<void> {
 		// Let an addChain that is mid-probe finish and fail its own closed check,
 		// so it cannot install a loop behind us.
 		await this.edits

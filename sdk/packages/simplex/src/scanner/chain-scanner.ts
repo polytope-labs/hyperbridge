@@ -162,6 +162,11 @@ export class ChainScanner {
 			logMessage: "Failed to get current block number",
 		})
 
+		// A stop() that timed out its drain has already resolved; whatever this scan
+		// does now must be invisible. Checked after every await, because that is
+		// where a stop can interleave.
+		if (this.stopped) return
+
 		// `undefined`, not falsy: the previous implementation tested `if (!lastScanned)`,
 		// which is also true for 0n — so a chain whose head was 1 at boot never scanned.
 		if (this.cursor === undefined) {
@@ -196,6 +201,8 @@ export class ChainScanner {
 			if (isBlockRangeError(error)) return
 			throw error
 		}
+
+		if (this.stopped) return
 
 		const placed = logs.filter((log) => log.eventName === "OrderPlaced")
 		const filled = logs.filter((log) => log.eventName === "OrderFilled" || log.eventName === "PartialFill")

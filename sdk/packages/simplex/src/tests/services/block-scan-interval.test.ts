@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest"
-import {
-	FillerConfigService,
-	DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS,
-	MIN_BLOCK_SCAN_INTERVAL_SECONDS,
-	type ResolvedChainConfig,
-} from "@/services/FillerConfigService"
+import { DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS, MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { ChainScanner } from "@/scanner/chain-scanner"
+import { OrderScanner } from "@/scanner/order-scanner"
 
-const CHAINS: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrls: ["https://mainnet.base.org"], bundlerUrl: "https://b" }]
+const TARGET = { chain: "EVM-8453", chainId: 8453, gateway: "0xAA" as const, rpcUrls: ["https://base.example"] }
+
+/** The interval the scan loop was armed with — the value that actually paces RPC spend. */
+const intervalOf = (scanner: ChainScanner) => (scanner as unknown as { scanIntervalMs: number }).scanIntervalMs
 
 function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 	return {
@@ -15,7 +15,6 @@ function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 		simplex: {
 			signer: { type: "privateKey", key: `0x${"11".repeat(32)}` },
 			maxConcurrentOrders: 1,
-			queue: { maxRechecks: 1, recheckDelayMs: 1000 },
 			substratePrivateKey: "0xabc",
 			hyperbridgeWsUrl: "wss://example",
 			blockScanIntervalSeconds,
@@ -25,20 +24,22 @@ function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 }
 
 describe("block scan interval", () => {
-	it("defaults to 3 seconds when unset", () => {
-		const service = new FillerConfigService(CHAINS, { maxConcurrentOrders: 1 })
+	it("defaults the scan loop to 3 seconds when unset", () => {
 		expect(DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS).toBe(3)
-		expect(service.getBlockScanIntervalMs()).toBe(3000)
+		expect(intervalOf(new ChainScanner(TARGET))).toBe(3000)
 	})
 
-	it("converts the configured seconds to the milliseconds setInterval wants", () => {
-		const service = new FillerConfigService(CHAINS, { maxConcurrentOrders: 1, blockScanIntervalSeconds: 5 })
-		expect(service.getBlockScanIntervalMs()).toBe(5000)
+	it("carries scanIntervalSecs from OrderScanner.create to the scan loop, in ms", async () => {
+		const scanner = await OrderScanner.create({ chains: [{ ...TARGET }], scanIntervalSecs: 0.5 })
+		const loop = (scanner as unknown as { scanners: Map<number, ChainScanner> }).scanners.get(8453)!
+		expect(intervalOf(loop)).toBe(500)
+		await scanner.close()
 	})
 
-	it("supports sub-second polling", () => {
-		const service = new FillerConfigService(CHAINS, { maxConcurrentOrders: 1, blockScanIntervalSeconds: 0.5 })
-		expect(service.getBlockScanIntervalMs()).toBe(500)
+	it("rejects a scanIntervalSecs below the shared floor", async () => {
+		await expect(OrderScanner.create({ chains: [{ ...TARGET }], scanIntervalSecs: 0.05 })).rejects.toThrow(
+			/scanIntervalSecs/,
+		)
 	})
 
 	it("accepts valid intervals through validateConfig", () => {

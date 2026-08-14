@@ -123,6 +123,11 @@ export function assembleConfig(state: WizardState): FillerTomlConfig {
 		...base,
 		simplex: {
 			...base.simplex,
+			// Dead knobs: parsed for compatibility, never read, and not emitted — carrying
+			// them through would fail the round-trip gate below.
+			queue: undefined,
+			entryPointAddress: undefined,
+			solverAccountContractAddress: undefined,
 			signer: state.signer,
 			maxConcurrentOrders: state.maxConcurrentOrders,
 			...(state.logging !== undefined ? { logging: state.logging } : {}),

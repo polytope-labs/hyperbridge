@@ -97,11 +97,11 @@ WORKDIR /data
 
 # ENTRYPOINT fixes the binary; CMD provides the default arguments.
 #
-# --ui/-p bind every container interface rather than the CLI's 127.0.0.1 default: a
+# --ui binds every container interface rather than the CLI's 127.0.0.1 default: a
 # container-local loopback bind is unreachable from the host, and Docker Desktop on
 # macOS/Windows runs the daemon inside a VM with no --network host to fall back on, so
-# published ports are the only route in. The ports stay private until published with -p.
-# Carry both flags over if you override this command.
+# published ports are the only route in. The port stays private until published with `docker run -p`.
+# Carry the --ui flag over if you override this command.
 #
 # With no /data/filler-config.toml this serves the browser setup wizard on 8686 and starts
 # the filler once it is saved; with one, it runs the filler directly. `init` is the same

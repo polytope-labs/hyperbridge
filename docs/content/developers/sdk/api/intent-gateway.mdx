@@ -234,9 +234,9 @@ For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `
 ### queryAvailableLiquidity(params)
 
 Returns output-token liquidity from the indexer's latest pair-centric pool
-sample. Same-chain queries use the destination pool depth. Cross-chain queries
-use the matching explicit `PoolRoute`, returning zero liquidity when no indexed
-route accepts the source chain.
+sample. The result reports destination capacity, unrestricted capacity, and the
+matching explicit cross-chain route separately. The SDK does not decide whether
+the source chain is covered by the legacy unrestricted-bidder policy.
 
 ```typescript lineNumbers
 import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
@@ -251,10 +251,10 @@ const liquidity = await gateway.queryAvailableLiquidity({
 })
 
 if (liquidity) {
-  console.log(liquidity.totalLiquidity, "cNGN")
-  console.log("Providers:", liquidity.providerCount)
-  console.log("Route:", liquidity.sourceChain, "→", liquidity.destinationChain)
-  console.log("Measured at:", liquidity.snapshotTime)
+  console.log("Destination:", liquidity.destination.totalLiquidity)
+  console.log("Unrestricted:", liquidity.unrestricted.totalLiquidity)
+  console.log("Explicit route:", liquidity.explicitRoute?.totalLiquidity ?? "none")
+  console.log("Updated at:", liquidity.updatedAt)
 }
 ```
 
@@ -262,18 +262,42 @@ if (liquidity) {
 async queryAvailableLiquidity(params: {
   tokenIn: HexString
   tokenOut: HexString
-}): Promise<AvailableLiquiditySnapshot | undefined>
+}): Promise<AvailableLiquidity | undefined>
 ```
 
-`totalLiquidity` is a decimal string formatted from the indexer's 18-decimal
-normalized pool depth. `providerCount` is the number of bidders represented by
-that pool sample or explicit route. Legacy unrestricted bidders are not included
-in cross-chain results because the indexer deliberately does not assign their
-capacity to source chains. `liquidityByChain` is retained for compatibility and
-contains the same result for the gateway's destination chain.
+Each liquidity value is a decimal string formatted from the indexer's
+18-decimal normalized depth. `destination` is the complete destination-chain
+capacity. `unrestricted` is the subset from bidders without an accepted-source
+declaration. `explicitRoute` is the capacity from bidders that explicitly accept
+the requested source chain, or `null` when there is no such route. Consumers can
+combine the explicit and unrestricted slices when their transport policy allows
+it.
 
 This is indexed availability, not reserved liquidity or a fill guarantee. The
 method returns `undefined` only when the destination has no indexed pool sample.
+
+### queryBuyAndSellRates(params)
+
+Returns both indexed rates for a token pair. Callers provide token symbols and
+chain IDs; token addresses are resolved internally from the SDK configuration.
+
+```typescript lineNumbers
+const rates = await gateway.queryBuyAndSellRates({
+  tokenInSymbol: "USDC",
+  tokenOutSymbol: "cNGN",
+  sourceChainId: 1,
+  destinationChainId: 8453,
+})
+
+if (rates) {
+  console.log("Sell rate:", rates.sellRate)
+  console.log("Buy rate:", rates.buyRate)
+}
+```
+
+`sellRate` is token1 received for one token0. `buyRate` is token0 received for
+one token1. Either rate can be `null` when that side of the pool has not been
+priced. Numeric chain IDs and `EVM-*` state machine IDs are both accepted.
 
 ---
 

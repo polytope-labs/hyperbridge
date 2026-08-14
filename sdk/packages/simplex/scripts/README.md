@@ -7,8 +7,8 @@ This directory contains utility scripts for Hyperbridge Simplex.
 - **Dockerfile**: Builds the simplex image. Multi-stage (node:24 builder → node:24-slim
   runtime) and arch-neutral, so the same file produces the published `linux/amd64` +
   `linux/arm64` manifest. The build context is the `sdk` workspace root, not this directory.
-- **docker-compose.yml**: Simplex plus Prometheus and Grafana. Works unchanged on Linux,
-  macOS and Windows — `docker compose -f scripts/docker-compose.yml up -d`.
+- **docker-compose.yml**: Simplex as a service. Works unchanged on Linux, macOS and
+  Windows — `docker compose -f scripts/docker-compose.yml up -d`.
 - **docker.sh**: bash convenience wrapper around the two (Linux/macOS; on Windows call
   `docker compose` directly).
 
@@ -38,10 +38,9 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 
 ### Ports and volumes
 
-The container publishes nothing by itself. `8686` is the web UI (and setup wizard) and `9090`
-the Prometheus metrics endpoint; both bind `0.0.0.0` inside the container so `-p` can reach
-them, since Docker Desktop on macOS and Windows has no host networking. Publish them to
-`127.0.0.1` — they are unauthenticated. `/data` holds `filler-config.toml`, the bids database
+The container publishes nothing by itself. `8686` is the web UI (and setup wizard); it binds
+`0.0.0.0` inside the container so `-p` can reach it, since Docker Desktop on macOS and
+Windows has no host networking. Publish it to `127.0.0.1` — it is unauthenticated. `/data` holds `filler-config.toml`, the bids database
 and runtime state; mount a volume there to keep it across container replacement.
 
 With no config in `/data` the container serves the setup wizard on 8686. For a headless host,

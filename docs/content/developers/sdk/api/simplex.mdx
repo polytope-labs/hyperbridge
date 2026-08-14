@@ -239,8 +239,8 @@ simplex.on("order:filled", ({ orderId, profitUsd, chainId }) => {
 })
 ```
 
-This is the whole telemetry surface — the binary's Prometheus exporter is built on these same events,
-with no privileged access.
+This is the whole telemetry surface — anything the solver knows about its own activity arrives
+through these events, so metrics and alerting build on them with no privileged access.
 
 ## PairController
 

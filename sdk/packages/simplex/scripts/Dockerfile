@@ -74,10 +74,10 @@ COPY --from=builder --chown=simplex:simplex /app /app
 # survive container replacement.
 RUN mkdir -p /data && chown simplex:simplex /data
 
-# Node-only healthcheck: the slim base has neither curl nor ps. Probes the metrics server,
+# Node-only healthcheck: the slim base has neither curl nor ps. Probes the UI server,
 # which the default CMD below turns on.
 RUN printf '%s\n' \
-    'const res = await fetch("http://127.0.0.1:9090/health").catch(() => undefined)' \
+    'const res = await fetch("http://127.0.0.1:8686/health").catch(() => undefined)' \
     'process.exit(res?.ok ? 0 : 1)' > /app/healthcheck.mjs
 
 USER simplex
@@ -85,7 +85,7 @@ USER simplex
 # Set environment variables
 ENV NODE_ENV=production
 
-EXPOSE 8686 9090
+EXPOSE 8686
 
 # Set up healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["node", "/app/healthcheck.mjs"]
@@ -108,4 +108,4 @@ WORKDIR /data
 # flow in the terminal, for headless hosts:
 #   docker run --rm -it -v simplex-data:/data <image> init -o /data/filler-config.toml
 ENTRYPOINT ["node", "/app/packages/simplex/dist/bin/simplex.js"]
-CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
+CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686"]

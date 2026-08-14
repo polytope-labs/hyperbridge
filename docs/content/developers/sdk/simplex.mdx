@@ -143,9 +143,9 @@ simplex.on("activity", (event) => {
 ```
 
 Payloads are inferred from the event name, so a wrong field is a compile error. A misspelled event
-name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string. This is
-the whole telemetry surface — the binary's Prometheus exporter is built on these same events, with
-no privileged access.
+name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string. These
+events are the whole telemetry surface: counters, dashboards and alerting are yours to build on
+them, with nothing privileged left inside.
 
 ## Changing things while it runs
 

@@ -24,7 +24,6 @@ Starting with no config puts the container into the setup wizard. Publish the UI
 docker volume create simplex-data
 docker run -d --name simplex --restart unless-stopped \
     -p 127.0.0.1:8686:8686 \
-    -p 127.0.0.1:9090:9090 \
     -v simplex-data:/data \
     polytopelabs/simplex:latest
 ```
@@ -565,12 +564,10 @@ services:
             ["run",
              "--config", "/data/filler-config.toml",
              "--data-dir", "/data",
-             "--ui", "0.0.0.0:8686",
-             "-p", "0.0.0.0:9090"]
+             "--ui", "0.0.0.0:8686"]
         ports:
             # web UI (unauthenticated — keep it on loopback)
             - "127.0.0.1:8686:8686"
-            - "127.0.0.1:9090:9090" # Prometheus metrics
         volumes:
             - simplex-data:/data # bids database + runtime state
             - ./filler-config.toml:/data/filler-config.toml:ro

@@ -65,7 +65,6 @@ commands run in bash and in PowerShell.
 docker volume create simplex-data
 docker run -d --name simplex --restart unless-stopped \
     -p 127.0.0.1:8686:8686 \
-    -p 127.0.0.1:9090:9090 \
     -v simplex-data:/data \
     polytopelabs/simplex:latest
 ```
@@ -76,14 +75,13 @@ that config and run directly. Two alternatives to the browser wizard: mount a co
 have (`-v /path/to/filler-config.toml:/data/filler-config.toml:ro`), or run the terminal wizard with
 `docker run --rm -it -v simplex-data:/data polytopelabs/simplex:latest init -o /data/filler-config.toml`.
 
-The container's default command binds the UI and metrics servers to `0.0.0.0` — a container-local
-loopback bind is unreachable from the host, and Docker Desktop on macOS and Windows has no
-`--network host` to fall back on. The container's network namespace is the boundary there, so the
-ports stay private until published: keep the `127.0.0.1:` prefix above, particularly while the
-wizard is up, since it collects private keys. If you override the command, carry
-`--ui 0.0.0.0:8686 -p 0.0.0.0:9090` over with it.
+The container's default command binds the UI server to `0.0.0.0` — a container-local loopback bind
+is unreachable from the host, and Docker Desktop on macOS and Windows has no `--network host` to
+fall back on. The container's network namespace is the boundary there, so the port stays private
+until published: keep the `127.0.0.1:` prefix above, particularly while the wizard is up, since it
+collects private keys. If you override the command, carry `--ui 0.0.0.0:8686` over with it.
 
-`scripts/docker-compose.yml` brings the same up alongside Prometheus and Grafana.
+`scripts/docker-compose.yml` runs the same as a service.
 
 ### Web UI
 

@@ -11,7 +11,6 @@ import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
 import { adminStrategyFor, tradingPairFrom, type FillerRuntime } from "@/core/boot"
 import { Simplex } from "@/simplex"
-import { MetricsService } from "@/cli/metrics"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
 import { addLogSink, getLogger, configureLogger, type LogLevel, type LogSink } from "@/services/Logger"
@@ -118,7 +117,7 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(runtime: FillerRuntime, onStop?: () => void): Promise<OperatorContext> {
+async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorContext> {
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
@@ -176,9 +175,6 @@ async function operatorContextFrom(runtime: FillerRuntime, onStop?: () => void):
 		haltControls: runtime.haltControls,
 		config: runtime.config,
 		stop: async () => {
-			// Flush persisted counters before exiting, or the UI's Stop loses up to
-			// 30s of them where a signal-driven shutdown would not.
-			onStop?.()
 			await runtime.shutdown("UI")
 			process.exit(0)
 		},
@@ -253,28 +249,17 @@ program
 	.option("-d, --data-dir <path>", "Directory for persistent data storage (bids database, etc.)")
 	.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
 	.option(
-		"-p, --port <[host:]port>",
-		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
-	)
-	.option(
 		"--ui [<[host:]port>]",
 		`Bind address for the local web UI (status, pause/resume, price curves). Unauthenticated; default ${`127.0.0.1:${DEFAULT_UI_PORT}`}`,
 	)
 	.option("--no-ui", "Disable the local web UI")
-	.action(async (options: { config?: string; dataDir?: string; watchOnly?: boolean; port?: string; ui?: string | boolean }) => {
+	.action(async (options: { config?: string; dataDir?: string; watchOnly?: boolean; ui?: string | boolean }) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
 
 			const logger = getLogger("cli")
 
-			let metricsBind: { host: string; port: number } | undefined
-			if (options.port) {
-				metricsBind = parseBind(options.port, "0.0.0.0")
-				if (!metricsBind) {
-					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
-				}
-			}
 
 			const uiEnabled = options.ui !== false
 			let uiBind = { host: "127.0.0.1", port: DEFAULT_UI_PORT }
@@ -290,7 +275,6 @@ program
 			let simplex: Simplex | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
-			let metrics: MetricsService | undefined
 
 			/** Starts the filler and everything the CLI layers on top of it. */
 			const startFiller = async (config: FillerTomlConfig, path: string) => {
@@ -303,10 +287,6 @@ program
 					watchOnly: options.watchOnly,
 				})
 				runtime = simplex.internals
-				if (metricsBind) {
-					metrics = new MetricsService({ simplex, dataDir: options.dataDir })
-					metrics.start(metricsBind.port, metricsBind.host)
-				}
 				return simplex
 			}
 
@@ -315,7 +295,6 @@ program
 			// the same handler drains the filler. Nothing is re-registered on transition.
 			const shutdown = async (signal: string) => {
 				uiServer?.stop()
-				metrics?.stop()
 				if (simplex) await simplex.stop()
 				process.exit(0)
 			}
@@ -337,7 +316,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(runtime!, () => metrics?.stop()),
+						operator: await operatorContextFrom(runtime!),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -369,7 +348,7 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(runtime!, () => metrics?.stop()))
+						server.enterOperatorMode(await operatorContextFrom(runtime!))
 					},
 				},
 			})

@@ -236,7 +236,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				if (chainId === null) {
 					// Never discard silently: a dropped key here means the
 					// filler commits capital on a chain meant to be observed.
-					throw new Error(`simplex.watchOnly key '${chainIdStr}' is not a chain id — use "EVM-<id>" or "<id>"`)
+					throw new Error(
+						`simplex.watchOnly key '${chainIdStr}' is not a chain id — use "EVM-<id>" or "<id>"`,
+					)
 				}
 				watchOnlyConfig![chainId] = value === true
 			})
@@ -248,6 +250,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		pendingQueueConfig: config.simplex.queue,
 		watchOnly: watchOnlyConfig,
 		acceptedSourceChains: config.simplex.acceptedSourceChains,
+		// Same list the V4 funding venue is built from, so a position can never back a fill without
+		// also being declared to the snapshot that measures the depth behind it.
+		uniswapV4PositionsByChain: (config.vault?.uniswapV4?.positions ?? []).reduce<Record<string, string[]>>(
+			(byChain, row) => {
+				;(byChain[row.chain] ??= []).push(String(row.tokenId))
+				return byChain
+			},
+			{},
+		),
 	} as FillerConfig
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections

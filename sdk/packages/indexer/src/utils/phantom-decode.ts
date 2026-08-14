@@ -104,6 +104,14 @@ export const bidNonceKeyVm2: BidNonceKeyFn = (commitment, sessionKey) =>
  * Drop-in for the SDK's orderCommitmentFromDecoded (VM2-safe). Re-encodes the contract-shaped order
  * that came out of `fillOrder`'s ABI decode, reproducing IntentGatewayV2's keccak256(abi.encode(order)).
  */
+/**
+ * keccak256 over hex, via ethers — viem's throws in the VM2 sandbox. Used to derive a Uniswap V4
+ * pool id from the PoolKey bytes the chain returned.
+ */
+export function keccakVm2(hex: HexString): HexString {
+	return ethers.utils.keccak256(hex) as HexString
+}
+
 export const orderCommitmentVm2: OrderCommitmentFn = (order) => {
 	try {
 		const orderParam = fillIface.getFunction("fillOrder").inputs[0]

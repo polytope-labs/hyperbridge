@@ -987,6 +987,9 @@ export class IntentFiller {
 				solverAccountAddress,
 				fillerOutputs,
 				this.config.acceptedSourceChains,
+				// Positions are declared per chain because the bid is: the tokenIds that back a quote
+				// on this chain are the ones held here.
+				this.config.uniswapV4PositionsByChain?.[event.chain],
 			)
 
 			// Use event.commitment directly — re-deriving it from the decoded order risks parity

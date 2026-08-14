@@ -22,7 +22,14 @@ import {
 	type SolverBalanceReader,
 } from "@hyperbridge/sdk/intents-helpers"
 import { safeFetch } from "@/utils/safeFetch"
-import { bidNonceKeyVm2, extractFillDataVm2, orderCommitmentVm2, recoverBidSignerVm2 } from "@/utils/phantom-decode"
+import {
+	bidNonceKeyVm2,
+	extractFillDataVm2,
+	keccakVm2,
+	orderCommitmentVm2,
+	recoverBidSignerVm2,
+} from "@/utils/phantom-decode"
+import { UNISWAP_V4_ADDRESSES } from "@/addresses/uniswap-v4.addresses"
 import { resolvePoolLeg, updateLiquidityPools, type AttributedLeg } from "@/services/liquidityPool.service"
 import { readAllPages } from "@/utils/store.helpers"
 
@@ -135,6 +142,10 @@ export const handlePhantomOrderPrices = wrap(async (event: SubstrateEvent): Prom
 			recoverSigner: recoverBidSignerVm2,
 			bidNonceKey: bidNonceKeyVm2,
 			orderCommitment: orderCommitmentVm2,
+			// Lets a bid's declared V4 positions count towards the leg they back; the amounts and the
+			// ownership check are read on-chain, so the bid only points at what to look at.
+			uniswapV4: UNISWAP_V4_ADDRESSES,
+			keccak: keccakVm2,
 			getBalance: blockBalanceReader(blockNumber, YIELD_VAULT_ADDRESSES),
 			logger,
 		})

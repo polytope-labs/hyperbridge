@@ -26,7 +26,13 @@ export {
 	orderCommitment,
 } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
-export { encodeAcceptedSourceChains, decodeAcceptedSourceChains } from "./phantom-aggregation"
+export {
+	encodeAcceptedSourceChains,
+	decodeAcceptedSourceChains,
+	encodePhantomBidDeclaration,
+	decodePhantomBidDeclaration,
+	type PhantomBidDeclaration,
+} from "./phantom-aggregation"
 export {
 	DEFAULT_GRAFFITI,
 	ERC7821_BATCH_MODE,

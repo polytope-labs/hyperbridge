@@ -188,11 +188,11 @@ async function setPhantomOrderConfig(api: ApiPromise): Promise<void> {
 		// 1 cNGN (6 decimals) — the reverse leg's benchmark quantity.
 		standard_amount_b: 1_000_000n,
 	}))
+	// `chains` maps each state machine id to its own token pairs; the interval is shared.
 	const config = {
-		chains: CHAINS.map((c) => ({
-			chain: { state_id: { Evm: c.chainId }, consensus_state_id: ETH0_CONSENSUS_ID },
-			token_pairs: tokenPairs,
-		})),
+		chains: new Map(
+			CHAINS.map((c) => [{ state_id: { Evm: c.chainId }, consensus_state_id: ETH0_CONSENSUS_ID }, tokenPairs]),
+		),
 		interval_blocks: 10,
 	}
 	await sudoAndSeal(api, api.tx.intentsCoprocessor.setPhantomOrderConfig(config))

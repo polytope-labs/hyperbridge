@@ -41,7 +41,9 @@ pub trait WeightInfo {
 	fn update_params() -> Weight;
 	fn sweep_dust() -> Weight;
 	fn update_token_decimals() -> Weight;
-	fn set_phantom_order_config() -> Weight;
+	/// Setting the configuration, over the number of chains the call carries.
+	fn set_phantom_order_config(c: u32) -> Weight;
+	fn remove_phantom_order_config() -> Weight;
 	fn set_phantom_bid_window() -> Weight;
 	/// The on_initialize generation path, over the number of token pairs bundled into the order.
 	fn generate_phantom_order(p: u32) -> Weight;
@@ -117,12 +119,27 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: PhantomOrderConfig (r:0 w:1), CurrentPhantomOrder (r:0 w:1)
-	/// Proof Skipped: PhantomOrderConfig (max_values: Some(1), max_size: None, mode: Measured)
-	fn set_phantom_order_config() -> Weight {
+	/// Storage: PhantomChains (r:1 w:1), PhantomOrderConfig (r:0 w:1),
+	/// PhantomOrderInterval (r:0 w:1), CurrentPhantomOrder (r:0 w:1),
+	/// LastPhantomGeneration (r:0 w:1)
+	/// Proof Skipped: PhantomOrderConfig (max_values: None, max_size: None, mode: Measured)
+	fn set_phantom_order_config(c: u32) -> Weight {
+		// The per-chain term covers validating one more chain's pairs and writing its entry.
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(4_000_000, 0).saturating_mul(c.into()))
+			.saturating_add(Weight::from_parts(0, 1_024))
+			.saturating_add(T::DbWeight::get().reads(1))
+			.saturating_add(T::DbWeight::get().writes(4))
+			.saturating_add(T::DbWeight::get().writes(c.into()))
+	}
+
+	/// Storage: PhantomOrderConfig (r:1 w:1), PhantomChains (r:1 w:1),
+	/// CurrentPhantomOrder (r:1 w:1)
+	fn remove_phantom_order_config() -> Weight {
 		Weight::from_parts(20_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1_024))
-			.saturating_add(T::DbWeight::get().writes(2))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(3))
 	}
 
 	/// Storage: PhantomBidWindow (r:0 w:1)
@@ -133,7 +150,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: PhantomOrderConfig (r:1 w:0), LastPhantomGeneration (r:1 w:1),
+	/// Storage: PhantomChains (r:1 w:0), PhantomOrderInterval (r:1 w:0),
+	/// PhantomOrderConfig (r:1 w:0), LastPhantomGeneration (r:1 w:1),
 	/// Ismp::LatestStateMachineHeight (r:1 w:0), CurrentPhantomOrder (r:0 w:1)
 	fn generate_phantom_order(p: u32) -> Weight {
 		// The per-pair term covers ABI-encoding and hashing one more leg plus the event bytes.
@@ -223,7 +241,11 @@ impl WeightInfo for () {
 	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
 	}
-	fn set_phantom_order_config() -> Weight {
+	fn set_phantom_order_config(c: u32) -> Weight {
+		Weight::from_parts(20_000_000, 0)
+			.saturating_add(Weight::from_parts(4_000_000, 0).saturating_mul(c.into()))
+	}
+	fn remove_phantom_order_config() -> Weight {
 		Weight::from_parts(20_000_000, 0)
 	}
 	fn set_phantom_bid_window() -> Weight {

@@ -288,14 +288,14 @@ Instances share no state, so several solvers can run in one process — differen
 chains, different books:
 
 ```ts lineNumbers
-const [eu, apac] = await Promise.all([
+const [solverA, solverB] = await Promise.all([
     Simplex.start({
-        config: euConfig,
-        data: new SqliteDataStore("./data/eu"),
+        config: configA,
+        data: new SqliteDataStore("./data/solver-a"),
     }),
     Simplex.start({
-        config: apacConfig,
-        data: new SqliteDataStore("./data/apac"),
+        config: configB,
+        data: new SqliteDataStore("./data/solver-b"),
     }),
 ])
 ```
@@ -320,13 +320,13 @@ const hyperbridge = await HyperbridgeScanner.create(
     config.simplex.hyperbridgeWsUrl,
 )
 
-const eu = await Simplex.start({
-    config: euConfig,
+const solverA = await Simplex.start({
+    config: configA,
     orderScanner: orders,
     hyperbridgeScanner: hyperbridge,
 })
-const apac = await Simplex.start({
-    config: apacConfig,
+const solverB = await Simplex.start({
+    config: configB,
     orderScanner: orders,
     hyperbridgeScanner: hyperbridge,
 })
@@ -391,7 +391,7 @@ supplies the events, the solver decides which it wants:
 
 ```ts lineNumbers
 await orders.addChain({ rpcUrls, bundlerUrl })   // the scanner sees it
-await eu.chains.add({ rpcUrls, bundlerUrl })     // this solver acts on it
+await solverA.chains.add({ rpcUrls, bundlerUrl }) // this solver acts on it
 ```
 
 `simplex.chains.add` and `.setRpcUrls` only reach a scanner that solver built for itself. On one you
@@ -427,9 +427,19 @@ const simplex = await Simplex.start({
 })
 ```
 
-Or `process.stdout` if you do want it on the console. For the binary's colourised output, pipe
-through `pino-pretty` yourself — formatting is a presentation choice that belongs to your
-application, not to this package.
+Or hand it `process.stdout` if you do want it on the console:
+
+```ts lineNumbers
+const simplex = await Simplex.start({
+    config,
+    logger: process.stdout,
+})
+// {"level":30,"time":1755151200000,"module":"simplex","msg":"..."}
+```
+
+That prints raw NDJSON, one record per line. For the binary's colourised output, pipe through
+`pino-pretty` yourself — formatting is a presentation choice that belongs to your application,
+not to this package.
 
 Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on a running solver,
 which applies immediately including to services already constructed. Level alone produces no output;
@@ -439,18 +449,18 @@ Logging is scoped to the solver, not the process. Each `Simplex` owns its own de
 so several solvers in one process keep their records apart:
 
 ```ts lineNumbers
-const [eu, apac] = await Promise.all([
-    Simplex.start({ config: euConfig, logger: euLog }),
-    Simplex.start({ config: apacConfig, logger: apacLog }),
+const [solverA, solverB] = await Promise.all([
+    Simplex.start({ config: configA, logger: logA }),
+    Simplex.start({ config: configB, logger: logB }),
 ])
 
-eu.setLogLevel("debug")          // apac stays at its own level
-eu.addLogSink(auditStream)        // and its own sinks
+solverA.setLogLevel("debug")      // solverB stays at its own level
+solverA.addLogSink(auditStream)   // and its own sinks
 ```
 
-`addLogSink(sink)` at module level registers a destination on the process-wide fallback context,
-which is what code outside a solver's lifetime uses — the validators, and the `simplex` binary
-itself. A running solver never writes there.
+`addLogSink(sink)` at module level registers a destination on the process-wide fallback context —
+a safety net for records logged outside any solver's lifetime. Nothing in the library writes there
+during normal operation; a running solver logs only to its own context.
 
 ## Validating a config without starting
 

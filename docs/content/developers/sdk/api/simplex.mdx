@@ -759,7 +759,7 @@ getLogger(module?: string | { module?: string }): Logger
 
 <Callout type="info">
     Logging is scoped per solver. Two `Simplex` instances in one process write to their own sinks at
-    their own levels — `eu.setLogLevel("debug")` leaves `apac` alone.
+    their own levels — `solverA.setLogLevel("debug")` leaves `solverB` alone.
 </Callout>
 
 ## Validators

@@ -18,8 +18,8 @@ import type {
  *
  * ```ts
  * const orders = await OrderScanner.create({ chains: config.chains })
- * const eu = await Simplex.start({ config: euConfig, orderScanner: orders })
- * const apac = await Simplex.start({ config: apacConfig, orderScanner: orders })
+ * const solverA = await Simplex.start({ config: configA, orderScanner: orders })
+ * const solverB = await Simplex.start({ config: configB, orderScanner: orders })
  * await orders.close()
  * ```
  *

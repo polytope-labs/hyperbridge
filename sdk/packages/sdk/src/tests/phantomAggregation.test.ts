@@ -727,6 +727,25 @@ describe("aggregatePhantomBids bid verification", () => {
 			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
 		})
 
+		// The sweep is where a provider's inventory is reported, so a position missing from it makes
+		// the same solver look smaller there than the depth attributed to it — the two must agree.
+		it("reports the position in the liquidity sweep, not only in the leg weight", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], solverAddress))
+
+			const result = await aggregateWithV4(solverAddress)
+
+			// The mock returns a zero ERC-20 balance for every token, so anything here is the position.
+			const swept = result!.lpBalances.find((lp) => lp.tokenAddress.toLowerCase() === USDT)
+			expect(swept).toBeDefined()
+			expect(swept!.balance).toBeGreaterThan(0n)
+			// And it is the same number the leg was weighted by, so inventory and depth cannot disagree.
+			expect(swept!.balance).toBe(result!.legs[0].bidders[0].weight)
+		})
+
 		// Regression: the Base StateView address was wrong, so slot0 answered "0x", every declared
 		// position resolved to null, and ~168k cNGN of real depth read as zero — silently, for as
 		// long as nobody thought to check. A misconfigured address must say so.

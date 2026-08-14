@@ -165,6 +165,12 @@ export class CryptoUtils {
 	 * signing infrastructure (hardware wallets, MPC/TEE policy engines) instead
 	 * of an opaque 32-byte digest.
 	 *
+	 * The payload must be a standard self-describing `eth_signTypedData_v4`
+	 * payload — `EIP712Domain` listed in `types`, `chainId` as a JSON number —
+	 * because some signing backends (e.g. MPC Vault) hash it server-side from
+	 * the JSON rather than locally via viem. viem ignores both details when
+	 * hashing, so the digest is unchanged for local signers.
+	 *
 	 * @param userOp - The packed UserOperation to sign (signature field ignored).
 	 * @param entryPoint - Address of the EntryPoint v0.8 contract.
 	 * @param chainId - Chain ID of the network on which the operation will execute.
@@ -175,10 +181,16 @@ export class CryptoUtils {
 			domain: {
 				name: "ERC4337",
 				version: "1",
-				chainId,
+				chainId: Number(chainId),
 				verifyingContract: entryPoint,
 			},
 			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+					{ name: "verifyingContract", type: "address" },
+				],
 				PackedUserOperation: [
 					{ name: "sender", type: "address" },
 					{ name: "nonce", type: "uint256" },

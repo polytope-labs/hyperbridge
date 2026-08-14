@@ -1,5 +1,5 @@
 import { type HexString } from "@hyperbridge/sdk"
-import { concatHex, hashTypedData, keccak256, padHex, toHex } from "viem"
+import { concatHex, keccak256, padHex, toHex } from "viem"
 import { toAccount, type Account } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"
 import {
@@ -187,13 +187,6 @@ export class MpcVaultService {
 		return this.signatureFromParts(this.extractEcdsaSignature(result, "personal_sign"), true)
 	}
 
-	/**
-	 * @deprecated Do not use for signatures that are verified on-chain. MPCVault's
-	 * TYPE_SIGN_TYPED_DATA returns signatures that do not verify against the EIP-712
-	 * digest of the submitted payload (#1132) — raw-message signatures from the same
-	 * vault validate fine. Hash the typed data locally (viem `hashTypedData`) and sign
-	 * via {@link signRawHashComponents} instead, as the signer adapters now do.
-	 */
 	async signTypedData(typedDataJson: string, chainId: number): Promise<HexString> {
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
@@ -330,11 +323,11 @@ export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: 
 			})
 		},
 		async signTypedData(typedDataDefinition): Promise<HexString> {
-			// MPCVault's TYPE_SIGN_TYPED_DATA returns signatures that don't verify against
-			// the payload's EIP-712 digest (#1132) — hash locally, sign the raw digest.
-			const digest = hashTypedData(typedDataDefinition as Parameters<typeof hashTypedData>[0])
-			const { r, s, yParity } = await service.signRawHashComponents(digest as HexString)
-			return concatHex([r, s, toHex(27 + yParity, { size: 1 })]) as HexString
+			const typedData = typedDataDefinition as {
+				domain?: { chainId?: number | bigint }
+			}
+			const chainId = requireChainId(typedData.domain?.chainId, "typed-data signing")
+			return service.signTypedData(JSON.stringify(typedDataDefinition), chainId)
 		},
 	})
 

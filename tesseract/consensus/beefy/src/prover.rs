@@ -44,7 +44,7 @@ use beefy_prover::{
 	relay::{fetch_latest_beefy_justification, parachain_header_storage_key},
 	BEEFY_VALIDATOR_SET_ID,
 };
-use beefy_verifier_primitives::ConsensusState;
+use beefy_verifier_primitives::{ApkCommitmentDigest, ConsensusState};
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
@@ -175,10 +175,6 @@ pub const PROOF_TYPE_ECDSA: u8 = 0x00;
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
 /// Proof type identifier for aggregate public key proofs (BlsApkBeefy)
-/// How far back to look for a justification inside the session that is ending. A session is
-/// short on a test relay and long on a live one, and this only bounds the search.
-const SESSION_SEARCH_WINDOW: u64 = 2400;
-
 pub const PROOF_TYPE_APK: u8 = 0x02;
 
 impl<R, P, B, Q> BeefyProver<R, P, B, Q>
@@ -356,43 +352,47 @@ where
 
 	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
 	/// boundary
-	/// The last BEEFY justification strictly below `before`, searched back over `window` blocks.
+	/// The earliest justification the client can verify whose parachain header names `set_id`.
 	///
-	/// Used to prove finality inside the session that is about to end, where scanning forward
-	/// would land on the session boundary itself and a justification signed by the incoming set.
-	pub async fn justification_before(
+	/// Position in the session is not enough to tell. The digest naming a set only appears once
+	/// the relay has queued it and the parachain has published it, so blocks early in a session
+	/// still name the set before. Taking the earliest one that does name it, rather than the last
+	/// block of the session, leaves the rest of the session provable, which is what a proof for
+	/// new messages needs.
+	pub async fn teaching_justification(
 		&self,
-		before: u64,
-		window: u64,
+		from: u64,
+		until: u64,
+		set_id: u64,
+		para_id: u32,
 	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
-		for number in (before.saturating_sub(window)..before).rev() {
+		let mut cursor = from;
+		while cursor < until {
+			let Some(commitment) = self.epoch_justification_for(cursor).await? else {
+				return Ok(None);
+			};
+			let number: u64 = commitment.commitment.block_number.into();
+			if number >= until {
+				return Ok(None);
+			}
+			cursor = number + 1;
+
 			let Some(hash) = relay_rpc.chain_get_block_hash(Some(number.into())).await? else {
 				continue;
 			};
-			let Some(justifications) = relay_rpc
-				.chain_get_block(Some(hash))
-				.await?
-				.ok_or_else(|| anyhow!("failed to find block for {hash:?}"))?
-				.justifications
-			else {
-				continue;
-			};
-			let beefy = justifications
-				.into_iter()
-				.find(|(id, _)| id == b"BEEF")
-				.map(|(_, encoded)| {
-					VersionedFinalityProof::<u32, Signature>::decode(&mut &*encoded)
-				})
-				.transpose()?
-				.map(|VersionedFinalityProof::V1(commitment)| commitment);
-			if beefy.is_some() {
-				return Ok(beefy);
+			let header = query_parachain_header(&relay_rpc, hash, para_id).await?;
+			if ApkCommitmentDigest::find_in(&header.digest).map(|digest| digest.set_id) ==
+				Some(set_id)
+			{
+				return Ok(Some(commitment));
 			}
 		}
 		Ok(None)
 	}
 
+	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
+	/// boundary
 	pub async fn epoch_justification_for(
 		&self,
 		start: u64,
@@ -495,13 +495,25 @@ where
 							consensus_state.inner.next_authorities.keyset_commitment.is_zero()
 						{
 							let epoch_change_number: u64 = epoch_change_header.number().into();
+							let from = u64::from(consensus_state.inner.latest_beefy_height) + 1;
 							let Some(commitment) = self
-								.justification_before(epoch_change_number, SESSION_SEARCH_WINDOW)
+								.teaching_justification(
+									from,
+									epoch_change_number,
+									next_set_id,
+									para_id,
+								)
 								.await?
 							else {
+								// Either the parachain has not published the commitment yet, in
+								// which case a later tick picks it up, or the client has consumed
+								// the session and never will. Proving anyway would spend minutes
+								// on something the client rejects as stale, and would do it again
+								// every tick, so nothing is built here.
 								tracing::warn!(
 									target: crate::LOG_TARGET,
-									"No justification below {epoch_change_number} to learn the commitment for {next_set_id} from"
+									"No block in {from}..{epoch_change_number} names the commitment for {next_set_id}, the client is on {}",
+									consensus_state.inner.current_authorities.id,
 								);
 								return Ok(());
 							};

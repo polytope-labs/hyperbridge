@@ -16,7 +16,7 @@
 //! Types for `pallet-beefy-consensus-proofs`.
 
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::Decode;
 
 /// Offchain-storage prefix for messaging proof bytes, combined with the proven parachain
 /// height.
@@ -110,6 +110,7 @@ pub fn next_commitment_unknown(state: &[u8], proof_type: u8) -> bool {
 mod commitment_tests {
 	use super::*;
 	use beefy_verifier_primitives::{ApkAuthoritySet, ApkConsensusState};
+	use codec::Encode;
 	use primitive_types::H256;
 
 	fn state(next: H256) -> Vec<u8> {

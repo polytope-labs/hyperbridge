@@ -1154,12 +1154,17 @@ export interface PhantomOrderPriceSnapshotsResponse {
 }
 
 /**
- * Total solver liquidity measured at one immutable Phantom price snapshot.
+ * Solver liquidity from the indexer's latest pair sample.
  *
- * Liquidity amounts are decimal strings formatted with the configured decimals
- * for their respective `tokenAddress` and chain.
+ * Liquidity amounts are decimal strings from the indexer's 18-decimal
+ * normalized pool depths. Cross-chain results include only bidders represented
+ * by an explicit indexed route. Amounts are upper bounds, not reserved fills.
  */
 export interface AvailableLiquiditySnapshot {
+	poolId: string
+	direction: "SELL" | "BUY"
+	sourceChain: string
+	destinationChain: string
 	totalLiquidity: string
 	providerCount: number
 	tokenAddress: HexString
@@ -1167,7 +1172,7 @@ export interface AvailableLiquiditySnapshot {
 	liquidityByChain: AvailableLiquidityByChain[]
 }
 
-/** Liquidity for one chain/token balance group in an availability snapshot. */
+/** Destination-chain representation retained for API compatibility. */
 export interface AvailableLiquidityByChain {
 	chain: string
 	tokenAddress: HexString

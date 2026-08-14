@@ -47,7 +47,6 @@ import {
 	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
-import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
 import { getFeeToken } from "./utils"
@@ -105,8 +104,6 @@ export class IntentGateway {
 	private readonly gasEstimator: GasEstimator
 	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
 	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
-	/** Resolves order tokens to canonical Phantom snapshot market pairs. */
-	private readonly phantomSnapshotPairResolver: PhantomSnapshotPairResolver
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -155,7 +152,6 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
-		this.phantomSnapshotPairResolver = new PhantomSnapshotPairResolver(dest.configService)
 		this.quoteStrategies = {
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
@@ -246,13 +242,13 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Returns the output-token liquidity measured in the latest directional
-	 * Phantom snapshot for this gateway's source and destination.
+	 * Returns the indexed output-token liquidity reachable for this gateway's
+	 * source-to-destination corridor.
 	 *
-	 * Pair resolution uses the same canonical Base market as {@link quoteIntent}.
-	 * The snapshot itself determines the output token and chain to aggregate. The
-	 * amount is in the token's smallest unit and reflects the indexer's
-	 * `snapshotTime`; it is not a live reservation or fill guarantee.
+	 * Pool identity, directional depth, and route attribution come exclusively
+	 * from the indexer's pair-centric liquidity entities. Amounts are decimal
+	 * strings normalized to 18 decimals by the indexer and reflect its latest
+	 * pool sample; they are not live reservations or fill guarantees.
 	 *
 	 * Requires a prior call to {@link withQueryClient}.
 	 */
@@ -262,20 +258,27 @@ export class IntentGateway {
 		const { queryClient } = this.requireIndexer()
 		const sourceStateMachineId = this.source.config.stateMachineId
 		const destinationStateMachineId = this.dest.config.stateMachineId
-		const pair = this.phantomSnapshotPairResolver.resolve(params, sourceStateMachineId, destinationStateMachineId)
-		if (!pair) {
+		const sourceToken = this.source.configService.getAssetMetadataByAddress(sourceStateMachineId, params.tokenIn)
+		const destinationToken = this.dest.configService.getAssetMetadataByAddress(
+			destinationStateMachineId,
+			params.tokenOut,
+		)
+		if (!sourceToken || !destinationToken) {
 			throw new UnsupportedIntentQuotePairError({
 				source: sourceStateMachineId,
 				destination: destinationStateMachineId,
 				tokenIn: params.tokenIn,
 				tokenOut: params.tokenOut,
-				quoteSource: "Phantom snapshot pair",
+				quoteSource: "Indexer liquidity pool",
 			})
 		}
 
-		return new LiquidityEngine(queryClient, this.dest.configService).getAvailableLiquiditySnapshot({
-			tokenIn: pair.tokenA,
-			tokenOut: pair.tokenB,
+		return new LiquidityEngine(queryClient).getAvailableLiquiditySnapshot({
+			sourceChain: sourceStateMachineId,
+			destinationChain: destinationStateMachineId,
+			tokenInSymbol: sourceToken.symbol,
+			tokenOutSymbol: destinationToken.symbol,
+			tokenOut: destinationToken.address,
 		})
 	}
 

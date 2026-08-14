@@ -265,53 +265,43 @@ query LatestPhantomOrderPriceSnapshot($tokenA: String!, $tokenB: String!) {
   }
 }`
 
-export const LATEST_PHANTOM_ORDER_LIQUIDITY_SNAPSHOT = `
-query LatestPhantomOrderLiquiditySnapshot($tokenA: String!, $tokenB: String!) {
-  phantomOrderPriceSnapshots(
+export const AVAILABLE_LIQUIDITY = `
+query AvailableLiquidity(
+  $poolId: String!
+  $sourceChain: String!
+  $destinationChain: String!
+  $direction: String!
+) {
+  poolChainLiquidities(
     filter: {
       and: [
-        { tokenA: { equalTo: $tokenA } }
-        { tokenB: { equalTo: $tokenB } }
+        { poolId: { equalTo: $poolId } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
       ]
     }
-    orderBy: SNAPSHOT_TIME_DESC
     first: 1
   ) {
     nodes {
-      commitment
-      tokenA
-      tokenB
-      snapshotTime
+      depth
+      bidCount
+      lastUpdatedAt
     }
   }
-}`
-
-export const LIQUIDITY_PROVIDER_BALANCES = `
-query LiquidityProviderBalanceAggregates($commitment: String!, $tokenAddress: String!) {
-  liquidityProviderBalances(
+  poolRoutes(
     filter: {
       and: [
-        { commitment: { equalTo: $commitment } }
-        { tokenAddress: { equalTo: $tokenAddress } }
+        { poolId: { equalTo: $poolId } }
+        { sourceChain: { equalTo: $sourceChain } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
       ]
     }
+    first: 1
   ) {
-    aggregates {
-      sum {
-        balance
-      }
-      distinctCount {
-        providerId
-      }
-    }
-    groupedAggregates(groupBy: [CHAIN, TOKEN_ADDRESS]) {
-      keys
-      sum {
-        balance
-      }
-      distinctCount {
-        providerId
-      }
+    nodes {
+      depth
+      bidCount
     }
   }
 }`

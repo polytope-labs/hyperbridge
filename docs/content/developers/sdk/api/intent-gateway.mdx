@@ -233,9 +233,10 @@ For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `
 
 ### queryAvailableLiquidity(params)
 
-Returns the total output-token liquidity measured in the latest directional
-Phantom snapshot. For `USDC → cNGN`, the result is the amount of cNGN held by
-eligible solvers for that snapshot at its measurement time.
+Returns output-token liquidity from the indexer's latest pair-centric pool
+sample. Same-chain queries use the destination pool depth. Cross-chain queries
+use the matching explicit `PoolRoute`, returning zero liquidity when no indexed
+route accepts the source chain.
 
 ```typescript lineNumbers
 import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
@@ -252,7 +253,7 @@ const liquidity = await gateway.queryAvailableLiquidity({
 if (liquidity) {
   console.log(liquidity.totalLiquidity, "cNGN")
   console.log("Providers:", liquidity.providerCount)
-  console.log("Liquidity by chain:", liquidity.liquidityByChain)
+  console.log("Route:", liquidity.sourceChain, "→", liquidity.destinationChain)
   console.log("Measured at:", liquidity.snapshotTime)
 }
 ```
@@ -264,16 +265,15 @@ async queryAvailableLiquidity(params: {
 }): Promise<AvailableLiquiditySnapshot | undefined>
 ```
 
-`totalLiquidity` is a decimal string formatted with the canonical Base output
-token decimals. `liquidityByChain` provides the corresponding `chain`,
-`tokenAddress`, formatted `totalLiquidity`, and `providerCount` for each
-indexed output-token balance group; each group uses its own chain/token
-decimals. The
-indexer aggregates raw ERC-20 balances plus
-redeemable ERC-4626 positions at the snapshot time. This is historical
-availability, not reserved liquidity or a guarantee that the same amount remains
-fillable. The method returns `undefined` when the directional pair has no indexed
-snapshot.
+`totalLiquidity` is a decimal string formatted from the indexer's 18-decimal
+normalized pool depth. `providerCount` is the number of bidders represented by
+that pool sample or explicit route. Legacy unrestricted bidders are not included
+in cross-chain results because the indexer deliberately does not assign their
+capacity to source chains. `liquidityByChain` is retained for compatibility and
+contains the same result for the gateway's destination chain.
+
+This is indexed availability, not reserved liquidity or a fill guarantee. The
+method returns `undefined` only when the destination has no indexed pool sample.
 
 ---
 

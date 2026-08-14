@@ -285,6 +285,8 @@ query AvailableLiquidity(
     nodes {
       depth
       bidCount
+      unrestrictedDepth
+      unrestrictedBidCount
       lastUpdatedAt
     }
   }
@@ -302,6 +304,18 @@ query AvailableLiquidity(
     nodes {
       depth
       bidCount
+      lastUpdatedAt
+    }
+  }
+}`
+
+export const BUY_AND_SELL_RATES = `
+query BuyAndSellRates($poolId: ID!) {
+  liquidityPools(filter: { id: { equalTo: $poolId } }, first: 1) {
+    nodes {
+      sellRate
+      buyRate
+      lastUpdatedAt
     }
   }
 }`

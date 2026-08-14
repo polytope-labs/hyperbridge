@@ -1,13 +1,13 @@
 import { formatUnits } from "viem"
-import { AVAILABLE_LIQUIDITY } from "@/queries"
-import type { AvailableLiquiditySnapshot, HexString, IndexerQueryClient } from "@/types"
-import { dateStringtoTimestamp } from "@/utils"
+import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
+import { AVAILABLE_LIQUIDITY, BUY_AND_SELL_RATES } from "@/queries"
+import type { AvailableLiquidity, BuyAndSellRates, HexString, IndexerQueryClient, LiquiditySlice } from "@/types"
+import { dateStringtoTimestamp, normalizeEvmAddress } from "@/utils"
+import { resolveLiquidityPool } from "./liquidity-pool"
 
 const POOL_DEPTH_DECIMALS = 18
 const SELL = "SELL"
 const BUY = "BUY"
-
-type PoolDirection = typeof SELL | typeof BUY
 
 interface AvailableLiquidityResponse {
 	poolChainLiquidities: {
@@ -21,17 +21,31 @@ interface AvailableLiquidityResponse {
 interface PoolChainLiquidityNode {
 	depth: string
 	bidCount: number
+	unrestrictedDepth: string
+	unrestrictedBidCount: number
 	lastUpdatedAt: string
 }
 
 interface PoolRouteNode {
 	depth: string
 	bidCount: number
+	lastUpdatedAt: string
 }
 
-interface ResolvedPoolQuery {
-	poolId: string
-	direction: PoolDirection
+interface BuyAndSellRatesResponse {
+	liquidityPools: {
+		nodes: Array<{
+			sellRate: string | null
+			buyRate: string | null
+			lastUpdatedAt: string
+		}>
+	}
+}
+
+export interface LiquidityAsset {
+	chain: Chains
+	symbol: ConfiguredAssetSymbol
+	address: HexString
 }
 
 /** Reads pair-centric, route-aware liquidity directly from Nexus. */
@@ -45,61 +59,120 @@ export class LiquidityEngine {
 	 * configuration; this layer only maps those configured symbols onto the
 	 * indexer's canonical pool and route fields.
 	 *
-	 * Cross-chain queries use only explicitly indexed `PoolRoute` liquidity. The
-	 * indexer's unrestricted slice is intentionally excluded because deciding
-	 * which sources that legacy policy covers is outside the indexer contract.
+	 * Destination, unrestricted, and explicit-route capacity are returned as
+	 * separate values so callers can apply their own source-chain policy.
 	 *
 	 * @returns `undefined` only when the indexer has not published a destination
 	 * pool sample yet.
 	 */
-	async getAvailableLiquiditySnapshot(params: {
-		sourceChain: string
-		destinationChain: string
-		tokenInSymbol: string
-		tokenOutSymbol: string
-		tokenOut: HexString
-	}): Promise<AvailableLiquiditySnapshot | undefined> {
-		const resolved = resolvePoolQuery(params.tokenInSymbol, params.tokenOutSymbol)
+	async getAvailableLiquidity(params: {
+		source: LiquidityAsset
+		destination: LiquidityAsset
+	}): Promise<AvailableLiquidity | undefined> {
+		const pool = resolveLiquidityPool(params.source.symbol, params.destination.symbol)
+		const direction = params.source.symbol.toLowerCase() === pool.token0Symbol.toLowerCase() ? SELL : BUY
 		const variables = {
-			poolId: resolved.poolId,
-			sourceChain: params.sourceChain,
-			destinationChain: params.destinationChain,
-			direction: resolved.direction,
+			poolId: pool.poolId,
+			sourceChain: params.source.chain,
+			destinationChain: params.destination.chain,
+			direction,
 		}
 		const response = await this.queryClient.request<AvailableLiquidityResponse>(AVAILABLE_LIQUIDITY, variables)
+		if (!response?.poolChainLiquidities?.nodes || !response?.poolRoutes?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("liquidity connections are missing")
+		}
 		const chainLiquidity = response.poolChainLiquidities.nodes[0]
 		if (!chainLiquidity) return undefined
 
-		const liquidity =
-			params.sourceChain === params.destinationChain
-				? chainLiquidity
-				: (response.poolRoutes.nodes[0] ?? { depth: "0", bidCount: 0 })
-		const totalLiquidity = formatUnits(BigInt(liquidity.depth), POOL_DEPTH_DECIMALS)
+		const route = response.poolRoutes.nodes[0]
 		return {
-			poolId: resolved.poolId,
-			direction: resolved.direction,
+			sourceChain: params.source.chain,
+			destinationChain: params.destination.chain,
+			tokenAddress: normalizeEvmAddress(params.destination.address, "destination token"),
+			updatedAt: readIndexerDate(chainLiquidity.lastUpdatedAt, "destination lastUpdatedAt"),
+			destination: readLiquiditySlice(chainLiquidity.depth, chainLiquidity.bidCount, "destination"),
+			unrestricted: readLiquiditySlice(
+				chainLiquidity.unrestrictedDepth,
+				chainLiquidity.unrestrictedBidCount,
+				"unrestricted",
+			),
+			explicitRoute: route
+				? {
+						...readLiquiditySlice(route.depth, route.bidCount, "explicit route"),
+						updatedAt: readIndexerDate(route.lastUpdatedAt, "route lastUpdatedAt"),
+					}
+				: null,
+		}
+	}
+
+	/** Returns the indexer's merged buy and sell rates for a configured symbol pair. */
+	async getBuyAndSellRates(params: {
+		sourceChain: Chains
+		destinationChain: Chains
+		tokenInSymbol: ConfiguredAssetSymbol
+		tokenOutSymbol: ConfiguredAssetSymbol
+	}): Promise<BuyAndSellRates | undefined> {
+		const pool = resolveLiquidityPool(params.tokenInSymbol, params.tokenOutSymbol)
+		const response = await this.queryClient.request<BuyAndSellRatesResponse>(BUY_AND_SELL_RATES, {
+			poolId: pool.poolId,
+		})
+		if (!response?.liquidityPools?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("liquidityPools connection is missing")
+		}
+		const rates = response.liquidityPools.nodes[0]
+		if (!rates) return undefined
+
+		return {
+			...pool,
 			sourceChain: params.sourceChain,
 			destinationChain: params.destinationChain,
-			totalLiquidity,
-			providerCount: liquidity.bidCount,
-			tokenAddress: params.tokenOut,
-			snapshotTime: new Date(dateStringtoTimestamp(chainLiquidity.lastUpdatedAt)),
-			liquidityByChain: [
-				{
-					chain: params.destinationChain,
-					tokenAddress: params.tokenOut,
-					totalLiquidity,
-					providerCount: liquidity.bidCount,
-				},
-			],
+			sellRate: rates.sellRate === null ? null : formatIndexerAmount(rates.sellRate, "sellRate"),
+			buyRate: rates.buyRate === null ? null : formatIndexerAmount(rates.buyRate, "buyRate"),
+			lastUpdatedAt: readIndexerDate(rates.lastUpdatedAt, "pool lastUpdatedAt"),
 		}
 	}
 }
 
-function resolvePoolQuery(tokenInSymbol: string, tokenOutSymbol: string): ResolvedPoolQuery {
-	const inputIsToken0 = tokenInSymbol.toLowerCase() <= tokenOutSymbol.toLowerCase()
-	return {
-		poolId: inputIsToken0 ? `${tokenInSymbol}-${tokenOutSymbol}` : `${tokenOutSymbol}-${tokenInSymbol}`,
-		direction: inputIsToken0 ? SELL : BUY,
+export class InvalidLiquidityIndexerResponseError extends Error {
+	constructor(reason: string) {
+		super(`Invalid liquidity indexer response: ${reason}`)
+		this.name = "InvalidLiquidityIndexerResponseError"
 	}
+}
+
+export class UnsupportedLiquidityAssetError extends Error {
+	constructor(chain: string, asset: string) {
+		super(`No configured liquidity asset found for ${asset} on ${chain}`)
+		this.name = "UnsupportedLiquidityAssetError"
+	}
+}
+
+export class UnsupportedLiquidityChainError extends Error {
+	constructor(chainId: number | string) {
+		super(`No configured liquidity chain found for chain ID ${chainId}`)
+		this.name = "UnsupportedLiquidityChainError"
+	}
+}
+
+function readLiquiditySlice(depth: string, providerCount: number, label: string): LiquiditySlice {
+	if (!Number.isSafeInteger(providerCount) || providerCount < 0) {
+		throw new InvalidLiquidityIndexerResponseError(`${label} provider count is invalid`)
+	}
+	return { totalLiquidity: formatIndexerAmount(depth, `${label} depth`), providerCount }
+}
+
+function formatIndexerAmount(value: string, label: string): string {
+	try {
+		const amount = BigInt(value)
+		if (amount < 0n) throw new Error()
+		return formatUnits(amount, POOL_DEPTH_DECIMALS)
+	} catch {
+		throw new InvalidLiquidityIndexerResponseError(`${label} is not a non-negative integer`)
+	}
+}
+
+function readIndexerDate(value: string, label: string): Date {
+	const date = new Date(dateStringtoTimestamp(value))
+	if (Number.isNaN(date.getTime())) throw new InvalidLiquidityIndexerResponseError(`${label} is invalid`)
+	return date
 }

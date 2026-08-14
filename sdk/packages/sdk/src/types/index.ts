@@ -1,13 +1,14 @@
 import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
 
 /** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
+import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -1153,31 +1154,48 @@ export interface PhantomOrderPriceSnapshotsResponse {
 	}
 }
 
-/**
- * Solver liquidity from the indexer's latest pair sample.
- *
- * Liquidity amounts are decimal strings from the indexer's 18-decimal
- * normalized pool depths. Cross-chain results include only bidders represented
- * by an explicit indexed route. Amounts are upper bounds, not reserved fills.
- */
-export interface AvailableLiquiditySnapshot {
-	poolId: string
-	direction: "SELL" | "BUY"
-	sourceChain: string
-	destinationChain: string
+/** One independently reported slice of indexed liquidity. */
+export interface LiquiditySlice {
 	totalLiquidity: string
 	providerCount: number
-	tokenAddress: HexString
-	snapshotTime: Date
-	liquidityByChain: AvailableLiquidityByChain[]
 }
 
-/** Destination-chain representation retained for API compatibility. */
-export interface AvailableLiquidityByChain {
-	chain: string
+/**
+ * Indexed destination capacity and its source-routing slices.
+ *
+ * The SDK reports the indexer's facts separately and does not decide whether a
+ * source chain is covered by the legacy unrestricted-bidder policy.
+ */
+export interface AvailableLiquidity {
+	sourceChain: Chains
+	destinationChain: Chains
 	tokenAddress: HexString
-	totalLiquidity: string
-	providerCount: number
+	updatedAt: Date
+	destination: LiquiditySlice
+	unrestricted: LiquiditySlice
+	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
+}
+
+/** Buy and sell rates for an indexed symbol pair, normalized from 18 decimals. */
+export interface BuyAndSellRates {
+	poolId: string
+	token0Symbol: ConfiguredAssetSymbol
+	token1Symbol: ConfiguredAssetSymbol
+	sourceChain: Chains
+	destinationChain: Chains
+	/** Token1 received for one token0. */
+	sellRate: string | null
+	/** Token0 received for one token1. */
+	buyRate: string | null
+	lastUpdatedAt: Date
+}
+
+/** Symbol-only input for querying an indexed pool's rates. */
+export interface QueryBuyAndSellRatesParams {
+	tokenInSymbol: ConfiguredAssetSymbol
+	tokenOutSymbol: ConfiguredAssetSymbol
+	sourceChainId: Chain["id"]
+	destinationChainId: Chain["id"]
 }
 
 export interface TokenPrice {

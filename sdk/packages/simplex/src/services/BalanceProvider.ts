@@ -194,14 +194,10 @@ export class BalanceProvider {
 		const address = keypair.address
 
 		const fetchBalance = async () => {
-			// Reading through a socket that is down only produces `WebSocket is not connected`. The
-			// last snapshot stays put and the next tick picks up once the connection is back.
-			if (!coprocessor.isConnected) {
-				this.logger.debug("Skipped Hyperbridge balance fetch, connection is down")
-				return
-			}
 			try {
-				const api = coprocessor.apiConnection
+				// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
+				// request leaves the last snapshot in place and the next tick picks it up.
+				const api = await coprocessor.queryApi()
 				// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
 				const account = (await api.query.system.account(address)) as any
 				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12

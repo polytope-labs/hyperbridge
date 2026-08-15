@@ -174,6 +174,80 @@ describe("HTTP submission fallback", () => {
 	})
 })
 
+describe("RPC queries", () => {
+	/** A websocket that fails loudly on any use: queries must never reach it. */
+	const tripwireWebsocket = () =>
+		new Proxy(
+			{ isConnected: true },
+			{
+				get: (target, prop) => {
+					if (prop === "isConnected") return true
+					throw new Error("queries must not touch the websocket")
+				},
+			},
+		) as any
+
+	/** An HTTP api serving one bid, both through the custom RPC and through raw storage. */
+	function httpNode() {
+		const calls: string[] = []
+		const filler = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+		return {
+			calls,
+			api: {
+				_rpcCore: {
+					provider: {
+						send: async (method: string) => {
+							calls.push(method)
+							throw new Error("intents RPC not available on this node")
+						},
+					},
+				},
+				query: {
+					intentsCoprocessor: {
+						bids: {
+							entries: async () => {
+								calls.push("bids.entries")
+								return [[{ args: [null, { toString: () => filler }] }, { toString: () => "42" }]]
+							},
+						},
+					},
+				},
+				rpc: {
+					offchain: {
+						localStorageGet: async () => {
+							calls.push("offchain.localStorageGet")
+							return { isNone: true }
+						},
+					},
+				},
+			} as any,
+		}
+	}
+
+	it("reads bid storage entries over HTTP", async () => {
+		const node = httpNode()
+		const coproc = IntentsCoprocessor.fromApi(tripwireWebsocket(), "//Alice")
+		;(coproc as any).httpApi = Promise.resolve(node.api)
+
+		const entries = await coproc.getBidStorageEntries(COMMITMENT)
+
+		expect(entries).toEqual([{ commitment: COMMITMENT, filler: expect.any(String), deposit: 42n }])
+		expect(node.calls).toEqual(["bids.entries"])
+	})
+
+	// Both routes — the custom RPC and the storage fallback it degrades to — stay on HTTP.
+	it("reads bids over HTTP through the RPC and the storage fallback alike", async () => {
+		const node = httpNode()
+		const coproc = IntentsCoprocessor.fromApi(tripwireWebsocket(), "//Alice")
+		;(coproc as any).httpApi = Promise.resolve(node.api)
+
+		const bids = await coproc.getBidsForOrder(COMMITMENT)
+
+		expect(bids).toEqual([])
+		expect(node.calls).toEqual(["intents_getBidsForOrder", "bids.entries", "offchain.localStorageGet"])
+	})
+})
+
 describe("deriveHttpUrl", () => {
 	it("maps a websocket endpoint onto HTTP on the same host and port", () => {
 		expect(deriveHttpUrl("wss://nexus.rpc.example.com")).toBe("https://nexus.rpc.example.com")

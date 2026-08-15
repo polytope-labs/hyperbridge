@@ -229,16 +229,23 @@ export class IntentsCoprocessor {
 	) {}
 
 	/**
+	 * The API every RPC query runs on: HTTP, connected to the same node as the websocket. Exposed so
+	 * callers query through this connection rather than opening one of their own.
+	 *
+	 * The split is by what each transport is for. Queries are one-shot request/response, which HTTP
+	 * serves without holding any state that can silently rot between calls. The websocket earns its
+	 * keep only where subscriptions do — watching a submitted extrinsic to inclusion.
+	 */
+	async queryApi(): Promise<ApiPromise> {
+		return await this.http()
+	}
+
+	/**
 	 * The websocket API, exposed so callers share this one connection instead of opening a second
-	 * socket to the same node.
+	 * socket to the same node. Only needed for subscriptions; use {@link queryApi} to read.
 	 */
 	get apiConnection(): ApiPromise {
 		return this.api
-	}
-
-	/** Whether the underlying websocket is currently up. */
-	get isConnected(): boolean {
-		return this.api.isConnected
 	}
 
 	/**
@@ -661,8 +668,9 @@ export class IntentsCoprocessor {
 	 * @returns Array of BidStorageEntry objects
 	 */
 	async getBidStorageEntries(commitment: HexString): Promise<BidStorageEntry[]> {
+		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (this.api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
 
 		return entries.map(([storageKey, depositValue]: [any, any]) => ({
 			commitment,
@@ -696,9 +704,9 @@ export class IntentsCoprocessor {
 	 * Single round-trip but does not include deposit amounts.
 	 */
 	private async getBidsViaRpc(commitment: HexString): Promise<FillerBid[]> {
-		const result: RpcBidInfo[] = await (this.api as any)._rpcCore.provider.send("intents_getBidsForOrder", [
-			commitment,
-		])
+		const api = await this.http()
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result: RpcBidInfo[] = await (api as any)._rpcCore.provider.send("intents_getBidsForOrder", [commitment])
 
 		return result.map((entry) => {
 			const userOp = decodeUserOpScale(entry.user_op as HexString)
@@ -712,8 +720,9 @@ export class IntentsCoprocessor {
 	 * Slower but works on all nodes and includes deposit amounts.
 	 */
 	private async getBidsViaStorage(commitment: HexString): Promise<FillerBid[]> {
+		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (this.api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
 
 		if (entries.length === 0) return []
 
@@ -725,7 +734,7 @@ export class IntentsCoprocessor {
 				const offchainKey = this.buildOffchainBidKey(commitment, filler)
 				const offchainKeyHex = u8aToHex(offchainKey)
 
-				const offchainResult = await this.api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
+				const offchainResult = await api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
 
 				if (!offchainResult || offchainResult.isNone) return null
 

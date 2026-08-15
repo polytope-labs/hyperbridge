@@ -1,7 +1,7 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { createMpcVaultAccount, MpcVaultService } from "@/services/wallet/mpcvault"
 import { describe, expect, it } from "vitest"
-import { isHex } from "viem"
+import { isHex, recoverAddress, recoverMessageAddress, recoverTypedDataAddress } from "viem"
 import "../setup"
 
 /**
@@ -109,6 +109,8 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132)
+		const recovered = await recoverAddress({ hash: dummyHash, signature: sig })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
 	it("signRawHashComponents returns r, s, yParity for the same raw hash flow", async () => {
@@ -121,6 +123,8 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		expect(r.length).toBe(66)
 		expect(s.length).toBe(66)
 		expect(yParity === 0 || yParity === 1).toBe(true)
+		const recovered = await recoverAddress({ hash: dummyHash, signature: { r, s, yParity } })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
 	it("signPersonalMessage completes and returns a 65-byte ECDSA hex signature", async () => {
@@ -134,9 +138,15 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132) // 65 bytes = 130 hex chars + 0x prefix
+		const recovered = await recoverMessageAddress({ message: { raw: messageHash }, signature: sig })
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
-	it("signTypedData completes and returns a 65-byte ECDSA hex signature", async () => {
+	// Recovery assertion is the load-bearing check: MPCVault has returned well-formed
+	// typed-data signatures that verify against nothing (#1132), which the previous
+	// length-only assertion could not catch. This payload is the canonical v4 shape
+	// (EIP712Domain listed in types, numeric chainId) that packedUserOpTypedData now emits.
+	it("signTypedData returns a signature that recovers the wallet address", async () => {
 		const service = createTestService()
 		const chainId = testChainId()
 
@@ -164,6 +174,11 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		expect(isHex(sig)).toBe(true)
 		expect(sig.length).toBe(132)
+		const recovered = await recoverTypedDataAddress({
+			...typedData,
+			signature: sig,
+		} as unknown as Parameters<typeof recoverTypedDataAddress>[0])
+		expect(recovered.toLowerCase()).toBe(service.getAccountAddress().toLowerCase())
 	}, 120_000)
 
 	it("signTransaction completes and returns a signed transaction hex", async () => {

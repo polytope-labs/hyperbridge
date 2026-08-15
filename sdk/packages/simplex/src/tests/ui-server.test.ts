@@ -943,7 +943,7 @@ describe("UiServer (operator mode)", () => {
 			},
 			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
 		]
-		const removePair = vi.fn((index: number) => {
+		const removePair = vi.fn(async (index: number) => {
 			const position = strategies.findIndex((s) => s.index === index)
 			const { pairIndex } = strategies[position]
 			strategies.splice(position, 1)

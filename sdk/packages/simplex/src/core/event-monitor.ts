@@ -44,7 +44,6 @@ const SEEN_LIMIT = 5_000
 export class EventMonitor extends EventEmitter {
 	private listening = false
 	private configService: FillerConfigService
-	private clientManager: ChainClientManager
 	private fillerAddress: string
 	private logger: Logger
 	private orderScanner: OrderScanner
@@ -58,14 +57,12 @@ export class EventMonitor extends EventEmitter {
 	constructor(
 		chainConfigs: ChainConfig[],
 		configService: FillerConfigService,
-		clientManager: ChainClientManager,
 		fillerAddress: HexString,
 		orderScanner: OrderScanner,
 	) {
 		super()
 		this.logger = moduleLogger(configService.loggers, "event-monitor")
 		this.configService = configService
-		this.clientManager = clientManager
 		this.fillerAddress = fillerAddress.toLowerCase()
 		this.orderScanner = orderScanner
 

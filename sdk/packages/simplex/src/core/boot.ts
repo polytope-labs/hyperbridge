@@ -40,6 +40,12 @@ export interface BootOptions {
 	/** Persistence backend. Required — `Simplex.start` defaults it to a MemoryDataStore. */
 	data: SimplexDataStore
 	/**
+	 * Whether shutdown may close `data`. False for a caller-supplied store: two
+	 * solvers can share one, and the first to stop must not pull it out from
+	 * under the second — the same ownership rule the scanners follow.
+	 */
+	ownsData?: boolean
+	/**
 	 * This filler's logging destination. Every service resolves its logger from
 	 * here, so two fillers in one process never write into each other's sinks.
 	 */
@@ -592,7 +598,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()
 		activity.detach()
-		await options.data.close?.()
+		if (options.ownsData) await options.data.close?.()
 	}
 
 	return {

@@ -2,7 +2,7 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultConfig, HydratedVault } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
 

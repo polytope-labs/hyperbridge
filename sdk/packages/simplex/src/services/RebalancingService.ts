@@ -3,7 +3,7 @@ import { parseStateMachineId } from "@hyperbridge/sdk"
 import { Decimal } from "decimal.js"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "./Logger"
+import { type Logger , moduleLogger} from "./Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import {
 	BinanceRebalancer,

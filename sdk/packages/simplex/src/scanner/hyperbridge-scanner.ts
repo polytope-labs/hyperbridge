@@ -176,6 +176,11 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 
 	async close(): Promise<void> {
 		this.stopped = true
+		// A connect in flight owns a WsProvider that retries until the race
+		// settles; resolving close() without waiting would report "stopped" with
+		// that socket still dialling for up to the connect timeout. start()'s own
+		// post-connect check sees `stopped` and disconnects what it just built.
+		if (this.starting) await this.starting.catch(() => {})
 		this.stopPolling?.()
 		this.stopPolling = undefined
 		try {

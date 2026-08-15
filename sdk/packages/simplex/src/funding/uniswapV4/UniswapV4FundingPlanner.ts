@@ -11,7 +11,7 @@ import { UniswapV4LiquidityState } from "@/funding/uniswapV4/UniswapV4LiquidityS
 import { chainIdFromIdentifier, fetchPoolCurrencyDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import { Decimal } from "decimal.js"

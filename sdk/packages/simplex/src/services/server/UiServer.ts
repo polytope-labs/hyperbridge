@@ -15,7 +15,7 @@ import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import type { ActivityRecorder } from "@/data/recorder"
 import type { ActivityEvent, BidStore } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
-import { configureLogger, getLogger, type LogLevel } from "../Logger"
+import { getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import {
@@ -135,9 +135,9 @@ export interface OperatorContext {
 		pair: PairConfig,
 		assets: Record<string, AssetDefinition> | undefined,
 		pairIndex: number,
-	) => AdminStrategy | null
+	) => Promise<AdminStrategy | null>
 	/** Removes a live market by strategy index; later strategies' pairIndex shift down with config.pairs. */
-	removePair?: (index: number) => void
+	removePair?: (index: number) => Promise<void>
 	/** First RPC URL for a running chain (state machine id) — backs the custom-token verify probe. */
 	rpcUrlFor?: (chain: string) => string | undefined
 	/**
@@ -831,7 +831,7 @@ export class UiServer {
 
 		let strategy: AdminStrategy | null = null
 		try {
-			if (op.addPair) strategy = op.addPair(candidate, assets, (op.config.pairs ?? []).length)
+			if (op.addPair) strategy = await op.addPair(candidate, assets, (op.config.pairs ?? []).length)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
@@ -915,7 +915,7 @@ export class UiServer {
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
 	 * and stays configured regardless of markets.
 	 */
-	private handleMarketRemove(res: ServerResponse, index: number): void {
+	private async handleMarketRemove(res: ServerResponse, index: number): Promise<void> {
 		const op = this.operator!
 		const strategy = op.strategies.find((s) => s.index === index)
 		if (!strategy) return sendJson(res, 404, { error: `Unknown strategy ${index}` })
@@ -928,7 +928,7 @@ export class UiServer {
 			}
 			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
 			validatePairConfigs(remaining, op.config.assets, hasVenuePricing)
-			op.removePair?.(index)
+			await op.removePair?.(index)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}

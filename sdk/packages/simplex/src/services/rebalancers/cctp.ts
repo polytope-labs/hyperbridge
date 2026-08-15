@@ -19,7 +19,7 @@ import type { Chain, PublicClient, WalletClient } from "viem"
 import { parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { RebalanceOptions } from "."
 
 /** Viem adapter type */

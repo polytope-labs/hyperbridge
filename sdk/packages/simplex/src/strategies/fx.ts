@@ -12,7 +12,7 @@ import {
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { unanchoredToken0Symbols } from "@/config/pairs"
@@ -539,10 +539,18 @@ export class FXFiller implements FillerStrategy {
 			//  - An order already partially filled has had its escrow drawn down,
 			//    while the P&L below reads `order.inputs[i].amount` as if it were
 			//    intact. Refuse rather than mis-price it.
-			const partialEligible =
-				sourceChain === destChain &&
-				(order.output.call ?? "0x").length <= 2 &&
-				!(await this.hasExistingPartialFill(order, destChain))
+			const partialEligibleCheap = sourceChain === destChain && (order.output.call ?? "0x").length <= 2
+			// The prior-partial probe is a contract read per output, and most orders
+			// fill fully and never consult it — so it runs only once an under-fill is
+			// actually on the table, and at most once per evaluation.
+			let priorPartialChecked: boolean | undefined
+			const partialEligible = async (): Promise<boolean> => {
+				if (!partialEligibleCheap) return false
+				if (priorPartialChecked === undefined) {
+					priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+				}
+				return priorPartialChecked
+			}
 			let partialFill = false
 
 			const fillerOutputs: TokenInfo[] = []
@@ -738,7 +746,7 @@ export class FXFiller implements FillerStrategy {
 				}
 
 				if (capLimited) {
-					if (!partialEligible) {
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -763,7 +771,7 @@ export class FXFiller implements FillerStrategy {
 				// cap-limited path does. Only the cross-chain half used to be tested, so
 				// a calldata order the wallet could not cover was bid on and reverted.
 				if (finalOutputAmount < output.amount) {
-					if (!partialEligible) {
+					if (!(await partialEligible())) {
 						this.logger.info(
 							{
 								orderId: order.id,
@@ -781,20 +789,6 @@ export class FXFiller implements FillerStrategy {
 					partialFill = true
 				}
 
-				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
-					this.logger.info(
-						{
-							orderId: order.id,
-							pair: `${leg.pair.token0}/${leg.pair.token1}`,
-							token: output.token,
-							inputAmount: input.amount.toString(),
-							fillerBalance: balance.toString(),
-							userRequested: output.amount.toString(),
-						},
-						"Skipping cross-chain order: insufficient balance for full fill",
-					)
-					return 0
-				}
 
 				// Decrement the wallet pool by what this leg drew from it (vault-sourced
 				// tokens are tracked by the venue's own reservations) so repeated outputs

@@ -140,6 +140,15 @@ export class CacheService {
 
 		staleFundingIds.forEach((orderId) => {
 			delete this.cacheData.fundingPrepends[orderId]
+		})
+
+		// Swept on its own timestamps: most orders never set fundingPrepends, so
+		// piggybacking on that sweep left the common case growing without bound.
+		const stalePartialIds = Object.entries(this.cacheData.partialFills)
+			.filter(([_, data]) => !this.isCacheValid(data.timestamp))
+			.map(([orderId]) => orderId)
+
+		stalePartialIds.forEach((orderId) => {
 			delete this.cacheData.partialFills[orderId]
 		})
 	}

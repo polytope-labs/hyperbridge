@@ -158,7 +158,6 @@ describe("EventMonitor chain lifecycle", () => {
 		const monitor = new EventMonitor(
 			chainIds.map((chainId) => ({ chainId }) as never),
 			service,
-			{} as unknown as ChainClientManager,
 			FILLER,
 			scanner,
 		)

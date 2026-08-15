@@ -3,7 +3,7 @@ import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultToml } from "@/config/filler-toml"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { UserOpSender } from "@/services/UserOpSender"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, isAddress, parseUnits } from "viem"
 

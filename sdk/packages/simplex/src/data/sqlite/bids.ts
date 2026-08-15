@@ -101,7 +101,7 @@ export class SqliteBidStore implements BidStore {
 
 	async byCommitment(commitment: string): Promise<StoredBid | null> {
 		const row = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE commitment = ? ORDER BY created_at DESC LIMIT 1`)
+			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE commitment = ? ORDER BY created_at DESC, id DESC LIMIT 1`)
 			.get(commitment)
 		return row ? this.toStoredBid(row) : null
 	}

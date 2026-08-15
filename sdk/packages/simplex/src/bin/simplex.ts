@@ -118,7 +118,8 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorContext> {
+async function operatorContextFrom(simplex: Simplex): Promise<OperatorContext> {
+	const runtime = simplex.internals
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
@@ -128,41 +129,25 @@ async function operatorContextFrom(runtime: FillerRuntime): Promise<OperatorCont
 	const marketCapabilities =
 		engine && tradingPairs
 			? {
-					addPair: (pair: PairConfig, assets: Record<string, AssetDefinition> | undefined, pairIndex: number) => {
-						// Register new custom tokens on the live registry first so the
-						// engine and balance tracking can resolve the pair's symbols.
-						if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
-						const tradingPair = tradingPairFrom(pair)
-						// Pushes into the engine's live array — the same instance as
-						// `tradingPairs`, so config.pairs indexes stay aligned.
-						engine.addPair(tradingPair)
+					// Thin wrappers over PairController — the same code path the library's
+					// `simplex.pairs` exposes — so the CLI cannot drift from it again. The
+					// controller validates, registers assets, updates the engine, config
+					// and admin strategies, and persists; only the dashboard's
+					// strategy-index addressing and its status array are adapted here.
+					addPair: async (
+						pair: PairConfig,
+						assets: Record<string, AssetDefinition> | undefined,
+						_pairIndex: number,
+					) => {
+						const view = await simplex.pairs.add(pair, { assets })
 						strategyTypes.push(`${pair.token0}/${pair.token1}`)
-						// Track the exotic side's balances from the next refresh.
-						if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1) && pair.referenceOnly !== true) {
-							for (const chain of runtime.resolvedChains) {
-								const chainName = formatChainKey(chain.chainId)
-								const address = assetRegistry.getAddress(pair.token1, chainName)
-								if (!address) continue
-								const list = (balanceTokens[chainName] ??= [])
-								if (!list.includes(address)) list.push(address)
-							}
-						}
-						const index = adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1
-						const adminStrategy = adminStrategyFor(tradingPair, pairIndex, index)
-						if (adminStrategy) adminStrategies.push(adminStrategy)
-						return adminStrategy
+						return adminStrategies.find((s) => s.pairIndex === view.index) ?? null
 					},
-					removePair: (index: number) => {
-						const position = adminStrategies.findIndex((s) => s.index === index)
-						if (position < 0) throw new Error(`Unknown strategy ${index}`)
-						const { pairIndex } = adminStrategies[position]
-						// Splices the engine's live array (same instance as tradingPairs).
-						engine.removePair(tradingPairs[pairIndex])
-						adminStrategies.splice(position, 1)
-						// config.pairs loses the entry too, so later pairs shift down.
-						for (const s of adminStrategies) {
-							if (s.pairIndex > pairIndex) s.pairIndex -= 1
-						}
+					removePair: async (index: number) => {
+						const strategy = adminStrategies.find((s) => s.index === index)
+						if (!strategy) throw new Error(`Unknown strategy ${index}`)
+						const { pairIndex } = strategy
+						await simplex.pairs.remove(pairIndex)
 						strategyTypes.splice(pairIndex, 1)
 					},
 				}
@@ -273,16 +258,18 @@ program
 			}
 
 			let simplex: Simplex | undefined
+			let dataStore: Awaited<ReturnType<typeof openDataStore>> | undefined
 			let runtime: FillerRuntime | undefined
 			let uiServer: UiServer | undefined
 
 			/** Starts the filler and everything the CLI layers on top of it. */
 			const startFiller = async (config: FillerTomlConfig, path: string) => {
+				dataStore = await openDataStore(options.dataDir)
 				simplex = await Simplex.start({
 					config,
 					configPath: path,
 					logger: consoleSink(),
-					data: await openDataStore(options.dataDir),
+					data: dataStore,
 					watchOnly: options.watchOnly,
 				})
 				runtime = simplex.internals
@@ -295,6 +282,8 @@ program
 			const shutdown = async (signal: string) => {
 				uiServer?.stop()
 				if (simplex) await simplex.stop()
+				// Ours to close: the library no longer closes a caller-supplied store.
+				await dataStore?.close?.()
 				process.exit(0)
 			}
 			process.on("SIGINT", () => void shutdown("SIGINT"))
@@ -315,7 +304,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(runtime!),
+						operator: await operatorContextFrom(simplex!),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -347,7 +336,7 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(runtime!))
+						server.enterOperatorMode(await operatorContextFrom(simplex!))
 					},
 				},
 			})

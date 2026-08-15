@@ -29,6 +29,18 @@ const GATEWAY_EVENTS = INTENT_GATEWAY_V2_ABI.filter(
  */
 const DEFAULT_SCAN_INTERVAL_MS = DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS * 1000
 const MAX_BLOCK_RANGE = 1_000n
+/**
+ * Events published in one synchronous stretch before yielding to the consumers'
+ * drain microtasks. FanOut consumers hold 1000 events; a catch-up scan of a
+ * busy range can reconstruct more than that, and a purely synchronous publish
+ * loop would overflow the queues before any consumer got to run — dropping the
+ * oldest orders with the cursor already past them, so no rescan ever sees them
+ * again. A macrotask boundary flushes the entire microtask queue, i.e. lets
+ * every consumer drain completely.
+ */
+const PUBLISH_CHUNK = 250
+const yieldToConsumers = () => new Promise<void>((resolve) => setImmediate(resolve))
+
 /** How long stop() waits for an in-flight scan before giving up on a clean drain. */
 const STOP_DRAIN_TIMEOUT_MS = 5_000
 
@@ -212,7 +224,7 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: placed.length },
 				"Found OrderPlaced events in block scan",
 			)
-			this.publishOrders(placed as unknown as DecodedOrderPlacedLog[])
+			await this.publishOrders(placed as unknown as DecodedOrderPlacedLog[])
 		}
 
 		if (filled.length > 0) {
@@ -220,25 +232,29 @@ export class ChainScanner {
 				{ chainId: this.target.chainId, fromBlock, toBlock, eventCount: filled.length },
 				"Found OrderFilled events in block scan",
 			)
-			this.publishFills(filled)
+			await this.publishFills(filled)
 		}
 
 		this.cursor = toBlock
 	}
 
-	private publishOrders(logs: DecodedOrderPlacedLog[]): void {
+	private async publishOrders(logs: DecodedOrderPlacedLog[]): Promise<void> {
 		const rebuilt = reconstructOrdersFromLogs(logs, {
 			onError: (err, log) => this.logger.error({ err, log }, "Error parsing event log"),
 		})
 
+		let published = 0
 		for (const entry of rebuilt) {
 			this.logger.info({ orderId: entry.order.id, txHash: entry.transactionHash }, "New order detected")
 			this.orderHandler({ ...entry, chain: this.target.chain, chainId: this.target.chainId })
+			if (++published % PUBLISH_CHUNK === 0) await yieldToConsumers()
 		}
 	}
 
-	private publishFills(logs: Array<Record<string, unknown>>): void {
+	private async publishFills(logs: Array<Record<string, unknown>>): Promise<void> {
+		let published = 0
 		for (const log of logs) {
+			if (++published % PUBLISH_CHUNK === 0) await yieldToConsumers()
 			try {
 				const args = log.args as { commitment?: HexString; filler?: string } | undefined
 				const commitment = args?.commitment

@@ -4,7 +4,7 @@ import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { UnifiedRebalanceOptions } from "."
 

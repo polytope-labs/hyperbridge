@@ -21,7 +21,7 @@ import { ChainClientManager, ContractInteractionService, DelegationService, Reba
 import type { BidStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
@@ -97,13 +97,7 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		this.monitor = new EventMonitor(
-			chainConfigs,
-			configService,
-			this.chainClientManager,
-			this.fillerAddress,
-			scanners.orders,
-		)
+		this.monitor = new EventMonitor(chainConfigs, configService, this.fillerAddress, scanners.orders)
 		this.hyperbridgeScanner = scanners.hyperbridge
 		this.strategies = strategies
 		this.config = config

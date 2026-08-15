@@ -2,7 +2,7 @@ import { UNISWAP_V4_POSITION_MANAGER_ABI, UNISWAP_V4_STATE_VIEW_ABI, decodeTickL
 import type { HydratedV4Position, UniswapV4PositionInit } from "@/funding/types"
 import { chainIdFromIdentifier, currencyFromHydratedDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { getLogger, type Logger , moduleLogger} from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { Pool as V4Pool, Position as V4Position } from "@uniswap/v4-sdk"
 

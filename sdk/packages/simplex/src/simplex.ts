@@ -799,6 +799,9 @@ export class Simplex extends EventEmitter {
 				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
+				// A store we defaulted is ours to close; one the caller passed is theirs,
+				// and may be shared with other solvers.
+				ownsData: !options.data,
 				watchOnlyOverride: options.watchOnly,
 			})
 			return new Simplex(runtime, options, {

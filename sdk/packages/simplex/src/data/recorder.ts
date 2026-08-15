@@ -139,10 +139,18 @@ export class ActivityRecorder extends EventEmitter {
 	 * logged and dropped, because the caller is usually a fill in progress.
 	 */
 	record(event: ActivityInsert): void {
-		this.store
-			.record(event)
-			.then((row: ActivityEvent) => this.emit("event", row))
-			.catch((err) => this.logger.warn({ err, type: event.type }, "Failed to record activity event"))
+		this.store.record(event).then(
+			(row: ActivityEvent) => {
+				// Separated from the write's catch: a throwing listener is a consumer
+				// bug and must not be logged as a failed store write.
+				try {
+					this.emit("event", row)
+				} catch (err) {
+					this.logger.error({ err, type: event.type }, "Activity listener threw")
+				}
+			},
+			(err) => this.logger.warn({ err, type: event.type }, "Failed to record activity event"),
+		)
 	}
 
 	// ─── Read-through to the store ──────────────────────────────────────────

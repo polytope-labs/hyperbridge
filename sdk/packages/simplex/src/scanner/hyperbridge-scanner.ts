@@ -22,7 +22,7 @@ const CONNECT_TIMEOUT_MS = 30_000
  * stay on that instance's `IntentsCoprocessor`.
  */
 export class HyperbridgeScanner implements HyperbridgeScannerContract {
-	private readonly phantom: FanOut<PhantomOrderEvent>
+	private readonly phantom: FanOut<PhantomOrderEvent[]>
 	// Boxed per subscription, not a Set of raw functions: two subscribers passing
 	// the same handler reference would share one entry, and the first to close
 	// would silently deafen the rest. Matches OrderScanner.
@@ -44,7 +44,7 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 		this.logger = loggers.get("hyperbridge-scanner")
 		// Built here, not as a field initialiser: those run before `loggers` is bound,
 		// so the fan-out would fall back to the process-wide context.
-		this.phantom = new FanOut<PhantomOrderEvent>("phantom", loggers)
+		this.phantom = new FanOut<PhantomOrderEvent[]>("phantom", loggers)
 	}
 
 	/**
@@ -76,7 +76,7 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 	}
 
 	subscribe(handlers: HyperbridgeScannerHandlers): Subscription {
-		const consumer = this.phantom.add(handlers.onPhantomOrder)
+		const consumer = this.phantom.add(handlers.onPhantomOrders)
 		const errorEntry = handlers.onError ? { handler: handlers.onError } : undefined
 		if (errorEntry) this.errors.add(errorEntry)
 
@@ -139,7 +139,7 @@ export class HyperbridgeScanner implements HyperbridgeScannerContract {
 				this.coprocessor = IntentsCoprocessor.fromApi(this.connection)
 
 				this.stopPolling = this.coprocessor.pollPhantomOrders(
-					(order) => this.phantom.publish(order),
+					(orders) => this.phantom.publish(orders),
 					{
 						onError: (err) => {
 							this.logger.warn({ err }, "Phantom order poll failed, will retry")

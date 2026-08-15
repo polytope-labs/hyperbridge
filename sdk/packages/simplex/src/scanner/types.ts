@@ -114,7 +114,14 @@ export interface OrderScanner {
 }
 
 export interface HyperbridgeScannerHandlers {
-	onPhantomOrder(event: PhantomOrderEvent): void
+	/**
+	 * One call per Hyperbridge block, carrying every phantom order registered in
+	 * it. The batch boundary is load-bearing: the pallet registers one order per
+	 * configured chain in the same block, and a solver bids on the whole set in
+	 * a single extrinsic — per-order delivery would put every chain's bid behind
+	 * the previous one's inclusion on the account nonce.
+	 */
+	onPhantomOrders(orders: PhantomOrderEvent[]): void
 	onError?(error: unknown): void
 }
 

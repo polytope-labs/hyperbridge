@@ -1,8 +1,9 @@
 import { formatUnits } from "viem"
+import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
-import { getLogger, type Logger , moduleLogger} from "./Logger"
+import { moduleLogger, type Logger } from "./Logger"
 import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
@@ -47,7 +48,12 @@ export interface BalanceProviderOptions {
 	fillerAddress: string
 	/** Exotic token addresses per state machine id — every cross-asset pair's token1 on that chain. */
 	token1: Record<string, string[]>
-	hyperbridgeWsUrl?: string
+	/**
+	 * The filler's Hyperbridge connection, reused rather than dialled again. A second socket to the
+	 * same node doubles the reconnect traffic during an outage for a balance read that is only
+	 * needed once a minute.
+	 */
+	hyperbridge?: Promise<IntentsCoprocessor>
 	substratePrivateKey?: string
 	refreshIntervalMs?: number
 }
@@ -59,12 +65,10 @@ export interface BalanceProviderOptions {
  */
 export class BalanceProvider {
 	private snapshot: BalanceSnapshot = { updatedAt: null, chains: [] }
+	private stopped = false
 	private initialTimeout?: NodeJS.Timeout
 	private refreshInterval?: NodeJS.Timeout
 	private hyperbridgeInterval?: NodeJS.Timeout
-	private stopped = false
-	// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
-	private polkadotApi?: any
 	private logger: Logger
 	private options: BalanceProviderOptions
 	private intervalMs: number
@@ -79,9 +83,9 @@ export class BalanceProvider {
 		this.initialTimeout = setTimeout(() => void this.refresh(), 5_000)
 		this.refreshInterval = setInterval(() => void this.refresh(), this.intervalMs)
 
-		if (this.options.hyperbridgeWsUrl && this.options.substratePrivateKey) {
-			this.initPolkadotApi().catch((err) => {
-				this.logger.warn({ err }, "Failed to initialize Polkadot API for Hyperbridge balance")
+		if (this.options.hyperbridge && this.options.substratePrivateKey) {
+			this.trackHyperbridgeBalance().catch((err) => {
+				this.logger.warn({ err }, "Failed to start Hyperbridge balance tracking")
 			})
 		}
 	}
@@ -91,10 +95,7 @@ export class BalanceProvider {
 		if (this.initialTimeout) clearTimeout(this.initialTimeout)
 		if (this.refreshInterval) clearInterval(this.refreshInterval)
 		if (this.hyperbridgeInterval) clearInterval(this.hyperbridgeInterval)
-		if (this.polkadotApi) {
-			this.polkadotApi.disconnect().catch(() => {})
-			this.polkadotApi = undefined
-		}
+		// The Hyperbridge connection belongs to the filler; it is not ours to close.
 	}
 
 	getSnapshot(): BalanceSnapshot {
@@ -190,26 +191,19 @@ export class BalanceProvider {
 		return row
 	}
 
-	private async initPolkadotApi(): Promise<void> {
-		const { ApiPromise, WsProvider } = await import("@polkadot/api")
-
-		const provider = new WsProvider(this.options.hyperbridgeWsUrl!)
-		const api = await ApiPromise.create({ provider })
-		// stop() may have run while this was connecting; adopting the socket now
-		// would leave it open with a 60s timer nobody clears.
-		if (this.stopped) {
-			await api.disconnect().catch(() => {})
-			return
-		}
-		this.polkadotApi = api
-
+	private async trackHyperbridgeBalance(): Promise<void> {
+		const coprocessor = await this.options.hyperbridge!
 		const keypair = await deriveSubstrateKeyPair(this.options.substratePrivateKey!)
 		const address = keypair.address
 
 		const fetchBalance = async () => {
 			try {
-				const account = await this.polkadotApi.query.system.account(address)
-				const decimals = (this.polkadotApi.registry.chainDecimals as number[])[0] ?? 12
+				// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
+				// request leaves the last snapshot in place and the next tick picks it up.
+				const api = await coprocessor.queryApi()
+				// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
+				const account = (await api.query.system.account(address)) as any
+				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
 
 				const free = parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
 				const reserved = parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
@@ -221,6 +215,9 @@ export class BalanceProvider {
 		}
 
 		await fetchBalance()
+		// stop() may have run while the awaits above were in flight; a timer
+		// installed now would outlive the provider.
+		if (this.stopped) return
 		this.hyperbridgeInterval = setInterval(fetchBalance, this.intervalMs)
 		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}

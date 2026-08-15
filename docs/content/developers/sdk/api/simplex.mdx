@@ -660,7 +660,9 @@ static async create(
 ): Promise<HyperbridgeScanner>
 
 subscribe(handlers: {
-    onPhantomOrder(event: PhantomOrderEvent): void
+    // One call per Hyperbridge block: every phantom order registered in it.
+    // Solvers bid on the whole batch in a single extrinsic.
+    onPhantomOrders(orders: PhantomOrderEvent[]): void
     onError?(error: unknown): void
 }): Subscription
 close(): Promise<void>

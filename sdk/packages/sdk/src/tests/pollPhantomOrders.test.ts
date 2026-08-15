@@ -53,7 +53,7 @@ interface Harness {
 	touchedWebsocket: () => boolean
 }
 
-function harness(initialHead: number): Harness {
+function harness(initialHead: number, specName = "nexus"): Harness {
 	let head = initialHead
 	let headFailures = 0
 	let websocketTouched = false
@@ -94,7 +94,11 @@ function harness(initialHead: number): Harness {
 	Object.assign(coprocessor, {
 		api: websocket,
 		// Pre-resolved so nothing tries to open a real connection.
-		httpApi: Promise.resolve({ rpc: { chain: { getHeader, getBlockHash } }, at }),
+		httpApi: Promise.resolve({
+			rpc: { chain: { getHeader, getBlockHash } },
+			at,
+			runtimeVersion: { specName: { toString: () => specName } },
+		}),
 	})
 
 	return {
@@ -271,5 +275,51 @@ describe("pollPhantomOrders", () => {
 		await tick(5000)
 
 		expect(h.scanned).toEqual([100])
+	})
+
+	it("polls every block on gargantua when no interval is given", async () => {
+		const h = harness(100, "gargantua")
+		const stop = h.coprocessor.pollPhantomOrders(() => {})
+
+		await tick(0)
+		h.setHead(101)
+		await tick(6_000)
+		stop()
+
+		expect(h.scanned).toEqual([100, 101])
+	})
+
+	it("polls every 15s on every other runtime when no interval is given", async () => {
+		const h = harness(100)
+		const stop = h.coprocessor.pollPhantomOrders(() => {})
+
+		await tick(0)
+		h.setHead(101)
+		await tick(6_000)
+		expect(h.scanned).toEqual([100])
+
+		await tick(9_000)
+		stop()
+
+		expect(h.scanned).toEqual([100, 101])
+	})
+
+	it("keeps polling on the slower cadence when the runtime cannot be read", async () => {
+		const h = harness(100)
+		// A node that answers block reads but whose runtime version is unavailable.
+		const api = (await (h.coprocessor as unknown as { httpApi: Promise<Record<string, unknown>> }).httpApi)!
+		delete api.runtimeVersion
+
+		const stop = h.coprocessor.pollPhantomOrders(() => {})
+
+		await tick(0)
+		h.setHead(101)
+		await tick(6_000)
+		expect(h.scanned).toEqual([100])
+
+		await tick(9_000)
+		stop()
+
+		expect(h.scanned).toEqual([100, 101])
 	})
 })

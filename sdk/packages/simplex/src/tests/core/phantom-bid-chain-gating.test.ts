@@ -41,7 +41,7 @@ function build(watchOnly: Record<number, boolean> = {}) {
 	const fetchPhantomOrder = vi.fn(async () => null)
 	const coprocessor = { fetchPhantomOrder } as any
 
-	const handle = (chain: string) => (filler as any).handlePhantomOrder(event(chain), coprocessor)
+	const handle = (chain: string) => (filler as any).preparePhantomBid(event(chain), coprocessor)
 
 	return { handle, fetchPhantomOrder }
 }

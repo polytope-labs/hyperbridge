@@ -45,7 +45,7 @@ interface Harness {
 	/** Blocks scanned, in order. */
 	scanned: number[]
 	setHead: (n: number) => void
-	/** Registers an order in a block; blocks without one still scan clean. */
+	/** Registers an order in a block; a block can carry several, as the pallet writes them. */
 	putOrder: (blockNumber: number, commitment: string) => void
 	/** Makes the next `count` head reads throw, simulating an HTTP endpoint that is not answering. */
 	failHeadReads: (count: number) => void
@@ -57,7 +57,7 @@ function harness(initialHead: number): Harness {
 	let head = initialHead
 	let headFailures = 0
 	let websocketTouched = false
-	const ordersByBlock = new Map<number, string>()
+	const ordersByBlock = new Map<number, string[]>()
 	const scanned: number[] = []
 
 	const getHeader = vi.fn(async () => {
@@ -73,8 +73,8 @@ function harness(initialHead: number): Harness {
 	const at = vi.fn(async (blockHash: string) => {
 		const blockNumber = Number(blockHash.replace("0xblock", ""))
 		scanned.push(blockNumber)
-		const commitment = ordersByBlock.get(blockNumber)
-		const records = commitment ? [unrelatedEvent, registeredEvent(commitment)] : [unrelatedEvent]
+		const commitments = ordersByBlock.get(blockNumber) ?? []
+		const records = [unrelatedEvent, ...commitments.map(registeredEvent)]
 		return { query: { system: { events: async () => records } } }
 	})
 
@@ -103,7 +103,8 @@ function harness(initialHead: number): Harness {
 		setHead: (n) => {
 			head = n
 		},
-		putOrder: (blockNumber, commitment) => ordersByBlock.set(blockNumber, commitment),
+		putOrder: (blockNumber, commitment) =>
+			ordersByBlock.set(blockNumber, [...(ordersByBlock.get(blockNumber) ?? []), commitment]),
 		failHeadReads: (count) => {
 			headFailures = count
 		},
@@ -123,7 +124,7 @@ describe("pollPhantomOrders", () => {
 		h.putOrder(100, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000 })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
 		await tick(0)
 		stop()
 
@@ -135,6 +136,34 @@ describe("pollPhantomOrders", () => {
 				legs: [{ tokenA: TOKEN_A, tokenB: TOKEN_B, standardAmount: 1000000n }],
 			},
 		])
+	})
+
+	// The pallet registers every configured chain's order in one block, and bidding on them takes
+	// one extrinsic — so they have to arrive together, not one callback at a time.
+	it("delivers a block's orders in a single callback", async () => {
+		const h = harness(100)
+		h.putOrder(100, COMMITMENT_A)
+		h.putOrder(100, COMMITMENT_B)
+		const batches: PhantomOrderEvent[][] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((orders) => batches.push(orders), { intervalMs: 1000 })
+		await tick(0)
+		stop()
+
+		expect(batches).toHaveLength(1)
+		expect(batches[0].map((e) => e.commitment)).toEqual([COMMITMENT_A, COMMITMENT_B])
+	})
+
+	it("does not call back for a block with no orders", async () => {
+		const h = harness(100)
+		const batches: PhantomOrderEvent[][] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((orders) => batches.push(orders), { intervalMs: 1000 })
+		await tick(0)
+		stop()
+
+		expect(h.scanned).toEqual([100])
+		expect(batches).toEqual([])
 	})
 
 	it("scans each block exactly once as the head advances", async () => {
@@ -165,7 +194,7 @@ describe("pollPhantomOrders", () => {
 		const seen: PhantomOrderEvent[] = []
 		const onError = vi.fn()
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000, onError })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000, onError })
 		await tick(0)
 
 		// Two ticks fail while the chain moves on and registers an order at 102.
@@ -191,7 +220,7 @@ describe("pollPhantomOrders", () => {
 		h.putOrder(101, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000 })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
 		await tick(0)
 		h.setHead(101)
 		await tick(1000)
@@ -221,7 +250,10 @@ describe("pollPhantomOrders", () => {
 		h.putOrder(98, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000, lookbackBlocks: 3 })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
+			intervalMs: 1000,
+			lookbackBlocks: 3,
+		})
 		await tick(0)
 		stop()
 

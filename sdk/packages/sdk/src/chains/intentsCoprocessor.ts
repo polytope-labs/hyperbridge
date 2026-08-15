@@ -145,6 +145,48 @@ export interface PhantomOrderEvent {
 	legs: PhantomOrderLeg[]
 }
 
+/** One phantom bid to place, and the bid it replaces on the same chain. */
+export interface PhantomBid {
+	/** The phantom order commitment being bid on. */
+	commitment: HexString
+	/** The SCALE-encoded PackedUserOperation backing the quote. */
+	userOp: HexString
+	/**
+	 * A live bid from a previous interval on the same chain, retracted alongside this one to
+	 * reclaim its deposit. Best-effort: a retraction that fails never affects the bid.
+	 */
+	retractCommitment?: HexString
+}
+
+/** What became of one bid in a batch. */
+export interface PhantomBidOutcome {
+	commitment: HexString
+	success: boolean
+	/** The dispatch error that rejected this bid, when it failed. */
+	error?: string
+}
+
+export interface PhantomBidBatchResult {
+	/** One entry per submitted bid, in the order they were given. */
+	bids: PhantomBidOutcome[]
+	/** The block and extrinsic the bids landed in. */
+	blockHash?: HexString
+	extrinsicHash?: HexString
+	/**
+	 * The batch reached the pool but its inclusion was not observed, so no per-bid outcome is
+	 * known. Same contract as {@link BidSubmissionResult.pending}: in flight, do not re-sign.
+	 */
+	pending?: boolean
+	/** Set when the batch never landed at all, or when its item events could not be attributed. */
+	error?: string
+}
+
+/** A submission result plus the extrinsic's own events, for callers that read per-item outcomes. */
+interface SubmissionOutcome extends BidSubmissionResult {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	events?: { event: { section: string; method: string; data: any } }[]
+}
+
 export interface PollPhantomOrdersOptions {
 	/** How often to check for a new head. Defaults to 6s, roughly one block. */
 	intervalMs?: number
@@ -353,7 +395,7 @@ export class IntentsCoprocessor {
 		build: ExtrinsicBuilder,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
-	): Promise<BidSubmissionResult> {
+	): Promise<SubmissionOutcome> {
 		const result = await this.submissionQueue.add(async () => {
 			// Checked here, not at call time: the queue may have held this submission for a while.
 			if (!this.api.isConnected) {
@@ -405,7 +447,7 @@ export class IntentsCoprocessor {
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number,
 		timeoutMs: number,
-	): Promise<BidSubmissionResult> {
+	): Promise<SubmissionOutcome> {
 		const keyPair = this.getKeyPair()
 		let attempt = 0
 
@@ -464,8 +506,8 @@ export class IntentsCoprocessor {
 		keyPair: KeyringPair,
 		tip: bigint,
 		timeoutMs: number,
-	): Promise<BidSubmissionResult> {
-		return new Promise<BidSubmissionResult>((resolve) => {
+	): Promise<SubmissionOutcome> {
+		return new Promise<SubmissionOutcome>((resolve) => {
 			let resolved = false
 			let unsubscribe: (() => void) | null = null
 			let enteredPool = false
@@ -502,16 +544,9 @@ export class IntentsCoprocessor {
 					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {
 						resolved = true
 						clearTimeout(timeoutId)
-						let errorMsg: string
-						if (result.dispatchError.isModule) {
-							const decoded = this.api.registry.findMetaError(result.dispatchError.asModule)
-							errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
-						} else {
-							errorMsg = `Dispatch error: ${result.dispatchError.toString()}`
-						}
 						resolve({
 							success: false,
-							error: errorMsg,
+							error: `Dispatch error: ${this.describeDispatchError(result.dispatchError)}`,
 						})
 					} else if (
 						result.status.isDropped ||
@@ -544,14 +579,10 @@ export class IntentsCoprocessor {
 							// eslint-disable-next-line @typescript-eslint/no-explicit-any
 							const [indexCodec, dispatchError] = interrupted.event.data as any
 							if (Number(indexCodec.toString()) === 0) {
-								let errorMsg: string
-								if (dispatchError?.isModule) {
-									const decoded = this.api.registry.findMetaError(dispatchError.asModule)
-									errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
-								} else {
-									errorMsg = `Dispatch error: batch interrupted (${dispatchError?.toString()})`
-								}
-								resolve({ success: false, error: errorMsg })
+								resolve({
+									success: false,
+									error: `Dispatch error: ${this.describeDispatchError(dispatchError)}`,
+								})
 								return
 							}
 						}
@@ -563,6 +594,8 @@ export class IntentsCoprocessor {
 								: result.status.asFinalized
 							).toHex() as HexString,
 							extrinsicHash: extrinsic.hash.toHex() as HexString,
+							// Carried so a batch caller can attribute each item's outcome.
+							events: result.events,
 						})
 					}
 				})
@@ -658,6 +691,115 @@ export class IntentsCoprocessor {
 				error: error instanceof Error ? error.message : "Unknown error",
 			}
 		}
+	}
+
+	/**
+	 * Places every phantom bid of one interval in a single extrinsic, retracting each chain's
+	 * previous bid alongside it.
+	 *
+	 * The pallet registers one phantom order per configured chain in the same block, so this is the
+	 * whole interval's set. Submitting them one at a time costs a block per chain: submissions are
+	 * serialised on the account nonce and each waits for inclusion, so the last chain's bid is many
+	 * blocks behind the first, against a bid window measured in tens of blocks. Batched, every bid
+	 * lands in the same block.
+	 *
+	 * Uses `utility.force_batch`, not `utility.batch`. `batch` stops at the first failing call, so
+	 * one rejected bid — a closed window, a duplicate, an insufficient deposit — would silently
+	 * drop every bid after it. `force_batch` runs them all and reports each outcome. It needs no
+	 * special origin: any signed account may call it, exactly like `batch`.
+	 *
+	 * @param bids - The bids to place; an empty list is a no-op
+	 * @returns Per-bid outcomes, in the order given
+	 */
+	async submitPhantomBids(bids: PhantomBid[]): Promise<PhantomBidBatchResult> {
+		if (bids.length === 0) return { bids: [] }
+
+		// Call order is the only key the item events give us, so record where each bid's placeBid
+		// sits as the calls are built.
+		const placeIndexByBid: number[] = []
+		let callCount = 0
+		for (const bid of bids) {
+			placeIndexByBid.push(callCount)
+			callCount += bid.retractCommitment ? 2 : 1
+		}
+
+		const outcome = await this.signAndSendExtrinsic((api) =>
+			api.tx.utility.forceBatch(
+				bids.flatMap((bid) => {
+					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, bid.userOp)]
+					// Placed first so the pairing reads the same as the call order; with force_batch
+					// the ordering no longer decides whether the bid survives a failed retraction.
+					if (bid.retractCommitment) {
+						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment))
+					}
+					return calls
+				}),
+			),
+		)
+
+		if (!outcome.success) {
+			// Nothing landed, so there is nothing to attribute: every bid shares the batch's fate.
+			return {
+				bids: bids.map((bid) => ({ commitment: bid.commitment, success: false, error: outcome.error })),
+				pending: outcome.pending,
+				extrinsicHash: outcome.extrinsicHash,
+				error: outcome.error,
+			}
+		}
+
+		const items = this.readForceBatchItems(outcome.events ?? [], callCount)
+
+		return {
+			bids: bids.map((bid, index) => {
+				const error = items.errors[placeIndexByBid[index]]
+				return { commitment: bid.commitment, success: !error, error }
+			}),
+			blockHash: outcome.blockHash,
+			extrinsicHash: outcome.extrinsicHash,
+			error: items.error,
+		}
+	}
+
+	/**
+	 * Reads one outcome per call out of a force_batch's events.
+	 *
+	 * `ItemFailed` carries no index — pallet-utility emits exactly one `ItemCompleted` or
+	 * `ItemFailed` per call, in call order, so the k-th item event belongs to call k.
+	 *
+	 * A count that does not match the calls submitted means the events are not the ones assumed
+	 * here, and every attribution after the discrepancy would be off by one. The bids are then
+	 * reported as placed: a bid wrongly recorded as landed is retracted next interval and the
+	 * retraction harmlessly fails with `BidNotFound`, whereas one wrongly recorded as failed is
+	 * never retracted at all and leaves its deposit reserved.
+	 */
+	private readForceBatchItems(
+		events: NonNullable<SubmissionOutcome["events"]>,
+		callCount: number,
+	): { errors: (string | undefined)[]; error?: string } {
+		const errors: (string | undefined)[] = []
+		for (const { event } of events) {
+			if (event.section !== "utility") continue
+			if (event.method === "ItemCompleted") errors.push(undefined)
+			else if (event.method === "ItemFailed") errors.push(this.describeDispatchError(event.data[0]))
+		}
+
+		if (errors.length !== callCount) {
+			return {
+				errors: new Array(callCount).fill(undefined),
+				error: `force_batch reported ${errors.length} item events for ${callCount} calls; outcomes not attributed`,
+			}
+		}
+		return { errors }
+	}
+
+	/** Renders a DispatchError as `pallet::Error`, falling back to its raw form. */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	private describeDispatchError(dispatchError: any): string {
+		if (dispatchError?.isModule) {
+			const decoded = this.api.registry.findMetaError(dispatchError.asModule)
+			return `${decoded.section}::${decoded.name}`
+		}
+		return dispatchError?.toString() ?? "unknown dispatch error"
 	}
 
 	/**
@@ -858,7 +1000,13 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Polls for newly registered phantom orders, invoking the callback once per order.
+	 * Polls for newly registered phantom orders, invoking the callback once per block that carries
+	 * any, with all of that block's orders.
+	 *
+	 * Per block rather than per order because that is how the pallet writes them: one order per
+	 * configured chain, all registered in the same `on_initialize`. Delivering them together lets a
+	 * caller bid on the whole interval in one extrinsic (see {@link submitPhantomBids}) instead of
+	 * one per chain.
 	 *
 	 * Each tick reads the current head and scans every block between the last one processed and that
 	 * head, so the block cursor — not the connection — determines what has been seen. This replaced a
@@ -880,7 +1028,7 @@ export class IntentsCoprocessor {
 	 * Returns a function that stops polling.
 	 */
 	pollPhantomOrders(
-		callback: (event: PhantomOrderEvent) => void,
+		callback: (events: PhantomOrderEvent[]) => void,
 		options: PollPhantomOrdersOptions = {},
 	): () => void {
 		const { intervalMs = 6_000, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
@@ -907,7 +1055,7 @@ export class IntentsCoprocessor {
 				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) {
 					if (stopped) return
 					const orders = await this.getPhantomOrdersInBlock(blockNumber)
-					for (const order of orders) callback(order)
+					if (orders.length > 0) callback(orders)
 					// Advance per block, not per range: a failure partway through re-scans only the
 					// blocks that were never read, and never re-delivers ones that were.
 					cursor = blockNumber

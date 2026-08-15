@@ -50,6 +50,13 @@ export class IntentFiller {
 	// retracts exactly the one it replaces.
 	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
+	/**
+	 * The filler's Hyperbridge connection, so other services can share it rather than opening a
+	 * second socket to the same node.
+	 */
+	get hyperbridgeConnection(): Promise<IntentsCoprocessor> | undefined {
+		return this.hyperbridge
+	}
 	private config: FillerConfig
 	private configService: FillerConfigService
 	private signer: SigningAccount

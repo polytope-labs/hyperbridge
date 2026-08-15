@@ -55,6 +55,8 @@ function mockApi(events: unknown[], capturedBatch: { calls: any[] | null }) {
 		},
 	}
 	return {
+		// A live socket: submission only diverts to the HTTP fallback when this is false.
+		isConnected: true,
 		tx: {
 			utility: {
 				batch: (calls: any[]) => {

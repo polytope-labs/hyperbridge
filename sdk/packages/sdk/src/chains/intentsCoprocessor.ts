@@ -1,5 +1,5 @@
-import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
-import type { SubmittableExtrinsic } from "@polkadot/api/types"
+import { ApiPromise, HttpProvider, Keyring, WsProvider } from "@polkadot/api"
+import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
@@ -14,6 +14,47 @@ import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
 /** Offchain storage key prefix for phantom orders */
 const OFFCHAIN_PHANTOM_PREFIX = new TextEncoder().encode("intents::phantom::order::")
+
+/** Hyperbridge runtimes hash with keccak, so the registry needs the hasher for both spec names. */
+const HYPERBRIDGE_TYPES_BUNDLE: ApiOptions["typesBundle"] = {
+	spec: {
+		nexus: { hasher: keccakAsU8a },
+		gargantua: { hasher: keccakAsU8a },
+	},
+}
+
+/** Base tip (0.001 BRIDGE) added to every submission to lift it above untipped traffic. */
+const BASE_TIP = 1_000_000_000n
+
+/** How long the HTTP api has to come up (metadata included) before the attempt is abandoned. */
+const HTTP_CONNECT_TIMEOUT_MS = 20_000
+
+/** Rejects after `ms`, without holding a node process open on its own. */
+function rejectAfter(ms: number, message: string): Promise<never> {
+	return new Promise((_resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(message)), ms)
+		;(timer as unknown as { unref?: () => void }).unref?.()
+	})
+}
+
+/**
+ * Maps a websocket endpoint onto the HTTP endpoint of the same node — substrate serves both on the
+ * same host and port, so the scheme is the only difference. Throws for anything that is not a
+ * `ws(s)://` url rather than guessing at an endpoint.
+ *
+ * The HTTP endpoint is always derived, never configured, because it must be the *same node* as the
+ * websocket: phantom orders are read out of that node's offchain worker storage, which is
+ * node-local and not replicated, so a separately configured host would return nothing for orders
+ * the events said exist.
+ */
+export function deriveHttpUrl(wsUrl: string): string {
+	if (wsUrl.startsWith("wss://")) return `https://${wsUrl.slice("wss://".length)}`
+	if (wsUrl.startsWith("ws://")) return `http://${wsUrl.slice("ws://".length)}`
+	throw new Error(`Cannot derive an HTTP endpoint from a non-websocket url: ${wsUrl}`)
+}
+
+/** Builds the extrinsic to submit against whichever api is live at signing time. */
+type ExtrinsicBuilder = (api: ApiPromise) => SubmittableExtrinsic<"promise">
 
 /** SCALE codec for Bid { filler: AccountId, user_op: Vec<u8> } */
 const BidCodec = Struct({ filler: Bytes(32), user_op: Vector(u8) })
@@ -132,6 +173,9 @@ export class IntentsCoprocessor {
 	/** Cached result of whether the node exposes intents_* RPC methods */
 	private hasIntentsRpc: boolean | null = null
 
+	/** The HTTP-backed api, connected on first use. Cleared after a failed attempt so it retries. */
+	private httpApi: Promise<ApiPromise> | null = null
+
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
 	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
 	// (bids for orders on different chains, or several phantom orders in one interval) they would grab
@@ -149,12 +193,7 @@ export class IntentsCoprocessor {
 	static async connect(wsUrl: string, substratePrivateKey?: string): Promise<IntentsCoprocessor> {
 		const api = await ApiPromise.create({
 			provider: new WsProvider(wsUrl),
-			typesBundle: {
-				spec: {
-					nexus: { hasher: keccakAsU8a },
-					gargantua: { hasher: keccakAsU8a },
-				},
-			},
+			typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
 		})
 		return new IntentsCoprocessor(api, substratePrivateKey, true)
 	}
@@ -190,13 +229,83 @@ export class IntentsCoprocessor {
 	) {}
 
 	/**
+	 * The websocket API, exposed so callers share this one connection instead of opening a second
+	 * socket to the same node.
+	 */
+	get apiConnection(): ApiPromise {
+		return this.api
+	}
+
+	/** Whether the underlying websocket is currently up. */
+	get isConnected(): boolean {
+		return this.api.isConnected
+	}
+
+	/**
 	 * Disconnects the underlying API connection if this instance owns it.
-	 * Only disconnects if created via `connect()`, not when using shared connections.
+	 * Only disconnects the websocket if created via `connect()`, not when using shared connections.
+	 * The HTTP api is always created here, so it is always ours to close.
 	 */
 	async disconnect(): Promise<void> {
+		const http = this.httpApi
+		this.httpApi = null
+		if (http) {
+			// A creation that never settled must not turn shutdown into an unhandled rejection.
+			await http.then((api) => api.disconnect()).catch(() => {})
+		}
 		if (this.ownsConnection) {
 			await this.api.disconnect()
 		}
+	}
+
+	/**
+	 * The HTTP api for this node, connected on first use. Every coprocessor has one — the endpoint
+	 * is derived from the websocket's own endpoint, so there is nothing to configure and nothing to
+	 * be absent.
+	 *
+	 * The connection attempt is bounded on both sides. `isReadyOrError` rejects on a failed
+	 * handshake, where plain `isReady` would simply never resolve, and the timeout covers an
+	 * endpoint that accepts the request and then goes quiet. An unbounded wait here would hang the
+	 * poll tick awaiting it, which is precisely the silent stall that polling exists to avoid. A
+	 * failed attempt is not cached, so the next call tries again.
+	 */
+	private async http(): Promise<ApiPromise> {
+		if (!this.httpApi) {
+			const httpUrl = deriveHttpUrl(this.wsEndpoint())
+			const api = new ApiPromise({
+				provider: new HttpProvider(httpUrl),
+				typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
+				// A second connection to the node the ws api already reported on; its init warnings
+				// would just be duplicates.
+				noInitWarn: true,
+			})
+			this.httpApi = Promise.race([
+				api.isReadyOrError,
+				rejectAfter(HTTP_CONNECT_TIMEOUT_MS, `HTTP RPC ${httpUrl} did not become ready`),
+			]).catch(async (err) => {
+				// Nothing else holds this half-open api; leaving it would keep retrying underneath.
+				await api.disconnect().catch(() => {})
+				this.httpApi = null
+				// polkadot-js reports a failed init as a bare "fetch failed", which says nothing
+				// about where it was fetching from.
+				throw new Error(`HTTP RPC ${httpUrl} is unavailable: ${err instanceof Error ? err.message : err}`)
+			})
+		}
+		return await this.httpApi
+	}
+
+	/**
+	 * The endpoint the websocket provider is connected to. Read from the provider rather than
+	 * remembered from a constructor argument, so it is the one endpoint in use no matter which
+	 * factory built this instance.
+	 */
+	private wsEndpoint(): string {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const endpoint = ((this.api as any)._rpcCore?.provider as { endpoint?: string } | undefined)?.endpoint
+		if (!endpoint) {
+			throw new Error("Cannot determine the Hyperbridge websocket endpoint to derive an HTTP endpoint from")
+		}
+		return endpoint
 	}
 
 	/**
@@ -228,16 +337,50 @@ export class IntentsCoprocessor {
 	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
 	 * (or is confirmed still pooled and returned as `pending`) before the next is signed; auto-nonce
 	 * via `system.accountNextIndex` counts pooled extrinsics, so a pending one is never re-used.
+	 *
+	 * The extrinsic is built rather than passed in because the api it is built on decides where it
+	 * is signed and sent: a websocket that is down when the queue reaches this submission diverts it
+	 * to {@link sendViaHttp}, which needs the call bound to the HTTP api instead.
 	 */
 	private async signAndSendExtrinsic(
-		extrinsic: SubmittableExtrinsic<"promise">,
+		build: ExtrinsicBuilder,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
 	): Promise<BidSubmissionResult> {
-		const result = await this.submissionQueue.add(() =>
-			this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs),
-		)
+		const result = await this.submissionQueue.add(async () => {
+			// Checked here, not at call time: the queue may have held this submission for a while.
+			if (!this.api.isConnected) {
+				try {
+					return await this.sendViaHttp(await this.http(), build)
+				} catch (err) {
+					return { success: false, error: err instanceof Error ? err.message : String(err) }
+				}
+			}
+			return await this.sendExtrinsicWithRetries(build(this.api), maxRetries, timeoutMs)
+		})
 		return result ?? { success: false, error: "Submission queue returned no result" }
+	}
+
+	/**
+	 * Last-resort submission for when the websocket is down at signing time. A bid is only worth
+	 * anything inside its window, so waiting for a reconnect usually means not bidding at all.
+	 *
+	 * HTTP has no subscriptions, so this is `author_submitExtrinsic`: the node accepts the extrinsic
+	 * into its pool and returns its hash, and nothing further is observable from here. That is
+	 * exactly the `pending` contract — in flight, outcome unknown, do not re-sign — so the result
+	 * says so rather than claiming a success it cannot see.
+	 *
+	 * Only reached when the socket was already down before signing. A submission that got as far as
+	 * the pool over the websocket is never retried here: that is the duplicate-nonce race the
+	 * `pending` result exists to prevent.
+	 */
+	private async sendViaHttp(api: ApiPromise, build: ExtrinsicBuilder): Promise<BidSubmissionResult> {
+		try {
+			const hash = await build(api).signAndSend(this.getKeyPair(), { tip: BASE_TIP })
+			return { success: false, pending: true, extrinsicHash: hash.toHex() as HexString }
+		} catch (err) {
+			return this.classifySubmissionError(err instanceof Error ? err : new Error(String(err)))
+		}
 	}
 
 	/**
@@ -257,11 +400,10 @@ export class IntentsCoprocessor {
 		timeoutMs: number,
 	): Promise<BidSubmissionResult> {
 		const keyPair = this.getKeyPair()
-		const baseTip = 1_000_000_000n // 0.001 BRIDGE tip to increase priority
 		let attempt = 0
 
 		while (attempt < maxRetries) {
-			const currentTip = baseTip * BigInt(2 ** attempt) // Double tip on each retry
+			const currentTip = BASE_TIP * BigInt(2 ** attempt) // Double tip on each retry
 			attempt++
 
 			try {
@@ -443,8 +585,7 @@ export class IntentsCoprocessor {
 	 */
 	async submitBid(commitment: HexString, userOp: HexString): Promise<BidSubmissionResult> {
 		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.placeBid(commitment, userOp)
-			return await this.signAndSendExtrinsic(extrinsic)
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.placeBid(commitment, userOp))
 		} catch (error) {
 			return {
 				success: false,
@@ -463,8 +604,7 @@ export class IntentsCoprocessor {
 	 */
 	async retractBid(commitment: HexString): Promise<BidSubmissionResult> {
 		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.retractBid(commitment)
-			return await this.signAndSendExtrinsic(extrinsic)
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment))
 		} catch (error) {
 			return {
 				success: false,
@@ -499,11 +639,12 @@ export class IntentsCoprocessor {
 		userOp: HexString,
 	): Promise<BidSubmissionResult> {
 		try {
-			const batch = this.api.tx.utility.batch([
-				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
-				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
-			])
-			return await this.signAndSendExtrinsic(batch)
+			return await this.signAndSendExtrinsic((api) =>
+				api.tx.utility.batch([
+					api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
+					api.tx.intentsCoprocessor.retractBid(retractCommitment),
+				]),
+			)
 		} catch (error) {
 			return {
 				success: false,
@@ -628,7 +769,8 @@ export class IntentsCoprocessor {
 	 */
 	async fetchPhantomOrder(commitment: HexString): Promise<Order | null> {
 		const key = u8aConcat(OFFCHAIN_PHANTOM_PREFIX, hexToU8a(commitment))
-		const result = await this.api.rpc.offchain.localStorageGet("PERSISTENT", u8aToHex(key))
+		const api = await this.http()
+		const result = await api.rpc.offchain.localStorageGet("PERSISTENT", u8aToHex(key))
 		if (!result || result.isNone) return null
 
 		const rawHex = result.unwrap().toHex() as HexString
@@ -681,8 +823,9 @@ export class IntentsCoprocessor {
 	 * Reads the PhantomOrderRegistered events emitted in a single block.
 	 */
 	async getPhantomOrdersInBlock(blockNumber: number): Promise<PhantomOrderEvent[]> {
-		const blockHash = await this.api.rpc.chain.getBlockHash(blockNumber)
-		const apiAt = await this.api.at(blockHash)
+		const api = await this.http()
+		const blockHash = await api.rpc.chain.getBlockHash(blockNumber)
+		const apiAt = await api.at(blockHash)
 		const records = await apiAt.query.system.events()
 
 		const orders: PhantomOrderEvent[] = []
@@ -719,6 +862,12 @@ export class IntentsCoprocessor {
 	 * cannot drop them, because the cursor only advances past a block whose events were actually
 	 * read. Recovery replays the backlog.
 	 *
+	 * Every read here goes over HTTP, never the websocket. Polling is a sequence of independent
+	 * one-shot requests with no state to lose between them, which is exactly what a stateless
+	 * transport does well: a request either answers or fails loudly on this tick, instead of a
+	 * socket that looks alive while delivering nothing. It also means a websocket outage does not
+	 * pause phantom bidding at all — the two transports fail independently.
+	 *
 	 * Returns a function that stops polling.
 	 */
 	pollPhantomOrders(
@@ -737,7 +886,7 @@ export class IntentsCoprocessor {
 			if (inFlight || stopped) return
 			inFlight = true
 			try {
-				const head = (await this.api.rpc.chain.getHeader()).number.toNumber()
+				const head = (await (await this.http()).rpc.chain.getHeader()).number.toNumber()
 
 				if (cursor === null) {
 					// Start just below the head so the head itself is scanned, less any lookback.

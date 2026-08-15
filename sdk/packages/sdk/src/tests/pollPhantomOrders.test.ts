@@ -47,20 +47,23 @@ interface Harness {
 	setHead: (n: number) => void
 	/** Registers an order in a block; blocks without one still scan clean. */
 	putOrder: (blockNumber: number, commitment: string) => void
-	/** Makes the next `count` head reads throw, simulating a dropped connection. */
+	/** Makes the next `count` head reads throw, simulating an HTTP endpoint that is not answering. */
 	failHeadReads: (count: number) => void
+	/** True once anything has touched the websocket api — polling never should. */
+	touchedWebsocket: () => boolean
 }
 
 function harness(initialHead: number): Harness {
 	let head = initialHead
 	let headFailures = 0
+	let websocketTouched = false
 	const ordersByBlock = new Map<number, string>()
 	const scanned: number[] = []
 
 	const getHeader = vi.fn(async () => {
 		if (headFailures > 0) {
 			headFailures -= 1
-			throw new Error("websocket disconnected")
+			throw new Error("rpc unavailable")
 		}
 		return { number: { toNumber: () => head } }
 	})
@@ -75,8 +78,24 @@ function harness(initialHead: number): Harness {
 		return { query: { system: { events: async () => records } } }
 	})
 
+	// Polling is HTTP-only, so the websocket stands in as a tripwire: any read routed to it shows
+	// up as a touch rather than quietly succeeding.
+	const websocket = new Proxy(
+		{},
+		{
+			get: () => {
+				websocketTouched = true
+				throw new Error("polling must not touch the websocket")
+			},
+		},
+	)
+
 	const coprocessor = Object.create(IntentsCoprocessor.prototype) as IntentsCoprocessor
-	Object.assign(coprocessor, { api: { rpc: { chain: { getHeader, getBlockHash } }, at } })
+	Object.assign(coprocessor, {
+		api: websocket,
+		// Pre-resolved so nothing tries to open a real connection.
+		httpApi: Promise.resolve({ rpc: { chain: { getHeader, getBlockHash } }, at }),
+	})
 
 	return {
 		coprocessor,
@@ -88,6 +107,7 @@ function harness(initialHead: number): Harness {
 		failHeadReads: (count) => {
 			headFailures = count
 		},
+		touchedWebsocket: () => websocketTouched,
 	}
 }
 
@@ -161,6 +181,24 @@ describe("pollPhantomOrders", () => {
 
 		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_B])
 		expect(h.scanned).toEqual([100, 101, 102, 103])
+	})
+
+	// Every read goes over HTTP, so the websocket's state — connected or not — is irrelevant to
+	// polling, and a socket outage cannot pause phantom bidding. The harness's websocket throws on
+	// any access, so every other test in this file asserts the same thing implicitly.
+	it("never reads over the websocket", async () => {
+		const h = harness(100)
+		h.putOrder(101, COMMITMENT_A)
+		const seen: PhantomOrderEvent[] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000 })
+		await tick(0)
+		h.setHead(101)
+		await tick(1000)
+		stop()
+
+		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		expect(h.touchedWebsocket()).toBe(false)
 	})
 
 	it("caps how many blocks a single poll scans and catches up over later ticks", async () => {

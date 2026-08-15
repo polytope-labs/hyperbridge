@@ -45,22 +45,25 @@ interface Harness {
 	/** Blocks scanned, in order. */
 	scanned: number[]
 	setHead: (n: number) => void
-	/** Registers an order in a block; blocks without one still scan clean. */
+	/** Registers an order in a block; a block can carry several, as the pallet writes them. */
 	putOrder: (blockNumber: number, commitment: string) => void
-	/** Makes the next `count` head reads throw, simulating a dropped connection. */
+	/** Makes the next `count` head reads throw, simulating an HTTP endpoint that is not answering. */
 	failHeadReads: (count: number) => void
+	/** True once anything has touched the websocket api — polling never should. */
+	touchedWebsocket: () => boolean
 }
 
 function harness(initialHead: number): Harness {
 	let head = initialHead
 	let headFailures = 0
-	const ordersByBlock = new Map<number, string>()
+	let websocketTouched = false
+	const ordersByBlock = new Map<number, string[]>()
 	const scanned: number[] = []
 
 	const getHeader = vi.fn(async () => {
 		if (headFailures > 0) {
 			headFailures -= 1
-			throw new Error("websocket disconnected")
+			throw new Error("rpc unavailable")
 		}
 		return { number: { toNumber: () => head } }
 	})
@@ -70,13 +73,29 @@ function harness(initialHead: number): Harness {
 	const at = vi.fn(async (blockHash: string) => {
 		const blockNumber = Number(blockHash.replace("0xblock", ""))
 		scanned.push(blockNumber)
-		const commitment = ordersByBlock.get(blockNumber)
-		const records = commitment ? [unrelatedEvent, registeredEvent(commitment)] : [unrelatedEvent]
+		const commitments = ordersByBlock.get(blockNumber) ?? []
+		const records = [unrelatedEvent, ...commitments.map(registeredEvent)]
 		return { query: { system: { events: async () => records } } }
 	})
 
+	// Polling is HTTP-only, so the websocket stands in as a tripwire: any read routed to it shows
+	// up as a touch rather than quietly succeeding.
+	const websocket = new Proxy(
+		{},
+		{
+			get: () => {
+				websocketTouched = true
+				throw new Error("polling must not touch the websocket")
+			},
+		},
+	)
+
 	const coprocessor = Object.create(IntentsCoprocessor.prototype) as IntentsCoprocessor
-	Object.assign(coprocessor, { api: { rpc: { chain: { getHeader, getBlockHash } }, at } })
+	Object.assign(coprocessor, {
+		api: websocket,
+		// Pre-resolved so nothing tries to open a real connection.
+		httpApi: Promise.resolve({ rpc: { chain: { getHeader, getBlockHash } }, at }),
+	})
 
 	return {
 		coprocessor,
@@ -84,10 +103,12 @@ function harness(initialHead: number): Harness {
 		setHead: (n) => {
 			head = n
 		},
-		putOrder: (blockNumber, commitment) => ordersByBlock.set(blockNumber, commitment),
+		putOrder: (blockNumber, commitment) =>
+			ordersByBlock.set(blockNumber, [...(ordersByBlock.get(blockNumber) ?? []), commitment]),
 		failHeadReads: (count) => {
 			headFailures = count
 		},
+		touchedWebsocket: () => websocketTouched,
 	}
 }
 
@@ -103,7 +124,7 @@ describe("pollPhantomOrders", () => {
 		h.putOrder(100, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000 })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
 		await tick(0)
 		stop()
 
@@ -115,6 +136,34 @@ describe("pollPhantomOrders", () => {
 				legs: [{ tokenA: TOKEN_A, tokenB: TOKEN_B, standardAmount: 1000000n }],
 			},
 		])
+	})
+
+	// The pallet registers every configured chain's order in one block, and bidding on them takes
+	// one extrinsic — so they have to arrive together, not one callback at a time.
+	it("delivers a block's orders in a single callback", async () => {
+		const h = harness(100)
+		h.putOrder(100, COMMITMENT_A)
+		h.putOrder(100, COMMITMENT_B)
+		const batches: PhantomOrderEvent[][] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((orders) => batches.push(orders), { intervalMs: 1000 })
+		await tick(0)
+		stop()
+
+		expect(batches).toHaveLength(1)
+		expect(batches[0].map((e) => e.commitment)).toEqual([COMMITMENT_A, COMMITMENT_B])
+	})
+
+	it("does not call back for a block with no orders", async () => {
+		const h = harness(100)
+		const batches: PhantomOrderEvent[][] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((orders) => batches.push(orders), { intervalMs: 1000 })
+		await tick(0)
+		stop()
+
+		expect(h.scanned).toEqual([100])
+		expect(batches).toEqual([])
 	})
 
 	it("scans each block exactly once as the head advances", async () => {
@@ -145,7 +194,7 @@ describe("pollPhantomOrders", () => {
 		const seen: PhantomOrderEvent[] = []
 		const onError = vi.fn()
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000, onError })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000, onError })
 		await tick(0)
 
 		// Two ticks fail while the chain moves on and registers an order at 102.
@@ -161,6 +210,24 @@ describe("pollPhantomOrders", () => {
 
 		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_B])
 		expect(h.scanned).toEqual([100, 101, 102, 103])
+	})
+
+	// Every read goes over HTTP, so the websocket's state — connected or not — is irrelevant to
+	// polling, and a socket outage cannot pause phantom bidding. The harness's websocket throws on
+	// any access, so every other test in this file asserts the same thing implicitly.
+	it("never reads over the websocket", async () => {
+		const h = harness(100)
+		h.putOrder(101, COMMITMENT_A)
+		const seen: PhantomOrderEvent[] = []
+
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
+		await tick(0)
+		h.setHead(101)
+		await tick(1000)
+		stop()
+
+		expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		expect(h.touchedWebsocket()).toBe(false)
 	})
 
 	it("caps how many blocks a single poll scans and catches up over later ticks", async () => {
@@ -183,7 +250,10 @@ describe("pollPhantomOrders", () => {
 		h.putOrder(98, COMMITMENT_A)
 		const seen: PhantomOrderEvent[] = []
 
-		const stop = h.coprocessor.pollPhantomOrders((e) => seen.push(e), { intervalMs: 1000, lookbackBlocks: 3 })
+		const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
+			intervalMs: 1000,
+			lookbackBlocks: 3,
+		})
 		await tick(0)
 		stop()
 

@@ -488,7 +488,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configService,
 		fillerAddress: runtimeSigner.account.address,
 		token1,
-		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
+		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
 

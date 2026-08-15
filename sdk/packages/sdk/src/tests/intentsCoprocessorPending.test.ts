@@ -57,6 +57,8 @@ function mockApi(behaviour: (attempt: number, cb: (result: unknown) => void) => 
 		},
 	}
 	const api = {
+		// A live socket: submission only diverts to the HTTP fallback when this is false.
+		isConnected: true,
 		tx: {
 			intentsCoprocessor: {
 				retractBid: () => sendable,
@@ -71,8 +73,11 @@ function mockApi(behaviour: (attempt: number, cb: (result: unknown) => void) => 
 
 /** Runs retractBid with a short watch timeout so timeout paths don't take 30s. */
 async function retractWithShortTimeout(coproc: IntentsCoprocessor, timeoutMs: number): Promise<BidSubmissionResult> {
-	const extrinsic = (coproc as any).api.tx.intentsCoprocessor.retractBid(COMMITMENT)
-	return await (coproc as any).signAndSendExtrinsic(extrinsic, 3, timeoutMs)
+	return await (coproc as any).signAndSendExtrinsic(
+		(api: any) => api.tx.intentsCoprocessor.retractBid(COMMITMENT),
+		3,
+		timeoutMs,
+	)
 }
 
 describe("in-flight extrinsic handling", () => {

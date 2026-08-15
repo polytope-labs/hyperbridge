@@ -1,5 +1,5 @@
-import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
-import type { SubmittableExtrinsic } from "@polkadot/api/types"
+import { ApiPromise, HttpProvider, Keyring, WsProvider } from "@polkadot/api"
+import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
@@ -14,6 +14,47 @@ import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
 /** Offchain storage key prefix for phantom orders */
 const OFFCHAIN_PHANTOM_PREFIX = new TextEncoder().encode("intents::phantom::order::")
+
+/** Hyperbridge runtimes hash with keccak, so the registry needs the hasher for both spec names. */
+const HYPERBRIDGE_TYPES_BUNDLE: ApiOptions["typesBundle"] = {
+	spec: {
+		nexus: { hasher: keccakAsU8a },
+		gargantua: { hasher: keccakAsU8a },
+	},
+}
+
+/** Base tip (0.001 BRIDGE) added to every submission to lift it above untipped traffic. */
+const BASE_TIP = 1_000_000_000n
+
+/** How long the HTTP api has to come up (metadata included) before the attempt is abandoned. */
+const HTTP_CONNECT_TIMEOUT_MS = 20_000
+
+/** Rejects after `ms`, without holding a node process open on its own. */
+function rejectAfter(ms: number, message: string): Promise<never> {
+	return new Promise((_resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(message)), ms)
+		;(timer as unknown as { unref?: () => void }).unref?.()
+	})
+}
+
+/**
+ * Maps a websocket endpoint onto the HTTP endpoint of the same node — substrate serves both on the
+ * same host and port, so the scheme is the only difference. Throws for anything that is not a
+ * `ws(s)://` url rather than guessing at an endpoint.
+ *
+ * The HTTP endpoint is always derived, never configured, because it must be the *same node* as the
+ * websocket: phantom orders are read out of that node's offchain worker storage, which is
+ * node-local and not replicated, so a separately configured host would return nothing for orders
+ * the events said exist.
+ */
+export function deriveHttpUrl(wsUrl: string): string {
+	if (wsUrl.startsWith("wss://")) return `https://${wsUrl.slice("wss://".length)}`
+	if (wsUrl.startsWith("ws://")) return `http://${wsUrl.slice("ws://".length)}`
+	throw new Error(`Cannot derive an HTTP endpoint from a non-websocket url: ${wsUrl}`)
+}
+
+/** Builds the extrinsic to submit against whichever api is live at signing time. */
+type ExtrinsicBuilder = (api: ApiPromise) => SubmittableExtrinsic<"promise">
 
 /** SCALE codec for Bid { filler: AccountId, user_op: Vec<u8> } */
 const BidCodec = Struct({ filler: Bytes(32), user_op: Vector(u8) })
@@ -104,6 +145,48 @@ export interface PhantomOrderEvent {
 	legs: PhantomOrderLeg[]
 }
 
+/** One phantom bid to place, and the bid it replaces on the same chain. */
+export interface PhantomBid {
+	/** The phantom order commitment being bid on. */
+	commitment: HexString
+	/** The SCALE-encoded PackedUserOperation backing the quote. */
+	userOp: HexString
+	/**
+	 * A live bid from a previous interval on the same chain, retracted alongside this one to
+	 * reclaim its deposit. Best-effort: a retraction that fails never affects the bid.
+	 */
+	retractCommitment?: HexString
+}
+
+/** What became of one bid in a batch. */
+export interface PhantomBidOutcome {
+	commitment: HexString
+	success: boolean
+	/** The dispatch error that rejected this bid, when it failed. */
+	error?: string
+}
+
+export interface PhantomBidBatchResult {
+	/** One entry per submitted bid, in the order they were given. */
+	bids: PhantomBidOutcome[]
+	/** The block and extrinsic the bids landed in. */
+	blockHash?: HexString
+	extrinsicHash?: HexString
+	/**
+	 * The batch reached the pool but its inclusion was not observed, so no per-bid outcome is
+	 * known. Same contract as {@link BidSubmissionResult.pending}: in flight, do not re-sign.
+	 */
+	pending?: boolean
+	/** Set when the batch never landed at all, or when its item events could not be attributed. */
+	error?: string
+}
+
+/** A submission result plus the extrinsic's own events, for callers that read per-item outcomes. */
+interface SubmissionOutcome extends BidSubmissionResult {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	events?: { event: { section: string; method: string; data: any } }[]
+}
+
 export interface PollPhantomOrdersOptions {
 	/** How often to check for a new head. Defaults to 6s, roughly one block. */
 	intervalMs?: number
@@ -132,6 +215,9 @@ export class IntentsCoprocessor {
 	/** Cached result of whether the node exposes intents_* RPC methods */
 	private hasIntentsRpc: boolean | null = null
 
+	/** The HTTP-backed api, connected on first use. Cleared after a failed attempt so it retries. */
+	private httpApi: Promise<ApiPromise> | null = null
+
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
 	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
 	// (bids for orders on different chains, or several phantom orders in one interval) they would grab
@@ -149,12 +235,7 @@ export class IntentsCoprocessor {
 	static async connect(wsUrl: string, substratePrivateKey?: string): Promise<IntentsCoprocessor> {
 		const api = await ApiPromise.create({
 			provider: new WsProvider(wsUrl),
-			typesBundle: {
-				spec: {
-					nexus: { hasher: keccakAsU8a },
-					gargantua: { hasher: keccakAsU8a },
-				},
-			},
+			typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
 		})
 		return new IntentsCoprocessor(api, substratePrivateKey, true)
 	}
@@ -190,13 +271,90 @@ export class IntentsCoprocessor {
 	) {}
 
 	/**
+	 * The API every RPC query runs on: HTTP, connected to the same node as the websocket. Exposed so
+	 * callers query through this connection rather than opening one of their own.
+	 *
+	 * The split is by what each transport is for. Queries are one-shot request/response, which HTTP
+	 * serves without holding any state that can silently rot between calls. The websocket earns its
+	 * keep only where subscriptions do — watching a submitted extrinsic to inclusion.
+	 */
+	async queryApi(): Promise<ApiPromise> {
+		return await this.http()
+	}
+
+	/**
+	 * The websocket API, exposed so callers share this one connection instead of opening a second
+	 * socket to the same node. Only needed for subscriptions; use {@link queryApi} to read.
+	 */
+	get apiConnection(): ApiPromise {
+		return this.api
+	}
+
+	/**
 	 * Disconnects the underlying API connection if this instance owns it.
-	 * Only disconnects if created via `connect()`, not when using shared connections.
+	 * Only disconnects the websocket if created via `connect()`, not when using shared connections.
+	 * The HTTP api is always created here, so it is always ours to close.
 	 */
 	async disconnect(): Promise<void> {
+		const http = this.httpApi
+		this.httpApi = null
+		if (http) {
+			// A creation that never settled must not turn shutdown into an unhandled rejection.
+			await http.then((api) => api.disconnect()).catch(() => {})
+		}
 		if (this.ownsConnection) {
 			await this.api.disconnect()
 		}
+	}
+
+	/**
+	 * The HTTP api for this node, connected on first use. Every coprocessor has one — the endpoint
+	 * is derived from the websocket's own endpoint, so there is nothing to configure and nothing to
+	 * be absent.
+	 *
+	 * The connection attempt is bounded on both sides. `isReadyOrError` rejects on a failed
+	 * handshake, where plain `isReady` would simply never resolve, and the timeout covers an
+	 * endpoint that accepts the request and then goes quiet. An unbounded wait here would hang the
+	 * poll tick awaiting it, which is precisely the silent stall that polling exists to avoid. A
+	 * failed attempt is not cached, so the next call tries again.
+	 */
+	private async http(): Promise<ApiPromise> {
+		if (!this.httpApi) {
+			const httpUrl = deriveHttpUrl(this.wsEndpoint())
+			const api = new ApiPromise({
+				provider: new HttpProvider(httpUrl),
+				typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
+				// A second connection to the node the ws api already reported on; its init warnings
+				// would just be duplicates.
+				noInitWarn: true,
+			})
+			this.httpApi = Promise.race([
+				api.isReadyOrError,
+				rejectAfter(HTTP_CONNECT_TIMEOUT_MS, `HTTP RPC ${httpUrl} did not become ready`),
+			]).catch(async (err) => {
+				// Nothing else holds this half-open api; leaving it would keep retrying underneath.
+				await api.disconnect().catch(() => {})
+				this.httpApi = null
+				// polkadot-js reports a failed init as a bare "fetch failed", which says nothing
+				// about where it was fetching from.
+				throw new Error(`HTTP RPC ${httpUrl} is unavailable: ${err instanceof Error ? err.message : err}`)
+			})
+		}
+		return await this.httpApi
+	}
+
+	/**
+	 * The endpoint the websocket provider is connected to. Read from the provider rather than
+	 * remembered from a constructor argument, so it is the one endpoint in use no matter which
+	 * factory built this instance.
+	 */
+	private wsEndpoint(): string {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const endpoint = ((this.api as any)._rpcCore?.provider as { endpoint?: string } | undefined)?.endpoint
+		if (!endpoint) {
+			throw new Error("Cannot determine the Hyperbridge websocket endpoint to derive an HTTP endpoint from")
+		}
+		return endpoint
 	}
 
 	/**
@@ -228,16 +386,50 @@ export class IntentsCoprocessor {
 	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
 	 * (or is confirmed still pooled and returned as `pending`) before the next is signed; auto-nonce
 	 * via `system.accountNextIndex` counts pooled extrinsics, so a pending one is never re-used.
+	 *
+	 * The extrinsic is built rather than passed in because the api it is built on decides where it
+	 * is signed and sent: a websocket that is down when the queue reaches this submission diverts it
+	 * to {@link sendViaHttp}, which needs the call bound to the HTTP api instead.
 	 */
 	private async signAndSendExtrinsic(
-		extrinsic: SubmittableExtrinsic<"promise">,
+		build: ExtrinsicBuilder,
 		maxRetries: number = 3,
 		timeoutMs: number = 30_000,
-	): Promise<BidSubmissionResult> {
-		const result = await this.submissionQueue.add(() =>
-			this.sendExtrinsicWithRetries(extrinsic, maxRetries, timeoutMs),
-		)
+	): Promise<SubmissionOutcome> {
+		const result = await this.submissionQueue.add(async () => {
+			// Checked here, not at call time: the queue may have held this submission for a while.
+			if (!this.api.isConnected) {
+				try {
+					return await this.sendViaHttp(await this.http(), build)
+				} catch (err) {
+					return { success: false, error: err instanceof Error ? err.message : String(err) }
+				}
+			}
+			return await this.sendExtrinsicWithRetries(build(this.api), maxRetries, timeoutMs)
+		})
 		return result ?? { success: false, error: "Submission queue returned no result" }
+	}
+
+	/**
+	 * Last-resort submission for when the websocket is down at signing time. A bid is only worth
+	 * anything inside its window, so waiting for a reconnect usually means not bidding at all.
+	 *
+	 * HTTP has no subscriptions, so this is `author_submitExtrinsic`: the node accepts the extrinsic
+	 * into its pool and returns its hash, and nothing further is observable from here. That is
+	 * exactly the `pending` contract — in flight, outcome unknown, do not re-sign — so the result
+	 * says so rather than claiming a success it cannot see.
+	 *
+	 * Only reached when the socket was already down before signing. A submission that got as far as
+	 * the pool over the websocket is never retried here: that is the duplicate-nonce race the
+	 * `pending` result exists to prevent.
+	 */
+	private async sendViaHttp(api: ApiPromise, build: ExtrinsicBuilder): Promise<BidSubmissionResult> {
+		try {
+			const hash = await build(api).signAndSend(this.getKeyPair(), { tip: BASE_TIP })
+			return { success: false, pending: true, extrinsicHash: hash.toHex() as HexString }
+		} catch (err) {
+			return this.classifySubmissionError(err instanceof Error ? err : new Error(String(err)))
+		}
 	}
 
 	/**
@@ -255,13 +447,12 @@ export class IntentsCoprocessor {
 		extrinsic: SubmittableExtrinsic<"promise">,
 		maxRetries: number,
 		timeoutMs: number,
-	): Promise<BidSubmissionResult> {
+	): Promise<SubmissionOutcome> {
 		const keyPair = this.getKeyPair()
-		const baseTip = 1_000_000_000n // 0.001 BRIDGE tip to increase priority
 		let attempt = 0
 
 		while (attempt < maxRetries) {
-			const currentTip = baseTip * BigInt(2 ** attempt) // Double tip on each retry
+			const currentTip = BASE_TIP * BigInt(2 ** attempt) // Double tip on each retry
 			attempt++
 
 			try {
@@ -315,8 +506,8 @@ export class IntentsCoprocessor {
 		keyPair: KeyringPair,
 		tip: bigint,
 		timeoutMs: number,
-	): Promise<BidSubmissionResult> {
-		return new Promise<BidSubmissionResult>((resolve) => {
+	): Promise<SubmissionOutcome> {
+		return new Promise<SubmissionOutcome>((resolve) => {
 			let resolved = false
 			let unsubscribe: (() => void) | null = null
 			let enteredPool = false
@@ -353,16 +544,9 @@ export class IntentsCoprocessor {
 					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {
 						resolved = true
 						clearTimeout(timeoutId)
-						let errorMsg: string
-						if (result.dispatchError.isModule) {
-							const decoded = this.api.registry.findMetaError(result.dispatchError.asModule)
-							errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
-						} else {
-							errorMsg = `Dispatch error: ${result.dispatchError.toString()}`
-						}
 						resolve({
 							success: false,
-							error: errorMsg,
+							error: `Dispatch error: ${this.describeDispatchError(result.dispatchError)}`,
 						})
 					} else if (
 						result.status.isDropped ||
@@ -395,14 +579,10 @@ export class IntentsCoprocessor {
 							// eslint-disable-next-line @typescript-eslint/no-explicit-any
 							const [indexCodec, dispatchError] = interrupted.event.data as any
 							if (Number(indexCodec.toString()) === 0) {
-								let errorMsg: string
-								if (dispatchError?.isModule) {
-									const decoded = this.api.registry.findMetaError(dispatchError.asModule)
-									errorMsg = `Dispatch error: ${decoded.section}::${decoded.name}`
-								} else {
-									errorMsg = `Dispatch error: batch interrupted (${dispatchError?.toString()})`
-								}
-								resolve({ success: false, error: errorMsg })
+								resolve({
+									success: false,
+									error: `Dispatch error: ${this.describeDispatchError(dispatchError)}`,
+								})
 								return
 							}
 						}
@@ -414,6 +594,8 @@ export class IntentsCoprocessor {
 								: result.status.asFinalized
 							).toHex() as HexString,
 							extrinsicHash: extrinsic.hash.toHex() as HexString,
+							// Carried so a batch caller can attribute each item's outcome.
+							events: result.events,
 						})
 					}
 				})
@@ -443,8 +625,7 @@ export class IntentsCoprocessor {
 	 */
 	async submitBid(commitment: HexString, userOp: HexString): Promise<BidSubmissionResult> {
 		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.placeBid(commitment, userOp)
-			return await this.signAndSendExtrinsic(extrinsic)
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.placeBid(commitment, userOp))
 		} catch (error) {
 			return {
 				success: false,
@@ -463,8 +644,7 @@ export class IntentsCoprocessor {
 	 */
 	async retractBid(commitment: HexString): Promise<BidSubmissionResult> {
 		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.retractBid(commitment)
-			return await this.signAndSendExtrinsic(extrinsic)
+			return await this.signAndSendExtrinsic((api) => api.tx.intentsCoprocessor.retractBid(commitment))
 		} catch (error) {
 			return {
 				success: false,
@@ -499,17 +679,127 @@ export class IntentsCoprocessor {
 		userOp: HexString,
 	): Promise<BidSubmissionResult> {
 		try {
-			const batch = this.api.tx.utility.batch([
-				this.api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
-				this.api.tx.intentsCoprocessor.retractBid(retractCommitment),
-			])
-			return await this.signAndSendExtrinsic(batch)
+			return await this.signAndSendExtrinsic((api) =>
+				api.tx.utility.batch([
+					api.tx.intentsCoprocessor.placeBid(bidCommitment, userOp),
+					api.tx.intentsCoprocessor.retractBid(retractCommitment),
+				]),
+			)
 		} catch (error) {
 			return {
 				success: false,
 				error: error instanceof Error ? error.message : "Unknown error",
 			}
 		}
+	}
+
+	/**
+	 * Places every phantom bid of one interval in a single extrinsic, retracting each chain's
+	 * previous bid alongside it.
+	 *
+	 * The pallet registers one phantom order per configured chain in the same block, so this is the
+	 * whole interval's set. Submitting them one at a time costs a block per chain: submissions are
+	 * serialised on the account nonce and each waits for inclusion, so the last chain's bid is many
+	 * blocks behind the first, against a bid window measured in tens of blocks. Batched, every bid
+	 * lands in the same block.
+	 *
+	 * Uses `utility.force_batch`, not `utility.batch`. `batch` stops at the first failing call, so
+	 * one rejected bid — a closed window, a duplicate, an insufficient deposit — would silently
+	 * drop every bid after it. `force_batch` runs them all and reports each outcome. It needs no
+	 * special origin: any signed account may call it, exactly like `batch`.
+	 *
+	 * @param bids - The bids to place; an empty list is a no-op
+	 * @returns Per-bid outcomes, in the order given
+	 */
+	async submitPhantomBids(bids: PhantomBid[]): Promise<PhantomBidBatchResult> {
+		if (bids.length === 0) return { bids: [] }
+
+		// Call order is the only key the item events give us, so record where each bid's placeBid
+		// sits as the calls are built.
+		const placeIndexByBid: number[] = []
+		let callCount = 0
+		for (const bid of bids) {
+			placeIndexByBid.push(callCount)
+			callCount += bid.retractCommitment ? 2 : 1
+		}
+
+		const outcome = await this.signAndSendExtrinsic((api) =>
+			api.tx.utility.forceBatch(
+				bids.flatMap((bid) => {
+					const calls = [api.tx.intentsCoprocessor.placeBid(bid.commitment, bid.userOp)]
+					// Placed first so the pairing reads the same as the call order; with force_batch
+					// the ordering no longer decides whether the bid survives a failed retraction.
+					if (bid.retractCommitment) {
+						calls.push(api.tx.intentsCoprocessor.retractBid(bid.retractCommitment))
+					}
+					return calls
+				}),
+			),
+		)
+
+		if (!outcome.success) {
+			// Nothing landed, so there is nothing to attribute: every bid shares the batch's fate.
+			return {
+				bids: bids.map((bid) => ({ commitment: bid.commitment, success: false, error: outcome.error })),
+				pending: outcome.pending,
+				extrinsicHash: outcome.extrinsicHash,
+				error: outcome.error,
+			}
+		}
+
+		const items = this.readForceBatchItems(outcome.events ?? [], callCount)
+
+		return {
+			bids: bids.map((bid, index) => {
+				const error = items.errors[placeIndexByBid[index]]
+				return { commitment: bid.commitment, success: !error, error }
+			}),
+			blockHash: outcome.blockHash,
+			extrinsicHash: outcome.extrinsicHash,
+			error: items.error,
+		}
+	}
+
+	/**
+	 * Reads one outcome per call out of a force_batch's events.
+	 *
+	 * `ItemFailed` carries no index — pallet-utility emits exactly one `ItemCompleted` or
+	 * `ItemFailed` per call, in call order, so the k-th item event belongs to call k.
+	 *
+	 * A count that does not match the calls submitted means the events are not the ones assumed
+	 * here, and every attribution after the discrepancy would be off by one. The bids are then
+	 * reported as placed: a bid wrongly recorded as landed is retracted next interval and the
+	 * retraction harmlessly fails with `BidNotFound`, whereas one wrongly recorded as failed is
+	 * never retracted at all and leaves its deposit reserved.
+	 */
+	private readForceBatchItems(
+		events: NonNullable<SubmissionOutcome["events"]>,
+		callCount: number,
+	): { errors: (string | undefined)[]; error?: string } {
+		const errors: (string | undefined)[] = []
+		for (const { event } of events) {
+			if (event.section !== "utility") continue
+			if (event.method === "ItemCompleted") errors.push(undefined)
+			else if (event.method === "ItemFailed") errors.push(this.describeDispatchError(event.data[0]))
+		}
+
+		if (errors.length !== callCount) {
+			return {
+				errors: new Array(callCount).fill(undefined),
+				error: `force_batch reported ${errors.length} item events for ${callCount} calls; outcomes not attributed`,
+			}
+		}
+		return { errors }
+	}
+
+	/** Renders a DispatchError as `pallet::Error`, falling back to its raw form. */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	private describeDispatchError(dispatchError: any): string {
+		if (dispatchError?.isModule) {
+			const decoded = this.api.registry.findMetaError(dispatchError.asModule)
+			return `${decoded.section}::${decoded.name}`
+		}
+		return dispatchError?.toString() ?? "unknown dispatch error"
 	}
 
 	/**
@@ -520,8 +810,9 @@ export class IntentsCoprocessor {
 	 * @returns Array of BidStorageEntry objects
 	 */
 	async getBidStorageEntries(commitment: HexString): Promise<BidStorageEntry[]> {
+		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (this.api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
 
 		return entries.map(([storageKey, depositValue]: [any, any]) => ({
 			commitment,
@@ -555,9 +846,9 @@ export class IntentsCoprocessor {
 	 * Single round-trip but does not include deposit amounts.
 	 */
 	private async getBidsViaRpc(commitment: HexString): Promise<FillerBid[]> {
-		const result: RpcBidInfo[] = await (this.api as any)._rpcCore.provider.send("intents_getBidsForOrder", [
-			commitment,
-		])
+		const api = await this.http()
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result: RpcBidInfo[] = await (api as any)._rpcCore.provider.send("intents_getBidsForOrder", [commitment])
 
 		return result.map((entry) => {
 			const userOp = decodeUserOpScale(entry.user_op as HexString)
@@ -571,8 +862,9 @@ export class IntentsCoprocessor {
 	 * Slower but works on all nodes and includes deposit amounts.
 	 */
 	private async getBidsViaStorage(commitment: HexString): Promise<FillerBid[]> {
+		const api = await this.http()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entries = await (this.api.query.intentsCoprocessor.bids as any).entries(commitment)
+		const entries = await (api.query.intentsCoprocessor.bids as any).entries(commitment)
 
 		if (entries.length === 0) return []
 
@@ -584,7 +876,7 @@ export class IntentsCoprocessor {
 				const offchainKey = this.buildOffchainBidKey(commitment, filler)
 				const offchainKeyHex = u8aToHex(offchainKey)
 
-				const offchainResult = await this.api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
+				const offchainResult = await api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
 
 				if (!offchainResult || offchainResult.isNone) return null
 
@@ -628,7 +920,8 @@ export class IntentsCoprocessor {
 	 */
 	async fetchPhantomOrder(commitment: HexString): Promise<Order | null> {
 		const key = u8aConcat(OFFCHAIN_PHANTOM_PREFIX, hexToU8a(commitment))
-		const result = await this.api.rpc.offchain.localStorageGet("PERSISTENT", u8aToHex(key))
+		const api = await this.http()
+		const result = await api.rpc.offchain.localStorageGet("PERSISTENT", u8aToHex(key))
 		if (!result || result.isNone) return null
 
 		const rawHex = result.unwrap().toHex() as HexString
@@ -681,8 +974,9 @@ export class IntentsCoprocessor {
 	 * Reads the PhantomOrderRegistered events emitted in a single block.
 	 */
 	async getPhantomOrdersInBlock(blockNumber: number): Promise<PhantomOrderEvent[]> {
-		const blockHash = await this.api.rpc.chain.getBlockHash(blockNumber)
-		const apiAt = await this.api.at(blockHash)
+		const api = await this.http()
+		const blockHash = await api.rpc.chain.getBlockHash(blockNumber)
+		const apiAt = await api.at(blockHash)
 		const records = await apiAt.query.system.events()
 
 		const orders: PhantomOrderEvent[] = []
@@ -706,7 +1000,13 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Polls for newly registered phantom orders, invoking the callback once per order.
+	 * Polls for newly registered phantom orders, invoking the callback once per block that carries
+	 * any, with all of that block's orders.
+	 *
+	 * Per block rather than per order because that is how the pallet writes them: one order per
+	 * configured chain, all registered in the same `on_initialize`. Delivering them together lets a
+	 * caller bid on the whole interval in one extrinsic (see {@link submitPhantomBids}) instead of
+	 * one per chain.
 	 *
 	 * Each tick reads the current head and scans every block between the last one processed and that
 	 * head, so the block cursor — not the connection — determines what has been seen. This replaced a
@@ -719,10 +1019,16 @@ export class IntentsCoprocessor {
 	 * cannot drop them, because the cursor only advances past a block whose events were actually
 	 * read. Recovery replays the backlog.
 	 *
+	 * Every read here goes over HTTP, never the websocket. Polling is a sequence of independent
+	 * one-shot requests with no state to lose between them, which is exactly what a stateless
+	 * transport does well: a request either answers or fails loudly on this tick, instead of a
+	 * socket that looks alive while delivering nothing. It also means a websocket outage does not
+	 * pause phantom bidding at all — the two transports fail independently.
+	 *
 	 * Returns a function that stops polling.
 	 */
 	pollPhantomOrders(
-		callback: (event: PhantomOrderEvent) => void,
+		callback: (events: PhantomOrderEvent[]) => void,
 		options: PollPhantomOrdersOptions = {},
 	): () => void {
 		const { intervalMs = 6_000, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
@@ -737,7 +1043,7 @@ export class IntentsCoprocessor {
 			if (inFlight || stopped) return
 			inFlight = true
 			try {
-				const head = (await this.api.rpc.chain.getHeader()).number.toNumber()
+				const head = (await (await this.http()).rpc.chain.getHeader()).number.toNumber()
 
 				if (cursor === null) {
 					// Start just below the head so the head itself is scanned, less any lookback.
@@ -749,7 +1055,7 @@ export class IntentsCoprocessor {
 				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) {
 					if (stopped) return
 					const orders = await this.getPhantomOrdersInBlock(blockNumber)
-					for (const order of orders) callback(order)
+					if (orders.length > 0) callback(orders)
 					// Advance per block, not per range: a failure partway through re-scans only the
 					// blocks that were never read, and never re-delivers ones that were.
 					cursor = blockNumber

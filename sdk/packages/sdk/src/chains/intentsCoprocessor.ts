@@ -29,6 +29,12 @@ const BASE_TIP = 1_000_000_000n
 /** How long the HTTP api has to come up (metadata included) before the attempt is abandoned. */
 const HTTP_CONNECT_TIMEOUT_MS = 20_000
 
+/** Default phantom order poll cadence, used for every runtime except Gargantua. */
+const PHANTOM_POLL_INTERVAL_MS = 15_000
+
+/** Gargantua keeps the original one-block cadence. */
+const GARGANTUA_PHANTOM_POLL_INTERVAL_MS = 6_000
+
 /** Rejects after `ms`, without holding a node process open on its own. */
 function rejectAfter(ms: number, message: string): Promise<never> {
 	return new Promise((_resolve, reject) => {
@@ -188,7 +194,7 @@ interface SubmissionOutcome extends BidSubmissionResult {
 }
 
 export interface PollPhantomOrdersOptions {
-	/** How often to check for a new head. Defaults to 6s, roughly one block. */
+	/** How often to check for a new head. Defaults to 15s, or 6s when the runtime is Gargantua. */
 	intervalMs?: number
 	/**
 	 * Most blocks scanned in a single poll, so a long outage catches up over several ticks instead of
@@ -1031,7 +1037,7 @@ export class IntentsCoprocessor {
 		callback: (events: PhantomOrderEvent[]) => void,
 		options: PollPhantomOrdersOptions = {},
 	): () => void {
-		const { intervalMs = 6_000, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
+		const { intervalMs, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
 
 		// Last block whose events have been delivered. Null until the first successful head read.
 		let cursor: number | null = null
@@ -1068,11 +1074,34 @@ export class IntentsCoprocessor {
 		}
 
 		void tick()
-		const timer = setInterval(() => void tick(), intervalMs)
+
+		// An explicit cadence starts the timer here and now; only the runtime-derived default has to
+		// wait on the node, and the scan above has already gone out either way.
+		let timer: ReturnType<typeof setInterval> | null = null
+		const startTimer = (ms: number) => {
+			if (stopped) return
+			timer = setInterval(() => void tick(), ms)
+		}
+		if (intervalMs !== undefined) startTimer(intervalMs)
+		else void this.phantomPollIntervalMs().then(startTimer)
 
 		return () => {
 			stopped = true
-			clearInterval(timer)
+			if (timer) clearInterval(timer)
+		}
+	}
+
+	/**
+	 * The poll cadence for the runtime this instance is connected to: Gargantua polls every block,
+	 * everything else every 15s. Falls back to the slower cadence if the runtime cannot be read,
+	 * since an unreachable node is the poll's problem to report, not the cadence lookup's.
+	 */
+	private async phantomPollIntervalMs(): Promise<number> {
+		try {
+			const specName = (await this.http()).runtimeVersion.specName.toString()
+			return specName === "gargantua" ? GARGANTUA_PHANTOM_POLL_INTERVAL_MS : PHANTOM_POLL_INTERVAL_MS
+		} catch {
+			return PHANTOM_POLL_INTERVAL_MS
 		}
 	}
 }

@@ -124,16 +124,33 @@ fn compress(left: Fr, right: Fr, rk: &[Vec<Fr>]) -> Fr {
 	right + s[1]
 }
 
-/// Decompose a coordinate into six little-endian 64-bit limbs, one `Fr` each, matching gnark's
-/// emulated `BLS12381Fp` limb layout.
+/// Number of 64-bit limbs packed into one `Fr`. Must match `apk.LimbsPerElement` in the circuit.
+const LIMBS_PER_ELEMENT: usize = 3;
+
+/// Decompose a coordinate into six little-endian 64-bit limbs, matching gnark's emulated
+/// `BLS12381Fp` layout, and pack them [`LIMBS_PER_ELEMENT`] at a time into `Fr` as
+/// `l[0] + l[1]*2^64 + l[2]*2^128`, least significant limb first.
+///
+/// Three limbs span at most 192 bits, comfortably inside `Fr`, so the packing never wraps and
+/// stays injective. It binds exactly as tightly as absorbing each limb on its own, at a third of
+/// the compressions.
 #[inline]
-fn coord_limbs(c: Fq) -> [Fr; 6] {
+fn coord_packed(c: Fq) -> [Fr; 2] {
 	let limbs = c.into_bigint().0;
-	core::array::from_fn(|i| Fr::from(limbs[i]))
+	core::array::from_fn(|i| {
+		// The positional sum written out as big endian bytes, most significant limb first.
+		let mut be = [0u8; 8 * LIMBS_PER_ELEMENT];
+		for j in 0..LIMBS_PER_ELEMENT {
+			let start = 8 * (LIMBS_PER_ELEMENT - 1 - j);
+			be[start..start + 8].copy_from_slice(&limbs[i * LIMBS_PER_ELEMENT + j].to_be_bytes());
+		}
+		Fr::from_be_bytes_mod_order(&be)
+	})
 }
 
-/// The Poseidon2 commitment over `points`, in the circuit's absorption order: per point, the six
-/// limbs of `X` then the six of `Y`, absorbed through a Merkle-Damgard chain with a zero IV.
+/// The Poseidon2 commitment over `points`, in the circuit's absorption order: per point, the two
+/// packed halves of `X` then the two of `Y`, absorbed through a Merkle-Damgard chain with a zero
+/// IV.
 ///
 /// The caller supplies the same list the circuit binds to, which for a validator set means
 /// registration order padded to [`NUM_VALIDATORS`] with the identity point.
@@ -141,8 +158,8 @@ pub fn public_keys_commitment(points: &[G1Affine]) -> Fr {
 	let rk = round_keys();
 	let mut state = Fr::zero();
 	for p in points {
-		let x = coord_limbs(p.x);
-		let y = coord_limbs(p.y);
+		let x = coord_packed(p.x);
+		let y = coord_packed(p.y);
 		for block in x.into_iter().chain(y) {
 			state = compress(state, block, &rk);
 		}
@@ -197,8 +214,8 @@ impl PartialCommitment {
 	pub fn absorb(&mut self, points: &[G1Affine]) {
 		let rk = round_keys();
 		for p in points {
-			let x = coord_limbs(p.x);
-			let y = coord_limbs(p.y);
+			let x = coord_packed(p.x);
+			let y = coord_packed(p.y);
 			for block in x.into_iter().chain(y) {
 				self.state = compress(self.state, block, &rk);
 			}
@@ -234,10 +251,10 @@ mod tests {
 	/// digest over `k * G1::generator()` point sets. If gnark-crypto's parameters ever change
 	/// these move, and so does every commitment.
 	const VECTORS: [(usize, &str); 4] = [
-		(1, "3b14900f1cd55f300914ca5b4393f0fa6a777d5999963f9520b12a60204272e2"),
-		(2, "528fad7e07c1ec6db4ad009230329123e643e1629733d60d2b4eaa9e45dc5704"),
-		(3, "14bac0391b3646f28d9b0b6b64acca1c8c585ade555494ce189aa2e4b62e9977"),
-		(10, "4a401453041545fc28ebf4c3c2824f317d1c4a7b6bff644d6eb12d0edd1f64c5"),
+		(1, "4df3ca8a29f6b37c04fefb167022ae638df17383caf668b718bf3b65aa320652"),
+		(2, "20b814b4a4cd0249ffee16a12c0e883eac49a18e91f104e0c777d7de9a797267"),
+		(3, "1d8d8ce5d1437ebe81c7a10c59d25ec6f53bffb9966d019f460157750a7a1cff"),
+		(10, "5f9529f2a793ad64450341a6ef732dc1e1b71ddcca7d83f3704ff5e637a4b3bd"),
 	];
 
 	fn k_times_generator(n: usize) -> Vec<G1Affine> {

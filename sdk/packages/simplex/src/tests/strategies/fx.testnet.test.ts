@@ -202,7 +202,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -341,7 +341,7 @@ describe("Filler V2 FX - USDC -> Exotic (BSC Chapel -> Polygon Amoy)", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),

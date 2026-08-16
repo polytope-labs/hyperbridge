@@ -9,11 +9,11 @@ import { TokenSender } from "@/services/TokenSender"
 import { FillerPricePolicy, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, type PairConfig } from "@/config/pairs"
-import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
+import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
 	type ResolvedChainConfig,
-	FillerConfig as FillerServiceConfig,
+	type FillerConfig as FillerServiceConfig,
 	resolveChainConfigs,
 } from "@/services/FillerConfigService"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"

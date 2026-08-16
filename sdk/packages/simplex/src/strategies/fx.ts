@@ -1,22 +1,22 @@
 import type { FillResult, FillerStrategy } from "@/strategies/base"
 import {
-	Order,
-	ExecutionResult,
-	HexString,
+	type Order,
+	type ExecutionResult,
+	type HexString,
 	bytes32ToBytes20,
 	type ERC7821Call,
-	TokenInfo,
-	IntentsCoprocessor,
+	type TokenInfo,
+	type IntentsCoprocessor,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
-import { ChainClientManager, ContractInteractionService } from "@/services"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { ChainClientManager, ContractInteractionService } from "@/services"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import { AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
+import type { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
+import { type AssetRegistry, normalizeSymbol, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { unanchoredToken0Symbols } from "@/config/pairs"
-import { type CachedPairClassification } from "@/services/CacheService"
+import type { CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
@@ -997,7 +997,7 @@ export class FXFiller implements FillerStrategy {
 			// the caller exempts partials from the profit floor for the same reason.
 			const totalProfit = partialFill
 				? partialEdgeUsd.toNumber()
-				: parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
+				: Number.parseFloat(formatUnits(feeProfit + realizedSpreadProfit, feeTokenDecimals))
 
 			// Past both gates, so this is the evaluation's answer rather than a plan it
 			// may still abandon. Only now may the caller treat it as a partial.

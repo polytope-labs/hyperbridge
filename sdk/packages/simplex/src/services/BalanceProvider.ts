@@ -107,7 +107,7 @@ export class BalanceProvider {
 
 		const fxExoticByChain = new Map<number, string[]>()
 		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
-			const id = parseInt(chainKey.replace("EVM-", ""), 10)
+			const id = Number.parseInt(chainKey.replace("EVM-", ""), 10)
 			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}
 
@@ -131,7 +131,7 @@ export class BalanceProvider {
 		try {
 			const native = await client.getBalance({ address: fillerAddr })
 			const symbol = CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
-			row.native = { symbol, amount: parseFloat(formatUnits(native, 18)) }
+			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
 		} catch {}
 
 		try {
@@ -143,7 +143,7 @@ export class BalanceProvider {
 				functionName: "balanceOf",
 				args: [fillerAddr],
 			})
-			row.usdc = parseFloat(formatUnits(balance as bigint, usdcDecimals))
+			row.usdc = Number.parseFloat(formatUnits(balance as bigint, usdcDecimals))
 		} catch {}
 
 		try {
@@ -155,7 +155,7 @@ export class BalanceProvider {
 				functionName: "balanceOf",
 				args: [fillerAddr],
 			})
-			row.usdt = parseFloat(formatUnits(balance as bigint, usdtDecimals))
+			row.usdt = Number.parseFloat(formatUnits(balance as bigint, usdtDecimals))
 		} catch {}
 
 		for (const fxAddr of fxExoticByChain.get(chainId) ?? []) {
@@ -184,7 +184,7 @@ export class BalanceProvider {
 					functionName: "balanceOf",
 					args: [fillerAddr],
 				})
-				;(row.exotics ??= []).push({ symbol, amount: parseFloat(formatUnits(balance as bigint, decimals)) })
+				;(row.exotics ??= []).push({ symbol, amount: Number.parseFloat(formatUnits(balance as bigint, decimals)) })
 			} catch {}
 		}
 
@@ -205,8 +205,8 @@ export class BalanceProvider {
 				const account = (await api.query.system.account(address)) as any
 				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
 
-				const free = parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-				const reserved = parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
+				const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
+				const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
 
 				this.snapshot = { ...this.snapshot, hyperbridge: { address, free, reserved } }
 			} catch (err) {

@@ -1,4 +1,4 @@
-import { confirm, log, multiselect, note, select, text } from "@clack/prompts"
+import { confirm, log, multiselect, note, select, } from "@clack/prompts"
 import type { HexString } from "@hyperbridge/sdk"
 import type { ChainConfirmationPolicy, VaultToml } from "@/config/filler-toml"
 import { DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"

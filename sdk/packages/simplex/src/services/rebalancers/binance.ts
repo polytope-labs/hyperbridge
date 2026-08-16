@@ -1,12 +1,12 @@
-import { Wallet, WalletRestAPI } from "@binance/wallet"
-import { parseUnits, type Hex } from "viem"
+import { Wallet, type WalletRestAPI } from "@binance/wallet"
+import { parseUnits, } from "viem"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
-import { ChainClientManager } from "@/services/ChainClientManager"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import { UnifiedRebalanceOptions } from "."
+import type { UnifiedRebalanceOptions } from "."
 
 export interface BinanceCexConfig {
 	apiKey: string

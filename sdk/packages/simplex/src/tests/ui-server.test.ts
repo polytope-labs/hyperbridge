@@ -12,6 +12,8 @@ import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
+import type { PairConfig } from "@/config/pairs"
+import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
@@ -806,16 +808,22 @@ describe("UiServer (operator mode)", () => {
 	}
 
 	it("adds a market at runtime: hydrated via the capability and persisted", async () => {
-		const addPair = vi.fn().mockReturnValue({
-			index: 7,
-			pairIndex: 2,
-			exotic: "USDC/EURC",
-			token0: "USDC",
-			token1: "EURC",
-			sameToken: false,
-			referenceOnly: false,
+		const cfg = marketConfig()
+		// The capability path owns config.pairs — the real PairController reassigns
+		// it — so the mock does what the contract now requires of it.
+		const addPair = vi.fn(async (pair: PairConfig) => {
+			cfg.pairs = [...(cfg.pairs ?? []), pair]
+			return {
+				index: 7,
+				pairIndex: 2,
+				exotic: "USDC/EURC",
+				token0: "USDC",
+				token1: "EURC",
+				sameToken: false,
+				referenceOnly: false,
+			}
 		})
-		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const { base, operator } = await startServer({ config: cfg, addPair })
 		const body = {
 			token0: "USDC",
 			token1: "EURC",
@@ -871,8 +879,13 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("adds a custom-token market, persisting its [assets] entry", async () => {
-		const addPair = vi.fn().mockReturnValue(null)
-		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const cfg = marketConfig()
+		const addPair = vi.fn(async (pair: PairConfig, pairAssets?: Record<string, AssetDefinition>) => {
+			cfg.pairs = [...(cfg.pairs ?? []), pair]
+			if (pairAssets) cfg.assets = { ...(cfg.assets ?? {}), ...pairAssets }
+			return null
+		})
+		const { base, operator } = await startServer({ config: cfg, addPair })
 		const assets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" } }
 		const res = await fetch(`${base}/api/strategies`, {
 			method: "POST",
@@ -950,6 +963,8 @@ describe("UiServer (operator mode)", () => {
 			for (const s of strategies) {
 				if (s.pairIndex > pairIndex) s.pairIndex -= 1
 			}
+			// The controller reassigns config.pairs; the server no longer splices.
+			config.pairs = (config.pairs ?? []).filter((_, i) => i !== pairIndex)
 		})
 		const { base, operator } = await startServer({ config, strategies, removePair })
 		const res = await fetch(`${base}/api/strategies/1`, { method: "DELETE", headers: CSRF })

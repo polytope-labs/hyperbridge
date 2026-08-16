@@ -836,8 +836,14 @@ export class UiServer {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 
-		op.config.pairs = next
-		if (assets) op.config.assets = mergedAssets
+		// The capability path owns the config: PairController reassigned
+		// `config.pairs` (and assets) itself. Writing `next` over it would be a
+		// second source of truth that only agrees by construction — mutate here
+		// solely in the restart-needed fallback, where nothing else will.
+		if (!op.addPair) {
+			op.config.pairs = next
+			if (assets) op.config.assets = mergedAssets
+		}
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
@@ -932,7 +938,7 @@ export class UiServer {
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
-		pairs.splice(pairIndex, 1)
+		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
 		this.logger.warn(

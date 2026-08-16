@@ -12,7 +12,7 @@ import { chainIdFromIdentifier, fetchPoolCurrencyDecimals } from "@/funding/unis
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import { type ERC7821Call, type HexString } from "@hyperbridge/sdk"
+import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import { Decimal } from "decimal.js"
 import { Percent } from "@uniswap/sdk-core"

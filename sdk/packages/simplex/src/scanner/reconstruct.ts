@@ -1,9 +1,9 @@
 import {
-	Order,
+	type Order,
 	orderCommitment,
 	normalizeStateMachineId,
-	DecodedOrderPlacedLog,
-	HexString,
+	type DecodedOrderPlacedLog,
+	type HexString,
 } from "@hyperbridge/sdk"
 
 export interface ReconstructDeps {

@@ -21,7 +21,7 @@ import type { HexString, PackedUserOperation } from "@hyperbridge/sdk"
 
 const SIMNODE_URL = process.env.SIMNODE_URL || "ws://127.0.0.1:9990"
 
-function makeUserOp(callData: string = "0x"): HexString {
+function makeUserOp(callData = "0x"): HexString {
 	const userOp: PackedUserOperation = {
 		sender: "0x0000000000000000000000000000000000000001" as HexString,
 		nonce: 0n,

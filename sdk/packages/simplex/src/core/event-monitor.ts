@@ -1,15 +1,10 @@
 import { EventEmitter } from "events"
-import {
+import type {
 	ChainConfig,
 	Order,
-	orderCommitment,
-	normalizeStateMachineId,
-	retryPromise,
-	DecodedOrderPlacedLog,
 	HexString,
 } from "@hyperbridge/sdk"
-import { ChainClientManager } from "@/services"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { reconstructOrdersFromLogs, type ReconstructDeps, type ReconstructedOrder } from "@/scanner/reconstruct"
 import type { OrderScanner, Subscription } from "@/scanner/types"

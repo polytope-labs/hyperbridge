@@ -1,5 +1,5 @@
 import type { ERC7821Call } from "@hyperbridge/sdk"
-import { HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "./Logger"
 
 interface GasEstimateCache {

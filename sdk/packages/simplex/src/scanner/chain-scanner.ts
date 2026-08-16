@@ -235,6 +235,12 @@ export class ChainScanner {
 			await this.publishFills(filled)
 		}
 
+		// The publishes above yield, so stop() may have landed inside them. An
+		// aborted publish delivered only part of the range; advancing the cursor
+		// would mark the rest scanned when nobody received it. Leaving it means a
+		// restart rescans the range — at-least-once, which subscribers already
+		// tolerate.
+		if (this.stopped) return
 		this.cursor = toBlock
 	}
 
@@ -247,14 +253,23 @@ export class ChainScanner {
 		for (const entry of rebuilt) {
 			this.logger.info({ orderId: entry.order.id, txHash: entry.transactionHash }, "New order detected")
 			this.orderHandler({ ...entry, chain: this.target.chain, chainId: this.target.chainId })
-			if (++published % PUBLISH_CHUNK === 0) await yieldToConsumers()
+			if (++published % PUBLISH_CHUNK === 0) {
+				await yieldToConsumers()
+				// A yield is an await, and awaits are where stop() interleaves. Aborting
+				// here also releases the scan mutex within one chunk, so stop()'s drain
+				// finishes in milliseconds instead of racing its timeout.
+				if (this.stopped) return
+			}
 		}
 	}
 
 	private async publishFills(logs: Array<Record<string, unknown>>): Promise<void> {
 		let published = 0
 		for (const log of logs) {
-			if (++published % PUBLISH_CHUNK === 0) await yieldToConsumers()
+			if (++published % PUBLISH_CHUNK === 0) {
+				await yieldToConsumers()
+				if (this.stopped) return
+			}
 			try {
 				const args = log.args as { commitment?: HexString; filler?: string } | undefined
 				const commitment = args?.commitment

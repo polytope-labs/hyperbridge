@@ -5,7 +5,7 @@
  * dependencies beyond constants.
  */
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
-import type { QueueConfig, VaultToml } from "@/config/filler-toml"
+import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const

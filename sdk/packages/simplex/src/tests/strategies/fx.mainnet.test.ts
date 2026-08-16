@@ -32,7 +32,6 @@ import {
 	decodeEventLog,
 	formatUnits,
 	getContract,
-	maxUint256,
 	parseUnits,
 	type PublicClient,
 	type WalletClient,
@@ -117,7 +116,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await polygonPublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(polygonMainnetId),
 			destination: toHex(polygonMainnetId),
@@ -251,7 +250,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const currentBlock = await basePublicClient.getBlockNumber()
 		const deadline = currentBlock + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -474,7 +473,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await basePublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -915,7 +914,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -1249,7 +1248,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -1383,7 +1382,7 @@ describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 		const currentBlock = await bscPublicClient.getBlockNumber()
 		const deadline = currentBlock + 200n
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(bscMainnetId),
 			destination: toHex(bscMainnetId),
@@ -1559,7 +1558,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 		const currentBlock = await arbitrumPublicClient.getBlockNumber()
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(arbitrumMainnetId),
@@ -1701,7 +1700,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 			const destBlock = await basePublicClient.getBlockNumber()
 
-			let order: Order = {
+			const order: Order = {
 				user: bytes20ToBytes32(user),
 				source: toHex(arbitrumMainnetId),
 				destination: toHex(baseMainnetId),

@@ -158,7 +158,7 @@ async function buildPermitMode(
 
 	const r = `0x${permitSignature.slice(2, 66)}` as HexString
 	const s = `0x${permitSignature.slice(66, 130)}` as HexString
-	const v = parseInt(permitSignature.slice(130, 132), 16)
+	const v = Number.parseInt(permitSignature.slice(130, 132), 16)
 
 	// mode(1) + token(20) + permitAmount(32) + deadline(32) + v(1) + r(32) + s(32) = 150 bytes,
 	// matching SimplexPaymaster._executePermit. Deadline is maxUint256 because paymasters

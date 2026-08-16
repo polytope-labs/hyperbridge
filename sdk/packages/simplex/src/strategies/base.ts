@@ -1,4 +1,4 @@
-import { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
+import type { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbridge/sdk"
 
 /**
  * An execution outcome that can also report a still-pooled bid.
@@ -12,7 +12,7 @@ import { Order, ExecutionResult, IntentsCoprocessor, TokenInfo } from "@hyperbri
 export interface FillResult extends ExecutionResult {
 	pending?: boolean
 }
-import { Decimal } from "decimal.js"
+import type { Decimal } from "decimal.js"
 
 export interface FillerStrategy {
 	name: string

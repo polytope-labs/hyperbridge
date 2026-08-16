@@ -7,10 +7,10 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
-import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
-import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
+import { parseChainKey } from "@/config/interpolated-curve"
+import type { AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
-import { adminStrategyFor, tradingPairFrom, type FillerRuntime } from "@/core/boot"
+import type { FillerRuntime } from "@/core/boot"
 import { Simplex } from "@/simplex"
 import { discoverConfigPath, DEFAULT_CONFIG_FILENAME } from "@/cli/discover-config"
 import { openBrowser } from "@/cli/open-browser"
@@ -107,7 +107,7 @@ function resolveDataDir(dataDir?: string): string {
 /** Parses a `[host:]port` spec; returns undefined when the port is invalid. */
 function parseBind(spec: string, defaultHost: string): { host: string; port: number } | undefined {
 	const [host, portStr] = spec.includes(":") ? (spec.split(":").slice(-2) as [string, string]) : [defaultHost, spec]
-	const port = parseInt(portStr, 10)
+	const port = Number.parseInt(portStr, 10)
 	if (isNaN(port) || port < 1 || port > 65535) return undefined
 	return { host, port }
 }
@@ -118,14 +118,14 @@ function resolveUiDistDir(): string | undefined {
 	return candidates.find((dir) => existsSync(dir))
 }
 
-async function operatorContextFrom(simplex: Simplex): Promise<OperatorContext> {
+async function operatorContextFrom(simplex: Simplex, stopAll: () => Promise<never>): Promise<OperatorContext> {
 	const runtime = simplex.internals
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
 	// One array instance for /api/status, mutated by the market capabilities below.
 	const strategyTypes = (runtime.config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`)
-	const { engine, tradingPairs, adminStrategies, assetRegistry, balanceTokens } = runtime
+	const { engine, tradingPairs, adminStrategies } = runtime
 	const marketCapabilities =
 		engine && tradingPairs
 			? {
@@ -160,10 +160,10 @@ async function operatorContextFrom(simplex: Simplex): Promise<OperatorContext> {
 		balances: runtime.balanceProvider,
 		haltControls: runtime.haltControls,
 		config: runtime.config,
-		stop: async () => {
-			await runtime.shutdown("UI")
-			process.exit(0)
-		},
+		// The CLI's one teardown — the same path the signal handlers take, so the
+		// dashboard's Stop cannot skip steps (the store close, most recently) that
+		// ctrl-C performs.
+		stop: () => stopAll(),
 		activity: runtime.activity,
 		bids: runtime.data.bids,
 		setPaused: (paused) => runtime.data.state.set({ paused }),
@@ -279,7 +279,7 @@ program
 			// Registered once, up front: during init mode there is no runtime yet
 			// (ctrl-c just closes the server); once save-and-start assigns `runtime`,
 			// the same handler drains the filler. Nothing is re-registered on transition.
-			const shutdown = async (signal: string) => {
+			const shutdown = async (signal: string): Promise<never> => {
 				uiServer?.stop()
 				if (simplex) await simplex.stop()
 				// Ours to close: the library no longer closes a caller-supplied store.
@@ -304,7 +304,7 @@ program
 					uiServer = new UiServer({
 						mode: "operator",
 						uiDistDir: resolveUiDistDir(),
-						operator: await operatorContextFrom(simplex!),
+						operator: await operatorContextFrom(simplex!, () => shutdown("UI")),
 					})
 					try {
 						await uiServer.start(uiBind.port, uiBind.host)
@@ -336,7 +336,7 @@ program
 					configPath: outputPath,
 					onSaveAndStart: async (config, _toml, path) => {
 						await startFiller(config, path)
-						server.enterOperatorMode(await operatorContextFrom(simplex!))
+						server.enterOperatorMode(await operatorContextFrom(simplex!, () => shutdown("UI")))
 					},
 				},
 			})

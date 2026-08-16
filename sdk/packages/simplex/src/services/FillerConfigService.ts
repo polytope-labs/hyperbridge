@@ -1,7 +1,7 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
-import { LogLevel } from "./Logger"
+import type { LogLevel } from "./Logger"
 
 /** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
 export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3

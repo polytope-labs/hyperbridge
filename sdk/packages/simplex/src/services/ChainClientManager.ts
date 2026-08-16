@@ -1,6 +1,6 @@
 import {
-	PublicClient,
-	WalletClient,
+	type PublicClient,
+	type WalletClient,
 	createPublicClient,
 	createWalletClient,
 	fallback,
@@ -9,9 +9,9 @@ import {
 	type Transport,
 } from "viem"
 import { generatePrivateKey } from "viem/accounts"
-import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
+import { type Order, type ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
-import { FillerConfigService } from "./FillerConfigService"
+import type { FillerConfigService } from "./FillerConfigService"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { LoggerContext } from "./Logger"
 import { QuorumPublicClient } from "./QuorumPublicClient"

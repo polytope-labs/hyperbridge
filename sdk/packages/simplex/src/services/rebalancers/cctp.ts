@@ -17,10 +17,10 @@ import {
 } from "@circle-fin/bridge-kit/chains"
 import type { Chain, PublicClient, WalletClient } from "viem"
 import { parseStateMachineId } from "@hyperbridge/sdk"
-import { ChainClientManager } from "@/services/ChainClientManager"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import { RebalanceOptions } from "."
+import type { RebalanceOptions } from "."
 
 /** Viem adapter type */
 type ViemAdapterInstance = ViemAdapter

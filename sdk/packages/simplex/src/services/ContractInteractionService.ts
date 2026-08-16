@@ -2,26 +2,25 @@ import { formatUnits, encodeFunctionData, formatEther } from "viem"
 import {
 	ADDRESS_ZERO,
 	CryptoUtils,
-	HexString,
+	type HexString,
 	bytes32ToBytes20,
 	retryPromise,
-	Order,
+	type Order,
 	IntentGateway,
 	EvmChain,
 	getChainId,
 	orderCommitment,
 	encodePhantomBidDeclaration,
 	encodeUserOpScale,
-	type PackedUserOperation,
 	type FillOptions,
 	encodeERC7821ExecuteBatch,
 	type ERC7821Call,
 	transformOrderForContract,
-	TokenInfo,
+	type TokenInfo,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import { ChainClientManager } from "./ChainClientManager"
-import { FillerConfigService } from "./FillerConfigService"
+import type { ChainClientManager } from "./ChainClientManager"
+import type { FillerConfigService } from "./FillerConfigService"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { CacheService } from "./CacheService"
 import { type Logger , moduleLogger} from "@/services/Logger"
@@ -304,7 +303,7 @@ export class ContractInteractionService {
 	 */
 	async topUpEntryPointDeposit(
 		chain: string,
-		targetGasUnits: bigint = 3_000_000n,
+		targetGasUnits = 3_000_000n,
 		thresholdGasUnits?: bigint,
 	): Promise<void> {
 		const effectiveThreshold = thresholdGasUnits ?? targetGasUnits

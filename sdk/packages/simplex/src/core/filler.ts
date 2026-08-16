@@ -1,15 +1,14 @@
 import { EventMonitor } from "./event-monitor"
 import type { FillerStrategy } from "@/strategies/base"
 import {
-	Order,
-	FillerConfig,
-	ChainConfig,
+	type Order,
+	type FillerConfig,
+	type ChainConfig,
 	getChainId,
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
 	type PhantomOrderEvent,
-	orderCommitment,
 	bytes32ToBytes20,
 	type TokenInfo,
 	type PhantomBid,
@@ -17,10 +16,10 @@ import {
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import type { Address } from "viem"
 import pQueue from "p-queue"
-import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
+import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
 import type { BidStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
-import { FillerConfigService } from "@/services/FillerConfigService"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"

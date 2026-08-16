@@ -164,7 +164,7 @@ export class InterpolatedCurve {
 	private points: ParsedPoint[]
 	private label: string
 
-	constructor(config: CurveConfig, label: string = "Interpolated curve") {
+	constructor(config: CurveConfig, label = "Interpolated curve") {
 		this.label = label
 
 		if (!config.points || config.points.length < 2) {
@@ -173,7 +173,7 @@ export class InterpolatedCurve {
 
 		this.points = config.points
 			.map((p) => ({
-				amount: parseFloat(p.amount),
+				amount: Number.parseFloat(p.amount),
 				value: p.value,
 			}))
 			.sort((a, b) => a.amount - b.amount)

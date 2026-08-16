@@ -1,5 +1,5 @@
 import { isAddress } from "viem"
-import { HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"

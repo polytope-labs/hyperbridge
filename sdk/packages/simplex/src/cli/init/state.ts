@@ -1,4 +1,4 @@
-import type { FillerTomlConfig, QueueConfig } from "@/config/filler-toml"
+import type { FillerTomlConfig, } from "@/config/filler-toml"
 import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"

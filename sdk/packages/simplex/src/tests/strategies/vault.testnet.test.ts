@@ -114,7 +114,7 @@ describe("Vault funding venue - testnet", () => {
 
 		const beneficiary = bytes20ToBytes32(solver)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(solver),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),

@@ -176,8 +176,6 @@ contract ApkProof {
      * @return result Uncompressed G1 point as bytes32[3] (X ‖ Y, 96 bytes).
      */
     function hashToG1(bytes memory message) public view returns (bytes32[3] memory result) {
-        // Immutables are not readable from assembly, so bind it first.
-        uint256 suiteTail = CIPHER_SUITE_LAST_11;
         assembly {
             let ptr := mload(0x40)
             let sha2 := 0x02
@@ -193,7 +191,7 @@ contract ApkProof {
             mstore(ptr, 0)                                           // Z_pad[0..31]
             mstore(add(ptr, 0x20), 0)                                // Z_pad[32..63]
             mstore(add(ptr, 0x40), CIPHER_SUITE_FIRST_32)            // cipher[0..31]
-            mstore(add(ptr, 0x60), shl(168, suiteTail))             // cipher[32..42]
+            mstore(add(ptr, 0x60), shl(168, CIPHER_SUITE_LAST_11))   // cipher[32..42]
             mcopy(add(ptr, 0x6B), add(message, 0x20), msgLen)        // message
             let pos := add(add(ptr, 0x6B), msgLen)
             mstore8(pos, 0x00)                                       // I2OSP(128,2) high

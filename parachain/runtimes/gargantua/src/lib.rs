@@ -1294,28 +1294,32 @@ impl_runtime_apis! {
 
 	impl cumulus_primitives_core::KeyToIncludeInRelayProof<Block> for Runtime {
 		fn keys_to_prove() -> cumulus_primitives_core::RelayProofRequest {
-			// The relay chain's BEEFY authority set, `Beefy::Authorities`. The collator only puts
-			// keys in the relay state proof that were asked for here, and the proof is checked
-			// against the relay parent's state root by the validators, so reading the set out of
-			// it needs no trust beyond what a parachain already places in its relay parent.
+			// The collator only puts keys in the relay state proof that were asked for here, and
+			// the proof is checked against the relay parent's state root by the validators, so
+			// reading them out needs no trust beyond what a parachain already places in its relay
+			// parent.
 			//
-			// Note this is not `well_known_keys::AUTHORITIES`, which is `Babe::Authorities`; both
-			// end in twox128("Authorities") but differ in the pallet prefix.
-			// `Beefy::NextAuthorities` and `Beefy::ValidatorSetId`. The next set rather than the
-			// current one, so a client verifying a header signed by set N learns the commitment
-			// for N+1 and can verify the following update. The set id comes along because the
-			// commitment is not usable without knowing which set it describes.
-			cumulus_primitives_core::RelayProofRequest {
-				keys: alloc::vec![
-					cumulus_primitives_core::RelayStorageKey::Top(
-						pallet_beefy_apk_digest::RELAY_BEEFY_NEXT_AUTHORITIES.to_vec()
-					),
-					cumulus_primitives_core::RelayStorageKey::Top(
-						pallet_beefy_apk_digest::RELAY_BEEFY_VALIDATOR_SET_ID.to_vec()
-					),
-				],
+			// The keys wanted are `Beefy::NextAuthorities`, the next set rather than the current
+			// one so a client verifying a header signed by set N learns the commitment for N+1,
+			// and `Beefy::ValidatorSetId`, without which the commitment says nothing about which
+			// set it describes. Note the former is not `well_known_keys::AUTHORITIES`, which is
+			// `Babe::Authorities`; both end in twox128("Authorities") but differ in the prefix.
+			//
+			// The set id goes in every block, since it is one entry and it is what tells the
+			// pallet a rotation happened. The keys are asked for only when the pallet says it
+			// needs them, which is the block after a rotation, so the ordinary block does not
+			// carry a thousand keys it already has a commitment for.
+			let mut keys = alloc::vec![cumulus_primitives_core::RelayStorageKey::Top(
+				pallet_beefy_apk_digest::RELAY_BEEFY_VALIDATOR_SET_ID.to_vec()
+			)];
+			if pallet_beefy_apk_digest::wants_keys::<Runtime>() {
+				keys.push(cumulus_primitives_core::RelayStorageKey::Top(
+					pallet_beefy_apk_digest::RELAY_BEEFY_NEXT_AUTHORITIES.to_vec(),
+				));
 			}
+			cumulus_primitives_core::RelayProofRequest { keys }
 		}
+	}
 	}
 
 	#[cfg(feature = "try-runtime")]

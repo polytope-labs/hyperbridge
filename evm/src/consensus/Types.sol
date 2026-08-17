@@ -183,6 +183,8 @@ struct BeefyConsensusProof {
 struct ApkDigest {
     /// The authority set the commitment describes.
     uint64 setId;
+    /// How many validators are in it, which is what the threshold is taken against.
+    uint32 len;
     /// Poseidon2 commitment over that set's G1 public keys.
     uint256 commitment;
 }
@@ -280,7 +282,7 @@ library HeaderImpl {
     /// MMR leaf, so no further proof is needed: `commitment` can go straight to `ApkProof.verify`
     /// as `publicKeysCommitment`, and `setId` says which authority set it describes.
     ///
-    /// Payload is SCALE: a u64 set id little-endian, then the 32 byte commitment.
+    /// Payload is SCALE: a u64 set id little-endian, a u32 size, then the 32 byte commitment.
     ///
     /// A zero `setId` reads as absent. BEEFY numbers its sets from one, so nothing legitimate
     /// names set zero, and the caller then has one thing to check rather than two.
@@ -292,14 +294,15 @@ library HeaderImpl {
             bytes memory data = self.digests[j].consensus.data;
             // Ignore a malformed item rather than reverting: a wrong length means some other
             // producer wrote under this engine id, and the caller should see "absent", not fail.
-            if (data.length != 40) continue;
+            if (data.length != 44) continue;
 
             uint64 setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
             if (setId == 0) continue;
 
             return ApkDigest({
                 setId: setId,
-                commitment: uint256(Bytes.toBytes32(Bytes.substr(data, 8)))
+                len: uint32(ScaleCodec.decodeUint256(Bytes.substr(data, 8, 4))),
+                commitment: uint256(Bytes.toBytes32(Bytes.substr(data, 12)))
             });
         }
     }

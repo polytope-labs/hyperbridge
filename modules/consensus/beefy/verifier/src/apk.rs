@@ -77,19 +77,21 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 		verify_apk_mmr_update_proof::<H>(trusted_state, proof.mmr, verifying_key)?;
 	let headers = crate::verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 
-	// Forward chaining: a verified header may carry the commitment for a set this client has no
-	// keys for yet. Picking it up here is what makes the next update verifiable at all, and is
-	// why the digest names the next set rather than the current one.
+	// Forward chaining: everything this client believes about the incoming set comes from here,
+	// its id, its size and its commitment together. The mmr leaf names a next set too, but says
+	// nothing about Poseidon2, and taking the size from there and the commitment from here would
+	// leave the two free to describe different sets.
 	//
 	// Only `digest_para_id`'s headers are read. A proof carries whichever parachains the relay
 	// finalized, and every one of them is proven against the heads root, so a digest from another
 	// parachain is authentic yet says nothing about this relay's authorities. Left unfiltered any
 	// parachain could name the keys this client trusts next.
-	for header in headers.iter().filter(|header| header.para_id == digest_para_id) {
-		if let Some(digest) = read_apk_digest(&header.header) {
-			state.learn_commitment(digest.set_id, H256(digest.commitment));
-			break;
-		}
+	if let Some(digest) = headers
+		.iter()
+		.filter(|header| header.para_id == digest_para_id)
+		.find_map(|header| read_apk_digest(&header.header))
+	{
+		state.learn_authority_set(digest.set_id, digest.len, H256(digest.commitment));
 	}
 
 	Ok((state, headers))
@@ -143,14 +145,6 @@ pub fn verify_apk_mmr_update_proof<H: Keccak256 + Send + Sync>(
 
 	crate::verify_mmr_leaf::<H>(&mmr.latest_mmr_leaf, &mmr.mmr_proof, mmr_root)?;
 
-	// The leaf names the incoming set and its size, but says nothing about Poseidon2, so its
-	// commitment starts empty and waits for a digest.
-	let next = &mmr.latest_mmr_leaf.beefy_next_authority_set;
-	if next.id > trusted_state.next_authorities.id {
-		trusted_state.current_authorities = trusted_state.next_authorities.clone();
-		trusted_state.next_authorities =
-			ApkAuthoritySet { id: next.id, len: next.len, apk_commitment: H256::zero() };
-	}
 	trusted_state.latest_beefy_height = mmr.commitment.block_number;
 	trusted_state.mmr_root_hash = mmr_root;
 

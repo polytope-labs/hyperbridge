@@ -14,7 +14,7 @@ contract ApkCommitmentDigestTest is Test {
     using HeaderImpl for Header;
 
     bytes constant PAYLOAD_577 =
-        hex"41020000000000000303030303030303030303030303030303030303030303030303030303030303";
+        hex"4102000000000000020000000303030303030303030303030303030303030303030303030303030303030303";
 
     function _header(Digest[] memory digests) internal pure returns (Header memory) {
         return Header({
@@ -42,6 +42,7 @@ contract ApkCommitmentDigestTest is Test {
 
         ApkDigest memory digest = _header(digests).apkCommitment();
         assertEq(digest.setId, 577, "set id decoded wrong; check little-endian");
+        assertEq(digest.len, 2, "set size decoded wrong");
         assertEq(digest.commitment, uint256(0x0303030303030303030303030303030303030303030303030303030303030303));
     }
 

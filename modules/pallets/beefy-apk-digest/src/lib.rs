@@ -81,9 +81,16 @@ pub mod pallet {
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
+	/// Whether the next block should carry the relay's authority keys in its proof.
+	///
+	/// Set by the block that sees the set id move, read by [`crate::wants_keys`] when the next
+	/// block is built. Keeping the keys out of the proof the rest of the time is the point.
+	#[pallet::storage]
+	pub type KeysWanted<T: Config> = StorageValue<_, bool, ValueQuery>;
+
 	/// The last commitment published to a header digest, and the set it describes.
 	#[pallet::storage]
-	pub type Published<T: Config> = StorageValue<_, (u64, [u8; 32], [u8; 32]), OptionQuery>;
+	pub type Published<T: Config> = StorageValue<_, (u64, u32, [u8; 32], [u8; 32]), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -118,30 +125,52 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Absorb the next chunk, starting or restarting if the set changed, and publish once the
-		/// whole set is in.
+		/// Publish this block's digest, committing to a new set when the relay has rotated.
+		///
+		/// The set id is in every proof and costs nothing to read. The keys are only asked for
+		/// once the id has moved, so the block that notices a rotation records that it needs them
+		/// and the next one gets them. That keeps 1024 keys out of the relay proof on the ordinary
+		/// block, which is every block but one or two a session.
 		fn advance() -> Result<bool, Error<T>> {
-			let keys = Self::relay_beefy_g1_keys()?;
-			// Read the set id up front even though it is only needed at the end. It is cheap, and
-			// discovering it missing after hashing a whole set would throw that work away.
 			let set_id = Self::relay_beefy_set_id()?;
-			let set_digest = sp_io::hashing::blake2_256(&keys.encode());
 
+			// Nothing has moved, so the commitment already computed still describes this set.
+			if let Some((published, len, _, commitment)) = Published::<T>::get() {
+				if published == set_id {
+					Self::deposit_digest(set_id, len, commitment);
+					return Ok(false);
+				}
+			}
+
+			// The id moved. The keys are only in the proof if a previous block asked for them,
+			// so the first block after a rotation asks and the next one does the work.
+			let Ok(keys) = Self::relay_beefy_g1_keys() else {
+				KeysWanted::<T>::put(true);
+				// The old commitment is still the truth about the old set, and a client files
+				// commitments by set id, so republishing it under the id it was computed for
+				// keeps this block's header useful rather than empty.
+				if let Some((published, len, _, commitment)) = Published::<T>::get() {
+					Self::deposit_digest(published, len, commitment);
+				}
+				return Ok(false);
+			};
+			KeysWanted::<T>::kill();
+
+			let set_digest = sp_io::hashing::blake2_256(&keys.encode());
+			let len = keys.len() as u32;
 			match next_step(Published::<T>::get().as_ref(), set_digest) {
-				// The keys have not changed, so the commitment stands. It still goes in this
-				// header, and under the current set id: a session can rotate without changing
-				// membership, and a client tracks commitments per set id, so the same commitment
-				// has to be published again under the new one or the client never learns it.
+				// The membership has not changed, only the id, which is common. Rehashing would
+				// cost the better part of a second for a commitment already held.
 				Step::Republish(commitment) => {
-					Self::deposit_digest(set_id, commitment);
-					Published::<T>::put((set_id, set_digest, commitment));
+					Self::deposit_digest(set_id, len, commitment);
+					Published::<T>::put((set_id, len, set_digest, commitment));
 					Ok(false)
 				},
 				Step::Commit => {
 					let commitment =
 						commit(&keys).map_err(|_| Error::<T>::MalformedAuthorityKey)?;
-					Self::deposit_digest(set_id, commitment);
-					Published::<T>::put((set_id, set_digest, commitment));
+					Self::deposit_digest(set_id, len, commitment);
+					Published::<T>::put((set_id, len, set_digest, commitment));
 					Self::deposit_event(Event::CommitmentPublished {
 						set_id,
 						set_digest,
@@ -159,8 +188,8 @@ pub mod pallet {
 		/// with no further proof. It goes in every header the set covers rather than only the one
 		/// where the hashing finished, since a verifier only ever sees the single header a proof
 		/// finalizes and cannot choose which.
-		fn deposit_digest(set_id: u64, commitment: [u8; 32]) {
-			let payload = ApkCommitmentDigest { set_id, commitment };
+		fn deposit_digest(set_id: u64, len: u32, commitment: [u8; 32]) {
+			let payload = ApkCommitmentDigest { set_id, len, commitment };
 			frame_system::Pallet::<T>::deposit_log(sp_runtime::DigestItem::Consensus(
 				APK_ENGINE_ID,
 				payload.encode(),
@@ -234,6 +263,16 @@ impl WeightInfo for () {
 	}
 }
 
+/// Whether the next block's relay proof should carry the authority keys.
+///
+/// A runtime answers `KeyToIncludeInRelayProof` with this: asking for 1024 keys on every block
+/// costs proof size for data that only changes once a session. The block that sees the set id
+/// move records that it wants them, and this reports it while the next block is built. Also true
+/// before anything has been published, since the first commitment has to come from somewhere.
+pub fn wants_keys<T: Config>() -> bool {
+	KeysWanted::<T>::get() || Published::<T>::get().is_none()
+}
+
 /// Throw away a commitment computed under an older scheme.
 ///
 /// A commitment is only recomputed when the membership changes, so a runtime upgrade that changes
@@ -276,9 +315,9 @@ pub enum Step {
 /// session rotating without the membership changing, which is common: the commitment is the same,
 /// so rehashing it would spend the better part of a second for nothing, but it still has to be
 /// republished under the new set id or a client tracking commitments per set never learns it.
-pub fn next_step(published: Option<&(u64, [u8; 32], [u8; 32])>, set_digest: [u8; 32]) -> Step {
+pub fn next_step(published: Option<&(u64, u32, [u8; 32], [u8; 32])>, set_digest: [u8; 32]) -> Step {
 	match published {
-		Some((_, digest, commitment)) if *digest == set_digest => Step::Republish(*commitment),
+		Some((_, _, digest, commitment)) if *digest == set_digest => Step::Republish(*commitment),
 		_ => Step::Commit,
 	}
 }
@@ -394,7 +433,7 @@ mod tests {
 
 	#[test]
 	fn keys_already_committed_to_are_republished_rather_than_rehashed() {
-		let published = (1u64, SET_A, [7u8; 32]);
+		let published = (1u64, 2u32, SET_A, [7u8; 32]);
 		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
 	}
 
@@ -403,14 +442,14 @@ mod tests {
 	/// already hold, so the stored one is republished under the new set id instead.
 	#[test]
 	fn the_same_keys_under_a_new_set_id_are_not_rehashed() {
-		let published = (1u64, SET_A, [7u8; 32]);
+		let published = (1u64, 2u32, SET_A, [7u8; 32]);
 		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
 	}
 
 	/// Different keys mean the stored commitment says nothing about them.
 	#[test]
 	fn a_new_set_is_committed_to_even_though_another_was_published() {
-		let published = (1u64, SET_A, [7u8; 32]);
+		let published = (1u64, 2u32, SET_A, [7u8; 32]);
 		assert_eq!(next_step(Some(&published), SET_B), Step::Commit);
 	}
 
@@ -427,7 +466,7 @@ mod tests {
 	/// normal case: aura and the parachain system both write their own.
 	#[test]
 	fn commitment_is_found_among_other_digest_items() {
-		let payload = ApkCommitmentDigest { set_id: 577, commitment: [3u8; 32] };
+		let payload = ApkCommitmentDigest { set_id: 577, len: 2, commitment: [3u8; 32] };
 		let digest = sp_runtime::generic::Digest {
 			logs: alloc::vec![
 				sp_runtime::DigestItem::PreRuntime(*b"aura", alloc::vec![1, 2, 3]),
@@ -452,7 +491,7 @@ mod tests {
 	/// the same. This is what the engine id is for.
 	#[test]
 	fn another_engines_consensus_item_is_ignored() {
-		let payload = ApkCommitmentDigest { set_id: 1, commitment: [9u8; 32] };
+		let payload = ApkCommitmentDigest { set_id: 1, len: 2, commitment: [9u8; 32] };
 		let digest = sp_runtime::generic::Digest {
 			logs: alloc::vec![sp_runtime::DigestItem::Consensus(*b"BEEF", payload.encode())],
 		};
@@ -463,9 +502,9 @@ mod tests {
 	/// out of a header.
 	#[test]
 	fn digest_payload_round_trips() {
-		let payload = ApkCommitmentDigest { set_id: 42, commitment: [7u8; 32] };
+		let payload = ApkCommitmentDigest { set_id: 42, len: 3, commitment: [7u8; 32] };
 		let encoded = payload.encode();
-		assert_eq!(encoded.len(), 8 + 32, "set id then commitment, no padding");
+		assert_eq!(encoded.len(), 8 + 4 + 32, "set id, size, then commitment, no padding");
 		assert_eq!(ApkCommitmentDigest::decode(&mut &encoded[..]).unwrap(), payload);
 	}
 }

@@ -199,6 +199,12 @@ pub struct ApkCommitmentDigest {
 	/// The BEEFY validator set the keys belong to, which is the relay's current set id plus one,
 	/// since the commitment describes the next set.
 	pub set_id: u64,
+	/// How many validators are in that set, which is what the threshold is taken against.
+	///
+	/// Carried here rather than read from the mmr leaf so everything a client believes about the
+	/// incoming set comes from one authenticated place. Taking the size from the leaf and the
+	/// commitment from here would leave the two able to describe different sets.
+	pub len: u32,
 	/// Poseidon2 over the set's G1 keys, padded to the circuit width with the identity point.
 	pub commitment: [u8; 32],
 }
@@ -249,12 +255,21 @@ pub struct ApkConsensusState {
 }
 
 impl ApkConsensusState {
-	/// Record `commitment` for `set_id` if it names a set this state knows and has no commitment
-	/// for yet. Called with whatever a verified header carried, so an unknown set is ignored
-	/// rather than treated as an error.
-	pub fn learn_commitment(&mut self, set_id: u64, commitment: H256) {
+	/// Take in what a verified header says about an authority set.
+	///
+	/// A header naming the set after the one this client is waiting for rolls the sets forward:
+	/// the relay has moved on and the current set is now the one that was next. A header naming a
+	/// set already held is ignored, so the same digest arriving in several headers changes
+	/// nothing, and a set already carrying a commitment is never overwritten.
+	pub fn learn_authority_set(&mut self, set_id: u64, len: u32, commitment: H256) {
+		if set_id > self.next_authorities.id {
+			self.current_authorities = self.next_authorities.clone();
+			self.next_authorities = ApkAuthoritySet { id: set_id, len, apk_commitment: commitment };
+			return;
+		}
 		for set in [&mut self.next_authorities, &mut self.current_authorities] {
 			if set.id == set_id && set.apk_commitment.is_zero() {
+				set.len = len;
 				set.apk_commitment = commitment;
 				return;
 			}

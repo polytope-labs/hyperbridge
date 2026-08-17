@@ -129,12 +129,18 @@ contract BlsBeefy is IConsensusV2, ERC165 {
         (IntermediateState[] memory intermediates, ApkDigest memory digest) =
             verifyParachainHeaderProof(headsRoot, parachain, _digestParaId);
 
-        // Forward chaining: a verified header may carry the commitment for a set this client does
-        // not have keys for yet. Picking it up here is what lets the next update be verified at
-        // all, and is the reason the digest names the *next* set rather than the current one.
-        if (
-            digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.root == bytes32(0)
-        ) {
+        // Forward chaining: everything this client believes about the incoming set comes from
+        // here, its id, its size and its commitment together. A header naming the set after the
+        // one being waited on rolls the sets forward, since the relay has moved on.
+        if (digest.setId > newState.nextAuthoritySet.id) {
+            newState.currentAuthoritySet = newState.nextAuthoritySet;
+            newState.nextAuthoritySet = AuthoritySetCommitment({
+                id: digest.setId,
+                len: digest.len,
+                root: bytes32(digest.commitment)
+            });
+        } else if (digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.root == bytes32(0)) {
+            newState.nextAuthoritySet.len = digest.len;
             newState.nextAuthoritySet.root = bytes32(digest.commitment);
         }
 
@@ -176,16 +182,6 @@ contract BlsBeefy is IConsensusV2, ERC165 {
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
 
-        if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
-            trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
-            // The incoming set's size comes from the mmr leaf, but its APK commitment is not known
-            // until a header digest supplies it, so it starts empty.
-            trustedState.nextAuthoritySet = AuthoritySetCommitment({
-                id: relayProof.latestMmrLeaf.nextAuthoritySet.id,
-                len: relayProof.latestMmrLeaf.nextAuthoritySet.len,
-                root: bytes32(0)
-            });
-        }
         trustedState.latestHeight = commitment.blockNumber;
 
         return (trustedState, relayProof.latestMmrLeaf.extra);

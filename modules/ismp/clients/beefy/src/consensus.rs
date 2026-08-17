@@ -15,11 +15,9 @@
 
 use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use beefy_verifier::{ecdsa::verify_consensus, error::Error as BeefyError};
-#[cfg(feature = "apk")]
-use beefy_verifier_primitives::PROOF_TYPE_APK;
 use beefy_verifier_primitives::{
-	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
-	Sp1BeefyProof,
+	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_APK, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1,
+	ParachainProof, Sp1BeefyProof,
 };
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -108,7 +106,6 @@ where
 					&vkey,
 				)?
 			},
-			#[cfg(feature = "apk")]
 			PROOF_TYPE_APK => {
 				let apk_state: beefy_verifier_primitives::ApkConsensusState =
 					codec::Decode::decode(&mut &trusted_consensus_state[..])

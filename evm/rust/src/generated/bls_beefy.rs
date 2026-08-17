@@ -10,8 +10,8 @@ sol!(
 	#[allow(missing_docs)]
 	#[sol(rpc, ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
-	BlsApkBeefy,
-	"abi/BlsApkBeefy.json"
+	BlsBeefy,
+	"abi/BlsBeefy.json"
 );
 
 #[cfg(not(feature = "std"))]
@@ -19,6 +19,6 @@ sol!(
 	#[allow(missing_docs)]
 	#[sol(ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
-	BlsApkBeefy,
-	"abi/BlsApkBeefy.json"
+	BlsBeefy,
+	"abi/BlsBeefy.json"
 );

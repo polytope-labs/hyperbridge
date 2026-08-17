@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 import {Test, console} from "forge-std/Test.sol";
 import {IntermediateState} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
-import {BlsApkBeefy} from "../../src/consensus/BlsApkBeefy.sol";
+import {BlsBeefy} from "../../src/consensus/BlsBeefy.sol";
 import {BeefyConsensusState} from "../../src/consensus/Types.sol";
 import {ApkProof} from "./vendor/ApkProof.sol";
 import {PlonkVerifier} from "./vendor/PlonkVerifier.sol";
@@ -21,17 +21,17 @@ import {PlonkVerifier} from "./vendor/PlonkVerifier.sol";
  * `test_verify_live_proof` because both run the whole client over live data in the same harness.
  *
  * Needs EIP-2537:
- *   FOUNDRY_PROFILE=bls forge test --match-contract BlsApkBeefyTest -vv --gas-report
+ *   FOUNDRY_PROFILE=bls forge test --match-contract BlsBeefyTest -vv --gas-report
  */
-contract BlsApkBeefyTest is Test {
-    BlsApkBeefy internal client;
+contract BlsBeefyTest is Test {
+    BlsBeefy internal client;
 
     function setUp() public {
         // False selects the basic ciphersuite, which is what substrate's BEEFY signs with. PoP
         // would hash the same message to a different point and fail with nothing to explain why.
         ApkProof apk = new ApkProof(address(new PlonkVerifier()));
         // The fixture's proof carries para 4009's header, which is where its digest comes from.
-        client = new BlsApkBeefy(address(apk), 4009);
+        client = new BlsBeefy(address(apk), 4009);
     }
 
     function _state() internal view returns (bytes memory) {
@@ -66,7 +66,7 @@ contract BlsApkBeefyTest is Test {
         client.verify(state, proof);
         uint256 used = before - gasleft();
 
-        console.log("BlsApkBeefy.verify gas:", used);
+        console.log("BlsBeefy.verify gas:", used);
     }
 
     /// Replaying a proof the state has already passed is a no-op rather than a revert, matching the

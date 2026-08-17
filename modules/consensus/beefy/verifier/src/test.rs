@@ -1230,7 +1230,7 @@ async fn bls_apk_live_inputs() {
 fn bls_apk_live_fixture() {
 	use alloy_primitives::{Bytes, FixedBytes, U256};
 	use alloy_sol_types::{SolType, SolValue};
-	use ismp_abi::bls_apk_beefy::BlsApkBeefy;
+	use ismp_abi::bls_beefy::BlsBeefy;
 
 	let dir = std::env::var("APK_FIXTURE_DIR").expect("APK_FIXTURE_DIR must be set");
 	let read = |name: &str| -> json::Value {
@@ -1264,13 +1264,13 @@ fn bls_apk_live_fixture() {
 	let trusted = &inputs["trusted"];
 	let signing_set_id = u64_of(&inputs["validatorSetId"]);
 	// Only the set that signed needs its commitment seeded; the other is learned from a digest.
-	let authority_set = |id: u64, len: u64| BlsApkBeefy::ApkAuthoritySet {
+	let authority_set = |id: u64, len: u64| BlsBeefy::AuthoritySetCommitment {
 		id,
 		len: len as u32,
 		apkCommitment: if id == signing_set_id { apk_commitment } else { FixedBytes::ZERO },
 	};
 
-	let state = BlsApkBeefy::BlsApkConsensusState {
+	let state = BlsBeefy::BeefyConsensusState {
 		latestHeight: U256::from(u64_of(&trusted["latestHeight"])),
 		beefyActivationBlock: U256::from(u64_of(&trusted["beefyActivationBlock"])),
 		currentAuthoritySet: authority_set(
@@ -1295,9 +1295,9 @@ fn bls_apk_live_fixture() {
 		.expect("five words");
 
 	let leaf = &inputs["mmrLeaf"];
-	let relay = BlsApkBeefy::BlsApkRelayChainProof {
-		commitment: BlsApkBeefy::Commitment {
-			payload: vec![BlsApkBeefy::Payload {
+	let relay = BlsBeefy::BlsApkRelayChainProof {
+		commitment: BlsBeefy::Commitment {
+			payload: vec![BlsBeefy::Payload {
 				id: FixedBytes(*b"mh"),
 				data: Bytes::from(hex_bytes(&inputs["payloadMh"])),
 			}],
@@ -1309,11 +1309,11 @@ fn bls_apk_live_fixture() {
 		apk2: words(&inputs["apk2"], 6).try_into().expect("bytes32[6]"),
 		apkProof: Bytes::from(hex_bytes(&snark["apkProof"])),
 		signature: words(&inputs["signature"], 3).try_into().expect("bytes32[3]"),
-		latestMmrLeaf: BlsApkBeefy::BeefyMmrLeaf {
+		latestMmrLeaf: BlsBeefy::BeefyMmrLeaf {
 			version: 0,
 			parentNumber: u64_of(&leaf["parentNumber"]) as u32,
 			parentHash: fixed32(&leaf["parentHash"]),
-			nextAuthoritySet: BlsApkBeefy::AuthoritySetCommitment {
+			nextAuthoritySet: BlsBeefy::AuthoritySetCommitment {
 				id: u64_of(&leaf["nextAuthoritySetId"]),
 				len: u64_of(&leaf["nextAuthoritySetLen"]) as u32,
 				root: fixed32(&leaf["nextAuthoritySetRoot"]),
@@ -1324,12 +1324,12 @@ fn bls_apk_live_fixture() {
 		mmrProof: inputs["mmrProof"].as_array().expect("mmrProof").iter().map(fixed32).collect(),
 	};
 
-	let parachain = BlsApkBeefy::ParachainProof {
+	let parachain = BlsBeefy::ParachainProof {
 		parachains: inputs["parachains"]
 			.as_array()
 			.expect("parachains")
 			.iter()
-			.map(|para| BlsApkBeefy::Parachain {
+			.map(|para| BlsBeefy::Parachain {
 				index: U256::from(u64_of(&para["index"])),
 				id: U256::from(u64_of(&para["id"])),
 				header: Bytes::from(hex_bytes(&para["header"])),
@@ -1346,8 +1346,10 @@ fn bls_apk_live_fixture() {
 
 	// SolValue, not SolType: this has to match `abi.encode(struct)` on the Solidity side.
 	let encoded_state = SolValue::abi_encode(&state);
-	let encoded_proof = <(BlsApkBeefy::BlsApkRelayChainProof, BlsApkBeefy::ParachainProof) as SolType>
-		::abi_encode_params(&(relay.clone(), parachain.clone()));
+	let encoded_proof =
+		<(BlsBeefy::BlsApkRelayChainProof, BlsBeefy::ParachainProof) as SolType>::abi_encode_params(
+			&(relay.clone(), parachain.clone()),
+		);
 
 	let fixtures = std::env::var("APK_FIXTURE_OUT")
 		.unwrap_or_else(|_| "../../../../evm/tests/foundry/fixtures".to_string());

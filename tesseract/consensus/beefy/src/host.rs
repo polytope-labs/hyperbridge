@@ -121,7 +121,10 @@ where
 		let apk = matches!(self.prover, Prover::Apk(_));
 		match (matches!(destination, StateMachine::Evm(_)), apk) {
 			(true, true) => {
-				let state = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(encoded)
+				let state =
+					<ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState as SolType>::abi_decode(
+						encoded,
+					)
 					.context("Could not abi-decode apk consensus state")?;
 				let state: beefy_verifier_primitives::ApkConsensusState =
 					state.try_into().map_err(|e| anyhow!("{e}"))?;
@@ -446,7 +449,7 @@ where
 					current_authorities: authority_set(inner.current_authorities, H256(commitment)),
 					next_authorities: authority_set(inner.next_authorities, H256::zero()),
 				};
-				ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState::from(state).abi_encode()
+				ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState::from(state).abi_encode()
 			},
 			_ => {
 				let state: BeefyConsensusState = prover_state.inner.into();

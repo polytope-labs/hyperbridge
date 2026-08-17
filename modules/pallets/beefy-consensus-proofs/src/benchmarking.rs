@@ -139,7 +139,7 @@ mod benchmarks {
 			include_bytes!("../../../../evm/tests/foundry/fixtures/apk-verifying-key.bin").to_vec();
 
 		let state: beefy_verifier_primitives::ApkConsensusState =
-			<ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(
+			<ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState as SolType>::abi_decode(
 				&state_bytes,
 			)
 			.expect("apk state fixture decodes")
@@ -148,7 +148,7 @@ mod benchmarks {
 
 		#[block]
 		{
-			let proof = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
+			let proof = <ismp_abi::bls_beefy::BlsBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
 				&proof_bytes,
 			)
 			.expect("apk proof fixture decodes");

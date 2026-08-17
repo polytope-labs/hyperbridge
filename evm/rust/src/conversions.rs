@@ -399,16 +399,16 @@ mod beefy {
 	// stay single-sourced above.
 	mod apk_bridge {
 		use super::*;
-		use crate::bls_apk_beefy::BlsApkBeefy;
+		use crate::bls_beefy::BlsBeefy;
 
-		impl From<BlsApkBeefy::Payload> for Payload {
-			fn from(value: BlsApkBeefy::Payload) -> Self {
+		impl From<BlsBeefy::Payload> for Payload {
+			fn from(value: BlsBeefy::Payload) -> Self {
 				Payload { id: value.id, data: value.data }
 			}
 		}
 
-		impl From<BlsApkBeefy::Commitment> for Commitment {
-			fn from(value: BlsApkBeefy::Commitment) -> Self {
+		impl From<BlsBeefy::Commitment> for Commitment {
+			fn from(value: BlsBeefy::Commitment) -> Self {
 				Commitment {
 					payload: value.payload.into_iter().map(Into::into).collect(),
 					blockNumber: value.blockNumber,
@@ -417,14 +417,14 @@ mod beefy {
 			}
 		}
 
-		impl From<BlsApkBeefy::AuthoritySetCommitment> for AuthoritySetCommitment {
-			fn from(value: BlsApkBeefy::AuthoritySetCommitment) -> Self {
+		impl From<BlsBeefy::AuthoritySetCommitment> for AuthoritySetCommitment {
+			fn from(value: BlsBeefy::AuthoritySetCommitment) -> Self {
 				AuthoritySetCommitment { id: value.id, len: value.len, root: value.root }
 			}
 		}
 
-		impl From<BlsApkBeefy::BeefyMmrLeaf> for BeefyMmrLeaf {
-			fn from(value: BlsApkBeefy::BeefyMmrLeaf) -> Self {
+		impl From<BlsBeefy::BeefyMmrLeaf> for BeefyMmrLeaf {
+			fn from(value: BlsBeefy::BeefyMmrLeaf) -> Self {
 				BeefyMmrLeaf {
 					version: value.version,
 					parentNumber: value.parentNumber,
@@ -436,14 +436,14 @@ mod beefy {
 			}
 		}
 
-		impl From<BlsApkBeefy::Parachain> for Parachain {
-			fn from(value: BlsApkBeefy::Parachain) -> Self {
+		impl From<BlsBeefy::Parachain> for Parachain {
+			fn from(value: BlsBeefy::Parachain) -> Self {
 				Parachain { index: value.index, id: value.id, header: value.header }
 			}
 		}
 
-		impl From<BlsApkBeefy::ParachainProof> for ParachainProof {
-			fn from(value: BlsApkBeefy::ParachainProof) -> Self {
+		impl From<BlsBeefy::ParachainProof> for ParachainProof {
+			fn from(value: BlsBeefy::ParachainProof) -> Self {
 				ParachainProof {
 					parachains: value.parachains.into_iter().map(Into::into).collect(),
 					proof: value.proof,
@@ -454,13 +454,13 @@ mod beefy {
 	}
 
 	/// Decoded from calldata a relayer supplied, so every width is checked rather than assumed.
-	impl TryFrom<crate::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof>
+	impl TryFrom<crate::bls_beefy::BlsBeefy::BlsApkBeefyConsensusProof>
 		for beefy_verifier_primitives::ApkConsensusMessage
 	{
 		type Error = &'static str;
 
 		fn try_from(
-			value: crate::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof,
+			value: crate::bls_beefy::BlsBeefy::BlsApkBeefyConsensusProof,
 		) -> Result<Self, Self::Error> {
 			let relay = value.relay;
 			let leaf: BeefyMmrLeaf = relay.latestMmrLeaf.into();
@@ -500,18 +500,18 @@ mod beefy {
 	/// to be handed to `initialize_apk_state` in this encoding, since it is otherwise only ever
 	/// learned from a header digest.
 	impl From<beefy_verifier_primitives::ApkConsensusState>
-		for crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState
+		for crate::bls_beefy::BlsBeefy::BeefyConsensusState
 	{
 		fn from(value: beefy_verifier_primitives::ApkConsensusState) -> Self {
 			let authority_set = |set: beefy_verifier_primitives::ApkAuthoritySet| {
-				crate::bls_apk_beefy::BlsApkBeefy::ApkAuthoritySet {
+				crate::bls_beefy::BlsBeefy::AuthoritySetCommitment {
 					id: set.id,
 					len: set.len,
-					apkCommitment: FixedBytes(set.apk_commitment.0),
+					root: FixedBytes(set.apk_commitment.0),
 				}
 			};
 
-			crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState {
+			crate::bls_beefy::BlsBeefy::BeefyConsensusState {
 				latestHeight: value.latest_beefy_height.to_u256(),
 				beefyActivationBlock: value.beefy_activation_block.to_u256(),
 				currentAuthoritySet: authority_set(value.current_authorities),
@@ -522,19 +522,19 @@ mod beefy {
 
 	/// The mmr root is not part of the initial state, since nothing has been proven yet. It is
 	/// filled by the first update that verifies.
-	impl TryFrom<crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState>
+	impl TryFrom<crate::bls_beefy::BlsBeefy::BeefyConsensusState>
 		for beefy_verifier_primitives::ApkConsensusState
 	{
 		type Error = &'static str;
 
 		fn try_from(
-			value: crate::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState,
+			value: crate::bls_beefy::BlsBeefy::BeefyConsensusState,
 		) -> Result<Self, Self::Error> {
-			let authority_set = |set: crate::bls_apk_beefy::BlsApkBeefy::ApkAuthoritySet| {
+			let authority_set = |set: crate::bls_beefy::BlsBeefy::AuthoritySetCommitment| {
 				beefy_verifier_primitives::ApkAuthoritySet {
 					id: set.id,
 					len: set.len,
-					apk_commitment: H256(set.apkCommitment.0),
+					apk_commitment: H256(set.root.0),
 				}
 			};
 

@@ -38,7 +38,7 @@ use beefy_prover::bls::{
 	PairedSignature,
 };
 use beefy_verifier_primitives::{ConsensusState, BLS_G1_SIGNATURE_LEN};
-use ismp_abi::bls_apk_beefy::BlsApkBeefy;
+use ismp_abi::bls_beefy::BlsBeefy;
 
 mod command;
 pub use command::CommandProver;
@@ -132,7 +132,7 @@ where
 			sp_consensus_beefy::ecdsa_crypto::Signature,
 		>,
 		consensus_state: ConsensusState,
-	) -> Result<BlsApkBeefy::BlsApkBeefyConsensusProof, anyhow::Error> {
+	) -> Result<BlsBeefy::BlsApkBeefyConsensusProof, anyhow::Error> {
 		let set_id = signed_commitment.commitment.validator_set_id;
 		if set_id != consensus_state.current_authorities.id &&
 			set_id != consensus_state.next_authorities.id
@@ -174,9 +174,9 @@ where
 			.clone();
 
 		let leaf = &message.mmr.latest_mmr_leaf;
-		let relay = BlsApkBeefy::BlsApkRelayChainProof {
-			commitment: BlsApkBeefy::Commitment {
-				payload: vec![BlsApkBeefy::Payload {
+		let relay = BlsBeefy::BlsApkRelayChainProof {
+			commitment: BlsBeefy::Commitment {
+				payload: vec![BlsBeefy::Payload {
 					id: FixedBytes(*MMR_ROOT_ID),
 					data: Bytes::from(mmr_root),
 				}],
@@ -188,7 +188,7 @@ where
 			apk2: aggregate.apk2,
 			apkProof: Bytes::from(proof.proof),
 			signature: aggregate.signature,
-			latestMmrLeaf: BlsApkBeefy::BeefyMmrLeaf {
+			latestMmrLeaf: BlsBeefy::BeefyMmrLeaf {
 				// One byte carrying the major version in the top three bits and the minor in the
 				// rest, which is how the reverse conversion in `ismp-abi` reads it back.
 				version: {
@@ -197,7 +197,7 @@ where
 				},
 				parentNumber: leaf.parent_number_and_hash.0,
 				parentHash: FixedBytes(leaf.parent_number_and_hash.1 .0),
-				nextAuthoritySet: BlsApkBeefy::AuthoritySetCommitment {
+				nextAuthoritySet: BlsBeefy::AuthoritySetCommitment {
 					id: leaf.beefy_next_authority_set.id,
 					len: leaf.beefy_next_authority_set.len,
 					root: FixedBytes(leaf.beefy_next_authority_set.keyset_commitment.0),
@@ -210,12 +210,12 @@ where
 			mmrProof: message.mmr.mmr_proof.items.iter().map(|item| FixedBytes(item.0)).collect(),
 		};
 
-		let parachain = BlsApkBeefy::ParachainProof {
+		let parachain = BlsBeefy::ParachainProof {
 			parachains: message
 				.parachain
 				.parachains
 				.iter()
-				.map(|para| BlsApkBeefy::Parachain {
+				.map(|para| BlsBeefy::Parachain {
 					index: U256::from(para.index),
 					id: U256::from(para.para_id),
 					header: Bytes::from(para.header.clone()),
@@ -225,7 +225,7 @@ where
 			leafCount: U256::from(message.parachain.total_leaves),
 		};
 
-		Ok(BlsApkBeefy::BlsApkBeefyConsensusProof { relay, parachain })
+		Ok(BlsBeefy::BlsApkBeefyConsensusProof { relay, parachain })
 	}
 
 	/// Poseidon2 over the relay's current BEEFY keys at `at`.

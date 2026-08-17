@@ -346,7 +346,7 @@ pub mod pallet {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
 			let state: beefy_verifier_primitives::ApkConsensusState =
-				<ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState as SolType>::abi_decode(
+				<ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState as SolType>::abi_decode(
 					&abi_state,
 				)
 				.map_err(|e| {
@@ -955,7 +955,7 @@ pub mod pallet {
 					[&[types::PROOF_TYPE_NAIVE], scale_proof.encode().as_slice()].concat()
 				},
 				types::PROOF_TYPE_APK => {
-					let abi_proof = <ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
+					let abi_proof = <ismp_abi::bls_beefy::BlsBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(
 						abi_payload,
 					)
 					.map_err(|_| Error::<T>::AbiDecodeFailed)?;

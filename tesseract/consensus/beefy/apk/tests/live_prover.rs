@@ -250,7 +250,7 @@ async fn writes_initial_state_for_bootstrapping() {
 		},
 	};
 
-	let abi = ismp_abi::bls_apk_beefy::BlsApkBeefy::BlsApkConsensusState::from(state.clone());
+	let abi = ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState::from(state.clone());
 	std::fs::write(&out, format!("0x{}", hex::encode(abi.abi_encode()))).expect("write");
 	println!(
 		"wrote state for sets {} and {} at beefy height {} to {out}",

@@ -1,0 +1,469 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "apkProof",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "digestParaId",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MMR_ROOT_PAYLOAD_ID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes2",
+        "internalType": "bytes2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "_apk",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IApkProof"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "_digestParaId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "noOp",
+    "inputs": [
+      {
+        "name": "s",
+        "type": "tuple",
+        "internalType": "struct BeefyConsensusState",
+        "components": [
+          {
+            "name": "latestHeight",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "beefyActivationBlock",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "currentAuthoritySet",
+            "type": "tuple",
+            "internalType": "struct AuthoritySetCommitment",
+            "components": [
+              {
+                "name": "id",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "len",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "root",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "nextAuthoritySet",
+            "type": "tuple",
+            "internalType": "struct AuthoritySetCommitment",
+            "components": [
+              {
+                "name": "id",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "len",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "root",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct BlsApkBeefyConsensusProof",
+        "components": [
+          {
+            "name": "relay",
+            "type": "tuple",
+            "internalType": "struct BlsApkRelayChainProof",
+            "components": [
+              {
+                "name": "commitment",
+                "type": "tuple",
+                "internalType": "struct Commitment",
+                "components": [
+                  {
+                    "name": "payload",
+                    "type": "tuple[]",
+                    "internalType": "struct Payload[]",
+                    "components": [
+                      {
+                        "name": "id",
+                        "type": "bytes2",
+                        "internalType": "bytes2"
+                      },
+                      {
+                        "name": "data",
+                        "type": "bytes",
+                        "internalType": "bytes"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "blockNumber",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "validatorSetId",
+                    "type": "uint64",
+                    "internalType": "uint64"
+                  }
+                ]
+              },
+              {
+                "name": "bitlist",
+                "type": "uint256[5]",
+                "internalType": "uint256[5]"
+              },
+              {
+                "name": "apk",
+                "type": "bytes32[3]",
+                "internalType": "bytes32[3]"
+              },
+              {
+                "name": "apk2",
+                "type": "bytes32[6]",
+                "internalType": "bytes32[6]"
+              },
+              {
+                "name": "apkProof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "signature",
+                "type": "bytes32[3]",
+                "internalType": "bytes32[3]"
+              },
+              {
+                "name": "latestMmrLeaf",
+                "type": "tuple",
+                "internalType": "struct BeefyMmrLeaf",
+                "components": [
+                  {
+                    "name": "version",
+                    "type": "uint8",
+                    "internalType": "uint8"
+                  },
+                  {
+                    "name": "parentNumber",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "parentHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "nextAuthoritySet",
+                    "type": "tuple",
+                    "internalType": "struct AuthoritySetCommitment",
+                    "components": [
+                      {
+                        "name": "id",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                      },
+                      {
+                        "name": "len",
+                        "type": "uint32",
+                        "internalType": "uint32"
+                      },
+                      {
+                        "name": "root",
+                        "type": "bytes32",
+                        "internalType": "bytes32"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "extra",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "leafIndex",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                ]
+              },
+              {
+                "name": "mmrProof",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+              }
+            ]
+          },
+          {
+            "name": "parachain",
+            "type": "tuple",
+            "internalType": "struct ParachainProof",
+            "components": [
+              {
+                "name": "parachains",
+                "type": "tuple[]",
+                "internalType": "struct Parachain[]",
+                "components": [
+                  {
+                    "name": "index",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "id",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "header",
+                    "type": "bytes",
+                    "internalType": "bytes"
+                  }
+                ]
+              },
+              {
+                "name": "proof",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+              },
+              {
+                "name": "leafCount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "supportsInterface",
+    "inputs": [
+      {
+        "name": "interfaceId",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verify",
+    "inputs": [
+      {
+        "name": "previousState",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IntermediateState[]",
+        "components": [
+          {
+            "name": "stateMachineId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "height",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "commitment",
+            "type": "tuple",
+            "internalType": "struct StateCommitment",
+            "components": [
+              {
+                "name": "timestamp",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "overlayRoot",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "stateRoot",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "EmptyLeaves",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyTree",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyTree",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAggregateProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidMmrProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidParachainHeaderProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LeafIndexOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MissingApkCommitment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MmrRootHashMissing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OutOfBoundsLeaves",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ProofExhausted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SuperMajorityRequired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TimestampNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnconsumedProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownAuthoritySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsortedLeaves",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsortedLeaves",
+    "inputs": []
+  }
+]

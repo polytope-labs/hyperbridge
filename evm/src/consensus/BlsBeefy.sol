@@ -73,7 +73,7 @@ interface IApkProof {
  *
  * Requires Prague for the EIP-2537 precompiles.
  */
-contract BlsApkBeefy is IConsensusV2, ERC165 {
+contract BlsBeefy is IConsensusV2, ERC165 {
     /// The payload id for the mmr root in a BEEFY commitment, "mh"
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 

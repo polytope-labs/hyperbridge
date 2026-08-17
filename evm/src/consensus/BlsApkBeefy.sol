@@ -24,6 +24,7 @@ import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot
 import {Codec} from "./Codec.sol";
 import {
     ApkAuthoritySet,
+    ApkDigest,
     BlsApkBeefyConsensusProof,
     BlsApkConsensusState,
     BlsApkRelayChainProof,
@@ -79,6 +80,12 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
     /// The APK proof verifier, holding the circuit's verifying key.
     IApkProof public immutable _apk;
 
+    /// The parachain whose header digests carry apk commitments, which is hyperbridge.
+    ///
+    /// Every parachain in a proof is proven against the heads root, so a digest from any of them
+    /// is authentic; only this one's says anything about the relay chain's authorities.
+    uint32 public immutable _digestParaId;
+
     /// The commitment was signed by a set this client does not know.
     error UnknownAuthoritySet();
     /// Fewer than two thirds of the set signed.
@@ -94,8 +101,9 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
     /// The authority set has no APK commitment yet, so no proof against it can be checked.
     error MissingApkCommitment();
 
-    constructor(address apkProof) {
+    constructor(address apkProof, uint32 digestParaId) {
         _apk = IApkProof(apkProof);
+        _digestParaId = digestParaId;
     }
 
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
@@ -118,14 +126,16 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         }
 
         (BlsApkConsensusState memory newState, bytes32 headsRoot) = verifyMmrUpdateProof(consensusState, relay);
-        (IntermediateState[] memory intermediates, bool found, uint64 setId, bytes32 commitment) =
-            verifyParachainHeaderProof(headsRoot, parachain);
+        (IntermediateState[] memory intermediates, ApkDigest memory digest) =
+            verifyParachainHeaderProof(headsRoot, parachain, _digestParaId);
 
         // Forward chaining: a verified header may carry the commitment for a set this client does
         // not have keys for yet. Picking it up here is what lets the next update be verified at
         // all, and is the reason the digest names the *next* set rather than the current one.
-        if (found && setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.apkCommitment == bytes32(0)) {
-            newState.nextAuthoritySet.apkCommitment = commitment;
+        if (
+            digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.apkCommitment == 0
+        ) {
+            newState.nextAuthoritySet.apkCommitment = digest.commitment;
         }
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
@@ -151,7 +161,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         // A set whose commitment has not been learned from a digest yet cannot be verified against.
         // Reverting here is deliberate: silently accepting would mean checking the proof against a
         // zero commitment.
-        if (authoritySet.apkCommitment == bytes32(0)) revert MissingApkCommitment();
+        if (authoritySet.apkCommitment == 0) revert MissingApkCommitment();
 
         verifySignedByApk(Codec.Encode(commitment), relayProof, authoritySet);
 
@@ -173,7 +183,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
             trustedState.nextAuthoritySet = ApkAuthoritySet({
                 id: relayProof.latestMmrLeaf.nextAuthoritySet.id,
                 len: relayProof.latestMmrLeaf.nextAuthoritySet.len,
-                apkCommitment: bytes32(0)
+                apkCommitment: 0
             });
         }
         trustedState.latestHeight = commitment.blockNumber;
@@ -202,7 +212,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         // `verify` reverts on failure rather than returning false, so a successful call is the
         // whole result. Wrapped so the reason surfaces as this contract's error.
         try _apk.verify(
-            uint256(authoritySet.apkCommitment),
+            authoritySet.apkCommitment,
             relayProof.bitlist,
             relayProof.apk,
             relayProof.apkProof,
@@ -259,10 +269,10 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
 
     /// @dev Verify the parachain headers against the heads root, and surface any APK commitment
     /// they carry so the caller can roll it into the consensus state.
-    function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
+    function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof, uint32 digestParaId)
         internal
         pure
-        returns (IntermediateState[] memory, bool found, uint64 setId, bytes32 apkCommitment)
+        returns (IntermediateState[] memory, ApkDigest memory digest)
     {
         uint256 len = proof.parachains.length;
         MerkleMultiProof.Leaf[] memory leaves = new MerkleMultiProof.Leaf[](len);
@@ -284,8 +294,10 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
             });
 
             // Only the first commitment found is used; the pallet writes at most one per block.
-            if (!found) {
-                (found, setId, apkCommitment) = HeaderImpl.apkCommitment(header);
+            // Read it from hyperbridge's header alone, or any parachain in the proof could name
+            // the keys this client trusts next.
+            if (digest.setId == 0 && para.id == digestParaId) {
+                digest = HeaderImpl.apkCommitment(header);
             }
         }
 
@@ -294,7 +306,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
             if (!valid) revert InvalidParachainHeaderProof();
         }
 
-        return (intermediates, found, setId, apkCommitment);
+        return (intermediates, digest);
     }
 
     /// @dev Leaf index for a relay chain block, given where beefy was activated.

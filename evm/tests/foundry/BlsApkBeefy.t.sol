@@ -30,7 +30,8 @@ contract BlsApkBeefyTest is Test {
         // False selects the basic ciphersuite, which is what substrate's BEEFY signs with. PoP
         // would hash the same message to a different point and fail with nothing to explain why.
         ApkProof apk = new ApkProof(address(new PlonkVerifier()));
-        client = new BlsApkBeefy(address(apk));
+        // The fixture's proof carries para 4009's header, which is where its digest comes from.
+        client = new BlsApkBeefy(address(apk), 4009);
     }
 
     function _state() internal view returns (bytes memory) {

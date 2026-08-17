@@ -66,13 +66,27 @@ contract ApkProof {
 
     /**
      * Protocol-fixed seed point for APK aggregation.
-     * Computed as HashToG1(dst="gnark-apk-proofs", msg="apk-seed").
-     * The circuit hardcodes this same constant; the contract adds it to the
-     * caller-supplied APK before passing to the PLONK verifier.
+     *
+     * Derived as hash-to-field(dst="gnark-apk-proofs", msg="apk-seed-coset")
+     * followed by the RFC 9380 SSWU map + isogeny onto E(Fp), WITHOUT cofactor
+     * clearing — the point is on the curve but deliberately NOT in the G1
+     * subgroup. The circuit's incomplete point addition relies on this: the
+     * accumulator seed + Sigma(pk_i) stays in the coset seed + G1, disjoint from
+     * G1, so it can never collide with a public key or reach infinity
+     * (Ciobotaru et al., eprint 2022/1205, section 5.1).
+     *
+     * The G1ADD precompile below accepts it (EIP-2537 ADD checks on-curve only,
+     * not subgroup); the seed never reaches the pairing precompile, which sees
+     * only the caller-supplied APK. Mirrors apk.ProtocolSeed() in Go; the
+     * coordinates are locked by TestProtocolSeedVectors — regenerate both
+     * together or on-chain verification rejects every proof.
+     *
+     * Layout: X = SEED_0 || SEED_1[0:16], Y = SEED_1[16:32] || SEED_2 (48-byte
+     * big-endian coordinates).
      */
-    bytes32 constant SEED_0 = 0x054abdb6c5522fe2f71d55922d6f674a4908d39e2b33efcc62520c0621ca0d6a;
-    bytes32 constant SEED_1 = 0x6d84ee717b7fb1cb5f46687265be01ce06e518322165fd114cdf6b4ab59eb45e;
-    bytes32 constant SEED_2 = 0x9289cc4f6f7948d6b680cef9ecc0e0e0f96bd59a578d58c33c0e10db9c25b5ad;
+    bytes32 constant SEED_0 = 0x19742ffba069554d8cacceb8ed5514b2ecf72cd7372d3414203338f4fd3b3cc7;
+    bytes32 constant SEED_1 = 0x42fb160f8eb5818422246de186e0814a0e0f5d1199876e646952fb74d39e0b34;
+    bytes32 constant SEED_2 = 0x042a8d48786adae7e0fccf4b0236c72e82343de94c9d12bf17d22bec9edbbe2b;
 
     /// BLS signature verification constants
     /// 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {Test} from "forge-std/Test.sol";
-import {Header, Digest, DigestItem, HeaderImpl} from "../../src/consensus/Types.sol";
+import {ApkDigest, Header, Digest, DigestItem, HeaderImpl} from "../../src/consensus/Types.sol";
 
 /// The client side of `pallet-beefy-apk-digest`: reading the APK commitment out of a hyperbridge
 /// header that a verifier has already authenticated through the BEEFY MMR's parachain heads root.
@@ -40,10 +40,9 @@ contract ApkCommitmentDigestTest is Test {
         Digest[] memory digests = new Digest[](1);
         digests[0] = _consensus(HeaderImpl.APK_COMMITMENT_ID, PAYLOAD_577);
 
-        (bool found, uint64 setId, bytes32 commitment) = _header(digests).apkCommitment();
-        assertTrue(found, "commitment not found");
-        assertEq(setId, 577, "set id decoded wrong; check little-endian");
-        assertEq(commitment, bytes32(uint256(0x0303030303030303030303030303030303030303030303030303030303030303)));
+        ApkDigest memory digest = _header(digests).apkCommitment();
+        assertEq(digest.setId, 577, "set id decoded wrong; check little-endian");
+        assertEq(digest.commitment, uint256(0x0303030303030303030303030303030303030303030303030303030303030303));
     }
 
     /// The normal case: a header carrying aura's items alongside ours.
@@ -53,9 +52,8 @@ contract ApkCommitmentDigestTest is Test {
         digests[1] = _consensus(HeaderImpl.APK_COMMITMENT_ID, PAYLOAD_577);
         digests[2] = _preRuntime(bytes4("aura"));
 
-        (bool found, uint64 setId,) = _header(digests).apkCommitment();
-        assertTrue(found);
-        assertEq(setId, 577);
+        ApkDigest memory digest = _header(digests).apkCommitment();
+        assertEq(digest.setId, 577);
     }
 
     /// Most headers do not complete a set, and that must read as absent rather than revert.
@@ -63,9 +61,9 @@ contract ApkCommitmentDigestTest is Test {
         Digest[] memory digests = new Digest[](1);
         digests[0] = _preRuntime(bytes4("aura"));
 
-        (bool found,, bytes32 commitment) = _header(digests).apkCommitment();
-        assertFalse(found);
-        assertEq(commitment, bytes32(0));
+        ApkDigest memory digest = _header(digests).apkCommitment();
+        assertEq(digest.setId, 0, "no digest, so the set id stays zero");
+        assertEq(digest.commitment, 0);
     }
 
     /// Another engine's consensus item must not be mistaken for ours. Same digest variant, so the
@@ -74,8 +72,7 @@ contract ApkCommitmentDigestTest is Test {
         Digest[] memory digests = new Digest[](1);
         digests[0] = _consensus(bytes4("ISMP"), PAYLOAD_577);
 
-        (bool found,,) = _header(digests).apkCommitment();
-        assertFalse(found, "an ISMP digest was read as an APK commitment");
+        assertEq(_header(digests).apkCommitment().setId, 0, "an ISMP digest was read as an APK commitment");
     }
 
     /// A wrong-length payload under our engine id is skipped rather than decoded into garbage.
@@ -83,7 +80,6 @@ contract ApkCommitmentDigestTest is Test {
         Digest[] memory digests = new Digest[](1);
         digests[0] = _consensus(HeaderImpl.APK_COMMITMENT_ID, hex"4102000000000000");
 
-        (bool found,,) = _header(digests).apkCommitment();
-        assertFalse(found, "a truncated payload should not decode");
+        assertEq(_header(digests).apkCommitment().setId, 0, "a truncated payload should not decode");
     }
 }

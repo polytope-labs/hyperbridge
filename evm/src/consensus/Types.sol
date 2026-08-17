@@ -179,13 +179,21 @@ struct BeefyConsensusProof {
 // fixed width. Unlike the keyset root it does not come from the MMR leaf: hyperbridge publishes it
 // in a header digest, and a client picks it up from a header it has already verified. That is why
 // it is carried in the consensus state rather than supplied with each proof.
+/// An apk commitment read off a header, with `setId` zero meaning the header carried none.
+struct ApkDigest {
+    /// The authority set the commitment describes.
+    uint64 setId;
+    /// Poseidon2 commitment over that set's G1 public keys.
+    uint256 commitment;
+}
+
 struct ApkAuthoritySet {
     /// Id of the set.
     uint64 id;
     /// Number of validators in the set, for the two-thirds threshold.
     uint32 len;
-    /// Poseidon2 commitment over the set's G1 public keys.
-    bytes32 apkCommitment;
+    /// Poseidon2 commitment over the set's G1 public keys, as `ApkProof.verify` takes it.
+    uint256 apkCommitment;
 }
 
 struct BlsApkConsensusState {
@@ -298,11 +306,10 @@ library HeaderImpl {
     /// as `publicKeysCommitment`, and `setId` says which authority set it describes.
     ///
     /// Payload is SCALE: a u64 set id little-endian, then the 32 byte commitment.
-    function apkCommitment(Header memory self)
-        internal
-        pure
-        returns (bool found, uint64 setId, bytes32 commitment)
-    {
+    ///
+    /// A zero `setId` reads as absent. BEEFY numbers its sets from one, so nothing legitimate
+    /// names set zero, and the caller then has one thing to check rather than two.
+    function apkCommitment(Header memory self) internal pure returns (ApkDigest memory digest) {
         for (uint256 j = 0; j < self.digests.length; j++) {
             if (!self.digests[j].isConsensus) continue;
             if (self.digests[j].consensus.consensusId != APK_COMMITMENT_ID) continue;
@@ -312,10 +319,13 @@ library HeaderImpl {
             // producer wrote under this engine id, and the caller should see "absent", not fail.
             if (data.length != 40) continue;
 
-            setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
-            commitment = Bytes.toBytes32(Bytes.substr(data, 8));
-            return (true, setId, commitment);
+            uint64 setId = uint64(ScaleCodec.decodeUint256(Bytes.substr(data, 0, 8)));
+            if (setId == 0) continue;
+
+            return ApkDigest({
+                setId: setId,
+                commitment: uint256(Bytes.toBytes32(Bytes.substr(data, 8)))
+            });
         }
-        return (false, 0, bytes32(0));
     }
 }

@@ -21,9 +21,10 @@
 //! proof carried in every parachain block is checked against the relay parent's state root by the
 //! validators, so the keys can be read out of it without any new trust assumption.
 //!
-//! The commitment is expensive. A full 1024-slot set is roughly 420ms of wasm, which does not fit
-//! in a block, so it is absorbed a chunk at a time across blocks and published once complete. The
-//! authority set for the next session is known a session ahead, which is what makes that possible.
+//! The commitment is expensive, around 800ms of wasm for a full 1024 slot set, most of it spent
+//! decompressing the keys rather than hashing them. It is committed in one block all the same,
+//! since it happens once per authority set, which is once every four hours on polkadot, and a set
+//! that has not changed is republished from the stored commitment rather than hashed again.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -31,7 +32,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use apk_commitment::{PartialCommitment, NUM_VALIDATORS};
+use apk_commitment::{padded_to_circuit_width, public_keys_commitment_bytes};
 use ark_bls12_381::G1Affine;
 use ark_serialize::CanonicalDeserialize;
 pub use beefy_verifier_primitives::{
@@ -53,24 +54,7 @@ pub const RELAY_BEEFY_VALIDATOR_SET_ID: [u8; 32] = [
 	0x8f, 0x05, 0xbc, 0xcc, 0x2f, 0x70, 0xec, 0x66, 0xa3, 0x29, 0x99, 0xc5, 0x76, 0x11, 0x56, 0xbe,
 ];
 
-impl Progress {
-	/// A chain that has absorbed nothing yet.
-	pub fn fresh(set_digest: [u8; 32]) -> Self {
-		Self { set_digest, absorbed: 0, state: PartialCommitment::new().to_bytes() }
-	}
-}
-
-/// Where the running commitment has got to.
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Default, MaxEncodedLen)]
-pub struct Progress {
-	/// Identifies the set being absorbed, so a rotation part way through restarts rather than
-	/// mixing keys from two sets into one commitment.
-	pub set_digest: [u8; 32],
-	/// How many of the [`NUM_VALIDATORS`] slots have been absorbed.
-	pub absorbed: u32,
-	/// The Merkle-Damgard state, carried between blocks.
-	pub state: [u8; 32],
-}
+pub mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -82,12 +66,7 @@ pub mod pallet {
 	pub trait Config:
 		polkadot_sdk::frame_system::Config + cumulus_pallet_parachain_system::Config
 	{
-		/// How many validator slots to absorb per block. Trades block weight against how many
-		/// blocks a full set takes: at roughly 410us per slot in wasm, 64 is about 26ms.
-		#[pallet::constant]
-		type SlotsPerBlock: Get<u32>;
-
-		/// Cost of absorbing a chunk. `()` carries a measured default, see [`WeightInfo`].
+		/// Cost of committing to a set. `()` carries a rough default, see [`WeightInfo`].
 		///
 		/// Disambiguated at use as `<T as Config>::WeightInfo`, since
 		/// `cumulus_pallet_parachain_system::Config` also has one.
@@ -97,10 +76,6 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
-	/// The commitment currently being absorbed, if any.
-	#[pallet::storage]
-	pub type Pending<T: Config> = StorageValue<_, Progress, OptionQuery>;
-
 	/// The last commitment published to a header digest, and the set it describes.
 	#[pallet::storage]
 	pub type Published<T: Config> = StorageValue<_, (u64, [u8; 32], [u8; 32]), OptionQuery>;
@@ -108,9 +83,7 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Started absorbing a new authority set.
-		CommitmentStarted { set_digest: [u8; 32] },
-		/// Finished, and wrote the commitment to this block's header.
+		/// Committed to a new authority set, and wrote the commitment to this block's header.
 		CommitmentPublished { set_id: u64, set_digest: [u8; 32], commitment: [u8; 32] },
 	}
 
@@ -123,16 +96,16 @@ pub mod pallet {
 		/// chunk is real work, tens of milliseconds, and a block that does not account for it can
 		/// overrun its budget.
 		fn on_finalize(_now: BlockNumberFor<T>) {
-			let slots = match Self::advance() {
-				Ok(slots) => slots,
+			let hashed = match Self::advance() {
+				Ok(hashed) => hashed,
 				Err(e) => {
 					log::debug!(target: "apk-digest", "commitment did not advance: {e:?}");
-					0
+					false
 				},
 			};
-			if slots > 0 {
+			if hashed {
 				frame_system::Pallet::<T>::register_extra_weight_unchecked(
-					<T as Config>::WeightInfo::absorb(slots),
+					<T as Config>::WeightInfo::commit(),
 					DispatchClass::Mandatory,
 				);
 			}
@@ -142,58 +115,36 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Absorb the next chunk, starting or restarting if the set changed, and publish once the
 		/// whole set is in.
-		fn advance() -> Result<u32, Error<T>> {
+		fn advance() -> Result<bool, Error<T>> {
 			let keys = Self::relay_beefy_g1_keys()?;
 			// Read the set id up front even though it is only needed at the end. It is cheap, and
-			// discovering it missing after absorbing a chunk would throw that work away: the error
-			// propagates before `Pending` is written, so the same chunk would be re-absorbed and
-			// re-fail every block.
+			// discovering it missing after hashing a whole set would throw that work away.
 			let set_id = Self::relay_beefy_set_id()?;
 			let set_digest = sp_io::hashing::blake2_256(&keys.encode());
 
-			let mut progress = match next_progress(
-				Pending::<T>::get().as_ref(),
-				Published::<T>::get().map(|(id, digest, _)| (id, digest)),
-				set_id,
-				set_digest,
-			) {
-				// Already hashed this set, but the digest still goes in every header until it
-				// rotates. A verifier only reads the one header a proof happens to finalize, so
-				// publishing once would mean it almost never sees it.
-				Step::Done => {
-					if let Some((set_id, _, commitment)) = Published::<T>::get() {
-						Self::deposit_digest(set_id, commitment);
-					}
-					return Ok(0);
+			match next_step(Published::<T>::get().as_ref(), set_digest) {
+				// The keys have not changed, so the commitment stands. It still goes in this
+				// header, and under the current set id: a session can rotate without changing
+				// membership, and a client tracks commitments per set id, so the same commitment
+				// has to be published again under the new one or the client never learns it.
+				Step::Republish(commitment) => {
+					Self::deposit_digest(set_id, commitment);
+					Published::<T>::put((set_id, set_digest, commitment));
+					Ok(false)
 				},
-				Step::Restart => {
-					Self::deposit_event(Event::CommitmentStarted { set_digest });
-					Progress::fresh(set_digest)
+				Step::Commit => {
+					let commitment =
+						commit(&keys).map_err(|_| Error::<T>::MalformedAuthorityKey)?;
+					Self::deposit_digest(set_id, commitment);
+					Published::<T>::put((set_id, set_digest, commitment));
+					Self::deposit_event(Event::CommitmentPublished {
+						set_id,
+						set_digest,
+						commitment,
+					});
+					Ok(true)
 				},
-				Step::Continue(p) => p,
-			};
-
-			let from = progress.absorbed as usize;
-			let take = (T::SlotsPerBlock::get() as usize).min(NUM_VALIDATORS - from);
-			if take == 0 {
-				return Ok(0);
 			}
-
-			progress.state = absorb_slots(&keys, from, take, progress.state)
-				.map_err(|_| Error::<T>::MalformedAuthorityKey)?;
-			progress.absorbed += take as u32;
-
-			if progress.absorbed as usize == NUM_VALIDATORS {
-				let commitment = progress.state;
-				Self::deposit_digest(set_id, commitment);
-
-				Pending::<T>::kill();
-				Published::<T>::put((set_id, set_digest, commitment));
-				Self::deposit_event(Event::CommitmentPublished { set_id, set_digest, commitment });
-			} else {
-				Pending::<T>::put(&progress);
-			}
-			Ok(take as u32)
 		}
 
 		/// Put the commitment in this block's header.
@@ -262,56 +213,41 @@ pub mod pallet {
 	}
 }
 
-/// Cost of absorbing `slots` validator slots into the running commitment.
+/// Cost of committing to a validator set.
 pub trait WeightInfo {
-	fn absorb(slots: u32) -> Weight;
+	fn commit() -> Weight;
 }
 
-/// Measured rather than benchmarked, and should be replaced by a generated `WeightInfo` before
-/// this runs anywhere real.
+/// A rough default for tests and for a chain that has not generated its own.
 ///
-/// The commitment was timed in wasm at roughly 410us per slot, linear in the number of slots from
-/// 64 up to the full 1024. Weight ref time is picoseconds, so a slot is about 410_000_000 units,
-/// and the default `SlotsPerBlock` of 64 comes to ~26ms, a little over one percent of a two second
-/// block. The storage side is one read and one write of a fixed-size value.
+/// A full set is around 800ms in wasm, of which roughly four fifths is decompressing the keys
+/// rather than hashing them: a key arrives as 48 compressed bytes and recovering `y` needs a
+/// square root in the base field. It is only paid when the membership actually changes.
 impl WeightInfo for () {
-	fn absorb(slots: u32) -> Weight {
-		Weight::from_parts(410_000_000u64.saturating_mul(slots as u64), 0)
-			.saturating_add(Weight::from_parts(0, 4096))
+	fn commit() -> Weight {
+		Weight::from_parts(821_000_000_000, 0).saturating_add(Weight::from_parts(0, 4096))
 	}
 }
 
 /// What to do with the commitment this block.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
-	/// This set is already published; nothing to do.
-	Done,
-	/// Begin, or begin again because the set changed under us.
-	Restart,
-	/// Carry on from where the last block left off.
-	Continue(Progress),
+	/// The keys are unchanged, so republish the commitment already computed for them.
+	Republish([u8; 32]),
+	/// Nothing published, or a different set of keys: hash them.
+	Commit,
 }
 
-/// Decide how to proceed, given what is in progress and what has already been published.
+/// Decide how to proceed, given what was published last.
 ///
-/// Kept pure so the rotation case can be tested without a mock chain. The case that matters is a
-/// set changing part way through: the Merkle-Damgard chain is over one specific key list, so
-/// carrying the state across a rotation would silently produce a commitment belonging to neither
-/// set. Restarting is the only safe answer.
-pub fn next_progress(
-	pending: Option<&Progress>,
-	published: Option<(u64, [u8; 32])>,
-	set_id: u64,
-	set_digest: [u8; 32],
-) -> Step {
-	match pending {
-		Some(p) if p.set_digest != set_digest => Step::Restart,
-		Some(p) => Step::Continue(p.clone()),
-		// Keyed on the set id as well as the keys. A session can rotate without changing the
-		// membership, and a client tracks commitments per set id, so the same commitment has to be
-		// published again under the new one or the client never learns it and stalls there.
-		None if published == Some((set_id, set_digest)) => Step::Done,
-		None => Step::Restart,
+/// Kept pure so it can be tested without a mock chain. The case worth being careful about is a
+/// session rotating without the membership changing, which is common: the commitment is the same,
+/// so rehashing it would spend the better part of a second for nothing, but it still has to be
+/// republished under the new set id or a client tracking commitments per set never learns it.
+pub fn next_step(published: Option<&(u64, [u8; 32], [u8; 32])>, set_digest: [u8; 32]) -> Step {
+	match published {
+		Some((_, digest, commitment)) if *digest == set_digest => Step::Republish(*commitment),
+		_ => Step::Commit,
 	}
 }
 
@@ -319,30 +255,17 @@ pub fn next_progress(
 #[derive(Debug, PartialEq, Eq)]
 pub struct MalformedKey;
 
-/// Absorb slots `from .. from + take` of a validator set into a running commitment.
+/// The commitment over a validator set, padded to the circuit's width with the identity point.
 ///
-/// Kept free of the pallet so the part that can actually be wrong, the chunking and the padding,
-/// is testable without a mock chain. Slots past the end of `keys` are the identity point, which is
-/// how the circuit pads a set shorter than [`NUM_VALIDATORS`].
-///
-/// `state` is the Merkle-Damgard state carried between blocks; pass
-/// `PartialCommitment::new().to_bytes()` to start.
-pub fn absorb_slots(
-	keys: &[[u8; BLS_G1_SIGNATURE_LEN]],
-	from: usize,
-	take: usize,
-	state: [u8; 32],
-) -> Result<[u8; 32], MalformedKey> {
-	let chunk: Vec<G1Affine> = (from..from + take)
-		.map(|i| match keys.get(i) {
-			Some(k) => G1Affine::deserialize_compressed(&k[..]).map_err(|_| MalformedKey),
-			None => Ok(G1Affine::identity()),
-		})
+/// Kept free of the pallet so the part that can actually be wrong, the decompression and the
+/// padding, is testable without a mock chain.
+pub fn commit(keys: &[[u8; BLS_G1_SIGNATURE_LEN]]) -> Result<[u8; 32], MalformedKey> {
+	let points: Vec<G1Affine> = keys
+		.iter()
+		.map(|k| G1Affine::deserialize_compressed(&k[..]).map_err(|_| MalformedKey))
 		.collect::<Result<_, _>>()?;
 
-	let mut partial = PartialCommitment::from_bytes(&state);
-	partial.absorb(&chunk);
-	Ok(partial.to_bytes())
+	Ok(public_keys_commitment_bytes(&padded_to_circuit_width(&points)))
 }
 
 #[cfg(test)]
@@ -374,43 +297,20 @@ mod tests {
 		public_keys_commitment_bytes(&padded_to_circuit_width(&points))
 	}
 
-	fn run(keys: &[[u8; BLS_G1_SIGNATURE_LEN]], slots_per_block: usize) -> [u8; 32] {
-		let mut state = PartialCommitment::new().to_bytes();
-		let mut absorbed = 0usize;
-		while absorbed < NUM_VALIDATORS {
-			let take = slots_per_block.min(NUM_VALIDATORS - absorbed);
-			state = absorb_slots(keys, absorbed, take, state).unwrap();
-			absorbed += take;
-		}
-		state
-	}
-
-	/// The whole point of absorbing across blocks: the block size must not change the answer.
+	/// A set shorter than the circuit's width is padded, which is most of what `commit` does
+	/// beyond hashing.
 	#[test]
-	fn any_chunk_size_reaches_the_same_commitment() {
+	fn a_short_set_is_padded_to_the_circuit_width() {
 		let keys = relay_keys();
-		let expected = expected_commitment(&keys);
-		for slots in [1usize, 64, 100, 512, NUM_VALIDATORS] {
-			assert_eq!(run(&keys, slots), expected, "slots_per_block {slots} changed the result");
-		}
-	}
-
-	/// A chunk that straddles the boundary between real keys and padding is the case most likely
-	/// to be got wrong, so pin it explicitly.
-	#[test]
-	fn padding_boundary_is_handled_within_a_chunk() {
-		let keys = relay_keys();
-		// 2 real keys, so a chunk of 3 from slot 0 crosses into padding immediately.
-		assert_eq!(run(&keys, 3), expected_commitment(&keys));
+		assert_eq!(commit(&keys).unwrap(), expected_commitment(&keys));
 	}
 
 	/// An empty set is all padding, and must still be well defined.
 	#[test]
 	fn an_empty_set_is_all_padding() {
-		let commitment = run(&[], 64);
 		let all_identity: Vec<G1Affine> =
-			(0..NUM_VALIDATORS).map(|_| G1Affine::identity()).collect();
-		assert_eq!(commitment, public_keys_commitment_bytes(&all_identity));
+			(0..apk_commitment::NUM_VALIDATORS).map(|_| G1Affine::identity()).collect();
+		assert_eq!(commit(&[]).unwrap(), public_keys_commitment_bytes(&all_identity));
 	}
 
 	/// Order matters, since the bitlist selects signers positionally.
@@ -419,7 +319,7 @@ mod tests {
 		let keys = relay_keys();
 		let mut swapped = keys.clone();
 		swapped.swap(0, 1);
-		assert_ne!(run(&keys, 64), run(&swapped, 64));
+		assert_ne!(commit(&keys).unwrap(), commit(&swapped).unwrap());
 	}
 
 	/// A key whose x coordinate is the field modulus, which is not a canonical field element.
@@ -427,7 +327,7 @@ mod tests {
 	/// Note an all-`0xff` key is *not* a good negative case: the top bits are the compression and
 	/// infinity flags, so it decodes happily as the identity point.
 	#[test]
-	fn a_malformed_key_is_rejected_rather_than_absorbed() {
+	fn a_malformed_key_is_rejected_rather_than_hashed() {
 		let mut key = hex::decode(
 			"1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f624\
 			 1eabfffeb153ffffb9feffffffffaaab",
@@ -437,8 +337,7 @@ mod tests {
 		let mut fixed = [0u8; BLS_G1_SIGNATURE_LEN];
 		fixed.copy_from_slice(&key);
 
-		let state = PartialCommitment::new().to_bytes();
-		assert_eq!(absorb_slots(&[fixed], 0, 1, state), Err(MalformedKey));
+		assert_eq!(commit(&[fixed]), Err(MalformedKey));
 	}
 
 	/// The identity point encodes as a valid compressed key, so a set genuinely containing one is
@@ -450,90 +349,49 @@ mod tests {
 		G1Affine::identity().serialize_compressed(&mut encoded).unwrap();
 		let mut key = [0u8; BLS_G1_SIGNATURE_LEN];
 		key.copy_from_slice(&encoded);
-		let state = PartialCommitment::new().to_bytes();
-		assert!(absorb_slots(&[key], 0, 1, state).is_ok());
+		assert!(commit(&[key]).is_ok());
 	}
 
 	const SET_A: [u8; 32] = [0xaa; 32];
 	const SET_B: [u8; 32] = [0xbb; 32];
 
 	#[test]
-	fn a_fresh_chain_starts() {
-		assert_eq!(next_progress(None, None, 1, SET_A), Step::Restart);
+	fn a_fresh_chain_commits() {
+		assert_eq!(next_step(None, SET_A), Step::Commit);
 	}
 
 	#[test]
-	fn an_already_published_set_is_left_alone() {
-		assert_eq!(next_progress(None, Some((1, SET_A)), 1, SET_A), Step::Done);
+	fn keys_already_committed_to_are_republished_rather_than_rehashed() {
+		let published = (1u64, SET_A, [7u8; 32]);
+		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
 	}
 
 	/// A session can rotate without the membership changing, which is common on small networks and
-	/// possible anywhere. The keys hash to the same digest, but the client files commitments under
-	/// the set id, so this has to publish again rather than deciding there is nothing to do.
+	/// possible anywhere. Rehashing would cost the better part of a second for a commitment we
+	/// already hold, so the stored one is republished under the new set id instead.
 	#[test]
-	fn the_same_keys_under_a_new_set_id_are_published_again() {
-		assert_eq!(next_progress(None, Some((1, SET_A)), 2, SET_A), Step::Restart);
+	fn the_same_keys_under_a_new_set_id_are_not_rehashed() {
+		let published = (1u64, SET_A, [7u8; 32]);
+		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
 	}
 
-	/// A new set arriving after one was published starts rather than stopping.
+	/// Different keys mean the stored commitment says nothing about them.
 	#[test]
-	fn a_new_set_starts_even_though_another_was_published() {
-		assert_eq!(next_progress(None, Some((1, SET_A)), 2, SET_B), Step::Restart);
+	fn a_new_set_is_committed_to_even_though_another_was_published() {
+		let published = (1u64, SET_A, [7u8; 32]);
+		assert_eq!(next_step(Some(&published), SET_B), Step::Commit);
 	}
 
+	/// Two different sets must not reach the same commitment, which is the property the set digest
+	/// is standing in for when deciding whether to rehash.
 	#[test]
-	fn work_in_progress_on_the_same_set_continues() {
-		let p = Progress { set_digest: SET_A, absorbed: 128, state: [1u8; 32] };
-		assert_eq!(next_progress(Some(&p), None, 1, SET_A), Step::Continue(p));
-	}
-
-	/// The case this whole function exists for: the authority set changed while a commitment was
-	/// part way through.
-	#[test]
-	fn a_rotation_part_way_through_restarts() {
-		let p = Progress { set_digest: SET_A, absorbed: 512, state: [1u8; 32] };
-		assert_eq!(next_progress(Some(&p), None, 2, SET_B), Step::Restart);
-	}
-
-	/// And restarting has to mean *restarting*, not resuming with a relabelled set. If the state
-	/// carried over, the commitment would be a Merkle-Damgard chain over the first set's keys
-	/// followed by the second's, belonging to neither, and nothing downstream would notice.
-	#[test]
-	fn a_restart_discards_the_partial_state() {
-		let fresh = Progress::fresh(SET_B);
-		assert_eq!(fresh.absorbed, 0);
-		assert_eq!(fresh.state, PartialCommitment::new().to_bytes());
-		assert_eq!(fresh.set_digest, SET_B);
-	}
-
-	/// End to end over the absorption itself: absorb part of one set, rotate, and the commitment
-	/// that comes out must be the second set's, identical to having never seen the first.
-	#[test]
-	fn a_commitment_interrupted_by_a_rotation_is_not_a_mixture() {
+	fn a_different_set_commits_differently() {
 		let first = relay_keys();
 		let mut second = relay_keys();
-		second.swap(0, 1); // a different set, same size
-
-		// absorb 300 slots of the first set, then rotate
-		let mut state = PartialCommitment::new().to_bytes();
-		state = absorb_slots(&first, 0, 300, state).unwrap();
-		assert_eq!(
-			next_progress(
-				Some(&Progress { set_digest: SET_A, absorbed: 300, state }),
-				None,
-				2,
-				SET_B
-			),
-			Step::Restart
-		);
-
-		// restart discards that state, so the result is the second set's commitment alone
-		let restarted = run(&second, 64);
-		assert_eq!(restarted, expected_commitment(&second));
-		assert_ne!(restarted, expected_commitment(&first), "the two sets must not collide");
+		second.swap(0, 1);
+		assert_ne!(commit(&first).unwrap(), commit(&second).unwrap());
 	}
 
-	/// A client finds the commitment in a header carrying unrelated digest items too, which is the
 	/// normal case: aura and the parachain system both write their own.
 	#[test]
 	fn commitment_is_found_among_other_digest_items() {

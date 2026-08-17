@@ -185,6 +185,7 @@ runtime-benchmarks = [
     "ismp-parachain/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
     "pallet-beefy-consensus-proofs/runtime-benchmarks",
+    "pallet-beefy-apk-digest/runtime-benchmarks",
     "pallet-hyper-fungible-token/runtime-benchmarks",
 ]
 try-runtime = [

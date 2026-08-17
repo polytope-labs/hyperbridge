@@ -19,6 +19,8 @@ cumulus-pallet-parachain-system = { workspace = true, default-features = false }
 ark-bls12-381 = { version = "0.4.0", features = ["curve"], default-features = false }
 ark-serialize = { version = "0.4.0", default-features = false }
 
+hex-literal = { workspace = true, optional = true }
+
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["frame-support", "frame-system", "sp-io", "sp-runtime"]
@@ -41,3 +43,8 @@ std = [
     "ark-serialize/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]
+runtime-benchmarks = [
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
+    "dep:hex-literal",
+]

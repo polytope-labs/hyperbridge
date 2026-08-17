@@ -883,17 +883,8 @@ impl pallet_messaging_incentives::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
-parameter_types! {
-	/// A full 1024-slot commitment is roughly 420ms of wasm, so it is absorbed across blocks. At
-	/// about 410us per slot this is ~26ms per block, and a whole set lands in 16 blocks, well
-	/// inside the session in which the next authority set is already known.
-	pub const ApkSlotsPerBlock: u32 = 64;
-}
-
 impl pallet_beefy_apk_digest::Config for Runtime {
-	type SlotsPerBlock = ApkSlotsPerBlock;
-	// Measured, not benchmarked; see the note on the default impl.
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_beefy_apk_digest::WeightInfo<Runtime>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -1057,6 +1048,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
+		[pallet_beefy_apk_digest, BeefyApkDigest]
 		[pallet_hyper_fungible_token, HyperFungibleToken]
 	);
 }

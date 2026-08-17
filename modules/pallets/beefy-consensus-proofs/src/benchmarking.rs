@@ -155,10 +155,15 @@ mod benchmarks {
 			let message: beefy_verifier_primitives::ApkConsensusMessage =
 				proof.try_into().expect("apk proof fixture converts");
 
+			// The parachain the fixture was captured from, so the digest is read and the
+			// measurement covers the path a real proof takes.
+			const FIXTURE_PARA_ID: u32 = 4009;
+
 			beefy_verifier::apk::verify_apk_consensus::<ismp_beefy::SubstrateCrypto>(
 				state.clone(),
 				message,
 				&verifying_key,
+				FIXTURE_PARA_ID,
 			)
 			.expect("the fixture proof verifies");
 		}

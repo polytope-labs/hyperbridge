@@ -48,12 +48,17 @@ const COORDINATE: usize = 48;
 /// The aggregate key reaches the circuit as six 64 bit limbs per coordinate.
 const APK_LIMBS: usize = 12;
 
-/// The seed point the circuit aggregates onto, `HashToG1(dst="gnark-apk-proofs", msg="apk-seed")`.
-/// Hardcoded in the circuit and in `ApkProof.sol`, packed here the same way a key is.
+/// The seed point the circuit aggregates onto, hashed to the curve from `dst="gnark-apk-proofs"`
+/// and `msg="apk-seed-coset"`. Hardcoded in the circuit and in `ApkProof.sol`, packed here the
+/// same way a key is.
+///
+/// It sits on the curve but deliberately outside G1, which is what lets the circuit aggregate
+/// with incomplete addition. Every key is in G1, so `seed + sum(pk)` stays in the coset `seed + G1`
+/// and can never meet a key or its negation, the two cases the chord formula cannot handle.
 const SEED: [u8; APK_G1_LEN] = hex_literal::hex!(
-	"054abdb6c5522fe2f71d55922d6f674a4908d39e2b33efcc62520c0621ca0d6a"
-	"6d84ee717b7fb1cb5f46687265be01ce06e518322165fd114cdf6b4ab59eb45e"
-	"9289cc4f6f7948d6b680cef9ecc0e0e0f96bd59a578d58c33c0e10db9c25b5ad"
+	"19742ffba069554d8cacceb8ed5514b2ecf72cd7372d3414203338f4fd3b3cc7"
+	"42fb160f8eb5818422246de186e0814a0e0f5d1199876e646952fb74d39e0b34"
+	"042a8d48786adae7e0fccf4b0236c72e82343de94c9d12bf17d22bec9edbbe2b"
 );
 
 /// Verify a whole update and return the new trusted state with the verified parachain headers.
@@ -66,6 +71,7 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 	trusted_state: ApkConsensusState,
 	proof: ApkConsensusMessage,
 	verifying_key: &[u8],
+	digest_para_id: u32,
 ) -> Result<(ApkConsensusState, Vec<ParachainHeader>), Error> {
 	let (mut state, heads_root) =
 		verify_apk_mmr_update_proof::<H>(trusted_state, proof.mmr, verifying_key)?;
@@ -74,7 +80,12 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 	// Forward chaining: a verified header may carry the commitment for a set this client has no
 	// keys for yet. Picking it up here is what makes the next update verifiable at all, and is
 	// why the digest names the next set rather than the current one.
-	for header in headers.iter() {
+	//
+	// Only `digest_para_id`'s headers are read. A proof carries whichever parachains the relay
+	// finalized, and every one of them is proven against the heads root, so a digest from another
+	// parachain is authentic yet says nothing about this relay's authorities. Left unfiltered any
+	// parachain could name the keys this client trusts next.
+	for header in headers.iter().filter(|header| header.para_id == digest_para_id) {
 		if let Some(digest) = read_apk_digest(&header.header) {
 			state.learn_commitment(digest.set_id, H256(digest.commitment));
 			break;
@@ -207,7 +218,7 @@ fn verify_apk_proof(
 	// The circuit aggregates onto a fixed seed point, so what it proves about is `seed + apk`
 	// rather than the aggregate on its own. `ApkProof._encodePublicInputs` adds it the same way
 	// before handing the inputs to the PLONK verifier.
-	let seeded = (read_g1(&mmr.apk)?.into_group() + read_g1(&SEED)?).into_affine();
+	let seeded = (read_g1(&mmr.apk)?.into_group() + read_seed()?).into_affine();
 	let (x, y) = seeded.xy().ok_or(Error::ApkPointInvalid)?;
 
 	// Each coordinate is too wide for one scalar, so it travels as six 64 bit limbs, least
@@ -322,6 +333,18 @@ fn hash_commitment_to_g1(encoded_commitment: &[u8]) -> Result<G1Affine, Error> {
 const CIPHER_SUITE: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
 
 /// Read a G1 point from raw big-endian coordinates.
+/// Read the aggregation seed, which is on the curve but not in G1, so the subgroup check
+/// [`read_g1`] applies to keys would reject it.
+fn read_seed() -> Result<G1Affine, Error> {
+	let x = read_fq(&SEED[..COORDINATE])?;
+	let y = read_fq(&SEED[COORDINATE..])?;
+	let point = G1Affine::new_unchecked(x, y);
+	if !point.is_on_curve() {
+		return Err(Error::ApkPointInvalid);
+	}
+	Ok(point)
+}
+
 fn read_g1(bytes: &[u8; APK_G1_LEN]) -> Result<G1Affine, Error> {
 	let x = read_fq(&bytes[..COORDINATE])?;
 	let y = read_fq(&bytes[COORDINATE..])?;

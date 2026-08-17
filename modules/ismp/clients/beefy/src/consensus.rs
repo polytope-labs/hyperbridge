@@ -120,6 +120,7 @@ where
 					apk_state,
 					apk_proof,
 					&C::apk_verifying_key(),
+					C::apk_digest_para_id(),
 				)?;
 				(state.encode(), headers)
 			},

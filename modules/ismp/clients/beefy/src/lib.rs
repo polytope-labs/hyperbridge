@@ -56,6 +56,16 @@ pub trait BeefyClientConfig {
 		Default::default()
 	}
 
+	/// The parachain whose header digests carry apk commitments, which is hyperbridge.
+	///
+	/// Every parachain in a proof is proven against the heads root, so a digest from any of them
+	/// is authentic; only this one's says anything about the relay chain's authorities. The
+	/// default of zero matches no parachain, so a chain that never sees an apk proof learns
+	/// nothing rather than learning from whoever turns up.
+	fn apk_digest_para_id() -> u32 {
+		0
+	}
+
 	/// Allowed proof types. Controls which consensus proof formats this client will
 	/// accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
 	/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`. A proof whose type byte is not listed is

@@ -29,6 +29,15 @@ const BASE_TIP = 1_000_000_000n
 /** How long the HTTP api has to come up (metadata included) before the attempt is abandoned. */
 const HTTP_CONNECT_TIMEOUT_MS = 20_000
 
+/**
+ * How long a submitted extrinsic has to reach a block before the attempt is treated as stalled.
+ *
+ * Sized against the bid window, not against how long inclusion can conceivably take: a bid is worth
+ * nothing once its window closes, so an extrinsic still sitting in the pool after a few blocks is
+ * better replaced by a higher-tipped copy than waited on.
+ */
+export const INCLUSION_TIMEOUT_MS = 20_000
+
 /** Default phantom order poll cadence, used for every runtime except Gargantua. */
 const PHANTOM_POLL_INTERVAL_MS = 15_000
 
@@ -191,6 +200,12 @@ export interface PhantomBidBatchResult {
 interface SubmissionOutcome extends BidSubmissionResult {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	events?: { event: { section: string; method: string; data: any } }[]
+	/**
+	 * The extrinsic reached the pool under this account's nonce and was still there when the watch
+	 * timed out — the one flavour of `pending` a replacement can act on, as opposed to a rejection
+	 * that bounced off a copy already pooled. Internal to the retry loop; callers see `pending`.
+	 */
+	stalled?: boolean
 }
 
 export interface PollPhantomOrdersOptions {
@@ -390,8 +405,10 @@ export class IntentsCoprocessor {
 	/**
 	 * Signs and sends an extrinsic. Submissions are serialised through {@link submissionQueue} so
 	 * concurrent calls never collide on the substrate account nonce — each extrinsic reaches a block
-	 * (or is confirmed still pooled and returned as `pending`) before the next is signed; auto-nonce
-	 * via `system.accountNextIndex` counts pooled extrinsics, so a pending one is never re-used.
+	 * (or is confirmed still pooled and returned as `pending`) before the next is signed. The
+	 * auto-nonce is the account's on-chain nonce, so a still-pooled extrinsic does not advance it: a
+	 * submission signed behind a pending one bounces off it (1013/1014) and is reported as pending
+	 * too, rather than landing as a second copy.
 	 *
 	 * The extrinsic is built rather than passed in because the api it is built on decides where it
 	 * is signed and sent: a websocket that is down when the queue reaches this submission diverts it
@@ -400,7 +417,7 @@ export class IntentsCoprocessor {
 	private async signAndSendExtrinsic(
 		build: ExtrinsicBuilder,
 		maxRetries: number = 3,
-		timeoutMs: number = 30_000,
+		timeoutMs: number = INCLUSION_TIMEOUT_MS,
 	): Promise<SubmissionOutcome> {
 		const result = await this.submissionQueue.add(async () => {
 			// Checked here, not at call time: the queue may have held this submission for a while.
@@ -442,12 +459,27 @@ export class IntentsCoprocessor {
 	 * Signs and sends an extrinsic, handling status updates and errors.
 	 * Implements retry logic with progressive tip increases for stuck transactions.
 	 *
-	 * A retry only happens when the previous attempt verifiably went nowhere. Once an attempt's
-	 * extrinsic is known to be pooled (`pending`), re-signing the same call would race our own
-	 * submission: the copy either bounces off the pool (1014, same nonce below the replacement
-	 * priority bump) or — if the original lands first, freeing the nonce — executes as a duplicate
-	 * and fails on-chain (e.g. `BidNotFound` for a retraction). Neither can succeed, so the pending
-	 * result is returned for the caller to confirm later.
+	 * Two kinds of failure are retried, and the difference is the nonce.
+	 *
+	 * An attempt that verifiably went nowhere (rejected before the pool, dropped, invalid) leaves
+	 * the account nonce free, so the next attempt simply re-signs with the auto-nonce.
+	 *
+	 * An attempt that reached the pool and was still there when the watch timed out (`stalled`) is
+	 * retried as a *replacement*: the same nonce it was signed with, and double the tip. Substrate's
+	 * pool evicts a pooled extrinsic in favour of a higher-priority one at the same (account, nonce),
+	 * so exactly one of the two can ever execute. This matters for a bid, which is worth nothing once
+	 * its window closes — waiting out a stalled extrinsic usually means not bidding at all.
+	 *
+	 * Re-signing without pinning the nonce is what must never happen here. The auto-nonce is read
+	 * from on-chain state, so it is only the stalled extrinsic's nonce for as long as that extrinsic
+	 * stays out of a block — and a stall is precisely the case where it may land at any moment. Once
+	 * it does, an unpinned retry takes the *next* nonce and both execute: a duplicate `placeBid` that
+	 * fails on-chain, and a second `retractBid` that pulls the bid just placed. When the signed nonce
+	 * cannot be read, the stalled result is returned rather than guessed at.
+	 *
+	 * A rejection that bounced off a copy already pooled (1013/1014) is likewise left alone: that
+	 * copy is in flight and its outcome is unknown here, so the `pending` result goes back to the
+	 * caller to confirm later.
 	 */
 	private async sendExtrinsicWithRetries(
 		extrinsic: SubmittableExtrinsic<"promise">,
@@ -456,30 +488,64 @@ export class IntentsCoprocessor {
 	): Promise<SubmissionOutcome> {
 		const keyPair = this.getKeyPair()
 		let attempt = 0
+		// Set once an attempt stalls in the pool, so every later attempt replaces it instead of
+		// queueing behind it.
+		let nonce: number | undefined
+		let stalled: SubmissionOutcome | undefined
 
 		while (attempt < maxRetries) {
 			const currentTip = BASE_TIP * BigInt(2 ** attempt) // Double tip on each retry
 			attempt++
 
 			try {
-				const result = await this.sendWithTimeout(extrinsic, keyPair, currentTip, timeoutMs)
-				if (result.success || result.pending || result.error?.includes("Dispatch error")) {
-					// Return immediately on success, an in-flight extrinsic, or dispatch errors
-					// (non-recoverable)
+				const result = await this.sendWithTimeout(extrinsic, keyPair, currentTip, timeoutMs, nonce)
+				if (result.success || result.error?.includes("Dispatch error")) {
+					// Return immediately on success or dispatch errors (non-recoverable)
 					return result
 				}
-			} catch (err) {
-				// Unexpected error, return immediately
-				return {
-					success: false,
-					error: err instanceof Error ? err.message : "Unknown error",
+				if (result.stalled) {
+					stalled = result
+					nonce ??= this.signedNonce(extrinsic)
+					// Without the nonce the extrinsic went out under, a retry cannot be a replacement.
+					if (nonce === undefined) return result
+					continue
 				}
+				// A copy of this nonce is already pooled — in flight, not ours to replace. When that
+				// copy is the attempt that stalled here, its own result is the one to report: it
+				// carries the extrinsic hash the caller would look up.
+				if (result.pending) return stalled ?? result
+			} catch (err) {
+				// Unexpected error. A stalled extrinsic is still in flight whatever went wrong on
+				// this attempt, so it is reported as pending rather than as a failure.
+				return (
+					stalled ?? {
+						success: false,
+						error: err instanceof Error ? err.message : "Unknown error",
+					}
+				)
 			}
 		}
 
-		return {
-			success: false,
-			error: `Transaction failed after ${maxRetries} attempts`,
+		// A stalled extrinsic that outlived every bump is still in flight, so it is reported as
+		// pending — the caller must not re-sign it.
+		return (
+			stalled ?? {
+				success: false,
+				error: `Transaction failed after ${maxRetries} attempts`,
+			}
+		)
+	}
+
+	/**
+	 * The nonce an extrinsic was signed with, or undefined if it carries no readable one — which is
+	 * the case before it has ever been signed, and for a stub api in tests.
+	 */
+	private signedNonce(extrinsic: SubmittableExtrinsic<"promise">): number | undefined {
+		try {
+			const nonce = (extrinsic as unknown as { nonce?: { toNumber?: () => number } }).nonce?.toNumber?.()
+			return typeof nonce === "number" && Number.isFinite(nonce) ? nonce : undefined
+		} catch {
+			return undefined
 		}
 	}
 
@@ -504,14 +570,20 @@ export class IntentsCoprocessor {
 	 *
 	 * A timeout is only a failure when the extrinsic never made it into the transaction pool.
 	 * Once a pool-entry status (Future/Ready/Broadcast/Retracted) has been seen, the extrinsic is
-	 * in flight and may well execute after the watch is abandoned — the result is then `pending`,
-	 * telling the caller to confirm the outcome later instead of re-signing the same call.
+	 * in flight and may well execute after the watch is abandoned — the result is then `pending`
+	 * and `stalled`, telling the caller to replace it under the same nonce or confirm it later,
+	 * never to re-sign the same call under a fresh one.
+	 *
+	 * `nonce` pins the submission to a specific account nonce, which is what makes a retry a pool
+	 * replacement rather than a second extrinsic queued behind the first. Left undefined on the
+	 * first attempt, where the api's auto-nonce is correct.
 	 */
 	private async sendWithTimeout(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		keyPair: KeyringPair,
 		tip: bigint,
 		timeoutMs: number,
+		nonce?: number,
 	): Promise<SubmissionOutcome> {
 		return new Promise<SubmissionOutcome>((resolve) => {
 			let resolved = false
@@ -528,6 +600,7 @@ export class IntentsCoprocessor {
 					resolve({
 						success: false,
 						pending: enteredPool || undefined,
+						stalled: enteredPool || undefined,
 						extrinsicHash: enteredPool ? (extrinsic.hash.toHex() as HexString) : undefined,
 						error: `Transaction timed out after ${timeoutMs}ms${enteredPool ? " while in the transaction pool" : ""}`,
 					})
@@ -535,7 +608,7 @@ export class IntentsCoprocessor {
 			}, timeoutMs)
 
 			extrinsic
-				.signAndSend(keyPair, { tip }, (result) => {
+				.signAndSend(keyPair, nonce === undefined ? { tip } : { tip, nonce }, (result) => {
 					if (resolved) return
 
 					if (

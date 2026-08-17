@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { cryptoWaitReady } from "@polkadot/util-crypto"
-import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
+import { INCLUSION_TIMEOUT_MS, IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { HexString } from "@/types"
 
 /**
@@ -49,21 +49,33 @@ const unrelatedEvent = { event: { section: "balances", method: "Transfer", data:
 /** A terminal pool status: the extrinsic is gone and never reached a block. */
 const droppedStatus = { ...inBlockStatus, isInBlock: false, isDropped: true, type: "Dropped" }
 
+/** A pool-entry status with no follow-up: the extrinsic is stuck in the pool. */
+const readyStatus = { ...inBlockStatus, isInBlock: false, isReady: true, type: "Ready" }
+
+/** The nonce the batch reports once signed, which a replacement must be pinned to. */
+const SIGNED_NONCE = 4
+
 /**
  * A mock node that reports `events` for the batch it is handed, and records the calls that went
  * into it. `dropped` makes the extrinsic die in the pool instead of reaching a block.
+ * `stallAttempts` makes that many leading attempts reach the pool and then go silent, which is what
+ * a submission that never gets included looks like from here.
  */
-function mockNode(options: { events?: unknown[]; dropped?: boolean } = {}) {
+function mockNode(options: { events?: unknown[]; dropped?: boolean; stallAttempts?: number } = {}) {
 	const batches: { call: string; args: unknown[] }[][] = []
+	const attempts: { tip?: bigint; nonce?: number }[] = []
 
 	const sendable = {
 		hash: { toHex: () => "0xextrinsichash" },
-		signAndSend: (_keyPair: unknown, _opts: unknown, cb: (result: unknown) => void) => {
+		nonce: { toNumber: () => SIGNED_NONCE },
+		signAndSend: (_keyPair: unknown, opts: { tip?: bigint; nonce?: number }, cb: (result: unknown) => void) => {
+			attempts.push(opts)
+			const stalls = attempts.length <= (options.stallAttempts ?? 0)
 			queueMicrotask(() =>
 				cb({
 					dispatchError: undefined,
-					status: options.dropped ? droppedStatus : inBlockStatus,
-					events: [unrelatedEvent, ...(options.events ?? [])],
+					status: stalls ? readyStatus : options.dropped ? droppedStatus : inBlockStatus,
+					events: stalls ? [] : [unrelatedEvent, ...(options.events ?? [])],
 				}),
 			)
 			return Promise.resolve(() => {})
@@ -97,7 +109,7 @@ function mockNode(options: { events?: unknown[]; dropped?: boolean } = {}) {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any
 
-	return { batches, api }
+	return { batches, attempts, api }
 }
 
 describe("submitPhantomBids", () => {
@@ -188,6 +200,37 @@ describe("submitPhantomBids", () => {
 
 		expect(result.bids.map((b) => b.success)).toEqual([true, true])
 		expect(result.error).toContain("not attributed")
+	})
+
+	/**
+	 * A bid is worth nothing once its window closes, so a batch that reaches the pool and sits there
+	 * is bumped rather than waited on: same nonce, double the tip, which is what the pool needs to
+	 * swap the stalled copy for this one. Only one of the two can ever execute.
+	 */
+	it("bumps a batch that stalls in the pool and attributes the replacement's items", async () => {
+		vi.useFakeTimers()
+		try {
+			const node = mockNode({ events: [itemCompleted, itemCompleted], stallAttempts: 1 })
+			const coproc = IntentsCoprocessor.fromApi(node.api, "//Alice")
+
+			const submission = coproc.submitPhantomBids([
+				{ commitment: COMMITMENT_A, userOp: USER_OP },
+				{ commitment: COMMITMENT_B, userOp: USER_OP },
+			])
+			// Run out the inclusion watch on the first attempt so the bump goes out.
+			await vi.advanceTimersByTimeAsync(INCLUSION_TIMEOUT_MS)
+			const result = await submission
+
+			expect(node.attempts).toHaveLength(2)
+			expect(node.attempts[1].nonce).toBe(SIGNED_NONCE)
+			expect(node.attempts[1].tip).toBe(node.attempts[0].tip! * 2n)
+			// The bid calls are built once and re-signed, not batched twice.
+			expect(node.batches).toHaveLength(1)
+			expect(result.bids.map((bid) => bid.success)).toEqual([true, true])
+			expect(result.blockHash).toBe("0xblockhash")
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it("is a no-op for an empty list", async () => {

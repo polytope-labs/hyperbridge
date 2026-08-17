@@ -14,6 +14,10 @@ jobs:
     permissions:
       contents: write
       packages: write
+      # Trusted publishing: OIDC in place of NPM_TOKEN. npm trusts
+      # publish-sdk.yml on polytope-labs/hyperbridge (package Settings ->
+      # Trusted Publisher). Token publishing sunsets ~Jan 2027.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,17 +44,16 @@ jobs:
       - name: Build SDK
         run: pnpm --filter="@hyperbridge/sdk" build
 
-      - name: Authenticate with npm
-        run: |
-          printf "//registry.npmjs.org/:_authToken=%s\n" "${NODE_AUTH_TOKEN}" > ~/.npmrc
-          npm whoami --registry=https://registry.npmjs.org
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # npm >= 11.5 exchanges the Actions OIDC token for npm credentials on its
+      # own; the runner's bundled npm predates that. The sdk has no workspace:*
+      # dependencies, so npm publish alone suffices — no pnpm pack step.
+      - name: OIDC-capable npm
+        run: npm install -g npm@^11
 
       - name: Publish to npm
-        run: pnpm --filter="@hyperbridge/sdk" publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/sdk
+          npm publish --access public
 
   generate-changelog:
     runs-on: ubuntu-latest

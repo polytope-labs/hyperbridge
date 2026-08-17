@@ -618,10 +618,28 @@ export class FXFiller implements FillerStrategy {
 				)
 
 				if (!legResult) {
-					// Budget exhausted for this pair. Emit a zero output so the
-					// on-chain outputs array stays index-aligned with
-					// order.output.assets (the gateway skips solverAmount == 0 legs);
-					// a compacted array would mismatch and revert fillOrder.
+					// Budget exhausted for this pair. A zero leg IS an under-fill: the
+					// gateway sets isFullyFilled = false for it, which reverts a calldata
+					// order (PartialFillNotAllowed) and reverts cross-chain outright
+					// (InvalidInput) — so it must clear the same eligibility gate a
+					// short leg does, not sneak past it.
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								reason: "pair budget exhausted",
+							},
+							"Skipping order: a leg cannot be filled at all and the order cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
+					// Emit a zero output so the on-chain outputs array stays
+					// index-aligned with order.output.assets (the gateway skips
+					// solverAmount == 0 legs); a compacted array would mismatch and
+					// revert fillOrder.
 					fillerOutputs.push({ token: output.token, amount: 0n })
 					fillerOutputLegs.push(i)
 					continue
@@ -705,6 +723,22 @@ export class FXFiller implements FillerStrategy {
 				const finalOutputAmount = effectiveBalance > targetOutput ? targetOutput : effectiveBalance
 
 				if (finalOutputAmount === 0n) {
+					// Same rule as the budget-exhausted zero above: an empty leg is an
+					// under-fill and must pass the same gate a short leg does.
+					if (!(await partialEligible())) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								pair: `${leg.pair.token0}/${leg.pair.token1}`,
+								token: output.token,
+								inputAmount: input.amount.toString(),
+								fillerBalance: balance.toString(),
+							},
+							"Skipping order: a leg has no available balance and the order cannot be partially filled",
+						)
+						return 0
+					}
+					partialFill = true
 					this.logger.info(
 						{
 							orderId: order.id,
@@ -713,7 +747,7 @@ export class FXFiller implements FillerStrategy {
 							inputAmount: input.amount.toString(),
 							fillerBalance: balance.toString(),
 						},
-						"Skipping leg: no available balance for required output token",
+						"Leg has no available balance; continuing as a partial fill",
 					)
 					// Aligned zero output (see budget-exhausted case above).
 					fillerOutputs.push({ token: output.token, amount: 0n })
@@ -764,8 +798,9 @@ export class FXFiller implements FillerStrategy {
 					partialFill = true
 				}
 
-				// Any shortfall makes this an under-fill, whatever caused it — the cap, or
-				// simply not holding enough of the output token. The gateway does not care
+				// Any shortfall makes this an under-fill, whatever caused it — the cap,
+				// or not holding enough of the output token. (An EMPTY leg is gated the
+				// same way at its two zero-push sites above.) The gateway does not care
 				// which: an under-fill on a cross-chain order or one carrying output
 				// calldata reverts, so both must clear the same eligibility check the
 				// cap-limited path does. Only the cross-chain half used to be tested, so

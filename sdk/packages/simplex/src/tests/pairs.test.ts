@@ -742,7 +742,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		pairs: TradingPair[],
 		registry: AssetRegistry,
 		estimate: { fillGas: bigint; relayer: bigint },
-		options?: { fundingVenues?: unknown[] },
+		options?: { fundingVenues?: unknown[]; balancesByToken?: Record<string, bigint> },
 	) {
 		const cache = new Map<string, unknown>()
 		const contractService = {
@@ -758,6 +758,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			},
 			getFeeTokenWithDecimals: async () => ({ decimals: 6, address: USDC }),
 			getTokenDecimals: async (token: string) => decimalsByAddr[token.toLowerCase()] ?? 18,
+			partialFillsFor: async (o: Order) => o.output.assets.map(() => 0n),
 			estimateGasFillPost: async () => ({
 				totalCostInSourceFeeToken: estimate.fillGas,
 				relayerFeeInSourceFeeToken: estimate.relayer,
@@ -769,7 +770,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			chain: { blockTime: 2000 },
 			getBlock: async () => ({ number: 100n, timestamp: 0n }),
 			getBalance: async () => 10n ** 30n,
-			readContract: async () => 10n ** 30n, // balanceOf: effectively unlimited
+			readContract: async (params: { address: string }) =>
+				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
 		return new FXFiller(signer, cfg, clientManager, contractService, pairs, registry, {
@@ -895,6 +897,61 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		maxOrderSize: size("100000"),
 		bidPricePolicy: flat("18.2"),
 		askPricePolicy: flat("17.8"), // mid 18 ZARP per USDC → ZARP ≈ $1/18
+	})
+
+	/**
+	 * An EMPTY leg is an under-fill too: on-chain a zero output sets
+	 * isFullyFilled = false, which reverts a calldata order outright
+	 * (PartialFillNotAllowed). The zero-push sites must clear the same
+	 * eligibility gate a short leg does — royvardhan's finding, in his shape:
+	 * the solver funds one leg's token and holds none of the other's.
+	 */
+	it("gates an empty leg like any under-fill: calldata refuses, plain becomes a partial", async () => {
+		const pairs = [
+			{ token0: "USDC", token1: "CNGN", maxOrderSize: size("100000"), bidPricePolicy: flat("1500"), askPricePolicy: flat("1510") },
+			{ token0: "USDC", token1: "ZARP", maxOrderSize: size("100000"), bidPricePolicy: flat("18"), askPricePolicy: flat("18.2") },
+		]
+		const registry = new AssetRegistry(cfg, {
+			CNGN: { [SRC]: CNGN, [DST]: CNGN },
+			ZARP: { [SRC]: ZARP, [DST]: ZARP },
+		})
+		const noZarp = { [ZARP.toLowerCase()]: 0n }
+		const twoLegs = (id: string, call: HexString): Order => ({
+			...order(
+				id,
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+				parseUnits("10", 6),
+			),
+			// Same-chain: partial eligibility's cheap half must pass so the gate
+			// itself is what decides.
+			destination: SRC,
+			inputs: [
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+			],
+			output: {
+				beneficiary: bytes20ToBytes32(SOLVER),
+				assets: [
+					{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1500000", 18) },
+					{ token: bytes20ToBytes32(ZARP), amount: parseUnits("17900", 18) },
+				],
+				call,
+			},
+		})
+
+		// The ZARP leg is unfundable, so it goes out as a zero — an under-fill.
+		// With output calldata the gateway would revert PartialFillNotAllowed, so
+		// the order is refused before any bid.
+		const withCalldata = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
+		expect(await withCalldata.calculateProfitability(twoLegs("empty-leg-calldata", "0xdeadbeef" as HexString))).toBe(0)
+
+		// Without calldata the same shape is a legitimate partial: flagged so the
+		// caller's floor exemption applies, and never scored by GATE 1's fee rule.
+		const plain = gateFiller(pairs, registry, { fillGas: parseUnits("1", 6), relayer: 0n }, { balancesByToken: noZarp })
+		const o = twoLegs("empty-leg-plain", "0x" as HexString)
+		await plain.calculateProfitability(o)
+		expect((plain as unknown as { contractService: { cacheService: { isPartialFill(id: string): boolean } } }).contractService.cacheService.isPartialFill("empty-leg-plain")).toBe(true)
 	})
 
 	it("fills fully at a sloped curve when the cap does not bind (cap test is curve-independent)", async () => {

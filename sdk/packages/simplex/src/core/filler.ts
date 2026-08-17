@@ -1,3 +1,4 @@
+import { keccakAsU8a } from "@polkadot/util-crypto"
 import { EventMonitor } from "./event-monitor"
 import type { FillerStrategy } from "@/strategies/base"
 import {
@@ -60,6 +61,10 @@ export class IntentFiller {
 	// retracts exactly the one it replaces.
 	private lastPhantomCommitmentByChain = new Map<string, HexString>()
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
+	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
+	/** The ApiPromise behind `hyperbridge` — ours, so stop() can disconnect it. */
+	// biome-ignore lint/suspicious/noExplicitAny: polkadot api type kept out of the public surface
+	private hyperbridgeApi: any
 
 	/**
 	 * The filler's Hyperbridge connection, so other services can share it rather than opening a
@@ -117,23 +122,12 @@ export class IntentFiller {
 		const substrateKey = configService.getSubstratePrivateKey()
 
 		if (hyperbridgeWsUrl && substrateKey) {
-			// Raced against a timeout: ApiPromise.create retries a dead endpoint
-			// indefinitely, and this promise is awaited on the fill path — so an
-			// unreachable node would hang every order and stop() with it.
-			this.hyperbridge = Promise.race([
-				IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey),
-				new Promise<never>((_, reject) =>
-					setTimeout(
-						() => reject(new Error(`Timed out connecting to Hyperbridge at ${hyperbridgeWsUrl}`)),
-						HYPERBRIDGE_CONNECT_TIMEOUT_MS,
-					).unref(),
-				),
-			])
-			// Nobody may await this before the fill path does; without a handler the
-			// rejection is unhandled and takes the process down.
-			this.hyperbridge.catch((err) =>
-				this.logger.error({ err, hyperbridgeWsUrl }, "Hyperbridge connection failed"),
-			)
+			// Deferred to initialize(): connecting here would make a boot-time
+			// failure a permanently rejected promise the fill path trips over
+			// forever — a solver that scans and evaluates but can never bid, while
+			// status() reports healthy. initialize() awaits the connect, so an
+			// unreachable node rejects Simplex.start() loudly instead.
+			this.hyperbridgeEndpoint = { wsUrl: hyperbridgeWsUrl, substrateKey }
 		}
 
 		// Set up event handlers
@@ -160,7 +154,45 @@ export class IntentFiller {
 		return typeof watchOnly === "object" && watchOnly !== null && watchOnly[chainId] === true
 	}
 
+	/**
+	 * Opens the bidding connection to Hyperbridge, owned by this filler.
+	 *
+	 * Built like HyperbridgeScanner.start: our WsProvider, raced against a
+	 * timeout because ApiPromise.create retries a dead endpoint forever, and the
+	 * provider is disconnected when the race is lost so nothing keeps dialling
+	 * with no owner. Awaited from initialize(), so an unreachable node fails the
+	 * boot instead of producing a solver that can never bid.
+	 */
+	private async connectHyperbridge(): Promise<void> {
+		if (!this.hyperbridgeEndpoint) return
+		const { wsUrl, substrateKey } = this.hyperbridgeEndpoint
+
+		const { ApiPromise, WsProvider } = await import("@polkadot/api")
+		const provider = new WsProvider(wsUrl)
+		const api = await Promise.race([
+			ApiPromise.create({
+				provider,
+				typesBundle: { spec: { nexus: { hasher: keccakAsU8a }, gargantua: { hasher: keccakAsU8a } } },
+			}),
+			new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new Error(`Timed out connecting to Hyperbridge at ${wsUrl}`)),
+					HYPERBRIDGE_CONNECT_TIMEOUT_MS,
+				).unref(),
+			),
+		]).catch(async (error) => {
+			await provider.disconnect().catch(() => {})
+			throw error
+		})
+
+		this.hyperbridgeApi = api
+		// Signing stays here: `fromApi` marks the connection as ours, so only this
+		// filler's stop() closes it.
+		this.hyperbridge = Promise.resolve(IntentsCoprocessor.fromApi(api, substrateKey))
+	}
+
 	public async initialize(): Promise<void> {
+		await this.connectHyperbridge()
 		const chains = await this.solverSelectionChains(this.configService.getConfiguredChainIds())
 		// Boot tolerates partial failure: as long as one chain delegated, the
 		// filler is useful. Only a total failure is fatal.
@@ -451,6 +483,12 @@ export class IntentFiller {
 		this.stopping = true
 		this.monitor.stopListening()
 
+		// The bidding connection is ours (fromApi does not own it), so nothing
+		// else will close this socket.
+		await this.hyperbridgeApi?.disconnect().catch(() => {})
+		this.hyperbridgeApi = undefined
+		this.hyperbridge = undefined
+
 		this.phantomSubscription?.close()
 		this.phantomSubscription = undefined
 		if (this.stopPhantomPolling) {
@@ -492,12 +530,6 @@ export class IntentFiller {
 		promises.push(this.retractionQueue.onIdle())
 
 		await Promise.all(promises)
-
-		// Disconnect shared Hyperbridge connection
-		if (this.hyperbridge) {
-			const service = await this.hyperbridge.catch(() => null)
-			await service?.disconnect()
-		}
 
 		this.logger.info("All orders processed, filler stopped")
 	}

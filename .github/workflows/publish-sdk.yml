@@ -95,7 +95,8 @@ jobs:
             COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
           fi
 
-          CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "sdk")
+          CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "sdk" || true)
+          if [ -z "$CHANGELOG" ]; then CHANGELOG="* No sdk-specific commits in this range."; fi
 
           echo "# Changelog for ${CLEAN_TAG}" > CHANGELOG.md
           echo "" >> CHANGELOG.md

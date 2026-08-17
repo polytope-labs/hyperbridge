@@ -293,8 +293,9 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Returns both indexed rates for a symbol pair without requiring token
-	 * addresses. Chain IDs are numeric IDs for chains configured in the SDK.
+	 * Returns chain-specific buy and sell rates in less-valued quote-token units
+	 * without requiring token addresses. Symbols are matched case-insensitively;
+	 * chain IDs are numeric IDs for chains configured in the SDK.
 	 */
 	async queryBuyAndSellRates(params: QueryBuyAndSellRatesParams): Promise<BuyAndSellRates | undefined> {
 		const { queryClient } = this.requireIndexer()

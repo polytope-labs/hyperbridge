@@ -1,13 +1,17 @@
-import { formatUnits } from "viem"
 import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
 import { AVAILABLE_LIQUIDITY, BUY_AND_SELL_RATES } from "@/queries"
 import type { AvailableLiquidity, BuyAndSellRates, HexString, IndexerQueryClient, LiquiditySlice } from "@/types"
 import { dateStringtoTimestamp, normalizeEvmAddress } from "@/utils"
+import { formatUnits } from "viem"
 import { resolveLiquidityPool } from "./liquidity-pool"
 
-const POOL_DEPTH_DECIMALS = 18
+const INDEXER_FIXED_POINT_DECIMALS = 18
+const POOL_RATE_SCALE = 10n ** 18n
 const SELL = "SELL"
 const BUY = "BUY"
+const USD_STABLE_SYMBOLS = new Set<ConfiguredAssetSymbol>(["USDC", "USDT"])
+
+type PoolDirection = typeof SELL | typeof BUY
 
 interface AvailableLiquidityResponse {
 	poolChainLiquidities: {
@@ -33,13 +37,22 @@ interface PoolRouteNode {
 }
 
 interface BuyAndSellRatesResponse {
-	liquidityPools: {
-		nodes: Array<{
-			sellRate: string | null
-			buyRate: string | null
-			lastUpdatedAt: string
-		}>
-	}
+	direct: RateConnection
+	reverse: RateConnection
+}
+
+interface RateConnection {
+	nodes: ChainRateNode[]
+}
+
+interface ChainRateNode {
+	rate: string
+	lastUpdatedAt: string
+}
+
+interface IndexedRate {
+	scaledRate: bigint
+	updatedAt: Date
 }
 
 export interface LiquidityAsset {
@@ -105,7 +118,14 @@ export class LiquidityEngine {
 		}
 	}
 
-	/** Returns the indexer's merged buy and sell rates for a configured symbol pair. */
+	/**
+	 * Returns chain-specific buy and sell rates in less-valued quote-token units
+	 * per one base token.
+	 *
+	 * The requested direction is read on the destination chain; its reverse is
+	 * read on the source chain. This mirrors where each direction's output token
+	 * must be delivered for a cross-chain trade.
+	 */
 	async getBuyAndSellRates(params: {
 		sourceChain: Chains
 		destinationChain: Chains
@@ -113,22 +133,45 @@ export class LiquidityEngine {
 		tokenOutSymbol: ConfiguredAssetSymbol
 	}): Promise<BuyAndSellRates | undefined> {
 		const pool = resolveLiquidityPool(params.tokenInSymbol, params.tokenOutSymbol)
+		const directDirection: PoolDirection =
+			params.tokenInSymbol.toLowerCase() === pool.token0Symbol.toLowerCase() ? SELL : BUY
+		const reverseDirection: PoolDirection = directDirection === SELL ? BUY : SELL
 		const response = await this.queryClient.request<BuyAndSellRatesResponse>(BUY_AND_SELL_RATES, {
 			poolId: pool.poolId,
+			directChain: params.destinationChain,
+			directDirection,
+			reverseChain: params.sourceChain,
+			reverseDirection,
 		})
-		if (!response?.liquidityPools?.nodes) {
-			throw new InvalidLiquidityIndexerResponseError("liquidityPools connection is missing")
+		if (!response?.direct?.nodes || !response?.reverse?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("rate connections are missing")
 		}
-		const rates = response.liquidityPools.nodes[0]
-		if (!rates) return undefined
+
+		const direct = readIndexedRate(response.direct.nodes[0], "direct rate")
+		const reverse = readIndexedRate(response.reverse.nodes[0], "reverse rate")
+		if (!direct && !reverse) return undefined
+
+		const quoteTokenSymbol = resolveQuoteTokenSymbol(
+			params.tokenInSymbol,
+			params.tokenOutSymbol,
+			direct?.scaledRate,
+			reverse?.scaledRate,
+		)
+		const quoteIsTokenOut = quoteTokenSymbol === params.tokenOutSymbol
+		const buy = quoteIsTokenOut ? direct : reverse
+		const sell = quoteIsTokenOut ? reverse : direct
 
 		return {
-			...pool,
+			baseTokenSymbol: quoteIsTokenOut ? params.tokenInSymbol : params.tokenOutSymbol,
+			quoteTokenSymbol,
 			sourceChain: params.sourceChain,
 			destinationChain: params.destinationChain,
-			sellRate: rates.sellRate === null ? null : formatIndexerAmount(rates.sellRate, "sellRate"),
-			buyRate: rates.buyRate === null ? null : formatIndexerAmount(rates.buyRate, "buyRate"),
-			lastUpdatedAt: readIndexerDate(rates.lastUpdatedAt, "pool lastUpdatedAt"),
+			buyRate: buy ? formatUnits(buy.scaledRate, INDEXER_FIXED_POINT_DECIMALS) : null,
+			sellRate: sell
+				? formatUnits(reciprocalRate(sell.scaledRate, "sell rate"), INDEXER_FIXED_POINT_DECIMALS)
+				: null,
+			buyRateUpdatedAt: buy?.updatedAt ?? null,
+			sellRateUpdatedAt: sell?.updatedAt ?? null,
 		}
 	}
 }
@@ -165,7 +208,7 @@ function formatIndexerAmount(value: string, label: string): string {
 	try {
 		const amount = BigInt(value)
 		if (amount < 0n) throw new Error()
-		return formatUnits(amount, POOL_DEPTH_DECIMALS)
+		return formatUnits(amount, INDEXER_FIXED_POINT_DECIMALS)
 	} catch {
 		throw new InvalidLiquidityIndexerResponseError(`${label} is not a non-negative integer`)
 	}
@@ -175,4 +218,41 @@ function readIndexerDate(value: string, label: string): Date {
 	const date = new Date(dateStringtoTimestamp(value))
 	if (Number.isNaN(date.getTime())) throw new InvalidLiquidityIndexerResponseError(`${label} is invalid`)
 	return date
+}
+
+function readIndexedRate(node: ChainRateNode | undefined, label: string): IndexedRate | undefined {
+	if (!node) return undefined
+	try {
+		const scaledRate = BigInt(node.rate)
+		if (scaledRate <= 0n) throw new Error()
+		return {
+			scaledRate,
+			updatedAt: readIndexerDate(node.lastUpdatedAt, `${label} lastUpdatedAt`),
+		}
+	} catch (error) {
+		if (error instanceof InvalidLiquidityIndexerResponseError) throw error
+		throw new InvalidLiquidityIndexerResponseError(`${label} is not a positive integer`)
+	}
+}
+
+function resolveQuoteTokenSymbol(
+	tokenInSymbol: ConfiguredAssetSymbol,
+	tokenOutSymbol: ConfiguredAssetSymbol,
+	directRate?: bigint,
+	reverseRate?: bigint,
+): ConfiguredAssetSymbol {
+	const inputIsUsdStable = USD_STABLE_SYMBOLS.has(tokenInSymbol)
+	const outputIsUsdStable = USD_STABLE_SYMBOLS.has(tokenOutSymbol)
+	if (inputIsUsdStable !== outputIsUsdStable) return inputIsUsdStable ? tokenOutSymbol : tokenInSymbol
+
+	if (directRate !== undefined) return directRate >= POOL_RATE_SCALE ? tokenOutSymbol : tokenInSymbol
+	if (reverseRate !== undefined) return reverseRate >= POOL_RATE_SCALE ? tokenInSymbol : tokenOutSymbol
+
+	throw new InvalidLiquidityIndexerResponseError("cannot orient an empty rate pair")
+}
+
+function reciprocalRate(rate: bigint, label: string): bigint {
+	const reciprocal = (POOL_RATE_SCALE * POOL_RATE_SCALE) / rate
+	if (reciprocal <= 0n) throw new InvalidLiquidityIndexerResponseError(`${label} reciprocal underflowed`)
+	return reciprocal
 }

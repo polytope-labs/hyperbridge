@@ -275,7 +275,7 @@ query AvailableLiquidity(
   poolChainLiquidities(
     filter: {
       and: [
-        { poolId: { equalTo: $poolId } }
+        { poolId: { equalToInsensitive: $poolId } }
         { chain: { equalTo: $destinationChain } }
         { direction: { equalTo: $direction } }
       ]
@@ -293,7 +293,7 @@ query AvailableLiquidity(
   poolRoutes(
     filter: {
       and: [
-        { poolId: { equalTo: $poolId } }
+        { poolId: { equalToInsensitive: $poolId } }
         { sourceChain: { equalTo: $sourceChain } }
         { chain: { equalTo: $destinationChain } }
         { direction: { equalTo: $direction } }
@@ -310,11 +310,40 @@ query AvailableLiquidity(
 }`
 
 export const BUY_AND_SELL_RATES = `
-query BuyAndSellRates($poolId: ID!) {
-  liquidityPools(filter: { id: { equalTo: $poolId } }, first: 1) {
+query BuyAndSellRates(
+  $poolId: String!
+  $directChain: String!
+  $directDirection: String!
+  $reverseChain: String!
+  $reverseDirection: String!
+) {
+  direct: poolChainLiquidities(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $directChain } }
+        { direction: { equalTo: $directDirection } }
+      ]
+    }
+    first: 1
+  ) {
     nodes {
-      sellRate
-      buyRate
+      rate
+      lastUpdatedAt
+    }
+  }
+  reverse: poolChainLiquidities(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $reverseChain } }
+        { direction: { equalTo: $reverseDirection } }
+      ]
+    }
+    first: 1
+  ) {
+    nodes {
+      rate
       lastUpdatedAt
     }
   }

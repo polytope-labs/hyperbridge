@@ -126,6 +126,12 @@ export type ConfiguredAssetSymbol =
 	| "TRYB"
 	| "USDR"
 
+/** A configured asset symbol in its canonical, lowercase, or uppercase form. */
+export type ConfiguredAssetSymbolInput =
+	| ConfiguredAssetSymbol
+	| Lowercase<ConfiguredAssetSymbol>
+	| Uppercase<ConfiguredAssetSymbol>
+
 export interface UniswapV4PoolConfigData {
 	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
 	fee: number

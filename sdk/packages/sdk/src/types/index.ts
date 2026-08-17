@@ -8,7 +8,7 @@ import type { Account } from "viem/accounts"
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
-import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
+import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -1176,24 +1176,28 @@ export interface AvailableLiquidity {
 	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
 }
 
-/** Buy and sell rates for an indexed symbol pair, normalized from 18 decimals. */
+/**
+ * Chain-specific buy and sell rates expressed as quote-token units per one
+ * base token. The quote token is the less valuable currency when the indexed
+ * rates establish an ordering (for example, cNGN in a USDC/cNGN pair).
+ */
 export interface BuyAndSellRates {
-	poolId: string
-	token0Symbol: ConfiguredAssetSymbol
-	token1Symbol: ConfiguredAssetSymbol
+	baseTokenSymbol: ConfiguredAssetSymbol
+	quoteTokenSymbol: ConfiguredAssetSymbol
 	sourceChain: Chains
 	destinationChain: Chains
-	/** Token1 received for one token0. */
-	sellRate: string | null
-	/** Token0 received for one token1. */
+	/** Quote-token units received when buying the quote token with one base token. */
 	buyRate: string | null
-	lastUpdatedAt: Date
+	/** Quote-token units sold to receive one base token. */
+	sellRate: string | null
+	buyRateUpdatedAt: Date | null
+	sellRateUpdatedAt: Date | null
 }
 
 /** Symbol-only input for querying an indexed pool's rates. */
 export interface QueryBuyAndSellRatesParams {
-	tokenInSymbol: ConfiguredAssetSymbol
-	tokenOutSymbol: ConfiguredAssetSymbol
+	tokenInSymbol: ConfiguredAssetSymbolInput
+	tokenOutSymbol: ConfiguredAssetSymbolInput
 	sourceChainId: Chain["id"]
 	destinationChainId: Chain["id"]
 }

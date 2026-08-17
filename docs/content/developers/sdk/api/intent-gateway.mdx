@@ -278,8 +278,9 @@ method returns `undefined` only when the destination has no indexed pool sample.
 
 ### queryBuyAndSellRates(params)
 
-Returns both indexed rates for a token pair. Callers provide token symbols and
-chain IDs; token addresses are resolved internally from the SDK configuration.
+Returns chain-specific buy and sell rates for a token pair. Callers provide
+token symbols and numeric chain IDs; token addresses and canonical symbol casing
+are resolved internally from the SDK configuration.
 
 ```typescript lineNumbers
 const rates = await gateway.queryBuyAndSellRates({
@@ -290,14 +291,20 @@ const rates = await gateway.queryBuyAndSellRates({
 })
 
 if (rates) {
-  console.log("Sell rate:", rates.sellRate)
+  console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
   console.log("Buy rate:", rates.buyRate)
+  console.log("Sell rate:", rates.sellRate)
 }
 ```
 
-`sellRate` is token1 received for one token0. `buyRate` is token0 received for
-one token1. Either rate can be `null` when that side of the pool has not been
-priced. Numeric chain IDs and `EVM-*` state machine IDs are both accepted.
+Both rates use the less valuable token as the quote currency. For USDC/cNGN,
+both values are therefore cNGN per one USDC. The requested input-to-output rate
+is read on the destination chain and the reverse rate is read on the source
+chain; both are then oriented into the same units. Either rate and its matching
+timestamp can be `null` when that chain and direction have not been priced.
+
+Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all
+resolve to the canonical `"cNGN"` pool symbol.
 
 ---
 

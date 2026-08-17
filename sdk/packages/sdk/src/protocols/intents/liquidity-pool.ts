@@ -4,7 +4,12 @@ export interface ResolvedLiquidityPool<Symbol extends string = string> {
 	token1Symbol: Symbol
 }
 
-/** Canonical symbol order used by the SDK and indexer pool IDs. */
+/**
+ * Canonical symbol order used by the SDK and indexer pool IDs.
+ *
+ * Plain code-unit comparison, never locale-sensitive collation — the result is
+ * a persisted primary key and must sort identically everywhere.
+ */
 export function sortPoolSymbols<Symbol extends string>(symbolA: Symbol, symbolB: Symbol): [Symbol, Symbol] {
 	return symbolA.toLowerCase() <= symbolB.toLowerCase() ? [symbolA, symbolB] : [symbolB, symbolA]
 }

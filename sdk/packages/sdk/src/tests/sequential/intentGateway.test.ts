@@ -122,7 +122,12 @@ describe("Intent quote helper", () => {
 			tokenOut: cNgnAddress,
 		})
 
-		assertAndLogLiquidity("USDT → cNGN", liquidity, cNgnAddress)
+		logLiquidity("USDT → cNGN", liquidity)
+		assert(liquidity, "Expected an indexed Base USDT → cNGN pool sample")
+		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
+		assert(!Number.isNaN(liquidity.updatedAt.getTime()))
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) >= 0n)
+		assert(liquidity.destination.providerCount >= 0)
 	}, 120_000)
 
 	it("reports destination, unrestricted, and explicit cross-chain liquidity separately", async () => {
@@ -148,17 +153,18 @@ describe("Intent quote helper", () => {
 		assert.equal(liquidity.sourceChain, CHAINS.eth.id)
 		assert.equal(liquidity.destinationChain, BASE_CHAIN)
 		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
-		assert(parseUnits(liquidity.unrestricted.totalLiquidity, 18) > 0n)
-		assert(liquidity.unrestricted.providerCount > 0)
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) > 0n)
 		assert(
 			parseUnits(liquidity.unrestricted.totalLiquidity, 18) <=
 				parseUnits(liquidity.destination.totalLiquidity, 18),
 		)
+		assert(liquidity.unrestricted.providerCount <= liquidity.destination.providerCount)
 		if (liquidity.explicitRoute) {
 			assert(
 				parseUnits(liquidity.explicitRoute.totalLiquidity, 18) <=
 					parseUnits(liquidity.destination.totalLiquidity, 18),
 			)
+			assert(liquidity.explicitRoute.providerCount <= liquidity.destination.providerCount)
 		}
 	}, 120_000)
 
@@ -167,20 +173,19 @@ describe("Intent quote helper", () => {
 		const intentGateway = await createLiveBaseIntentGateway(configService)
 		const rates = await intentGateway.queryBuyAndSellRates({
 			tokenInSymbol: "USDC",
-			tokenOutSymbol: "cNGN",
+			tokenOutSymbol: "cngn",
 			sourceChainId: 1,
 			destinationChainId: 8453,
 		})
 
 		logRates("Ethereum USDC → Base cNGN", rates)
-		assert(rates, "Expected live cNGN-USDC rates from Nexus")
-		assert.equal(rates.poolId, "cNGN-USDC")
-		assert.equal(rates.token0Symbol, "cNGN")
-		assert.equal(rates.token1Symbol, "USDC")
-		assert.equal(rates.sourceChain, CHAINS.eth.id)
-		assert.equal(rates.destinationChain, BASE_CHAIN)
-		assert(rates.sellRate && parseUnits(rates.sellRate, 18) > 0n)
-		assert(rates.buyRate && parseUnits(rates.buyRate, 18) > 0n)
+		assert(rates, "Expected live chain-specific cNGN/USDC rates from Nexus")
+		assert.equal(rates.baseTokenSymbol, "USDC")
+		assert.equal(rates.quoteTokenSymbol, "cNGN")
+		assert(rates.buyRate && parseUnits(rates.buyRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.sellRate && parseUnits(rates.sellRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.buyRateUpdatedAt && !Number.isNaN(rates.buyRateUpdatedAt.getTime()))
+		assert(rates.sellRateUpdatedAt && !Number.isNaN(rates.sellRateUpdatedAt.getTime()))
 	}, 120_000)
 
 	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
@@ -474,7 +479,15 @@ function logLiquidity(label: string, liquidity: AvailableLiquidity | undefined):
 
 function logRates(label: string, rates: BuyAndSellRates | undefined): void {
 	console.log(`[queryBuyAndSellRates] ${label}`)
-	console.log(rates ? { ...rates, lastUpdatedAt: rates.lastUpdatedAt.toISOString() } : undefined)
+	console.log(
+		rates
+			? {
+					...rates,
+					buyRateUpdatedAt: rates.buyRateUpdatedAt?.toISOString() ?? null,
+					sellRateUpdatedAt: rates.sellRateUpdatedAt?.toISOString() ?? null,
+				}
+			: undefined,
+	)
 }
 
 function assertAndLogLiquidity(

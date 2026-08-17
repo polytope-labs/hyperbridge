@@ -7,3 +7,6 @@
 [submodule "sdk/packages/simplex/proto/mpcvaultapis"]
 	path = sdk/packages/simplex/proto/mpcvaultapis
 	url = https://github.com/mpcvault/mpcvaultapis.git
+[submodule "evm/lib/gnark-apk-proofs"]
+	path = evm/lib/gnark-apk-proofs
+	url = https://github.com/polytope-labs/gnark-apk-proofs

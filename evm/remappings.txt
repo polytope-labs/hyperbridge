@@ -4,4 +4,5 @@
 @uniswap/=node_modules/@uniswap/
 stringutils/=lib/solidity-stringutils/src/
 @sp1-contracts/=lib/sp1-contracts/contracts/src/
+@gnark-apk-proofs/=lib/gnark-apk-proofs/solidity/contracts/
 forge-std/=node_modules/forge-std/src/

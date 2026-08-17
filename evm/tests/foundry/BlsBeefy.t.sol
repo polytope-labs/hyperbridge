@@ -6,8 +6,8 @@ import {IntermediateState} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {BlsBeefy} from "../../src/consensus/BlsBeefy.sol";
 import {BeefyConsensusState} from "../../src/consensus/Types.sol";
-import {ApkProof} from "./vendor/ApkProof.sol";
-import {PlonkVerifier} from "./vendor/PlonkVerifier.sol";
+import {ApkProof} from "@gnark-apk-proofs/ApkProof.sol";
+import {PlonkVerifier} from "@gnark-apk-proofs/PlonkVerifier.sol";
 
 /**
  * @title BEEFY verified through an aggregate public key proof.

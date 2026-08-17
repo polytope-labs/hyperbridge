@@ -1320,7 +1320,6 @@ impl_runtime_apis! {
 			cumulus_primitives_core::RelayProofRequest { keys }
 		}
 	}
-	}
 
 	#[cfg(feature = "try-runtime")]
 	impl frame_try_runtime::TryRuntime<Block> for Runtime {

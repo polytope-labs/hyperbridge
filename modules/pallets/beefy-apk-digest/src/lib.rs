@@ -73,9 +73,9 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 	}
 
-	/// Bumped whenever the commitment changes shape, so [`migration`] knows to throw away what
-	/// was published under the old one.
-	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	/// Bumped whenever the commitment or the record around it changes shape, so [`migration`]
+	/// knows to throw away what was published under the old one.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]

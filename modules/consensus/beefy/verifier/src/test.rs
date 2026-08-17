@@ -38,7 +38,11 @@ use polkadot_sdk::sp_consensus_beefy::{
 };
 use sp_mmr_primitives::LeafProof;
 
-use crate::{EcdsaRecover, error::Error, verify_consensus, verify_mmr_update_proof};
+use crate::{
+	EcdsaRecover,
+	ecdsa::{verify_consensus, verify_mmr_update_proof},
+	error::Error,
+};
 
 struct TestHost;
 
@@ -1267,7 +1271,7 @@ fn bls_apk_live_fixture() {
 	let authority_set = |id: u64, len: u64| BlsBeefy::AuthoritySetCommitment {
 		id,
 		len: len as u32,
-		apkCommitment: if id == signing_set_id { apk_commitment } else { FixedBytes::ZERO },
+		root: if id == signing_set_id { apk_commitment } else { FixedBytes::ZERO },
 	};
 
 	let state = BlsBeefy::BeefyConsensusState {
@@ -1280,8 +1284,8 @@ fn bls_apk_live_fixture() {
 		nextAuthoritySet: authority_set(u64_of(&trusted["nextId"]), u64_of(&trusted["nextLen"])),
 	};
 	assert!(
-		state.currentAuthoritySet.apkCommitment != FixedBytes::ZERO ||
-			state.nextAuthoritySet.apkCommitment != FixedBytes::ZERO,
+		state.currentAuthoritySet.root != FixedBytes::ZERO ||
+			state.nextAuthoritySet.root != FixedBytes::ZERO,
 		"neither trusted set matches the signing set, so the client would have no commitment",
 	);
 

@@ -1,237 +1,258 @@
-import { LATEST_PHANTOM_ORDER_LIQUIDITY_SNAPSHOT, LIQUIDITY_PROVIDER_BALANCES } from "@/queries"
-import { Chains } from "@/configs/chain"
-import type { ChainConfigService } from "@/configs/ChainConfigService"
-import type { AvailableLiquidityByChain, AvailableLiquiditySnapshot, HexString, IndexerQueryClient } from "@/types"
+import type { Chains, ConfiguredAssetSymbol } from "@/configs/chain"
+import { AVAILABLE_LIQUIDITY, BUY_AND_SELL_RATES } from "@/queries"
+import type { AvailableLiquidity, BuyAndSellRates, HexString, IndexerQueryClient, LiquiditySlice } from "@/types"
 import { dateStringtoTimestamp, normalizeEvmAddress } from "@/utils"
 import { formatUnits } from "viem"
+import { resolveLiquidityPool } from "./liquidity-pool"
 
-interface LiquidityProviderBalancesResponse {
-	liquidityProviderBalances: {
-		aggregates: {
-			sum: { balance: string | null }
-			distinctCount: { providerId: string }
-		} | null
-		groupedAggregates: Array<{
-			keys: string[]
-			sum: { balance: string | null }
-			distinctCount: { providerId: string }
-		}>
+const INDEXER_FIXED_POINT_DECIMALS = 18
+const POOL_RATE_SCALE = 10n ** 18n
+const SELL = "SELL"
+const BUY = "BUY"
+const USD_STABLE_SYMBOLS = new Set<ConfiguredAssetSymbol>(["USDC", "USDT"])
+
+type PoolDirection = typeof SELL | typeof BUY
+
+interface AvailableLiquidityResponse {
+	poolChainLiquidities: {
+		nodes: PoolChainLiquidityNode[]
+	}
+	poolRoutes: {
+		nodes: PoolRouteNode[]
 	}
 }
 
-interface PhantomOrderLiquiditySnapshotsResponse {
-	phantomOrderPriceSnapshots: {
-		nodes: Array<{
-			commitment: string
-			tokenA: string
-			tokenB: string
-			snapshotTime: string
-		}>
-	}
+interface PoolChainLiquidityNode {
+	depth: string
+	bidCount: number
+	unrestrictedDepth: string
+	unrestrictedBidCount: number
+	lastUpdatedAt: string
 }
 
-const COMMITMENT_PATTERN = /^0x[0-9a-f]{64}$/i
+interface PoolRouteNode {
+	depth: string
+	bidCount: number
+	lastUpdatedAt: string
+}
 
-/**
- * Owns Phantom liquidity snapshot retrieval and aggregation from Nexus.
- *
- * The indexer performs balance and distinct-provider aggregation; this class
- * validates and maps those aggregate results into the SDK response shape.
- */
+interface BuyAndSellRatesResponse {
+	direct: RateConnection
+	reverse: RateConnection
+}
+
+interface RateConnection {
+	nodes: ChainRateNode[]
+}
+
+interface ChainRateNode {
+	rate: string
+	lastUpdatedAt: string
+}
+
+interface IndexedRate {
+	scaledRate: bigint
+	updatedAt: Date
+}
+
+export interface LiquidityAsset {
+	chain: Chains
+	symbol: ConfiguredAssetSymbol
+	address: HexString
+}
+
+/** Reads pair-centric, route-aware liquidity directly from Nexus. */
 export class LiquidityEngine {
-	/**
-	 * @param queryClient - Nexus GraphQL client attached to the gateway.
-	 * @param chainConfigService - Resolves token decimals for formatted results.
-	 */
-	constructor(
-		private readonly queryClient: IndexerQueryClient,
-		private readonly chainConfigService: ChainConfigService,
-	) {}
+	constructor(private readonly queryClient: IndexerQueryClient) {}
 
 	/**
-	 * Retrieves the newest directional Phantom snapshot for a pair and its
-	 * indexed output-token liquidity.
+	 * Returns liquidity reachable from one source chain on one destination.
 	 *
-	 * Nexus filters balances to the canonical output token, then aggregates them
-	 * overall and by chain. The returned amounts are decimal strings: the total
-	 * uses the canonical Base output-token decimals, while each chain group uses
-	 * that chain's token decimals. They describe `snapshotTime`, not live
-	 * reservations or fill guarantees.
+	 * The caller resolves chain-specific token addresses through chain
+	 * configuration; this layer only maps those configured symbols onto the
+	 * indexer's canonical pool and route fields.
 	 *
-	 * @param params - Canonical Phantom-market input and output token addresses.
-	 * @returns The latest snapshot, or `undefined` if Nexus has no snapshot for
-	 * the directional pair.
-	 * @throws {InvalidAvailableLiquiditySnapshotError} If Nexus returns malformed
-	 * or internally inconsistent snapshot data.
+	 * Destination, unrestricted, and explicit-route capacity are returned as
+	 * separate values so callers can apply their own source-chain policy.
+	 *
+	 * @returns `undefined` only when the indexer has not published a destination
+	 * pool sample yet.
 	 */
-	async getAvailableLiquiditySnapshot(params: {
-		tokenIn: HexString
-		tokenOut: HexString
-	}): Promise<AvailableLiquiditySnapshot | undefined> {
-		const tokenIn = normalizeEvmAddress(params.tokenIn, "tokenIn")
-		const tokenOut = normalizeEvmAddress(params.tokenOut, "tokenOut")
-		const response = await this.queryClient.request<PhantomOrderLiquiditySnapshotsResponse>(
-			LATEST_PHANTOM_ORDER_LIQUIDITY_SNAPSHOT,
-			{ tokenA: tokenIn, tokenB: tokenOut },
-		)
-		const node = response?.phantomOrderPriceSnapshots?.nodes?.[0]
-		if (!node) return
-
-		const commitment = node.commitment.toLowerCase()
-		if (!COMMITMENT_PATTERN.test(commitment)) {
-			throw new InvalidAvailableLiquiditySnapshotError(commitment || "<missing>", "commitment is not bytes32 hex")
+	async getAvailableLiquidity(params: {
+		source: LiquidityAsset
+		destination: LiquidityAsset
+	}): Promise<AvailableLiquidity | undefined> {
+		const pool = resolveLiquidityPool(params.source.symbol, params.destination.symbol)
+		const direction = params.source.symbol.toLowerCase() === pool.token0Symbol.toLowerCase() ? SELL : BUY
+		const variables = {
+			poolId: pool.poolId,
+			sourceChain: params.source.chain,
+			destinationChain: params.destination.chain,
+			direction,
 		}
-		if (node.tokenA.toLowerCase() !== tokenIn || node.tokenB.toLowerCase() !== tokenOut) {
-			throw new InvalidAvailableLiquiditySnapshotError(commitment, "snapshot token pair does not match the query")
+		const response = await this.queryClient.request<AvailableLiquidityResponse>(AVAILABLE_LIQUIDITY, variables)
+		if (!response?.poolChainLiquidities?.nodes || !response?.poolRoutes?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("liquidity connections are missing")
 		}
+		const chainLiquidity = response.poolChainLiquidities.nodes[0]
+		if (!chainLiquidity) return undefined
 
-		const snapshotTime = new Date(dateStringtoTimestamp(node.snapshotTime))
-		if (Number.isNaN(snapshotTime.getTime())) {
-			throw new InvalidAvailableLiquiditySnapshotError(commitment, "snapshotTime is invalid")
+		const route = response.poolRoutes.nodes[0]
+		return {
+			sourceChain: params.source.chain,
+			destinationChain: params.destination.chain,
+			tokenAddress: normalizeEvmAddress(params.destination.address, "destination token"),
+			updatedAt: readIndexerDate(chainLiquidity.lastUpdatedAt, "destination lastUpdatedAt"),
+			destination: readLiquiditySlice(chainLiquidity.depth, chainLiquidity.bidCount, "destination"),
+			unrestricted: readLiquiditySlice(
+				chainLiquidity.unrestrictedDepth,
+				chainLiquidity.unrestrictedBidCount,
+				"unrestricted",
+			),
+			explicitRoute: route
+				? {
+						...readLiquiditySlice(route.depth, route.bidCount, "explicit route"),
+						updatedAt: readIndexerDate(route.lastUpdatedAt, "route lastUpdatedAt"),
+					}
+				: null,
 		}
+	}
 
-		const { totalLiquidity, providerCount, liquidityByChain } = await this.querySnapshotLiquidityAggregates({
-			commitment,
-			tokenAddress: tokenOut,
+	/**
+	 * Returns chain-specific buy and sell rates in less-valued quote-token units
+	 * per one base token.
+	 *
+	 * The requested direction is read on the destination chain; its reverse is
+	 * read on the source chain. This mirrors where each direction's output token
+	 * must be delivered for a cross-chain trade.
+	 */
+	async getBuyAndSellRates(params: {
+		sourceChain: Chains
+		destinationChain: Chains
+		tokenInSymbol: ConfiguredAssetSymbol
+		tokenOutSymbol: ConfiguredAssetSymbol
+	}): Promise<BuyAndSellRates | undefined> {
+		const pool = resolveLiquidityPool(params.tokenInSymbol, params.tokenOutSymbol)
+		const directDirection: PoolDirection =
+			params.tokenInSymbol.toLowerCase() === pool.token0Symbol.toLowerCase() ? SELL : BUY
+		const reverseDirection: PoolDirection = directDirection === SELL ? BUY : SELL
+		const response = await this.queryClient.request<BuyAndSellRatesResponse>(BUY_AND_SELL_RATES, {
+			poolId: pool.poolId,
+			directChain: params.destinationChain,
+			directDirection,
+			reverseChain: params.sourceChain,
+			reverseDirection,
 		})
+		if (!response?.direct?.nodes || !response?.reverse?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("rate connections are missing")
+		}
+
+		const direct = readIndexedRate(response.direct.nodes[0], "direct rate")
+		const reverse = readIndexedRate(response.reverse.nodes[0], "reverse rate")
+		if (!direct && !reverse) return undefined
+
+		const quoteTokenSymbol = resolveQuoteTokenSymbol(
+			params.tokenInSymbol,
+			params.tokenOutSymbol,
+			direct?.scaledRate,
+			reverse?.scaledRate,
+		)
+		const quoteIsTokenOut = quoteTokenSymbol === params.tokenOutSymbol
+		const buy = quoteIsTokenOut ? direct : reverse
+		const sell = quoteIsTokenOut ? reverse : direct
 
 		return {
-			totalLiquidity: this.formatLiquidity(totalLiquidity, Chains.BASE_MAINNET, tokenOut, commitment),
-			providerCount,
-			tokenAddress: tokenOut,
-			snapshotTime,
-			liquidityByChain: liquidityByChain.map((group) => ({
-				...group,
-				totalLiquidity: this.formatLiquidity(group.totalLiquidity, group.chain, group.tokenAddress, commitment),
-			})),
+			baseTokenSymbol: quoteIsTokenOut ? params.tokenInSymbol : params.tokenOutSymbol,
+			quoteTokenSymbol,
+			sourceChain: params.sourceChain,
+			destinationChain: params.destinationChain,
+			buyRate: buy ? formatUnits(buy.scaledRate, INDEXER_FIXED_POINT_DECIMALS) : null,
+			sellRate: sell
+				? formatUnits(reciprocalRate(sell.scaledRate, "sell rate"), INDEXER_FIXED_POINT_DECIMALS)
+				: null,
+			buyRateUpdatedAt: buy?.updatedAt ?? null,
+			sellRateUpdatedAt: sell?.updatedAt ?? null,
 		}
-	}
-
-	/**
-	 * Requests server-side sums and distinct provider counts for one immutable
-	 * snapshot/output-token pair, including chain-level aggregate groups.
-	 *
-	 * `commitment` uniquely identifies the selected snapshot
-	 */
-	private async querySnapshotLiquidityAggregates(params: { commitment: string; tokenAddress: HexString }): Promise<{
-		totalLiquidity: bigint
-		providerCount: number
-		liquidityByChain: RawAvailableLiquidityByChain[]
-	}> {
-		const response = await this.queryClient.request<LiquidityProviderBalancesResponse>(
-			LIQUIDITY_PROVIDER_BALANCES,
-			{ commitment: params.commitment, tokenAddress: params.tokenAddress },
-		)
-		const connection = response?.liquidityProviderBalances
-		const aggregates = connection?.aggregates
-		if (!connection || !aggregates) {
-			throw new InvalidAvailableLiquiditySnapshotError(
-				params.commitment,
-				"liquidityProviderBalances aggregates are missing",
-			)
-		}
-
-		const totalLiquidity = parseSnapshotBigInt(aggregates.sum.balance ?? "0", params.commitment, "total balance")
-		const providerCount = parseProviderCount(aggregates.distinctCount.providerId, params.commitment, "total")
-		const liquidityByChain = connection.groupedAggregates.map((group, index) => {
-			const [chain, tokenAddress] = group.keys
-			if (!chain?.trim() || !tokenAddress) {
-				throw new InvalidAvailableLiquiditySnapshotError(
-					params.commitment,
-					`liquidity group ${index} has invalid keys`,
-				)
-			}
-			const normalizedTokenAddress = normalizeIndexedLiquidityAddress(
-				tokenAddress,
-				params.commitment,
-				`liquidity group ${index} tokenAddress`,
-			)
-			if (normalizedTokenAddress !== params.tokenAddress) {
-				throw new InvalidAvailableLiquiditySnapshotError(
-					params.commitment,
-					`liquidity group ${index} tokenAddress does not match the snapshot output token`,
-				)
-			}
-
-			return {
-				chain: chain.trim(),
-				tokenAddress: normalizedTokenAddress,
-				totalLiquidity: parseSnapshotBigInt(
-					group.sum.balance ?? "0",
-					params.commitment,
-					`liquidity group ${index} balance`,
-				),
-				providerCount: parseProviderCount(
-					group.distinctCount.providerId,
-					params.commitment,
-					`liquidity group ${index}`,
-				),
-			}
-		})
-		const groupedTotal = liquidityByChain.reduce((sum, group) => sum + group.totalLiquidity, 0n)
-		if (groupedTotal !== totalLiquidity) {
-			throw new InvalidAvailableLiquiditySnapshotError(
-				params.commitment,
-				"grouped liquidity does not match the total liquidity",
-			)
-		}
-
-		return { totalLiquidity, providerCount, liquidityByChain }
-	}
-
-	/** Formats a raw amount using the configured decimals for its chain/token. */
-	private formatLiquidity(amount: bigint, chain: string, tokenAddress: HexString, commitment: string): string {
-		const decimals = this.chainConfigService.getAssetMetadataByAddress(chain, tokenAddress)?.decimals
-		if (decimals === undefined) {
-			throw new InvalidAvailableLiquiditySnapshotError(
-				commitment,
-				`token decimals are not configured for ${tokenAddress} on ${chain}`,
-			)
-		}
-		return formatUnits(amount, decimals)
 	}
 }
 
-type RawAvailableLiquidityByChain = Omit<AvailableLiquidityByChain, "totalLiquidity"> & {
-	totalLiquidity: bigint
-}
-
-class InvalidAvailableLiquiditySnapshotError extends Error {
-	/** Creates an error that identifies the invalid snapshot and field/reason. */
-	constructor(commitment: string, reason: string) {
-		super(`Invalid available-liquidity snapshot ${commitment}: ${reason}`)
-		this.name = "InvalidAvailableLiquiditySnapshotError"
+export class InvalidLiquidityIndexerResponseError extends Error {
+	constructor(reason: string) {
+		super(`Invalid liquidity indexer response: ${reason}`)
+		this.name = "InvalidLiquidityIndexerResponseError"
 	}
 }
 
-/** Parses a non-negative smallest-unit amount returned by the indexer. */
-function parseSnapshotBigInt(value: string, commitment: string, field: string): bigint {
+export class UnsupportedLiquidityAssetError extends Error {
+	constructor(chain: string, asset: string) {
+		super(`No configured liquidity asset found for ${asset} on ${chain}`)
+		this.name = "UnsupportedLiquidityAssetError"
+	}
+}
+
+export class UnsupportedLiquidityChainError extends Error {
+	constructor(chainId: number | string) {
+		super(`No configured liquidity chain found for chain ID ${chainId}`)
+		this.name = "UnsupportedLiquidityChainError"
+	}
+}
+
+function readLiquiditySlice(depth: string, providerCount: number, label: string): LiquiditySlice {
+	if (!Number.isSafeInteger(providerCount) || providerCount < 0) {
+		throw new InvalidLiquidityIndexerResponseError(`${label} provider count is invalid`)
+	}
+	return { totalLiquidity: formatIndexerAmount(depth, `${label} depth`), providerCount }
+}
+
+function formatIndexerAmount(value: string, label: string): string {
 	try {
 		const amount = BigInt(value)
-		if (amount < 0n) {
-			throw new InvalidAvailableLiquiditySnapshotError(commitment, `${field} cannot be negative`)
-		}
-		return amount
-	} catch (error) {
-		if (error instanceof InvalidAvailableLiquiditySnapshotError) throw error
-		throw new InvalidAvailableLiquiditySnapshotError(commitment, `${field} is not an integer`)
-	}
-}
-
-/** Parses a safe, non-negative distinct-provider count returned by the indexer. */
-function parseProviderCount(value: string, commitment: string, field: string): number {
-	const count = Number(value)
-	if (!Number.isSafeInteger(count) || count < 0) {
-		throw new InvalidAvailableLiquiditySnapshotError(commitment, `${field} provider count is invalid`)
-	}
-	return count
-}
-
-/** Validates and canonicalizes an EVM address from a Nexus aggregate group. */
-function normalizeIndexedLiquidityAddress(address: string, commitment: string, field: string): HexString {
-	try {
-		return normalizeEvmAddress(address, field)
+		if (amount < 0n) throw new Error()
+		return formatUnits(amount, INDEXER_FIXED_POINT_DECIMALS)
 	} catch {
-		throw new InvalidAvailableLiquiditySnapshotError(commitment, `${field} is not a valid EVM address`)
+		throw new InvalidLiquidityIndexerResponseError(`${label} is not a non-negative integer`)
 	}
+}
+
+function readIndexerDate(value: string, label: string): Date {
+	const date = new Date(dateStringtoTimestamp(value))
+	if (Number.isNaN(date.getTime())) throw new InvalidLiquidityIndexerResponseError(`${label} is invalid`)
+	return date
+}
+
+function readIndexedRate(node: ChainRateNode | undefined, label: string): IndexedRate | undefined {
+	if (!node) return undefined
+	try {
+		const scaledRate = BigInt(node.rate)
+		if (scaledRate <= 0n) throw new Error()
+		return {
+			scaledRate,
+			updatedAt: readIndexerDate(node.lastUpdatedAt, `${label} lastUpdatedAt`),
+		}
+	} catch (error) {
+		if (error instanceof InvalidLiquidityIndexerResponseError) throw error
+		throw new InvalidLiquidityIndexerResponseError(`${label} is not a positive integer`)
+	}
+}
+
+function resolveQuoteTokenSymbol(
+	tokenInSymbol: ConfiguredAssetSymbol,
+	tokenOutSymbol: ConfiguredAssetSymbol,
+	directRate?: bigint,
+	reverseRate?: bigint,
+): ConfiguredAssetSymbol {
+	const inputIsUsdStable = USD_STABLE_SYMBOLS.has(tokenInSymbol)
+	const outputIsUsdStable = USD_STABLE_SYMBOLS.has(tokenOutSymbol)
+	if (inputIsUsdStable !== outputIsUsdStable) return inputIsUsdStable ? tokenOutSymbol : tokenInSymbol
+
+	if (directRate !== undefined) return directRate >= POOL_RATE_SCALE ? tokenOutSymbol : tokenInSymbol
+	if (reverseRate !== undefined) return reverseRate >= POOL_RATE_SCALE ? tokenInSymbol : tokenOutSymbol
+
+	throw new InvalidLiquidityIndexerResponseError("cannot orient an empty rate pair")
+}
+
+function reciprocalRate(rate: bigint, label: string): bigint {
+	const reciprocal = (POOL_RATE_SCALE * POOL_RATE_SCALE) / rate
+	if (reciprocal <= 0n) throw new InvalidLiquidityIndexerResponseError(`${label} reciprocal underflowed`)
+	return reciprocal
 }

@@ -233,9 +233,10 @@ For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `
 
 ### queryAvailableLiquidity(params)
 
-Returns the total output-token liquidity measured in the latest directional
-Phantom snapshot. For `USDC → cNGN`, the result is the amount of cNGN held by
-eligible solvers for that snapshot at its measurement time.
+Returns output-token liquidity from the indexer's latest pair-centric pool
+sample. The result reports destination capacity, unrestricted capacity, and the
+matching explicit cross-chain route separately. The SDK does not decide whether
+the source chain is covered by the legacy unrestricted-bidder policy.
 
 ```typescript lineNumbers
 import { createQueryClient, IntentGateway } from "@hyperbridge/sdk"
@@ -250,10 +251,10 @@ const liquidity = await gateway.queryAvailableLiquidity({
 })
 
 if (liquidity) {
-  console.log(liquidity.totalLiquidity, "cNGN")
-  console.log("Providers:", liquidity.providerCount)
-  console.log("Liquidity by chain:", liquidity.liquidityByChain)
-  console.log("Measured at:", liquidity.snapshotTime)
+  console.log("Destination:", liquidity.destination.totalLiquidity)
+  console.log("Unrestricted:", liquidity.unrestricted.totalLiquidity)
+  console.log("Explicit route:", liquidity.explicitRoute?.totalLiquidity ?? "none")
+  console.log("Updated at:", liquidity.updatedAt)
 }
 ```
 
@@ -261,19 +262,49 @@ if (liquidity) {
 async queryAvailableLiquidity(params: {
   tokenIn: HexString
   tokenOut: HexString
-}): Promise<AvailableLiquiditySnapshot | undefined>
+}): Promise<AvailableLiquidity | undefined>
 ```
 
-`totalLiquidity` is a decimal string formatted with the canonical Base output
-token decimals. `liquidityByChain` provides the corresponding `chain`,
-`tokenAddress`, formatted `totalLiquidity`, and `providerCount` for each
-indexed output-token balance group; each group uses its own chain/token
-decimals. The
-indexer aggregates raw ERC-20 balances plus
-redeemable ERC-4626 positions at the snapshot time. This is historical
-availability, not reserved liquidity or a guarantee that the same amount remains
-fillable. The method returns `undefined` when the directional pair has no indexed
-snapshot.
+Each liquidity value is a decimal string formatted from the indexer's
+18-decimal normalized depth. `destination` is the complete destination-chain
+capacity. `unrestricted` is the subset from bidders without an accepted-source
+declaration. `explicitRoute` is the capacity from bidders that explicitly accept
+the requested source chain, or `null` when there is no such route. Consumers can
+combine the explicit and unrestricted slices when their transport policy allows
+it.
+
+This is indexed availability, not reserved liquidity or a fill guarantee. The
+method returns `undefined` only when the destination has no indexed pool sample.
+
+### queryBuyAndSellRates(params)
+
+Returns chain-specific buy and sell rates for a token pair. Callers provide
+token symbols and numeric chain IDs; token addresses and canonical symbol casing
+are resolved internally from the SDK configuration.
+
+```typescript lineNumbers
+const rates = await gateway.queryBuyAndSellRates({
+  tokenInSymbol: "USDC",
+  tokenOutSymbol: "cNGN",
+  sourceChainId: 1,
+  destinationChainId: 8453,
+})
+
+if (rates) {
+  console.log(`${rates.quoteTokenSymbol} per ${rates.baseTokenSymbol}`)
+  console.log("Buy rate:", rates.buyRate)
+  console.log("Sell rate:", rates.sellRate)
+}
+```
+
+Both rates use the less valuable token as the quote currency. For USDC/cNGN,
+both values are therefore cNGN per one USDC. The requested input-to-output rate
+is read on the destination chain and the reverse rate is read on the source
+chain; both are then oriented into the same units. Either rate and its matching
+timestamp can be `null` when that chain and direction have not been priced.
+
+Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all
+resolve to the canonical `"cNGN"` pool symbol.
 
 ---
 

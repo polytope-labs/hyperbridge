@@ -10,7 +10,9 @@ import type {
 	IndexerQueryClient,
 	OrderStatus,
 	OrderWithStatus,
-	AvailableLiquiditySnapshot,
+	AvailableLiquidity,
+	BuyAndSellRates,
+	QueryBuyAndSellRatesParams,
 } from "@/types"
 import type {
 	PackedUserOperation,
@@ -27,6 +29,7 @@ import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IsmpClient } from "@/client"
+import { chainConfigs, getConfigByStateMachineId } from "@/configs/chain"
 import { _queryOrderInternal } from "@/queryClient"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
@@ -37,7 +40,11 @@ import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
-import { LiquidityEngine } from "./LiquidityEngine"
+import {
+	LiquidityEngine,
+	UnsupportedLiquidityAssetError,
+	UnsupportedLiquidityChainError,
+} from "./LiquidityEngine"
 import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
@@ -47,9 +54,14 @@ import {
 	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
-import { PhantomSnapshotPairResolver } from "./quote/phantomSnapshot"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, bytes32ToBytes20, sleep } from "@/utils"
+import {
+	DEFAULT_GRAFFITI,
+	DEFAULT_POLL_INTERVAL,
+	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	sleep,
+} from "@/utils"
 import { getFeeToken } from "./utils"
 
 const CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 10n
@@ -105,8 +117,6 @@ export class IntentGateway {
 	private readonly gasEstimator: GasEstimator
 	/** Quote strategies for pricing orders before placement, keyed by strategy name. */
 	private readonly quoteStrategies: Record<string, IntentQuoteStrategyHandler>
-	/** Resolves order tokens to canonical Phantom snapshot market pairs. */
-	private readonly phantomSnapshotPairResolver: PhantomSnapshotPairResolver
 
 	/**
 	 * Private constructor — use {@link IntentGateway.create} instead.
@@ -155,7 +165,6 @@ export class IntentGateway {
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
-		this.phantomSnapshotPairResolver = new PhantomSnapshotPairResolver(dest.configService)
 		this.quoteStrategies = {
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
@@ -246,36 +255,67 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Returns the output-token liquidity measured in the latest directional
-	 * Phantom snapshot for this gateway's source and destination.
+	 * Returns indexed destination liquidity and its source-routing slices.
 	 *
-	 * Pair resolution uses the same canonical Base market as {@link quoteIntent}.
-	 * The snapshot itself determines the output token and chain to aggregate. The
-	 * amount is in the token's smallest unit and reflects the indexer's
-	 * `snapshotTime`; it is not a live reservation or fill guarantee.
+	 * Destination, unrestricted, and explicit-route capacity come exclusively
+	 * from the indexer's pair-centric liquidity entities. The SDK does not decide
+	 * whether unrestricted bidders cover the source chain. Amounts reflect the
+	 * latest rolling sample; they are not reservations or fill guarantees.
 	 *
 	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async queryAvailableLiquidity(
 		params: Pick<QuoteIntentParams, "tokenIn" | "tokenOut">,
-	): Promise<AvailableLiquiditySnapshot | undefined> {
+	): Promise<AvailableLiquidity | undefined> {
 		const { queryClient } = this.requireIndexer()
-		const sourceStateMachineId = this.source.config.stateMachineId
-		const destinationStateMachineId = this.dest.config.stateMachineId
-		const pair = this.phantomSnapshotPairResolver.resolve(params, sourceStateMachineId, destinationStateMachineId)
-		if (!pair) {
-			throw new UnsupportedIntentQuotePairError({
-				source: sourceStateMachineId,
-				destination: destinationStateMachineId,
-				tokenIn: params.tokenIn,
-				tokenOut: params.tokenOut,
-				quoteSource: "Phantom snapshot pair",
-			})
-		}
+		const sourceStateMachineId = getConfigByStateMachineId(this.source.config.stateMachineId)?.stateMachineId
+		const destinationStateMachineId = getConfigByStateMachineId(this.dest.config.stateMachineId)?.stateMachineId
+		if (!sourceStateMachineId) throw new UnsupportedLiquidityChainError(this.source.config.stateMachineId)
+		if (!destinationStateMachineId) throw new UnsupportedLiquidityChainError(this.dest.config.stateMachineId)
+		const sourceToken = this.source.configService.getAssetMetadataByAddress(sourceStateMachineId, params.tokenIn)
+		const destinationToken = this.dest.configService.getAssetMetadataByAddress(
+			destinationStateMachineId,
+			params.tokenOut,
+		)
+		if (!sourceToken) throw new UnsupportedLiquidityAssetError(sourceStateMachineId, params.tokenIn)
+		if (!destinationToken) throw new UnsupportedLiquidityAssetError(destinationStateMachineId, params.tokenOut)
 
-		return new LiquidityEngine(queryClient, this.dest.configService).getAvailableLiquiditySnapshot({
-			tokenIn: pair.tokenA,
-			tokenOut: pair.tokenB,
+		return new LiquidityEngine(queryClient).getAvailableLiquidity({
+			source: {
+				chain: sourceStateMachineId,
+				...sourceToken,
+			},
+			destination: {
+				chain: destinationStateMachineId,
+				...destinationToken,
+			},
+		})
+	}
+
+	/**
+	 * Returns chain-specific buy and sell rates in less-valued quote-token units
+	 * without requiring token addresses. Symbols are matched case-insensitively;
+	 * chain IDs are numeric IDs for chains configured in the SDK.
+	 */
+	async queryBuyAndSellRates(params: QueryBuyAndSellRatesParams): Promise<BuyAndSellRates | undefined> {
+		const { queryClient } = this.requireIndexer()
+		const sourceChain = chainConfigs[params.sourceChainId]?.stateMachineId
+		const destinationChain = chainConfigs[params.destinationChainId]?.stateMachineId
+		if (!sourceChain) throw new UnsupportedLiquidityChainError(params.sourceChainId)
+		if (!destinationChain) throw new UnsupportedLiquidityChainError(params.destinationChainId)
+		const sourceToken = this.source.configService.getAssetMetadataBySymbol(sourceChain, params.tokenInSymbol)
+		const destinationToken = this.dest.configService.getAssetMetadataBySymbol(
+			destinationChain,
+			params.tokenOutSymbol,
+		)
+		if (!sourceToken) throw new UnsupportedLiquidityAssetError(sourceChain, params.tokenInSymbol)
+		if (!destinationToken) throw new UnsupportedLiquidityAssetError(destinationChain, params.tokenOutSymbol)
+
+		return new LiquidityEngine(queryClient).getBuyAndSellRates({
+			sourceChain,
+			destinationChain,
+			tokenInSymbol: sourceToken.symbol,
+			tokenOutSymbol: destinationToken.symbol,
 		})
 	}
 

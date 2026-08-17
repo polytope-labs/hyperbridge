@@ -1,13 +1,14 @@
 import type { ConsolaInstance } from "consola"
 import type Decimal from "decimal.js"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Chain, ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
 
 /** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
 export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
+import type { Chains, ConfiguredAssetSymbol, ConfiguredAssetSymbolInput } from "@/configs/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
@@ -1153,26 +1154,52 @@ export interface PhantomOrderPriceSnapshotsResponse {
 	}
 }
 
-/**
- * Total solver liquidity measured at one immutable Phantom price snapshot.
- *
- * Liquidity amounts are decimal strings formatted with the configured decimals
- * for their respective `tokenAddress` and chain.
- */
-export interface AvailableLiquiditySnapshot {
+/** One independently reported slice of indexed liquidity. */
+export interface LiquiditySlice {
 	totalLiquidity: string
 	providerCount: number
-	tokenAddress: HexString
-	snapshotTime: Date
-	liquidityByChain: AvailableLiquidityByChain[]
 }
 
-/** Liquidity for one chain/token balance group in an availability snapshot. */
-export interface AvailableLiquidityByChain {
-	chain: string
+/**
+ * Indexed destination capacity and its source-routing slices.
+ *
+ * The SDK reports the indexer's facts separately and does not decide whether a
+ * source chain is covered by the legacy unrestricted-bidder policy.
+ */
+export interface AvailableLiquidity {
+	sourceChain: Chains
+	destinationChain: Chains
 	tokenAddress: HexString
-	totalLiquidity: string
-	providerCount: number
+	updatedAt: Date
+	destination: LiquiditySlice
+	unrestricted: LiquiditySlice
+	explicitRoute: (LiquiditySlice & { updatedAt: Date }) | null
+}
+
+/**
+ * Chain-specific buy and sell rates expressed as quote-token units per one
+ * base token. The quote token is the less valuable currency when the indexed
+ * rates establish an ordering (for example, cNGN in a USDC/cNGN pair).
+ */
+export interface BuyAndSellRates {
+	baseTokenSymbol: ConfiguredAssetSymbol
+	quoteTokenSymbol: ConfiguredAssetSymbol
+	sourceChain: Chains
+	destinationChain: Chains
+	/** Quote-token units received when buying the quote token with one base token. */
+	buyRate: string | null
+	/** Quote-token units sold to receive one base token. */
+	sellRate: string | null
+	buyRateUpdatedAt: Date | null
+	sellRateUpdatedAt: Date | null
+}
+
+/** Symbol-only input for querying an indexed pool's rates. */
+export interface QueryBuyAndSellRatesParams {
+	tokenInSymbol: ConfiguredAssetSymbolInput
+	tokenOutSymbol: ConfiguredAssetSymbolInput
+	sourceChainId: Chain["id"]
+	destinationChainId: Chain["id"]
 }
 
 export interface TokenPrice {

@@ -1,11 +1,12 @@
 import "log-timestamp"
 
 import { strict as assert } from "node:assert"
-import { decodeFunctionData, type PublicClient } from "viem"
+import { decodeFunctionData, parseUnits, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import type { AvailableLiquiditySnapshot, HexString, Order, TokenInfo } from "@/types"
+import type { AvailableLiquidity, BuyAndSellRates, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
+import { LiquidityEngine } from "@/protocols/intents/LiquidityEngine"
 import { DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
 import {
@@ -87,11 +88,9 @@ describe("Intent quote helper", () => {
 	it("queries live USDC to cNGN liquidity", async () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
 
 		const intentGateway = await createLiveBaseIntentGateway(configService)
-
 		const liquidity = await intentGateway.queryAvailableLiquidity({
 			tokenIn: configService.getUsdcAsset(BASE_CHAIN),
 			tokenOut: cNgnAddress,
@@ -104,29 +103,89 @@ describe("Intent quote helper", () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
 		const usdcAddress = configService.getUsdcAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+
 		const intentGateway = await createLiveBaseIntentGateway(configService)
-		const liquidity = await intentGateway.queryAvailableLiquidity({
-			tokenIn: cNgnAddress,
-			tokenOut: usdcAddress,
-		})
+		const liquidity = await intentGateway.queryAvailableLiquidity({ tokenIn: cNgnAddress, tokenOut: usdcAddress })
 
 		assertAndLogLiquidity("cNGN → USDC", liquidity, usdcAddress)
 	}, 120_000)
 
-	it("resolves Base USDT to the canonical USDC to cNGN liquidity snapshot", async () => {
+	it("queries the indexed Base USDT to cNGN pool directly", async () => {
 		const configService = new ChainConfigService()
 		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-
 		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+
 		const intentGateway = await createLiveBaseIntentGateway(configService)
 		const liquidity = await intentGateway.queryAvailableLiquidity({
 			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
 			tokenOut: cNgnAddress,
 		})
 
-		assertAndLogLiquidity("USDT → cNGN (canonical USDC snapshot)", liquidity, cNgnAddress)
+		logLiquidity("USDT → cNGN", liquidity)
+		assert(liquidity, "Expected an indexed Base USDT → cNGN pool sample")
+		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
+		assert(!Number.isNaN(liquidity.updatedAt.getTime()))
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) >= 0n)
+		assert(liquidity.destination.providerCount >= 0)
+	}, 120_000)
+
+	it("reports destination, unrestricted, and explicit cross-chain liquidity separately", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		const sourceUsdc = configService.getUsdcAsset(CHAINS.eth.id)
+		const sourceToken = configService.getAssetMetadataByAddress(CHAINS.eth.id, sourceUsdc)
+		const destinationToken = configService.getAssetMetadataByAddress(BASE_CHAIN, cNgnAddress)
+		assert(sourceToken, "Expected Ethereum USDC metadata")
+		assert(destinationToken, "Expected Base cNGN metadata")
+
+		const engine = new LiquidityEngine(
+			createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
+		)
+		const liquidity = await engine.getAvailableLiquidity({
+			source: { chain: CHAINS.eth.id, ...sourceToken },
+			destination: { chain: BASE_CHAIN, ...destinationToken },
+		})
+
+		logLiquidity("Ethereum USDC → Base cNGN", liquidity)
+		assert(liquidity, "Expected indexed Base destination liquidity")
+		assert.equal(liquidity.sourceChain, CHAINS.eth.id)
+		assert.equal(liquidity.destinationChain, BASE_CHAIN)
+		assert.equal(liquidity.tokenAddress, cNgnAddress.toLowerCase())
+		assert(parseUnits(liquidity.destination.totalLiquidity, 18) > 0n)
+		assert(
+			parseUnits(liquidity.unrestricted.totalLiquidity, 18) <=
+				parseUnits(liquidity.destination.totalLiquidity, 18),
+		)
+		assert(liquidity.unrestricted.providerCount <= liquidity.destination.providerCount)
+		if (liquidity.explicitRoute) {
+			assert(
+				parseUnits(liquidity.explicitRoute.totalLiquidity, 18) <=
+					parseUnits(liquidity.destination.totalLiquidity, 18),
+			)
+			assert(liquidity.explicitRoute.providerCount <= liquidity.destination.providerCount)
+		}
+	}, 120_000)
+
+	it("queries buy and sell rates using only symbols and chain IDs", async () => {
+		const configService = new ChainConfigService()
+		const intentGateway = await createLiveBaseIntentGateway(configService)
+		const rates = await intentGateway.queryBuyAndSellRates({
+			tokenInSymbol: "USDC",
+			tokenOutSymbol: "cngn",
+			sourceChainId: 1,
+			destinationChainId: 8453,
+		})
+
+		logRates("Ethereum USDC → Base cNGN", rates)
+		assert(rates, "Expected live chain-specific cNGN/USDC rates from Nexus")
+		assert.equal(rates.baseTokenSymbol, "USDC")
+		assert.equal(rates.quoteTokenSymbol, "cNGN")
+		assert(rates.buyRate && parseUnits(rates.buyRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.sellRate && parseUnits(rates.sellRate, 18) > 1_000n * 10n ** 18n)
+		assert(rates.buyRateUpdatedAt && !Number.isNaN(rates.buyRateUpdatedAt.getTime()))
+		assert(rates.sellRateUpdatedAt && !Number.isNaN(rates.sellRateUpdatedAt.getTime()))
 	}, 120_000)
 
 	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
@@ -403,31 +462,47 @@ async function createLiveBaseIntentGateway(configService: ChainConfigService): P
 	)
 }
 
+function logLiquidity(label: string, liquidity: AvailableLiquidity | undefined): void {
+	console.log(`[queryAvailableLiquidity] ${label}`)
+	console.log(
+		liquidity
+			? {
+					...liquidity,
+					updatedAt: liquidity.updatedAt.toISOString(),
+					explicitRoute: liquidity.explicitRoute
+						? { ...liquidity.explicitRoute, updatedAt: liquidity.explicitRoute.updatedAt.toISOString() }
+						: null,
+				}
+			: undefined,
+	)
+}
+
+function logRates(label: string, rates: BuyAndSellRates | undefined): void {
+	console.log(`[queryBuyAndSellRates] ${label}`)
+	console.log(
+		rates
+			? {
+					...rates,
+					buyRateUpdatedAt: rates.buyRateUpdatedAt?.toISOString() ?? null,
+					sellRateUpdatedAt: rates.sellRateUpdatedAt?.toISOString() ?? null,
+				}
+			: undefined,
+	)
+}
+
 function assertAndLogLiquidity(
 	pair: string,
-	liquidity: AvailableLiquiditySnapshot | undefined,
+	liquidity: AvailableLiquidity | undefined,
 	expectedTokenAddress: HexString,
-): asserts liquidity is AvailableLiquiditySnapshot {
-	assert(liquidity, `Expected a live ${pair} Phantom liquidity snapshot from Nexus`)
-	console.log(`Live ${pair} liquidity snapshot from Nexus`)
-	console.log({
-		totalLiquidity: liquidity.totalLiquidity,
-		providerCount: liquidity.providerCount,
-		tokenAddress: liquidity.tokenAddress,
-		snapshotTime: liquidity.snapshotTime.toISOString(),
-		liquidityByChain: liquidity.liquidityByChain,
-	})
-	assert.notEqual(liquidity.totalLiquidity, "0")
-	assert(liquidity.providerCount > 0)
-	assert.equal(liquidity.tokenAddress.toLowerCase(), expectedTokenAddress.toLowerCase())
-	assert(!Number.isNaN(liquidity.snapshotTime.getTime()))
-	assert(liquidity.liquidityByChain.length > 0)
+): asserts liquidity is AvailableLiquidity {
+	logLiquidity(pair, liquidity)
+	assert(liquidity, `Expected live ${pair} indexed pool liquidity from Nexus`)
+	assert.notEqual(liquidity.destination.totalLiquidity, "0")
+	assert(liquidity.destination.providerCount > 0)
+	assert.equal(liquidity.tokenAddress, expectedTokenAddress.toLowerCase())
+	assert(!Number.isNaN(liquidity.updatedAt.getTime()))
 	assert(
-		liquidity.liquidityByChain.some(
-			(group) =>
-				group.chain === CHAINS.base.id &&
-				group.tokenAddress.toLowerCase() === expectedTokenAddress.toLowerCase(),
-		),
+		parseUnits(liquidity.unrestricted.totalLiquidity, 18) <= parseUnits(liquidity.destination.totalLiquidity, 18),
 	)
 }
 

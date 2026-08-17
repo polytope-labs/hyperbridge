@@ -19,7 +19,7 @@ import {
 } from "viem/chains"
 import { defineChain } from "viem"
 import { TronWeb } from "tronweb"
-import { HexString } from "@/types"
+import type { HexString } from "@/types"
 
 /** Convert a Tron base58 address to a 0x-prefixed 20-byte EVM hex address */
 function tronAddress(base58: string): HexString {
@@ -113,7 +113,24 @@ export const tronNile = defineChain({
 // Known Tron chain IDs (mainnet + Nile testnet)
 export const tronChainIds = new Set([728126428, 3448148188])
 
-export type ConfiguredAssetSymbol = "WETH" | "DAI" | "USDC" | "USDT" | "cNGN" | "EXT"
+export type ConfiguredAssetSymbol =
+	| "WETH"
+	| "DAI"
+	| "USDC"
+	| "USDT"
+	| "cNGN"
+	| "EXT"
+	| "ZARP"
+	| "EURC"
+	| "XSGD"
+	| "TRYB"
+	| "USDR"
+
+/** A configured asset symbol in its canonical, lowercase, or uppercase form. */
+export type ConfiguredAssetSymbolInput =
+	| ConfiguredAssetSymbol
+	| Lowercase<ConfiguredAssetSymbol>
+	| Uppercase<ConfiguredAssetSymbol>
 
 export interface UniswapV4PoolConfigData {
 	tokens: readonly [ConfiguredAssetSymbol, ConfiguredAssetSymbol]
@@ -989,7 +1006,8 @@ const configsByStateMachineId = Object.fromEntries(
 	Object.values(chainConfigs).map((c) => [c.stateMachineId, c]),
 ) as Record<Chains, ChainConfigData>
 
-export const getConfigByStateMachineId = (id: Chains): ChainConfigData | undefined => configsByStateMachineId[id]
+export const getConfigByStateMachineId = (id: string): ChainConfigData | undefined =>
+	configsByStateMachineId[id as Chains]
 
 export const getChainId = (stateMachineId: string): number | undefined =>
 	configsByStateMachineId[stateMachineId as Chains]?.chainId

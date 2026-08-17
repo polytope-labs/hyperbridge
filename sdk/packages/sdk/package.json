@@ -52,7 +52,8 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
+		"url": "git+https://github.com/polytope-labs/hyperbridge.git",
+		"directory": "sdk/packages/sdk"
 	},
 	"license": "Apache-2.0",
 	"author": "Polytope Labs",

@@ -73,7 +73,12 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 	}
 
+	/// Bumped whenever the commitment changes shape, so [`migration`] knows to throw away what
+	/// was published under the old one.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The last commitment published to a header digest, and the set it describes.
@@ -226,6 +231,33 @@ pub trait WeightInfo {
 impl WeightInfo for () {
 	fn commit() -> Weight {
 		Weight::from_parts(821_000_000_000, 0).saturating_add(Weight::from_parts(0, 4096))
+	}
+}
+
+/// Throw away a commitment computed under an older scheme.
+///
+/// A commitment is only recomputed when the membership changes, so a runtime upgrade that changes
+/// how keys are hashed would otherwise keep republishing the old value indefinitely, on any chain
+/// whose validators happen to stay the same. The stored digest cannot notice: it describes the
+/// keys, not the arithmetic applied to them. Clearing the record forces one recomputation and the
+/// pallet carries on from there.
+pub mod migration {
+	use super::*;
+	use frame_support::traits::{Get, GetStorageVersion, OnRuntimeUpgrade};
+
+	pub struct ClearStaleCommitment<T>(core::marker::PhantomData<T>);
+
+	impl<T: Config> OnRuntimeUpgrade for ClearStaleCommitment<T> {
+		fn on_runtime_upgrade() -> Weight {
+			if <Pallet<T> as GetStorageVersion>::on_chain_storage_version() >=
+				pallet::STORAGE_VERSION
+			{
+				return T::DbWeight::get().reads(1);
+			}
+			Published::<T>::kill();
+			pallet::STORAGE_VERSION.put::<Pallet<T>>();
+			T::DbWeight::get().reads_writes(1, 2)
+		}
 	}
 }
 

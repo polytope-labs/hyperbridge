@@ -1,0 +1,32 @@
+[package]
+name = "arc-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Arc consensus prover for light client"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+arc-primitives = { workspace = true, default-features = true }
+arc-verifier = { workspace = true, default-features = true }
+geth-primitives = { workspace = true, default-features = true }
+primitive-types = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { package = "serde_json", version = "1.0.99" }
+sp-core = { workspace = true }
+hex = { workspace = true }
+base64 = { version = "0.22.1" }
+log = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+ismp = { workspace = true, default-features = true }
+alloy-provider = { workspace = true }
+alloy-eips = { workspace = true }
+ethabi = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = { workspace = true, default-features = true }

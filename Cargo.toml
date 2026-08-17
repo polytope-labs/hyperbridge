@@ -33,6 +33,7 @@ members = [
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/bsc",
     "modules/ismp/clients/pharos",
+    "modules/ismp/clients/arc",
     "modules/ismp/clients/grandpa",
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
@@ -62,6 +63,9 @@ members = [
     "modules/consensus/pharos/primitives",
     "modules/consensus/pharos/verifier",
     "modules/consensus/pharos/prover",
+    "modules/consensus/arc/primitives",
+    "modules/consensus/arc/verifier",
+    "modules/consensus/arc/prover",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -123,6 +127,7 @@ members = [
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
     "tesseract/consensus/pharos",
+    "tesseract/consensus/arc",
     "tesseract/consensus/parachain",
     "tesseract/consensus/config",
 
@@ -292,10 +297,14 @@ tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-pri
 pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
 pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
 pharos-prover = { path = "./modules/consensus/pharos/prover", default-features = false }
+arc-primitives = { path = "./modules/consensus/arc/primitives", default-features = false }
+arc-verifier = { path = "./modules/consensus/arc/verifier", default-features = false }
+arc-prover = { path = "./modules/consensus/arc/prover", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-pharos = { path = "./modules/ismp/clients/pharos", default-features = false }
+ismp-arc = { path = "./modules/ismp/clients/arc", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
@@ -363,6 +372,7 @@ tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
+tesseract-arc = { path = "tesseract/consensus/arc" }
 tesseract-parachain = { path = "tesseract/consensus/parachain" }
 tesseract-consensus-config = { path = "tesseract/consensus/config" }
 tesseract = { path = "tesseract/relayer" }

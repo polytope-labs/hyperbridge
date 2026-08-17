@@ -14738,6 +14738,7 @@ dependencies = [
  "beefy-verifier-primitives",
  "cumulus-pallet-parachain-system",
  "hex",
+ "hex-literal 0.4.1",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",

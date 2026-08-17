@@ -1,10 +1,17 @@
 import { OrderCanceller } from "@/protocols/intents/OrderCanceller"
+import * as intentUtils from "@/protocols/intents/utils"
 import { LEGACY_STORAGE_KEYS, STORAGE_KEYS, createCancellationStorage } from "@/storage"
 import type { HexString, Order } from "@/types"
 import { MissingConsensusUpdateTimeError } from "@/utils/exceptions"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/protocols/intents/utils", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/protocols/intents/utils")>()),
+	convertGasToFeeToken: vi.fn(),
+}))
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
+const SLOT_HASH = `0x${"11".repeat(32)}` as HexString
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
@@ -24,6 +31,53 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 }
 
 describe("OrderCanceller recovery", () => {
+	beforeEach(() => {
+		vi.mocked(intentUtils.convertGasToFeeToken).mockReset()
+	})
+
+	it("prices source cancellation GET responses with a 1M gas budget", async () => {
+		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
+		const ctx = {
+			source: {
+				configService: { getIntentGatewayAddress: () => ADDR_20 },
+				getHostNonce: async () => 1n,
+				quoteNative: async () => 10_000n,
+			},
+			dest: {
+				configService: { getIntentGatewayAddress: () => ADDR_20 },
+				client: { readContract: async () => SLOT_HASH },
+			},
+		}
+		const canceller = new OrderCanceller(ctx as never)
+
+		await canceller.quoteCancelOrder(makeOrder({ id: SLOT_HASH }))
+
+		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
+	})
+
+	it("keeps destination cancellation refund POSTs at an 800k gas budget", async () => {
+		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
+		const ctx = {
+			source: {
+				getFeeTokenWithDecimals: async () => ({ address: ADDR_20, decimals: 6 }),
+			},
+			dest: {
+				getFeeTokenWithDecimals: async () => ({ address: ADDR_20, decimals: 6 }),
+			},
+			feeTokenCache: new Map(),
+		}
+		const canceller = new OrderCanceller(ctx as never)
+		const estimateRelayerFee = (
+			canceller as unknown as {
+				estimateRelayerFee(sourceChainId: string, destChainId: string): Promise<bigint>
+			}
+		).estimateRelayerFee.bind(canceller)
+
+		await estimateRelayerFee("EVM-1", "EVM-42161")
+
+		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 800_000n, "source", "EVM-1")
+	})
+
 	it("normalizes state-machine IDs in cancellation storage keys", () => {
 		expect(STORAGE_KEYS.getRequest("0xdeadbeef", "EVM-1", "EVM-42161")).toBe(
 			STORAGE_KEYS.getRequest("0xdeadbeef", "0x45564d2d31", "0x45564d2d3432313631"),
@@ -51,9 +105,11 @@ describe("OrderCanceller recovery", () => {
 				removeItem: async (key: string) => void values.delete(key),
 			},
 		} as never)
-		const getRecoveryItem = (canceller as unknown as {
-			getRecoveryItem<T>(key: string, legacyKeys: string[]): Promise<T | null>
-		}).getRecoveryItem.bind(canceller)
+		const getRecoveryItem = (
+			canceller as unknown as {
+				getRecoveryItem<T>(key: string, legacyKeys: string[]): Promise<T | null>
+			}
+		).getRecoveryItem.bind(canceller)
 
 		expect(await getRecoveryItem<string>(currentKey, [legacyKey])).toBe("checkpoint")
 		expect(values.get(currentKey)).toBe("checkpoint")
@@ -73,9 +129,11 @@ describe("OrderCanceller recovery", () => {
 		const canceller = new OrderCanceller({
 			cancellationStorage: { removeItem: async (key: string) => void values.delete(key) },
 		} as never)
-		const clearGetRecoveryCache = (canceller as unknown as {
-			clearGetRecoveryCache(recoveryOrder: Order): Promise<void>
-		}).clearGetRecoveryCache.bind(canceller)
+		const clearGetRecoveryCache = (
+			canceller as unknown as {
+				clearGetRecoveryCache(recoveryOrder: Order): Promise<void>
+			}
+		).clearGetRecoveryCache.bind(canceller)
 
 		await clearGetRecoveryCache(order)
 
@@ -109,6 +167,7 @@ describe("OrderCanceller recovery", () => {
 			cancelOrderFromSource(order: Order, indexerClient: unknown): AsyncGenerator<unknown>
 		}
 		hooks.cancelOrderFromSource = async function* () {
+			yield* []
 			attempts += 1
 			throw new MissingConsensusUpdateTimeError()
 		}
@@ -128,7 +187,7 @@ describe("OrderCanceller recovery", () => {
 		hooks.cancelOrderFromSource = async function* () {
 			yield { status: "AWAITING_CANCEL_TRANSACTION", data: "0x", to: ADDR_20, value: 0n }
 		}
-			hooks.cancelOrderFromDest = async function* () {
+		hooks.cancelOrderFromDest = async function* () {
 			yield* []
 			throw new Error("destination path should not be selected")
 		}

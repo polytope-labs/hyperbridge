@@ -60,6 +60,7 @@ substrate-state-machine = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 ismp-tendermint = { workspace = true }
+ismp-tempo = { workspace = true }
 pallet-intents-coprocessor = { workspace = true }
 
 [dependencies.polkadot-sdk]
@@ -170,6 +171,7 @@ std = [
     "pallet-beefy-consensus-proofs/std",
     "ismp-beefy/std",
     "ismp-tendermint/std",
+    "ismp-tempo/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "pallet-intents-coprocessor/std",

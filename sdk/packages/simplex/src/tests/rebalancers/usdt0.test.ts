@@ -5,7 +5,7 @@ import { createSimplexSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
 describe("RebalancingService - USDT0 (LayerZero OFT)", () => {
-	it.only("Should send 1 USDT from Arbitrum to Polygon", async () => {
+	it("Should send 1 USDT from Arbitrum to Polygon", async () => {
 		const { rebalancingService } = await setUp()
 
 		const result = await rebalancingService.sendUsdt0({

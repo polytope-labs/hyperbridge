@@ -22,7 +22,6 @@ DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 IMAGE="polytopelabs/simplex:latest"
 UI_PORT="${SIMPLEX_UI_PORT:-8686}"
-METRICS_PORT="${SIMPLEX_METRICS_PORT:-9090}"
 
 # Compose v2 is a docker subcommand; keep working where only the v1 binary exists.
 compose() {
@@ -111,7 +110,6 @@ case "$COMMAND" in
             --name simplex \
             --restart unless-stopped \
             -p "127.0.0.1:$UI_PORT:8686" \
-            -p "127.0.0.1:$METRICS_PORT:9090" \
             -v simplex-data:/data \
             -v "$CONFIG_FILE:/data/filler-config.toml:ro" \
             -e NODE_ENV=production \
@@ -119,12 +117,11 @@ case "$COMMAND" in
             --log-opt max-size=10m \
             --log-opt max-file=3 \
             "$IMAGE" \
-            run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686 -p 0.0.0.0:9090
+            run -c /data/filler-config.toml --data-dir /data --ui 0.0.0.0:8686
 
         echo -e "${GREEN}✓ Container started!${NC}"
         echo "  Web UI:      http://localhost:$UI_PORT"
-        echo "  Metrics:     http://localhost:$METRICS_PORT/metrics"
-        echo "  View logs:   docker logs -f simplex"
+            echo "  View logs:   docker logs -f simplex"
         echo "  Stop:        docker stop simplex"
         ;;
 

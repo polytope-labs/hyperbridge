@@ -1,3 +1,4 @@
+import { stubOrderScanner } from "../helpers/stub-scanner"
 import { IntentFiller } from "@/core/filler"
 import {
 	CacheService,
@@ -94,7 +95,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: Order = {
+		const order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -235,6 +236,7 @@ async function createIntentFiller(
 		chainClientManager,
 		contractService,
 		signer,
+		{ orders: stubOrderScanner() },
 	)
 }
 

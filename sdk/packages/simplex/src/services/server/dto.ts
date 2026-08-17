@@ -5,7 +5,7 @@
  * dependencies beyond constants.
  */
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
-import type { QueueConfig, VaultToml } from "@/config/filler-toml"
+import type { VaultToml } from "@/config/filler-toml"
 import type { CurvePoint, PriceCurvePoint } from "@/config/interpolated-curve"
 
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const
@@ -28,7 +28,6 @@ export interface SetupDefaults {
 	usdStables: string[]
 	sameAssetAskCurve: PriceCurvePoint[]
 	testnetConfirmationPoints: CurvePoint[]
-	queue: QueueConfig
 	maxConcurrentOrders: number
 	configPath: string
 	/** Registry symbols resolvable per chain (state machine id), addresses included. */
@@ -54,7 +53,8 @@ export interface StatusOperator {
 	chains: number[]
 	strategies: Array<{ index: number; exotic?: string }>
 	strategyTypes: string[]
-	configPath: string
+	/** Absent when the filler was started from a config object rather than a file. */
+	configPath?: string
 	addresses?: { evm: string; substrate?: string }
 	chainLabels?: Record<string, string>
 }
@@ -169,7 +169,8 @@ export interface WalletTxDto {
 
 /** GET /api/config */
 export interface ConfigDto {
-	configPath: string
+	/** Absent when the filler was started from a config object rather than a file. */
+	configPath?: string
 	toml: string
 	logLevel: string
 	vaultConfigured: boolean

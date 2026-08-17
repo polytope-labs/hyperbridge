@@ -1,7 +1,7 @@
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
-import { type HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 

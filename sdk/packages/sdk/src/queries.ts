@@ -265,53 +265,86 @@ query LatestPhantomOrderPriceSnapshot($tokenA: String!, $tokenB: String!) {
   }
 }`
 
-export const LATEST_PHANTOM_ORDER_LIQUIDITY_SNAPSHOT = `
-query LatestPhantomOrderLiquiditySnapshot($tokenA: String!, $tokenB: String!) {
-  phantomOrderPriceSnapshots(
+export const AVAILABLE_LIQUIDITY = `
+query AvailableLiquidity(
+  $poolId: String!
+  $sourceChain: String!
+  $destinationChain: String!
+  $direction: String!
+) {
+  poolChainLiquidities(
     filter: {
       and: [
-        { tokenA: { equalTo: $tokenA } }
-        { tokenB: { equalTo: $tokenB } }
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
       ]
     }
-    orderBy: SNAPSHOT_TIME_DESC
     first: 1
   ) {
     nodes {
-      commitment
-      tokenA
-      tokenB
-      snapshotTime
+      depth
+      bidCount
+      unrestrictedDepth
+      unrestrictedBidCount
+      lastUpdatedAt
+    }
+  }
+  poolRoutes(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { sourceChain: { equalTo: $sourceChain } }
+        { chain: { equalTo: $destinationChain } }
+        { direction: { equalTo: $direction } }
+      ]
+    }
+    first: 1
+  ) {
+    nodes {
+      depth
+      bidCount
+      lastUpdatedAt
     }
   }
 }`
 
-export const LIQUIDITY_PROVIDER_BALANCES = `
-query LiquidityProviderBalanceAggregates($commitment: String!, $tokenAddress: String!) {
-  liquidityProviderBalances(
+export const BUY_AND_SELL_RATES = `
+query BuyAndSellRates(
+  $poolId: String!
+  $directChain: String!
+  $directDirection: String!
+  $reverseChain: String!
+  $reverseDirection: String!
+) {
+  direct: poolChainLiquidities(
     filter: {
       and: [
-        { commitment: { equalTo: $commitment } }
-        { tokenAddress: { equalTo: $tokenAddress } }
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $directChain } }
+        { direction: { equalTo: $directDirection } }
       ]
     }
+    first: 1
   ) {
-    aggregates {
-      sum {
-        balance
-      }
-      distinctCount {
-        providerId
-      }
+    nodes {
+      rate
+      lastUpdatedAt
     }
-    groupedAggregates(groupBy: [CHAIN, TOKEN_ADDRESS]) {
-      keys
-      sum {
-        balance
-      }
-      distinctCount {
-        providerId
-      }
+  }
+  reverse: poolChainLiquidities(
+    filter: {
+      and: [
+        { poolId: { equalToInsensitive: $poolId } }
+        { chain: { equalTo: $reverseChain } }
+        { direction: { equalTo: $reverseDirection } }
+      ]
+    }
+    first: 1
+  ) {
+    nodes {
+      rate
+      lastUpdatedAt
     }
   }
 }`

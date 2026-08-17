@@ -74,10 +74,10 @@ COPY --from=builder --chown=simplex:simplex /app /app
 # survive container replacement.
 RUN mkdir -p /data && chown simplex:simplex /data
 
-# Node-only healthcheck: the slim base has neither curl nor ps. Probes the metrics server,
+# Node-only healthcheck: the slim base has neither curl nor ps. Probes the UI server,
 # which the default CMD below turns on.
 RUN printf '%s\n' \
-    'const res = await fetch("http://127.0.0.1:9090/health").catch(() => undefined)' \
+    'const res = await fetch("http://127.0.0.1:8686/health").catch(() => undefined)' \
     'process.exit(res?.ok ? 0 : 1)' > /app/healthcheck.mjs
 
 USER simplex
@@ -85,7 +85,7 @@ USER simplex
 # Set environment variables
 ENV NODE_ENV=production
 
-EXPOSE 8686 9090
+EXPOSE 8686
 
 # Set up healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD ["node", "/app/healthcheck.mjs"]
@@ -97,15 +97,15 @@ WORKDIR /data
 
 # ENTRYPOINT fixes the binary; CMD provides the default arguments.
 #
-# --ui/-p bind every container interface rather than the CLI's 127.0.0.1 default: a
+# --ui binds every container interface rather than the CLI's 127.0.0.1 default: a
 # container-local loopback bind is unreachable from the host, and Docker Desktop on
 # macOS/Windows runs the daemon inside a VM with no --network host to fall back on, so
-# published ports are the only route in. The ports stay private until published with -p.
-# Carry both flags over if you override this command.
+# published ports are the only route in. The port stays private until published with `docker run -p`.
+# Carry the --ui flag over if you override this command.
 #
 # With no /data/filler-config.toml this serves the browser setup wizard on 8686 and starts
 # the filler once it is saved; with one, it runs the filler directly. `init` is the same
 # flow in the terminal, for headless hosts:
 #   docker run --rm -it -v simplex-data:/data <image> init -o /data/filler-config.toml
-ENTRYPOINT ["node", "/app/packages/simplex/dist/bin/simplex.js"]
-CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686", "-p", "0.0.0.0:9090"]
+ENTRYPOINT ["node", "--enable-source-maps", "/app/packages/simplex/dist/bin/simplex.js"]
+CMD ["run", "--data-dir", "/data", "--ui", "0.0.0.0:8686"]

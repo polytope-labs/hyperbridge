@@ -2,7 +2,6 @@ import type { ChainConfig, HexString } from "@/types"
 import {
 	chainConfigs,
 	getConfigByStateMachineId,
-	type Chains,
 	hyperbridgeAddress,
 	type ConfiguredAssetSymbol,
 	type Erc4626VaultConfigData,
@@ -21,7 +20,7 @@ export class ChainConfigService {
 	}
 
 	private getConfig(chain: string) {
-		return getConfigByStateMachineId(chain as Chains)
+		return getConfigByStateMachineId(chain)
 	}
 
 	getChainConfig(chain: string): ChainConfig {
@@ -111,11 +110,25 @@ export class ChainConfigService {
 	 * it, so a new asset is added once in `chain.ts` and nowhere else.
 	 */
 	getAssetBySymbol(chain: string, symbol: string): HexString | undefined {
-		const assets = this.getConfig(chain)?.assets
+		return this.getAssetMetadataBySymbol(chain, symbol)?.address
+	}
+
+	/** Resolves a configured token symbol case-insensitively on a specific chain. */
+	getAssetMetadataBySymbol(
+		chain: string,
+		symbol: string,
+	): { symbol: ConfiguredAssetSymbol; address: HexString; decimals?: number } | undefined {
+		const config = this.getConfig(chain)
+		const assets = config?.assets
 		if (!assets) return undefined
 		const target = symbol.trim().toUpperCase()
 		for (const [key, address] of Object.entries(assets)) {
-			if (key.toUpperCase() === target) return address as HexString
+			if (key.toUpperCase() !== target) continue
+			return {
+				symbol: key as ConfiguredAssetSymbol,
+				address: address as HexString,
+				decimals: config.tokenDecimals?.[key as keyof typeof config.tokenDecimals],
+			}
 		}
 		return undefined
 	}

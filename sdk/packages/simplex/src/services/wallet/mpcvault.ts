@@ -1,4 +1,4 @@
-import { type HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { concatHex, keccak256, padHex, toHex } from "viem"
 import { toAccount, type Account } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"

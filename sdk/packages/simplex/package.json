@@ -2,7 +2,7 @@
 	"name": "@hyperbridge/simplex",
 	"version": "0.9.8",
 	"license": "Apache-2.0",
-	"description": "IntentGateway simplex package for hyperbridge",
+	"description": "Automated intent filler for the Hyperbridge IntentGateway \u2014 run it as a binary or embed it as a library",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"type": "module",
@@ -11,9 +11,26 @@
 	},
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
-		}
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		},
+		"./sqlite": {
+			"import": {
+				"types": "./dist/sqlite.d.ts",
+				"default": "./dist/sqlite.js"
+			},
+			"require": {
+				"types": "./dist/sqlite.d.cts",
+				"default": "./dist/sqlite.cjs"
+			}
+		},
+		"./package.json": "./package.json"
 	},
 	"files": [
 		"dist"
@@ -33,8 +50,8 @@
 		"test:phantom-e2e": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=120000 src/tests/phantom-e2e.simnode.test.ts",
 		"test:phantom-filler-e2e": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/phantom-filler.e2e.simnode.test.ts",
 		"test:watch": "pnpm run codegen && vitest",
-		"lint": "pnpm run codegen && biome lint src/bin src/cli src/config src/core src/services src/strategies src/tests src/index.ts",
-		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/cli src/config src/core src/services src/strategies src/tests src/index.ts",
+		"lint": "pnpm run codegen && biome lint src/bin src/cli src/config src/core src/data src/services src/strategies src/tests src/index.ts src/simplex.ts",
+		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/cli src/config src/core src/data src/services src/strategies src/tests src/index.ts src/simplex.ts",
 		"format": "pnpm run codegen && prettier --write \"src/**/*.ts\"",
 		"ui:build": "vite build --config ui/vite.config.ts",
 		"ui:dev": "vite --config ui/vite.config.ts",
@@ -60,14 +77,14 @@
 		"typescript": "^5.7.3",
 		"vite": "^8.0.16",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.7"
+		"vitest": "^3.0.7",
+		"better-sqlite3": "^13.0.3"
 	},
 	"publishConfig": {
 		"access": "public"
 	},
-	"engineStrict": true,
 	"engines": {
-		"node": ">=18.0.0"
+		"node": ">=22.0.0"
 	},
 	"dependencies": {
 		"@binance/wallet": "^16.0.0",
@@ -77,9 +94,9 @@
 		"@clack/prompts": "^1.5.1",
 		"@grpc/grpc-js": "^1.12.5",
 		"@hyperbridge/sdk": "workspace:*",
-		"@polkadot/api": "latest",
-		"@polkadot/util": "latest",
-		"@polkadot/util-crypto": "latest",
+		"@polkadot/api": "^16.4.6",
+		"@polkadot/util": "^13.5.6",
+		"@polkadot/util-crypto": "^13.5.6",
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",
 		"@safe-global/types-kit": "^2.0.1",
@@ -88,8 +105,6 @@
 		"@uniswap/sdk-core": "^7.13.0",
 		"@uniswap/v4-sdk": "^2.0.0",
 		"async-mutex": "^0.5.0",
-		"better-sqlite3": "^13.0.3",
-		"ckb-mmr-wasm": "link:wasm-b",
 		"commander": "^12.0.0",
 		"decimal.js": "^10.5.0",
 		"dotenv": "^16.4.7",
@@ -98,7 +113,6 @@
 		"p-queue": "^8.1.0",
 		"pino": "~10.3.1",
 		"pino-pretty": "^11.3.0",
-		"prom-client": "^15.1.0",
 		"scale-ts": "^1.6.1",
 		"toml": "^3.0.0",
 		"viem": "2.47.6"
@@ -134,5 +148,29 @@
 		"@polkadot/x-textencoder": "^13.5.6",
 		"@polkadot/x-ws": "^13.5.6",
 		"typescript": "^5.5.4"
+	},
+	"keywords": [
+		"hyperbridge",
+		"intent",
+		"filler",
+		"solver",
+		"market-maker",
+		"cross-chain",
+		"defi",
+		"intent-gateway"
+	],
+	"homepage": "https://docs.hyperbridge.network/developers/sdk/simplex/",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/polytope-labs/hyperbridge.git",
+		"directory": "sdk/packages/simplex"
+	},
+	"bugs": {
+		"url": "https://github.com/polytope-labs/hyperbridge/issues"
+	},
+	"sideEffects": false,
+	"optionalDependencies": {
+		"better-sqlite3": "^13.0.3",
+		"@types/better-sqlite3": "^7.6.13"
 	}
 }

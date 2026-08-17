@@ -16,7 +16,6 @@ import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import {
 	DEFAULT_MAX_CONCURRENT_ORDERS,
-	DEFAULT_QUEUE,
 	DEFAULT_SAME_ASSET_ASK_CURVE,
 	TESTNET_CONFIRMATION_POINTS,
 } from "@/cli/init/state"
@@ -89,7 +88,6 @@ export async function handleSetupRequest(
 			usdStables: [...USD_STABLE_SYMBOLS],
 			sameAssetAskCurve: DEFAULT_SAME_ASSET_ASK_CURVE,
 			testnetConfirmationPoints: TESTNET_CONFIRMATION_POINTS,
-			queue: DEFAULT_QUEUE,
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
 			knownTokens,

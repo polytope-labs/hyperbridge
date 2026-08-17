@@ -164,7 +164,7 @@ export class InterpolatedCurve {
 	private points: ParsedPoint[]
 	private label: string
 
-	constructor(config: CurveConfig, label: string = "Interpolated curve") {
+	constructor(config: CurveConfig, label = "Interpolated curve") {
 		this.label = label
 
 		if (!config.points || config.points.length < 2) {
@@ -173,7 +173,7 @@ export class InterpolatedCurve {
 
 		this.points = config.points
 			.map((p) => ({
-				amount: parseFloat(p.amount),
+				amount: Number.parseFloat(p.amount),
 				value: p.value,
 			}))
 			.sort((a, b) => a.amount - b.amount)
@@ -268,6 +268,38 @@ export class ConfirmationPolicy {
 		const curve = this.policies.get(chainId)
 		if (!curve) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 		return curve.getValue(amountUsd)
+	}
+
+	/**
+	 * Installs a curve for a chain added at runtime. Validates before it mutates,
+	 * so a rejected curve leaves the policy set untouched — a chain that started
+	 * scanning without a curve would drop every cross-chain order sourced on it
+	 * with a per-order throw.
+	 */
+	add(chainId: number, config: CurveConfig): void {
+		const curve = new InterpolatedCurve(config, `Chain ${chainId} confirmation policy`)
+		this.policies.set(chainId, curve)
+	}
+
+	/** Whether a chain has a confirmation curve. */
+	has(chainId: number): boolean {
+		return this.policies.has(chainId)
+	}
+
+	remove(chainId: number): void {
+		this.policies.delete(chainId)
+	}
+
+	/**
+	 * Copies one chain's curve across from another policy set.
+	 *
+	 * Used when a chain is added at runtime and covered by a built-in default: the
+	 * defaults are only materialised inside a freshly constructed policy, so the
+	 * live one adopts the entry rather than re-deriving it.
+	 */
+	adopt(chainId: number, from: ConfirmationPolicy): void {
+		const curve = from.policies.get(chainId)
+		if (curve) this.policies.set(chainId, curve)
 	}
 
 	/**

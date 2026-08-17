@@ -92,12 +92,13 @@ describe("BalanceProvider", () => {
 })
 
 describe("substrate-key", () => {
+	// 20s: first touch of @polkadot/wasm-crypto, which is slow under suite load.
 	it("derives the same address for 0x-prefixed and bare hex seeds", async () => {
 		const seed = "1234567890123456789012345678901234567890123456789012345678901234"
 		const bare = await deriveSubstrateKeyPair(seed)
 		const prefixed = await deriveSubstrateKeyPair(`0x${seed}`)
 		expect(bare.address).toBe(prefixed.address)
-	})
+	}, 20_000)
 
 	it("derives from mnemonics and URIs", async () => {
 		const mnemonic = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"

@@ -542,7 +542,21 @@ export class IntentGatewayV3Service {
 				// Volume
 				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
+				// Seed before this fill's own updates so the seed never counts it. A failed seed
+				// must not cost the fill's status/points below, and must skip the gateway update:
+				// that leaves the marker uncreated, so the retry on the next fill re-seeds from
+				// the filler daily rows — which include this fill — losing nothing.
+				let gatewaySeeded = true
+				try {
+					await VolumeService.seedAggregateVolume(`IntentGatewayV3.FILLED`, `IntentGatewayV3.FILLER.`)
+				} catch (error) {
+					gatewaySeeded = false
+					logger.error(`Failed to seed IntentGatewayV3.FILLED volume, skipping gateway update for this fill: ${error}`)
+				}
 				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
+				if (gatewaySeeded) {
+					await VolumeService.updateVolume(`IntentGatewayV3.FILLED`, outputUSD.total, timestamp)
+				}
 
 				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
 				const pointsToAward = orderValue.floor().toNumber()

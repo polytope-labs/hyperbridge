@@ -34,3 +34,15 @@ Cross-language encoding parity is tested in `evm/tests/rust/src/tests/abi_encode
 3. Compare `keccak256(encode(x))` from both sides
 
 The Solidity test helper contract is `evm/tests/foundry/AbiEncodeTest.sol`.
+
+## AI workflow docs
+
+Each package under `sdk/packages/*` keeps AI workflow docs in `docs/ai/`:
+
+- `ChangeLog.md` — append an entry for every AI-assisted code change (date, what changed, files touched).
+- `Decisions.md` — record non-obvious choices with the alternatives considered and why they lost.
+- `Flow.md` — how the code paths actually execute; update it when documented control flow changes, and add flows as they are read and verified. Never document a flow speculatively.
+
+When changing code in a package that has `docs/ai/`, updating these files is part of the change, not optional follow-up. When starting substantial work in a package that has no `docs/ai/` yet (e.g. simplex, sdk, core, lz-endpoint), create the three files as the first step and seed them from that task's actual work — never with empty templates.
+
+These are not release notes. Package `CHANGELOG.md` files are changesets release logs managed separately; `ChangeLog.md` lives in `docs/ai/` partly because the two names collide on case-insensitive filesystems.

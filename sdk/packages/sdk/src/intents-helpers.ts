@@ -3,6 +3,7 @@
 export { decodeERC7821ExecuteBatch, encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 export { decodeUserOpScale, encodeUserOpScale } from "@/chains/intentsCoprocessor"
 export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
+export { poolSlug, sortPoolSymbols } from "@/protocols/intents/liquidity-pool"
 export {
 	aggregatePhantomBids,
 	decodeAcceptedSourceChains,

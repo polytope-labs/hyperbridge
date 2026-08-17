@@ -100,6 +100,15 @@ jobs:
             contents: read
             packages: write
         steps:
+            # Only the Docker Hub overview file: this job otherwise works purely
+            # from downloaded digests, and the description step reads from disk —
+            # publishing it without a checkout was an ENOENT in the first release.
+            - name: Checkout Docker Hub overview
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: sdk/packages/simplex/scripts/DOCKERHUB.md
+                  sparse-checkout-cone-mode: false
+
             - name: Download digests
               uses: actions/download-artifact@v4
               with:
@@ -139,9 +148,118 @@ jobs:
             - name: Inspect manifest
               run: docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:v${VERSION}"
 
+            # The Docker Hub overview is versioned here, not edited in the Hub UI, so it
+            # cannot drift from the image it describes. Runs after the images exist.
+            # Requires the token to have write scope; a read-only pull token fails loudly.
+            - name: Publish Docker Hub description
+              uses: peter-evans/dockerhub-description@v4
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+                  repository: polytopelabs/simplex
+                  readme-filepath: sdk/packages/simplex/scripts/DOCKERHUB.md
+                  short-description: "Automated intent solver for the Hyperbridge IntentGateway"
+
+    # Publishes the npm library. Runs independently of the docker jobs — the image
+    # ships the bundled CLI, this ships the importable package, and neither waits on
+    # the other. The GitHub release DOES wait on both (see generate-changelog): a
+    # release note announcing an npm package that failed to publish would lie, and a
+    # failed job is re-runnable from the Actions tab.
+    publish-npm:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            # Trusted publishing: this job authenticates to npm as this workflow
+            # via OIDC — no long-lived token. npm trusts publish-simplex.yml on
+            # polytope-labs/hyperbridge (package Settings -> Trusted Publisher).
+            # Token publishing sunsets ~Jan 2027.
+            id-token: write
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  # scripts/build.sh runs protoc over proto/mpcvaultapis to generate
+                  # src/proto; without the submodule the build has nothing to compile.
+                  submodules: recursive
+
+            - name: Refuse a tag that disagrees with the manifest
+              run: |
+                  TAG_VERSION="${GITHUB_REF#refs/tags/simplex-v}"
+                  PKG_VERSION="$(node -p "require('./packages/simplex/package.json').version")"
+                  if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+                    echo "Tag simplex-v${TAG_VERSION} does not match package.json ${PKG_VERSION}." >&2
+                    echo "npm would publish ${PKG_VERSION} under a tag claiming ${TAG_VERSION}." >&2
+                    exit 1
+                  fi
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  registry-url: "https://registry.npmjs.org"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: "latest"
+
+            - name: Install protoc
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y protobuf-compiler
+
+            - name: Install dependencies
+              run: pnpm install
+
+            # @hyperbridge/sdk is a workspace dependency, and simplex's .d.ts inlines
+            # types from it — build it first or the published types are stale.
+            - name: Build workspace dependencies
+              run: pnpm --filter="@hyperbridge/simplex^..." build
+
+            - name: Build simplex
+              run: pnpm --filter="@hyperbridge/simplex" build
+
+            # pnpm rewrites the `workspace:*` dependency on @hyperbridge/sdk to its
+            # concrete version as it packs. That version existing on npm is not enough:
+            # the registry copy must MATCH the workspace simplex was built and tested
+            # against, or consumers resolve types and a chain registry the build never
+            # saw. The sdk-v<version> tag marks what was published; commits touching
+            # packages/sdk after it mean "publish the sdk first".
+            - name: Refuse an unpublished @hyperbridge/sdk
+              run: |
+                  SDK_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
+                  if ! git tag -l "sdk-v${SDK_VERSION}" | grep -q .; then
+                    echo "::warning::No sdk-v${SDK_VERSION} tag found; cannot verify the npm sdk matches the workspace."
+                    exit 0
+                  fi
+                  if ! git diff --quiet "sdk-v${SDK_VERSION}" HEAD -- packages/sdk; then
+                    echo "packages/sdk changed since sdk-v${SDK_VERSION} was published." >&2
+                    echo "Publish @hyperbridge/sdk first, then re-tag simplex." >&2
+                    exit 1
+                  fi
+
+            # npm >= 11.5 exchanges the Actions OIDC token for npm credentials on
+            # its own; the runner's bundled npm predates that.
+            - name: OIDC-capable npm
+              run: npm install -g npm@^11
+
+            # pnpm pack rewrites the workspace:* dependency on @hyperbridge/sdk to
+            # its concrete version — npm's pack does not — and npm publish carries
+            # the OIDC trusted-publishing exchange. Each tool does the half it is
+            # good at. Provenance comes with trusted publishing automatically.
+            - name: Publish to npm
+              run: |
+                  cd packages/simplex
+                  pnpm pack --pack-destination /tmp/npm-pkg
+                  npm publish /tmp/npm-pkg/*.tgz --access public
+
     generate-changelog:
         runs-on: ubuntu-latest
-        needs: merge
+        needs: [merge, publish-npm]
         permissions:
             contents: write
         steps:

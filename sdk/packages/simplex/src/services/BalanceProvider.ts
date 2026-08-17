@@ -3,7 +3,7 @@ import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
-import { getLogger } from "./Logger"
+import { moduleLogger, type Logger } from "./Logger"
 import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
@@ -61,18 +61,20 @@ export interface BalanceProviderOptions {
 /**
  * Periodically collects wallet balances (native, USDC, USDT, exotic per chain,
  * plus the BRIDGE balance of the substrate account) into a plain snapshot,
- * consumed by both the Prometheus gauges and the UI JSON API.
+ * consumed by the UI JSON API and `wallet.balances()`.
  */
 export class BalanceProvider {
 	private snapshot: BalanceSnapshot = { updatedAt: null, chains: [] }
+	private stopped = false
 	private initialTimeout?: NodeJS.Timeout
 	private refreshInterval?: NodeJS.Timeout
 	private hyperbridgeInterval?: NodeJS.Timeout
-	private logger = getLogger("balances")
+	private logger: Logger
 	private options: BalanceProviderOptions
 	private intervalMs: number
 
 	constructor(options: BalanceProviderOptions) {
+		this.logger = moduleLogger(options.configService.loggers, "balances")
 		this.options = options
 		this.intervalMs = options.refreshIntervalMs ?? 60_000
 	}
@@ -89,6 +91,7 @@ export class BalanceProvider {
 	}
 
 	stop(): void {
+		this.stopped = true
 		if (this.initialTimeout) clearTimeout(this.initialTimeout)
 		if (this.refreshInterval) clearInterval(this.refreshInterval)
 		if (this.hyperbridgeInterval) clearInterval(this.hyperbridgeInterval)
@@ -104,7 +107,7 @@ export class BalanceProvider {
 
 		const fxExoticByChain = new Map<number, string[]>()
 		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
-			const id = parseInt(chainKey.replace("EVM-", ""), 10)
+			const id = Number.parseInt(chainKey.replace("EVM-", ""), 10)
 			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}
 
@@ -128,7 +131,7 @@ export class BalanceProvider {
 		try {
 			const native = await client.getBalance({ address: fillerAddr })
 			const symbol = CHAIN_NATIVE_SYMBOLS[chainId] ?? "ETH"
-			row.native = { symbol, amount: parseFloat(formatUnits(native, 18)) }
+			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
 		} catch {}
 
 		try {
@@ -140,7 +143,7 @@ export class BalanceProvider {
 				functionName: "balanceOf",
 				args: [fillerAddr],
 			})
-			row.usdc = parseFloat(formatUnits(balance as bigint, usdcDecimals))
+			row.usdc = Number.parseFloat(formatUnits(balance as bigint, usdcDecimals))
 		} catch {}
 
 		try {
@@ -152,7 +155,7 @@ export class BalanceProvider {
 				functionName: "balanceOf",
 				args: [fillerAddr],
 			})
-			row.usdt = parseFloat(formatUnits(balance as bigint, usdtDecimals))
+			row.usdt = Number.parseFloat(formatUnits(balance as bigint, usdtDecimals))
 		} catch {}
 
 		for (const fxAddr of fxExoticByChain.get(chainId) ?? []) {
@@ -181,7 +184,7 @@ export class BalanceProvider {
 					functionName: "balanceOf",
 					args: [fillerAddr],
 				})
-				;(row.exotics ??= []).push({ symbol, amount: parseFloat(formatUnits(balance as bigint, decimals)) })
+				;(row.exotics ??= []).push({ symbol, amount: Number.parseFloat(formatUnits(balance as bigint, decimals)) })
 			} catch {}
 		}
 
@@ -202,8 +205,8 @@ export class BalanceProvider {
 				const account = (await api.query.system.account(address)) as any
 				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
 
-				const free = parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-				const reserved = parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
+				const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
+				const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
 
 				this.snapshot = { ...this.snapshot, hyperbridge: { address, free, reserved } }
 			} catch (err) {
@@ -212,6 +215,9 @@ export class BalanceProvider {
 		}
 
 		await fetchBalance()
+		// stop() may have run while the awaits above were in flight; a timer
+		// installed now would outlive the provider.
+		if (this.stopped) return
 		this.hyperbridgeInterval = setInterval(fetchBalance, this.intervalMs)
 		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}

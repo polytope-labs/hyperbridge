@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { mkdtempSync, rmSync } from "fs"
-import { tmpdir } from "os"
-import { join } from "path"
+import { describe, expect, it, vi } from "vitest"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
-import { BidStorageService } from "@/services/BidStorageService"
+import { MemoryDataStore } from "@/data/memory"
+import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
  * Regression tests for #1074: the filler's handling of retraction outcomes.
@@ -30,16 +28,8 @@ const OTHER_FILLER = "0xBBBB00000000000000000000000000000000BBBB"
 const HOUR_MS = 60 * 60 * 1000
 
 describe("IntentFiller bid retraction", () => {
-	const dirs: string[] = []
-
-	afterEach(() => {
-		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-	})
-
 	function build(results: BidSubmissionResult[]) {
-		const dir = mkdtempSync(join(tmpdir(), "simplex-retraction-"))
-		dirs.push(dir)
-		const bidStorage = new BidStorageService(dir)
+		const bidStorage = new MemoryDataStore().bids
 
 		const retractBid = vi.fn(async (): Promise<BidSubmissionResult> => {
 			const next = results.shift()
@@ -60,6 +50,7 @@ describe("IntentFiller bid retraction", () => {
 			{} as any, // ChainClientManager — unused with no chains configured
 			{} as any, // ContractInteractionService — unused on the retraction path
 			{ account: { address: OUR_ADDRESS } } as any,
+			{ orders: stubOrderScanner() },
 			undefined,
 			bidStorage,
 		)
@@ -69,7 +60,11 @@ describe("IntentFiller bid retraction", () => {
 	}
 
 	async function orderFilled(filler: IntentFiller, commitment: HexString): Promise<void> {
-		;(filler as any).handleOrderFilledOnChain(commitment, OTHER_FILLER, 8453)
+		// Awaited: the handler reads the bid store before it can enqueue anything, so
+		// `onIdle()` on a queue nothing has reached yet would resolve immediately. In
+		// production the monitor's listener fires this without awaiting and the enqueue
+		// lands a microtask later; only the test needs the ordering pinned.
+		await (filler as any).handleOrderFilledOnChain(commitment, OTHER_FILLER, 8453)
 		await (filler as any).retractionQueue.onIdle()
 	}
 
@@ -77,11 +72,11 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		bidStorage.storeBid({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
-		const bid = bidStorage.getBidByCommitment(COMMITMENT)
+		const bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(true)
 		expect(bid!.retractExtrinsicHash).toBe("0xretract")
 		expect(retractBid).toHaveBeenCalledTimes(1)
@@ -91,14 +86,14 @@ describe("IntentFiller bid retraction", () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		bidStorage.storeBid({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
-		const bid = bidStorage.getBidByCommitment(COMMITMENT)
+		const bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(true)
 		expect(bid!.retractExtrinsicHash).toBeNull()
-		expect(bidStorage.getExpiredUnretractedBids(0)).toHaveLength(0)
+		expect(await bidStorage.expiredUnretracted(0)).toHaveLength(0)
 		expect(retractBid).toHaveBeenCalledTimes(1)
 	})
 
@@ -111,51 +106,51 @@ describe("IntentFiller bid retraction", () => {
 			},
 			{ success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" },
 		])
-		bidStorage.storeBid({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
 		// In flight: not retracted yet, but dead — due on the next sweep cycle despite its age.
-		let bid = bidStorage.getBidByCommitment(COMMITMENT)
+		let bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(false)
 		expect(bid!.dead).toBe(true)
-		expect(bidStorage.getExpiredUnretractedBids(HOUR_MS).map((b) => b.commitment)).toEqual([COMMITMENT])
+		expect((await bidStorage.expiredUnretracted(HOUR_MS)).map((b) => b.commitment)).toEqual([COMMITMENT])
 
 		// Next cycle: the pooled original landed meanwhile, so the sweep's attempt sees
 		// BidNotFound and marks the bid retracted. The zombie loop from #1074 ends here.
 		await (filler as any).sweepExpiredBids(HOUR_MS)
 		await (filler as any).retractionQueue.onIdle()
 
-		bid = bidStorage.getBidByCommitment(COMMITMENT)
+		bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(2)
 	})
 
 	it("marks the bid dead on OrderFilled so a failed retraction retries next sweep, not after the TTL", async () => {
 		const { filler, bidStorage } = build([{ success: false, error: "Transaction failed after 3 attempts" }])
-		bidStorage.storeBid({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
 
 		await orderFilled(filler, COMMITMENT)
 
-		const bid = bidStorage.getBidByCommitment(COMMITMENT)
+		const bid = await bidStorage.byCommitment(COMMITMENT)
 		expect(bid!.retracted).toBe(false)
 		expect(bid!.dead).toBe(true)
 		// Minutes old at most, yet already due for the next sweep.
-		expect(bidStorage.getExpiredUnretractedBids(HOUR_MS).map((b) => b.commitment)).toEqual([COMMITMENT])
+		expect((await bidStorage.expiredUnretracted(HOUR_MS)).map((b) => b.commitment)).toEqual([COMMITMENT])
 	})
 
 	it("skips a queued duplicate whose bid was retracted by the time it dequeues", async () => {
 		const { filler, bidStorage, retractBid } = build([
 			{ success: true, extrinsicHash: "0xretract" as HexString, blockHash: "0xblock" as HexString },
 		])
-		bidStorage.storeBid({ commitment: COMMITMENT, success: true })
+		await bidStorage.store({ commitment: COMMITMENT, success: true })
 
 		// OrderFilled and a sweep race to enqueue the same commitment.
 		;(filler as any).handleOrderFilledOnChain(COMMITMENT, OTHER_FILLER, 8453)
 		;(filler as any).enqueueRetraction(COMMITMENT)
 		await (filler as any).retractionQueue.onIdle()
 
-		expect(bidStorage.getBidByCommitment(COMMITMENT)!.retracted).toBe(true)
+		expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
 		expect(retractBid).toHaveBeenCalledTimes(1)
 	})
 })

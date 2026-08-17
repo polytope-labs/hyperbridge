@@ -1,0 +1,493 @@
+---
+title: Simplex
+description: Embed a Simplex intent solver in your own Node application — start it from a config object, drive it through the Simplex class, plug in your own persistence, plus the full API reference.
+---
+
+# Simplex
+
+[Simplex](/developers/evm/intent-gateway/simplex) is an automated solver for the Intent Gateway. It
+ships as a binary, and as `@hyperbridge/simplex` — the same engine, running inside your own process.
+No TOML file, no separate service, and every runtime control the web dashboard offers is a method on
+the object you get back.
+
+Reach for the library when the solver is one component of a larger system: you already have a
+database, a dashboard, an alerting pipeline, or pricing logic that needs to move curves as the market
+does. If you just want a solver running, the [binary](/developers/evm/intent-gateway/simplex) is
+less work.
+
+```bash lineNumbers
+npm install @hyperbridge/simplex
+```
+
+Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
+
+## Starting a solver
+
+`Simplex.start` takes a plain config object and returns once the solver is running: chains resolved,
+EIP-7702 delegation in place where solver selection is active, scanners live.
+
+```ts lineNumbers
+import { Simplex, SignerType, type SimplexConfig } from "@hyperbridge/simplex"
+
+const config: SimplexConfig = {
+    simplex: {
+        signer: {
+            type: SignerType.PrivateKey,
+            key: process.env.SOLVER_KEY as `0x${string}`,
+        },
+        maxConcurrentOrders: 5,
+        // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
+        blockScanIntervalSeconds: 3,
+        substratePrivateKey: process.env.SUBSTRATE_KEY!,
+        hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
+    },
+    chains: [
+        {
+            rpcUrls: ["https://base.example"],
+            bundlerUrl: "https://bundler.example/base",
+        },
+        {
+            rpcUrls: ["https://arbitrum.example"],
+            bundlerUrl: "https://bundler.example/arb",
+        },
+    ],
+    pairs: [
+        {
+            token0: "USDC",
+            token1: "USDC",
+            maxOrderSize: "5000",
+            // Same-asset market: ask-only, strictly below par.
+            // The gap to 1 is your spread.
+            askPriceCurve: [{ amount: "0", price: "0.9995" }],
+        },
+    ],
+}
+
+const simplex = await Simplex.start({ config })
+```
+
+`start` rejects if the config is invalid, a chain's RPCs are unreachable, or delegation fails on
+every chain. It never returns a half-started solver, so there is no "is it ready yet" state to poll.
+
+Stop it with `await simplex.stop()` — idempotent, drains in-flight fills, unwinds any vault position
+marked `redeemOnShutdown`, and never calls `process.exit`.
+
+<Callout type="warn">
+    The config object is the same shape the binary's `filler-config.toml` parses into. The
+    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every field;
+    read the TOML tables there as object keys.
+</Callout>
+
+## Persistence
+
+Simplex remembers three things across a restart: the bids it submitted, its activity feed, and
+whether the operator paused it. That lives behind the `SimplexDataStore` interface.
+
+The default is in-memory and lost on exit, which is fine for tests and watch-only observers. **A
+solver that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
+that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
+querying the bid store. Lose those records and you leak deposits.
+
+The bundled SQLite store is a separate entry point, so nothing native is loaded unless you import
+it. `better-sqlite3` is an optional dependency — installed by default, but free to fail to build
+without breaking the package:
+
+```ts lineNumbers
+import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
+
+const simplex = await Simplex.start({
+    config,
+    data: new SqliteDataStore("./simplex-data"),
+})
+```
+
+To use your own backend — Postgres, Redis, a hosted API — implement the interface:
+
+```ts lineNumbers
+import type { SimplexDataStore } from "@hyperbridge/simplex"
+
+const store: SimplexDataStore = {
+    // store, byCommitment, expiredUnretracted, markRetracted, markDead, …
+    bids: myBidStore,
+    // record, recent, fills, recordWalletTx, walletTxs
+    activity: myActivityLog,
+    // get, set
+    state: myStateStore,
+}
+```
+
+Every method is async. Only `bids` is correctness-critical: `store` must be durable before it
+resolves. `activity` is observability — prune, sample or cap it freely.
+
+## Reacting to orders
+
+The solver emits a typed event for everything it does.
+
+```ts lineNumbers
+simplex.on("order:detected", ({ order, transactionHash }) => { /* … */ })
+simplex.on("order:skipped", ({ orderId, reason }) => { /* … */ })
+simplex.on("order:filled", ({ orderId, txHash, volumeUsd, profitUsd }) => {
+    /* … */
+})
+simplex.on("order:executed", ({ orderId, success, strategy, error }) => {
+    /* … */
+})
+simplex.on("order:timing", ({ orderId, phase, durationSec }) => { /* … */ })
+simplex.on("rebalance", ({ success, transferCount, executedCount }) => {
+    /* … */
+})
+// Every row written to the activity store.
+simplex.on("activity", (event) => {
+    /* … */
+})
+```
+
+Payloads are inferred from the event name, so a wrong field is a compile error. A misspelled event
+name is not — the catch-all overload that keeps `EventEmitter` compatible accepts any string. These
+events are the whole telemetry surface: counters, dashboards and alerting are yours to build on
+them, with nothing privileged left inside.
+
+## Changing things while it runs
+
+Every mutation applies to the live solver and binds on the next order. Nothing here needs a restart.
+
+### Pairs
+
+```ts lineNumbers
+simplex.pairs.list()
+
+// Pair 0 above is the same-token USDC/USDC market: ask-only, strictly
+// below par. Widen its spread to 10 bps.
+await simplex.pairs.setCurve(0, "ask", [{ amount: "0", price: "0.999" }])
+await simplex.pairs.setMaxOrderSize(0, "10000")
+
+// Open a cross-asset market — it lands at index 1.
+await simplex.pairs.add({
+    token0: "USDC",
+    token1: "CNGN",
+    maxOrderSize: "5000",
+    // Both curves are CNGN per USDC. Bid is the solver buying CNGN, so it
+    // wants more CNGN per USDC; ask is selling, so it wants to give fewer.
+    // An uncrossed book therefore has bid ABOVE ask — the gap is the spread.
+    bidPriceCurve: [{ amount: "0", price: "1550" }],
+    askPriceCurve: [{ amount: "0", price: "1545" }],
+})
+
+// One-sided LP: stop buying CNGN, keep selling it.
+await simplex.pairs.clearCurve(1, "bid")
+```
+
+`setCurve` mutates the policy instance the engine prices with, so the new curve is live on the next
+evaluation. `pairs.remove(index)` closes a market; indices shift down, so remove from the highest
+index first if you are closing several. New pairs are validated against the same rules boot applies — a pair accepted here is
+one a restart would also accept.
+
+Repricing from a market feed is the common case:
+
+```ts lineNumbers
+// Pair 1 is the cross-asset market added above — two-sided, so both
+// curves apply. A same-token pair takes an ask curve only.
+feed.on("tick", async ({ mid }) => {
+    const bid = (mid * 1.001).toFixed(4)
+    const ask = (mid * 0.999).toFixed(4)
+    await simplex.pairs.setCurve(1, "bid", [{ amount: "0", price: bid }])
+    await simplex.pairs.setCurve(1, "ask", [{ amount: "0", price: ask }])
+})
+```
+
+### Chains
+
+```ts lineNumbers
+await simplex.chains.add({
+    rpcUrls: ["https://polygon.example"],
+    bundlerUrl: "https://bundler.example/polygon",
+    // Required for chains with no built-in confirmation curve.
+    confirmationPolicy: {
+        points: [
+            { amount: "1000", value: 2 },
+            { amount: "100000", value: 32 },
+        ],
+    },
+})
+
+await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
+await simplex.chains.setWatchOnly(8453, true)
+await simplex.chains.remove(137)
+```
+
+`add` probes the endpoints and reads the chain id back from them before mutating anything, so a
+wrong or unreachable RPC is rejected rather than half-applied. `setRpcUrls` swaps the scan loop's
+endpoints while keeping its block cursor, so the change leaves no gap in the scanned range. `remove`
+drains in-flight fills first, then stops scanning the chain.
+
+### Vaults, assets, rebalancing
+
+```ts lineNumbers
+// Validate against chain state, change nothing.
+await simplex.vaults.preflight(vaults)
+await simplex.vaults.set(vaults)
+await simplex.vaults.sweepNow()
+await simplex.vaults.redeemAll()
+
+await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
+simplex.assets.resolve("USDC", "EVM-8453")
+
+// Requires `rebalancing` in the boot config; on a solver started without
+// it, `set` throws rather than conjuring a rebalancer mid-flight.
+await simplex.rebalancing.set({
+    // A fraction, not a percentage: rebalance once the balance falls to
+    // (1 - triggerPercentage) x base, so 0.2 triggers at 80% of base.
+    triggerPercentage: 0.2,
+    // Keyed by numeric chain id as a string, not the state machine id.
+    baseBalances: { USDC: { "8453": "10000" } },
+})
+await simplex.rebalancing.trigger()
+```
+
+### Wallet and lifecycle
+
+```ts lineNumbers
+simplex.wallet.address
+simplex.wallet.balances()
+await simplex.wallet.send({
+    chain: "EVM-8453",
+    token: "0x…",
+    amount: "100",
+    to: "0x…",
+})
+await simplex.wallet.history()
+
+// Stop filling; monitoring continues, and the pause survives a restart.
+await simplex.pause()
+await simplex.resume()
+simplex.status()
+await simplex.activity()
+await simplex.bidStats()   // watch `pendingRetraction`: deposits still locked
+```
+
+## Persisting runtime edits
+
+Mutations update the live config object, so `simplex.config()` always reflects what is actually
+running. Pass `onConfigChange` to persist it however you like:
+
+```ts lineNumbers
+const simplex = await Simplex.start({
+    config,
+    data: new SqliteDataStore("./simplex-data"),
+    onConfigChange: async (config) => {
+        await db.settings.put("filler-config", config)
+    },
+})
+```
+
+Without it, edits apply live but do not survive a restart — `configPath` alone does not persist them;
+it is informational. The binary persists its own edits by a different route — its dashboard writes
+the TOML file directly — so `onConfigChange` is the library's equivalent, not a wrapper around it.
+
+## Multiple Simplex Instances
+
+Instances share no state, so several solvers can run in one process — different keys, different
+chains, different books:
+
+```ts lineNumbers
+const [solverA, solverB] = await Promise.all([
+    Simplex.start({
+        config: configA,
+        data: new SqliteDataStore("./data/solver-a"),
+    }),
+    Simplex.start({
+        config: configB,
+        data: new SqliteDataStore("./data/solver-b"),
+    }),
+])
+```
+
+Give each its own data directory. Two solvers sharing one bid store would each see the other's bids
+as theirs to retract.
+
+Started like that, each solver scans the chains itself. Two solvers watching Base issue two
+identical `getLogs` streams forever, because the filter carries nothing solver-specific — so at any
+real fleet size the scanning, not the filling, is what exhausts an RPC quota.
+
+### Singleton Scanners
+
+Build one `OrderScanner` and one `HyperbridgeScanner` and hand them to every solver that should
+share them. The scan runs once, and each solver receives every event:
+
+```ts lineNumbers
+import { Simplex, OrderScanner, HyperbridgeScanner } from "@hyperbridge/simplex"
+
+const orders = await OrderScanner.create({ chains: config.chains })
+const hyperbridge = await HyperbridgeScanner.create(
+    config.simplex.hyperbridgeWsUrl,
+)
+
+const solverA = await Simplex.start({
+    config: configA,
+    orderScanner: orders,
+    hyperbridgeScanner: hyperbridge,
+})
+const solverB = await Simplex.start({
+    config: configB,
+    orderScanner: orders,
+    hyperbridgeScanner: hyperbridge,
+})
+
+// Yours to close, whenever both solvers are done with it.
+await orders.close()
+await hyperbridge.close()
+```
+
+`chains` takes the same array as your config's, so it can be passed straight through. The scanner
+polls every 3 seconds by default; `scanIntervalSecs` changes that, with the same 0.1 minimum the
+TOML validator applies. A solver that builds its own scanner reads the interval from
+`config.simplex.blockScanIntervalSeconds` instead — one you supply keeps whatever interval you gave
+it, since the solvers reading it may disagree:
+
+```ts lineNumbers
+const orders = await OrderScanner.create({
+    chains: config.chains,
+    scanIntervalSecs: 0.5,
+})
+```
+ Entries without a `chainId` have it read back from the first endpoint listed, which also proves
+that endpoint answers before a solver depends on it.
+
+`HyperbridgeScanner` carries phantom orders — the quote requests solvers respond to, which is how
+Hyperbridge indexes prices. One poll feeds every solver reading it.
+
+A scanner you build is yours. Solvers subscribe and unsubscribe; none of them closes it, and a
+solver's `stop()` leaves it running for whoever else is reading.
+
+<Callout type="info">
+    Omit both and a solver builds private scanners from its own config and closes them on `stop()`.
+    Nothing is ever shared implicitly — sharing is something you do on purpose.
+</Callout>
+
+### Scanner Management
+
+A shared scanner is edited through the scanner, so every solver reading it sees the same events:
+
+```ts lineNumbers
+// Start scanning a chain. Solvers still opt in individually — see below.
+await orders.addChain({
+    rpcUrls: ["https://polygon.example"],
+    bundlerUrl: "https://bundler.example/polygon",
+})
+
+// Swap endpoints. The cursor is kept, so no block goes unscanned.
+await orders.setRpcUrls(8453, ["https://base-new.example"])
+
+// Stop scanning one, then list what is left.
+await orders.removeChain(137)
+orders.chains() // [8453]
+```
+
+`addChain` reads the chain id back from the endpoints when you omit it, and rejects a chain the
+scanner already has. `setRpcUrls` checks the new endpoints answer for that same chain before
+swapping them in. `removeChain` stops that scan loop; subscribers simply stop seeing the chain.
+
+Adding a chain to the scanner does **not** by itself put a solver to work on it. Each solver
+matches incoming events against its own configured chains, so tell it separately — the scanner
+supplies the events, the solver decides which it wants:
+
+```ts lineNumbers
+await orders.addChain({ rpcUrls, bundlerUrl })   // the scanner sees it
+await solverA.chains.add({ rpcUrls, bundlerUrl }) // this solver acts on it
+```
+
+`simplex.chains.add` and `.setRpcUrls` only reach a scanner that solver built for itself. On one you
+supplied they throw rather than repoint endpoints underneath the other solvers reading it:
+
+> Endpoints for chain 8453 belong to the order scanner you supplied — change them there, so the
+> other solvers reading it are not repointed underneath them.
+
+## Logging
+
+**The library writes nothing anywhere until you tell it where.** Importing
+`@hyperbridge/simplex` does not touch your stdout, install a formatter, or spawn a transport worker —
+a library has no business logging into a host process uninvited.
+
+Point `logger` at any sink: it receives one NDJSON record per line, and anything Writable-shaped
+works.
+
+```ts lineNumbers
+import { createWriteStream } from "node:fs"
+
+const simplex = await Simplex.start({
+    config,
+    logger: createWriteStream("solver.log", { flags: "a" }),
+})
+```
+
+Forwarding into a logger you already have is the same shape:
+
+```ts lineNumbers
+const simplex = await Simplex.start({
+    config,
+    logger: { write: (line) => myLogger.write(JSON.parse(line)) },
+})
+```
+
+Or hand it `process.stdout` if you do want it on the console:
+
+```ts lineNumbers
+const simplex = await Simplex.start({
+    config,
+    logger: process.stdout,
+})
+// {"level":30,"time":1755151200000,"moduleTag":"[simplex]","msg":"..."}
+```
+
+That prints raw NDJSON, one record per line. For the binary's colourised output, pipe through
+`pino-pretty` yourself — formatting is a presentation choice that belongs to your application,
+not to this package.
+
+Set verbosity with `config.simplex.logging`, or `simplex.setLogLevel("warn")` on a running solver,
+which applies immediately including to services already constructed. Level alone produces no output;
+a sink is still required.
+
+Logging is scoped to the solver, not the process. Each `Simplex` owns its own destination and level,
+so several solvers in one process keep their records apart:
+
+```ts lineNumbers
+const [solverA, solverB] = await Promise.all([
+    Simplex.start({ config: configA, logger: logA }),
+    Simplex.start({ config: configB, logger: logB }),
+])
+
+solverA.setLogLevel("debug")      // solverB stays at its own level
+solverA.addLogSink(auditStream)   // and its own sinks
+```
+
+`addLogSink(sink)` at module level registers a destination on the process-wide fallback context. A
+running solver logs only to its own context — the one thing that writes to the fallback is a shared
+scanner built without a `loggers` option, so pass one there if you route scanner output somewhere
+specific.
+
+## Validating a config without starting
+
+The validators are pure and run the same rules boot does, so you can gate a config — from a form, a
+database, an API — before committing to a start:
+
+```ts lineNumbers
+import {
+    validateConfig,
+    validatePairConfigs,
+    bookCrossedAt,
+} from "@hyperbridge/simplex"
+
+// Both throw with a descriptive message.
+validateConfig(config)
+validatePairConfigs(config.pairs!, config.assets, false)
+
+// A crossed book is legal but means a full round trip loses money —
+// worth warning on.
+const crossed = bookCrossedAt(pair.bidPriceCurve!, pair.askPriceCurve!)
+if (crossed) console.warn(`book crosses at ${crossed.amount}`)
+```
+
+## API reference
+
+Every class, method, event and interface is documented in the
+[Simplex API reference](/developers/sdk/api/simplex).

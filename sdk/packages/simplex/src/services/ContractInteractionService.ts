@@ -2,29 +2,28 @@ import { formatUnits, encodeFunctionData, formatEther } from "viem"
 import {
 	ADDRESS_ZERO,
 	CryptoUtils,
-	HexString,
+	type HexString,
 	bytes32ToBytes20,
 	retryPromise,
-	Order,
+	type Order,
 	IntentGateway,
 	EvmChain,
 	getChainId,
 	orderCommitment,
 	encodePhantomBidDeclaration,
 	encodeUserOpScale,
-	type PackedUserOperation,
 	type FillOptions,
 	encodeERC7821ExecuteBatch,
 	type ERC7821Call,
 	transformOrderForContract,
-	TokenInfo,
+	type TokenInfo,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import { ChainClientManager } from "./ChainClientManager"
-import { FillerConfigService } from "./FillerConfigService"
+import type { ChainClientManager } from "./ChainClientManager"
+import type { FillerConfigService } from "./FillerConfigService"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { CacheService } from "./CacheService"
-import { getLogger } from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
@@ -39,7 +38,7 @@ Decimal.config({ precision: 28, rounding: 4 })
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
-	private logger = getLogger("contract-service")
+	private logger: Logger
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private signer: SigningAccount
@@ -50,6 +49,7 @@ export class ContractInteractionService {
 		signer: SigningAccount,
 		sharedCacheService?: CacheService,
 	) {
+		this.logger = moduleLogger(configService.loggers, "contract-service")
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
 		this.signer = signer
@@ -303,7 +303,7 @@ export class ContractInteractionService {
 	 */
 	async topUpEntryPointDeposit(
 		chain: string,
-		targetGasUnits: bigint = 3_000_000n,
+		targetGasUnits = 3_000_000n,
 		thresholdGasUnits?: bigint,
 	): Promise<void> {
 		const effectiveThreshold = thresholdGasUnits ?? targetGasUnits
@@ -555,6 +555,34 @@ export class ContractInteractionService {
 				this.logger.error({ chain, err: error }, "Failed to withdraw EntryPoint deposit")
 			}
 		}
+	}
+
+	/**
+	 * Output already delivered against this order by any solver, per output token.
+	 *
+	 * A partially filled order has had its escrow drawn down, so the pro-rata
+	 * release a later filler receives is computed against the *residual*, not
+	 * against `order.inputs[i].amount`. A strategy that prices off the original
+	 * inputs would overstate its take, which is why the partial-fill path refuses
+	 * any order this reports as already touched.
+	 *
+	 * Same-chain concept only — the cross-chain path has no partial-fill state.
+	 */
+	async partialFillsFor(order: Order, chain: string): Promise<bigint[]> {
+		const client = this.clientManager.getPublicClient(chain)
+		const address = this.configService.getIntentGatewayAddress(chain)
+		const commitment = orderCommitment(order)
+
+		return Promise.all(
+			order.output.assets.map((asset) =>
+				client.readContract({
+					address,
+					abi: INTENT_GATEWAY_V2_ABI,
+					functionName: "_partialFills",
+					args: [commitment, asset.token],
+				}) as Promise<bigint>,
+			),
+		)
 	}
 
 	/**

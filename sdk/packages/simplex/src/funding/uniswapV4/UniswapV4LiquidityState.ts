@@ -2,11 +2,10 @@ import { UNISWAP_V4_POSITION_MANAGER_ABI, UNISWAP_V4_STATE_VIEW_ABI, decodeTickL
 import type { HydratedV4Position, UniswapV4PositionInit } from "@/funding/types"
 import { chainIdFromIdentifier, currencyFromHydratedDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
-import { getLogger } from "@/services/Logger"
+import { type Logger , moduleLogger} from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { Pool as V4Pool, Position as V4Position } from "@uniswap/v4-sdk"
 
-const logger = getLogger("uniswapv4-state")
 
 /**
  * Long-lived liquidity state for Uniswap V4 positions on a single destination chain.
@@ -18,6 +17,8 @@ const logger = getLogger("uniswapv4-state")
  * Concurrent access is serialised by the planner's per-chain mutex.
  */
 export class UniswapV4LiquidityState {
+	private readonly logger: Logger
+
 	/** Keyed by tokenId.toString(). */
 	private positions = new Map<string, HydratedV4Position>()
 	/** SDK Pool objects, keyed by poolId hex string. */
@@ -36,7 +37,9 @@ export class UniswapV4LiquidityState {
 		private readonly stateView: HexString,
 		private readonly solver: HexString,
 		private readonly clientManager: ChainClientManager,
-	) {}
+	) {
+		this.logger = moduleLogger(clientManager.loggers, "uniswapv4-state")
+	}
 
 	// =========================================================================
 	// Initialisation & refresh
@@ -108,7 +111,7 @@ export class UniswapV4LiquidityState {
 		this.hydrated = true
 
 		for (const pos of this.positions.values()) {
-			logger.info(
+			this.logger.info(
 				{
 					chain: this.chain,
 					tokenId: pos.tokenId.toString(),
@@ -125,7 +128,7 @@ export class UniswapV4LiquidityState {
 				"UniswapV4 position hydrated",
 			)
 		}
-		logger.info({ chain: this.chain, positions: this.configs.length }, "UniswapV4 liquidity state hydrated")
+		this.logger.info({ chain: this.chain, positions: this.configs.length }, "UniswapV4 liquidity state hydrated")
 	}
 
 	/**
@@ -213,7 +216,7 @@ export class UniswapV4LiquidityState {
 
 			this.sdkPools.set(poolId, sdkPool)
 
-			logger.debug(
+			this.logger.debug(
 				{
 					tokenId: pos.tokenId.toString(),
 					liquidity: liquidity.toString(),

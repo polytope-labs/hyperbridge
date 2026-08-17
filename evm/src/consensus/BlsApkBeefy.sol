@@ -23,10 +23,10 @@ import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot
 
 import {Codec} from "./Codec.sol";
 import {
-    ApkAuthoritySet,
+    AuthoritySetCommitment,
     ApkDigest,
     BlsApkBeefyConsensusProof,
-    BlsApkConsensusState,
+    BeefyConsensusState,
     BlsApkRelayChainProof,
     BeefyMmrLeaf,
     Commitment,
@@ -68,7 +68,7 @@ interface IApkProof {
  * The commitment the proof is checked against does not come from the relay chain's MMR leaf, the
  * way the keyset root does. Hyperbridge computes it over the relay's next authority set and
  * publishes it in a header digest, so a client picks it up from a header it has already verified
- * and carries it in its consensus state. That is what `ApkAuthoritySet.apkCommitment` holds, and
+ * and carries it in its consensus state. That is what `AuthoritySetCommitment.root` holds, and
  * why the state has to be seeded with the starting set's commitment at initialisation.
  *
  * Requires Prague for the EIP-2537 precompiles.
@@ -116,7 +116,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         view
         returns (bytes memory, IntermediateState[] memory, uint256)
     {
-        BlsApkConsensusState memory consensusState = abi.decode(previousState, (BlsApkConsensusState));
+        BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
         (BlsApkRelayChainProof memory relay, ParachainProof memory parachain) =
             abi.decode(proof, (BlsApkRelayChainProof, ParachainProof));
 
@@ -125,7 +125,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
             return (abi.encode(consensusState), new IntermediateState[](0), consensusState.nextAuthoritySet.id);
         }
 
-        (BlsApkConsensusState memory newState, bytes32 headsRoot) = verifyMmrUpdateProof(consensusState, relay);
+        (BeefyConsensusState memory newState, bytes32 headsRoot) = verifyMmrUpdateProof(consensusState, relay);
         (IntermediateState[] memory intermediates, ApkDigest memory digest) =
             verifyParachainHeaderProof(headsRoot, parachain, _digestParaId);
 
@@ -133,19 +133,19 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         // not have keys for yet. Picking it up here is what lets the next update be verified at
         // all, and is the reason the digest names the *next* set rather than the current one.
         if (
-            digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.apkCommitment == 0
+            digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.root == bytes32(0)
         ) {
-            newState.nextAuthoritySet.apkCommitment = digest.commitment;
+            newState.nextAuthoritySet.root = bytes32(digest.commitment);
         }
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /// @dev Verify the signed mmr root, then roll the authority sets forward.
-    function verifyMmrUpdateProof(BlsApkConsensusState memory trustedState, BlsApkRelayChainProof memory relayProof)
+    function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, BlsApkRelayChainProof memory relayProof)
         internal
         view
-        returns (BlsApkConsensusState memory, bytes32)
+        returns (BeefyConsensusState memory, bytes32)
     {
         Commitment memory commitment = relayProof.commitment;
         if (
@@ -156,12 +156,12 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         }
 
         bool isCurrent = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
-        ApkAuthoritySet memory authoritySet = isCurrent ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
+        AuthoritySetCommitment memory authoritySet = isCurrent ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
 
         // A set whose commitment has not been learned from a digest yet cannot be verified against.
         // Reverting here is deliberate: silently accepting would mean checking the proof against a
         // zero commitment.
-        if (authoritySet.apkCommitment == 0) revert MissingApkCommitment();
+        if (uint256(authoritySet.root) == 0) revert MissingApkCommitment();
 
         verifySignedByApk(Codec.Encode(commitment), relayProof, authoritySet);
 
@@ -180,10 +180,10 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
             // The incoming set's size comes from the mmr leaf, but its APK commitment is not known
             // until a header digest supplies it, so it starts empty.
-            trustedState.nextAuthoritySet = ApkAuthoritySet({
+            trustedState.nextAuthoritySet = AuthoritySetCommitment({
                 id: relayProof.latestMmrLeaf.nextAuthoritySet.id,
                 len: relayProof.latestMmrLeaf.nextAuthoritySet.len,
-                apkCommitment: 0
+                root: bytes32(0)
             });
         }
         trustedState.latestHeight = commitment.blockNumber;
@@ -202,7 +202,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
     function verifySignedByApk(
         bytes memory encodedCommitment,
         BlsApkRelayChainProof memory relayProof,
-        ApkAuthoritySet memory authoritySet
+        AuthoritySetCommitment memory authoritySet
     ) internal view {
         uint256 signed = countSigners(relayProof.bitlist);
         if (!checkParticipationThreshold(signed, authoritySet.len)) revert SuperMajorityRequired();
@@ -212,7 +212,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
         // `verify` reverts on failure rather than returning false, so a successful call is the
         // whole result. Wrapped so the reason surfaces as this contract's error.
         try _apk.verify(
-            authoritySet.apkCommitment,
+            uint256(authoritySet.root),
             relayProof.bitlist,
             relayProof.apk,
             relayProof.apkProof,
@@ -226,9 +226,15 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
 
     /// @dev Population count over the bitlist. Fixed cost regardless of how many signed, which is
     /// the point of the whole scheme.
+    ///
+    /// The 1024 slots are packed 250 to a word across the first four and 24 into the last, which
+    /// is what the circuit decomposes with `ToBinary`. Bits above those ranges are constrained to
+    /// zero there, so a proof carrying any would not verify; masking them off here keeps the count
+    /// honest on its own terms rather than relying on that.
     function countSigners(uint256[5] memory bitlist) internal pure returns (uint256 count) {
         for (uint256 w = 0; w < 5; w++) {
-            uint256 word = bitlist[w];
+            uint256 width = w == 4 ? 24 : 250;
+            uint256 word = bitlist[w] & ((uint256(1) << width) - 1);
             while (word != 0) {
                 word &= word - 1;
                 count++;
@@ -243,7 +249,7 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
 
     /// @dev The signed mmr root must attest to the leaf carrying the parachain heads.
     function verifyMmrLeaf(
-        BlsApkConsensusState memory trustedState,
+        BeefyConsensusState memory trustedState,
         BlsApkRelayChainProof memory relay,
         bytes32 mmrRoot
     ) internal pure {
@@ -316,5 +322,5 @@ contract BlsApkBeefy is IConsensusV2, ERC165 {
 
     /// @dev Only here so the structs appear in the ABI, which is what the Rust bindings are
     /// generated from. `verify` takes bytes, so without this they would be invisible.
-    function noOp(BlsApkConsensusState memory s, BlsApkBeefyConsensusProof memory p) external pure {}
+    function noOp(BeefyConsensusState memory s, BlsApkBeefyConsensusProof memory p) external pure {}
 }

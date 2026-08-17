@@ -187,31 +187,6 @@ struct ApkDigest {
     uint256 commitment;
 }
 
-struct ApkAuthoritySet {
-    /// Id of the set.
-    uint64 id;
-    /// Number of validators in the set, for the two-thirds threshold.
-    uint32 len;
-    /// Poseidon2 commitment over the set's G1 public keys, as `ApkProof.verify` takes it.
-    uint256 apkCommitment;
-}
-
-struct BlsApkConsensusState {
-    /// block number for the latest mmr_root_hash
-    uint256 latestHeight;
-    /// Block number that the beefy protocol was activated on the relay chain.
-    uint256 beefyActivationBlock;
-    /// authorities for the current round
-    ApkAuthoritySet currentAuthoritySet;
-    /// authorities for the next round
-    ApkAuthoritySet nextAuthoritySet;
-}
-
-// A BEEFY relay chain proof verified by a SNARK over the aggregate public key, rather than by a
-// merkle multi-proof of each signer's key.
-//
-// The saving is that nothing here grows with the number of signers: the bitlist is fixed width and
-// the proof is constant size, where the merkle path costs roughly 17k gas per signer.
 struct BlsApkRelayChainProof {
     // A commitment to the finalized state
     Commitment commitment;

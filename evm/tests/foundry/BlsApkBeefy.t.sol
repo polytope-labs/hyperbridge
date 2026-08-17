@@ -5,7 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {IntermediateState} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {BlsApkBeefy} from "../../src/consensus/BlsApkBeefy.sol";
-import {BlsApkConsensusState} from "../../src/consensus/Types.sol";
+import {BeefyConsensusState} from "../../src/consensus/Types.sol";
 import {ApkProof} from "./vendor/ApkProof.sol";
 import {PlonkVerifier} from "./vendor/PlonkVerifier.sol";
 
@@ -47,8 +47,8 @@ contract BlsApkBeefyTest is Test {
     function test_verify_live_proof() public view {
         (bytes memory newStateBytes, IntermediateState[] memory intermediates,) = client.verify(_state(), _proof());
 
-        BlsApkConsensusState memory newState = abi.decode(newStateBytes, (BlsApkConsensusState));
-        BlsApkConsensusState memory oldState = abi.decode(_state(), (BlsApkConsensusState));
+        BeefyConsensusState memory newState = abi.decode(newStateBytes, (BeefyConsensusState));
+        BeefyConsensusState memory oldState = abi.decode(_state(), (BeefyConsensusState));
 
         assertGt(newState.latestHeight, oldState.latestHeight, "height should advance");
         assertEq(intermediates.length, 1, "should finalize the registered parachain");

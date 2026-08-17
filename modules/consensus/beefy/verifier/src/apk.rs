@@ -294,8 +294,32 @@ fn challenge(message: &G1Affine, signature: &G1Affine, apk: &G1Affine, apk2: &G2
 }
 
 /// Population count over the bitlist. Fixed cost regardless of how many signed.
+/// The 1024 slots are packed 250 to a word across the first four and 24 into the last, matching
+/// the `ToBinary` decomposition in the circuit. Bits above those ranges are constrained to zero
+/// there, so a proof carrying any would not verify; masking them off keeps the count honest on its
+/// own terms rather than relying on that.
 pub fn count_signers(bitlist: &[[u8; 32]; APK_BITLIST_WORDS]) -> u32 {
-	bitlist.iter().flatten().map(|byte| byte.count_ones()).sum()
+	bitlist
+		.iter()
+		.enumerate()
+		.map(|(word, bytes)| {
+			let width = if word == APK_BITLIST_WORDS - 1 { 24 } else { 250 };
+			// The word is big endian, so the packed bits are the low ones at the end.
+			bytes
+				.iter()
+				.rev()
+				.enumerate()
+				.map(|(i, byte)| {
+					let low = i * 8;
+					if low >= width {
+						return 0;
+					}
+					let keep = (width - low).min(8);
+					(byte & (((1u16 << keep) - 1) as u8)).count_ones()
+				})
+				.sum::<u32>()
+		})
+		.sum()
 }
 
 /// Two thirds plus one, matching substrate's own rule and the Solidity client.

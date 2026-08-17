@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
-use beefy_verifier::{error::Error as BeefyError, verify_consensus};
+use beefy_verifier::{ecdsa::verify_consensus, error::Error as BeefyError};
 #[cfg(feature = "apk")]
 use beefy_verifier_primitives::PROOF_TYPE_APK;
 use beefy_verifier_primitives::{

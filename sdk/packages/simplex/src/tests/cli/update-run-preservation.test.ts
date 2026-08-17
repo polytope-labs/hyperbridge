@@ -17,7 +17,6 @@ describe("CLI wizard update run", () => {
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" },
 			maxConcurrentOrders: 7,
-			queue: { maxRechecks: 4, recheckDelayMs: 12000 },
 			logging: "warn",
 			watchOnly: { "56": true },
 			substratePrivateKey: "seed",
@@ -25,6 +24,11 @@ describe("CLI wizard update run", () => {
 			entryPointAddress: "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
 			solverAccountContractAddress: "0x9999999999999999999999999999999999999999",
 			targetGasUnits: 2500000,
+			// The three fields that reproduced the update-run round-trip abort: the
+			// dead knob must be stripped, the live knobs must survive emission.
+			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
+			blockScanIntervalSeconds: 5,
+			acceptedSourceChains: ["EVM-8453"],
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
@@ -74,8 +78,7 @@ describe("CLI wizard update run", () => {
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
-		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders
-		state.queue = existing.simplex.queue
+		state.maxConcurrentOrders = existing.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 		state.logging = existing.simplex.logging
 		state.gasFeeBump = existing.simplex.gasFeeBump
 		state.overfillProtection = existing.simplex.overfillProtection
@@ -89,8 +92,14 @@ describe("CLI wizard update run", () => {
 		expect(assembled.binance).toEqual(existing.binance)
 		expect(assembled.keeper).toEqual(existing.keeper)
 		expect(assembled.simplex.targetGasUnits).toBe(2500000)
-		expect(assembled.simplex.entryPointAddress).toBe(existing.simplex.entryPointAddress)
-		expect(assembled.simplex.solverAccountContractAddress).toBe(existing.simplex.solverAccountContractAddress)
+		// Dead knobs are deliberately stripped, not preserved: they are parsed for
+		// compatibility but never read, and the emitter no longer writes them — so
+		// carrying them through would fail the round-trip gate.
+		expect(assembled.simplex.entryPointAddress).toBeUndefined()
+		expect(assembled.simplex.solverAccountContractAddress).toBeUndefined()
+		expect(assembled.simplex.queue).toBeUndefined()
+		expect(assembled.simplex.blockScanIntervalSeconds).toBe(5)
+		expect(assembled.simplex.acceptedSourceChains).toEqual(["EVM-8453"])
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)

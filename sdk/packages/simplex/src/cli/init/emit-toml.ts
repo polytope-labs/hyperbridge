@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -43,7 +44,7 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 
 	push("[simplex]")
 	push("# Maximum number of orders processed concurrently. Lower this if your RPCs rate-limit (429s).")
-	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders))
+	push(kv("maxConcurrentOrders", config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS))
 	if (config.simplex.logging !== undefined) {
 		push("# Log verbosity: trace, debug, info, warn, error")
 		push(kv("logging", config.simplex.logging))
@@ -57,11 +58,13 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
 	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
-	if (config.simplex.entryPointAddress !== undefined) {
-		push(kv("entryPointAddress", config.simplex.entryPointAddress))
+	if (config.simplex.blockScanIntervalSeconds !== undefined) {
+		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
+		push(kv("blockScanIntervalSeconds", config.simplex.blockScanIntervalSeconds))
 	}
-	if (config.simplex.solverAccountContractAddress !== undefined) {
-		push(kv("solverAccountContractAddress", config.simplex.solverAccountContractAddress))
+	if (config.simplex.acceptedSourceChains !== undefined) {
+		push("# Source chains (state machine ids) accepted for payment, declared in phantom bids.")
+		push(kv("acceptedSourceChains", config.simplex.acceptedSourceChains))
 	}
 	if (config.simplex.targetGasUnits !== undefined) {
 		push("# Gas units to keep deposited at the ERC-4337 EntryPoint on chains without a paymaster.")
@@ -110,12 +113,6 @@ export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = 
 		push("# maxConsecutiveClamps = 3")
 		push()
 	}
-
-	push("# How often a not-yet-fillable order is re-checked before being dropped.")
-	push("[simplex.queue]")
-	push(kv("maxRechecks", config.simplex.queue.maxRechecks))
-	push(kv("recheckDelayMs", config.simplex.queue.recheckDelayMs))
-	push()
 
 	if (config.rebalancing) {
 		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")

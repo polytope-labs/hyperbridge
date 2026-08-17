@@ -2,11 +2,12 @@ import { SignerType, type SignerConfig, type SigningAccount } from "./types"
 import { createMpcVaultSigningAccount } from "./accounts/mpc"
 import { createPrivateKeySigningAccount } from "./accounts/privatekey"
 import { createTurnkeySigningAccount } from "./accounts/turnkey"
-import { getLogger } from "@/services/Logger"
+import { getLogger, type Logger } from "@/services/Logger"
 
-const logger = getLogger("signer")
-
-export async function createSimplexSigner(config: SignerConfig): Promise<SigningAccount> {
+export async function createSimplexSigner(
+	config: SignerConfig,
+	logger: Logger = getLogger("signer"),
+): Promise<SigningAccount> {
 	let account: SigningAccount
 	if (config.type === SignerType.PrivateKey) {
 		account = await createPrivateKeySigningAccount(config.key)
@@ -54,8 +55,11 @@ export function validateSignerConfig(config: SignerConfig): void {
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 }
 
-export async function initializeSignerFromToml(signerTomlConfig?: SignerConfig): Promise<SigningAccount | undefined> {
+export async function initializeSignerFromToml(
+	signerTomlConfig?: SignerConfig,
+	logger?: Logger,
+): Promise<SigningAccount | undefined> {
 	if (!signerTomlConfig) return undefined
 	validateSignerConfig(signerTomlConfig)
-	return createSimplexSigner(signerTomlConfig)
+	return createSimplexSigner(signerTomlConfig, logger)
 }

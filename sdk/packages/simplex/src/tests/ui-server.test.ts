@@ -6,16 +6,19 @@ import {
 	type PauseControl,
 } from "@/services/server/UiServer"
 import type { SetupDeps } from "@/services/server/setup-api"
-import { ActivityLogService } from "@/services/ActivityLogService"
+import { ActivityRecorder } from "@/data/recorder"
+import { MemoryDataStore } from "@/data/memory"
+import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
 import type { FillerTomlConfig } from "@/config/filler-toml"
-import { loadRuntimeState } from "@/core/runtime-state"
 import { SignerType } from "@/services/wallet"
+import type { PairConfig } from "@/config/pairs"
+import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
 import { tmpdir } from "os"
-import { join } from "path"
+import { dirname, join } from "path"
 import { parse } from "toml"
 import Decimal from "decimal.js"
 
@@ -113,16 +116,24 @@ function fakeConfig(): FillerTomlConfig {
 	}
 }
 
-function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext {
+type TestOperator = OperatorContext & { data: MemoryDataStore; loggers: LoggerContext }
+
+function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	const dataDir = mkdtempSync(join(tmpdir(), "simplex-ui-"))
+	const data = new MemoryDataStore()
+	const loggers = new LoggerContext()
 	return {
+		data,
+		loggers,
 		strategies: [],
 		filler: fakePauseControl(),
 		balances: { getSnapshot: () => ({ updatedAt: null, chains: [] }) },
 		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
-		activity: new ActivityLogService(dataDir),
+		activity: new ActivityRecorder(data.activity),
+		setPaused: (paused: boolean) => data.state.set({ paused }),
+		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
 		applyRebalancing: vi.fn(),
 		version: "0.0.0-test",
@@ -130,7 +141,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): OperatorContext
 		configPath: join(dataDir, "filler-config.toml"),
 		chains: [8453, 56],
 		strategyTypes: ["USDC/CNGN"],
-		dataDir,
 		...overrides,
 	}
 }
@@ -204,7 +214,7 @@ describe("UiServer (operator mode)", () => {
 			ask,
 			askOnly,
 			filler,
-			dataDir: operator.dataDir!,
+			dataDir: dirname(operator.configPath!),
 			operator,
 		}
 	}
@@ -327,8 +337,8 @@ describe("UiServer (operator mode)", () => {
 		expect(bid.getPoints()).toEqual(BID_POINTS)
 
 		// restarts keep the change: the config file now carries the new curve
-		expect(existsSync(operator.configPath)).toBe(true)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		expect(existsSync(operator.configPath!)).toBe(true)
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
 		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
 	})
@@ -403,17 +413,17 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("pause/resume toggles the filler and persists the state", async () => {
-		const { base, filler, dataDir } = await startServer()
+		const { base, filler, operator } = await startServer()
 
 		const pause = await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })
 		expect(await pause.json()).toEqual({ paused: true })
 		expect(filler.paused).toBe(true)
-		expect(loadRuntimeState(dataDir)).toEqual({ paused: true })
+		expect(await operator.data.state.get()).toEqual({ paused: true })
 
 		const resume = await fetch(`${base}/api/resume`, { method: "POST", headers: CSRF })
 		expect(await resume.json()).toEqual({ paused: false })
 		expect(filler.paused).toBe(false)
-		expect(loadRuntimeState(dataDir)).toEqual({ paused: false })
+		expect(await operator.data.state.get()).toEqual({ paused: false })
 	})
 
 	it("surfaces halted strategies in status and resets them", async () => {
@@ -439,10 +449,10 @@ describe("UiServer (operator mode)", () => {
 
 	it("serves the order activity feed with paging", async () => {
 		const { base, operator } = await startServer()
-		const activity = operator.activity as ActivityLogService
-		activity.record({ type: "detected", orderId: "order-1" })
-		activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
-		activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
+		const activity = operator.data.activity
+		await activity.record({ type: "detected", orderId: "order-1" })
+		await activity.record({ type: "skipped", orderId: "order-1", reason: "No profitable strategy" })
+		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
 
 		const res = await (await fetch(`${base}/api/activity/orders?limit=2`)).json()
 		expect(res.events).toHaveLength(2)
@@ -458,14 +468,14 @@ describe("UiServer (operator mode)", () => {
 
 	it("streams live activity over SSE", async () => {
 		const { base, operator } = await startServer()
-		const activity = operator.activity as ActivityLogService
+		const recorder = operator.activity
 
 		const controller = new AbortController()
 		const response = await fetch(`${base}/api/events`, { signal: controller.signal })
 		expect(response.headers.get("content-type")).toContain("text/event-stream")
 		const reader = response.body!.getReader()
 
-		activity.record({ type: "detected", orderId: "live-order" })
+		recorder.record({ type: "detected", orderId: "live-order" })
 
 		let received = ""
 		while (!received.includes("live-order")) {
@@ -488,7 +498,7 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ level: "warn" }),
 		})
 		expect(await res.json()).toEqual({ level: "warn", persisted: true })
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.simplex.logging).toBe("warn")
 
 		const bad = await fetch(`${base}/api/log-level`, {
@@ -510,7 +520,7 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect(await res.json()).toEqual({ users: [user], persisted: true })
 		expect(operator.applyAllowlist).toHaveBeenCalledWith({ users: [user] })
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.allowlist?.users).toEqual([user])
 
 		// empty list removes the allowlist entirely (accept everyone)
@@ -590,7 +600,7 @@ describe("UiServer (operator mode)", () => {
 		expect(bodyJson.bid).toEqual(BID_POINTS)
 		expect(disableSide).toHaveBeenCalledWith("ask")
 		expect(strategy1.ask).toBeUndefined()
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.pairs?.[1]?.askPriceCurve).toBeUndefined()
 		expect(written.pairs?.[1]?.bidPriceCurve).toBeDefined()
 	})
@@ -635,7 +645,7 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
 		expect(reconfigure).toHaveBeenCalledWith(vaults, undefined)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.vault?.vaults).toEqual(vaults)
 
 		// invalid rows rejected before any application
@@ -654,7 +664,7 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: false, restartNeeded: true, persisted: true })
 		expect(vaultPreflight).toHaveBeenCalledWith(vaults)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.vault?.vaults).toEqual(vaults)
 	})
 
@@ -675,7 +685,7 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect(res.status).toBe(400)
 		expect((await res.json()).error).toContain("share the underlying asset")
-		expect(existsSync(operator.configPath)).toBe(false)
+		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	it("executes an operator send and surfaces the tx hash", async () => {
@@ -727,9 +737,9 @@ describe("UiServer (operator mode)", () => {
 	it("records operator sends in the wallet history and merges fill txs", async () => {
 		const send = vi.fn().mockResolvedValue({ txHash: "0xabc123", sponsored: true, redeemed: true })
 		const { base, operator } = await startServer({ send })
-		const activity = operator.activity as ActivityLogService
-		activity.record({ type: "filled", orderId: "0xorder", txHash: "0xf1", chainId: 56 })
-		activity.record({ type: "skipped", orderId: "0xother", reason: "unprofitable" }) // no tx hash — not history
+		const activity = operator.data.activity
+		await activity.record({ type: "filled", orderId: "0xorder", txHash: "0xf1", chainId: 56 })
+		await activity.record({ type: "skipped", orderId: "0xother", reason: "unprofitable" }) // no tx hash — not history
 
 		const body = {
 			chain: "EVM-8453",
@@ -767,7 +777,7 @@ describe("UiServer (operator mode)", () => {
 			triggerPercentage: 0.4,
 			baseBalances: { USDC: { "8453": "12000" } },
 		})
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.rebalancing?.triggerPercentage).toBe(0.4)
 
 		const badTrigger = await fetch(`${base}/api/rebalancing`, {
@@ -798,16 +808,22 @@ describe("UiServer (operator mode)", () => {
 	}
 
 	it("adds a market at runtime: hydrated via the capability and persisted", async () => {
-		const addPair = vi.fn().mockReturnValue({
-			index: 7,
-			pairIndex: 2,
-			exotic: "USDC/EURC",
-			token0: "USDC",
-			token1: "EURC",
-			sameToken: false,
-			referenceOnly: false,
+		const cfg = marketConfig()
+		// The capability path owns config.pairs — the real PairController reassigns
+		// it — so the mock does what the contract now requires of it.
+		const addPair = vi.fn(async (pair: PairConfig) => {
+			cfg.pairs = [...(cfg.pairs ?? []), pair]
+			return {
+				index: 7,
+				pairIndex: 2,
+				exotic: "USDC/EURC",
+				token0: "USDC",
+				token1: "EURC",
+				sameToken: false,
+				referenceOnly: false,
+			}
 		})
-		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const { base, operator } = await startServer({ config: cfg, addPair })
 		const body = {
 			token0: "USDC",
 			token1: "EURC",
@@ -822,7 +838,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategy.index).toBe(7)
 		expect(addPair).toHaveBeenCalledWith(body, undefined, 2)
 		expect(operator.config.pairs).toHaveLength(3)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.pairs?.[2]?.token1).toBe("EURC")
 	})
 
@@ -843,7 +859,7 @@ describe("UiServer (operator mode)", () => {
 		}
 		expect(addPair).not.toHaveBeenCalled()
 		expect(operator.config.pairs).toHaveLength(2)
-		expect(existsSync(operator.configPath)).toBe(false)
+		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	it("rejects an unanchored market with the validator's message", async () => {
@@ -863,8 +879,13 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	it("adds a custom-token market, persisting its [assets] entry", async () => {
-		const addPair = vi.fn().mockReturnValue(null)
-		const { base, operator } = await startServer({ config: marketConfig(), addPair })
+		const cfg = marketConfig()
+		const addPair = vi.fn(async (pair: PairConfig, pairAssets?: Record<string, AssetDefinition>) => {
+			cfg.pairs = [...(cfg.pairs ?? []), pair]
+			if (pairAssets) cfg.assets = { ...(cfg.assets ?? {}), ...pairAssets }
+			return null
+		})
+		const { base, operator } = await startServer({ config: cfg, addPair })
 		const assets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" } }
 		const res = await fetch(`${base}/api/strategies`, {
 			method: "POST",
@@ -881,7 +902,7 @@ describe("UiServer (operator mode)", () => {
 		expect(addPair).toHaveBeenCalledTimes(1)
 		expect(addPair.mock.calls[0][1]).toEqual(assets)
 		expect(operator.config.assets?.BRZ).toEqual(assets.BRZ)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.assets?.BRZ?.["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
 	})
 
@@ -935,13 +956,15 @@ describe("UiServer (operator mode)", () => {
 			},
 			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", ask: zarpAsk, sameToken: false },
 		]
-		const removePair = vi.fn((index: number) => {
+		const removePair = vi.fn(async (index: number) => {
 			const position = strategies.findIndex((s) => s.index === index)
 			const { pairIndex } = strategies[position]
 			strategies.splice(position, 1)
 			for (const s of strategies) {
 				if (s.pairIndex > pairIndex) s.pairIndex -= 1
 			}
+			// The controller reassigns config.pairs; the server no longer splices.
+			config.pairs = (config.pairs ?? []).filter((_, i) => i !== pairIndex)
 		})
 		const { base, operator } = await startServer({ config, strategies, removePair })
 		const res = await fetch(`${base}/api/strategies/1`, { method: "DELETE", headers: CSRF })
@@ -957,7 +980,7 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ askPriceCurve: [{ amount: "0", price: "18" }] }),
 		})
 		expect(put.status).toBe(200)
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.pairs).toHaveLength(2)
 		expect(written.pairs?.[1]?.token1).toBe("ZARP")
 		expect(written.pairs?.[1]?.askPriceCurve?.[0]?.price).toBe("18")
@@ -1062,7 +1085,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.maxOrderSize).toBe("12500")
 		expect(setMaxOrderSize).toHaveBeenCalledWith("12500")
 		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("12500")
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.pairs?.[1]?.maxOrderSize).toBe("12500")
 	})
 
@@ -1095,7 +1118,7 @@ describe("UiServer (operator mode)", () => {
 
 		expect(strategy.setMaxOrderSize).not.toHaveBeenCalled()
 		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("5000")
-		expect(existsSync(operator.configPath)).toBe(false)
+		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	/** Two chain rows aligned with the operator's running chain ids. */
@@ -1175,10 +1198,10 @@ describe("UiServer (operator mode)", () => {
 		expect(operator.config.chains).toHaveLength(2)
 		expect(operator.config.simplex.watchOnly).toEqual({ "42161": true })
 
-		const written = parse(readFileSync(operator.configPath, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
 		expect(written.chains[1].bundlerUrl).toBe("https://arb-bundler.example")
 		// The rewritten file keeps the chain rows identifiable — the TOML has no chain id.
-		expect(readFileSync(operator.configPath, "utf-8")).toContain("# Arbitrum")
+		expect(readFileSync(operator.configPath!, "utf-8")).toContain("# Arbitrum")
 
 		// The new row is reported as configured but not yet live.
 		const dto = await (await fetch(`${base}/api/chains`)).json()
@@ -1215,7 +1238,7 @@ describe("UiServer (operator mode)", () => {
 		expect((await wrongChain.json()).error).toContain("reports chain 999, expected 8453")
 
 		expect(operator.config.chains).toHaveLength(2)
-		expect(existsSync(operator.configPath)).toBe(false)
+		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	it("refuses to drop a chain that still holds a funding venue", async () => {

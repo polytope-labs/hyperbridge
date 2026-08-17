@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { stringToHex, type Hex } from "viem"
-import { DecodedOrderPlacedLog, HexString, Order, orderCommitment, normalizeStateMachineId } from "@hyperbridge/sdk"
+import { type DecodedOrderPlacedLog, type HexString, type Order, orderCommitment, normalizeStateMachineId } from "@hyperbridge/sdk"
 import { reconstructOrdersFromLogs } from "@/core/event-monitor"
 
 const SOURCE = "EVM-1"

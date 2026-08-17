@@ -64,11 +64,6 @@ hyperbridgeWsUrl = ""
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
 
-# Queue configuration
-[simplex.queue]
-maxRechecks = 10
-recheckDelayMs = 30000  # 30 seconds
-
 # Rebalancing configuration
 # Trigger percentage: rebalancing triggers when balance falls to (1 - triggerPercentage) * baseBalance
 # Example: triggerPercentage = 0.5 means trigger when balance <= 50% of base

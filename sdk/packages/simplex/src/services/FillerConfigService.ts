@@ -1,6 +1,7 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
+import { defaultLoggerContext, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
-import { LogLevel } from "./Logger"
+import type { LogLevel } from "./Logger"
 
 /** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
 export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
@@ -60,6 +61,10 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+		// Bounded: undici waits ~300s for headers from a socket that accepted and went
+		// silent, and OrderScanner.close() awaits any edit suspended on this probe —
+		// an unbounded probe turns one dead endpoint into a stuck shutdown.
+		signal: AbortSignal.timeout(10_000),
 	})
 	if (!response.ok) {
 		throw new Error(`Failed to fetch chainId from ${rpcUrl}: HTTP ${response.status}`)
@@ -127,7 +132,6 @@ export interface FillerConfig {
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
-	dataDir?: string
 	/**
 	 * Optional gas fee bump configuration for UserOperation gas estimation.
 	 * If not provided, defaults will be used (8% for priority fee, 10% for max fee).
@@ -164,6 +168,12 @@ export interface FillerConfig {
  * and only requires minimal user configuration (RPC URLs, private keys, etc.)
  */
 export class FillerConfigService {
+	/**
+	 * This filler's logging destination. Services resolve their module loggers
+	 * from here rather than from the process-wide context, which is what keeps
+	 * two fillers in one process from writing into each other's sinks.
+	 */
+	readonly loggers: LoggerContext
 	private chainConfigService: ChainConfigService
 	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
@@ -173,7 +183,8 @@ export class FillerConfigService {
 	/** Lowercased per-source allowlist users keyed by state machine id, or undefined when no per-source list is configured. */
 	private allowlistBySource?: Map<string, Set<string>>
 
-	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
+	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig, loggers?: LoggerContext) {
+		this.loggers = loggers ?? defaultLoggerContext()
 		chainConfigs.forEach((config) => {
 			if (config.rpcUrls && config.rpcUrls.length > 0) {
 				// Re-validate in case the caller constructed a ResolvedChainConfig directly
@@ -204,6 +215,50 @@ export class FillerConfigService {
 
 	getAllowlist(): AllowlistConfig | undefined {
 		return this.fillerConfig?.allowlist
+	}
+
+	/**
+	 * Registers a chain at runtime. `getConfiguredChainIds` derives from the RPC
+	 * override map, so this is what makes a chain "configured" — every address
+	 * lookup already resolves through the SDK's chain registry, which knows the
+	 * chain whether or not this filler was started with it.
+	 *
+	 * Rejects a chain that is already registered: silently replacing its
+	 * endpoints would leave the event monitor scanning the old ones. Use
+	 * {@link setRpcUrls} for that.
+	 */
+	addChain(chain: ResolvedChainConfig): void {
+		if (this.rpcOverrides.has(chain.chainId)) {
+			throw new Error(`Chain ${chain.chainId} is already configured — use setRpcUrls to change its endpoints`)
+		}
+		this.rpcOverrides.set(chain.chainId, validateRpcUrls(chain.rpcUrls))
+		if (chain.bundlerUrl) this.bundlerUrls.set(chain.chainId, chain.bundlerUrl)
+	}
+
+	/** Drops a chain from the configured set. */
+	removeChain(chainId: number): void {
+		this.rpcOverrides.delete(chainId)
+		this.bundlerUrls.delete(chainId)
+	}
+
+	/**
+	 * Replaces a chain's RPC endpoints. Callers must invalidate the cached viem
+	 * clients (`ChainClientManager.invalidate`) and rebuild the chain's scanner
+	 * afterwards — a client bakes its transport in at construction, so this
+	 * change is invisible to anything already holding one.
+	 */
+	setRpcUrls(chainId: number, rpcUrls: string[]): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.rpcOverrides.set(chainId, validateRpcUrls(rpcUrls))
+	}
+
+	setBundlerUrl(chainId: number, bundlerUrl: string): void {
+		if (!this.rpcOverrides.has(chainId)) {
+			throw new Error(`Chain ${chainId} is not configured`)
+		}
+		this.bundlerUrls.set(chainId, bundlerUrl)
 	}
 
 	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
@@ -435,10 +490,6 @@ export class FillerConfigService {
 		return this.chainConfigService.getSolverAccountAddress(chain) as HexString | undefined
 	}
 
-	getDataDir(): string | undefined {
-		return this.fillerConfig?.dataDir
-	}
-
 	getBundlerUrl(chain: string): string | undefined {
 		const chainId = this.getChainIdFromStateMachineId(chain)
 		return this.bundlerUrls.get(chainId)
@@ -527,15 +578,6 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
-	}
-
-	/**
-	 * Block-scanner poll period in milliseconds — configured in seconds, consumed
-	 * by `setInterval`. Defaults to 3 seconds.
-	 */
-	getBlockScanIntervalMs(): number {
-		const seconds = this.fillerConfig?.blockScanIntervalSeconds ?? DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS
-		return Math.round(seconds * 1000)
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

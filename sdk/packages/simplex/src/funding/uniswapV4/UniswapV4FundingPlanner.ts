@@ -11,8 +11,8 @@ import { UniswapV4LiquidityState } from "@/funding/uniswapV4/UniswapV4LiquidityS
 import { chainIdFromIdentifier, fetchPoolCurrencyDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { getLogger } from "@/services/Logger"
-import { type ERC7821Call, type HexString } from "@hyperbridge/sdk"
+import { type Logger , moduleLogger} from "@/services/Logger"
+import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import { Decimal } from "decimal.js"
 import { Percent } from "@uniswap/sdk-core"
@@ -20,7 +20,6 @@ import { V4PositionManager, type Pool as V4Pool } from "@uniswap/v4-sdk"
 import type { RemoveLiquidityOptions } from "@uniswap/v4-sdk"
 import { encodeFunctionData } from "viem"
 
-const logger = getLogger("uniswapv4-funding")
 
 /** Default slippage tolerance for remove-liquidity operations. */
 const DEFAULT_SLIPPAGE_BPS = 50
@@ -38,6 +37,8 @@ const DEFAULT_SLIPPAGE_BPS = 50
  * wrapped into an ERC-7821 call for batched UserOp execution.
  */
 export class UniswapV4FundingPlanner implements FundingVenue {
+	private readonly logger: Logger
+
 	name = "UniswapV4"
 	/** Long-lived state per chain, keyed by chain identifier. */
 	private stateByChain = new Map<string, UniswapV4LiquidityState>()
@@ -51,6 +52,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		private readonly configService: FillerConfigService,
 		spreadBps?: number,
 	) {
+		this.logger = moduleLogger(clientManager.loggers, "uniswapv4-funding")
 		const bps = spreadBps ?? DEFAULT_SLIPPAGE_BPS
 		this.slippageTolerance = new Percent(bps, 10_000)
 	}
@@ -73,7 +75,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 */
 	async initialise(solver: HexString): Promise<void> {
 		for (const [chain, positions] of Object.entries(this.config.positionsByChain)) {
-			logger.info({ chain, positionCount: positions.length, solver }, "UniswapV4 initialising chain")
+			this.logger.info({ chain, positionCount: positions.length, solver }, "UniswapV4 initialising chain")
 			const positionManager = this.configService.getUniswapV4PositionManagerAddress(chain)
 			const poolManager = this.configService.getUniswapV4PoolManagerAddress(chain)
 			const stateView = this.configService.getUniswapV4StateViewAddress(chain)
@@ -88,7 +90,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				throw new Error(`UniswapV4 StateView not configured for chain ${chain}`)
 			}
 
-			logger.info({ chain, positionManager, poolManager, stateView }, "UniswapV4 addresses resolved")
+			this.logger.info({ chain, positionManager, poolManager, stateView }, "UniswapV4 addresses resolved")
 
 			const client = this.clientManager.getPublicClient(chain)
 			const chainId = chainIdFromIdentifier(chain)
@@ -168,7 +170,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		try {
 			await state.refresh()
 		} catch (err) {
-			logger.error({ err, chain }, "Failed to refresh state for price query")
+			this.logger.error({ err, chain }, "Failed to refresh state for price query")
 			return null
 		}
 
@@ -192,7 +194,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		}
 
 		if (bestPrice) {
-			logger.debug({ chain, token: tokenLower, priceUsd: bestPrice.toString() }, "Exotic token price computed")
+			this.logger.debug({ chain, token: tokenLower, priceUsd: bestPrice.toString() }, "Exotic token price computed")
 		}
 		return bestPrice
 	}
@@ -257,7 +259,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
-		logger.debug(
+		this.logger.debug(
 			{
 				destChain,
 				solver,
@@ -271,7 +273,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 		const state = this.stateByChain.get(destChain)
 		if (!state || !state.isHydrated()) {
-			logger.debug(
+			this.logger.debug(
 				{ destChain, hasState: !!state, isHydrated: state?.isHydrated() },
 				"UniswapV4 no state or not hydrated",
 			)
@@ -289,7 +291,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				.positionsForToken(tokenNeed)
 				.sort((a, b) => (b.remainingLiquidity > a.remainingLiquidity ? 1 : -1))
 
-			logger.debug(
+			this.logger.debug(
 				{
 					tokenNeed,
 					candidateCount: candidates.length,
@@ -338,7 +340,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				const amount1 = BigInt(sdkPosition.amount1.quotient.toString())
 				const credit = isToken0 ? amount0 : amount1
 
-				logger.debug(
+				this.logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
 						isToken0,
@@ -367,7 +369,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				remaining -= credit
 				state.consume(pos.tokenId, cappedLiq)
 
-				logger.debug(
+				this.logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
 						liquidity: cappedLiq.toString(),
@@ -378,7 +380,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				)
 			}
 
-			logger.debug(
+			this.logger.debug(
 				{
 					callCount: allCalls.length,
 					totalCredited: totalCredited.toString(),

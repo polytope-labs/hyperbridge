@@ -131,6 +131,10 @@ jobs:
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
+            # Dead imports have shipped twice past tsc, which does not flag them.
+            - name: Lint simplex
+              run: pnpm --filter="@hyperbridge/simplex" lint
+
             - name: Run simplex test
               run: pnpm --filter="@hyperbridge/simplex" test:filler
 

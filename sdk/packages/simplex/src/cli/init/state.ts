@@ -1,4 +1,4 @@
-import type { FillerTomlConfig, QueueConfig } from "@/config/filler-toml"
+import type { FillerTomlConfig, } from "@/config/filler-toml"
 import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"
@@ -36,7 +36,6 @@ export interface WizardState {
 	 */
 	vaultUniswapV4?: NonNullable<FillerTomlConfig["vault"]>["uniswapV4"]
 	maxConcurrentOrders: number
-	queue: QueueConfig
 	logging?: string
 	gasFeeBump?: FillerTomlConfig["simplex"]["gasFeeBump"]
 	overfillProtection?: FillerTomlConfig["simplex"]["overfillProtection"]
@@ -52,8 +51,8 @@ export interface Prefill {
 	chainIds: Array<number | null>
 }
 
-export const DEFAULT_MAX_CONCURRENT_ORDERS = 5
-export const DEFAULT_QUEUE: QueueConfig = { maxRechecks: 10, recheckDelayMs: 30000 }
+import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
+export { DEFAULT_MAX_CONCURRENT_ORDERS }
 
 /** Ask prices below par by order size — the gap to 1 is the spread on every fill. */
 export const DEFAULT_SAME_ASSET_ASK_CURVE = [
@@ -76,6 +75,5 @@ export function newWizardState(): WizardState {
 		passthroughChains: [],
 		pairs: [],
 		maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
-		queue: { ...DEFAULT_QUEUE },
 	}
 }

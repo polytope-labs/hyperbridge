@@ -27,6 +27,8 @@
  *
  * Override endpoints via SIMNODE_URL / ANVIL_URL / ANVIL2_URL.
  */
+import { stubOrderScanner } from "./helpers/stub-scanner"
+import { HyperbridgeScanner } from "@/scanner/hyperbridge-scanner"
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api"
 import { hexToU8a, u8aToString } from "@polkadot/util"
 import { keccakAsU8a } from "@polkadot/util-crypto"
@@ -35,7 +37,6 @@ import { privateKeyToAccount } from "viem/accounts"
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { IntentFiller } from "@/core/filler"
 import {
-	BidStorageService,
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
@@ -43,6 +44,7 @@ import {
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { SqliteDataStore } from "@/data/sqlite"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
@@ -246,7 +248,9 @@ async function buildPhantomFiller(opts: {
 	evmKey: HexString
 	cngnPerUsd: string
 	declaredSources: string[] | undefined
+	phantomScanner: HyperbridgeScanner
 }): Promise<{ filler: IntentFiller; solver: HexString; gateway: HexString }> {
+	const { phantomScanner } = opts
 	const resolvedChains: ResolvedChainConfig[] = CHAINS.map((c) => ({
 		chainId: c.chainId,
 		rpcUrls: [c.anvilUrl],
@@ -308,8 +312,13 @@ async function buildPhantomFiller(opts: {
 		chainClientManager,
 		contractService,
 		signer,
+		// Orders stay stubbed — this suite drives phantom orders, which arrive via
+		// the Hyperbridge scanner, and phantom bids need no gateway scanning. The
+		// hyperbridge scanner must be REAL: without one the filler never sees a
+		// phantom order and every "expected 3 bids" assertion reads 0.
+		{ orders: stubOrderScanner(), hyperbridge: phantomScanner },
 		undefined,
-		new BidStorageService(configService.getDataDir()),
+		new SqliteDataStore(".simplex-data").bids,
 	)
 	await filler.initialize()
 	filler.start()
@@ -328,8 +337,13 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 	let driver: IntentsCoprocessor
 	let gateway: HexString
 	const fillers: IntentFiller[] = []
+	let phantomScanner: HyperbridgeScanner
 
 	beforeAll(async () => {
+		// One shared phantom feed for every filler — the pattern the scanners were
+		// built for, and the only way a directly-constructed IntentFiller sees
+		// phantom orders at all.
+		phantomScanner = await HyperbridgeScanner.create(SIMNODE_URL)
 		api = await ApiPromise.create({
 			provider: new WsProvider(SIMNODE_URL),
 			typesBundle: { spec: { gargantua: { hasher: keccakAsU8a } } },
@@ -364,7 +378,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 		}
 
 		for (const f of FILLERS) {
-			const { filler, gateway: gw } = await buildPhantomFiller(f)
+			const { filler, gateway: gw } = await buildPhantomFiller({ ...f, phantomScanner })
 			fillers.push(filler)
 			gateway = gw
 		}
@@ -372,6 +386,7 @@ describe("Phantom filler E2E (real IntentFillers + simnode + anvil-forked Base)"
 
 	afterAll(async () => {
 		await Promise.all(fillers.map((f) => f.stop().catch(() => {})))
+		await phantomScanner?.close().catch(() => {})
 		await api?.disconnect()
 	}, 60_000)
 

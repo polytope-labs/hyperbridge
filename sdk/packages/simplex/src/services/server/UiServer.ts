@@ -9,14 +9,13 @@ import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { saveRuntimeState } from "@/core/runtime-state"
 import { isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
-import type { ActivityLogService, ActivityEvent } from "../ActivityLogService"
+import type { ActivityRecorder } from "@/data/recorder"
+import type { ActivityEvent, BidStore } from "@/data/types"
 import type { BalanceProvider } from "../BalanceProvider"
-import type { BidStorageService } from "../BidStorageService"
-import { configureLogger, getLogger, type LogLevel } from "../Logger"
+import { getLogger, type LogLevel } from "../Logger"
 import { readBody, sendJson, isLoopbackHost, isContainerized, hostHeaderAllowed } from "./http-util"
 import { serveStatic } from "./static"
 import {
@@ -106,8 +105,16 @@ export interface OperatorContext {
 	config: FillerTomlConfig
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
-	activity: Pick<ActivityLogService, "getRecent" | "on" | "off" | "recordWalletTx" | "getWalletTxs" | "getFillTxs">
-	bids?: Pick<BidStorageService, "getRecentBids" | "getStats">
+	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills">
+	bids?: Pick<BidStore, "recent" | "stats">
+	/** Persists an operator pause so it survives a restart. */
+	setPaused(paused: boolean): Promise<void>
+	/**
+	 * Sets the running filler's verbosity. Logging is scoped per filler, so
+	 * `configureLogger` alone moves only the process-wide fallback context and
+	 * leaves this filler's own output untouched.
+	 */
+	setLogLevel(level: LogLevel): void
 	vault?: {
 		sweepNow(): Promise<void>
 		redeemAll(): Promise<void>
@@ -128,9 +135,9 @@ export interface OperatorContext {
 		pair: PairConfig,
 		assets: Record<string, AssetDefinition> | undefined,
 		pairIndex: number,
-	) => AdminStrategy | null
+	) => Promise<AdminStrategy | null>
 	/** Removes a live market by strategy index; later strategies' pairIndex shift down with config.pairs. */
-	removePair?: (index: number) => void
+	removePair?: (index: number) => Promise<void>
 	/** First RPC URL for a running chain (state machine id) — backs the custom-token verify probe. */
 	rpcUrlFor?: (chain: string) => string | undefined
 	/**
@@ -146,12 +153,12 @@ export interface OperatorContext {
 	}>
 	version: string
 	startedAt: number
-	configPath: string
+	/** Where runtime config edits are written back. Absent for a config-object filler. */
+	configPath?: string
 	chains: number[]
 	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
 	addresses?: { evm: string; substrate?: string }
-	dataDir?: string
 }
 
 export interface SetupContext {
@@ -401,7 +408,7 @@ export class UiServer {
 			const pause = path === "/api/pause"
 			if (pause) this.operator!.filler.pause()
 			else this.operator!.filler.resume()
-			saveRuntimeState({ paused: pause }, this.operator!.dataDir)
+			await this.operator!.setPaused(pause)
 			return sendJson(res, 200, { paused: this.operator!.filler.isPaused() })
 		}
 
@@ -417,7 +424,7 @@ export class UiServer {
 			const params = new URL(req.url ?? "/", "http://localhost").searchParams
 			const limit = Number(params.get("limit") ?? 100)
 			const before = params.get("before") ? Number(params.get("before")) : undefined
-			return sendJson(res, 200, { events: this.operator!.activity.getRecent(limit, before) })
+			return sendJson(res, 200, { events: await this.operator!.activity.recent(limit, before) })
 		}
 
 		if (path === "/api/wallet/history") {
@@ -426,9 +433,10 @@ export class UiServer {
 			const params = new URL(req.url ?? "/", "http://localhost").searchParams
 			const limit = Math.min(Math.max(Number(params.get("limit") ?? 100), 1), 500)
 			const activity = this.operator!.activity
+			const [walletTxs, fillTxs] = await Promise.all([activity.walletTxs(limit), activity.fills(limit)])
 			const txs: WalletTxDto[] = [
-				...activity.getWalletTxs(limit).map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
-				...activity.getFillTxs(limit).map((event) => ({
+				...walletTxs.map((tx) => ({ ...tx, id: `wallet-${tx.id}` })),
+				...fillTxs.map((event) => ({
 					id: `fill-${event.id}`,
 					ts: event.ts,
 					kind: "fill" as const,
@@ -451,10 +459,11 @@ export class UiServer {
 			const bids = this.operator!.bids
 			if (!bids) return sendJson(res, 200, { bids: [], stats: null })
 			const params = new URL(req.url ?? "/", "http://localhost").searchParams
-			return sendJson(res, 200, {
-				bids: bids.getRecentBids(Number(params.get("limit") ?? 100)),
-				stats: bids.getStats(),
-			})
+			const [recentBids, stats] = await Promise.all([
+				bids.recent(Number(params.get("limit") ?? 100)),
+				bids.stats(),
+			])
+			return sendJson(res, 200, { bids: recentBids, stats })
 		}
 
 		if (path === "/api/events") {
@@ -822,13 +831,19 @@ export class UiServer {
 
 		let strategy: AdminStrategy | null = null
 		try {
-			if (op.addPair) strategy = op.addPair(candidate, assets, (op.config.pairs ?? []).length)
+			if (op.addPair) strategy = await op.addPair(candidate, assets, (op.config.pairs ?? []).length)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 
-		op.config.pairs = next
-		if (assets) op.config.assets = mergedAssets
+		// The capability path owns the config: PairController reassigned
+		// `config.pairs` (and assets) itself. Writing `next` over it would be a
+		// second source of truth that only agrees by construction — mutate here
+		// solely in the restart-needed fallback, where nothing else will.
+		if (!op.addPair) {
+			op.config.pairs = next
+			if (assets) op.config.assets = mergedAssets
+		}
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.addPair)
 		this.logger.warn(
@@ -906,7 +921,7 @@ export class UiServer {
 	 * anything mutates. Funds are never touched: vault treasury is per-asset
 	 * and stays configured regardless of markets.
 	 */
-	private handleMarketRemove(res: ServerResponse, index: number): void {
+	private async handleMarketRemove(res: ServerResponse, index: number): Promise<void> {
 		const op = this.operator!
 		const strategy = op.strategies.find((s) => s.index === index)
 		if (!strategy) return sendJson(res, 404, { error: `Unknown strategy ${index}` })
@@ -919,11 +934,11 @@ export class UiServer {
 			}
 			const hasVenuePricing = Boolean(op.config.vault?.uniswapV4?.positions?.length)
 			validatePairConfigs(remaining, op.config.assets, hasVenuePricing)
-			op.removePair?.(index)
+			await op.removePair?.(index)
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
-		pairs.splice(pairIndex, 1)
+		if (!op.removePair) pairs.splice(pairIndex, 1)
 		const persisted = this.persistConfig()
 		const applied = Boolean(op.removePair)
 		this.logger.warn(
@@ -940,6 +955,10 @@ export class UiServer {
 	 */
 	private persistConfig(): boolean {
 		const op = this.operator!
+		// An embedded filler started from a config object has nowhere to write
+		// back to. Edits still apply live; they just do not outlive the process,
+		// which every caller already surfaces as `persisted: false`.
+		if (!op.configPath) return false
 		try {
 			const chainComments = this.configChainIds().map((id) => chainLabel(id))
 			writeConfigFileAtomic(op.configPath, emitFillerToml(op.config, { chainComments }))
@@ -1135,7 +1154,7 @@ export class UiServer {
 		if (!level || !(LOG_LEVELS as readonly string[]).includes(level)) {
 			return sendJson(res, 400, { error: `level must be one of ${LOG_LEVELS.join(", ")}` })
 		}
-		configureLogger(level as LogLevel)
+		this.operator!.setLogLevel(level as LogLevel)
 		this.operator!.config.simplex.logging = level
 		const persisted = this.persistConfig()
 		this.logger.warn({ level }, "Log level changed from the UI")
@@ -1211,7 +1230,7 @@ export class UiServer {
 					(option) => option.address.toLowerCase() === body.token!.toLowerCase(),
 				)?.symbol ?? body.token
 			try {
-				op.activity.recordWalletTx({
+				await op.activity.recordWalletTx({
 					kind: "send",
 					chainId: parseChainKey(body.chain),
 					token: symbol,

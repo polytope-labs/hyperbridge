@@ -1,5 +1,5 @@
 import { isAddress } from "viem"
-import { HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
@@ -120,13 +120,20 @@ export interface FillerTomlConfig {
 	simplex: {
 		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
-		maxConcurrentOrders: number
-		queue: QueueConfig
+		/** Orders evaluated at once. Defaults to 5. */
+		maxConcurrentOrders?: number
+		/**
+		 * Accepted and ignored. Older configs and the wizard used to write it; the
+		 * engine never read it. Kept in the type so those configs still load.
+		 */
+		queue?: QueueConfig
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string
 		hyperbridgeWsUrl: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		entryPointAddress?: string
+		/** Accepted and ignored. Contract addresses come from the SDK chain registry. */
 		solverAccountContractAddress?: string
 		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
 		targetGasUnits?: number
@@ -281,6 +288,15 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")
+		}
+	}
+
+	// `|| 5` downstream reads 0 as "unset", and p-queue throws a bare TypeError on
+	// fractional or negative concurrency — surface both here with a named error.
+	const concurrent = config.simplex.maxConcurrentOrders
+	if (concurrent !== undefined) {
+		if (!Number.isInteger(concurrent) || concurrent < 1) {
+			throw new Error(`simplex.maxConcurrentOrders must be an integer >= 1; got ${concurrent}`)
 		}
 	}
 

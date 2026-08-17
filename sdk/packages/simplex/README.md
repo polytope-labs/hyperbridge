@@ -4,7 +4,7 @@ Automated intent solver for the Hyperbridge IntentGateway. Run it as a standalon
 it in your own Node application.
 
 Full documentation:
-[docs.hyperbridge.network/developers/evm/intent-gateway/simplex](https://docs.hyperbridge.network/developers/evm/intent-gateway/simplex)
+[docs.hyperbridge.network/developers/sdk/simplex](https://docs.hyperbridge.network/developers/sdk/simplex/)
 
 ## As a library
 

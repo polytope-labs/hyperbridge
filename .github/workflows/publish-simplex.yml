@@ -100,6 +100,15 @@ jobs:
             contents: read
             packages: write
         steps:
+            # Only the Docker Hub overview file: this job otherwise works purely
+            # from downloaded digests, and the description step reads from disk —
+            # publishing it without a checkout was an ENOENT in the first release.
+            - name: Checkout Docker Hub overview
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: sdk/packages/simplex/scripts/DOCKERHUB.md
+                  sparse-checkout-cone-mode: false
+
             - name: Download digests
               uses: actions/download-artifact@v4
               with:
@@ -160,6 +169,11 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: read
+            # Trusted publishing: this job authenticates to npm as this workflow
+            # via OIDC — no long-lived token. npm trusts publish-simplex.yml on
+            # polytope-labs/hyperbridge (package Settings -> Trusted Publisher).
+            # Token publishing sunsets ~Jan 2027.
+            id-token: write
         defaults:
             run:
                 working-directory: sdk
@@ -209,13 +223,6 @@ jobs:
             - name: Build simplex
               run: pnpm --filter="@hyperbridge/simplex" build
 
-            - name: Authenticate with npm
-              run: |
-                  printf "//registry.npmjs.org/:_authToken=%s\n" "${NODE_AUTH_TOKEN}" > ~/.npmrc
-                  npm whoami --registry=https://registry.npmjs.org
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
             # pnpm rewrites the `workspace:*` dependency on @hyperbridge/sdk to its
             # concrete version as it packs. That version existing on npm is not enough:
             # the registry copy must MATCH the workspace simplex was built and tested
@@ -235,10 +242,20 @@ jobs:
                     exit 1
                   fi
 
+            # npm >= 11.5 exchanges the Actions OIDC token for npm credentials on
+            # its own; the runner's bundled npm predates that.
+            - name: OIDC-capable npm
+              run: npm install -g npm@^11
+
+            # pnpm pack rewrites the workspace:* dependency on @hyperbridge/sdk to
+            # its concrete version — npm's pack does not — and npm publish carries
+            # the OIDC trusted-publishing exchange. Each tool does the half it is
+            # good at. Provenance comes with trusted publishing automatically.
             - name: Publish to npm
-              run: pnpm --filter="@hyperbridge/simplex" publish --access public --no-git-checks
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: |
+                  cd packages/simplex
+                  pnpm pack --pack-destination /tmp/npm-pkg
+                  npm publish /tmp/npm-pkg/*.tgz --access public
 
     generate-changelog:
         runs-on: ubuntu-latest

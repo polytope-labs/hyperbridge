@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex",
-	"version": "0.9.7",
+	"version": "0.9.8",
 	"license": "Apache-2.0",
 	"description": "Automated intent filler for the Hyperbridge IntentGateway \u2014 run it as a binary or embed it as a library",
 	"main": "dist/index.js",
@@ -159,7 +159,7 @@
 		"defi",
 		"intent-gateway"
 	],
-	"homepage": "https://docs.hyperbridge.network/developers/evm/intent-gateway/simplex",
+	"homepage": "https://docs.hyperbridge.network/developers/sdk/simplex/",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/polytope-labs/hyperbridge.git",

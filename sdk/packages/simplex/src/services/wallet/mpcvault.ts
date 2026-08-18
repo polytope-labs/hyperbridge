@@ -1,6 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concatHex, keccak256, padHex, serializeTransaction, toHex, type TransactionSerializable } from "viem"
-import { toAccount, type LocalAccount } from "viem/accounts"
+import { concatHex, keccak256, padHex, toHex } from "viem"
 import * as grpc from "@grpc/grpc-js"
 import {
 	PlatformAPIClient,
@@ -268,79 +267,4 @@ export class MpcVaultService {
 		}
 		return this.normalizeHex(result.signedTransaction)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Account factory
-// ---------------------------------------------------------------------------
-
-function requireChainId(value: unknown, context: string): number {
-	if (typeof value === "number" && Number.isFinite(value)) return value
-	if (typeof value === "bigint") return Number(value)
-	throw new Error(`Missing chainId for MPCVault ${context}`)
-}
-
-export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: LocalAccount; service: MpcVaultService } {
-	const service = new MpcVaultService({
-		apiToken: config.apiToken,
-		vaultUuid: config.vaultUuid,
-		accountAddress: config.accountAddress,
-		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
-		grpcTarget: config.grpcTarget,
-	})
-
-	const account = toAccount({
-		address: config.accountAddress,
-		// Required by viem's `toAccount`, unreachable in practice: MPCVault's
-		// personal-message API needs a chain id, which viem's signature does not
-		// carry, and no solver path personal-signs. `MpcVaultService.signPersonalMessage`
-		// is the entry point for anything that does.
-		async signMessage(): Promise<HexString> {
-			throw new Error(
-				"MPCVault cannot sign a personal message without chain context. Call MpcVaultService.signPersonalMessage(messageHash, chainId).",
-			)
-		},
-		async signTransaction(transaction): Promise<HexString> {
-			const params = transaction as {
-				chainId?: number | bigint
-				to?: HexString
-				value?: bigint
-				data?: HexString
-				nonce?: number
-				gas?: bigint
-				maxFeePerGas?: bigint
-				maxPriorityFeePerGas?: bigint
-				authorizationList?: unknown[]
-			}
-			// MPCVault's structured send (`evmSendCustom`) has no field for an EIP-7702
-			// authorization list, so a set-code tx routed through it would go out as a
-			// plain 0-value transfer with the delegation silently dropped. Serialise and
-			// raw-sign those. Everything else keeps the structured path, where the vault's
-			// policy engine still sees to/value/data instead of an opaque digest.
-			if (params.authorizationList?.length) {
-				const unsigned = serializeTransaction(transaction as TransactionSerializable)
-				const signature = await service.signRawHashComponents(keccak256(unsigned) as HexString)
-				return serializeTransaction(transaction as TransactionSerializable, signature) as HexString
-			}
-			return service.signTransaction({
-				chainId: requireChainId(params.chainId, "transaction signing"),
-				to: params.to,
-				value: params.value,
-				data: params.data,
-				nonce: params.nonce,
-				gasLimit: params.gas,
-				maxFeePerGas: params.maxFeePerGas,
-				maxPriorityFeePerGas: params.maxPriorityFeePerGas,
-			})
-		},
-		async signTypedData(typedDataDefinition): Promise<HexString> {
-			const typedData = typedDataDefinition as {
-				domain?: { chainId?: number | bigint }
-			}
-			const chainId = requireChainId(typedData.domain?.chainId, "typed-data signing")
-			return service.signTypedData(JSON.stringify(typedDataDefinition), chainId)
-		},
-	})
-
-	return { account, service }
 }

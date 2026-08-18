@@ -93,10 +93,10 @@ export class DelegationService {
 	): Promise<HexString> {
 		const walletClient = this.clientManager.getWalletClient(chain)
 
-		// Every backend goes out the same way: viem serialises the set-code tx and
-		// asks the signer's account to sign it. A backend whose transaction API
-		// cannot express an authorization list handles that in its own account —
-		// see `createMpcVaultAccount` — not here.
+		// Every backend goes out the same way: viem prepares the set-code tx and the
+		// signer signs it. A backend whose transaction API cannot express an
+		// authorization list handles that in its own `signTransaction` — see
+		// `mpcVaultSigner` — not here.
 		return (await walletClient.sendTransaction({
 			to: this.signer.address,
 			value: 0n,

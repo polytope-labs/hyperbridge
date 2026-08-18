@@ -1,7 +1,9 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { createMpcVaultAccount, MpcVaultService } from "@/services/wallet/mpcvault"
+import { MpcVaultService } from "@/services/wallet/mpcvault"
+import { mpcVaultSigner } from "@/services/wallet/accounts/mpc"
 import { describe, expect, it } from "vitest"
 import { isHex, recoverAddress, recoverMessageAddress, recoverTypedDataAddress } from "viem"
+import { hashAuthorization } from "viem/utils"
 import "../setup"
 
 /**
@@ -92,6 +94,19 @@ function testChainId(): number {
 function testTxNonce(): number {
 	return Number.parseInt(process.env.MPCVAULT_TEST_TX_NONCE ?? "0", 10)
 }
+
+/** The signer the solver runs on, built from the same credentials. */
+function createTestSigner() {
+	return mpcVaultSigner({
+		apiToken: process.env.MPCVAULT_API_TOKEN as string,
+		vaultUuid: process.env.MPCVAULT_VAULT_UUID as string,
+		accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
+		callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY as string,
+	})
+}
+
+/** Arbitrary delegate target for the authorization checks. */
+const DELEGATE_TARGET = "0x0000000000000000000000000000000000000001" as HexString
 
 describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => {
 	it("getAccountAddress returns the configured account address", () => {
@@ -200,22 +215,86 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		expect(sig.length).toBeGreaterThan(2) // at least "0x" + some data
 	}, 120_000)
 
-	it("createMpcVaultAccount exposes matching addresses and signMessage rejects without chain context", async () => {
-		const accountAddress = process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString
-		const { account, service } = createMpcVaultAccount({
-			apiToken: process.env.MPCVAULT_API_TOKEN as string,
-			vaultUuid: process.env.MPCVAULT_VAULT_UUID as string,
-			accountAddress,
-			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY as string,
+	// The three operations the solver actually calls, through the signer that ships.
+	it("mpcVaultSigner signs typed data that recovers the wallet address", async () => {
+		const signer = createTestSigner()
+		// `EIP712Domain` must be listed: MPCVault hashes the payload server-side from
+		// this JSON, and viem omits the domain type when it hashes locally. Leave it
+		// out and the vault signs a different digest than the one recovery checks
+		// against — the failure #1134 was about.
+		const typedData = {
+			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+				],
+				Bid: [{ name: "amount", type: "uint256" }],
+			},
+			primaryType: "Bid",
+			domain: { name: "Simplex", version: "1", chainId: testChainId() },
+			message: { amount: 1n },
+		}
+
+		const signature = await signer.signTypedData(typedData)
+		const recovered = await recoverTypedDataAddress({ ...typedData, signature } as never)
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
+	}, 120_000)
+
+	// MPCVault has no structured EIP-7702 encoding, so the adapter hashes the tuple
+	// itself — this pins that the hash it signs is the one the protocol defines.
+	it("mpcVaultSigner signs an EIP-7702 authorization that recovers the wallet address", async () => {
+		const signer = createTestSigner()
+		const auth = { chainId: testChainId(), contractAddress: DELEGATE_TARGET, nonce: 0 }
+
+		const { r, s: sHex, yParity } = await signer.signAuthorization(auth)
+		expect([0, 1]).toContain(yParity)
+
+		const recovered = await recoverAddress({
+			hash: hashAuthorization({ address: DELEGATE_TARGET, chainId: auth.chainId, nonce: auth.nonce }),
+			signature: { r: r as `0x${string}`, s: sHex as `0x${string}`, v: BigInt(yParity) + 27n },
+		})
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
+	}, 120_000)
+
+	// The structured path: the vault sees to/value/data, not a digest.
+	it("mpcVaultSigner signs a transaction through the vault's structured request", async () => {
+		const signer = createTestSigner()
+
+		const serialized = await signer.signTransaction({
+			chainId: testChainId(),
+			to: signer.address,
+			value: 0n,
+			nonce: testTxNonce(),
+			gas: 21_000n,
+			maxFeePerGas: 1_000_000_000n,
+			maxPriorityFeePerGas: 1_000_000n,
 		})
 
-		expect(account.address.toLowerCase()).toBe(accountAddress.toLowerCase())
-		expect(service.getAccountAddress().toLowerCase()).toBe(accountAddress.toLowerCase())
+		expect(isHex(serialized)).toBe(true)
+		expect(serialized.length).toBeGreaterThan(2)
+	}, 120_000)
 
-		const dummyHash = `0x${"ef".repeat(32)}` as HexString
-		expect(account.signMessage).toBeDefined()
-		await expect(account.signMessage!({ message: { raw: dummyHash } })).rejects.toThrow(
-			/MPCVault cannot sign a personal message without chain context/,
-		)
-	})
+	// The one transaction MPCVault's structured request cannot carry: the adapter
+	// serialises and raw-signs it instead, or the delegation is silently dropped.
+	it("mpcVaultSigner serialises and signs a set-code transaction", async () => {
+		const signer = createTestSigner()
+		const chainId = testChainId()
+		const auth = await signer.signAuthorization({ chainId, contractAddress: DELEGATE_TARGET, nonce: 1 })
+
+		const serialized = await signer.signTransaction({
+			chainId,
+			type: "eip7702",
+			to: signer.address,
+			value: 0n,
+			nonce: testTxNonce(),
+			gas: 650_000n,
+			maxFeePerGas: 1_000_000_000n,
+			maxPriorityFeePerGas: 1_000_000n,
+			authorizationList: [{ chainId, address: DELEGATE_TARGET, nonce: 1, ...auth }],
+		})
+
+		// Type-0x04 envelope, signed locally from the vault's raw-hash signature.
+		expect(serialized.startsWith("0x04")).toBe(true)
+	}, 120_000)
 })

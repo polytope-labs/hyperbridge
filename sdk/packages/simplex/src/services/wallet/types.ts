@@ -80,6 +80,11 @@ export interface Signature {
  * `domain.chainId` is the only field a signing backend is likely to read for
  * itself: the digest covers it, and backends that scope a signing request to a
  * chain (MPCVault) take it from here rather than from a separate argument.
+ *
+ * List `EIP712Domain` in `types` on any payload you build. viem ignores it when
+ * hashing locally, but a backend that hashes server-side from the JSON (MPCVault
+ * again) derives the domain type from it — omit it there and the signature
+ * covers a different digest than the one your verifier checks.
  */
 export interface TypedDataPayload {
 	domain?: {

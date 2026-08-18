@@ -40,6 +40,12 @@ Why: the `account` field was the expensive viem type on the published surface �
 
 The cost is that we own `TypedDataPayload`, `Signature`, `SignerTransaction` and `Eip7702Authorization`. Three of those are spec shapes that do not move. `SignerTransaction` does move, and is the one to watch: it models the EIP-1559 and EIP-7702 fields simplex actually sends, and `toSignerTransaction` maps viem's prepared request onto it. A backend implementing `signTransaction` sees only those fields; anything viem adds later that we do not model is invisible to it, while the digest path (no `signTransaction`) keeps signing viem's full serialisation and is unaffected.
 
+## 2026-08-18 — EIP-712 payloads must list `EIP712Domain` in `types`
+
+Chosen: `TypedDataPayload`'s doc comment requires it, and the MPCVault integration test pins it.
+
+Why: viem ignores `types.EIP712Domain` when hashing locally, so a payload without it verifies fine against every local signer and looks correct in tests. MPCVault hashes server-side from the JSON and derives the domain type from that entry — omit it and the vault signs a different digest than the one recovery checks, which is what #1134 was. This resurfaced while writing the signer-level integration test: the service-level test (which lists it) passed while the new one (which did not) failed, against the same vault, in the same run. `CryptoUtils.packedUserOpTypedData` in the sdk already sets it deliberately for this reason; the constraint now lives on the type a consumer reads rather than only in that one builder.
+
 ## 2026-08-18 — Every operation is required, and digest-only backends get a factory instead of optionality
 
 Chosen: `signTypedData`, `signAuthorization` and `signTransaction` are all required, `mode` with them. `signRawHash` is deleted. `digestSigner({ address, mode, sign })` builds a `Signer` from a single `sign(hash)`.

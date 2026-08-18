@@ -334,12 +334,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		const strategy = options.signer.mode ?? "custom"
 		options.loggers
 			.get("signer")
-			.info({ signingStrategy: strategy, address: runtimeSigner.account.address }, `EVM signing strategy: ${strategy}`)
+			.info({ signingStrategy: strategy, address: runtimeSigner.address }, `EVM signing strategy: ${strategy}`)
 	} else {
 		// The throwaway key. Say so, so nobody funds the address in the logs.
 		options.loggers
 			.get("signer")
-			.info({ address: runtimeSigner.account.address }, "Watch-only: no signer, using a throwaway key")
+			.info({ address: runtimeSigner.address }, "Watch-only: no signer, using a throwaway key")
 	}
 
 	const contractService = new ContractInteractionService(
@@ -480,7 +480,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Ensure the shared vault venue is hydrated even if no strategy
 	// initialised it, so the sweep timer has live state. Idempotent.
 	if (vaultVenue) {
-		await vaultVenue.initialise(runtimeSigner.account.address as HexString)
+		await vaultVenue.initialise(runtimeSigner.address as HexString)
 	}
 
 	// Initialize rebalancing service only if fully configured
@@ -565,7 +565,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const balanceProvider = new BalanceProvider({
 		chainClientManager,
 		configService,
-		fillerAddress: runtimeSigner.account.address,
+		fillerAddress: runtimeSigner.address,
 		token1,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
@@ -651,14 +651,14 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		balanceTokens: token1,
 		rebalancingService,
 		resolvedChains,
-		fillerAddress: runtimeSigner.account.address as HexString,
+		fillerAddress: runtimeSigner.address as HexString,
 		watchOnly: watchOnlyConfig,
 		config,
 		configPath: options.configPath,
 		startedAt: Date.now(),
 		tokenSender: new TokenSender(
 			chainClientManager,
-			runtimeSigner.account.address as HexString,
+			runtimeSigner.address as HexString,
 			() => config.vault?.vaults ?? [],
 			userOpSender,
 		),
@@ -677,7 +677,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				await new VaultLiquidityState(
 					chain,
 					chainVaults,
-					runtimeSigner.account.address as HexString,
+					runtimeSigner.address as HexString,
 					chainClientManager,
 				).hydrate()
 			}

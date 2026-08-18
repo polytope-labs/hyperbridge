@@ -3,15 +3,12 @@
  * implementations take.
  *
  * `Signer` is the whole surface: implement it and Simplex signs with your
- * backend. The built-ins (`privateKeySigner`, `turnkeySigner`, `mpcVaultSigner`,
- * `viemSigner`) are implementations of it with no privileged access — including
- * MPCVault, whose EIP-7702 workaround lives in its viem account rather than in
- * this interface.
- *
- * Keep `viem` on one workspace version (`sdk/package.json` -> `pnpm.overrides`) so `account` matches simplex's `viem` types.
+ * backend. Nothing here is viem-shaped, so a consumer never has to match this
+ * package's viem version to satisfy it — `viemSigner` adapts a viem account into
+ * one, and simplex builds the account its wallet clients need from whatever it
+ * is given.
  */
-import type { HexString, SigningAccount as SdkSigningAccount } from "@hyperbridge/sdk"
-import type { Account } from "viem/accounts"
+import type { HexString } from "@hyperbridge/sdk"
 
 export interface MpcVaultClientConfig {
 	apiToken: string
@@ -70,49 +67,98 @@ export type SignerConfig =
 			type: SignerType.Turnkey
 	  } & TurnkeySignerConfig)
 
+/** A secp256k1 signature in split form, which is how EIP-7702 and raw digests consume it. */
+export interface Signature {
+	r: HexString
+	s: HexString
+	yParity: number
+}
+
+/**
+ * An EIP-712 payload, as `eth_signTypedData_v4` defines it.
+ *
+ * `domain.chainId` is the only field a signing backend is likely to read for
+ * itself: the digest covers it, and backends that scope a signing request to a
+ * chain (MPCVault) take it from here rather than from a separate argument.
+ */
+export interface TypedDataPayload {
+	domain?: {
+		name?: string
+		version?: string
+		chainId?: number | bigint
+		verifyingContract?: HexString
+		salt?: HexString
+	}
+	types: Record<string, readonly { name: string; type: string }[]>
+	primaryType: string
+	message: Record<string, unknown>
+}
+
+/** EIP-7702 authorization tuple, signed, as a set-code transaction carries it. */
+export interface Eip7702Authorization extends Signature {
+	chainId: number
+	address: HexString
+	nonce: number
+}
+
+/**
+ * A transaction to sign, handed to backends that implement
+ * {@link Signer.signTransaction}. Field names follow the JSON-RPC transaction
+ * object; simplex only ever sends EIP-1559 transfers and EIP-7702 set-code
+ * transactions, so those are the fields modelled here.
+ */
+export interface SignerTransaction {
+	chainId: number
+	type?: string
+	to?: HexString
+	value?: bigint
+	data?: HexString
+	nonce?: number
+	gas?: bigint
+	maxFeePerGas?: bigint
+	maxPriorityFeePerGas?: bigint
+	/** Present on EIP-7702 set-code transactions, and on nothing else. */
+	authorizationList?: Eip7702Authorization[]
+}
+
 /**
  * Everything a solver asks of the key that owns its funds. Pass an
  * implementation to `Simplex.start({ signer })`.
  *
- * Three members, and the last is optional:
+ * An address and two methods are required:
  *
- * - `account` — a viem `Account`. Every transaction the solver sends (the
- *   delegation tx, rebalances, operator transfers) goes out through a wallet
- *   client built on it, so it must be able to sign transactions. Wrap a remote
- *   backend with viem's `toAccount`, or hand any viem account to `viemSigner` and
- *   have the rest of this interface derived from it.
  * - `signTypedData` — EIP-712. The hot path: every bid UserOperation and every
  *   EIP-2612 permit the paymaster needs.
- * - `signRawHash` — raw ECDSA over a digest, split into components. Signs the
- *   EIP-7702 authorization when the backend has no structured path for it.
+ * - `signRawHash` — raw ECDSA over a digest. Signs EIP-7702 authorizations, and
+ *   transactions too unless the backend implements `signTransaction`.
  *
- * `chainId` is passed to the signing calls for backends whose policy engine
- * scopes a signature to a chain; implementations that do not care may ignore it.
+ * The two optional methods exist for backends whose policy engine wants to see
+ * what it is authorising rather than an opaque digest. Omit them and simplex
+ * serialises the payload itself and asks for a digest signature.
  */
-export interface Signer extends SdkSigningAccount {
-	/** viem account the solver's wallet clients are built on. */
-	account: Account
+export interface Signer {
+	/** The address every fill, bid and delegation is attributed to. */
+	readonly address: HexString
+	signTypedData(typedData: TypedDataPayload): Promise<HexString>
+	signRawHash(hash: HexString): Promise<Signature>
+
 	/**
 	 * Names the backend in logs. Free-form — the built-ins report `"privateKey"`,
 	 * `"mpcVault"` and `"turnkey"`; a signer that sets nothing logs as `"custom"`.
 	 */
-	mode?: string
+	readonly mode?: string
 	/**
-	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
-	 * The shape of `typedData` matches viem's `TypedDataDefinition`.
-	 * MPC adapter must JSON.stringify before delegating to MpcVaultService.signTypedData.
+	 * Signs an EIP-7702 authorization tuple natively, where the backend has a
+	 * structured encoding for it (e.g. Turnkey's PAYLOAD_ENCODING_EIP7702_AUTHORIZATION).
+	 * Preferred over `signRawHash(authHash)` because the backend sees
+	 * (chainId, delegate, nonce) instead of an opaque digest.
 	 */
-	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	signAuthorization?(auth: { chainId: number; contractAddress: HexString; nonce: number }): Promise<Signature>
 	/**
-	 * Signs an EIP-7702 authorization tuple natively when the signing backend supports
-	 * a structured encoding for it (e.g. Turnkey's PAYLOAD_ENCODING_EIP7702_AUTHORIZATION).
-	 * Preferred over `signRawHash(authHash)` because the backend sees the tuple instead
-	 * of an opaque digest. Omit on backends without structured 7702 support — the solver
-	 * falls back to signing the authorization digest with `signRawHash`.
+	 * Signs and serialises a transaction, where the backend takes transactions
+	 * rather than digests. Returns the signed, RLP-encoded transaction, ready to
+	 * broadcast. Omit it and simplex serialises the transaction and signs the
+	 * digest with `signRawHash`.
 	 */
-	signAuthorization?: (auth: {
-		chainId: number
-		contractAddress: HexString
-		nonce: number
-	}) => Promise<{ r: HexString; s: HexString; yParity: number }>
+	signTransaction?(tx: SignerTransaction): Promise<HexString>
 }

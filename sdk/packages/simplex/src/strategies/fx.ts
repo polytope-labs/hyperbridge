@@ -370,7 +370,7 @@ export class FXFiller implements FillerStrategy {
 	 * Hydrates all funding venue state so venue-priced pairs quote from live pool data.
 	 */
 	async initialise(): Promise<void> {
-		const solver = this.signer.account.address as HexString
+		const solver = this.signer.address as HexString
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
@@ -496,7 +496,7 @@ export class FXFiller implements FillerStrategy {
 			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
 
 			const destClient = this.clientManager.getPublicClient(destChain)
-			const walletAddress = this.signer.account.address as HexString
+			const walletAddress = this.signer.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
 			const legs = this.resolveOrderLegs(order)
@@ -1123,7 +1123,7 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		const solverAccountAddress = this.signer.account.address as HexString
+		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
 		const { commitment, userOp } = await this.contractService.prepareBidUserOp(

@@ -96,7 +96,7 @@ export class IntentFiller {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
 		this.signer = signer
-		this.fillerAddress = this.signer.account.address
+		this.fillerAddress = this.signer.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
@@ -1193,7 +1193,7 @@ export class IntentFiller {
 			return null
 		}
 
-		const solverAccountAddress = this.signer.account.address as HexString
+		const solverAccountAddress = this.signer.address as HexString
 
 		try {
 			const { userOp } = await this.contractService.preparePhantomBidUserOp(

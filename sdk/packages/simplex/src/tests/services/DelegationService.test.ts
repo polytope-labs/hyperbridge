@@ -94,7 +94,7 @@ function build(bundlerUrl: string) {
 
 async function logPreconditions(label: string, ctx: ReturnType<typeof build>) {
 	const publicClient = ctx.clientManager.getPublicClient(BASE_MAINNET)
-	const address = ctx.signer.account.address
+	const address = ctx.signer.address
 	const nonce = await publicClient.getTransactionCount({ address, blockTag: "latest" })
 	const usdcAddress = ctx.configService.getUsdcAsset(BASE_MAINNET)
 	const usdc = (await publicClient.readContract({

@@ -30,23 +30,35 @@ Alternative considered: keeping the check in `validateConfig` and passing a "a s
 
 Why: `validateConfig` is exported for consumers to gate a config before starting, and boot calls the same function — leaving the rule there would have made every library consumer's valid config throw, since the signer is no longer in it. Threading a flag through would keep a config validator asking about an argument that is not config. The duplicated CLI check is deliberate: it costs three lines and preserves the error the binary's users already know.
 
-## 2026-08-18 — No delegation-send hook on the interface: MPCVault's EIP-7702 gap is handled in its viem account
+## 2026-08-18 — `Signer` carries no viem types; `accountFor` bridges to viem inside the package
 
-Chosen: `Signer` has no `sendEip7702DelegationTransaction`. `DelegationService` always calls `walletClient.sendTransaction`, and `createMpcVaultAccount`'s `signTransaction` branches on a present `authorizationList` to serialise and raw-sign the set-code transaction instead of using MPCVault's structured `evmSendCustom` request.
+Chosen: `Signer` is `address` + `signTypedData` + `signRawHash`, with optional `mode`, `signAuthorization` and `signTransaction`. `accountFor(signer)` (`services/wallet/account.ts`) builds the viem `LocalAccount` wallet clients run on, and `ChainClientManager` derives it once.
 
-Alternatives considered: an optional interface member defaulting to the wallet-client send (the shape this change first took); a `mode === "mpcVault"` branch inside `DelegationService`.
+Alternatives considered: keeping `account: LocalAccount` on the interface (what the first cut did); going the other way and making `Signer` *be* a viem `LocalAccount`, deleting the abstraction entirely.
 
-Why: only one backend ever needed the hook, and the reason is narrow — MPCVault's `evmSendCustom` has no field for an authorization list, so a set-code tx sent through it goes out as a plain 0-value transfer with the delegation silently dropped. That is a property of MPCVault's transaction API, so it belongs in the viem account that wraps that API, where viem already hands `signTransaction` the full transaction. Exposing it on the interface made every implementer read about a problem that is not theirs, and put a transaction-sending concern in an interface that is otherwise about signatures. The `mode` branch was worse: it reintroduces exactly the closed-world knowledge this change removed.
+Why: the `account` field was the expensive viem type on the published surface — `types.ts` used to carry a warning that consumers must keep viem on this workspace's version or the field would not typecheck, because a `LocalAccount` from a different viem resolves to a different type. Removing it means implementing a signer needs no viem at all. The package's `dist/index.d.ts` still imports viem, for `viemSigner`'s parameter and for the scanner and client-manager surfaces (`PublicClient`, `WalletClient`, `QuorumPublicClient`), which were viem-typed before this change and are unaffected by it; the point is that the signing contract is not among them. Going the other way (Signer = LocalAccount) would have deleted more code, but it pins consumers to viem's account shape permanently and drags `publicKey` — required by `LocalAccount`, never set by viem's own `toAccount` — into every hand-written implementation.
 
-Structured signing is deliberately preserved for everything that is not a set-code transaction: the vault's policy engine still sees to/value/data for rebalances and transfers, and only loses that view for the delegation tx, which it could not represent at all.
+The cost is that we own `TypedDataPayload`, `Signature`, `SignerTransaction` and `Eip7702Authorization`. Three of those are spec shapes that do not move. `SignerTransaction` does move, and is the one to watch: it models the EIP-1559 and EIP-7702 fields simplex actually sends, and `toSignerTransaction` maps viem's prepared request onto it. A backend implementing `signTransaction` sees only those fields; anything viem adds later that we do not model is invisible to it, while the digest path (no `signTransaction`) keeps signing viem's full serialisation and is unaffected.
 
-## 2026-08-18 — `signMessage` dropped from `Signer`, and from the SDK's `SigningAccount`
+## 2026-08-18 — `signTransaction` is optional, and the digest path is the default
 
-Chosen: neither interface declares `signMessage`. Simplex's `Signer` is `account` + `signTypedData` + `signRawHash` (plus optional `mode` and `signAuthorization`).
+Chosen: a backend that takes transactions implements `signTransaction`; one that takes digests implements nothing, and `accountFor` serialises the transaction and asks `signRawHash` for the hash.
 
-Alternative considered: keeping it, since `Signer` extends `@hyperbridge/sdk`'s `SigningAccount`, which required it.
+Alternatives considered: requiring it (every custom signer then handles a transaction shape it mostly does not care about); never offering it and always signing digests.
 
-Why: nothing called it. Bids are signed as EIP-712 UserOperations through `signTypedData` (`BidManager.prepareSubmitBid`), not as personal-signed hashes — the SDK's own `SigningAccount` declared `signMessage` and never invoked it either, so the requirement propagated into simplex and out to every implementer for nothing. Removing it from the SDK type is safe for its consumers: a type narrowing only breaks callers of the removed member, and there are none. The bundled adapters' viem accounts still sign messages (viem's `toAccount` requires it and wallet clients use it); the MPCVault account keeps its explanatory throw, since its personal-message API needs a chain id that viem's signature does not carry.
+Why: always-digests is the simplest interface but it regresses exactly what MPC and TEE custody is bought for — MPCVault's `evmSendCustom` and Turnkey's transaction payloads let a policy engine read to/value/data, and flattening every transaction to a hash blinds them. That is the same argument #1134 made for typed data. Optional keeps the floor at two methods while letting the two bundled backends stay structural.
+
+MPCVault is the one place both paths coexist: its `signTransaction` uses the structured request normally, and serialises + raw-signs when an `authorizationList` is present, because the structured request has no field for one and would otherwise send a set-code transaction as a plain transfer with the delegation silently dropped.
+
+## 2026-08-18 — `signMessage` and the `chainId` argument dropped, in both packages
+
+Chosen: neither `Signer` nor the sdk's `SigningAccount` declares `signMessage`, and `signTypedData` takes the payload alone.
+
+Alternatives considered: keeping both, since `Signer` extended `SigningAccount` and the sdk declared them.
+
+Why: nothing called `signMessage`. Bids are signed as EIP-712 UserOperations through `signTypedData` (`BidManager.prepareSubmitBid`), and the sdk's own interface declared it without ever invoking it, so the requirement propagated out to every implementer for nothing. The `chainId` argument was the same shape of problem: EIP-712 puts the chain id in `domain.chainId`, which is what the digest covers, and every viem-backed adapter took the argument and discarded it. Its one consumer was MPCVault's request envelope — which its own account wrapper already derived from the payload — and the adapter defaulted a missing value to `1`, so a call site that forgot would have had the vault authorise a signature under mainnet. Reading the domain and throwing when it is absent replaced that.
+
+Removing both from the sdk is safe in the direction that matters: type narrowing breaks callers of the removed member, and there are none. `Signer` no longer extends `SigningAccount` (the payload types differ in variance); `sdkSigningAccount(signer)` adapts at the two call sites that hand a signer to the sdk.
 
 ## 2026-08-18 — `viemSigner` rejects an account with no `sign` at construction
 

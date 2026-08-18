@@ -1,13 +1,13 @@
-import type { HexString } from "@hyperbridge/sdk"
 import { Turnkey } from "@turnkey/sdk-server"
-import { createAccount, signAuthorization } from "@turnkey/viem"
+import { createAccount } from "@turnkey/viem"
 import type { TurnkeySignerConfig, Signer } from "../types"
 import { viemSigner } from "./viem"
 
 /**
- * Signs through Turnkey. The viem adapter covers everything except EIP-7702:
- * Turnkey encodes the authorization tuple natively, so the policy engine sees
- * (chainId, delegate, nonce) instead of an opaque digest.
+ * Signs through Turnkey. Its viem account already implements everything the
+ * interface asks for structurally — transactions and EIP-7702 authorizations
+ * both, so the policy engine sees the tuple rather than a digest — which leaves
+ * this as the adapter plus a name for the logs.
  */
 export async function turnkeySigner(config: TurnkeySignerConfig): Promise<Signer> {
 	const turnkey = new Turnkey({
@@ -23,21 +23,5 @@ export async function turnkeySigner(config: TurnkeySignerConfig): Promise<Signer
 		signWith: config.signWith,
 	})
 
-	return {
-		...viemSigner(account),
-		mode: "turnkey",
-		signAuthorization: async (auth) => {
-			const signed = await signAuthorization(
-				turnkey.apiClient(),
-				{ contractAddress: auth.contractAddress, chainId: auth.chainId, nonce: auth.nonce },
-				config.organizationId,
-				config.signWith,
-			)
-			const yParity = signed.yParity ?? (signed.v !== undefined ? Number(signed.v - 27n) : undefined)
-			if (yParity !== 0 && yParity !== 1) {
-				throw new Error("Failed to derive yParity from Turnkey authorization signature")
-			}
-			return { r: signed.r as HexString, s: signed.s as HexString, yParity }
-		},
-	}
+	return { ...viemSigner(account), mode: "turnkey" }
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { turnkeySigner } from "@/services/wallet/accounts/turnkey"
+import { accountFor } from "@/services/wallet/account"
 import {
 	keccak256,
 	toHex,
@@ -35,25 +36,7 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 		const signer = await turnkeySigner(config)
 
 		expect(signer.mode).toBe("turnkey")
-		expect(signer.account.address.toLowerCase()).toBe(config.signWith.toLowerCase())
-	})
-
-	// Not part of the Signer interface — the solver never personal-signs — but the
-	// account it is built on has to, since viem's wallet client leans on it.
-	it("should sign and verify a message", async () => {
-		const signer = await turnkeySigner(config)
-		const messageHash = keccak256(toHex("hello turnkey"))
-
-		const signature = await signer.account.signMessage!({ message: { raw: messageHash } })
-		expect(signature).toMatch(/^0x/)
-		expect(signature.length).toBe(132)
-
-		const valid = await verifyMessage({
-			address: signer.account.address,
-			message: { raw: messageHash as `0x${string}` },
-			signature: signature as `0x${string}`,
-		})
-		expect(valid).toBe(true)
+		expect(signer.address.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
 
 	it("should sign a raw hash and verify recovery", async () => {
@@ -78,15 +61,16 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 		const rpcUrl = process.env.SEPOLIA!
 
 		const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
+		// The same derivation ChainClientManager does: Signer in, viem account out.
 		const walletClient = createWalletClient({
 			chain: sepolia,
 			transport: http(rpcUrl),
-			account: signer.account,
+			account: accountFor(signer),
 		})
 
 		// Random contract address to delegate to
 		const delegateTarget = "0x0000000000000000000000000000000000000001" as HexString
-		const authorityAddress = signer.account.address
+		const authorityAddress = signer.address as `0x${string}`
 
 		// --- Delegate ---
 		const nonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })

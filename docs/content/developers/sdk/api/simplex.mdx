@@ -480,45 +480,61 @@ waiting for the timer, and throws if the solver was started without rebalancing 
 ### Signer
 
 The signing contract a solver runs on. `Simplex.start({ signer })` takes an implementation; the
-bundled ones below are ordinary implementations with no privileged access.
+bundled ones below are ordinary implementations with no privileged access. Nothing on it is a viem
+type, so satisfying it never requires matching this package's viem version.
 
 ```typescript lineNumbers
 interface Signer {
-    /** viem account every transaction the solver sends goes out through. */
-    account: Account
+    /** The address every fill, bid and delegation is attributed to. */
+    address: HexString
     /** EIP-712. Signs every bid UserOperation and every paymaster permit. */
-    signTypedData(typedData: unknown, chainId?: number): Promise<HexString>
-    /** Raw ECDSA over a digest. Signs the EIP-7702 authorization. */
-    signRawHash(hash: HexString): Promise<{ r: HexString; s: HexString; yParity: number }>
+    signTypedData(typedData: TypedDataPayload): Promise<HexString>
+    /** Raw ECDSA over a digest. Signs EIP-7702 authorizations, and transactions unless
+     *  the backend implements `signTransaction`. */
+    signRawHash(hash: HexString): Promise<Signature>
 
     /** Names the backend in logs. Defaults to `"custom"`. */
     mode?: string
-    /** Structured EIP-7702 signing, where the backend has it. Falls back to `signRawHash`. */
+    /** Structured EIP-7702, where the backend has it. Falls back to `signRawHash`. */
     signAuthorization?(auth: {
         chainId: number
         contractAddress: HexString
         nonce: number
-    }): Promise<{ r: HexString; s: HexString; yParity: number }>
+    }): Promise<Signature>
+    /** Structured transaction signing, where the backend has it. Falls back to serialise +
+     *  `signRawHash`. */
+    signTransaction?(tx: SignerTransaction): Promise<HexString>
+}
+
+interface Signature {
+    r: HexString
+    s: HexString
+    yParity: number
 }
 ```
 
-`chainId` is passed for backends whose policy engine scopes a signature to a chain; implementations
-that do not care may ignore it. A solver needs a signer unless every chain is watch-only.
+`signTypedData` takes no chain id: EIP-712 carries it in `domain.chainId`, which is what the digest
+covers and what a backend scoping a signing request to a chain reads.
 
-Sending transactions is not part of the interface: the solver builds a viem wallet client on
-`account`, and the EIP-7702 delegation transaction goes out through it like any other. A backend
-whose transaction API cannot express what viem hands it deals with that in its own account — the
-MPCVault adapter serialises and raw-signs set-code transactions there, because its structured send
-has no field for an authorization list.
+The optional methods exist for backends whose policy engine wants to see what it is authorising
+rather than a digest. A solver needs a signer unless every chain is watch-only.
+
+**Supporting types:**
+
+| Type | Purpose |
+|------|---------|
+| `TypedDataPayload` | An EIP-712 payload: `domain?`, `types`, `primaryType`, `message` |
+| `SignerTransaction` | The transaction handed to `signTransaction`: `chainId`, `type?`, `to?`, `value?`, `data?`, `nonce?`, `gas?`, `maxFeePerGas?`, `maxPriorityFeePerGas?`, `authorizationList?` |
+| `Eip7702Authorization` | A signed authorization tuple: `chainId`, `address`, `nonce` and the `Signature` fields |
 
 ### Implementations
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | `privateKeySigner(key)` | `(key: HexString) => Signer` | A raw key held in this process |
-| `turnkeySigner(config)` | `(config: TurnkeySignerConfig) => Promise<Signer>` | Signs the EIP-7702 authorization through Turnkey's structured encoding, so its policy engine sees the tuple |
-| `mpcVaultSigner(config)` | `(config: MpcVaultSignerConfig) => Signer` | Signs through MPCVault's ceremony; its viem account serialises and raw-signs set-code transactions, which the vault's structured send cannot carry |
-| `viemSigner(account)` | `(account: LocalAccount) => Signer` | Derives the interface from any viem local account. Throws if the account has no `sign` (raw digest signing), since EIP-7702 delegation needs it |
+| `turnkeySigner(config)` | `(config: TurnkeySignerConfig) => Promise<Signer>` | Turnkey's account signs transactions and EIP-7702 authorizations through its own structured encodings, so its policy engine sees both |
+| `mpcVaultSigner(config)` | `(config: MpcVaultSignerConfig) => Signer` | Signs transactions structurally through the vault API; set-code transactions are serialised and raw-signed, since MPCVault's request has no field for an authorization list |
+| `viemSigner(account)` | `(account: LocalAccount) => Signer` | Adapts any viem local account. Throws if the account has no `sign` (raw digest signing), since EIP-7702 delegation needs it |
 | `createSigner(config)` | `(config: SignerConfig) => Promise<Signer>` | Builds the signer a `[simplex.signer]` TOML block describes. The block is typed on `FillerConfigFile`, not `SimplexConfig` |
 | `validateSignerConfig(config)` | `(config: SignerConfig) => void` | Throws on an incomplete TOML block |
 
@@ -540,9 +556,8 @@ const signer = viemSigner(
 ```
 
 <Callout type="info">
-    `account` is the one hard requirement: the delegation transaction, rebalances and operator
-    transfers all go out through a viem wallet client built on it, so it must be able to sign
-    transactions.
+    Simplex builds the viem account its wallet clients run on from the signer, so a backend that
+    does not already produce one has nothing to bridge. `viemSigner` is there for backends that do.
 </Callout>
 
 ## Persistence
@@ -864,8 +879,8 @@ Exported from `@hyperbridge/simplex`:
 `SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
 `ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
 `CurveConfig`, `ChainConfirmationPolicy`, `QueueConfig`, `RebalancingConfig`, `BinanceConfig`,
-`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `SignerConfig`,
-`SignerType`,
+`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `Signature`, `TypedDataPayload`, `SignerTransaction`,
+`Eip7702Authorization`, `SignerConfig`, `SignerType`,
 `PrivateKeySignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,

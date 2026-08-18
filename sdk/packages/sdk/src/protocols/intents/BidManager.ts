@@ -105,7 +105,6 @@ export class BidManager {
 		}
 		const solverSignature = await solverSigner.signTypedData(
 			CryptoUtils.packedUserOpTypedData(userOp, entryPointAddress, chainId),
-			Number(chainId),
 		)
 
 		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString

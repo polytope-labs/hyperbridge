@@ -1,6 +1,6 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { concatHex, keccak256, padHex, serializeTransaction, toHex, type TransactionSerializable } from "viem"
-import { toAccount, type Account } from "viem/accounts"
+import { toAccount, type LocalAccount } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"
 import {
 	PlatformAPIClient,
@@ -280,7 +280,7 @@ function requireChainId(value: unknown, context: string): number {
 	throw new Error(`Missing chainId for MPCVault ${context}`)
 }
 
-export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: Account; service: MpcVaultService } {
+export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: LocalAccount; service: MpcVaultService } {
 	const service = new MpcVaultService({
 		apiToken: config.apiToken,
 		vaultUuid: config.vaultUuid,

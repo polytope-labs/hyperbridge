@@ -127,7 +127,7 @@ export class UserOpSender {
 
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const walletClient = this.clientManager.getWalletClient(chain)
-		const solverAccount = this.signer.account.address as HexString
+		const solverAccount = this.signer.address as HexString
 		const chainId = this.configService.getChainId(chain)
 
 		let pm: PaymasterDataResult
@@ -339,7 +339,6 @@ export class UserOpSender {
 		// backend (e.g. Turnkey's policy engine) instead of an opaque 32-byte digest.
 		userOp.signature = await this.signer.signTypedData(
 			CryptoUtils.packedUserOpTypedData(userOp, p.entryPoint, BigInt(p.chainId)),
-			p.chainId,
 		)
 		return userOp
 	}

@@ -62,7 +62,7 @@ export class DelegationService {
 	}> {
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const chainId = this.configService.getChainId(chain)
-		const authorityAddress = this.signer.account.address as HexString
+		const authorityAddress = this.signer.address as HexString
 		const currentNonce = await publicClient.getTransactionCount({
 			address: authorityAddress,
 			blockTag: "latest",
@@ -109,7 +109,7 @@ export class DelegationService {
 		// cannot express an authorization list handles that in its own account —
 		// see `createMpcVaultAccount` — not here.
 		return (await walletClient.sendTransaction({
-			to: this.signer.account.address,
+			to: this.signer.address,
 			value: 0n,
 			authorizationList: [authorization],
 			chain: walletClient.chain,
@@ -122,7 +122,6 @@ export class DelegationService {
 	 */
 	async isDelegated(chain: string): Promise<boolean> {
 		const client = this.clientManager.getPublicClient(chain)
-		const account = this.signer.account
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
 
 		if (!solverAccountContract) {
@@ -130,7 +129,7 @@ export class DelegationService {
 		}
 
 		try {
-			const code = await client.getCode({ address: account.address })
+			const code = await client.getCode({ address: this.signer.address })
 
 			if (!code || code === "0x") {
 				return false
@@ -169,7 +168,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, solverAccount: this.signer.account.address, solverAccountContract, mode: "bundler" },
+				{ chain, solverAccount: this.signer.address, solverAccountContract, mode: "bundler" },
 				"Setting up EIP-7702 delegation via bundler with paymaster",
 			)
 
@@ -190,7 +189,7 @@ export class DelegationService {
 			// keeps its 200k default: the permit executed during validation needs ~113k
 			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
-				address: this.signer.account.address as HexString,
+				address: this.signer.address as HexString,
 			})
 			const isFreshEoa = !code || code === "0x"
 
@@ -258,7 +257,7 @@ export class DelegationService {
 
 		// Fallback: direct type-0x04 transaction (requires native token)
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const authority = this.signer.account.address as HexString
+		const authority = this.signer.address as HexString
 
 		// The direct tx pays gas in native ETH. If the EOA can't cover it, delegation fails
 		// outright (the paymaster path already failed too) — surface the deficit explicitly.
@@ -337,7 +336,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, authority: this.signer.account.address, mode: this.signer.mode ?? "custom" },
+				{ chain, authority: this.signer.address, mode: this.signer.mode ?? "custom" },
 				"Revoking EIP-7702 delegation",
 			)
 

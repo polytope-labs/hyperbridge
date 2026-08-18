@@ -108,10 +108,11 @@ export { bookCrossedAt, parseChainKey, formatChainKey } from "@/config/interpola
 export type { PriceCurvePoint, PriceCurveConfig, CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 // ─── Signing ────────────────────────────────────────────────────────────────
-// `Signer` is the contract, and the bundled backends are ordinary implementations
-// of it — nothing here reaches into the solver that a signer you write cannot.
-// `viemSigner` covers any custody that speaks viem, including a `toAccount`
-// wrapper around an HSM or a remote signing service.
+// `Signer` is the contract: an address and two methods, with no viem types on
+// it, so satisfying it never means matching this package's viem version. The
+// bundled backends are ordinary implementations of it, and `viemSigner` adapts
+// any viem account — a `toAccount` wrapper around an HSM or a remote signing
+// service included.
 
 export {
 	privateKeySigner,
@@ -121,7 +122,7 @@ export {
 	createSigner,
 	validateSignerConfig,
 } from "@/services/wallet"
-export type { Signer } from "@/services/wallet/types"
+export type { Signer, Signature, TypedDataPayload, SignerTransaction, Eip7702Authorization } from "@/services/wallet/types"
 
 // The `[simplex.signer]` TOML block the binary reads. It is not part of
 // `SimplexConfig` — it lives on `FillerConfigFile`, and `createSigner` turns one

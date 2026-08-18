@@ -324,7 +324,7 @@ async function buildPhantomFiller(opts: {
 	filler.start()
 	return {
 		filler,
-		solver: signer.account.address as HexString,
+		solver: signer.address as HexString,
 		// The gateway the filler targets in its fillOrder call — the aggregation must filter on the same one.
 		gateway: configService.getIntentGatewayAddress(BASE_STATE_MACHINE) as HexString,
 	}

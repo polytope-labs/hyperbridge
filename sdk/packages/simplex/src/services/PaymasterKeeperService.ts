@@ -89,7 +89,7 @@ export class PaymasterKeeperService {
 		}
 
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const keeper = this.signer.account.address as HexString
+		const keeper = this.signer.address as HexString
 
 		let treasury: HexString
 		let tokens: readonly HexString[]

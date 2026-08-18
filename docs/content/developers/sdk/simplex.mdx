@@ -89,35 +89,39 @@ Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `turnkeySig
 
 ```ts lineNumbers
 interface Signer {
-    /** viem account every transaction the solver sends goes out through. */
-    account: Account
+    /** The address every fill, bid and delegation is attributed to. */
+    address: HexString
     /** EIP-712. Signs every bid UserOperation and every paymaster permit. */
-    signTypedData(typedData: unknown, chainId?: number): Promise<HexString>
-    /** Raw ECDSA over a digest. Signs the EIP-7702 authorization. */
-    signRawHash(
-        hash: HexString,
-    ): Promise<{ r: HexString; s: HexString; yParity: number }>
+    signTypedData(typedData: TypedDataPayload): Promise<HexString>
+    /** Raw ECDSA over a digest. Signs EIP-7702 authorizations, and transactions
+     *  unless the backend implements `signTransaction`. */
+    signRawHash(hash: HexString): Promise<Signature>
 
     /** Names the backend in logs. Defaults to "custom". */
     mode?: string
-    /** Structured EIP-7702 signing, when the backend has it. */
+    /** Structured EIP-7702, where the backend has it. */
     signAuthorization?(auth: {
         chainId: number
         contractAddress: HexString
         nonce: number
-    }): Promise<{ r: HexString; s: HexString; yParity: number }>
+    }): Promise<Signature>
+    /** Structured transaction signing, where the backend has it. */
+    signTransaction?(tx: SignerTransaction): Promise<HexString>
 }
 ```
 
-An account and two signing methods. `chainId` is there for backends whose policy engine scopes a
-signature to a chain — ignore it if yours does not. A solver is required to have a signer unless
-every chain is watch-only, where it signs nothing and a throwaway key stands in.
+An address and two methods. No viem types anywhere on it, so satisfying it never
+means matching this package's viem version — simplex builds the viem account its wallet clients
+run on from whatever you pass.
 
-Transactions are not in the list because they are not a separate concern: the solver builds a viem
-wallet client on `account` and sends through it, EIP-7702 delegation included. A backend whose
-transaction API cannot express something viem asks for handles that inside its own account — which
-is what the bundled MPCVault adapter does, since MPCVault's structured send has no field for an
-authorization list.
+There is no chain id parameter on `signTypedData`: EIP-712 carries it in `domain.chainId`, which is
+what the digest covers and what a backend that scopes a signing request to a chain reads.
+
+The two optional methods are for backends whose policy engine wants to see what it is authorising.
+Implement `signTransaction` and the transaction is handed over intact; omit it and simplex serialises
+the transaction and asks `signRawHash` for a digest signature. Same for `signAuthorization` and the
+EIP-7702 tuple. A solver needs a signer unless every chain is watch-only, where it signs nothing and
+a throwaway key stands in.
 
 ### Out of the box
 
@@ -149,15 +153,15 @@ const mpc = mpcVaultSigner({
 })
 ```
 
-`turnkeySigner` signs the EIP-7702 authorization through Turnkey's structured encoding, so its
-policy engine sees `(chainId, delegate, nonce)` rather than an opaque digest — that is what the
-optional `signAuthorization` is for. Both are implementations of the interface above with no
-privileged access; a signer you write can do the same things.
+Turnkey signs transactions and EIP-7702 authorizations through its own structured encodings, so its
+policy engine sees the tuple rather than an opaque digest — that is what the two optional methods
+are for. MPCVault signs transactions structurally too, through its vault API. Neither has privileged
+access to the solver; a signer you write can do the same things.
 
 ### Anything that speaks viem
 
-`viemSigner` derives the whole interface from a viem local account, which is the shortest path to a
-custody backend that already ships one:
+`viemSigner` adapts a viem local account into a `Signer`, carrying through everything the account can
+do structurally — transactions and EIP-7702 authorizations both:
 
 ```ts lineNumbers
 import { viemSigner } from "@hyperbridge/simplex"
@@ -176,34 +180,37 @@ const signer = viemSigner(
 )
 ```
 
-Add `signAuthorization` on top if your backend encodes EIP-7702 authorizations natively:
-
-```ts lineNumbers
-const signer = {
-    ...viemSigner(account),
-    mode: "hsm",
-    signAuthorization: (auth) => hsm.signAuthorization(auth),
-}
-```
+This is a convenience, not a requirement. The interface owes viem nothing, so if your backend does
+not already produce a viem account, do not build one to get here.
 
 ### Writing one from scratch
 
-Implement `Signer` directly when the backend is not viem-shaped. The one hard requirement is
-`account`: every transaction the solver sends — the delegation tx, rebalances, operator transfers —
-goes out through a viem wallet client built on it, so it has to be able to sign transactions.
-`toAccount` is how you get there from a remote signing service.
+Two methods and an address:
 
-A signer is also the natural place for the policy your custody provider cannot express: rate limits,
-a per-chain kill switch, an approval queue, an audit log of everything the solver ever asked to be
+```ts lineNumbers
+const signer: Signer = {
+    address: await hsm.address(),
+    mode: "hsm",
+    signTypedData: (typedData) => hsm.signTypedData(typedData),
+    signRawHash: (hash) => hsm.sign(hash),
+}
+```
+
+That is a working solver. Transactions are serialised by simplex and signed as digests through
+`signRawHash`; add `signTransaction` when your custody provider's policies need to read the
+transaction rather than authorise a hash.
+
+A signer is also the natural place for the policy your provider cannot express: rate limits, a
+per-chain kill switch, an approval queue, an audit log of everything the solver ever asked to be
 signed.
 
 ```ts lineNumbers
 const audited: Signer = {
     ...base,
     mode: "audited",
-    signTypedData: async (typedData, chainId) => {
-        await audit.record({ kind: "userOp", chainId, typedData })
-        return base.signTypedData(typedData, chainId)
+    signTypedData: async (typedData) => {
+        await audit.record({ kind: "userOp", typedData })
+        return base.signTypedData(typedData)
     },
 }
 ```

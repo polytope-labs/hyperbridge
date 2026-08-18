@@ -1314,8 +1314,11 @@ export interface SigningAccount {
 	/**
 	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 *
+	 * No chain id parameter: EIP-712 carries it in `domain.chainId`, which is what
+	 * the digest covers and what a backend scoping the request to a chain reads.
 	 */
-	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	signTypedData: (typedData: unknown) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {

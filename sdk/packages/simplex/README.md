@@ -37,10 +37,11 @@ await simplex.stop()
 running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
 your stdout.
 
-Signing is an interface, not a setting. `Signer` is four methods over a viem account;
-`privateKeySigner`, `turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts
-any viem account (a `toAccount` wrapper around an HSM or a remote signing service included), and
-your own implementation is a first-class citizen. Persistence is pluggable the same way: the default
+Signing is an interface, not a setting. `Signer` is an address and two methods, with no viem types
+on it — so satisfying it never means matching this package's viem version. `privateKeySigner`,
+`turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts any viem account (a
+`toAccount` wrapper around an HSM or a remote signing service included), and your own implementation
+is a first-class citizen. Persistence is pluggable the same way: the default
 store is in-memory, `SqliteDataStore` is durable, and `SimplexDataStore` is a small async interface
 you can implement over Postgres, Redis or anything else. A solver that submits bids should use a
 durable store, since bid records are how locked deposits are found again for retraction.

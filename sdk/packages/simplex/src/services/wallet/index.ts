@@ -1,6 +1,7 @@
 export * from "./mpcvault"
 export * from "./signer"
 export * from "./types"
+export { accountFor, sdkSigningAccount } from "./account"
 export { viemSigner } from "./accounts/viem"
 export { privateKeySigner } from "./accounts/privatekey"
 export { mpcVaultSigner } from "./accounts/mpc"

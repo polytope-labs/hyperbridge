@@ -1,24 +1,66 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { createMpcVaultAccount } from "../mpcvault"
-import type { MpcVaultSignerConfig, Signer } from "../types"
+import { keccak256, serializeTransaction, type TransactionSerializable } from "viem"
+import { MpcVaultService } from "../mpcvault"
+import type { MpcVaultSignerConfig, Signer, SignerTransaction } from "../types"
 
 /**
- * Signs through MPCVault's signing ceremony. Not a viem account underneath — the
- * API takes structured requests and digests, not viem's shapes — so this maps the
- * interface onto the service directly. The one EIP-7702 quirk (the structured
- * send cannot carry an authorization list) is handled inside the viem account
- * `createMpcVaultAccount` builds, so delegation needs nothing special here.
+ * Signs through MPCVault's signing ceremony.
+ *
+ * MPCVault takes structured requests, not viem shapes, so this implements the
+ * interface against the service directly — no viem account underneath. It signs
+ * transactions structurally, which is the point of MPC custody: the vault's
+ * policy engine sees to/value/data rather than a digest.
+ *
+ * The exception is EIP-7702. MPCVault's structured send (`evmSendCustom`) has no
+ * field for an authorization list, so a set-code transaction sent that way would
+ * go out as a plain transfer with the delegation silently dropped. Those are
+ * serialised and raw-signed here instead.
  */
 export function mpcVaultSigner(config: MpcVaultSignerConfig): Signer {
-	const { account, service } = createMpcVaultAccount(config)
+	const service = new MpcVaultService({
+		apiToken: config.apiToken,
+		vaultUuid: config.vaultUuid,
+		accountAddress: config.accountAddress,
+		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
+		grpcTarget: config.grpcTarget,
+	})
+
 	return {
+		address: config.accountAddress,
 		mode: "mpcVault",
-		account,
 		signRawHash: (hash: HexString) => service.signRawHashComponents(hash),
-		signTypedData: (typedData: unknown, chainId?: number) =>
+		// The vault scopes a signing request to a chain, and EIP-712 already carries
+		// one. Bigints are stringified because the payload is hashed server-side from
+		// this JSON — a UserOperation's nonce and gas fields would otherwise throw.
+		signTypedData: (typedData) =>
 			service.signTypedData(
 				JSON.stringify(typedData, (_k, v) => (typeof v === "bigint" ? v.toString() : v)),
-				chainId ?? 1,
+				requireChainId(typedData.domain?.chainId),
 			),
+		signTransaction: async (tx: SignerTransaction) => {
+			if (tx.authorizationList?.length) {
+				const serializable = { ...tx, type: "eip7702" } as TransactionSerializable
+				const signature = await service.signRawHashComponents(
+					keccak256(serializeTransaction(serializable)) as HexString,
+				)
+				return serializeTransaction(serializable, signature) as HexString
+			}
+			return service.signTransaction({
+				chainId: tx.chainId,
+				to: tx.to,
+				value: tx.value,
+				data: tx.data,
+				nonce: tx.nonce,
+				gasLimit: tx.gas,
+				maxFeePerGas: tx.maxFeePerGas,
+				maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+			})
+		},
 	}
+}
+
+function requireChainId(value: number | bigint | undefined): number {
+	if (typeof value === "number" && Number.isFinite(value)) return value
+	if (typeof value === "bigint") return Number(value)
+	throw new Error("MPCVault needs a chain id: the typed-data payload has no domain.chainId")
 }

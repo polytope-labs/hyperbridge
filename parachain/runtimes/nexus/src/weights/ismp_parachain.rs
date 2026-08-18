@@ -85,6 +85,17 @@ impl<T: frame_system::Config> ismp_parachain::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(10_760, 0).saturating_mul(n.into()))
 			.saturating_add(T::DbWeight::get().writes(5))
 	}
+	/// Storage: `IsmpParachain::SlotDurations` (r:0 w:1)
+	/// Proof: `IsmpParachain::SlotDurations` (`max_values`: None, `max_size`: Some(16), added: 2491, mode: `MaxEncodedLen`)
+	fn set_slot_duration() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 8_000_000 picoseconds.
+		Weight::from_parts(8_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 0))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 	/// Storage: `IsmpParachain::CurrentRelayChainStateRoots` (r:3 w:2)
 	/// Proof: `IsmpParachain::CurrentRelayChainStateRoots` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
 	/// Storage: `IsmpParachain::CounterForCurrentRelayChainStateRoots` (r:1 w:1)

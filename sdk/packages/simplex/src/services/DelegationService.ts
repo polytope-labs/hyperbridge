@@ -196,8 +196,8 @@ export class DelegationService {
 			// The EIP-7702 authorization rides inside the UserOp so a not-yet-delegated
 			// EOA is delegated in the op (bundler submits the tx, so it uses the current
 			// nonce). Passed as a factory: the sender signs it only after paymaster data
-			// is built, because approve-mode chains send an approve tx from this same EOA
-			// at that step, which would invalidate an authorization signed beforehand.
+			// is built, because a first-time approval (to Permit2 or the paymaster) sends
+			// a tx from this same EOA at that step, invalidating an earlier authorization.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData: "0x" as HexString,
@@ -206,7 +206,7 @@ export class DelegationService {
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
 				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
-				forceApproveMode: true,
+				skipPermit: true,
 			})
 
 			if (result) {

@@ -284,10 +284,87 @@ contract SimplexPaymasterTest is Test {
 
     function testFetchDetailsInvalidModeReverts() public {
         PackedUserOperation memory op = _userOpWithPaymasterData(
-            abi.encodePacked(uint8(2), address(usdc6))
+            abi.encodePacked(uint8(3), address(usdc6))
         );
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidMode.selector, uint8(2)));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidMode.selector, uint8(3)));
         paymaster.fetchDetails(op);
+    }
+
+    function testFetchDetailsPermit2ModeReturnsDeadlineAsValidUntil() public view {
+        uint256 deadline = block.timestamp + 1 hours;
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permit2Data(address(usdc6), 5e6, 7, deadline));
+        (uint256 validationData, IERC20 token, uint256 tokenPrice) = paymaster.fetchDetails(op);
+        assertEq(validationData, ERC4337Utils.packValidationData(true, 0, uint48(deadline)));
+        assertEq(address(token), address(usdc6));
+        assertEq(tokenPrice, 6e8);
+    }
+
+    function testFetchDetailsPermit2ModeMaxDeadlineHasNoExpiry() public view {
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            _permit2Data(address(usdc6), 5e6, 7, type(uint256).max)
+        );
+        (uint256 validationData, , ) = paymaster.fetchDetails(op);
+        assertEq(validationData, 0);
+    }
+
+    function testFetchDetailsPermit2ModeWrongLengthReverts() public {
+        bytes memory data = _permit2Data(address(usdc6), 5e6, 7, block.timestamp + 1 hours);
+
+        PackedUserOperation memory op = _userOpWithPaymasterData(abi.encodePacked(data, uint8(0)));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(183)));
+        paymaster.fetchDetails(op);
+
+        bytes memory shorter = new bytes(181);
+        for (uint256 i = 0; i < 181; i++) shorter[i] = data[i];
+        op = _userOpWithPaymasterData(shorter);
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(181)));
+        paymaster.fetchDetails(op);
+
+        op = _userOpWithPaymasterData(abi.encodePacked(uint8(2), address(usdc6)));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(21)));
+        paymaster.fetchDetails(op);
+    }
+
+    // ── Permit2-mode validation guards ───────────────────────────────
+
+    /// The token registry is checked before anything reaches Permit2.
+    function testPermit2ModeUnregisteredTokenRejected() public {
+        address rogue = makeAddr("rogue");
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permit2Data(rogue, 5e6, 7, block.timestamp + 1));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.TokenNotRegistered.selector, rogue));
+        paymaster.validate(op, 1e15);
+    }
+
+    function testPermit2ModeDeactivatedTokenRejected() public {
+        _govern(SimplexPaymaster.RequestKind.DeactivateToken, abi.encode(address(usdc6)));
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            _permit2Data(address(usdc6), 5e6, 7, block.timestamp + 1)
+        );
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.TokenNotActive.selector, address(usdc6)));
+        paymaster.validate(op, 1e15);
+    }
+
+    /// A permit smaller than the prefund is rejected before any external call.
+    function testPermit2ModePermitBelowPrefundReverts() public {
+        // 0.001 native at $600 with the postOp cushion is ~0.62 USDC; permit only 0.5.
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            _permit2Data(address(usdc6), 5e5, 7, block.timestamp + 1)
+        );
+        uint256 required = (1e15 + POST_OP_COST * 1 gwei) * 6e8 / 1e18;
+        vm.expectRevert(
+            abi.encodeWithSelector(SimplexPaymaster.InsufficientPermitAmount.selector, uint256(5e5), required)
+        );
+        paymaster.validate(op, 1e15);
+    }
+
+    /// The local chain has no Permit2; the failure must be diagnosable rather than
+    /// an empty revert from Solidity's extcodesize check.
+    function testPermit2ModeWithoutPermit2CodeReverts() public {
+        PackedUserOperation memory op = _userOpWithPaymasterData(
+            _permit2Data(address(usdc6), 5e6, 7, block.timestamp + 1)
+        );
+        vm.expectRevert(SimplexPaymaster.Permit2NotDeployed.selector);
+        paymaster.validate(op, 1e15);
     }
 
     function testFetchDetailsShortDataReverts() public {
@@ -695,6 +772,16 @@ contract SimplexPaymasterTest is Test {
             bytes32(0), // r
             bytes32(0) // s
         );
+    }
+
+    /// @dev A well-formed 182-byte Permit2-mode payload (mode 0x02) with a zero signature.
+    function _permit2Data(
+        address token,
+        uint256 permitAmount,
+        uint256 nonce,
+        uint256 deadline
+    ) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint8(2), token, permitAmount, nonce, deadline, new bytes(65));
     }
 
     /// @dev paymasterAndData = paymaster(20) || verificationGasLimit(16) || postOpGasLimit(16) || data

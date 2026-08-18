@@ -1,5 +1,11 @@
 # @hyperbridge/filler
 
+## 0.10.0
+
+### Minor Changes
+
+- SimplexPaymaster PERMIT2 mode. On chains whose fee token has no EIP-2612 permit (BSC pegged USDC/USDT), Simplex no longer keeps a capped allowance to the paymaster that it tops up with native-funded approvals. The bootstrap is now a single funded `approve(Permit2, max)` per token; every operation after that carries a per-op, single-use, deadline-bounded Permit2 signature naming the paymaster as spender, so nothing is exposed to the paymaster at rest and native gas is never needed again. Existing solvers migrate on their own: their current paymaster allowance is used until it drains, then the Permit2 approval replaces the refill. Mode 2 is only used against paymaster deployments that support it; older deployments keep the previous behaviour.
+
 ## 0.9.2
 
 ### Patch Changes

@@ -29,12 +29,14 @@ export interface PaymasterOptions {
 	 */
 	paymasterVerificationGasLimit?: bigint
 	/**
-	 * Skips EIP-2612 permit detection and uses approve mode for the Simplex paymaster.
-	 * Delegation UserOps rely on fixed, measured gas limits; executing a permit during
-	 * paymaster validation adds tens of thousands of verification gas and would
-	 * invalidate them.
+	 * Skips EIP-2612 permit detection for the Simplex paymaster (PERMIT2 and APPROVE
+	 * modes stay available). Delegation UserOps rely on fixed, measured gas limits;
+	 * executing a permit during paymaster validation adds tens of thousands of
+	 * verification gas and would invalidate them.
 	 */
-	forceApproveMode?: boolean
+	skipPermit?: boolean
+	/** Lifetime of a Permit2 signature; defaults to {@link PERMIT2_DEADLINE_SECONDS}. */
+	permit2DeadlineSeconds?: bigint
 }
 
 export interface PaymasterDataResult {
@@ -65,6 +67,17 @@ export const VERIFICATION_GAS_LIMIT_CIRCLE = 200_000n
 export const VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
 /** Simplex paymaster verification gas when relying on an existing approval. */
 export const VERIFICATION_GAS_LIMIT_APPROVE = 150_000n
+/**
+ * Simplex paymaster verification gas when prefunding through Permit2. Measured at
+ * ~135k on Ethereum and BSC forks (EOA and delegated senders).
+ */
+export const VERIFICATION_GAS_LIMIT_PERMIT2 = 200_000n
+/**
+ * Permit2 signatures use unordered nonces, so an unspent one (a losing bid) stays
+ * valid until its deadline; keep that window short but well past bid-to-execution
+ * latency and clock skew.
+ */
+export const PERMIT2_DEADLINE_SECONDS = 3600n
 /** Post-operation gas limit. */
 export const POST_OP_GAS_LIMIT = 100_000n
 

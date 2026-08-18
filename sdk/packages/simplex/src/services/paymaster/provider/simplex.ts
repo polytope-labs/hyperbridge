@@ -6,10 +6,22 @@ import {
 	THRESHOLD_USD,
 	VERIFICATION_GAS_LIMIT_PERMIT,
 	VERIFICATION_GAS_LIMIT_APPROVE,
+	VERIFICATION_GAS_LIMIT_PERMIT2,
+	PERMIT2_DEADLINE_SECONDS,
 	POST_OP_GAS_LIMIT,
 	type PaymasterResult,
 } from "../types"
 import { signEip2612Permit } from "../permit"
+import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
+import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
+
+type Signer = { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> }
+
+export interface SimplexPaymasterOptions {
+	/** Skip EIP-2612 permit detection (PERMIT2 and APPROVE stay available). */
+	skipPermit?: boolean
+	permit2DeadlineSeconds?: bigint
+}
 
 interface TokenOption {
 	address: HexString
@@ -23,10 +35,14 @@ const APPROVE_TX_GAS = 60_000n
  * Builds the paymaster fields for a PackedUserOperation using the SimplexPaymaster.
  *
  * Selects the first configured stablecoin (USDC, then USDT) with a balance of at
- * least one token, then:
- * - if the token supports EIP-2612 permit, signs a permit and encodes PERMIT mode
- *   (0x00) so the paymaster executes it during validation
- * - otherwise ensures a capped on-chain approval exists and encodes APPROVE mode (0x01)
+ * least one token, then picks the authorization mode:
+ * - PERMIT (0x00) when the token supports EIP-2612: a permit executed during validation
+ * - PERMIT2 (0x02) when the token is already approved to Permit2: a per-op, single-use
+ *   Permit2 signature; nothing is exposed to the paymaster at rest
+ * - APPROVE (0x01) while a legacy allowance to the paymaster is still in place
+ * - otherwise one funded bootstrap tx: approve(Permit2, max) where Permit2 exists and
+ *   the paymaster deployment supports it (then PERMIT2 for the account's lifetime),
+ *   else a capped approve(paymaster)
  *
  * Returns null when the solver has no balance in any configured token — the caller
  * decides whether to fall back to another paymaster or to the EntryPoint deposit.
@@ -34,12 +50,12 @@ const APPROVE_TX_GAS = 60_000n
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
 	walletClient: WalletClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Signer,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
-	forceApproveMode = false,
+	options: SimplexPaymasterOptions = {},
 ): Promise<(PaymasterResult & { token: HexString }) | null> {
 	const chainId = configService.getChainId(chain)
 
@@ -63,7 +79,7 @@ export async function buildSimplexPaymasterData(
 	const { address: tokenAddress, decimals: tokenDecimals } = selected
 	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
 
-	const hasPermit = !forceApproveMode && (await tokenSupportsPermit(client, tokenAddress))
+	const hasPermit = !options.skipPermit && (await tokenSupportsPermit(client, tokenAddress))
 
 	if (hasPermit) {
 		const pm = await buildPermitMode(
@@ -78,17 +94,51 @@ export async function buildSimplexPaymasterData(
 		return { ...pm, token: tokenAddress }
 	}
 
-	await ensureCappedApproval(client, walletClient, solverAccount, paymasterAddress, tokenAddress, tokenDecimals)
+	const permit2Address = configService.getPermit2Address(chain)
+	const permit2 =
+		isConfigured(permit2Address) && (await paymasterSupportsPermit2(client, paymasterAddress))
+			? permit2Address
+			: undefined
 
-	const paymasterData = encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString
+	const [paymasterAllowance, permit2Allowance] = await Promise.all([
+		readAllowance(client, tokenAddress, solverAccount, paymasterAddress),
+		permit2 ? readAllowance(client, tokenAddress, solverAccount, permit2) : Promise.resolve(0n),
+	])
 
-	return {
+	const permit2Mode = async () => ({
+		...(await buildPermit2Mode(signer, {
+			permit2: permit2!,
+			chainId,
+			token: tokenAddress,
+			amount: recommended,
+			spender: paymasterAddress,
+			deadlineSeconds: options.permit2DeadlineSeconds ?? PERMIT2_DEADLINE_SECONDS,
+		})),
+		token: tokenAddress,
+	})
+	const approveMode = () => ({
 		paymaster: paymasterAddress,
-		paymasterData,
+		paymasterData: encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString,
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
 		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
 		token: tokenAddress,
+	})
+
+	if (permit2 && permit2Allowance >= recommended) {
+		return permit2Mode()
 	}
+
+	if (paymasterAllowance >= THRESHOLD_USD * 10n ** BigInt(tokenDecimals)) {
+		return approveMode()
+	}
+
+	if (permit2) {
+		await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, permit2, maxUint256)
+		return permit2Mode()
+	}
+
+	await sendFundedApprove(client, walletClient, solverAccount, tokenAddress, paymasterAddress, recommended)
+	return approveMode()
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -121,7 +171,7 @@ async function selectToken(
 
 async function buildPermitMode(
 	client: PublicClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Signer,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	tokenAddress: HexString,
@@ -176,30 +226,101 @@ async function buildPermitMode(
 	}
 }
 
-async function ensureCappedApproval(
+const PERMIT2_SUPPORT_NEGATIVE_TTL_MS = 5 * 60_000
+const permit2Support = new Map<string, { supported: boolean; checkedAt: number }>()
+
+/**
+ * Only paymaster implementations that expose PERMIT2() accept mode 0x02; older
+ * deployments reject it with InvalidMode. Probing keeps the client safe while the
+ * redeploy lands chain by chain. Positive results are cached for the process
+ * lifetime, negative ones briefly so an upgrade is picked up without a restart.
+ */
+async function paymasterSupportsPermit2(client: PublicClient, paymasterAddress: HexString): Promise<boolean> {
+	const key = paymasterAddress.toLowerCase()
+	const cached = permit2Support.get(key)
+	if (cached && (cached.supported || Date.now() - cached.checkedAt < PERMIT2_SUPPORT_NEGATIVE_TTL_MS)) {
+		return cached.supported
+	}
+	let supported = false
+	try {
+		await client.readContract({ address: paymasterAddress, abi: SIMPLEX_PAYMASTER_ABI, functionName: "PERMIT2" })
+		supported = true
+	} catch {
+		supported = false
+	}
+	permit2Support.set(key, { supported, checkedAt: Date.now() })
+	return supported
+}
+
+async function readAllowance(
+	client: PublicClient,
+	token: HexString,
+	owner: HexString,
+	spender: HexString,
+): Promise<bigint> {
+	return (await client.readContract({
+		address: token,
+		abi: erc20Abi,
+		functionName: "allowance",
+		args: [owner, spender],
+	})) as bigint
+}
+
+/**
+ * Signs a per-op Permit2 transfer permit naming the paymaster as spender and encodes
+ * PERMIT2 mode. mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) +
+ * signature(65) = 182 bytes, matching SimplexPaymaster._parsePermit2Data.
+ */
+async function buildPermit2Mode(
+	signer: Signer,
+	p: {
+		permit2: HexString
+		chainId: number
+		token: HexString
+		amount: bigint
+		spender: HexString
+		deadlineSeconds: bigint
+	},
+): Promise<PaymasterResult> {
+	const nonce = randomPermit2Nonce()
+	const deadline = BigInt(Math.floor(Date.now() / 1000)) + p.deadlineSeconds
+	const signature = await signPermit2Transfer(signer, {
+		permit2: p.permit2,
+		chainId: p.chainId,
+		token: p.token,
+		amount: p.amount,
+		spender: p.spender,
+		nonce,
+		deadline,
+	})
+
+	const paymasterData = encodePacked(
+		["uint8", "address", "uint256", "uint256", "uint256", "bytes"],
+		[2, p.token, p.amount, nonce, deadline, signature],
+	) as HexString
+
+	return {
+		paymaster: p.spender,
+		paymasterData,
+		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+	}
+}
+
+/**
+ * Sends `approve(spender, amount)` from the solver EOA and waits for one
+ * confirmation. This is a plain EOA tx paid in native — the very thing the
+ * paymaster exists to avoid needing — so the balance is pre-checked to fail an
+ * unfunded solver with one actionable line instead of viem's estimateGas chain.
+ */
+async function sendFundedApprove(
 	client: PublicClient,
 	walletClient: WalletClient,
 	solverAccount: HexString,
-	paymasterAddress: HexString,
 	tokenAddress: HexString,
-	tokenDecimals: number,
+	spender: HexString,
+	amount: bigint,
 ): Promise<void> {
-	const currentAllowance = (await client.readContract({
-		address: tokenAddress,
-		abi: erc20Abi,
-		functionName: "allowance",
-		args: [solverAccount, paymasterAddress],
-	})) as bigint
-
-	const threshold = THRESHOLD_USD * 10n ** BigInt(tokenDecimals)
-
-	if (currentAllowance >= threshold) {
-		return
-	}
-
-	// The approve is a plain EOA tx paid in native — the very thing the paymaster
-	// exists to avoid needing. Pre-check the balance so an unfunded solver fails
-	// with one actionable line instead of viem's estimateGas error chain.
 	const [nativeBalance, gasPrice] = await Promise.all([
 		client.getBalance({ address: solverAccount }),
 		client.getGasPrice(),
@@ -212,18 +333,18 @@ async function ensureCappedApproval(
 		)
 	}
 
-	const approvalAmount = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(tokenDecimals)
-
 	const hash = await walletClient.writeContract({
 		address: tokenAddress,
 		abi: erc20Abi,
 		functionName: "approve",
-		args: [paymasterAddress, approvalAmount],
+		args: [spender, amount],
 		chain: walletClient.chain,
 		account: walletClient.account!,
 	})
 
-	await client.waitForTransactionReceipt({ hash, confirmations: 1 })
+	// Bundlers simulate on their own nodes; one confirmation after the approve is not
+	// always visible there yet, and the very next op would fail validation.
+	await client.waitForTransactionReceipt({ hash, confirmations: 2 })
 }
 
 /** Probes for EIP-2612 support via the version() getter permit tokens expose. */

@@ -118,7 +118,7 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 			callData: "0x" as HexString,
 			eip7702Auth: signAuthorization,
 			gas: GAS,
-			forceApproveMode: true,
+			skipPermit: true,
 		})
 
 		expect(result).toEqual({ txHash: "0x" + "cd".repeat(32) })
@@ -147,7 +147,7 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 				callData: "0x" as HexString,
 				eip7702Auth: signAuthorization,
 				gas: GAS,
-				forceApproveMode: true,
+				skipPermit: true,
 			}),
 		).resolves.toBeNull()
 

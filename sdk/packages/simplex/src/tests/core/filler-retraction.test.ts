@@ -49,7 +49,7 @@ describe("IntentFiller bid retraction", () => {
 			configService,
 			{} as any, // ChainClientManager — unused with no chains configured
 			{} as any, // ContractInteractionService — unused on the retraction path
-			{ account: { address: OUR_ADDRESS } } as any,
+			{ address: OUR_ADDRESS } as any,
 			{ orders: stubOrderScanner() },
 			undefined,
 			bidStorage,

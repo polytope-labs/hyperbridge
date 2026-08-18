@@ -1,9 +1,9 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concat, formatEther, keccak256, toHex, toRlp, zeroAddress } from "viem"
+import { formatEther, zeroAddress } from "viem"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { Signer } from "./wallet"
 import { hasPaymaster } from "./paymaster"
 import { UserOpSender } from "./UserOpSender"
 
@@ -31,17 +31,10 @@ export class DelegationService {
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		private signer: SigningAccount,
+		private signer: Signer,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "delegation-service")
 		this.userOpSender = new UserOpSender(clientManager, configService, signer)
-	}
-
-	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
-		// EIP-7702 requires canonical RLP: integer 0 encodes as empty bytes (0x80), not 0x00.
-		// viem's `toHex(0)` returns '0x0' which RLP-encodes as the single byte 0x00 — wrong.
-		const encoded = toRlp([chainId ? toHex(chainId) : "0x", contractAddress, nonce ? toHex(nonce) : "0x"])
-		return keccak256(concat(["0x05", encoded])) as HexString
 	}
 
 	/**
@@ -62,24 +55,29 @@ export class DelegationService {
 	}> {
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const chainId = this.configService.getChainId(chain)
-		const authorityAddress = this.signer.account.address as HexString
+		const authorityAddress = this.signer.address as HexString
 		const currentNonce = await publicClient.getTransactionCount({
 			address: authorityAddress,
 			blockTag: "latest",
 		})
 		const authorizationNonce = viaBundler ? currentNonce : currentNonce + 1
 
-		// Prefer the backend's structured 7702 signing (Turnkey) so the authorization
-		// tuple stays inspectable by signing policies; fall back to raw digest signing.
-		const { r, s, yParity } = this.signer.signAuthorization
-			? await this.signer.signAuthorization({
-					chainId,
-					contractAddress,
-					nonce: Number(authorizationNonce),
-				})
-			: await this.signer.signRawHash(
-					this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce)),
-				)
+		// The signer owns the encoding: a backend with structured 7702 support keeps
+		// the tuple inspectable by its policy engine, one without hashes it itself.
+		const { r, s, yParity } = await this.signer.signAuthorization({
+			chainId,
+			contractAddress,
+			nonce: Number(authorizationNonce),
+		})
+		// EIP-7702 skips an invalid tuple without reverting — the receipt reads
+		// success while the account stays undelegated — so an out-of-range parity
+		// from a custom signer must fail here, loudly, not on-chain, silently.
+		if (yParity !== 0 && yParity !== 1) {
+			throw new Error(
+				`Signer returned yParity ${yParity} for the EIP-7702 authorization; expected 0 or 1 ` +
+					"(a backend returning the legacy v should subtract 27)",
+			)
+		}
 
 		return {
 			chainId,
@@ -102,18 +100,19 @@ export class DelegationService {
 			yParity: number
 		},
 	): Promise<HexString> {
-		const authorityAddress = this.signer.account.address
 		const walletClient = this.clientManager.getWalletClient(chain)
-		const publicClient = this.clientManager.getPublicClient(chain)
 
-		return this.signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization,
-			chainIdFallback: this.configService.getChainId(chain),
-			gasFloor: DELEGATION_TX_GAS_FLOOR,
-		})
+		// Every backend goes out the same way: viem prepares the set-code tx and the
+		// signer signs it. A backend whose transaction API cannot express an
+		// authorization list handles that in its own `signTransaction` — see
+		// `mpcVaultSigner` — not here.
+		return (await walletClient.sendTransaction({
+			to: this.signer.address,
+			value: 0n,
+			authorizationList: [authorization],
+			chain: walletClient.chain,
+			gas: DELEGATION_TX_GAS_FLOOR,
+		})) as HexString
 	}
 
 	/**
@@ -121,7 +120,6 @@ export class DelegationService {
 	 */
 	async isDelegated(chain: string): Promise<boolean> {
 		const client = this.clientManager.getPublicClient(chain)
-		const account = this.signer.account
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
 
 		if (!solverAccountContract) {
@@ -129,7 +127,7 @@ export class DelegationService {
 		}
 
 		try {
-			const code = await client.getCode({ address: account.address })
+			const code = await client.getCode({ address: this.signer.address })
 
 			if (!code || code === "0x") {
 				return false
@@ -168,7 +166,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, solverAccount: this.signer.account.address, solverAccountContract, mode: "bundler" },
+				{ chain, solverAccount: this.signer.address, solverAccountContract, mode: "bundler" },
 				"Setting up EIP-7702 delegation via bundler with paymaster",
 			)
 
@@ -189,7 +187,7 @@ export class DelegationService {
 			// keeps its 200k default: the permit executed during validation needs ~113k
 			// on its own and would OOG the paymaster frame (bundler AA33) at 110k.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
-				address: this.signer.account.address as HexString,
+				address: this.signer.address as HexString,
 			})
 			const isFreshEoa = !code || code === "0x"
 
@@ -257,7 +255,7 @@ export class DelegationService {
 
 		// Fallback: direct type-0x04 transaction (requires native token)
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const authority = this.signer.account.address as HexString
+		const authority = this.signer.address as HexString
 
 		// The direct tx pays gas in native ETH. If the EOA can't cover it, delegation fails
 		// outright (the paymaster path already failed too) — surface the deficit explicitly.
@@ -281,7 +279,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, authority, solverAccountContract, mode: this.signer.mode },
+				{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
 				"Setting up EIP-7702 delegation via direct tx",
 			)
 
@@ -336,7 +334,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, authority: this.signer.account.address, mode: this.signer.mode },
+				{ chain, authority: this.signer.address, mode: this.signer.mode ?? "custom" },
 				"Revoking EIP-7702 delegation",
 			)
 

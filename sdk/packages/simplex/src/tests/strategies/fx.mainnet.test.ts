@@ -10,7 +10,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { SqliteDataStore } from "@/data/sqlite"
-import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
+import { createSigner, SignerType, type Signer } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
@@ -1813,7 +1813,7 @@ function hasMpcVaultFillCredentials(): boolean {
 }
 
 function createMpcVaultFillSigner() {
-	return createSimplexSigner({
+	return createSigner({
 		type: SignerType.MpcVault,
 		apiToken: process.env.MPCVAULT_API_TOKEN!,
 		vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
@@ -1848,7 +1848,7 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1900,7 +1900,7 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1956,7 +1956,7 @@ async function setUpMainnetFxBsc() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -2008,7 +2008,7 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -2063,7 +2063,7 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const userSigner = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const userSigner = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
@@ -2102,7 +2102,7 @@ async function createCrossChainFxIntentFiller(
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
 	chainIds: string[],
-	fillerSigner: SigningAccount,
+	fillerSigner: Signer,
 ): Promise<IntentFiller> {
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, fillerSigner)
@@ -2188,7 +2188,7 @@ async function createFxOnlyIntentFiller(
 	exoticTokenOverride?: HexString,
 ): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 

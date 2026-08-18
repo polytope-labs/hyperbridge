@@ -4,7 +4,7 @@ import { ContractInteractionService } from "@/services/ContractInteractionServic
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { CacheService } from "@/services/CacheService"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 const HOST = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 const PRIMARY = "https://polygon-bor-rpc.publicnode.com"
@@ -38,8 +38,8 @@ function makeService(rpcUrls: string[]) {
 	} as unknown as FillerConfigService
 	const cacheService = { getSolverSelection: () => null, setSolverSelection: () => {} } as unknown as CacheService
 	const signer = {
-		account: { address: "0x1111111111111111111111111111111111111111" },
-	} as unknown as SigningAccount
+		address: "0x1111111111111111111111111111111111111111",
+	} as unknown as Signer
 
 	return new ContractInteractionService(clientManager, configService, signer, cacheService)
 }

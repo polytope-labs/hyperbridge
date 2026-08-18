@@ -7,7 +7,7 @@ import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { chainsForNetwork, INIT_CHAINS, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
+import { assertConfirmationCoverage, type FillerConfigFile, type FillerTomlConfig, type VaultToml } from "@/config/filler-toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
@@ -102,7 +102,13 @@ export interface OperatorContext {
 	balances: Pick<BalanceProvider, "getSnapshot">
 	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
-	config: FillerTomlConfig
+	/**
+	 * The running config. Typed as the file shape because `persistConfig`
+	 * regenerates the TOML from it: a `[simplex.signer]` block the binary parsed
+	 * rides along untouched, and dropping it here would erase the operator's
+	 * signer from their config file on the next curve edit.
+	 */
+	config: FillerConfigFile
 	/** Drains the filler and exits the process (the UI's graceful Stop). */
 	stop(): Promise<void>
 	activity: Pick<ActivityRecorder, "recent" | "on" | "off" | "record" | "recordWalletTx" | "walletTxs" | "fills">
@@ -165,7 +171,7 @@ export interface SetupContext {
 	/** Default path the wizard writes the config to. */
 	configPath: string
 	/** Writes the config and boots the filler; the caller flips the server into operator mode. */
-	onSaveAndStart(config: FillerTomlConfig, toml: string, path: string): Promise<void>
+	onSaveAndStart(config: FillerConfigFile, toml: string, path: string): Promise<void>
 	/** Test injection for the network-facing validators. */
 	deps?: SetupDeps
 }

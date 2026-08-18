@@ -40,7 +40,7 @@ function build(result: Record<string, unknown>) {
 		} as never,
 		{} as never,
 		{} as never,
-		{ account: { address: OUR_ADDRESS } } as never,
+		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([1]) },
 		undefined,
 		data.bids,

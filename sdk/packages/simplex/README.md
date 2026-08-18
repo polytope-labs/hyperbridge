@@ -13,11 +13,12 @@ npm install @hyperbridge/simplex
 ```
 
 ```ts
-import { Simplex } from "@hyperbridge/simplex"
+import { Simplex, privateKeySigner } from "@hyperbridge/simplex"
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
 
 const simplex = await Simplex.start({
     config,
+    signer: privateKeySigner(process.env.SOLVER_KEY as `0x${string}`),
     data: new SqliteDataStore("./simplex-data"),
 })
 
@@ -34,10 +35,17 @@ await simplex.stop()
 
 `Simplex.start` takes a plain config object — no TOML file required — and returns once the solver is
 running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
-your stdout. Persistence is pluggable: the default store is in-memory, `SqliteDataStore` is durable, and
-`SimplexDataStore` is a small async interface you can implement over Postgres, Redis or anything
-else. A solver that submits bids should use a durable store, since bid records are how locked
-deposits are found again for retraction.
+your stdout.
+
+Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
+typed data, this EIP-7702 authorization, this transaction — with no viem types on it, so satisfying
+it never means matching this package's viem version. `privateKeySigner`,
+`turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts any viem account (a
+`toAccount` wrapper around an HSM or a remote signing service included), and your own implementation
+is a first-class citizen. Persistence is pluggable the same way: the default
+store is in-memory, `SqliteDataStore` is durable, and `SimplexDataStore` is a small async interface
+you can implement over Postgres, Redis or anything else. A solver that submits bids should use a
+durable store, since bid records are how locked deposits are found again for retraction.
 
 See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
 

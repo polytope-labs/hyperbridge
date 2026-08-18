@@ -1,4 +1,4 @@
-import type { FillerTomlConfig, } from "@/config/filler-toml"
+import type { FillerConfigFile, FillerTomlConfig } from "@/config/filler-toml"
 import type { PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import type { UserProvidedChainConfig } from "@/services/FillerConfigService"
@@ -20,7 +20,7 @@ export interface WizardState {
 	 * wizard-managed fields onto a copy of this, so sections the wizard never
 	 * prompts for (binance, keeper, targetGasUnits, watchOnly, …) survive verbatim.
 	 */
-	prefillConfig?: FillerTomlConfig
+	prefillConfig?: FillerConfigFile
 	signer?: SignerConfig
 	substratePrivateKey?: string
 	hyperbridgeWsUrl?: string
@@ -46,7 +46,7 @@ export interface WizardState {
 
 /** Existing config being updated, with chain ids resolved from its RPCs. */
 export interface Prefill {
-	config: FillerTomlConfig
+	config: FillerConfigFile
 	/** chainId per config.chains entry; null when the RPC could not be resolved. */
 	chainIds: Array<number | null>
 }

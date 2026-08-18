@@ -34,7 +34,7 @@ function build(watchOnly: Record<number, boolean> = {}) {
 		configService,
 		{} as any, // ChainClientManager — the gate returns before any client is touched
 		{} as any, // ContractInteractionService — likewise
-		{ account: { address: "0xAAAA00000000000000000000000000000000AAAA" as HexString } } as any,
+		{ address: "0xAAAA00000000000000000000000000000000AAAA" as HexString } as any,
 		{ orders: stubOrderScanner() },
 	)
 

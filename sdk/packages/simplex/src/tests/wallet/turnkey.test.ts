@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest"
-import { createTurnkeySigningAccount } from "@/services/wallet/accounts/turnkey"
+import { turnkeySigner } from "@/services/wallet/accounts/turnkey"
+import { accountFor } from "@/services/wallet/account"
 import {
-	keccak256,
-	toHex,
-	verifyMessage,
-	recoverAddress,
 	createPublicClient,
 	createWalletClient,
 	http,
-	concat,
-	toRlp,
+	parseTransaction,
+	recoverAddress,
+	recoverTransactionAddress,
+	recoverTypedDataAddress,
 	zeroAddress,
 } from "viem"
+import { hashAuthorization } from "viem/utils"
 import { sepolia } from "viem/chains"
 import type { HexString } from "@hyperbridge/sdk"
 
@@ -29,70 +29,112 @@ const config = {
 }
 
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
+/** Arbitrary delegate target for the signing checks. */
+const DELEGATE_TARGET = "0x0000000000000000000000000000000000000001" as HexString
 
 describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 	it("should create a signing account with the correct address", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 
 		expect(signer.mode).toBe("turnkey")
-		expect(signer.account.address.toLowerCase()).toBe(config.signWith.toLowerCase())
+		expect(signer.address.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
 
-	it("should sign and verify a message", async () => {
-		const signer = await createTurnkeySigningAccount(config)
-		const messageHash = keccak256(toHex("hello turnkey"))
+	// Turnkey encodes the authorization tuple natively, so this exercises its
+	// structured path rather than a digest.
+	it("should sign an EIP-7702 authorization and verify recovery", async () => {
+		const signer = await turnkeySigner(config)
+		const auth = { chainId: sepolia.id, contractAddress: DELEGATE_TARGET, nonce: 7 }
 
-		const signature = await signer.signMessage(messageHash as HexString, 1)
-		expect(signature).toMatch(/^0x/)
-		expect(signature.length).toBe(132)
-
-		const valid = await verifyMessage({
-			address: signer.account.address,
-			message: { raw: messageHash as `0x${string}` },
-			signature: signature as `0x${string}`,
-		})
-		expect(valid).toBe(true)
-	})
-
-	it("should sign a raw hash and verify recovery", async () => {
-		const signer = await createTurnkeySigningAccount(config)
-		const hash = keccak256(toHex("test hash"))
-
-		const result = await signer.signRawHash(hash as HexString)
+		const result = await signer.signAuthorization(auth)
 		expect(result.r).toMatch(/^0x/)
 		expect(result.s).toMatch(/^0x/)
 		expect([0, 1]).toContain(result.yParity)
 
-		const v = BigInt(result.yParity) + 27n
 		const recovered = await recoverAddress({
-			hash: hash as `0x${string}`,
-			signature: { r: result.r as `0x${string}`, s: result.s as `0x${string}`, v },
+			hash: hashAuthorization({ address: DELEGATE_TARGET, chainId: sepolia.id, nonce: 7 }),
+			signature: { r: result.r as `0x${string}`, s: result.s as `0x${string}`, v: BigInt(result.yParity) + 27n },
 		})
 		expect(recovered.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
 
+	// Same standard as the authorization case: the signature has to recover to the
+	// wallet, or the vault signed something other than what we handed it.
+	it("should sign typed data that recovers the wallet address", async () => {
+		const signer = await turnkeySigner(config)
+		// `EIP712Domain` must be listed. Turnkey hashes the payload from the JSON it
+		// is sent, like MPCVault, and derives the domain type from this entry; viem
+		// ignores it when hashing locally. Omit it and the signature covers a
+		// different digest than the one recovery checks — the signature verifies as
+		// valid and recovers to a stranger.
+		const typedData = {
+			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+				],
+				Bid: [{ name: "amount", type: "uint256" }],
+			},
+			primaryType: "Bid",
+			domain: { name: "Simplex", version: "1", chainId: sepolia.id },
+			message: { amount: 1n },
+		}
+
+		const signature = await signer.signTypedData(typedData)
+		const recovered = await recoverTypedDataAddress({ ...typedData, signature } as never)
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
+	})
+
+	// Signing is not broadcasting, so this needs no funds: it proves Turnkey signs
+	// the transaction we handed it, unaltered, with the key we asked for.
+	it("should sign a transaction that carries the request and recovers the wallet", async () => {
+		const signer = await turnkeySigner(config)
+		const request = {
+			chainId: sepolia.id,
+			type: "eip1559" as const,
+			to: signer.address,
+			value: 1_000n,
+			nonce: 0,
+			gas: 21_000n,
+			maxFeePerGas: 1_000_000_000n,
+			maxPriorityFeePerGas: 1_000_000n,
+		}
+
+		const serialized = await signer.signTransaction(request)
+		const parsed = parseTransaction(serialized as never)
+		expect(parsed.chainId).toBe(request.chainId)
+		expect(parsed.nonce).toBe(request.nonce)
+		expect(parsed.to?.toLowerCase()).toBe(request.to.toLowerCase())
+		expect(parsed.value).toBe(request.value)
+
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized as never })
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
+	})
+
 	it("should delegate via EIP-7702, verify, then revoke on Sepolia", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 		const rpcUrl = process.env.SEPOLIA!
 
 		const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
+		// The same derivation ChainClientManager does: Signer in, viem account out.
 		const walletClient = createWalletClient({
 			chain: sepolia,
 			transport: http(rpcUrl),
-			account: signer.account,
+			account: accountFor(signer),
 		})
 
-		// Random contract address to delegate to
-		const delegateTarget = "0x0000000000000000000000000000000000000001" as HexString
-		const authorityAddress = signer.account.address
+		const delegateTarget = DELEGATE_TARGET
+		const authorityAddress = signer.address as `0x${string}`
 
 		// --- Delegate ---
 		const nonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })
 		const authNonce = nonce + 1
-		const authHash = keccak256(
-			concat(["0x05", toRlp([toHex(sepolia.id), delegateTarget, toHex(authNonce)])]),
-		) as HexString
-		const authSig = await signer.signRawHash(authHash)
+		const authSig = await signer.signAuthorization({
+			chainId: sepolia.id,
+			contractAddress: delegateTarget,
+			nonce: authNonce,
+		})
 
 		const authorization = {
 			chainId: sepolia.id,
@@ -103,13 +145,12 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			yParity: authSig.yParity,
 		}
 
-		const delegateTxHash = await signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization,
-			chainIdFallback: sepolia.id,
-			gasFloor: 350_000n,
+		const delegateTxHash = await walletClient.sendTransaction({
+			to: authorityAddress,
+			value: 0n,
+			authorizationList: [authorization],
+			chain: sepolia,
+			gas: 350_000n,
 		})
 
 		const delegateReceipt = await publicClient.waitForTransactionReceipt({ hash: delegateTxHash })
@@ -124,10 +165,11 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 		// --- Revoke (delegate to zero address) ---
 		const revokeNonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })
 		const revokeAuthNonce = revokeNonce + 1
-		const revokeAuthHash = keccak256(
-			concat(["0x05", toRlp([toHex(sepolia.id), zeroAddress, toHex(revokeAuthNonce)])]),
-		) as HexString
-		const revokeAuthSig = await signer.signRawHash(revokeAuthHash)
+		const revokeAuthSig = await signer.signAuthorization({
+			chainId: sepolia.id,
+			contractAddress: zeroAddress,
+			nonce: revokeAuthNonce,
+		})
 
 		const revokeAuthorization = {
 			chainId: sepolia.id,
@@ -138,13 +180,12 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			yParity: revokeAuthSig.yParity,
 		}
 
-		const revokeTxHash = await signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization: revokeAuthorization,
-			chainIdFallback: sepolia.id,
-			gasFloor: 350_000n,
+		const revokeTxHash = await walletClient.sendTransaction({
+			to: authorityAddress,
+			value: 0n,
+			authorizationList: [revokeAuthorization],
+			chain: sepolia,
+			gas: 350_000n,
 		})
 
 		const revokeReceipt = await publicClient.waitForTransactionReceipt({ hash: revokeTxHash })

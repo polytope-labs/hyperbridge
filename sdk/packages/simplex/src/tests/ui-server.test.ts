@@ -10,7 +10,7 @@ import { ActivityRecorder } from "@/data/recorder"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { FillerPricePolicy } from "@/config/interpolated-curve"
-import type { FillerTomlConfig } from "@/config/filler-toml"
+import type { FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 import type { PairConfig } from "@/config/pairs"
 import type { AssetDefinition } from "@/config/asset-registry"
@@ -89,7 +89,7 @@ function fakeHaltControl(index: number, halted = false): HaltControl & { halted:
 }
 
 /** pairs[] indices line up with the AdminStrategy pairIndex values used in the tests. */
-function fakeConfig(): FillerTomlConfig {
+function fakeConfig(): FillerConfigFile {
 	return {
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0xab" },
@@ -338,9 +338,14 @@ describe("UiServer (operator mode)", () => {
 
 		// restarts keep the change: the config file now carries the new curve
 		expect(existsSync(operator.configPath!)).toBe(true)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
 		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
+		// ...and the signer block rode along. The library's config type does not
+		// declare it, so a regression in persistConfig/emitFillerToml would delete
+		// the operator's signer from disk on an unrelated edit — the exact hazard
+		// the FillerConfigFile split was designed around.
+		expect(written.simplex.signer).toEqual(fakeConfig().simplex.signer)
 	})
 
 	it("rejects same-token ask prices at or above par, judged against the live invariants", async () => {
@@ -498,7 +503,7 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ level: "warn" }),
 		})
 		expect(await res.json()).toEqual({ level: "warn", persisted: true })
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.simplex.logging).toBe("warn")
 
 		const bad = await fetch(`${base}/api/log-level`, {
@@ -520,7 +525,7 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect(await res.json()).toEqual({ users: [user], persisted: true })
 		expect(operator.applyAllowlist).toHaveBeenCalledWith({ users: [user] })
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.allowlist?.users).toEqual([user])
 
 		// empty list removes the allowlist entirely (accept everyone)
@@ -600,7 +605,7 @@ describe("UiServer (operator mode)", () => {
 		expect(bodyJson.bid).toEqual(BID_POINTS)
 		expect(disableSide).toHaveBeenCalledWith("ask")
 		expect(strategy1.ask).toBeUndefined()
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs?.[1]?.askPriceCurve).toBeUndefined()
 		expect(written.pairs?.[1]?.bidPriceCurve).toBeDefined()
 	})
@@ -645,7 +650,7 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
 		expect(reconfigure).toHaveBeenCalledWith(vaults, undefined)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.vault?.vaults).toEqual(vaults)
 
 		// invalid rows rejected before any application
@@ -664,7 +669,7 @@ describe("UiServer (operator mode)", () => {
 		const res = await fetch(`${base}/api/vault`, { method: "PUT", headers: CSRF, body: JSON.stringify({ vaults }) })
 		expect(await res.json()).toEqual({ applied: false, restartNeeded: true, persisted: true })
 		expect(vaultPreflight).toHaveBeenCalledWith(vaults)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.vault?.vaults).toEqual(vaults)
 	})
 
@@ -777,7 +782,7 @@ describe("UiServer (operator mode)", () => {
 			triggerPercentage: 0.4,
 			baseBalances: { USDC: { "8453": "12000" } },
 		})
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.rebalancing?.triggerPercentage).toBe(0.4)
 
 		const badTrigger = await fetch(`${base}/api/rebalancing`, {
@@ -798,7 +803,7 @@ describe("UiServer (operator mode)", () => {
 
 	// A pairs set that passes whole-array validation — fakeConfig's default set
 	// deliberately mirrors the strategy fixtures and is not itself valid.
-	function marketConfig(): FillerTomlConfig {
+	function marketConfig(): FillerConfigFile {
 		const config = fakeConfig()
 		config.pairs = [
 			{ token0: "USDC", token1: "USDC", maxOrderSize: "100000", askPriceCurve: SAME_ASSET_POINTS },
@@ -838,7 +843,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.strategy.index).toBe(7)
 		expect(addPair).toHaveBeenCalledWith(body, undefined, 2)
 		expect(operator.config.pairs).toHaveLength(3)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs?.[2]?.token1).toBe("EURC")
 	})
 
@@ -902,7 +907,7 @@ describe("UiServer (operator mode)", () => {
 		expect(addPair).toHaveBeenCalledTimes(1)
 		expect(addPair.mock.calls[0][1]).toEqual(assets)
 		expect(operator.config.assets?.BRZ).toEqual(assets.BRZ)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.assets?.BRZ?.["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
 	})
 
@@ -980,7 +985,7 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ askPriceCurve: [{ amount: "0", price: "18" }] }),
 		})
 		expect(put.status).toBe(200)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs).toHaveLength(2)
 		expect(written.pairs?.[1]?.token1).toBe("ZARP")
 		expect(written.pairs?.[1]?.askPriceCurve?.[0]?.price).toBe("18")
@@ -1085,7 +1090,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.maxOrderSize).toBe("12500")
 		expect(setMaxOrderSize).toHaveBeenCalledWith("12500")
 		expect(operator.config.pairs?.[1]?.maxOrderSize).toBe("12500")
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs?.[1]?.maxOrderSize).toBe("12500")
 	})
 
@@ -1122,7 +1127,7 @@ describe("UiServer (operator mode)", () => {
 	})
 
 	/** Two chain rows aligned with the operator's running chain ids. */
-	function chainsConfig(): FillerTomlConfig {
+	function chainsConfig(): FillerConfigFile {
 		const config = marketConfig()
 		config.chains = [
 			{ rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
@@ -1198,7 +1203,7 @@ describe("UiServer (operator mode)", () => {
 		expect(operator.config.chains).toHaveLength(2)
 		expect(operator.config.simplex.watchOnly).toEqual({ "42161": true })
 
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerTomlConfig
+		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.chains[1].bundlerUrl).toBe("https://arb-bundler.example")
 		// The rewritten file keeps the chain rows identifiable — the TOML has no chain id.
 		expect(readFileSync(operator.configPath!, "utf-8")).toContain("# Arbitrum")

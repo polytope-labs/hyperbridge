@@ -5,7 +5,7 @@ import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
 import { ChainConfigService } from "@hyperbridge/sdk"
-import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateConfig, type FillerConfigFile, type FillerTomlConfig } from "@/config/filler-toml"
 import { AssetRegistry } from "@/config/asset-registry"
 import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
@@ -78,11 +78,11 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 	outro(`Start it any time with: simplex run -c ${path}`)
 }
 
-export function assembleConfig(state: WizardState): FillerTomlConfig {
+export function assembleConfig(state: WizardState): FillerConfigFile {
 	// On an update run, overlay the wizard-managed fields onto a copy of the
 	// existing config so sections the wizard never prompts for (binance, keeper,
 	// targetGasUnits, entryPointAddress, watchOnly, …) survive verbatim.
-	const base: Partial<FillerTomlConfig> = state.prefillConfig
+	const base: Partial<FillerConfigFile> = state.prefillConfig
 		? JSON.parse(JSON.stringify(state.prefillConfig))
 		: {}
 

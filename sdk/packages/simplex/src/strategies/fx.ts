@@ -20,7 +20,7 @@ import type { CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 /**
  * A trading pair the engine serves. `token0` and `token1` are registry symbols
@@ -139,7 +139,7 @@ export class FXFiller implements FillerStrategy {
 	private pairs: TradingPair[]
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
-	private signer: SigningAccount
+	private signer: Signer
 	private logger: Logger
 	/** Consecutive orders where overfill clamp activated. */
 	private consecutiveClamps = 0
@@ -179,7 +179,7 @@ export class FXFiller implements FillerStrategy {
 	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
 	 */
 	constructor(
-		signer: SigningAccount,
+		signer: Signer,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -370,7 +370,7 @@ export class FXFiller implements FillerStrategy {
 	 * Hydrates all funding venue state so venue-priced pairs quote from live pool data.
 	 */
 	async initialise(): Promise<void> {
-		const solver = this.signer.account.address as HexString
+		const solver = this.signer.address as HexString
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
@@ -496,7 +496,7 @@ export class FXFiller implements FillerStrategy {
 			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
 
 			const destClient = this.clientManager.getPublicClient(destChain)
-			const walletAddress = this.signer.account.address as HexString
+			const walletAddress = this.signer.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
 			const legs = this.resolveOrderLegs(order)
@@ -1123,7 +1123,7 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		const solverAccountAddress = this.signer.account.address as HexString
+		const solverAccountAddress = this.signer.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
 		const { commitment, userOp } = await this.contractService.prepareBidUserOp(

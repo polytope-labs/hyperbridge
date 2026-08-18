@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
+import { createSigner, SignerType } from "@/services/wallet"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import type { UniswapV4OutputFundingConfig } from "@/funding/types"
 import type { HexString } from "@hyperbridge/sdk"
@@ -17,7 +17,7 @@ describe.skip("UniswapV4 FundingVenue — cNGN price on Base", () => {
 		const chainConfigs: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrls: [process.env.BASE_MAINNET!] }]
 
 		const configService = new FillerConfigService(chainConfigs)
-		const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+		const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 		const clientManager = new ChainClientManager(configService, signer)
 
 		const fundingConfig: UniswapV4OutputFundingConfig = {

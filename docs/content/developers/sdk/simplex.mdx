@@ -122,6 +122,15 @@ what the digest covers and what a backend that scopes a signing request to a cha
 A solver needs a signer unless every chain is watch-only, where it signs nothing and a throwaway key
 stands in.
 
+Each method returns something different, and the difference is the part that trips an implementation:
+
+| Method | Return exactly |
+|--------|----------------|
+| `signTypedData` | The 65-byte `r ‖ s ‖ v` signature as 0x-hex (132 characters), `v` **27 or 28** — what `eth_signTypedData_v4` and viem's `signTypedData` produce. On-chain validation recovers against this form |
+| `signAuthorization` | The **split** signature `{ r, s, yParity }`: `r`/`s` as 32-byte 0x-hex, `yParity` strictly **0 or 1** (subtract 27 from a legacy `v` — anything else is rejected, because EIP-7702 would otherwise skip the mis-encoded tuple silently). Split because the authorization is embedded field-by-field in the transaction |
+| `signTransaction` | The **whole signed transaction** — typed-envelope RLP as `eth_sendRawTransaction` takes it (`0x02…` for EIP-1559, `0x04…` for set-code), not a bare signature. From a signed digest, viem's `serializeTransaction(tx, signature)` produces it |
+
+
 ### Out of the box
 
 ```ts lineNumbers

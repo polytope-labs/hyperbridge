@@ -1315,6 +1315,9 @@ export interface SigningAccount {
 	 *
 	 * No chain id parameter: EIP-712 carries it in `domain.chainId`, which is what
 	 * the digest covers and what a backend scoping the request to a chain reads.
+	 *
+	 * Returns the 65-byte `r ‖ s ‖ v` signature as 0x-hex, `v` 27 or 28 — the
+	 * `eth_signTypedData_v4` form. Bid validation recovers against exactly this.
 	 */
 	signTypedData: (typedData: unknown) => Promise<HexString>
 }

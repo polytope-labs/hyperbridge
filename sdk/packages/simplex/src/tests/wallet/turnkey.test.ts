@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest"
 import { turnkeySigner } from "@/services/wallet/accounts/turnkey"
 import { accountFor } from "@/services/wallet/account"
-import { recoverAddress, createPublicClient, createWalletClient, http, zeroAddress } from "viem"
+import {
+	createPublicClient,
+	createWalletClient,
+	http,
+	parseTransaction,
+	recoverAddress,
+	recoverTransactionAddress,
+	recoverTypedDataAddress,
+	zeroAddress,
+} from "viem"
 import { hashAuthorization } from "viem/utils"
 import { sepolia } from "viem/chains"
 import type { HexString } from "@hyperbridge/sdk"
@@ -47,6 +56,60 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			signature: { r: result.r as `0x${string}`, s: result.s as `0x${string}`, v: BigInt(result.yParity) + 27n },
 		})
 		expect(recovered.toLowerCase()).toBe(config.signWith.toLowerCase())
+	})
+
+	// Same standard as the authorization case: the signature has to recover to the
+	// wallet, or the vault signed something other than what we handed it.
+	it("should sign typed data that recovers the wallet address", async () => {
+		const signer = await turnkeySigner(config)
+		// `EIP712Domain` must be listed. Turnkey hashes the payload from the JSON it
+		// is sent, like MPCVault, and derives the domain type from this entry; viem
+		// ignores it when hashing locally. Omit it and the signature covers a
+		// different digest than the one recovery checks — the signature verifies as
+		// valid and recovers to a stranger.
+		const typedData = {
+			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+				],
+				Bid: [{ name: "amount", type: "uint256" }],
+			},
+			primaryType: "Bid",
+			domain: { name: "Simplex", version: "1", chainId: sepolia.id },
+			message: { amount: 1n },
+		}
+
+		const signature = await signer.signTypedData(typedData)
+		const recovered = await recoverTypedDataAddress({ ...typedData, signature } as never)
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
+	})
+
+	// Signing is not broadcasting, so this needs no funds: it proves Turnkey signs
+	// the transaction we handed it, unaltered, with the key we asked for.
+	it("should sign a transaction that carries the request and recovers the wallet", async () => {
+		const signer = await turnkeySigner(config)
+		const request = {
+			chainId: sepolia.id,
+			type: "eip1559" as const,
+			to: signer.address,
+			value: 1_000n,
+			nonce: 0,
+			gas: 21_000n,
+			maxFeePerGas: 1_000_000_000n,
+			maxPriorityFeePerGas: 1_000_000n,
+		}
+
+		const serialized = await signer.signTransaction(request)
+		const parsed = parseTransaction(serialized as never)
+		expect(parsed.chainId).toBe(request.chainId)
+		expect(parsed.nonce).toBe(request.nonce)
+		expect(parsed.to?.toLowerCase()).toBe(request.to.toLowerCase())
+		expect(parsed.value).toBe(request.value)
+
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized as never })
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	})
 
 	it("should delegate via EIP-7702, verify, then revoke on Sepolia", async () => {

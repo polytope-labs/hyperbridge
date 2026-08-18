@@ -81,10 +81,13 @@ export interface Signature {
  * itself: the digest covers it, and backends that scope a signing request to a
  * chain (MPCVault) take it from here rather than from a separate argument.
  *
- * List `EIP712Domain` in `types` on any payload you build. viem ignores it when
- * hashing locally, but a backend that hashes server-side from the JSON (MPCVault
- * again) derives the domain type from it — omit it there and the signature
- * covers a different digest than the one your verifier checks.
+ * **List `EIP712Domain` in `types` on any payload you build.** viem ignores it
+ * when hashing locally, so a payload without it looks correct against a private
+ * key. Backends that hash server-side from the JSON derive the domain type from
+ * that entry — MPCVault and Turnkey both do — and without it they sign a
+ * different digest than the one your verifier checks. The failure is quiet: the
+ * signature is well-formed and recovers to an address that is not yours.
+ * `CryptoUtils.packedUserOpTypedData` in the sdk sets it for this reason.
  */
 export interface TypedDataPayload {
 	domain?: {

@@ -219,7 +219,7 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		})
 
 		expect(isHex(sig)).toBe(true)
-		const recovered = await recoverTransactionAddress({ serializedTransaction: sig })
+		const recovered = await recoverTransactionAddress({ serializedTransaction: sig as never })
 		expect(recovered.toLowerCase()).toBe((process.env.MPCVAULT_ACCOUNT_ADDRESS as string).toLowerCase())
 	}, 120_000)
 
@@ -286,13 +286,13 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		const serialized = await signer.signTransaction(request)
 		expect(isHex(serialized)).toBe(true)
 
-		const parsed = parseTransaction(serialized)
+		const parsed = parseTransaction(serialized as never)
 		expect(parsed.chainId).toBe(request.chainId)
 		expect(parsed.nonce).toBe(request.nonce)
 		expect(parsed.to?.toLowerCase()).toBe(request.to.toLowerCase())
 		expect(parsed.value).toBe(request.value)
 
-		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized })
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized as never })
 		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	}, 120_000)
 
@@ -320,12 +320,12 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		// The delegation has to survive into the signed bytes — the whole reason
 		// this branch exists — and the signature has to be the solver's.
-		const parsed = parseTransaction(serialized)
+		const parsed = parseTransaction(serialized as never)
 		expect(parsed.authorizationList).toHaveLength(1)
 		expect(parsed.authorizationList?.[0]?.address?.toLowerCase()).toBe(DELEGATE_TARGET.toLowerCase())
 		expect(parsed.chainId).toBe(chainId)
 
-		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized })
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized as never })
 		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	}, 120_000)
 })

@@ -111,6 +111,14 @@ satisfying it never means matching this package's viem version.
 There is no chain id parameter on `signTypedData`: EIP-712 carries it in `domain.chainId`, which is
 what the digest covers and what a backend that scopes a signing request to a chain reads.
 
+<Callout type="warn">
+    Any EIP-712 payload you build must list `EIP712Domain` in `types`. viem ignores it when hashing
+    locally, so a payload without it looks correct against a private key — but MPCVault and Turnkey
+    both hash from the JSON they are sent and derive the domain type from that entry. Without it
+    they sign a different digest than your verifier checks, and the failure is quiet: the signature
+    is well-formed and recovers to an address that is not yours.
+</Callout>
+
 A solver needs a signer unless every chain is watch-only, where it signs nothing and a throwaway key
 stands in.
 

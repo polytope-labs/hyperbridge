@@ -958,7 +958,6 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
- "apk-commitment",
  "ark-bls12-381 0.4.0",
  "ark-ec 0.4.2",
  "ark-ff 0.4.2",
@@ -969,6 +968,7 @@ dependencies = [
  "beefy-verifier",
  "beefy-verifier-primitives",
  "gnark-apk-prover",
+ "gnark-plonk-verifier",
  "hex",
  "ismp",
  "ismp-abi",
@@ -980,18 +980,6 @@ dependencies = [
  "subxt 0.42.1",
  "subxt-utils",
  "tokio",
-]
-
-[[package]]
-name = "apk-commitment"
-version = "0.1.0"
-dependencies = [
- "ark-bls12-381 0.4.0",
- "ark-ec 0.4.2",
- "ark-ff 0.4.2",
- "ark-serialize 0.4.2",
- "hex",
- "sha3 0.10.8",
 ]
 
 [[package]]
@@ -2975,7 +2963,6 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
- "apk-commitment",
  "ark-bls12-381 0.4.0",
  "ark-bls12-381 0.5.0",
  "ark-ec 0.4.2",
@@ -8678,12 +8665,12 @@ dependencies = [
 [[package]]
 name = "gnark-apk-ffi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
 
 [[package]]
 name = "gnark-apk-prover"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
 dependencies = [
  "ark-bls12-381 0.5.0",
  "ark-ec 0.5.0",
@@ -8696,7 +8683,7 @@ dependencies = [
 [[package]]
 name = "gnark-plonk-verifier"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=48e6aa504994a58fb41465e22eb90b1df6a190f8#48e6aa504994a58fb41465e22eb90b1df6a190f8"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
 dependencies = [
  "ark-bls12-381 0.5.0",
  "ark-ec 0.5.0",
@@ -14732,11 +14719,11 @@ dependencies = [
 name = "pallet-beefy-apk-digest"
 version = "0.1.0"
 dependencies = [
- "apk-commitment",
- "ark-bls12-381 0.4.0",
- "ark-serialize 0.4.2",
+ "ark-bls12-381 0.5.0",
+ "ark-serialize 0.5.0",
  "beefy-verifier-primitives",
  "cumulus-pallet-parachain-system",
+ "gnark-plonk-verifier",
  "hex",
  "hex-literal 0.4.1",
  "log",

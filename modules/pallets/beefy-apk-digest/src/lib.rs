@@ -32,7 +32,6 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use apk_commitment::{padded_to_circuit_width, public_keys_commitment_bytes};
 use ark_bls12_381::G1Affine;
 use ark_serialize::CanonicalDeserialize;
 pub use beefy_verifier_primitives::{
@@ -42,6 +41,7 @@ use beefy_verifier_primitives::{PairedAuthority, BLS_G1_SIGNATURE_LEN};
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayChainStateProof;
 use frame_support::weights::Weight;
+use gnark_plonk_verifier::{padded_to_circuit_width, public_keys_commitment_bytes};
 use polkadot_sdk::*;
 use scale_info::TypeInfo;
 
@@ -342,8 +342,8 @@ pub fn commit(keys: &[[u8; BLS_G1_SIGNATURE_LEN]]) -> Result<[u8; 32], Malformed
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use apk_commitment::{padded_to_circuit_width, public_keys_commitment_bytes};
 	use ark_serialize::CanonicalSerialize;
+	use gnark_plonk_verifier::{padded_to_circuit_width, public_keys_commitment_bytes};
 
 	/// Real G1 halves from a live BLS relay's `Beefy` authorities.
 	const RELAY_KEYS: [&str; 2] = [
@@ -379,8 +379,9 @@ mod tests {
 	/// An empty set is all padding, and must still be well defined.
 	#[test]
 	fn an_empty_set_is_all_padding() {
-		let all_identity: Vec<G1Affine> =
-			(0..apk_commitment::NUM_VALIDATORS).map(|_| G1Affine::identity()).collect();
+		let all_identity: Vec<G1Affine> = (0..gnark_plonk_verifier::NUM_VALIDATORS)
+			.map(|_| G1Affine::identity())
+			.collect();
 		assert_eq!(commit(&[]).unwrap(), public_keys_commitment_bytes(&all_identity));
 	}
 

@@ -318,9 +318,19 @@ struct Aggregate {
 pub(crate) fn apk_commitment_of(
 	keys: &[[u8; BLS_G1_SIGNATURE_LEN]],
 ) -> Result<[u8; 32], anyhow::Error> {
-	let points = keys.iter().map(decompress_g1).collect::<Result<Vec<_>, _>>()?;
-	let padded = apk_commitment::padded_to_circuit_width(&points);
-	Ok(apk_commitment::public_keys_commitment_bytes(&padded))
+	// The commitment is defined by the circuit, so it is computed in the arkworks version the
+	// circuit's crate speaks rather than the one the rest of this crate uses for the prover.
+	let points = keys
+		.iter()
+		.map(|key| {
+			<gnark_plonk_verifier::G1Affine as ark_serialize_05::CanonicalDeserialize>::deserialize_compressed(
+				&key[..],
+			)
+			.map_err(|_| anyhow!("Malformed G1 point"))
+		})
+		.collect::<Result<Vec<_>, anyhow::Error>>()?;
+	let padded = gnark_plonk_verifier::padded_to_circuit_width(&points);
+	Ok(gnark_plonk_verifier::public_keys_commitment_bytes(&padded))
 }
 
 pub(crate) fn decompress_g1(key: &[u8; BLS_G1_SIGNATURE_LEN]) -> Result<G1Affine, anyhow::Error> {

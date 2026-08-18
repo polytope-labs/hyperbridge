@@ -46,7 +46,6 @@ members = [
     "modules/consensus/sync-committee/prover",
     "modules/consensus/sync-committee/verifier",
     "modules/consensus/sync-committee/primitives",
-    "modules/consensus/beefy/apk-commitment",
     "modules/consensus/beefy/primitives",
     "modules/consensus/beefy/prover",
     "modules/consensus/beefy/verifier",
@@ -278,7 +277,6 @@ hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
 
 # consensus provers & verifiers
-apk-commitment = { path = "./modules/consensus/beefy/apk-commitment", default-features = false }
 beefy-verifier-primitives = { version = "0.1.1", path = "./modules/consensus/beefy/primitives", default-features = false }
 beefy-prover = { path = "./modules/consensus/beefy/prover" }
 beefy-verifier = { path = "./modules/consensus/beefy/verifier", default-features = false }

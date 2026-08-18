@@ -1149,15 +1149,6 @@ async fn bls_apk_live_inputs() {
 	let aggregate = aggregate_signatures(&signatures).unwrap();
 	let sig_g1 = G1Affine::deserialize_compressed(&aggregate[..]).expect("aggregate decodes");
 
-	// The same commitment the runtime pallet builds, computed here over the signing set so the
-	// fixture's consensus state can be seeded with it.
-	let decompressed = g1_keys
-		.iter()
-		.map(|k| G1Affine::deserialize_compressed(&k[..]).expect("G1 key decodes"))
-		.collect::<Vec<_>>();
-	let padded = apk_commitment::padded_to_circuit_width(&decompressed);
-	let apk_commitment_bytes = apk_commitment::public_keys_commitment_bytes(&padded);
-
 	let mmr = &message.mmr;
 	let leaf_index = mmr.mmr_proof.leaf_indices.first().copied().unwrap_or_default();
 	let bundle = json::json!({
@@ -1171,7 +1162,6 @@ async fn bls_apk_live_inputs() {
 		"apk": g1_packed(&apk_g1),
 		"apk2": g2_packed(&apk_g2),
 		"signature": g1_packed(&sig_g1),
-		"apkCommitment": hex::encode(apk_commitment_bytes),
 		"mmrLeaf": {
 			"parentNumber": mmr.latest_mmr_leaf.parent_number_and_hash.0,
 			"parentHash": hex::encode(mmr.latest_mmr_leaf.parent_number_and_hash.1.0),
@@ -1214,7 +1204,6 @@ async fn bls_apk_live_inputs() {
 		mmr.mmr_proof.items.len(),
 		message.parachain.parachains.len(),
 	);
-	println!("apk commitment 0x{}", hex::encode(apk_commitment_bytes));
 	println!("wrote {path}");
 	assert!(
 		!message.parachain.parachains.is_empty(),
@@ -1256,14 +1245,11 @@ fn bls_apk_live_fixture() {
 		raw.chunks(32).map(FixedBytes::<32>::from_slice).collect()
 	};
 
-	// The commitment the proof was generated against has to be the one the client checks it with,
-	// so take it from the SNARK's own public inputs and require the runtime's version to agree.
+	// The commitment the proof was generated against is the one the client has to check it with,
+	// so it comes from the SNARK's own public inputs. That it matches what this workspace would
+	// compute is not asserted here any more: both would now be `gnark-plonk-verifier`, and the
+	// implementation is pinned against the go one by that crate's own vectors.
 	let apk_commitment = fixed32(&snark["apkCommitment"]);
-	assert_eq!(
-		apk_commitment,
-		fixed32(&inputs["apkCommitment"]),
-		"the apk-commitment crate and the circuit disagree about the same validator set",
-	);
 
 	let trusted = &inputs["trusted"];
 	let signing_set_id = u64_of(&inputs["validatorSetId"]);

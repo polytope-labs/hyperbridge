@@ -12,14 +12,19 @@ codec = { workspace = true }
 scale-info = { workspace = true }
 log = { workspace = true }
 
-apk-commitment = { workspace = true, default-features = false }
 beefy-verifier-primitives = { workspace = true, default-features = false }
 cumulus-pallet-parachain-system = { workspace = true, default-features = false }
 
-ark-bls12-381 = { version = "0.4.0", features = ["curve"], default-features = false }
-ark-serialize = { version = "0.4.0", default-features = false }
+ark-bls12-381 = { version = "0.5", features = ["curve"], default-features = false }
+
+ark-serialize = { version = "0.5", default-features = false }
 
 hex-literal = { workspace = true, optional = true }
+
+[dependencies.gnark-plonk-verifier]
+git = "https://github.com/polytope-labs/gnark-apk-proofs"
+rev = "96df97f5df2da2124be590b254d5049fe99c8908"
+default-features = false
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -36,7 +41,7 @@ std = [
     "scale-info/std",
     "log/std",
     "polkadot-sdk/std",
-    "apk-commitment/std",
+    "gnark-plonk-verifier/std",
     "beefy-verifier-primitives/std",
     "cumulus-pallet-parachain-system/std",
     "ark-bls12-381/std",

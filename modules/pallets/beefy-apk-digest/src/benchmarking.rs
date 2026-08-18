@@ -23,8 +23,8 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use apk_commitment::NUM_VALIDATORS;
 use frame_benchmarking::v2::*;
+use gnark_plonk_verifier::NUM_VALIDATORS;
 use polkadot_sdk::*;
 
 /// The G1 half of a real BEEFY key from a live BLS relay, so the decompression inside

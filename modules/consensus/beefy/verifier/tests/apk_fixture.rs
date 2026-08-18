@@ -94,3 +94,38 @@ fn apk_verifier_agrees_with_solidity() {
 		trusted.latest_beefy_height, state.latest_beefy_height
 	);
 }
+
+/// The signature and the binding of `apk` to `apk2` are folded into one pairing with a random
+/// challenge, which is cheaper than checking them separately but only sound if it really enforces
+/// both. A proof that verifies proves nothing about that: an equation that quietly ignored the
+/// signature would still accept every honest proof.
+///
+/// The substitute is the aggregate key, which is a real point in G1 and therefore passes the
+/// curve and subgroup checks that come first. Only the pairing itself can reject it, so if the
+/// update is refused, the signature is genuinely part of the equation.
+#[test]
+fn the_batched_pairing_enforces_the_signature() {
+	let decode_hex = |raw: &str| hex::decode(raw.trim().trim_start_matches("0x")).expect("hex");
+	let state_bytes = decode_hex(include_str!(
+		"../../../../../evm/tests/foundry/fixtures/bls-apk-beefy-state.hex"
+	));
+	let proof_bytes = decode_hex(include_str!(
+		"../../../../../evm/tests/foundry/fixtures/bls-apk-beefy-proof.hex"
+	));
+	let trusted: ApkConsensusState =
+		<BlsBeefy::BeefyConsensusState as SolType>::abi_decode(&state_bytes)
+			.expect("state decodes")
+			.try_into()
+			.expect("state converts");
+	let mut proof: ApkConsensusMessage =
+		<BlsBeefy::BlsApkBeefyConsensusProof as SolType>::abi_decode_params(&proof_bytes)
+			.expect("proof decodes")
+			.try_into()
+			.expect("proof converts");
+
+	proof.mmr.signature = proof.mmr.apk;
+	assert!(
+		verify_apk_consensus::<TestHost>(trusted, proof, VERIFYING_KEY, PARA_ID).is_err(),
+		"a well formed point that is not the signature was accepted",
+	);
+}

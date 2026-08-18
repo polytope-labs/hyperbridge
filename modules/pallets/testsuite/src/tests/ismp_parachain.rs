@@ -138,6 +138,16 @@ fn other_parachains_are_not_allowed_the_aura_fallback() {
 }
 
 #[test]
+fn asset_hub_without_a_configured_slot_duration_is_rejected() {
+	new_test_ext().execute_with(|| {
+		let header = parachain_header(vec![aura_digest(SLOT)]);
+		let error = verify(setup(ASSET_HUB_PARA_ID, &header)).unwrap_err();
+
+		assert!(format!("{error:?}").contains("Slot duration not configured"), "{error:?}");
+	})
+}
+
+#[test]
 fn a_header_with_neither_digest_is_rejected() {
 	new_test_ext().execute_with(|| {
 		SlotDurations::<Test>::insert(ASSET_HUB_PARA_ID, SLOT_DURATION);

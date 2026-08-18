@@ -151,10 +151,13 @@ where
 			// Asset Hub doesn't run pallet-ismp, so it never deposits the timestamp digest and its
 			// block time is derived from the aura slot instead. No other parachain is allowed
 			// that route, hence the slot duration is only ever read for Asset Hub.
-			let slot_duration = (id == ASSET_HUB_PARA_ID)
-				.then(|| SlotDurations::<T>::get(id))
-				.flatten()
-				.unwrap_or_default();
+			let slot_duration = if id == ASSET_HUB_PARA_ID {
+				SlotDurations::<T>::get(id).ok_or_else(|| {
+					Error::Custom(format!("Slot duration not configured for parachain {id}"))
+				})?
+			} else {
+				0
+			};
 
 			let DigestResult { timestamp, ismp_digest } =
 				fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;

@@ -84,9 +84,8 @@ marked `redeemOnShutdown`, and never calls `process.exit`.
 
 ## Signing
 
-**Signing is an argument, not a setting.** `Simplex.start` takes a `Signer` — an account and two
-signing methods — so the backend holding your keys does not have to be one this package has heard
-of.
+Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `turnkeySigner` and
+`mpcVaultSigner` are implementations of it, and so is anything you write.
 
 ```ts lineNumbers
 interface Signer {

@@ -84,9 +84,9 @@ marked `redeemOnShutdown`, and never calls `process.exit`.
 
 ## Signing
 
-The key is not config. `Simplex.start` takes a `Signer` — an interface — so the solver never needs
-to know how the signature was produced, and your custody arrangement never needs to be a case in
-somebody else's tagged union.
+**Signing is an argument, not a setting.** `Simplex.start` takes a `Signer` — an account and two
+signing methods — so the backend holding your keys does not have to be one this package has heard
+of.
 
 ```ts lineNumbers
 interface Signer {

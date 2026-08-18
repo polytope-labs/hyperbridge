@@ -67,7 +67,12 @@ export type SignerConfig =
 			type: SignerType.Turnkey
 	  } & TurnkeySignerConfig)
 
-/** A secp256k1 signature in split form, which is how EIP-7702 and raw digests consume it. */
+/**
+ * A secp256k1 signature in split form, which is how EIP-7702 and raw digests
+ * consume it: `r` and `s` as 32-byte 0x-hex, and `yParity` strictly 0 or 1.
+ * A backend that hands back the legacy `v` (27/28) should subtract 27 — the
+ * delegation path rejects anything else rather than letting viem mis-encode it.
+ */
 export interface Signature {
 	r: HexString
 	s: HexString
@@ -146,19 +151,33 @@ export interface Signer {
 	readonly address: HexString
 	/** Names the backend in logs — `"privateKey"`, `"turnkey"`, or whatever names yours. */
 	readonly mode: string
-	/** EIP-712. Signs every bid UserOperation and every paymaster permit. */
+	/**
+	 * EIP-712. Signs every bid UserOperation and every paymaster permit.
+	 *
+	 * Returns the 65-byte `r ‖ s ‖ v` signature as 0x-hex (132 characters), with
+	 * `v` 27 or 28 — exactly what `eth_signTypedData_v4` and viem's
+	 * `signTypedData` produce. On-chain validation recovers against this form.
+	 */
 	signTypedData(typedData: TypedDataPayload): Promise<HexString>
 	/**
 	 * Signs an EIP-7702 authorization tuple — the delegation that makes this
 	 * account a solver. Backends with a structured encoding for it (Turnkey) use
 	 * that; others sign `keccak256(0x05 ‖ rlp([chainId, contractAddress, nonce]))`.
+	 *
+	 * Returns the SPLIT signature — see {@link Signature}: `yParity` must be 0 or
+	 * 1, not the legacy `v`. This is the one method that does not return hex,
+	 * because the authorization is embedded field-by-field in the transaction.
 	 */
 	signAuthorization(auth: AuthorizationRequest): Promise<Signature>
 	/**
-	 * Signs and serialises a transaction, returning the RLP-encoded, signed bytes
-	 * ready to broadcast. Backends that take transactions (MPCVault's vault API,
-	 * Turnkey's transaction payloads) keep the transaction legible to their policy
-	 * engine; others serialise it and sign the digest.
+	 * Signs and serialises a transaction. Backends that take transactions
+	 * (MPCVault's vault API, Turnkey's transaction payloads) keep the transaction
+	 * legible to their policy engine; others serialise it and sign the digest.
+	 *
+	 * Returns the WHOLE SIGNED TRANSACTION — typed-envelope RLP as
+	 * `eth_sendRawTransaction` takes it (`0x02…` for EIP-1559, `0x04…` for
+	 * set-code), not a bare signature. viem's `serializeTransaction(tx, signature)`
+	 * produces it from a signed digest.
 	 */
 	signTransaction(tx: SignerTransaction): Promise<HexString>
 }

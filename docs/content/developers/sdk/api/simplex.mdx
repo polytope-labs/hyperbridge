@@ -515,6 +515,14 @@ Each operation names what is being authorised rather than handing over a digest,
 provider's policy engine can read it. A backend that only signs digests should not implement this by
 hand — pass its `sign(hash)` to `digestSigner`.
 
+Each method returns something different, and the difference is the part that trips an implementation:
+
+| Method | Return exactly |
+|--------|----------------|
+| `signTypedData` | The 65-byte `r ‖ s ‖ v` signature as 0x-hex (132 characters), `v` **27 or 28** — what `eth_signTypedData_v4` and viem's `signTypedData` produce. On-chain validation recovers against this form |
+| `signAuthorization` | The **split** signature `{ r, s, yParity }`: `r`/`s` as 32-byte 0x-hex, `yParity` strictly **0 or 1** (subtract 27 from a legacy `v` — anything else is rejected, because EIP-7702 would otherwise skip the mis-encoded tuple silently). Split because the authorization is embedded field-by-field in the transaction |
+| `signTransaction` | The **whole signed transaction** — typed-envelope RLP as `eth_sendRawTransaction` takes it (`0x02…` for EIP-1559, `0x04…` for set-code), not a bare signature. From a signed digest, viem's `serializeTransaction(tx, signature)` produces it |
+
 `signTypedData` takes no chain id: EIP-712 carries it in `domain.chainId`, which is what the digest
 covers and what a backend scoping a signing request to a chain reads.
 

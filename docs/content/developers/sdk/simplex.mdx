@@ -91,37 +91,28 @@ Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `turnkeySig
 interface Signer {
     /** The address every fill, bid and delegation is attributed to. */
     address: HexString
+    /** Names the backend in logs. */
+    mode: string
+
     /** EIP-712. Signs every bid UserOperation and every paymaster permit. */
     signTypedData(typedData: TypedDataPayload): Promise<HexString>
-    /** Raw ECDSA over a digest. Signs EIP-7702 authorizations, and transactions
-     *  unless the backend implements `signTransaction`. */
-    signRawHash(hash: HexString): Promise<Signature>
-
-    /** Names the backend in logs. Defaults to "custom". */
-    mode?: string
-    /** Structured EIP-7702, where the backend has it. */
-    signAuthorization?(auth: {
-        chainId: number
-        contractAddress: HexString
-        nonce: number
-    }): Promise<Signature>
-    /** Structured transaction signing, where the backend has it. */
-    signTransaction?(tx: SignerTransaction): Promise<HexString>
+    /** The EIP-7702 delegation that makes this account a solver. */
+    signAuthorization(auth: AuthorizationRequest): Promise<Signature>
+    /** Returns the signed, RLP-encoded transaction, ready to broadcast. */
+    signTransaction(tx: SignerTransaction): Promise<HexString>
 }
 ```
 
-An address and two methods. No viem types anywhere on it, so satisfying it never
-means matching this package's viem version — simplex builds the viem account its wallet clients
-run on from whatever you pass.
+Three operations and an identity. Each names *what* is being authorised — a typed-data payload, an
+EIP-7702 authorization, a transaction — rather than handing over a digest, so a custody provider's
+policy engine can read what it is about to sign. Nothing on the interface is a viem type, so
+satisfying it never means matching this package's viem version.
 
 There is no chain id parameter on `signTypedData`: EIP-712 carries it in `domain.chainId`, which is
 what the digest covers and what a backend that scopes a signing request to a chain reads.
 
-The two optional methods are for backends whose policy engine wants to see what it is authorising.
-Implement `signTransaction` and the transaction is handed over intact; omit it and simplex serialises
-the transaction and asks `signRawHash` for a digest signature. Same for `signAuthorization` and the
-EIP-7702 tuple. A solver needs a signer unless every chain is watch-only, where it signs nothing and
-a throwaway key stands in.
+A solver needs a signer unless every chain is watch-only, where it signs nothing and a throwaway key
+stands in.
 
 ### Out of the box
 
@@ -154,51 +145,60 @@ const mpc = mpcVaultSigner({
 ```
 
 Turnkey signs transactions and EIP-7702 authorizations through its own structured encodings, so its
-policy engine sees the tuple rather than an opaque digest — that is what the two optional methods
-are for. MPCVault signs transactions structurally too, through its vault API. Neither has privileged
+policy engine sees both. MPCVault signs transactions through its vault API, and hashes the
+authorization tuple itself since it has no structured encoding for one. Neither has privileged
 access to the solver; a signer you write can do the same things.
 
 ### Anything that speaks viem
 
-`viemSigner` adapts a viem local account into a `Signer`, carrying through everything the account can
-do structurally — transactions and EIP-7702 authorizations both:
+`viemSigner` adapts a viem local account, carrying each operation through to the account's own
+implementation:
 
 ```ts lineNumbers
 import { viemSigner } from "@hyperbridge/simplex"
-import { toAccount } from "viem/accounts"
 
-const signer = viemSigner(
-    toAccount({
-        address: await hsm.address(),
-        // Raw digest signing. EIP-7702 delegation needs it, so `viemSigner`
-        // rejects an account without it rather than failing at the first fill.
-        sign: ({ hash }) => hsm.sign(hash),
-        signMessage: ({ message }) => hsm.signMessage(message),
-        signTransaction: (tx) => hsm.signTransaction(tx),
-        signTypedData: (typedData) => hsm.signTypedData(typedData),
-    }),
-)
+const signer = viemSigner(await someProvider.getAccount())
 ```
 
-This is a convenience, not a requirement. The interface owes viem nothing, so if your backend does
-not already produce a viem account, do not build one to get here.
+viem makes `signAuthorization` optional on an account; the interface does not, so the adapter falls
+back to hashing the tuple and signing it with `sign`. An account with neither cannot delegate, and a
+solver that cannot delegate cannot bid, so that is rejected at construction rather than at the first
+fill.
+
+### A backend that only signs digests
+
+An HSM, a KMS or a remote signer that exposes nothing but `sign(hash)` does not implement the
+interface by hand — `digestSigner` does the hashing and the RLP for you:
+
+```ts lineNumbers
+import { digestSigner } from "@hyperbridge/simplex"
+
+const signer = digestSigner({
+    address: await hsm.address(),
+    mode: "hsm",
+    sign: (hash) => hsm.sign(hash),
+})
+```
+
+That keeps transaction serialisation and EIP-7702 authorization hashing in one tested place instead
+of in every integration. The trade is visibility: your provider sees 32 bytes, not the transaction.
+If it can do better, implement `Signer` directly.
 
 ### Writing one from scratch
 
-Two methods and an address:
+Implement `Signer` when your backend can see structure and you want it to. Each method owns its
+encoding: return a 65-byte signature for the typed data, split components for the authorization, and
+signed RLP bytes for the transaction.
 
 ```ts lineNumbers
 const signer: Signer = {
-    address: await hsm.address(),
-    mode: "hsm",
-    signTypedData: (typedData) => hsm.signTypedData(typedData),
-    signRawHash: (hash) => hsm.sign(hash),
+    address: await vault.address(),
+    mode: "vault",
+    signTypedData: (payload) => vault.signTypedData(payload),
+    signAuthorization: (auth) => vault.signDelegation(auth),
+    signTransaction: (tx) => vault.signTransaction(tx),
 }
 ```
-
-That is a working solver. Transactions are serialised by simplex and signed as digests through
-`signRawHash`; add `signTransaction` when your custody provider's policies need to read the
-transaction rather than authorise a hash.
 
 A signer is also the natural place for the policy your provider cannot express: rate limits, a
 per-chain kill switch, an approval queue, an audit log of everything the solver ever asked to be
@@ -208,9 +208,9 @@ signed.
 const audited: Signer = {
     ...base,
     mode: "audited",
-    signTypedData: async (typedData) => {
-        await audit.record({ kind: "userOp", typedData })
-        return base.signTypedData(typedData)
+    signTransaction: async (tx) => {
+        await audit.record({ chainId: tx.chainId, to: tx.to, value: tx.value })
+        return base.signTransaction(tx)
     },
 }
 ```

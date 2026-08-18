@@ -1,35 +1,37 @@
-import type { HexString } from "@hyperbridge/sdk"
-import { keccak256, serializeSignature, serializeTransaction, type TransactionSerializable } from "viem"
+import type { HexString, SigningAccount } from "@hyperbridge/sdk"
+import {
+	hashTypedData,
+	keccak256,
+	serializeSignature,
+	serializeTransaction,
+	type TransactionSerializable,
+} from "viem"
+import { hashAuthorization } from "viem/utils"
 import { toAccount, type LocalAccount } from "viem/accounts"
-import type { SigningAccount } from "@hyperbridge/sdk"
-import type { Eip7702Authorization, Signer, SignerTransaction, TypedDataPayload } from "./types"
+import type {
+	AuthorizationRequest,
+	Eip7702Authorization,
+	Signature,
+	Signer,
+	SignerTransaction,
+	TypedDataPayload,
+} from "./types"
 
 /**
  * Builds the viem account simplex's wallet clients run on from a {@link Signer}.
  *
  * This is the whole reason `Signer` can stay viem-free: the mapping lives here,
- * on our side of the boundary, instead of in every consumer's signer. A backend
- * that takes transactions implements `signTransaction` and viem's prepared
- * request is mapped onto our shape; one that takes digests implements nothing
- * and the transaction is serialised here and signed as a hash.
+ * on our side of the boundary, instead of in every consumer's signer.
  */
 export function accountFor(signer: Signer): LocalAccount {
 	return toAccount({
 		address: signer.address,
-		sign: async ({ hash }) => serializeSignature(await signer.signRawHash(hash as HexString)),
 		signTypedData: (typedData) => signer.signTypedData(typedData as never) as Promise<`0x${string}`>,
-		signTransaction: async (transaction, options) => {
-			const serializer = options?.serializer ?? serializeTransaction
-			const tx = transaction as TransactionSerializable
-			if (signer.signTransaction) return signer.signTransaction(toSignerTransaction(tx))
-			const unsigned = serializer(tx) as HexString
-			const signature = await signer.signRawHash(keccak256(unsigned) as HexString)
-			return serializer(tx, signature)
-		},
-		// viem's `toAccount` requires it and no solver path personal-signs, so this
-		// is unreachable rather than unimplemented: bids are EIP-712, and raw
-		// digests go through `signRawHash`.
-		signMessage: () => {
+		signTransaction: async (transaction) =>
+			(await signer.signTransaction(toSignerTransaction(transaction as TransactionSerializable))) as `0x${string}`,
+		// viem's `toAccount` requires it and no solver path personal-signs: bids are
+		// EIP-712, delegations are authorization tuples.
+		signMessage: async () => {
 			throw new Error("Simplex never signs personal messages")
 		},
 	})
@@ -56,16 +58,56 @@ function toSignerTransaction(tx: TransactionSerializable): SignerTransaction {
 }
 
 /**
+ * Builds a {@link Signer} from a backend that only signs 32-byte digests — an
+ * HSM, a KMS, a remote signing service.
+ *
+ * The three operations are hashed and serialised here, so nothing outside this
+ * package has to know how an EIP-7702 authorization is hashed or how an EIP-1559
+ * transaction is encoded. A backend that *can* see structure should implement
+ * {@link Signer} directly instead, so its policy engine keeps that visibility.
+ *
+ * ```ts
+ * const signer = digestSigner({
+ *   address: await hsm.address(),
+ *   mode: "hsm",
+ *   sign: (hash) => hsm.sign(hash),
+ * })
+ * ```
+ */
+export function digestSigner(opts: {
+	address: HexString
+	mode: string
+	sign(hash: HexString): Promise<Signature>
+}): Signer {
+	return {
+		address: opts.address,
+		mode: opts.mode,
+		signTypedData: async (typedData: TypedDataPayload) =>
+			serializeSignature(await opts.sign(hashTypedData(typedData as never) as HexString)) as HexString,
+		signAuthorization: (auth: AuthorizationRequest) =>
+			opts.sign(
+				hashAuthorization({
+					address: auth.contractAddress,
+					chainId: auth.chainId,
+					nonce: auth.nonce,
+				}) as HexString,
+			),
+		signTransaction: async (tx: SignerTransaction) => {
+			const serializable = tx as unknown as TransactionSerializable
+			const signature = await opts.sign(keccak256(serializeTransaction(serializable)) as HexString)
+			return serializeTransaction(serializable, signature) as HexString
+		},
+	}
+}
+
+/**
  * The sdk's `SigningAccount`, backed by a {@link Signer}.
  *
- * The two describe the same operations; only the typed-data parameter differs —
+ * The two describe the same operation; only the typed-data parameter differs —
  * the sdk takes `unknown` so it depends on no payload type of ours, and `Signer`
  * takes {@link TypedDataPayload} so a `domain.chainId` a backend needs is visible
  * in the type. The cast is that difference and nothing more.
  */
 export function sdkSigningAccount(signer: Signer): SigningAccount {
-	return {
-		signRawHash: (hash) => signer.signRawHash(hash),
-		signTypedData: (typedData) => signer.signTypedData(typedData as TypedDataPayload),
-	}
+	return { signTypedData: (typedData) => signer.signTypedData(typedData as TypedDataPayload) }
 }

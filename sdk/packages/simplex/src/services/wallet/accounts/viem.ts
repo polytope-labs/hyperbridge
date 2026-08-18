@@ -1,7 +1,8 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { parseSignature } from "viem"
+import { hashAuthorization } from "viem/utils"
 import type { LocalAccount } from "viem/accounts"
-import type { Signature, Signer } from "../types"
+import type { AuthorizationRequest, Signature, Signer } from "../types"
 
 /** viem's serialised signature in the split form {@link Signer} works in. */
 export function splitSignature(signature: HexString, source: string): Signature {
@@ -18,42 +19,61 @@ export function splitSignature(signature: HexString, source: string): Signature 
  *
  * This is the path for custody that already speaks viem — a private key, a
  * `toAccount` wrapper around an HSM or a remote signing service, or a provider
- * SDK that hands you an account. Everything the account can do structurally
- * (transactions, EIP-7702 authorizations) is carried through rather than
- * flattened into digests.
+ * SDK that hands you an account. Transactions go through the account's own
+ * `signTransaction`, so a backend that inspects them keeps doing so.
  *
- * The account must expose `sign`: EIP-7702 delegation needs a raw digest
- * signature, and a solver that cannot delegate cannot take part in solver
- * selection, so its absence is rejected here rather than at the first fill.
+ * EIP-7702 is the one operation viem makes optional: accounts that implement
+ * `signAuthorization` (a private key, Turnkey) use it, and the rest fall back to
+ * signing the authorization digest with `sign`. An account with neither cannot
+ * delegate, and a solver that cannot delegate cannot take part in solver
+ * selection, so that is rejected here rather than at the first fill.
  */
 export function viemSigner(account: LocalAccount): Signer {
-	const sign = account.sign
-	if (!sign) {
-		throw new Error(
-			"Signer account cannot sign raw hashes: EIP-7702 delegation needs `account.sign`. " +
-				"Pass a `sign` implementation to viem's `toAccount`, or implement the Signer interface directly.",
-		)
-	}
 	const source = account.source || "custom"
+	const signAuthorization = authorizationSignerFor(account, source)
 
 	return {
 		address: account.address as HexString,
 		mode: source,
 		signTypedData: (typedData) => account.signTypedData(typedData as never) as Promise<HexString>,
-		signRawHash: async (hash) => splitSignature((await sign({ hash })) as HexString, source),
 		signTransaction: (tx) => account.signTransaction(tx as never) as Promise<HexString>,
-		...(account.signAuthorization
-			? {
-					signAuthorization: async (auth: { chainId: number; contractAddress: HexString; nonce: number }) => {
-						const signed = await account.signAuthorization!(auth)
-						const yParity =
-							signed.yParity ?? (signed.v !== undefined ? Number(signed.v >= 27n ? signed.v - 27n : signed.v) : undefined)
-						if (yParity !== 0 && yParity !== 1) {
-							throw new Error(`Failed to derive yParity from ${source} authorization signature`)
-						}
-						return { r: signed.r as HexString, s: signed.s as HexString, yParity }
-					},
-				}
-			: {}),
+		signAuthorization,
 	}
+}
+
+function authorizationSignerFor(
+	account: LocalAccount,
+	source: string,
+): (auth: AuthorizationRequest) => Promise<Signature> {
+	if (account.signAuthorization) {
+		return async (auth) => {
+			const signed = await account.signAuthorization!({
+				address: auth.contractAddress,
+				chainId: auth.chainId,
+				nonce: auth.nonce,
+			})
+			const yParity =
+				signed.yParity ?? (signed.v !== undefined ? Number(signed.v >= 27n ? signed.v - 27n : signed.v) : undefined)
+			if (yParity !== 0 && yParity !== 1) {
+				throw new Error(`Failed to derive yParity from ${source} authorization signature`)
+			}
+			return { r: signed.r as HexString, s: signed.s as HexString, yParity }
+		}
+	}
+
+	const sign = account.sign
+	if (!sign) {
+		throw new Error(
+			"Signer account cannot sign EIP-7702 authorizations: the account implements neither " +
+				"`signAuthorization` nor `sign`, so this solver could never delegate. Pass one of them to viem's " +
+				"`toAccount`, or implement the Signer interface directly.",
+		)
+	}
+	return async (auth) =>
+		splitSignature(
+			(await sign({
+				hash: hashAuthorization({ address: auth.contractAddress, chainId: auth.chainId, nonce: auth.nonce }),
+			})) as HexString,
+			`${source} authorization`,
+		)
 }

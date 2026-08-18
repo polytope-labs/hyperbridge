@@ -40,15 +40,15 @@ Why: the `account` field was the expensive viem type on the published surface �
 
 The cost is that we own `TypedDataPayload`, `Signature`, `SignerTransaction` and `Eip7702Authorization`. Three of those are spec shapes that do not move. `SignerTransaction` does move, and is the one to watch: it models the EIP-1559 and EIP-7702 fields simplex actually sends, and `toSignerTransaction` maps viem's prepared request onto it. A backend implementing `signTransaction` sees only those fields; anything viem adds later that we do not model is invisible to it, while the digest path (no `signTransaction`) keeps signing viem's full serialisation and is unaffected.
 
-## 2026-08-18 — `signTransaction` is optional, and the digest path is the default
+## 2026-08-18 — Every operation is required, and digest-only backends get a factory instead of optionality
 
-Chosen: a backend that takes transactions implements `signTransaction`; one that takes digests implements nothing, and `accountFor` serialises the transaction and asks `signRawHash` for the hash.
+Chosen: `signTypedData`, `signAuthorization` and `signTransaction` are all required, `mode` with them. `signRawHash` is deleted. `digestSigner({ address, mode, sign })` builds a `Signer` from a single `sign(hash)`.
 
-Alternatives considered: requiring it (every custom signer then handles a transaction shape it mostly does not care about); never offering it and always signing digests.
+Alternatives considered: optional `signAuthorization`/`signTransaction` with `signRawHash` as the always-present fallback (the previous cut); requiring them with no factory.
 
-Why: always-digests is the simplest interface but it regresses exactly what MPC and TEE custody is bought for — MPCVault's `evmSendCustom` and Turnkey's transaction payloads let a policy engine read to/value/data, and flattening every transaction to a hash blinds them. That is the same argument #1134 made for typed data. Optional keeps the floor at two methods while letting the two bundled backends stay structural.
+Why: with the structural methods optional, the interface said two contradictory things — "tell me what you can do" and "here is a digest, never mind". Requiring them makes the contract one thing: these are the three operations a solver needs authorised, encode each however your backend can. The cost is that a digest-only backend now has to hash an EIP-7702 authorization and serialise an EIP-1559 transaction, which is real work and exactly where a subtle bug produces a valid signature over the wrong bytes — so that work is not pushed outward, it is packaged as `digestSigner`. The one-liner an HSM integration needs is unchanged; it just goes through a factory instead of leaving holes in the interface.
 
-MPCVault is the one place both paths coexist: its `signTransaction` uses the structured request normally, and serialises + raw-signs when an `authorizationList` is present, because the structured request has no field for one and would otherwise send a set-code transaction as a plain transfer with the delegation silently dropped.
+Note what required-ness deleted: with both structural methods guaranteed, `signRawHash` had no caller left — not in `DelegationService`, not in `accountFor`, not in the sdk (which never called it). Keeping it "optional" would have re-created the `signMessage` situation: a member on the published interface that nothing invokes. It is removed from `SigningAccount` in the sdk too, leaving that interface with the one method the sdk actually calls.
 
 ## 2026-08-18 — `signMessage` and the `chainId` argument dropped, in both packages
 

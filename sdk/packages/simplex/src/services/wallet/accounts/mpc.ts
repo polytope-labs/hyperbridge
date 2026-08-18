@@ -1,7 +1,8 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { keccak256, serializeTransaction, type TransactionSerializable } from "viem"
+import { hashAuthorization } from "viem/utils"
 import { MpcVaultService } from "../mpcvault"
-import type { MpcVaultSignerConfig, Signer, SignerTransaction } from "../types"
+import type { AuthorizationRequest, MpcVaultSignerConfig, Signer, SignerTransaction } from "../types"
 
 /**
  * Signs through MPCVault's signing ceremony.
@@ -28,7 +29,16 @@ export function mpcVaultSigner(config: MpcVaultSignerConfig): Signer {
 	return {
 		address: config.accountAddress,
 		mode: "mpcVault",
-		signRawHash: (hash: HexString) => service.signRawHashComponents(hash),
+		// MPCVault has no structured EIP-7702 encoding, so the tuple is hashed here
+		// and signed as a digest.
+		signAuthorization: (auth: AuthorizationRequest) =>
+			service.signRawHashComponents(
+				hashAuthorization({
+					address: auth.contractAddress,
+					chainId: auth.chainId,
+					nonce: auth.nonce,
+				}) as HexString,
+			),
 		// The vault scopes a signing request to a chain, and EIP-712 already carries
 		// one. Bigints are stringified because the payload is hashed server-side from
 		// this JSON — a UserOperation's nonce and gas fields would otherwise throw.

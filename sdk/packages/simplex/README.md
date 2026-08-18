@@ -37,8 +37,9 @@ await simplex.stop()
 running. It logs nothing until you point `logger` at a sink, so importing the package never writes to
 your stdout.
 
-Signing is an interface, not a setting. `Signer` is an address and two methods, with no viem types
-on it — so satisfying it never means matching this package's viem version. `privateKeySigner`,
+Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
+typed data, this EIP-7702 authorization, this transaction — with no viem types on it, so satisfying
+it never means matching this package's viem version. `privateKeySigner`,
 `turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts any viem account (a
 `toAccount` wrapper around an HSM or a remote signing service included), and your own implementation
 is a first-class citizen. Persistence is pluggable the same way: the default

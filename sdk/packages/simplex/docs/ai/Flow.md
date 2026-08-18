@@ -28,32 +28,36 @@ There are two entry points, and they meet at `bootFiller`.
   - `paymaster/permit.ts` signs the EIP-2612 permit that lets the Circle or Simplex paymaster pull USDC/USDT for gas. It takes `Pick<Signer, "signTypedData">`, not the whole signer.
 
   No caller passes a chain id: every payload carries `domain.chainId`, which is what the digest covers and what MPCVault reads for its request envelope.
-- **`signRawHash`.** `DelegationService.buildAuthorization` signs the EIP-7702 authorization digest (`keccak256(0x05 ‖ rlp([chainId, delegate, nonce]))`) with it, when the signer has no `signAuthorization`. It is also the fallback for transactions: `accountFor`'s `signTransaction` serialises the transaction and signs the hash when the signer implements no `signTransaction`.
-- **`signAuthorization` (optional).** Preferred over the digest when present, so the backend sees `(chainId, delegate, nonce)`. `viemSigner` carries it through from any viem account that has it, which covers `privateKeyToAccount` and Turnkey.
-- **`signTransaction` (optional).** Where a backend takes transactions rather than digests. MPCVault implements it against its structured vault request; `viemSigner` delegates to the account's own `signTransaction`, which is how Turnkey keeps its transaction policies meaningful.
+- **`signAuthorization`.** `DelegationService.buildAuthorization` calls it for every delegation, with no branching — the signer owns the encoding. Turnkey uses its structured path; MPCVault and any digest-only backend hash `keccak256(0x05 ‖ rlp([chainId, contractAddress, nonce]))` themselves (`viem/utils`' `hashAuthorization`).
+- **`signTransaction`.** Every transaction the solver sends: the type-0x04 delegation tx, rebalancing transfers, operator sends. It returns signed RLP, so the backend owns serialisation — MPCVault's vault API and Turnkey's transaction payloads both keep the transaction legible to their policy engines, and `digestSigner` serialises with viem and signs the hash.
 - **`address`.** Read directly everywhere the solver's identity is needed (`fillerAddress`, delegation authority, balance lookups, vault initialisation).
+- **`mode`.** Logs only: the boot line and the two delegation log lines.
 
 ### The viem boundary
 
 `Signer` names no viem type. `accountFor(signer)` (`src/services/wallet/account.ts`) builds the `LocalAccount` viem wants from one, and `ChainClientManager` derives it once in its constructor and hands it to every wallet client. The mapping is:
 
-- `sign({ hash })` → `signRawHash`, re-serialised with viem's `serializeSignature`.
 - `signTypedData` → straight through.
-- `signTransaction` → the signer's own if it has one (viem's prepared request narrowed by `toSignerTransaction`), otherwise serialise with viem's serializer and sign the digest.
-- `signMessage` → throws. viem's `toAccount` requires it; no solver path personal-signs.
+- `signTransaction` → viem's prepared request narrowed by `toSignerTransaction`, which rejects a request with no `chainId` rather than letting a replayable transaction be signed.
+- `signMessage` → rejects. viem's `toAccount` requires it; no solver path personal-signs.
+- `sign` → not implemented. Nothing calls `account.sign` now that authorizations and transactions are signer operations.
 
-`sdkSigningAccount(signer)` is the other half of the boundary: the sdk's `SigningAccount` takes `unknown` typed data where `Signer` takes `TypedDataPayload`, so the two call sites that hand a signer to the sdk go through it.
+`digestSigner` is the same boundary from the other side: it turns one `sign(hash)` into the three operations, hashing typed data with viem's `hashTypedData`, authorizations with `hashAuthorization`, and transactions with `serializeTransaction` + `keccak256`.
+
+`sdkSigningAccount(signer)` is the last piece: the sdk's `SigningAccount` takes `unknown` typed data where `Signer` takes `TypedDataPayload`, so the two call sites that hand a signer to the sdk go through it.
 
 ### Delegation, the one branching path
 
 `DelegationService.setupDelegation(chain)` prefers the bundler: a no-op UserOp with the authorization attached, gas paid by the paymaster in stablecoins (`setupDelegationViaBundler`, signed with `signTypedData` through `UserOpSender`). It falls back to a direct type-0x04 transaction when no paymaster is available or the solver holds no stablecoins, which needs native balance.
 
-The direct path is uniform: `sendDelegationTransaction` calls `walletClient.sendTransaction` with the authorization list and a 650k gas floor, whatever the signer is. viem prepares the transaction and hands it to the derived account's `signTransaction`, which routes to the signer's own or to the digest fallback. `mpcVaultSigner` is where that matters: its structured request has no field for an authorization list, so it detects one and serialises + raw-signs instead, which is the only reason a set-code transaction from an MPC-backed solver installs a delegation at all.
+The direct path is uniform: `sendDelegationTransaction` calls `walletClient.sendTransaction` with the authorization list and a 650k gas floor, whatever the signer is. viem prepares the transaction and hands it to the derived account's `signTransaction`, which routes to the signer's. `mpcVaultSigner` is where that matters: its structured request has no field for an authorization list, so it detects one and serialises + raw-signs instead, which is the only reason a set-code transaction from an MPC-backed solver installs a delegation at all.
 
 `revokeDelegation` runs the same two steps against the zero address.
 
 ### What `viemSigner` derives
 
-`viemSigner(account)` (`src/services/wallet/accounts/viem.ts`) maps a viem `LocalAccount` onto the interface: `address` → `account.address`, `signTypedData` → `account.signTypedData`, `signRawHash` → `account.sign({ hash })` parsed into `{ r, s, yParity }`, `signTransaction` → `account.signTransaction`, `signAuthorization` → `account.signAuthorization` when the account has one, and `mode` → `account.source` (so `privateKeyToAccount` reports `"privateKey"` and `toAccount` reports `"custom"`). It throws at construction if the account has no `sign`, because the delegation path would otherwise fail at the first fill.
+`viemSigner(account)` (`src/services/wallet/accounts/viem.ts`) maps a viem `LocalAccount` onto the interface: `address` → `account.address`, `mode` → `account.source` (so `privateKeyToAccount` reports `"privateKey"` and `toAccount` reports `"custom"`), `signTypedData` and `signTransaction` → the account's own.
 
-`privateKeySigner` is `viemSigner(privateKeyToAccount(key))`. `turnkeySigner` is `viemSigner(turnkeyAccount)` plus `mode: "turnkey"` — Turnkey's account implements `signTransaction` and `signAuthorization` itself, so nothing else is needed. `mpcVaultSigner` uses no viem account: it implements the interface against `MpcVaultService` directly.
+`signAuthorization` is the one that needs work, because viem makes it optional on an account and the interface does not: the adapter uses `account.signAuthorization` when present (private keys, Turnkey) and otherwise hashes the tuple and signs it with `account.sign`. An account with neither is rejected at construction — a solver that cannot delegate cannot bid, and finding that out at the first fill is worse.
+
+`privateKeySigner` is `viemSigner(privateKeyToAccount(key))`. `turnkeySigner` is `viemSigner(turnkeyAccount)` plus `mode: "turnkey"`. `mpcVaultSigner` uses no viem account: it implements the three operations against `MpcVaultService` directly.

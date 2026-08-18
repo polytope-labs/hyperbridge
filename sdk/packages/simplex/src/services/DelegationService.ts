@@ -1,5 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concat, formatEther, keccak256, toHex, toRlp, zeroAddress } from "viem"
+import { formatEther, zeroAddress } from "viem"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
@@ -37,13 +37,6 @@ export class DelegationService {
 		this.userOpSender = new UserOpSender(clientManager, configService, signer)
 	}
 
-	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
-		// EIP-7702 requires canonical RLP: integer 0 encodes as empty bytes (0x80), not 0x00.
-		// viem's `toHex(0)` returns '0x0' which RLP-encodes as the single byte 0x00 — wrong.
-		const encoded = toRlp([chainId ? toHex(chainId) : "0x", contractAddress, nonce ? toHex(nonce) : "0x"])
-		return keccak256(concat(["0x05", encoded])) as HexString
-	}
-
 	/**
 	 * @param viaBundler When true, uses the current nonce (bundler submits the tx).
 	 *                   When false, uses nonce+1 (EOA submits the type-0x04 tx itself).
@@ -69,17 +62,13 @@ export class DelegationService {
 		})
 		const authorizationNonce = viaBundler ? currentNonce : currentNonce + 1
 
-		// Prefer the backend's structured 7702 signing (Turnkey) so the authorization
-		// tuple stays inspectable by signing policies; fall back to raw digest signing.
-		const { r, s, yParity } = this.signer.signAuthorization
-			? await this.signer.signAuthorization({
-					chainId,
-					contractAddress,
-					nonce: Number(authorizationNonce),
-				})
-			: await this.signer.signRawHash(
-					this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce)),
-				)
+		// The signer owns the encoding: a backend with structured 7702 support keeps
+		// the tuple inspectable by its policy engine, one without hashes it itself.
+		const { r, s, yParity } = await this.signer.signAuthorization({
+			chainId,
+			contractAddress,
+			nonce: Number(authorizationNonce),
+		})
 
 		return {
 			chainId,

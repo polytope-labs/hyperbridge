@@ -1309,8 +1309,6 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
-	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**
 	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).

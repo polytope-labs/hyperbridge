@@ -125,40 +125,40 @@ export interface SignerTransaction {
  * Everything a solver asks of the key that owns its funds. Pass an
  * implementation to `Simplex.start({ signer })`.
  *
- * An address and two methods are required:
+ * Three operations, one identity. Each operation names what is being authorised
+ * — a typed-data payload, an EIP-7702 authorization, a transaction — rather than
+ * a digest, so a custody backend's policy engine can read what it is signing.
  *
- * - `signTypedData` — EIP-712. The hot path: every bid UserOperation and every
- *   EIP-2612 permit the paymaster needs.
- * - `signRawHash` — raw ECDSA over a digest. Signs EIP-7702 authorizations, and
- *   transactions too unless the backend implements `signTransaction`.
- *
- * The two optional methods exist for backends whose policy engine wants to see
- * what it is authorising rather than an opaque digest. Omit them and simplex
- * serialises the payload itself and asks for a digest signature.
+ * A backend that only signs digests does not implement this by hand: pass its
+ * `sign(hash)` to {@link digestSigner}, which does the hashing and serialising
+ * and returns a `Signer`.
  */
 export interface Signer {
 	/** The address every fill, bid and delegation is attributed to. */
 	readonly address: HexString
+	/** Names the backend in logs — `"privateKey"`, `"turnkey"`, or whatever names yours. */
+	readonly mode: string
+	/** EIP-712. Signs every bid UserOperation and every paymaster permit. */
 	signTypedData(typedData: TypedDataPayload): Promise<HexString>
-	signRawHash(hash: HexString): Promise<Signature>
+	/**
+	 * Signs an EIP-7702 authorization tuple — the delegation that makes this
+	 * account a solver. Backends with a structured encoding for it (Turnkey) use
+	 * that; others sign `keccak256(0x05 ‖ rlp([chainId, contractAddress, nonce]))`.
+	 */
+	signAuthorization(auth: AuthorizationRequest): Promise<Signature>
+	/**
+	 * Signs and serialises a transaction, returning the RLP-encoded, signed bytes
+	 * ready to broadcast. Backends that take transactions (MPCVault's vault API,
+	 * Turnkey's transaction payloads) keep the transaction legible to their policy
+	 * engine; others serialise it and sign the digest.
+	 */
+	signTransaction(tx: SignerTransaction): Promise<HexString>
+}
 
-	/**
-	 * Names the backend in logs. Free-form — the built-ins report `"privateKey"`,
-	 * `"mpcVault"` and `"turnkey"`; a signer that sets nothing logs as `"custom"`.
-	 */
-	readonly mode?: string
-	/**
-	 * Signs an EIP-7702 authorization tuple natively, where the backend has a
-	 * structured encoding for it (e.g. Turnkey's PAYLOAD_ENCODING_EIP7702_AUTHORIZATION).
-	 * Preferred over `signRawHash(authHash)` because the backend sees
-	 * (chainId, delegate, nonce) instead of an opaque digest.
-	 */
-	signAuthorization?(auth: { chainId: number; contractAddress: HexString; nonce: number }): Promise<Signature>
-	/**
-	 * Signs and serialises a transaction, where the backend takes transactions
-	 * rather than digests. Returns the signed, RLP-encoded transaction, ready to
-	 * broadcast. Omit it and simplex serialises the transaction and signs the
-	 * digest with `signRawHash`.
-	 */
-	signTransaction?(tx: SignerTransaction): Promise<HexString>
+/** The tuple an EIP-7702 authorization signature covers. */
+export interface AuthorizationRequest {
+	chainId: number
+	/** The contract the account delegates to. */
+	contractAddress: HexString
+	nonce: number
 }

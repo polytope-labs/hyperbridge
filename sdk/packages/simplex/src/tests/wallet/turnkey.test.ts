@@ -1,18 +1,8 @@
 import { describe, it, expect } from "vitest"
 import { turnkeySigner } from "@/services/wallet/accounts/turnkey"
 import { accountFor } from "@/services/wallet/account"
-import {
-	keccak256,
-	toHex,
-	verifyMessage,
-	recoverAddress,
-	createPublicClient,
-	createWalletClient,
-	http,
-	concat,
-	toRlp,
-	zeroAddress,
-} from "viem"
+import { recoverAddress, createPublicClient, createWalletClient, http, zeroAddress } from "viem"
+import { hashAuthorization } from "viem/utils"
 import { sepolia } from "viem/chains"
 import type { HexString } from "@hyperbridge/sdk"
 
@@ -30,6 +20,8 @@ const config = {
 }
 
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
+/** Arbitrary delegate target for the signing checks. */
+const DELEGATE_TARGET = "0x0000000000000000000000000000000000000001" as HexString
 
 describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 	it("should create a signing account with the correct address", async () => {
@@ -39,19 +31,20 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 		expect(signer.address.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
 
-	it("should sign a raw hash and verify recovery", async () => {
+	// Turnkey encodes the authorization tuple natively, so this exercises its
+	// structured path rather than a digest.
+	it("should sign an EIP-7702 authorization and verify recovery", async () => {
 		const signer = await turnkeySigner(config)
-		const hash = keccak256(toHex("test hash"))
+		const auth = { chainId: sepolia.id, contractAddress: DELEGATE_TARGET, nonce: 7 }
 
-		const result = await signer.signRawHash(hash as HexString)
+		const result = await signer.signAuthorization(auth)
 		expect(result.r).toMatch(/^0x/)
 		expect(result.s).toMatch(/^0x/)
 		expect([0, 1]).toContain(result.yParity)
 
-		const v = BigInt(result.yParity) + 27n
 		const recovered = await recoverAddress({
-			hash: hash as `0x${string}`,
-			signature: { r: result.r as `0x${string}`, s: result.s as `0x${string}`, v },
+			hash: hashAuthorization({ address: DELEGATE_TARGET, chainId: sepolia.id, nonce: 7 }),
+			signature: { r: result.r as `0x${string}`, s: result.s as `0x${string}`, v: BigInt(result.yParity) + 27n },
 		})
 		expect(recovered.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
@@ -68,17 +61,17 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			account: accountFor(signer),
 		})
 
-		// Random contract address to delegate to
-		const delegateTarget = "0x0000000000000000000000000000000000000001" as HexString
+		const delegateTarget = DELEGATE_TARGET
 		const authorityAddress = signer.address as `0x${string}`
 
 		// --- Delegate ---
 		const nonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })
 		const authNonce = nonce + 1
-		const authHash = keccak256(
-			concat(["0x05", toRlp([toHex(sepolia.id), delegateTarget, toHex(authNonce)])]),
-		) as HexString
-		const authSig = await signer.signRawHash(authHash)
+		const authSig = await signer.signAuthorization({
+			chainId: sepolia.id,
+			contractAddress: delegateTarget,
+			nonce: authNonce,
+		})
 
 		const authorization = {
 			chainId: sepolia.id,
@@ -109,10 +102,11 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 		// --- Revoke (delegate to zero address) ---
 		const revokeNonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })
 		const revokeAuthNonce = revokeNonce + 1
-		const revokeAuthHash = keccak256(
-			concat(["0x05", toRlp([toHex(sepolia.id), zeroAddress, toHex(revokeAuthNonce)])]),
-		) as HexString
-		const revokeAuthSig = await signer.signRawHash(revokeAuthHash)
+		const revokeAuthSig = await signer.signAuthorization({
+			chainId: sepolia.id,
+			contractAddress: zeroAddress,
+			nonce: revokeAuthNonce,
+		})
 
 		const revokeAuthorization = {
 			chainId: sepolia.id,

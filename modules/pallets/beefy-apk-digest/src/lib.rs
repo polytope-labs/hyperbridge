@@ -237,12 +237,12 @@ pub trait WeightInfo {
 
 /// A rough default for tests and for a chain that has not generated its own.
 ///
-/// A full set is around 800ms in wasm, of which roughly four fifths is decompressing the keys
-/// rather than hashing them: a key arrives as 48 compressed bytes and recovering `y` needs a
-/// square root in the base field. It is only paid when the membership actually changes.
+/// A full set is around 580ms in wasm on the benchmarking machine, of which roughly four fifths is
+/// decompressing the keys rather than hashing them: a key arrives as 48 compressed bytes and
+/// recovering `y` needs a square root in the base field. It is only paid when the relay rotates.
 impl WeightInfo for () {
 	fn commit() -> Weight {
-		Weight::from_parts(821_000_000_000, 0).saturating_add(Weight::from_parts(0, 4096))
+		Weight::from_parts(588_000_000_000, 0).saturating_add(Weight::from_parts(0, 4096))
 	}
 }
 

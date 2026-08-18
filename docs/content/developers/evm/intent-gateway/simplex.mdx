@@ -345,14 +345,6 @@ signWith         = "0xYourWalletAddress"
 Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
 </Callout>
 
-<Callout type="info">
-    These three are what the config file can name, and `[simplex.signer]` is a file-format concern:
-    it is the only block the library's config object does not carry.
-    [`Simplex.start`](/developers/sdk/simplex#signing) takes a `Signer` interface instead, so an
-    HSM, a remote signing service or any custody backend with a viem account works there without a
-    config entry.
-</Callout>
-
 ### Delegation & Gas Payment
 
 Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:

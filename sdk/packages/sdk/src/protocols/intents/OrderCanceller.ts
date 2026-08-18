@@ -51,7 +51,7 @@ export class OrderCanceller {
 	private static readonly PROOF_FRESHNESS_BACKOFF_MS = 500
 	/** Gas budgets used to price cancellation delivery on the source chain. */
 	private static readonly SOURCE_GET_RESPONSE_GAS = 1_000_000n
-	private static readonly REFUND_POST_GAS = 800_000n
+	private static readonly REFUND_POST_GAS = 1_000_000n
 
 	private readonly logger = createConsola({
 		level: LogLevels.info,

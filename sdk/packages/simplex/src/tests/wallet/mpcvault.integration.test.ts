@@ -2,7 +2,14 @@ import type { HexString } from "@hyperbridge/sdk"
 import { MpcVaultService } from "@/services/wallet/mpcvault"
 import { mpcVaultSigner } from "@/services/wallet/accounts/mpc"
 import { describe, expect, it } from "vitest"
-import { isHex, recoverAddress, recoverMessageAddress, recoverTypedDataAddress } from "viem"
+import {
+	isHex,
+	parseTransaction,
+	recoverAddress,
+	recoverMessageAddress,
+	recoverTransactionAddress,
+	recoverTypedDataAddress,
+} from "viem"
 import { hashAuthorization } from "viem/utils"
 import "../setup"
 
@@ -212,7 +219,8 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		})
 
 		expect(isHex(sig)).toBe(true)
-		expect(sig.length).toBeGreaterThan(2) // at least "0x" + some data
+		const recovered = await recoverTransactionAddress({ serializedTransaction: sig })
+		expect(recovered.toLowerCase()).toBe((process.env.MPCVAULT_ACCOUNT_ADDRESS as string).toLowerCase())
 	}, 120_000)
 
 	// The three operations the solver actually calls, through the signer that ships.
@@ -257,22 +265,35 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	}, 120_000)
 
-	// The structured path: the vault sees to/value/data, not a digest.
+	// The structured path: the vault sees to/value/data, not a digest. It also
+	// builds the transaction itself, so this checks the bytes that come back are
+	// the transaction we asked for, signed by the account we asked to sign it.
 	it("mpcVaultSigner signs a transaction through the vault's structured request", async () => {
 		const signer = createTestSigner()
-
-		const serialized = await signer.signTransaction({
+		// Non-zero value on purpose: RLP encodes 0 as empty bytes and viem parses it
+		// back as undefined, so a zero here would assert nothing about the field
+		// surviving the vault. The transaction is signed, never broadcast.
+		const request = {
 			chainId: testChainId(),
 			to: signer.address,
-			value: 0n,
+			value: 1_000n,
 			nonce: testTxNonce(),
 			gas: 21_000n,
 			maxFeePerGas: 1_000_000_000n,
 			maxPriorityFeePerGas: 1_000_000n,
-		})
+		}
 
+		const serialized = await signer.signTransaction(request)
 		expect(isHex(serialized)).toBe(true)
-		expect(serialized.length).toBeGreaterThan(2)
+
+		const parsed = parseTransaction(serialized)
+		expect(parsed.chainId).toBe(request.chainId)
+		expect(parsed.nonce).toBe(request.nonce)
+		expect(parsed.to?.toLowerCase()).toBe(request.to.toLowerCase())
+		expect(parsed.value).toBe(request.value)
+
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized })
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	}, 120_000)
 
 	// The one transaction MPCVault's structured request cannot carry: the adapter
@@ -296,5 +317,15 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 
 		// Type-0x04 envelope, signed locally from the vault's raw-hash signature.
 		expect(serialized.startsWith("0x04")).toBe(true)
+
+		// The delegation has to survive into the signed bytes — the whole reason
+		// this branch exists — and the signature has to be the solver's.
+		const parsed = parseTransaction(serialized)
+		expect(parsed.authorizationList).toHaveLength(1)
+		expect(parsed.authorizationList?.[0]?.address?.toLowerCase()).toBe(DELEGATE_TARGET.toLowerCase())
+		expect(parsed.chainId).toBe(chainId)
+
+		const recovered = await recoverTransactionAddress({ serializedTransaction: serialized })
+		expect(recovered.toLowerCase()).toBe(signer.address.toLowerCase())
 	}, 120_000)
 })

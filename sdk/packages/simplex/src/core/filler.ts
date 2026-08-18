@@ -22,7 +22,7 @@ import type { BidStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
 
@@ -75,7 +75,7 @@ export class IntentFiller {
 	}
 	private config: FillerConfig
 	private configService: FillerConfigService
-	private signer: SigningAccount
+	private signer: Signer
 	private fillerAddress: HexString
 	private logger: Logger
 	private hyperbridgeScanner?: HyperbridgeScanner
@@ -88,7 +88,7 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		signer: SigningAccount,
+		signer: Signer,
 		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,

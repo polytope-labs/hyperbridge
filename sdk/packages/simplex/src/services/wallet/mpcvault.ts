@@ -1,5 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concatHex, keccak256, padHex, toHex } from "viem"
+import { concatHex, keccak256, padHex, serializeTransaction, toHex, type TransactionSerializable } from "viem"
 import { toAccount, type Account } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"
 import {
@@ -291,13 +291,13 @@ export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: 
 
 	const account = toAccount({
 		address: config.accountAddress,
-		async signMessage({ message }): Promise<HexString> {
-			const raw = typeof message === "object" && "raw" in message ? (message.raw as HexString) : undefined
-			if (!raw) {
-				throw new Error("MPCVault signer requires message.raw for signMessage")
-			}
+		// Required by viem's `toAccount`, unreachable in practice: MPCVault's
+		// personal-message API needs a chain id, which viem's signature does not
+		// carry, and no solver path personal-signs. `MpcVaultService.signPersonalMessage`
+		// is the entry point for anything that does.
+		async signMessage(): Promise<HexString> {
 			throw new Error(
-				"MPCVault does not support signMessage without chain context. Use the top-level signMessage(messageHash, chainId).",
+				"MPCVault cannot sign a personal message without chain context. Call MpcVaultService.signPersonalMessage(messageHash, chainId).",
 			)
 		},
 		async signTransaction(transaction): Promise<HexString> {
@@ -310,6 +310,17 @@ export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: 
 				gas?: bigint
 				maxFeePerGas?: bigint
 				maxPriorityFeePerGas?: bigint
+				authorizationList?: unknown[]
+			}
+			// MPCVault's structured send (`evmSendCustom`) has no field for an EIP-7702
+			// authorization list, so a set-code tx routed through it would go out as a
+			// plain 0-value transfer with the delegation silently dropped. Serialise and
+			// raw-sign those. Everything else keeps the structured path, where the vault's
+			// policy engine still sees to/value/data instead of an opaque digest.
+			if (params.authorizationList?.length) {
+				const unsigned = serializeTransaction(transaction as TransactionSerializable)
+				const signature = await service.signRawHashComponents(keccak256(unsigned) as HexString)
+				return serializeTransaction(transaction as TransactionSerializable, signature) as HexString
 			}
 			return service.signTransaction({
 				chainId: requireChainId(params.chainId, "transaction signing"),

@@ -45,7 +45,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { SqliteDataStore } from "@/data/sqlite"
-import { createSimplexSigner, SignerType } from "@/services/wallet"
+import { createSigner, SignerType } from "@/services/wallet"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { Decimal } from "decimal.js"
@@ -269,7 +269,7 @@ async function buildPhantomFiller(opts: {
 		acceptedSourceChains: opts.declaredSources,
 	}
 
-	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
+	const signer = await createSigner({ type: SignerType.PrivateKey, key: opts.evmKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,

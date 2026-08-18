@@ -20,7 +20,7 @@ import type { CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 /**
  * A trading pair the engine serves. `token0` and `token1` are registry symbols
@@ -139,7 +139,7 @@ export class FXFiller implements FillerStrategy {
 	private pairs: TradingPair[]
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
-	private signer: SigningAccount
+	private signer: Signer
 	private logger: Logger
 	/** Consecutive orders where overfill clamp activated. */
 	private consecutiveClamps = 0
@@ -179,7 +179,7 @@ export class FXFiller implements FillerStrategy {
 	 *   Only valid when no pair has static curves; curve-priced pairs go one-sided by omitting a curve.
 	 */
 	constructor(
-		signer: SigningAccount,
+		signer: Signer,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,

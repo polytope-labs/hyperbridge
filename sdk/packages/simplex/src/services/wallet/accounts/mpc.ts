@@ -1,54 +1,24 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { keccak256, serializeTransaction } from "viem"
 import { createMpcVaultAccount } from "../mpcvault"
-import type { MpcVaultSignerConfig, SigningAccount } from "../types"
+import type { MpcVaultSignerConfig, Signer } from "../types"
 
-export function createMpcVaultSigningAccount(config: MpcVaultSignerConfig): SigningAccount {
+/**
+ * Signs through MPCVault's signing ceremony. Not a viem account underneath — the
+ * API takes structured requests and digests, not viem's shapes — so this maps the
+ * interface onto the service directly. The one EIP-7702 quirk (the structured
+ * send cannot carry an authorization list) is handled inside the viem account
+ * `createMpcVaultAccount` builds, so delegation needs nothing special here.
+ */
+export function mpcVaultSigner(config: MpcVaultSignerConfig): Signer {
 	const { account, service } = createMpcVaultAccount(config)
-	const signRawHash = (hash: HexString) => service.signRawHashComponents(hash)
 	return {
 		mode: "mpcVault",
 		account,
-		signMessage: (messageHash: HexString, chainId: number) => service.signPersonalMessage(messageHash, chainId),
-		signRawHash,
+		signRawHash: (hash: HexString) => service.signRawHashComponents(hash),
 		signTypedData: (typedData: unknown, chainId?: number) =>
 			service.signTypedData(
 				JSON.stringify(typedData, (_k, v) => (typeof v === "bigint" ? v.toString() : v)),
 				chainId ?? 1,
 			),
-		sendEip7702DelegationTransaction: async (args) => {
-			const chainNonce = await args.publicClient.getTransactionCount({
-				address: args.authorityAddress,
-				blockTag: "pending",
-			})
-
-			const txRequest = await args.walletClient.prepareTransactionRequest({
-				to: args.authorityAddress,
-				value: 0n,
-				authorizationList: [args.authorization],
-				chain: args.walletClient.chain,
-				nonce: chainNonce,
-			})
-
-			const numericChainId = txRequest.chainId ?? args.chainIdFallback
-
-			const txForSerialization = {
-				...txRequest,
-				type: "eip7702" as const,
-				chainId: numericChainId,
-				authorizationList: [args.authorization],
-				nonce: chainNonce,
-				gas: args.gasFloor,
-			}
-
-			const unsignedSerialized = serializeTransaction(txForSerialization)
-			const txSigningHash = keccak256(unsignedSerialized)
-			const signature = await signRawHash(txSigningHash as HexString)
-			const signedSerialized = serializeTransaction(txForSerialization, signature)
-
-			return (await args.publicClient.sendRawTransaction({
-				serializedTransaction: signedSerialized,
-			})) as HexString
-		},
 	}
 }

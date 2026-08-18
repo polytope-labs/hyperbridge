@@ -3,7 +3,7 @@ import { concat, formatEther, keccak256, toHex, toRlp, zeroAddress } from "viem"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { Signer } from "./wallet"
 import { hasPaymaster } from "./paymaster"
 import { UserOpSender } from "./UserOpSender"
 
@@ -31,7 +31,7 @@ export class DelegationService {
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		private signer: SigningAccount,
+		private signer: Signer,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "delegation-service")
 		this.userOpSender = new UserOpSender(clientManager, configService, signer)
@@ -102,18 +102,19 @@ export class DelegationService {
 			yParity: number
 		},
 	): Promise<HexString> {
-		const authorityAddress = this.signer.account.address
 		const walletClient = this.clientManager.getWalletClient(chain)
-		const publicClient = this.clientManager.getPublicClient(chain)
 
-		return this.signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization,
-			chainIdFallback: this.configService.getChainId(chain),
-			gasFloor: DELEGATION_TX_GAS_FLOOR,
-		})
+		// Every backend goes out the same way: viem serialises the set-code tx and
+		// asks the signer's account to sign it. A backend whose transaction API
+		// cannot express an authorization list handles that in its own account —
+		// see `createMpcVaultAccount` — not here.
+		return (await walletClient.sendTransaction({
+			to: this.signer.account.address,
+			value: 0n,
+			authorizationList: [authorization],
+			chain: walletClient.chain,
+			gas: DELEGATION_TX_GAS_FLOOR,
+		})) as HexString
 	}
 
 	/**
@@ -281,7 +282,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, authority, solverAccountContract, mode: this.signer.mode },
+				{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
 				"Setting up EIP-7702 delegation via direct tx",
 			)
 
@@ -336,7 +337,7 @@ export class DelegationService {
 
 		try {
 			this.logger.info(
-				{ chain, authority: this.signer.account.address, mode: this.signer.mode },
+				{ chain, authority: this.signer.account.address, mode: this.signer.mode ?? "custom" },
 				"Revoking EIP-7702 delegation",
 			)
 

@@ -302,7 +302,7 @@ hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 ### Signer Configuration
 
-The `[simplex.signer]` section defines how Simplex signs EVM transactions. Two modes are supported:
+The `[simplex.signer]` section defines how the binary signs EVM transactions. Three backends are supported:
 
 The signer is a tagged union — set `type` to select the variant, then add the variant's fields directly under `[simplex.signer]`:
 
@@ -343,6 +343,13 @@ signWith         = "0xYourWalletAddress"
 
 <Callout type="info">
 Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
+</Callout>
+
+<Callout type="info">
+    These three are what the config file can name. The library is not limited to them — 
+    [`Simplex.start`](/developers/sdk/simplex#signing) takes a `Signer` interface, so an HSM, a
+    remote signing service or any custody backend with a viem account works there without a config
+    entry.
 </Callout>
 
 ### Delegation & Gas Payment

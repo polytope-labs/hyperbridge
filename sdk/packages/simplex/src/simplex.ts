@@ -15,12 +15,28 @@ import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import { HyperbridgeScanner as HyperbridgeScannerImpl } from "@/scanner/hyperbridge-scanner"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
+import type { Signer } from "@/services/wallet"
 
 /** Configuration for a filler. The same shape the TOML file parses into. */
 export type SimplexConfig = FillerTomlConfig
 
 export interface SimplexOptions {
 	config: SimplexConfig
+	/**
+	 * How this solver signs — bids, UserOperations, EIP-7702 delegation and every
+	 * transaction it sends. Required unless every chain is watch-only.
+	 *
+	 * {@link Signer} is an interface, not a menu: `privateKeySigner`,
+	 * `turnkeySigner` and `mpcVaultSigner` are the implementations that ship here,
+	 * `viemSigner` adapts any viem account (a `toAccount` wrapper around an HSM or
+	 * a remote signing service included), and anything else that satisfies the
+	 * interface works the same way.
+	 *
+	 * ```ts
+	 * const simplex = await Simplex.start({ config, signer: privateKeySigner(key) })
+	 * ```
+	 */
+	signer?: Signer
 	/**
 	 * Persistence backend. Defaults to an in-process store that is lost on exit —
 	 * fine for tests and watch-only observers, but a filler that submits bids
@@ -767,6 +783,17 @@ export class Simplex extends EventEmitter {
 	 * never returned. On success the filler is already scanning.
 	 */
 	static async start(options: SimplexOptions): Promise<Simplex> {
+		// `config.simplex.signer` is the binary's TOML block, not an input to the
+		// library. Resolving it here would make the config a second, silent way to
+		// choose a key; ignoring it would start a solver on an address the caller
+		// did not expect. Say so instead.
+		if (options.config.simplex?.signer && !options.signer) {
+			throw new Error(
+				"config.simplex.signer describes a signer but none was passed. Simplex.start takes a Signer " +
+					"instance: `signer: await createSigner(config.simplex.signer)`, or build one directly with " +
+					"privateKeySigner/turnkeySigner/mpcVaultSigner/viemSigner.",
+			)
+		}
 		// This filler's own logging destination — not a process-wide one, so two
 		// fillers in a process keep their records apart.
 		const loggers = new LoggerContext({
@@ -796,6 +823,7 @@ export class Simplex extends EventEmitter {
 
 			const runtime = await bootFiller(options.config, {
 				loggers,
+				signer: options.signer,
 				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),

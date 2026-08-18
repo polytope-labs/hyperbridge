@@ -1309,8 +1309,6 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
-	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
 	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**

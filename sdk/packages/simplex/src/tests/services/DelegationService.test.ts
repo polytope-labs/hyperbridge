@@ -5,7 +5,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { DelegationService } from "@/services/DelegationService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService, type ResolvedChainConfig } from "@/services/FillerConfigService"
-import { createPrivateKeySigningAccount } from "@/services/wallet/accounts/privatekey"
+import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
 
 /**
  * Live integration test for `DelegationService.setupDelegationViaBundler` on Base mainnet.
@@ -56,7 +56,7 @@ interface DelegationServicePrivates {
 function build(bundlerUrl: string) {
 	const chainConfigs: ResolvedChainConfig[] = [{ chainId: BASE_CHAIN_ID, rpcUrls: [RPC_URL!], bundlerUrl }]
 	const configService = new FillerConfigService(chainConfigs)
-	const signer = createPrivateKeySigningAccount(PRIVATE_KEY!)
+	const signer = privateKeySigner(PRIVATE_KEY!)
 	const clientManager = new ChainClientManager(configService, signer)
 	const service = new DelegationService(clientManager, configService, signer)
 

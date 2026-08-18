@@ -15,8 +15,8 @@ import type { FillerConfigService } from "./FillerConfigService"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { LoggerContext } from "./Logger"
 import { QuorumPublicClient } from "./QuorumPublicClient"
-import type { SigningAccount } from "./wallet"
-import { createPrivateKeySigningAccount } from "./wallet/accounts/privatekey"
+import type { Signer } from "./wallet"
+import { privateKeySigner } from "./wallet/accounts/privatekey"
 
 const HTTP_TRANSPORT_OPTS = {
 	timeout: 30_000, // 30 seconds
@@ -113,7 +113,7 @@ class ViemClientFactoryImpl {
  * Manages chain clients for different operations
  */
 export class ChainClientManager {
-	private signer: SigningAccount
+	private signer: Signer
 	private configService: FillerConfigService
 	private clientFactory = new ViemClientFactoryImpl()
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
@@ -123,9 +123,9 @@ export class ChainClientManager {
 		return this.configService.loggers
 	}
 
-	constructor(configService: FillerConfigService, signer?: SigningAccount) {
+	constructor(configService: FillerConfigService, signer?: Signer) {
 		this.configService = configService
-		this.signer = signer ?? createPrivateKeySigningAccount(generatePrivateKey())
+		this.signer = signer ?? privateKeySigner(generatePrivateKey())
 	}
 
 	/**
@@ -178,7 +178,7 @@ export class ChainClientManager {
 		return this.signer.account
 	}
 
-	getSigner(): SigningAccount {
+	getSigner(): Signer {
 		return this.signer
 	}
 

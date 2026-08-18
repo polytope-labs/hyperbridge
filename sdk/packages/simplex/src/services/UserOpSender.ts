@@ -4,7 +4,7 @@ import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { Signer } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
 
@@ -94,7 +94,7 @@ export class UserOpSender {
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly configService: FillerConfigService,
-		private readonly signer: SigningAccount,
+		private readonly signer: Signer,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "userop-sender")
 	}

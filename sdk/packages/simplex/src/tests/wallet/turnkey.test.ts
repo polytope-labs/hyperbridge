@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { createTurnkeySigningAccount } from "@/services/wallet/accounts/turnkey"
+import { turnkeySigner } from "@/services/wallet/accounts/turnkey"
 import {
 	keccak256,
 	toHex,
@@ -32,17 +32,19 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
 describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 	it("should create a signing account with the correct address", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 
 		expect(signer.mode).toBe("turnkey")
 		expect(signer.account.address.toLowerCase()).toBe(config.signWith.toLowerCase())
 	})
 
+	// Not part of the Signer interface — the solver never personal-signs — but the
+	// account it is built on has to, since viem's wallet client leans on it.
 	it("should sign and verify a message", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 		const messageHash = keccak256(toHex("hello turnkey"))
 
-		const signature = await signer.signMessage(messageHash as HexString, 1)
+		const signature = await signer.account.signMessage!({ message: { raw: messageHash } })
 		expect(signature).toMatch(/^0x/)
 		expect(signature.length).toBe(132)
 
@@ -55,7 +57,7 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 	})
 
 	it("should sign a raw hash and verify recovery", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 		const hash = keccak256(toHex("test hash"))
 
 		const result = await signer.signRawHash(hash as HexString)
@@ -72,7 +74,7 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 	})
 
 	it("should delegate via EIP-7702, verify, then revoke on Sepolia", async () => {
-		const signer = await createTurnkeySigningAccount(config)
+		const signer = await turnkeySigner(config)
 		const rpcUrl = process.env.SEPOLIA!
 
 		const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
@@ -103,13 +105,12 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			yParity: authSig.yParity,
 		}
 
-		const delegateTxHash = await signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization,
-			chainIdFallback: sepolia.id,
-			gasFloor: 350_000n,
+		const delegateTxHash = await walletClient.sendTransaction({
+			to: authorityAddress,
+			value: 0n,
+			authorizationList: [authorization],
+			chain: sepolia,
+			gas: 350_000n,
 		})
 
 		const delegateReceipt = await publicClient.waitForTransactionReceipt({ hash: delegateTxHash })
@@ -138,13 +139,12 @@ describe.skipIf(!hasTurnkeyEnv)("Turnkey signer", () => {
 			yParity: revokeAuthSig.yParity,
 		}
 
-		const revokeTxHash = await signer.sendEip7702DelegationTransaction({
-			walletClient,
-			publicClient,
-			authorityAddress,
-			authorization: revokeAuthorization,
-			chainIdFallback: sepolia.id,
-			gasFloor: 350_000n,
+		const revokeTxHash = await walletClient.sendTransaction({
+			to: authorityAddress,
+			value: 0n,
+			authorizationList: [revokeAuthorization],
+			chain: sepolia,
+			gas: 350_000n,
 		})
 
 		const revokeReceipt = await publicClient.waitForTransactionReceipt({ hash: revokeTxHash })

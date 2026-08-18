@@ -3,7 +3,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { Signer } from "./wallet"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
@@ -35,7 +35,7 @@ export class PaymasterKeeperService {
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		private signer: SigningAccount,
+		private signer: Signer,
 		private config: PaymasterKeeperConfig = {},
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "paymaster-keeper")

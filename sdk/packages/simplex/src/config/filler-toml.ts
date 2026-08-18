@@ -3,7 +3,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
-import type { SignerConfig } from "@/services/wallet"
+import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
@@ -258,16 +258,15 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		)
 	}
 
-	// Private key is only required if not all chains are in watch-only mode.
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
-	// (otherwise the flag's own config would still trip the signer requirement).
+	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
 
-	const signer = config.simplex?.signer
-
-	if (!signer && !allChainsWatchOnly) {
-		throw new Error("Signer configuration is required via [simplex.signer]")
-	}
+	// A missing signer is not checked here: the signer is not part of the config a
+	// library consumer passes. `Simplex.start` takes a Signer instance and boot
+	// rejects a missing one unless every chain is watch-only. The optional TOML
+	// block below is how the binary names one, so validate it when it is present.
+	if (config.simplex?.signer) validateSignerConfig(config.simplex.signer)
 
 	if (!config.simplex?.substratePrivateKey) {
 		throw new Error("simplex.substratePrivateKey is required")

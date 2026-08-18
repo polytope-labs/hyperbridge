@@ -3,7 +3,7 @@ import { parse } from "toml"
 import { readFileSync } from "fs"
 import { resolve } from "path"
 import { assertConfirmationCoverage, validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
-import { SignerType } from "@/services/wallet"
+import { SignerType, type SignerConfig } from "@/services/wallet"
 
 const minimalConfig = (): FillerTomlConfig => ({
 	simplex: {
@@ -54,17 +54,19 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/\[\[strategies\]\] was removed/)
 	})
 
-	it("rejects a missing signer", () => {
+	// The signer is an argument to `Simplex.start`, not a config field, so its
+	// absence is boot's business. The optional TOML block is still validated when
+	// present — that is the binary's way of naming a signer.
+	it("accepts a config with no signer block", () => {
 		const config = minimalConfig()
 		config.simplex.signer = undefined
-		expect(() => validateConfig(config)).toThrow(/Signer configuration is required/)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("allows a missing signer in global watch-only mode", () => {
+	it("rejects an incomplete signer block", () => {
 		const config = minimalConfig()
-		config.simplex.signer = undefined
-		config.simplex.watchOnly = true
-		expect(() => validateConfig(config)).not.toThrow()
+		config.simplex.signer = { type: SignerType.PrivateKey } as SignerConfig
+		expect(() => validateConfig(config)).toThrow(/simplex.signer.key is required/)
 	})
 
 	it("allows a missing signer when the --watch-only flag forces watch-only", () => {

@@ -2,11 +2,12 @@
  * `@hyperbridge/simplex` — run a Hyperbridge intent filler inside your own process.
  *
  * ```ts
- * import { Simplex } from "@hyperbridge/simplex"
+ * import { Simplex, privateKeySigner } from "@hyperbridge/simplex"
  * import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
  *
  * const simplex = await Simplex.start({
  *   config,
+ *   signer: privateKeySigner(process.env.SOLVER_KEY as HexString),
  *   data: new SqliteDataStore("./simplex-data"),
  * })
  *
@@ -21,7 +22,9 @@
  * The `Simplex` instance is the whole API: it starts the filler, exposes every
  * runtime control as a namespaced controller, and emits typed events. Persistence
  * is pluggable through {@link SimplexDataStore} — the SQLite implementation is a
- * separate entry point so the default install pulls in no native modules.
+ * separate entry point so the default install pulls in no native modules. Signing
+ * is pluggable through {@link Signer}: the bundled backends implement it, and so
+ * can a custody service of your own.
  */
 
 // ─── Entry point ────────────────────────────────────────────────────────────
@@ -101,6 +104,24 @@ export type { AssetDefinition } from "@/config/asset-registry"
 export { bookCrossedAt, parseChainKey, formatChainKey } from "@/config/interpolated-curve"
 export type { PriceCurvePoint, PriceCurveConfig, CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
+// ─── Signing ────────────────────────────────────────────────────────────────
+// `Signer` is the contract, and the bundled backends are ordinary implementations
+// of it — nothing here reaches into the solver that a signer you write cannot.
+// `viemSigner` covers any custody that speaks viem, including a `toAccount`
+// wrapper around an HSM or a remote signing service.
+
+export {
+	privateKeySigner,
+	turnkeySigner,
+	mpcVaultSigner,
+	viemSigner,
+	createSigner,
+	validateSignerConfig,
+} from "@/services/wallet"
+export type { Signer } from "@/services/wallet/types"
+
+// The `[simplex.signer]` TOML block the binary reads. Only useful if you load
+// simplex config files yourself: `createSigner` turns one into a `Signer`.
 export { SignerType } from "@/services/wallet/types"
 export type {
 	SignerConfig,

@@ -23,7 +23,7 @@ import {
 } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { PaymasterKeeperService } from "@/services/PaymasterKeeperService"
-import { initializeSignerFromToml, type SigningAccount } from "@/services/wallet"
+import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
@@ -265,8 +265,12 @@ program
 			/** Starts the filler and everything the CLI layers on top of it. */
 			const startFiller = async (config: FillerTomlConfig, path: string) => {
 				dataStore = await openDataStore(options.dataDir)
+				// The TOML block is the binary's way of naming a signer; the library
+				// takes the resolved instance, so the file format stops here.
+				const signer = await signerFromToml(config.simplex?.signer)
 				simplex = await Simplex.start({
 					config,
+					signer,
 					configPath: path,
 					logger: consoleSink(),
 					data: dataStore,
@@ -295,6 +299,12 @@ program
 				const tomlContent = readFileSync(configPath, "utf-8")
 				const config = parse(tomlContent) as FillerTomlConfig
 				validateConfig(config, options.watchOnly === true)
+				// validateConfig no longer owns this rule — the signer is an argument to
+				// the library, not a config field — but the binary's users configure it
+				// in the file, so name the file here rather than let boot say it later.
+				if (!config.simplex?.signer && options.watchOnly !== true && config.simplex?.watchOnly !== true) {
+					throw new Error("Signer configuration is required via [simplex.signer]")
+				}
 
 				await startFiller(config, configPath)
 
@@ -394,9 +404,9 @@ program
 				entryPointAddress: config.simplex.entryPointAddress,
 			})
 
-			const configuredSigner = await initializeSignerFromToml(config.simplex.signer)
+			const configuredSigner = await signerFromToml(config.simplex.signer)
 			const chainClientManager = new ChainClientManager(configService, configuredSigner)
-			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
+			const runtimeSigner: Signer = chainClientManager.getSigner()
 
 			const chains = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
 			const keeper = new PaymasterKeeperService(

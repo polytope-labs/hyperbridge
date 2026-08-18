@@ -215,7 +215,7 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		const dummyHash = `0x${"ef".repeat(32)}` as HexString
 		expect(account.signMessage).toBeDefined()
 		await expect(account.signMessage!({ message: { raw: dummyHash } })).rejects.toThrow(
-			/MPCVault does not support signMessage without chain context/,
+			/MPCVault cannot sign a personal message without chain context/,
 		)
 	})
 })

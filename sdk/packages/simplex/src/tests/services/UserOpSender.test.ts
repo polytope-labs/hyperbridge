@@ -7,7 +7,7 @@ import { buildPaymasterAndData } from "@/services/paymaster"
 import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_APPROVE, POST_OP_GAS_LIMIT } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 /**
  * Regression tests for the approve-mode nonce race (#1070): building Simplex
@@ -54,7 +54,7 @@ const clientManager = {
 const signer = {
 	account: { address: SOLVER },
 	signTypedData: async () => ("0x" + "11".repeat(65)) as HexString,
-} as unknown as SigningAccount
+} as unknown as Signer
 
 const approveModePaymasterAndData = packPaymasterAndData({
 	paymaster: PAYMASTER,

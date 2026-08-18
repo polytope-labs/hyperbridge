@@ -364,9 +364,6 @@ pub struct DigestResult {
 	pub timestamp: u64,
 	/// Ismp digest
 	pub ismp_digest: ConsensusDigest,
-	/// Set when the timestamp was derived from a consensus slot rather than read from the ismp
-	/// timestamp digest, so callers can tell how much they should trust it.
-	pub timestamp_from_slot: bool,
 }
 
 /// Fetches the overlay (ismp) root and timestamp from the header digest
@@ -423,7 +420,10 @@ pub fn fetch_overlay_root_and_timestamp(
 		digest_result.timestamp = slot
 			.map(|slot| Duration::from_millis((*slot).saturating_mul(slot_duration)).as_secs())
 			.unwrap_or_default();
-		digest_result.timestamp_from_slot = digest_result.timestamp != 0;
+	}
+
+	if digest_result.timestamp == 0 {
+		Err(Error::Custom("Timestamp not found".into()))?
 	}
 
 	Ok(digest_result)

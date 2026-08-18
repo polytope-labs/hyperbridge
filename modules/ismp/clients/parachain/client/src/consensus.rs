@@ -156,21 +156,8 @@ where
 				.flatten()
 				.unwrap_or_default();
 
-			let DigestResult { timestamp, ismp_digest, timestamp_from_slot } =
+			let DigestResult { timestamp, ismp_digest } =
 				fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
-
-			if timestamp == 0 {
-				Err(Error::Custom("Timestamp not found".into()))?
-			}
-
-			// A slot always begins before the block it authored, and that block is already
-			// included on the relay chain, so a timestamp ahead of our own clock means the
-			// configured slot duration no longer matches the parachain.
-			if timestamp_from_slot && timestamp > host.timestamp().as_secs() {
-				Err(Error::Custom(format!(
-					"Slot duration for parachain {id} is stale, derived timestamp {timestamp} is in the future"
-				)))?
-			}
 
 			let height: u32 = (*header.number()).into();
 

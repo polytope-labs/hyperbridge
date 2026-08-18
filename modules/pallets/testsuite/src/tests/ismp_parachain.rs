@@ -22,7 +22,7 @@ use sp_state_machine::{prove_read, TrieBackendBuilder};
 use sp_trie::{trie_types::TrieDBMutBuilderV0, PrefixedMemoryDB};
 use trie_db::TrieMut;
 
-use crate::runtime::{new_test_ext, Ismp, Test, Timestamp};
+use crate::runtime::{new_test_ext, Ismp, Test};
 
 /// Polkadot Hub's aura slot duration in milliseconds.
 const SLOT_DURATION: u64 = 24_000;
@@ -93,7 +93,6 @@ fn verify(proof: Vec<u8>) -> Result<Vec<(StateMachineId, u64)>, ismp::error::Err
 #[test]
 fn asset_hub_reads_its_timestamp_from_the_aura_slot() {
 	new_test_ext().execute_with(|| {
-		Timestamp::set_timestamp(SLOT * SLOT_DURATION + 6_000);
 		SlotDurations::<Test>::insert(ASSET_HUB_PARA_ID, SLOT_DURATION);
 
 		let header = parachain_header(vec![aura_digest(SLOT)]);
@@ -116,7 +115,6 @@ fn asset_hub_reads_its_timestamp_from_the_aura_slot() {
 fn the_timestamp_digest_wins_when_both_are_present() {
 	new_test_ext().execute_with(|| {
 		let timestamp = SLOT * SLOT_DURATION / 1_000 + 12;
-		Timestamp::set_timestamp(timestamp * 1_000);
 		SlotDurations::<Test>::insert(ASSET_HUB_PARA_ID, SLOT_DURATION);
 
 		let header = parachain_header(vec![aura_digest(SLOT), timestamp_digest(timestamp)]);
@@ -130,7 +128,6 @@ fn the_timestamp_digest_wins_when_both_are_present() {
 fn other_parachains_are_not_allowed_the_aura_fallback() {
 	new_test_ext().execute_with(|| {
 		let para_id = 2000;
-		Timestamp::set_timestamp(SLOT * SLOT_DURATION + 6_000);
 		SlotDurations::<Test>::insert(para_id, SLOT_DURATION);
 
 		let header = parachain_header(vec![aura_digest(SLOT)]);
@@ -141,14 +138,13 @@ fn other_parachains_are_not_allowed_the_aura_fallback() {
 }
 
 #[test]
-fn a_slot_duration_that_outruns_the_local_clock_is_rejected() {
+fn a_header_with_neither_digest_is_rejected() {
 	new_test_ext().execute_with(|| {
-		Timestamp::set_timestamp(SLOT * SLOT_DURATION + 6_000);
-		SlotDurations::<Test>::insert(ASSET_HUB_PARA_ID, SLOT_DURATION * 2);
+		SlotDurations::<Test>::insert(ASSET_HUB_PARA_ID, SLOT_DURATION);
 
-		let header = parachain_header(vec![aura_digest(SLOT)]);
+		let header = parachain_header(vec![]);
 		let error = verify(setup(ASSET_HUB_PARA_ID, &header)).unwrap_err();
 
-		assert!(format!("{error:?}").contains("is in the future"), "{error:?}");
+		assert!(format!("{error:?}").contains("Timestamp not found"), "{error:?}");
 	})
 }

@@ -7,7 +7,7 @@ import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
-import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
+import { validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
@@ -295,7 +295,13 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 	const chainIds = Array.isArray(body.chainIds) ? body.chainIds.map(Number).filter(Number.isFinite) : []
 	if (!config || typeof config !== "object") return { ok: false, error: "Missing config object" }
 	try {
-		validateSignerConfig(config.simplex?.signer as SignerConfig)
+		// The same rule `run` applies: a signer block is required unless the config
+		// is globally watch-only, and a present block is validated for completeness.
+		if (config.simplex?.signer) {
+			validateSignerConfig(config.simplex.signer)
+		} else if (config.simplex?.watchOnly !== true) {
+			throw new Error("Signer configuration is required via [simplex.signer]")
+		}
 		for (const chain of config.chains ?? []) validateRpcUrls(chain.rpcUrls)
 		validateConfig(config)
 		if (chainIds.length > 0 && config.pairs?.length) {

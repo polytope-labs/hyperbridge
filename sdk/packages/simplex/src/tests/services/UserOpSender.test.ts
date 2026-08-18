@@ -52,7 +52,7 @@ const clientManager = {
 } as unknown as ChainClientManager
 
 const signer = {
-	account: { address: SOLVER },
+	address: SOLVER,
 	signTypedData: async () => ("0x" + "11".repeat(65)) as HexString,
 } as unknown as Signer
 
@@ -128,7 +128,11 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 		// nonce (1) — a pre-signed tuple would carry the stale 0 and be rejected.
 		const send = bundlerCalls.find((c) => c.method === "eth_sendUserOperation")
 		expect(send).toBeDefined()
-		const [op] = send!.params as [{ eip7702Auth?: { nonce: string } }]
+		const [op] = send!.params as [{ sender?: string; eip7702Auth?: { nonce: string } }]
+		// The op must be attributed to the signer's address — this is what the
+		// signer-interface migration changed (`signer.address`, was
+		// `signer.account.address`), and a stale stub let it go out undefined.
+		expect(op.sender).toBe(SOLVER)
 		expect(op.eip7702Auth?.nonce).toBe(toHex(1))
 	})
 

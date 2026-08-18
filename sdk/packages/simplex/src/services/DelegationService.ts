@@ -69,6 +69,15 @@ export class DelegationService {
 			contractAddress,
 			nonce: Number(authorizationNonce),
 		})
+		// EIP-7702 skips an invalid tuple without reverting — the receipt reads
+		// success while the account stays undelegated — so an out-of-range parity
+		// from a custom signer must fail here, loudly, not on-chain, silently.
+		if (yParity !== 0 && yParity !== 1) {
+			throw new Error(
+				`Signer returned yParity ${yParity} for the EIP-7702 authorization; expected 0 or 1 ` +
+					"(a backend returning the legacy v should subtract 27)",
+			)
+		}
 
 		return {
 			chainId,

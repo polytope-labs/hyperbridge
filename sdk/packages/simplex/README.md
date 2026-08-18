@@ -18,7 +18,7 @@ import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
 
 const simplex = await Simplex.start({
     config,
-    signer: privateKeySigner(process.env.SOLVER_KEY),
+    signer: privateKeySigner(process.env.SOLVER_KEY as `0x${string}`),
     data: new SqliteDataStore("./simplex-data"),
 })
 

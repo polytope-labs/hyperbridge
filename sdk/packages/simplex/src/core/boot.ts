@@ -87,6 +87,13 @@ export interface FillerRuntime {
 	 * what lets a chain added later inherit it instead of quietly filling.
 	 */
 	globalWatchOnly: boolean
+	/**
+	 * True when this filler was started without a signer — a watch-only observer
+	 * running on a throwaway key. The chain controller refuses to take a chain
+	 * out of watch-only while this is set: the generated key holds no funds and
+	 * dies with the process, so "filling" from it can only burn bids.
+	 */
+	signerless: boolean
 	/** The live confirmation policy the engine prices with; runtime chain adds install into it. */
 	confirmationPolicy?: ConfirmationPolicy
 	/** This filler's logging destination. */
@@ -119,8 +126,12 @@ export interface FillerRuntime {
 	shutdown(signal: string): Promise<void>
 }
 
-/** True when every resolved chain is marked watch-only, so nothing ever needs signing. */
-function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefined, chains: ResolvedChainConfig[]): boolean {
+/**
+ * True when every resolved chain is marked watch-only, so nothing ever needs
+ * signing. Exported for its tests: this is the exemption that admits a
+ * signerless boot, and a bug here puts a throwaway key to work filling.
+ */
+export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefined, chains: ResolvedChainConfig[]): boolean {
 	if (!watchOnly) return false
 	return chains.every((chain) => watchOnly[chain.chainId] === true)
 }
@@ -643,6 +654,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		chainClientManager,
 		orderScanner: options.scanners.orders,
 		globalWatchOnly,
+		signerless: !options.signer,
 		confirmationPolicy,
 		loggers: options.loggers,
 		assetRegistry,

@@ -79,13 +79,30 @@ export function digestSigner(opts: {
 	mode: string
 	sign(hash: HexString): Promise<Signature>
 }): Signer {
+	// Guard the backend's signature once, for every operation. Most HSM/KMS docs
+	// hand back the pre-EIP-1559 v (27/28), and viem encodes any truthy yParity
+	// as parity 1 when serialising — so an unguarded 27 yields signatures that
+	// recover to a stranger. For EIP-7702 that failure is silent: an invalid
+	// authorization is skipped without reverting, the receipt reads success, and
+	// the solver runs undelegated.
+	const sign = async (hash: HexString): Promise<Signature> => {
+		const signature = await opts.sign(hash)
+		if (signature.yParity !== 0 && signature.yParity !== 1) {
+			throw new Error(
+				`digestSigner: sign() returned yParity ${signature.yParity}; expected 0 or 1 ` +
+					"(a backend returning the legacy v should subtract 27)",
+			)
+		}
+		return signature
+	}
+
 	return {
 		address: opts.address,
 		mode: opts.mode,
 		signTypedData: async (typedData: TypedDataPayload) =>
-			serializeSignature(await opts.sign(hashTypedData(typedData as never) as HexString)) as HexString,
+			serializeSignature(await sign(hashTypedData(typedData as never) as HexString)) as HexString,
 		signAuthorization: (auth: AuthorizationRequest) =>
-			opts.sign(
+			sign(
 				hashAuthorization({
 					address: auth.contractAddress,
 					chainId: auth.chainId,
@@ -94,7 +111,7 @@ export function digestSigner(opts: {
 			),
 		signTransaction: async (tx: SignerTransaction) => {
 			const serializable = tx as unknown as TransactionSerializable
-			const signature = await opts.sign(keccak256(serializeTransaction(serializable)) as HexString)
+			const signature = await sign(keccak256(serializeTransaction(serializable)) as HexString)
 			return serializeTransaction(serializable, signature) as HexString
 		},
 	}

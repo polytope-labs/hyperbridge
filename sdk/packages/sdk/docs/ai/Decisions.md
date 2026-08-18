@@ -6,6 +6,8 @@ Entry format: heading with the decision, then alternatives considered and the re
 
 ## 2026-08-18 — `SigningAccount` describes only what the SDK calls
 
+(Amended the same day: `signRawHash` was removed in a follow-up commit; see the closing paragraph.)
+
 Chosen: drop `signMessage` from `SigningAccount`, leaving `signRawHash` and `signTypedData`.
 
 Alternative considered: leaving it in place, since removing a member from a published interface is a public API change.
@@ -14,4 +16,4 @@ Why: the interface exists so a caller can hand the SDK a signing backend, and ev
 
 `signTypedData`'s `chainId` parameter went for a sharper reason than disuse: it is redundant with EIP-712 itself. The digest covers `domain.chainId`, `BidManager` built payloads that always set it, and the one downstream implementation that needed a chain id (MPCVault, for its request envelope) could read it from the payload — and defaulted the argument to `1` when absent, which is a bad failure mode for a signature.
 
-`signRawHash` stays despite also being uncalled here: it is genuinely part of what a solver signer must provide (simplex signs the EIP-7702 authorization digest with it), so the interface still describes something real.
+`signRawHash` went the same day, in the follow-up that made `signAuthorization` and `signTransaction` required members of simplex's `Signer`: once those are guaranteed, nothing in either package computes an authorization digest for the signer to raw-sign, and keeping the member would have recreated the `signMessage` situation. `SigningAccount` is down to the one method this package invokes — `signTypedData`.

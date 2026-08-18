@@ -404,7 +404,7 @@ function makeFiller(pairs: TradingPair[]) {
 		CNGN: { [CHAIN]: CNGN },
 		ZARP: { [CHAIN]: ZARP },
 	})
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
 }
 
@@ -537,7 +537,7 @@ describe("FXFiller pairs engine", () => {
 			{ token0: "USDC", token1: "USDC", maxOrderSize: size("10000"), askPricePolicy: flat("0.995") },
 		]
 		const registry = new AssetRegistry(configService)
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(signer, configService, {} as any, contractService, pairs, registry)
 
 		const order = {
@@ -579,7 +579,7 @@ describe("FXFiller pairs engine", () => {
 			getMaxConsecutiveClamps: () => 3,
 		} as any
 		const registry = new AssetRegistry(configService, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(
 			signer,
 			configService,
@@ -600,7 +600,7 @@ describe("FXFiller pairs engine", () => {
 
 	it("rejects duplicate and reverse-duplicate engine pairs", () => {
 		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const build = (pairs: TradingPair[]) =>
 			new FXFiller(
 				signer,
@@ -620,7 +620,7 @@ describe("FXFiller pairs engine", () => {
 
 	it("rejects same-token engine pairs with a bid policy or above-par prices", () => {
 		const registry = new AssetRegistry(resolver as any)
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const build = (pair: TradingPair) =>
 			new FXFiller(signer, { getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any, {} as any, makeContractService(), [pair], registry)
 
@@ -678,7 +678,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
 	} as any
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 	const usdcUsdc = (): TradingPair[] => [
 		{ token0: "USDC", token1: "USDC", maxOrderSize: size("100000"), askPricePolicy: flat("0.999") },
 	]
@@ -728,7 +728,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
 	} as any
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 
 	const decimalsByAddr: Record<string, number> = {
 		[USDC.toLowerCase()]: 6,

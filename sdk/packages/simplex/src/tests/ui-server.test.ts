@@ -341,6 +341,11 @@ describe("UiServer (operator mode)", () => {
 		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
 		expect(written.pairs?.[1]?.askPriceCurve).toEqual(newAsk)
 		expect(written.pairs?.[1]?.bidPriceCurve).toEqual(BID_POINTS)
+		// ...and the signer block rode along. The library's config type does not
+		// declare it, so a regression in persistConfig/emitFillerToml would delete
+		// the operator's signer from disk on an unrelated edit — the exact hazard
+		// the FillerConfigFile split was designed around.
+		expect(written.simplex.signer).toEqual(fakeConfig().simplex.signer)
 	})
 
 	it("rejects same-token ask prices at or above par, judged against the live invariants", async () => {

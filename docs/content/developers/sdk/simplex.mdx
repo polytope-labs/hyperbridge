@@ -184,7 +184,10 @@ import { digestSigner } from "@hyperbridge/simplex"
 const signer = digestSigner({
     address: await hsm.address(),
     mode: "hsm",
-    sign: (hash) => hsm.sign(hash),
+    // Must resolve to { r, s, yParity } with yParity 0 or 1 — split a 65-byte
+    // hex signature with viem's parseSignature. A backend handing back the
+    // legacy v (27/28) is rejected rather than mis-encoded.
+    sign: async (hash) => parseSignature(await hsm.sign(hash)),
 })
 ```
 

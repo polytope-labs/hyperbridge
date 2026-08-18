@@ -24,21 +24,11 @@ Why the throw won: (a) leaves two ways to choose the key that owns the solver's 
 
 ## 2026-08-18 — The signer requirement moved from `validateConfig` to boot
 
-Chosen: `validateConfig` no longer requires `[simplex.signer]`; it validates the block only when present. `bootFiller` rejects a missing `options.signer` unless every resolved chain is watch-only, and the CLI keeps its own `[simplex.signer]`-worded check so a file-driven run still fails at parse time with a file-oriented message.
+Chosen: `validateConfig` neither requires the `[simplex.signer]` block nor looks at it — the block is not part of the config type it validates. A present block is validated where it is consumed: `signerFromToml` on the binary path, the wizard's write step, and the setup API's gate (which also mirrors run's watch-only exemption for an absent block). `bootFiller` rejects a missing `options.signer` unless every resolved chain is watch-only, and the CLI keeps its own `[simplex.signer]`-worded check so a file-driven run still fails at parse time with a file-oriented message.
 
 Alternative considered: keeping the check in `validateConfig` and passing a "a signer was supplied" flag through it.
 
 Why: `validateConfig` is exported for consumers to gate a config before starting, and boot calls the same function — leaving the rule there would have made every library consumer's valid config throw, since the signer is no longer in it. Threading a flag through would keep a config validator asking about an argument that is not config. The duplicated CLI check is deliberate: it costs three lines and preserves the error the binary's users already know.
-
-## 2026-08-18 — `Signer` carries no viem types; `accountFor` bridges to viem inside the package
-
-Chosen: `Signer` is `address` + `signTypedData` + `signRawHash`, with optional `mode`, `signAuthorization` and `signTransaction`. `accountFor(signer)` (`services/wallet/account.ts`) builds the viem `LocalAccount` wallet clients run on, and `ChainClientManager` derives it once.
-
-Alternatives considered: keeping `account: LocalAccount` on the interface (what the first cut did); going the other way and making `Signer` *be* a viem `LocalAccount`, deleting the abstraction entirely.
-
-Why: the `account` field was the expensive viem type on the published surface — `types.ts` used to carry a warning that consumers must keep viem on this workspace's version or the field would not typecheck, because a `LocalAccount` from a different viem resolves to a different type. Removing it means implementing a signer needs no viem at all. The package's `dist/index.d.ts` still imports viem, for `viemSigner`'s parameter and for the scanner and client-manager surfaces (`PublicClient`, `WalletClient`, `QuorumPublicClient`), which were viem-typed before this change and are unaffected by it; the point is that the signing contract is not among them. Going the other way (Signer = LocalAccount) would have deleted more code, but it pins consumers to viem's account shape permanently and drags `publicKey` — required by `LocalAccount`, never set by viem's own `toAccount` — into every hand-written implementation.
-
-The cost is that we own `TypedDataPayload`, `Signature`, `SignerTransaction` and `Eip7702Authorization`. Three of those are spec shapes that do not move. `SignerTransaction` does move, and is the one to watch: it models the EIP-1559 and EIP-7702 fields simplex actually sends, and `toSignerTransaction` maps viem's prepared request onto it. A backend implementing `signTransaction` sees only those fields; anything viem adds later that we do not model is invisible to it, while the digest path (no `signTransaction`) keeps signing viem's full serialisation and is unaffected.
 
 ## 2026-08-18 — EIP-712 payloads must list `EIP712Domain` in `types`
 
@@ -56,6 +46,16 @@ Why: with the structural methods optional, the interface said two contradictory 
 
 Note what required-ness deleted: with both structural methods guaranteed, `signRawHash` had no caller left — not in `DelegationService`, not in `accountFor`, not in the sdk (which never called it). Keeping it "optional" would have re-created the `signMessage` situation: a member on the published interface that nothing invokes. It is removed from `SigningAccount` in the sdk too, leaving that interface with the one method the sdk actually calls.
 
+## 2026-08-18 — `Signer` carries no viem types; `accountFor` bridges to viem inside the package
+
+Chosen: no viem type anywhere on `Signer`. (This pass first shipped `address` + `signTypedData` + `signRawHash` with the rest optional; the entry above tightened that to the final all-required shape and deleted `signRawHash` — the viem-free property is what this entry decided, and it survived unchanged.) `accountFor(signer)` (`services/wallet/account.ts`) builds the viem `LocalAccount` wallet clients run on, and `ChainClientManager` derives it once.
+
+Alternatives considered: keeping `account: LocalAccount` on the interface (what the first cut did); going the other way and making `Signer` *be* a viem `LocalAccount`, deleting the abstraction entirely.
+
+Why: the `account` field was the expensive viem type on the published surface — `types.ts` used to carry a warning that consumers must keep viem on this workspace's version or the field would not typecheck, because a `LocalAccount` from a different viem resolves to a different type. Removing it means implementing a signer needs no viem at all. The package's `dist/index.d.ts` still imports viem, for `viemSigner`'s parameter and for the scanner and client-manager surfaces (`PublicClient`, `WalletClient`, `QuorumPublicClient`), which were viem-typed before this change and are unaffected by it; the point is that the signing contract is not among them. Going the other way (Signer = LocalAccount) would have deleted more code, but it pins consumers to viem's account shape permanently and drags `publicKey` — required by `LocalAccount`, never set by viem's own `toAccount` — into every hand-written implementation.
+
+The cost is that we own `TypedDataPayload`, `Signature`, `SignerTransaction` and `Eip7702Authorization`. Three of those are spec shapes that do not move. `SignerTransaction` does move, and is the one to watch: it models the EIP-1559 and EIP-7702 fields simplex actually sends, and `toSignerTransaction` maps viem's prepared request onto it. Every backend sees only those fields: `accountFor` narrows viem's prepared request through `toSignerTransaction` before any signer — `digestSigner` included — touches it, so a field we do not model is invisible to all of them, and widening `SignerTransaction` is the deliberate act that admits it.
+
 ## 2026-08-18 — `signMessage` and the `chainId` argument dropped, in both packages
 
 Chosen: neither `Signer` nor the sdk's `SigningAccount` declares `signMessage`, and `signTypedData` takes the payload alone.
@@ -66,18 +66,19 @@ Why: nothing called `signMessage`. Bids are signed as EIP-712 UserOperations thr
 
 Removing both from the sdk is safe in the direction that matters: type narrowing breaks callers of the removed member, and there are none. `Signer` no longer extends `SigningAccount` (the payload types differ in variance); `sdkSigningAccount(signer)` adapts at the two call sites that hand a signer to the sdk.
 
-## 2026-08-18 — `viemSigner` rejects an account with no `sign` at construction
+## 2026-08-18 — `viemSigner` derives `signAuthorization`, and rejects only an account that can neither authorize nor sign digests
 
-Chosen: throw when building a signer from a viem account that cannot sign raw digests, instead of failing when the delegation path first calls it.
+Chosen: viem makes `signAuthorization` optional on an account; the interface does not. The adapter uses the account's own when present (private keys, Turnkey), falls back to hashing the tuple and signing it with `sign`, and throws at construction when the account has neither.
 
-Alternative considered: leave `signRawHash` throwing lazily, so a watch-only or non-delegating deployment could still use such an account.
+Alternative considered: failing lazily at the first delegation attempt.
 
-Why: solver selection is the only fill path simplex uses, and it requires an EIP-7702 delegation signed with a raw digest. An account that cannot produce one yields a solver that boots, scans, and fails at its first delegation attempt — a failure separated from its cause by everything in between. Watch-only solvers do not build a signer at all (boot stands a throwaway key in), so nothing legitimate is blocked by failing early.
+Why: solver selection is the only fill path simplex uses, and it requires a signed EIP-7702 authorization. An account that cannot produce one yields a solver that boots, scans, and fails at its first delegation — a failure separated from its cause by everything in between. Watch-only solvers do not build a signer at all (boot stands a throwaway key in), so nothing legitimate is blocked by failing early.
 
-## 2026-08-18 — `mode` is a free-form optional string, not a union of the shipped backends
+## 2026-08-18 — `mode` is a required free-form string, not a union of the shipped backends
 
-Chosen: `Signer.mode?: string`, defaulting to `"custom"` where it is logged.
+Chosen: `Signer.mode: string`. Free-form — the union it replaced made every custom signer misreport itself as one of three backends it is not — and required, since the final interface pass made every member required: a label costs an implementer one string and buys every log line a real backend name instead of `"custom"`.
 
-Alternative considered: keeping `mode: "privateKey" | "mpcVault" | "turnkey"`.
+Alternative considered: keeping `mode: "privateKey" | "mpcVault" | "turnkey"`, or leaving it optional with a `"custom"` default.
 
-Why: the union made every custom signer misreport itself as one of three backends it is not, and the field is only ever read for logs (`DelegationService`, and the boot-time "EVM signing strategy" line). A label with no behaviour attached should not be a closed set.
+Why: the field is only ever read for logs (`DelegationService`, and the boot-time "EVM signing strategy" line). A label with no behaviour attached should not be a closed set, and a fleet running several backends wants each one named.
+

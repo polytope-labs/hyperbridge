@@ -429,10 +429,20 @@ export class ChainController {
 				)
 			}
 
+			// A solver started without a signer holds only a throwaway key: it can
+			// observe a new chain, never fill on one.
+			if (this.runtime.signerless && chain.watchOnly === false) {
+				throw new Error(
+					`Chain ${chainId} cannot be added as filling: this solver was started without a signer. ` +
+						"Restart with `signer` to fill.",
+				)
+			}
+
 			configService.addChain(resolved)
 			// A filler the operator put in watch-only must not start filling on a chain
-			// added later. `chain.watchOnly` still wins when given explicitly.
-			const watchOnly = chain.watchOnly ?? this.runtime.globalWatchOnly
+			// added later, and a signerless observer never fills at all.
+			// `chain.watchOnly` still wins when given explicitly (checked above).
+			const watchOnly = chain.watchOnly ?? (this.runtime.signerless || this.runtime.globalWatchOnly)
 			if (watchOnly) intentFiller.setWatchOnly(chainId, true)
 
 			try {
@@ -568,6 +578,13 @@ export class ChainController {
 	/** Monitor without filling. Takes effect on the next order. */
 	async setWatchOnly(chainId: number, watchOnly: boolean): Promise<void> {
 		return this.serialise(async () => {
+			// Boot admits a signerless start only because every chain is watch-only;
+			// letting this call undo that would put a throwaway key to work filling.
+			if (!watchOnly && this.runtime.signerless) {
+				throw new Error(
+					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
+				)
+			}
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()
 			await this.persist()

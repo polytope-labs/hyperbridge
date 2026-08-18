@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest"
-import { keccak256, recoverAddress, recoverTypedDataAddress, serializeTransaction } from "viem"
+import {
+	concat,
+	keccak256,
+	parseTransaction,
+	recoverAddress,
+	recoverTransactionAddress,
+	recoverTypedDataAddress,
+	toHex,
+	toRlp,
+} from "viem"
 import { hashAuthorization } from "viem/utils"
 import { privateKeyToAccount, toAccount } from "viem/accounts"
 import type { HexString } from "@hyperbridge/sdk"
@@ -20,10 +29,21 @@ import type { SimplexConfig } from "@/simplex"
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString
 const account = privateKeyToAccount(KEY)
 
+// `EIP712Domain` is listed deliberately: viem ignores it when hashing locally,
+// but remote-hashing backends (MPCVault, Turnkey) derive the domain type from
+// it — this payload doubles as the conformance fixture, so it must model the
+// contract the docs pin, not just what a local signer tolerates.
 const TYPED_DATA = {
-	domain: { name: "Simplex", version: "1", chainId: 1 },
-	types: { Bid: [{ name: "amount", type: "uint256" }] },
+	types: {
+		EIP712Domain: [
+			{ name: "name", type: "string" },
+			{ name: "version", type: "string" },
+			{ name: "chainId", type: "uint256" },
+		],
+		Bid: [{ name: "amount", type: "uint256" }],
+	},
 	primaryType: "Bid",
+	domain: { name: "Simplex", version: "1", chainId: 1 },
 	message: { amount: 1n },
 } satisfies TypedDataPayload
 
@@ -53,11 +73,13 @@ async function assertSignsForItsAddress(signer: Signer) {
 	})
 	expect(authSigner.toLowerCase()).toBe(signer.address.toLowerCase())
 
+	// Non-zero value on purpose: RLP encodes 0 as empty bytes and viem parses it
+	// back as undefined, so a zero here would assert nothing about the field.
 	const tx = {
 		chainId: 1,
 		type: "eip1559" as const,
 		to: signer.address,
-		value: 0n,
+		value: 1_000n,
 		gas: 21_000n,
 		maxFeePerGas: 1_000_000_000n,
 		maxPriorityFeePerGas: 1n,
@@ -65,10 +87,16 @@ async function assertSignsForItsAddress(signer: Signer) {
 	}
 	const serialized = await signer.signTransaction(tx)
 	expect(serialized.startsWith("0x02")).toBe(true)
-	// The signature has to cover the transaction it came back attached to.
-	const unsignedHash = keccak256(serializeTransaction(tx as never))
-	expect(serialized).not.toBe(serializeTransaction(tx as never))
-	expect(unsignedHash).toMatch(/^0x[0-9a-f]{64}$/)
+	// The signed bytes must carry the transaction we asked for...
+	const parsed = parseTransaction(serialized as never)
+	expect(parsed.chainId).toBe(tx.chainId)
+	expect(parsed.nonce).toBe(tx.nonce)
+	expect(parsed.to?.toLowerCase()).toBe(tx.to.toLowerCase())
+	expect(parsed.value).toBe(tx.value)
+	// ...and the signature must cover exactly those bytes: recovery over the
+	// signed transaction, not a shape check on it.
+	const txSigner = await recoverTransactionAddress({ serializedTransaction: serialized as never })
+	expect(txSigner.toLowerCase()).toBe(signer.address.toLowerCase())
 }
 
 describe("Signer implementations", () => {
@@ -131,6 +159,43 @@ describe("Signer implementations", () => {
 		await assertSignsForItsAddress(signer)
 		// typed data, authorization, transaction — one digest each.
 		expect(hashes).toHaveLength(3)
+	})
+
+	// Independent oracle: the EIP-7702 preimage built by hand from the spec, not
+	// via viem's hashAuthorization — sign and verify must not share their hasher,
+	// or a wrong-preimage bug in the shared function passes silently. This
+	// construction is the one the base branch validated on-chain.
+	it("signAuthorization signs keccak256(0x05 ‖ rlp([chainId, address, nonce]))", async () => {
+		const signer = privateKeySigner(KEY)
+		const { r, s, yParity } = await signer.signAuthorization({ chainId: 1, contractAddress: DELEGATE, nonce: 7 })
+		const manualPreimage = keccak256(concat(["0x05", toRlp([toHex(1), DELEGATE, toHex(7)])]))
+		const recovered = await recoverAddress({
+			hash: manualPreimage,
+			signature: { r, s, v: BigInt(yParity) + 27n },
+		})
+		expect(recovered.toLowerCase()).toBe(account.address.toLowerCase())
+	})
+
+	// Most HSM docs return the legacy v (27/28). viem serialises any truthy
+	// yParity as parity 1, and EIP-7702 skips an invalid tuple without
+	// reverting — so this must fail at the signer, loudly, not on-chain, silently.
+	it("digestSigner rejects a backend that returns the legacy v as yParity", async () => {
+		const signer = digestSigner({
+			address: account.address as HexString,
+			mode: "hsm",
+			sign: async (hash) => {
+				const sig = split(await account.sign({ hash }))
+				return { ...sig, yParity: sig.yParity + 27 }
+			},
+		})
+		await expect(signer.signAuthorization({ chainId: 1, contractAddress: DELEGATE, nonce: 7 })).rejects.toThrow(
+			/yParity 2[78]/,
+		)
+		await expect(
+			signer.signTransaction({ chainId: 1, to: account.address, value: 0n, maxFeePerGas: 1n, gas: 21_000n }),
+		).rejects.toThrow(
+			/yParity 2[78]/,
+		)
 	})
 
 	// A signer is an ordinary object: wrap one and the solver is none the wiser.

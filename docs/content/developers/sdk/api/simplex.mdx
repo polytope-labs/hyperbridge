@@ -412,6 +412,12 @@ Monitor without filling. Takes effect on the next order.
 setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
 ```
 
+On a solver started without a `signer`, `setWatchOnly(chainId, false)` throws — and `add` defaults a
+new chain to watch-only, rejecting an explicit `watchOnly: false`. A signerless start runs on a
+generated throwaway key that holds no funds and dies with the process, so watch-only is a one-way
+door there: filling would burn bids from an address nobody controls.
+
+
 ## VaultController
 
 `simplex.vaults`. ERC-4626 treasury vaults the solver sources fills from and sweeps idle balance into.
@@ -531,7 +537,7 @@ A solver needs a signer unless every chain is watch-only.
 | `turnkeySigner(config)` | `(config: TurnkeySignerConfig) => Promise<Signer>` | Turnkey signs transactions and EIP-7702 authorizations through its own structured encodings, so its policy engine sees both |
 | `mpcVaultSigner(config)` | `(config: MpcVaultSignerConfig) => Signer` | Signs transactions through the vault API; hashes the authorization tuple itself, and serialises set-code transactions, since the structured request carries no authorization list |
 | `viemSigner(account)` | `(account: LocalAccount) => Signer` | Adapts any viem local account. Falls back to `sign` for authorizations when the account has no `signAuthorization`; throws if it has neither, since the solver could then never delegate |
-| `digestSigner(opts)` | `({ address, mode, sign }) => Signer` | Builds a signer from a backend that only signs 32-byte digests. Does the EIP-712 hashing, EIP-7702 authorization hashing and transaction serialising for you |
+| `digestSigner(opts)` | `({ address, mode, sign }) => Signer` | Builds a signer from a backend that only signs 32-byte digests. `sign(hash)` must return the split `Signature` — `{ r, s, yParity }` with `yParity` 0 or 1, not the 65-byte hex most HSM APIs hand back (split one with viem's `parseSignature`). Does the EIP-712 hashing, EIP-7702 authorization hashing and transaction serialising for you, and rejects an out-of-range `yParity` rather than letting a legacy `v` produce signatures that recover to a stranger |
 | `createSigner(config)` | `(config: SignerConfig) => Promise<Signer>` | Builds the signer a `[simplex.signer]` TOML block describes. The block is typed on `FillerConfigFile`, not `SimplexConfig` |
 | `validateSignerConfig(config)` | `(config: SignerConfig) => void` | Throws on an incomplete TOML block |
 
@@ -543,7 +549,10 @@ import { digestSigner } from "@hyperbridge/simplex"
 const signer = digestSigner({
     address: await hsm.address(),
     mode: "hsm",
-    sign: (hash) => hsm.sign(hash),
+    // Must resolve to { r, s, yParity } with yParity 0 or 1 — split a 65-byte
+    // hex signature with viem's parseSignature. A backend handing back the
+    // legacy v (27/28) is rejected rather than mis-encoded.
+    sign: async (hash) => parseSignature(await hsm.sign(hash)),
 })
 ```
 

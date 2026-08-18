@@ -35,8 +35,8 @@ static async start(options: SimplexOptions): Promise<Simplex>
 
 | Name | Type | Description |
 |------|------|-------------|
-| `options.config` | `SimplexConfig` | The solver configuration. Same shape the binary's `filler-config.toml` parses into. `simplex.blockScanIntervalSeconds` sets the scan rate of a scanner the solver builds; one passed via `orderScanner` keeps its own |
-| `options.signer` | `Signer` | Optional. How the solver signs — bids, UserOperations, EIP-7702 delegation and every transaction it sends. Required unless every chain is watch-only. Passing a config with a `simplex.signer` block but no `signer` throws |
+| `options.config` | `SimplexConfig` | The solver configuration. The shape the binary's `filler-config.toml` parses into, minus `[simplex.signer]` — that block belongs to `FillerConfigFile` and is resolved into `options.signer`. `simplex.blockScanIntervalSeconds` sets the scan rate of a scanner the solver builds; one passed via `orderScanner` keeps its own |
+| `options.signer` | `Signer` | Optional. How the solver signs — bids, UserOperations, EIP-7702 delegation and every transaction it sends. Required unless every chain is watch-only. Passing a parsed config *file* that carries a `simplex.signer` block, with no `signer`, throws |
 | `options.data` | `SimplexDataStore` | Optional. Persistence backend. Defaults to `MemoryDataStore`, which is lost on exit |
 | `options.configPath` | `string` | Optional. Where the config was loaded from. Informational — it is surfaced in logs and to the bundled dashboard. The library never writes it; use `onConfigChange` to persist runtime edits |
 | `options.watchOnly` | `boolean` | Optional. Forces watch-only on every chain, whatever the config says |
@@ -519,7 +519,7 @@ has no field for an authorization list.
 | `turnkeySigner(config)` | `(config: TurnkeySignerConfig) => Promise<Signer>` | Signs the EIP-7702 authorization through Turnkey's structured encoding, so its policy engine sees the tuple |
 | `mpcVaultSigner(config)` | `(config: MpcVaultSignerConfig) => Signer` | Signs through MPCVault's ceremony; its viem account serialises and raw-signs set-code transactions, which the vault's structured send cannot carry |
 | `viemSigner(account)` | `(account: LocalAccount) => Signer` | Derives the interface from any viem local account. Throws if the account has no `sign` (raw digest signing), since EIP-7702 delegation needs it |
-| `createSigner(config)` | `(config: SignerConfig) => Promise<Signer>` | Builds the signer a `[simplex.signer]` TOML block describes |
+| `createSigner(config)` | `(config: SignerConfig) => Promise<Signer>` | Builds the signer a `[simplex.signer]` TOML block describes. The block is typed on `FillerConfigFile`, not `SimplexConfig` |
 | `validateSignerConfig(config)` | `(config: SignerConfig) => void` | Throws on an incomplete TOML block |
 
 **Example — a remote signing service:**
@@ -864,7 +864,8 @@ Exported from `@hyperbridge/simplex`:
 `SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `PairView`, `ChainView`,
 `ChainInput`, `PairConfig`, `AssetDefinition`, `PriceCurvePoint`, `PriceCurveConfig`, `CurvePoint`,
 `CurveConfig`, `ChainConfirmationPolicy`, `QueueConfig`, `RebalancingConfig`, `BinanceConfig`,
-`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `Signer`, `SignerConfig`, `SignerType`,
+`VaultToml`, `VaultTomlConfig`, `UniswapV4PositionToml`, `FillerConfigFile`, `Signer`, `SignerConfig`,
+`SignerType`,
 `PrivateKeySignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`, `AllowlistConfig`,
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `ChainBalanceRow`,
 `HyperbridgeBalance`, `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`,

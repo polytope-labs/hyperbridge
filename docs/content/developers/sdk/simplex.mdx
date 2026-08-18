@@ -76,9 +76,10 @@ Stop it with `await simplex.stop()` — idempotent, drains in-flight fills, unwi
 marked `redeemOnShutdown`, and never calls `process.exit`.
 
 <Callout type="warn">
-    The config object is the same shape the binary's `filler-config.toml` parses into. The
-    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every field;
-    read the TOML tables there as object keys.
+    The config object is the shape the binary's `filler-config.toml` parses into, minus
+    `[simplex.signer]` — signing is an argument, not config. The
+    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every
+    other field; read the TOML tables there as object keys.
 </Callout>
 
 ## Signing
@@ -209,10 +210,11 @@ const audited: Signer = {
 ```
 
 <Callout type="info">
-    Loading the binary's `filler-config.toml` yourself? `createSigner(config.simplex.signer)` builds
-    the signer that block describes. `Simplex.start` will not read the block for you — passing a
-    config with a `simplex.signer` block and no `signer` throws, rather than quietly picking a key
-    you did not pass.
+    `SimplexConfig` has no signer field at all — the binary's `[simplex.signer]` block lives on
+    `FillerConfigFile`, the on-disk shape. Loading one of those files yourself?
+    `createSigner(config.simplex.signer)` builds the signer it describes. `Simplex.start` will not
+    read the block for you: passing a parsed file with no `signer` throws, rather than quietly
+    picking a key you did not pass.
 </Callout>
 
 ## Persistence

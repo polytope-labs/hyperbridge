@@ -3,7 +3,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { USD_STABLE_SYMBOLS, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { validatePairConfigs, type PairConfig } from "@/config/pairs"
-import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
+import type { SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import type { UserProvidedChainConfig, AllowlistConfig } from "@/services/FillerConfigService"
 import type { PaymasterKeeperConfig } from "@/services/PaymasterKeeperService"
@@ -118,8 +118,6 @@ export interface FillerTomlConfig {
 	 */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
-		// The signer is optional to keep the watch-only mode compatible
-		signer?: SignerConfig
 		/** Orders evaluated at once. Defaults to 5. */
 		maxConcurrentOrders?: number
 		/**
@@ -177,6 +175,23 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+}
+
+/**
+ * The TOML file the binary reads: a {@link FillerTomlConfig} plus the
+ * `[simplex.signer]` block, which is the CLI's way of naming a signing backend.
+ *
+ * The block is not part of the library's config — `Simplex.start` takes a
+ * `Signer` instance — so it lives on this type and nowhere else. The binary
+ * resolves it with `signerFromToml` and passes the parsed file straight through;
+ * the extra key rides along untouched so the dashboard's config writer can put
+ * it back in the file it came from.
+ */
+export interface FillerConfigFile extends FillerTomlConfig {
+	simplex: FillerTomlConfig["simplex"] & {
+		/** Omitted by watch-only configs, which sign nothing. */
+		signer?: SignerConfig
+	}
 }
 
 /**
@@ -261,12 +276,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
 	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
-
-	// A missing signer is not checked here: the signer is not part of the config a
-	// library consumer passes. `Simplex.start` takes a Signer instance and boot
-	// rejects a missing one unless every chain is watch-only. The optional TOML
-	// block below is how the binary names one, so validate it when it is present.
-	if (config.simplex?.signer) validateSignerConfig(config.simplex.signer)
 
 	if (!config.simplex?.substratePrivateKey) {
 		throw new Error("simplex.substratePrivateKey is required")

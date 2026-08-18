@@ -80,6 +80,9 @@ export type {
 export { validateConfig, assertConfirmationCoverage, validateVaultToml, validateUniswapV4Positions } from "@/config/filler-toml"
 export type {
 	FillerTomlConfig,
+	// The binary's on-disk shape: a config plus the `[simplex.signer]` block.
+	// Only needed if you load simplex TOML files yourself.
+	FillerConfigFile,
 	ChainConfirmationPolicy,
 	QueueConfig,
 	RebalancingConfig,
@@ -120,8 +123,9 @@ export {
 } from "@/services/wallet"
 export type { Signer } from "@/services/wallet/types"
 
-// The `[simplex.signer]` TOML block the binary reads. Only useful if you load
-// simplex config files yourself: `createSigner` turns one into a `Signer`.
+// The `[simplex.signer]` TOML block the binary reads. It is not part of
+// `SimplexConfig` — it lives on `FillerConfigFile`, and `createSigner` turns one
+// into a `Signer`. Only useful if you load simplex config files yourself.
 export { SignerType } from "@/services/wallet/types"
 export type {
 	SignerConfig,

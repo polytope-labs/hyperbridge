@@ -4,10 +4,10 @@ import { tmpdir } from "os"
 import { join } from "path"
 import { parse } from "toml"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType } from "@/services/wallet"
 
-const minimalSameAsset: FillerTomlConfig = {
+const minimalSameAsset: FillerConfigFile = {
 	simplex: {
 		signer: {
 			type: SignerType.PrivateKey,
@@ -41,7 +41,7 @@ const minimalSameAsset: FillerTomlConfig = {
 	],
 }
 
-const crossAssetWithCurves: FillerTomlConfig = {
+const crossAssetWithCurves: FillerConfigFile = {
 	simplex: {
 		signer: {
 			type: SignerType.Turnkey,
@@ -93,7 +93,7 @@ const crossAssetWithCurves: FillerTomlConfig = {
 
 // `side` requires pool pricing with no static curves, so this pair is curve-less
 // and priced by the Uniswap V4 venue.
-const kitchenSink: FillerTomlConfig = {
+const kitchenSink: FillerConfigFile = {
 	simplex: {
 		signer: {
 			type: SignerType.MpcVault,
@@ -171,7 +171,7 @@ const kitchenSink: FillerTomlConfig = {
 }
 
 describe("emitFillerToml", () => {
-	const fixtures: Array<[string, FillerTomlConfig]> = [
+	const fixtures: Array<[string, FillerConfigFile]> = [
 		["minimal same-asset", minimalSameAsset],
 		["cross-asset with curves", crossAssetWithCurves],
 		["kitchen sink", kitchenSink],
@@ -180,20 +180,20 @@ describe("emitFillerToml", () => {
 	for (const [name, fixture] of fixtures) {
 		it(`round-trips the ${name} config through the run parser`, () => {
 			const emitted = emitFillerToml(fixture)
-			const parsed = parse(emitted) as FillerTomlConfig
+			const parsed = parse(emitted) as FillerConfigFile
 			expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(fixture)))
 			expect(() => validateConfig(parsed)).not.toThrow()
 		})
 	}
 
 	it("round-trips a signer-less watch-only config without a [simplex.signer] header", () => {
-		const signerless: FillerTomlConfig = JSON.parse(JSON.stringify(minimalSameAsset))
+		const signerless: FillerConfigFile = JSON.parse(JSON.stringify(minimalSameAsset))
 		delete signerless.simplex.signer
 		signerless.simplex.watchOnly = true
 
 		const emitted = emitFillerToml(signerless)
 		expect(emitted).not.toContain("[simplex.signer]")
-		const parsed = parse(emitted) as FillerTomlConfig
+		const parsed = parse(emitted) as FillerConfigFile
 		expect(JSON.parse(JSON.stringify(parsed))).toEqual(JSON.parse(JSON.stringify(signerless)))
 		expect(() => validateConfig(parsed)).not.toThrow()
 	})

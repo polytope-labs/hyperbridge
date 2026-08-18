@@ -783,11 +783,13 @@ export class Simplex extends EventEmitter {
 	 * never returned. On success the filler is already scanning.
 	 */
 	static async start(options: SimplexOptions): Promise<Simplex> {
-		// `config.simplex.signer` is the binary's TOML block, not an input to the
-		// library. Resolving it here would make the config a second, silent way to
-		// choose a key; ignoring it would start a solver on an address the caller
-		// did not expect. Say so instead.
-		if (options.config.simplex?.signer && !options.signer) {
+		// `SimplexConfig` has no signer field — a `[simplex.signer]` block only
+		// reaches here on an object parsed from the binary's TOML file, where it is
+		// the CLI's business. Resolving it would make the config a second, silent
+		// way to choose a key; ignoring it would start a solver on an address the
+		// caller did not expect. Say so instead.
+		const tomlSigner = (options.config.simplex as { signer?: unknown } | undefined)?.signer
+		if (tomlSigner && !options.signer) {
 			throw new Error(
 				"config.simplex.signer describes a signer but none was passed. Simplex.start takes a Signer " +
 					"instance: `signer: await createSigner(config.simplex.signer)`, or build one directly with " +

@@ -346,10 +346,11 @@ Create an API keypair in the Turnkey Dashboard under user details. The <code>sig
 </Callout>
 
 <Callout type="info">
-    These three are what the config file can name. The library is not limited to them — 
-    [`Simplex.start`](/developers/sdk/simplex#signing) takes a `Signer` interface, so an HSM, a
-    remote signing service or any custody backend with a viem account works there without a config
-    entry.
+    These three are what the config file can name, and `[simplex.signer]` is a file-format concern:
+    it is the only block the library's config object does not carry.
+    [`Simplex.start`](/developers/sdk/simplex#signing) takes a `Signer` interface instead, so an
+    HSM, a remote signing service or any custody backend with a viem account works there without a
+    config entry.
 </Callout>
 
 ### Delegation & Gas Payment

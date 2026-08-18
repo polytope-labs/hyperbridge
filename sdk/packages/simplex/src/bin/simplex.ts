@@ -6,7 +6,7 @@ import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { existsSync } from "fs"
-import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
+import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
 import type { PairConfig } from "@/config/pairs"
@@ -263,7 +263,7 @@ program
 			let uiServer: UiServer | undefined
 
 			/** Starts the filler and everything the CLI layers on top of it. */
-			const startFiller = async (config: FillerTomlConfig, path: string) => {
+			const startFiller = async (config: FillerConfigFile, path: string) => {
 				dataStore = await openDataStore(options.dataDir)
 				// The TOML block is the binary's way of naming a signer; the library
 				// takes the resolved instance, so the file format stops here.
@@ -297,7 +297,7 @@ program
 
 			if (configPath) {
 				const tomlContent = readFileSync(configPath, "utf-8")
-				const config = parse(tomlContent) as FillerTomlConfig
+				const config = parse(tomlContent) as FillerConfigFile
 				validateConfig(config, options.watchOnly === true)
 				// validateConfig no longer owns this rule — the signer is an argument to
 				// the library, not a config field — but the binary's users configure it
@@ -382,7 +382,7 @@ program
 	.action(async (options: { config: string }) => {
 		try {
 			const configPath = resolve(process.cwd(), options.config)
-			const config = parse(readFileSync(configPath, "utf-8")) as FillerTomlConfig
+			const config = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
 
 			// Only [[chains]], [simplex.signer] and the optional [keeper] block are used.
 			if (!config.chains || config.chains.length === 0) {

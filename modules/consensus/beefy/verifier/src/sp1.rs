@@ -22,9 +22,10 @@ use alloy_sol_types::{
 	private::{FixedBytes, U256},
 	sol,
 };
-use beefy_verifier_primitives::{ConsensusState, ParachainHeader, Sp1BeefyProof};
+use beefy_verifier_primitives::{AuthoritySet, ConsensusState, ParachainHeader, Sp1BeefyProof};
 use codec::Encode;
 use ismp::messaging::Keccak256;
+use primitive_types::H256;
 
 // Matches `PublicInputs` and `ParachainHeaderHash` in evm/src/consensus/Types.sol
 sol! {
@@ -91,7 +92,7 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 		.collect();
 
 	let public_inputs = PublicInputs {
-		authorities_root: FixedBytes::from(Into::<[u8; 32]>::into(authority.keyset_commitment)),
+		authorities_root: FixedBytes::from(Into::<[u8; 32]>::into(authority.ecdsa_merkle_root)),
 		authorities_len: U256::from(authority.len),
 		leaf_hash: FixedBytes::from(Into::<[u8; 32]>::into(H::keccak256(&proof.mmr_leaf.encode()))),
 		block_number: U256::from(proof.block_number),
@@ -111,7 +112,14 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 	let mut new_state = trusted_state;
 	if proof.mmr_leaf.beefy_next_authority_set.id > new_state.next_authorities.id {
 		new_state.current_authorities = new_state.next_authorities.clone();
-		new_state.next_authorities = proof.mmr_leaf.beefy_next_authority_set.clone();
+		new_state.next_authorities = AuthoritySet {
+			id: proof.mmr_leaf.beefy_next_authority_set.id,
+			len: proof.mmr_leaf.beefy_next_authority_set.len,
+			// This client cannot compute the poseidon hash, and it only reaches a chain through a
+			// hyperbridge header digest, so it stays empty until one supplies it.
+			bls_poseidon_hash: H256::zero(),
+			ecdsa_merkle_root: proof.mmr_leaf.beefy_next_authority_set.keyset_commitment,
+		};
 	}
 	new_state.latest_beefy_height = proof.block_number;
 

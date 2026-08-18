@@ -29,6 +29,7 @@ import {Codec} from "./Codec.sol";
 import {
     Header,
     HeaderImpl,
+    AuthoritySet,
     AuthoritySetCommitment,
     Vote,
     RelayChainProof,
@@ -63,6 +64,15 @@ import {
 contract EcdsaBeefy is IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
+    /// The parachain whose header digests carry the bls commitment, which is hyperbridge. Only its
+    /// headers are read for one, since every parachain in a proof is equally authentic and only
+    /// this one speaks for the relay's authorities.
+    uint256 public immutable _digestParaId;
+
+    constructor(uint256 digestParaId) {
+        _digestParaId = digestParaId;
+    }
+
     // The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 
@@ -95,7 +105,7 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
     /// the updated state along with the latest authority set id.
     function verify(bytes calldata previousState, bytes calldata proof)
         external
-        pure
+        view
         returns (bytes memory, IntermediateState[] memory, uint256)
     {
         BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
@@ -109,6 +119,21 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
         }
         (BeefyConsensusState memory newState, bytes32 headsRoot) = verifyMmrUpdateProof(consensusState, relay);
         IntermediateState[] memory intermediates = verifyParachainHeaderProof(headsRoot, parachain);
+
+        // Rotating here rather than inside the mmr check, because the bls half of the set comes
+        // from a hyperbridge header and those are only trustworthy once proven against the heads
+        // root above. Both halves are recorded even though this client only uses one, so the
+        // state stays usable by the aggregate client.
+        AuthoritySetCommitment memory incoming = relay.latestMmrLeaf.nextAuthoritySet;
+        if (incoming.id > newState.nextAuthoritySet.id) {
+            newState.currentAuthoritySet = newState.nextAuthoritySet;
+            newState.nextAuthoritySet = AuthoritySet({
+                id: incoming.id,
+                len: incoming.len,
+                blsPoseidonHash: Codec.blsPoseidonHash(parachain.parachains, incoming.id, _digestParaId),
+                ecdsaMerkleRoot: incoming.root
+            });
+        }
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
@@ -135,7 +160,7 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
         }
 
         bool isCurrentAuthorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
-        AuthoritySetCommitment memory authoritySet =
+        AuthoritySet memory authoritySet =
             isCurrentAuthorities ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
         if (!checkParticipationThreshold(sigLen, authoritySet.len)) revert SuperMajorityRequired();
 
@@ -158,14 +183,12 @@ contract EcdsaBeefy is IConsensusV2, ERC165 {
                 MerkleMultiProof.Leaf({index: vote.authorityIndex, hash: keccak256(abi.encodePacked(authority))});
         }
 
-        bool valid = MerkleMultiProof.VerifyProof(authoritySet.root, relayProof.proof, authorities, authoritySet.len);
+        bool valid = MerkleMultiProof.VerifyProof(
+            authoritySet.ecdsaMerkleRoot, relayProof.proof, authorities, authoritySet.len
+        );
         if (!valid) revert InvalidAuthoritiesProof();
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
-        if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
-            trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
-            trustedState.nextAuthoritySet = relayProof.latestMmrLeaf.nextAuthoritySet;
-        }
         trustedState.latestHeight = latestHeight;
 
         return (trustedState, relayProof.latestMmrLeaf.extra);

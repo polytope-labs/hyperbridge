@@ -345,7 +345,7 @@ pub mod pallet {
 		pub fn initialize_apk_state(origin: OriginFor<T>, abi_state: Vec<u8>) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-			let state: beefy_verifier_primitives::ApkConsensusState =
+			let state: beefy_verifier_primitives::ConsensusState =
 				<ismp_abi::bls_beefy::BlsBeefy::BeefyConsensusState as SolType>::abi_decode(
 					&abi_state,
 				)
@@ -540,7 +540,7 @@ pub mod pallet {
 		/// Only the ids are wanted here, and both shapes have them.
 		fn authority_set_ids(state: &[u8], proof_type: u8) -> Result<(u64, u64), Error<T>> {
 			if proof_type == types::PROOF_TYPE_APK {
-				let state: beefy_verifier_primitives::ApkConsensusState =
+				let state: beefy_verifier_primitives::ConsensusState =
 					Decode::decode(&mut &state[..]).map_err(|_| Error::<T>::NotInitialized)?;
 				Ok((state.current_authorities.id, state.next_authorities.id))
 			} else {

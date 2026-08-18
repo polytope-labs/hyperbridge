@@ -25,7 +25,9 @@ use crate::{
 	EcdsaRecover, MMR_ROOT_PAYLOAD_ID, MerkleHasher, error::Error, verify_mmr_leaf,
 	verify_parachain_headers,
 };
-use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof, ParachainHeader};
+use beefy_verifier_primitives::{
+	AuthoritySet, ConsensusMessage, ConsensusState, MmrProof, ParachainHeader,
+};
 use codec::Encode;
 use ismp::messaging::Keccak256;
 use merkle_mountain_range::{
@@ -147,7 +149,7 @@ fn prepare_update(
 	}
 
 	Ok(UpdatePreamble {
-		keyset_commitment: authority_set.keyset_commitment,
+		keyset_commitment: authority_set.ecdsa_merkle_root,
 		authority_count: authority_set.len,
 		mmr_root: H256::from_slice(mmr_root_data),
 	})
@@ -181,7 +183,14 @@ fn apply_update(
 ) -> ConsensusState {
 	if leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
 		trusted_state.current_authorities = trusted_state.next_authorities.clone();
-		trusted_state.next_authorities = leaf.beefy_next_authority_set.clone();
+		trusted_state.next_authorities = AuthoritySet {
+			id: leaf.beefy_next_authority_set.id,
+			len: leaf.beefy_next_authority_set.len,
+			// This client cannot compute the poseidon hash, and it only reaches a chain through a
+			// hyperbridge header digest, so it stays empty until one supplies it.
+			bls_poseidon_hash: H256::zero(),
+			ecdsa_merkle_root: leaf.beefy_next_authority_set.keyset_commitment,
+		};
 	}
 
 	trusted_state.latest_beefy_height = latest_height;

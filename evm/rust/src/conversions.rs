@@ -47,9 +47,9 @@ mod beefy {
 	use super::ToU256;
 	use crate::{
 		ecdsa_beefy::Beefy::{
-			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
-			Commitment, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment,
-			Vote,
+			AuthoritySet, AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState,
+			BeefyMmrLeaf, Commitment, Parachain, ParachainProof, Payload, RelayChainProof,
+			SignedCommitment, Vote,
 		},
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
@@ -192,6 +192,17 @@ mod beefy {
 		}
 	}
 
+	impl From<beefy_verifier_primitives::AuthoritySet> for AuthoritySet {
+		fn from(value: beefy_verifier_primitives::AuthoritySet) -> Self {
+			AuthoritySet {
+				id: value.id.to_u256(),
+				len: (value.len as u64).to_u256(),
+				blsPoseidonHash: alloy_primitives::U256::from_be_bytes(value.bls_poseidon_hash.0),
+				ecdsaMerkleRoot: FixedBytes::from(value.ecdsa_merkle_root.0),
+			}
+		}
+	}
+
 	impl From<ConsensusState> for BeefyConsensusState {
 		fn from(value: ConsensusState) -> Self {
 			BeefyConsensusState {
@@ -205,6 +216,13 @@ mod beefy {
 
 	impl From<BeefyConsensusState> for ConsensusState {
 		fn from(value: BeefyConsensusState) -> Self {
+			let authority_set = |set: AuthoritySet| beefy_verifier_primitives::AuthoritySet {
+				id: set.id.try_into().expect("authority set id out of bounds"),
+				len: set.len.try_into().expect("authority set length out of bounds"),
+				bls_poseidon_hash: H256(set.blsPoseidonHash.to_be_bytes()),
+				ecdsa_merkle_root: H256(set.ecdsaMerkleRoot.0),
+			};
+
 			ConsensusState {
 				beefy_activation_block: value
 					.beefyActivationBlock
@@ -215,59 +233,8 @@ mod beefy {
 					.try_into()
 					.expect("Beefy latest height out of bounds"),
 				mmr_root_hash: Default::default(),
-				current_authorities: BeefyNextAuthoritySet {
-					id: value
-						.currentAuthoritySet
-						.id
-						.try_into()
-						.expect("current authority set id out of bounds"),
-					len: value
-						.currentAuthoritySet
-						.len
-						.try_into()
-						.expect("current authority set length out of bounds"),
-					keyset_commitment: H256(value.currentAuthoritySet.root.0),
-				},
-				next_authorities: BeefyNextAuthoritySet {
-					id: value
-						.nextAuthoritySet
-						.id
-						.try_into()
-						.expect("next authority set out of bounds"),
-					len: value
-						.nextAuthoritySet
-						.len
-						.try_into()
-						.expect("next authority set length out of bounds"),
-					keyset_commitment: H256(value.nextAuthoritySet.root.0),
-				},
-			}
-		}
-	}
-
-	impl From<PartialBeefyMmrLeaf> for sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256> {
-		fn from(value: PartialBeefyMmrLeaf) -> Self {
-			let version: u8 = value.version.try_into().expect("mmr leaf version out of bounds");
-			sp_consensus_beefy::mmr::MmrLeaf {
-				version: MmrLeafVersion::new(version >> 5, version & 0b11111),
-				parent_number_and_hash: (
-					value.parentNumber.try_into().expect("parent number out of bounds"),
-					H256(value.parentHash.0),
-				),
-				beefy_next_authority_set: BeefyNextAuthoritySet {
-					id: value
-						.nextAuthoritySet
-						.id
-						.try_into()
-						.expect("next authority set id out of bounds"),
-					len: value
-						.nextAuthoritySet
-						.len
-						.try_into()
-						.expect("next authority set len out of bounds"),
-					keyset_commitment: H256(value.nextAuthoritySet.root.0),
-				},
-				leaf_extra: H256(value.extra.0),
+				current_authorities: authority_set(value.currentAuthoritySet),
+				next_authorities: authority_set(value.nextAuthoritySet),
 			}
 		}
 	}
@@ -299,6 +266,33 @@ mod beefy {
 				parachains: value.parachains.into_iter().map(Into::into).collect(),
 				proof: value.proof.into_iter().map(|h| h.0).collect(),
 				total_leaves: value.leafCount.try_into().expect("leaf count out of bounds"),
+			}
+		}
+	}
+
+	impl From<PartialBeefyMmrLeaf> for sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256> {
+		fn from(value: PartialBeefyMmrLeaf) -> Self {
+			let version: u8 = value.version.try_into().expect("mmr leaf version out of bounds");
+			sp_consensus_beefy::mmr::MmrLeaf {
+				version: MmrLeafVersion::new(version >> 5, version & 0b11111),
+				parent_number_and_hash: (
+					value.parentNumber.try_into().expect("parent number out of bounds"),
+					H256(value.parentHash.0),
+				),
+				beefy_next_authority_set: BeefyNextAuthoritySet {
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set id out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set len out of bounds"),
+					keyset_commitment: H256(value.nextAuthoritySet.root.0),
+				},
+				leaf_extra: H256(value.extra.0),
 			}
 		}
 	}
@@ -499,15 +493,16 @@ mod beefy {
 	/// The direction tooling needs when bootstrapping a chain: the starting set's commitment has
 	/// to be handed to `initialize_apk_state` in this encoding, since it is otherwise only ever
 	/// learned from a header digest.
-	impl From<beefy_verifier_primitives::ApkConsensusState>
+	impl From<beefy_verifier_primitives::ConsensusState>
 		for crate::bls_beefy::BlsBeefy::BeefyConsensusState
 	{
-		fn from(value: beefy_verifier_primitives::ApkConsensusState) -> Self {
-			let authority_set = |set: beefy_verifier_primitives::ApkAuthoritySet| {
-				crate::bls_beefy::BlsBeefy::AuthoritySetCommitment {
-					id: set.id,
-					len: set.len,
-					root: FixedBytes(set.apk_commitment.0),
+		fn from(value: beefy_verifier_primitives::ConsensusState) -> Self {
+			let authority_set = |set: beefy_verifier_primitives::AuthoritySet| {
+				crate::bls_beefy::BlsBeefy::AuthoritySet {
+					id: set.id.to_u256(),
+					len: (set.len as u64).to_u256(),
+					blsPoseidonHash: alloy_primitives::U256::from_be_bytes(set.bls_poseidon_hash.0),
+					ecdsaMerkleRoot: FixedBytes(set.ecdsa_merkle_root.0),
 				}
 			};
 
@@ -523,22 +518,23 @@ mod beefy {
 	/// The mmr root is not part of the initial state, since nothing has been proven yet. It is
 	/// filled by the first update that verifies.
 	impl TryFrom<crate::bls_beefy::BlsBeefy::BeefyConsensusState>
-		for beefy_verifier_primitives::ApkConsensusState
+		for beefy_verifier_primitives::ConsensusState
 	{
 		type Error = &'static str;
 
 		fn try_from(
 			value: crate::bls_beefy::BlsBeefy::BeefyConsensusState,
 		) -> Result<Self, Self::Error> {
-			let authority_set = |set: crate::bls_beefy::BlsBeefy::AuthoritySetCommitment| {
-				beefy_verifier_primitives::ApkAuthoritySet {
-					id: set.id,
-					len: set.len,
-					apk_commitment: H256(set.root.0),
-				}
+			let authority_set = |set: crate::bls_beefy::BlsBeefy::AuthoritySet| {
+				Ok::<_, &'static str>(beefy_verifier_primitives::AuthoritySet {
+					id: set.id.try_into().map_err(|_| "authority set id out of bounds")?,
+					len: set.len.try_into().map_err(|_| "authority set size out of bounds")?,
+					bls_poseidon_hash: H256(set.blsPoseidonHash.to_be_bytes()),
+					ecdsa_merkle_root: H256(set.ecdsaMerkleRoot.0),
+				})
 			};
 
-			Ok(beefy_verifier_primitives::ApkConsensusState {
+			Ok(beefy_verifier_primitives::ConsensusState {
 				latest_beefy_height: value
 					.latestHeight
 					.try_into()
@@ -548,8 +544,8 @@ mod beefy {
 					.try_into()
 					.map_err(|_| "beefy activation block out of bounds")?,
 				mmr_root_hash: H256::zero(),
-				current_authorities: authority_set(value.currentAuthoritySet),
-				next_authorities: authority_set(value.nextAuthoritySet),
+				current_authorities: authority_set(value.currentAuthoritySet)?,
+				next_authorities: authority_set(value.nextAuthoritySet)?,
 			})
 		}
 	}

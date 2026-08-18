@@ -22,6 +22,7 @@ import {Codec} from "./Codec.sol";
 import {
     Header,
     HeaderImpl,
+    AuthoritySet,
     AuthoritySetCommitment,
     BeefyConsensusState,
     MiniCommitment,
@@ -66,9 +67,15 @@ contract SP1Beefy is IConsensusV2, ERC165 {
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
-    constructor(ISP1Verifier v, bytes32 vk) {
+    /// The parachain whose header digests carry the bls commitment, which is hyperbridge. Only
+    /// its headers are read for one, since every parachain in a proof is equally authentic and
+    /// only this one speaks for the relay's authorities.
+    uint256 public immutable _digestParaId;
+
+    constructor(ISP1Verifier v, bytes32 vk, uint256 digestParaId) {
         verifier = v;
         verificationKey = vk;
+        _digestParaId = digestParaId;
     }
 
     /**
@@ -124,7 +131,7 @@ contract SP1Beefy is IConsensusV2, ERC165 {
 
         if (uint256(proof.mmrLeaf.parentNumber) + 1 != commitment.blockNumber) revert StaleMmrLeaf();
 
-        AuthoritySetCommitment memory authority;
+        AuthoritySet memory authority;
         if (commitment.validatorSetId == trustedState.nextAuthoritySet.id) {
             authority = trustedState.nextAuthoritySet;
         } else if (commitment.validatorSetId == trustedState.currentAuthoritySet.id) {
@@ -145,7 +152,7 @@ contract SP1Beefy is IConsensusV2, ERC165 {
         bytes memory publicInputs = abi.encode(
             PublicInputs({
                 authorities_len: authority.len,
-                authorities_root: authority.root,
+                authorities_root: authority.ecdsaMerkleRoot,
                 headers: headers,
                 block_number: commitment.blockNumber,
                 leaf_hash: keccak256(Codec.Encode(proof.mmrLeaf)),
@@ -169,7 +176,14 @@ contract SP1Beefy is IConsensusV2, ERC165 {
 
         if (proof.mmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
-            trustedState.nextAuthoritySet = proof.mmrLeaf.nextAuthoritySet;
+            trustedState.nextAuthoritySet = AuthoritySet({
+                id: proof.mmrLeaf.nextAuthoritySet.id,
+                len: proof.mmrLeaf.nextAuthoritySet.len,
+                blsPoseidonHash: Codec.blsPoseidonHash(
+                    proof.headers, proof.mmrLeaf.nextAuthoritySet.id, _digestParaId
+                ),
+                ecdsaMerkleRoot: proof.mmrLeaf.nextAuthoritySet.root
+            });
         }
         trustedState.latestHeight = commitment.blockNumber;
 

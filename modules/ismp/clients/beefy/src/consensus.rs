@@ -107,14 +107,11 @@ where
 				)?
 			},
 			PROOF_TYPE_APK => {
-				let apk_state: beefy_verifier_primitives::ApkConsensusState =
-					codec::Decode::decode(&mut &trusted_consensus_state[..])
-						.map_err(|e| BeefyError::DecodeConsensusState(format!("{e:?}")))?;
 				let apk_proof: beefy_verifier_primitives::ApkConsensusMessage =
 					codec::Decode::decode(&mut &payload[..])
 						.map_err(|e| BeefyError::DecodeApkProof(format!("{e:?}")))?;
 				let (state, headers) = beefy_verifier::apk::verify_apk_consensus::<SubstrateCrypto>(
-					apk_state,
+					decode_state()?,
 					apk_proof,
 					&C::apk_verifying_key(),
 					C::apk_digest_para_id(),

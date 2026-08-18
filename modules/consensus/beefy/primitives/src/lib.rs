@@ -35,9 +35,9 @@ pub struct ConsensusState {
 	/// Latest mmr root hash
 	pub mmr_root_hash: H256,
 	/// Authorities for the current session
-	pub current_authorities: BeefyAuthoritySet<H256>,
+	pub current_authorities: AuthoritySet,
 	/// Authorities for the next session
-	pub next_authorities: BeefyAuthoritySet<H256>,
+	pub next_authorities: AuthoritySet,
 }
 
 /// Hash length definition for hashing algorithms used
@@ -223,62 +223,58 @@ impl ApkCommitmentDigest {
 		})
 	}
 }
-
-/// An authority set identified by a commitment to its keys rather than a merkle root over them.
+/// A validator set as a client keeps it, holding what every proof format needs to check a
+/// signature from that set.
 ///
-/// The commitment is Poseidon2 over the validators' G1 keys, which is what the APK circuit binds
-/// to. It cannot be read off the relay chain, so it arrives in a header digest and is empty until
-/// one has been seen.
+/// One state serves all of them, so a client that advances the set fills in both roots rather than
+/// only the one it uses. Leaving the other empty would strand whichever client relies on it until
+/// something supplies it again. This is not the mmr leaf's authority set, whose shape belongs to
+/// the relay chain.
 #[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode, Default)]
-pub struct ApkAuthoritySet {
+pub struct AuthoritySet {
 	/// Id of the set
 	pub id: u64,
-	/// Number of validators in the set
+	/// Number of validators in the set, which the threshold is taken against
 	pub len: u32,
-	/// Poseidon2 over the set's G1 keys, zero until a digest supplies it
-	pub apk_commitment: H256,
+	/// Poseidon2 over the set's G1 keys, zero until a header digest supplies it
+	pub bls_poseidon_hash: H256,
+	/// Merkle root over the set's ecdsa keys, as the mmr leaf names it
+	pub ecdsa_merkle_root: H256,
 }
 
-/// Consensus state for BEEFY verified through an aggregate public key proof.
-#[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode, Default)]
-pub struct ApkConsensusState {
-	/// Latest beefy height
-	pub latest_beefy_height: u32,
-	/// Height at which beefy was activated
-	pub beefy_activation_block: u32,
-	/// Latest mmr root hash
-	pub mmr_root_hash: H256,
-	/// Authorities for the current session
-	pub current_authorities: ApkAuthoritySet,
-	/// Authorities for the next session
-	pub next_authorities: ApkAuthoritySet,
-}
-
-impl ApkConsensusState {
+impl ConsensusState {
 	/// What this state becomes once a verified header names an authority set, if anything.
 	///
 	/// A header naming the set after the one being waited on rolls the sets forward: the relay has
 	/// moved on, so the current set is the one that was next. A header naming a set already held
 	/// fills in its commitment if it has none, which is what a client waiting on the next set is
-	/// looking for. Anything else, including a set already carrying a commitment, returns `None`,
-	/// so the same digest arriving in several headers changes nothing.
-	pub fn with_authority_set(
+	/// looking for. Anything else, including a set already carrying one, returns `None`, so the
+	/// same digest arriving in several headers changes nothing.
+	pub fn with_bls_commitment(
 		&self,
 		set_id: u64,
 		len: u32,
 		commitment: H256,
-	) -> Option<(ApkAuthoritySet, ApkAuthoritySet)> {
-		let incoming = ApkAuthoritySet { id: set_id, len, apk_commitment: commitment };
+		ecdsa_merkle_root: H256,
+	) -> Option<(AuthoritySet, AuthoritySet)> {
+		let incoming =
+			AuthoritySet { id: set_id, len, bls_poseidon_hash: commitment, ecdsa_merkle_root };
 		if set_id > self.next_authorities.id {
 			return Some((self.next_authorities.clone(), incoming));
 		}
-		if set_id == self.next_authorities.id && self.next_authorities.apk_commitment.is_zero() {
-			return Some((self.current_authorities.clone(), incoming));
+		if set_id == self.next_authorities.id && self.next_authorities.bls_poseidon_hash.is_zero() {
+			let mut next = self.next_authorities.clone();
+			next.len = len;
+			next.bls_poseidon_hash = commitment;
+			return Some((self.current_authorities.clone(), next));
 		}
 		if set_id == self.current_authorities.id &&
-			self.current_authorities.apk_commitment.is_zero()
+			self.current_authorities.bls_poseidon_hash.is_zero()
 		{
-			return Some((incoming, self.next_authorities.clone()));
+			let mut current = self.current_authorities.clone();
+			current.len = len;
+			current.bls_poseidon_hash = commitment;
+			return Some((current, self.next_authorities.clone()));
 		}
 		None
 	}

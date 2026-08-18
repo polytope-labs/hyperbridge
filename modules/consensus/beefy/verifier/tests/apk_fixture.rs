@@ -22,7 +22,7 @@
 
 use alloy_sol_types::SolType;
 use beefy_verifier::apk::{count_signers, verify_apk_consensus};
-use beefy_verifier_primitives::{ApkConsensusMessage, ApkConsensusState};
+use beefy_verifier_primitives::{ApkConsensusMessage, ConsensusState};
 use ismp_abi::bls_beefy::BlsBeefy;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -62,7 +62,7 @@ fn apk_verifier_agrees_with_solidity() {
 
 	// The state is one abi-encoded struct, the proof is the two the client's `verify` takes as
 	// separate arguments, which is why they decode differently.
-	let trusted: ApkConsensusState =
+	let trusted: ConsensusState =
 		<BlsBeefy::BeefyConsensusState as SolType>::abi_decode(&state_bytes)
 			.expect("state decodes")
 			.try_into()
@@ -112,7 +112,7 @@ fn the_batched_pairing_enforces_the_signature() {
 	let proof_bytes = decode_hex(include_str!(
 		"../../../../../evm/tests/foundry/fixtures/bls-apk-beefy-proof.hex"
 	));
-	let trusted: ApkConsensusState =
+	let trusted: ConsensusState =
 		<BlsBeefy::BeefyConsensusState as SolType>::abi_decode(&state_bytes)
 			.expect("state decodes")
 			.try_into()

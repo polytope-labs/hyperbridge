@@ -28,6 +28,8 @@ import "./Types.sol";
  * and decode SCALE compact unsigned integers.
  */
 library Codec {
+    using HeaderImpl for Header;
+
     uint8 internal constant DIGEST_ITEM_OTHER = 0;
     uint8 internal constant DIGEST_ITEM_CONSENSUS = 4;
     uint8 internal constant DIGEST_ITEM_SEAL = 5;
@@ -168,5 +170,40 @@ library Codec {
             revert("Code should be unreachable");
         }
         return (value);
+    }
+
+    /// The commitment hyperbridge published for `setId`, taken from whichever of these headers is
+    /// hyperbridge's own. Zero when none of them carries one for that set.
+    ///
+    /// Every client keeps both roots of an authority set, so a client that has no use for this one
+    /// still has to record it, or it strands whichever client does.
+    function blsPoseidonHash(ParachainHeader[] memory headers, uint64 setId, uint256 digestParaId)
+        internal
+        pure
+        returns (uint256)
+    {
+        for (uint256 i = 0; i < headers.length; i++) {
+            if (headers[i].id != digestParaId) continue;
+            return commitmentFor(headers[i].header, setId);
+        }
+        return 0;
+    }
+
+    /// The same, for the proof shape that carries a merkle index alongside each header.
+    function blsPoseidonHash(Parachain[] memory parachains, uint64 setId, uint256 digestParaId)
+        internal
+        pure
+        returns (uint256)
+    {
+        for (uint256 i = 0; i < parachains.length; i++) {
+            if (parachains[i].id != digestParaId) continue;
+            return commitmentFor(parachains[i].header, setId);
+        }
+        return 0;
+    }
+
+    function commitmentFor(bytes memory header, uint64 setId) private pure returns (uint256) {
+        ApkDigest memory digest = DecodeHeader(header).apkCommitment();
+        return digest.setId == setId ? digest.commitment : 0;
     }
 }

@@ -152,6 +152,19 @@ fn build_parachain_proof(para_ids: &[u32], heads: &[(u32, Vec<u8>)]) -> Parachai
 	ParachainProof { parachains, proof, total_leaves: leaf_count as u32 }
 }
 
+/// The client side shape of an authority set, built from what the relay chain names.
+///
+/// The relay only knows the ecdsa merkle root. The poseidon hash reaches a client through a
+/// hyperbridge header digest, so it starts empty here and is filled in once one is seen.
+fn from_relay(set: BeefyAuthoritySet<H256>) -> beefy_verifier_primitives::AuthoritySet {
+	beefy_verifier_primitives::AuthoritySet {
+		id: set.id,
+		len: set.len,
+		bls_poseidon_hash: H256::zero(),
+		ecdsa_merkle_root: set.keyset_commitment,
+	}
+}
+
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
 	pub async fn get_initial_consensus_state(
@@ -176,14 +189,15 @@ impl<R: Config, P: Config> Prover<R, P> {
 			mmr_root_hash,
 			beefy_activation_block: self.beefy_activation_block,
 			latest_beefy_height: signed_commitment.commitment.block_number as u32,
-			current_authorities: self
-				.mmr_leaf_current_authorities(Some(latest_beefy_finalized))
-				.await?,
-			next_authorities: beefy_mmr_leaf_next_authorities(
-				&self.relay_rpc,
-				Some(latest_beefy_finalized),
-			)
-			.await?,
+			// The relay only names the ecdsa root. A client learns the poseidon hash from a
+			// hyperbridge header digest, so a state starting here has that half empty.
+			current_authorities: from_relay(
+				self.mmr_leaf_current_authorities(Some(latest_beefy_finalized)).await?,
+			),
+			next_authorities: from_relay(
+				beefy_mmr_leaf_next_authorities(&self.relay_rpc, Some(latest_beefy_finalized))
+					.await?,
+			),
 		};
 
 		Ok(client_state)

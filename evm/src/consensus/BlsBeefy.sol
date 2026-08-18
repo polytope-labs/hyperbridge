@@ -23,6 +23,7 @@ import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot
 
 import {Codec} from "./Codec.sol";
 import {
+    AuthoritySet,
     AuthoritySetCommitment,
     ApkDigest,
     BlsApkBeefyConsensusProof,
@@ -68,7 +69,7 @@ interface IApkProof {
  * The commitment the proof is checked against does not come from the relay chain's MMR leaf, the
  * way the keyset root does. Hyperbridge computes it over the relay's next authority set and
  * publishes it in a header digest, so a client picks it up from a header it has already verified
- * and carries it in its consensus state. That is what `AuthoritySetCommitment.root` holds, and
+ * and carries it in its consensus state. That is what `AuthoritySet.blsPoseidonHash` holds, and
  * why the state has to be seeded with the starting set's commitment at initialisation.
  *
  * Requires Prague for the EIP-2537 precompiles.
@@ -132,16 +133,22 @@ contract BlsBeefy is IConsensusV2, ERC165 {
         // Forward chaining: everything this client believes about the incoming set comes from
         // here, its id, its size and its commitment together. A header naming the set after the
         // one being waited on rolls the sets forward, since the relay has moved on.
+        // Both roots are filled in, not just the one this client checks against. The mmr leaf
+        // names the incoming set's ecdsa root and the digest names its poseidon hash, so a state
+        // this client advances stays usable by the ecdsa and sp1 clients too.
         if (digest.setId > newState.nextAuthoritySet.id) {
             newState.currentAuthoritySet = newState.nextAuthoritySet;
-            newState.nextAuthoritySet = AuthoritySetCommitment({
+            newState.nextAuthoritySet = AuthoritySet({
                 id: digest.setId,
                 len: digest.len,
-                root: bytes32(digest.commitment)
+                blsPoseidonHash: digest.commitment,
+                ecdsaMerkleRoot: relay.latestMmrLeaf.nextAuthoritySet.id == digest.setId
+                    ? relay.latestMmrLeaf.nextAuthoritySet.root
+                    : bytes32(0)
             });
-        } else if (digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.root == bytes32(0)) {
+        } else if (digest.setId == newState.nextAuthoritySet.id && newState.nextAuthoritySet.blsPoseidonHash == 0) {
             newState.nextAuthoritySet.len = digest.len;
-            newState.nextAuthoritySet.root = bytes32(digest.commitment);
+            newState.nextAuthoritySet.blsPoseidonHash = digest.commitment;
         }
 
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
@@ -162,12 +169,12 @@ contract BlsBeefy is IConsensusV2, ERC165 {
         }
 
         bool isCurrent = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
-        AuthoritySetCommitment memory authoritySet = isCurrent ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
+        AuthoritySet memory authoritySet = isCurrent ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
 
         // A set whose commitment has not been learned from a digest yet cannot be verified against.
         // Reverting here is deliberate: silently accepting would mean checking the proof against a
         // zero commitment.
-        if (uint256(authoritySet.root) == 0) revert MissingApkCommitment();
+        if (authoritySet.blsPoseidonHash == 0) revert MissingApkCommitment();
 
         verifySignedByApk(Codec.Encode(commitment), relayProof, authoritySet);
 
@@ -198,7 +205,7 @@ contract BlsBeefy is IConsensusV2, ERC165 {
     function verifySignedByApk(
         bytes memory encodedCommitment,
         BlsApkRelayChainProof memory relayProof,
-        AuthoritySetCommitment memory authoritySet
+        AuthoritySet memory authoritySet
     ) internal view {
         uint256 signed = countSigners(relayProof.bitlist);
         if (!checkParticipationThreshold(signed, authoritySet.len)) revert SuperMajorityRequired();
@@ -208,7 +215,7 @@ contract BlsBeefy is IConsensusV2, ERC165 {
         // `verify` reverts on failure rather than returning false, so a successful call is the
         // whole result. Wrapped so the reason surfaces as this contract's error.
         try _apk.verify(
-            uint256(authoritySet.root),
+            authoritySet.blsPoseidonHash,
             relayProof.bitlist,
             relayProof.apk,
             relayProof.apkProof,

@@ -57,7 +57,7 @@ contract SP1BeefyForkTest is Test {
 
         // Reuse the live SP1 verifier from the production deployment, but with the new vkey.
         ISP1Verifier verifier = SP1Beefy(SP1_BEEFY).verifier();
-        SP1Beefy beefy = new SP1Beefy(verifier, VKEY);
+        SP1Beefy beefy = new SP1Beefy(verifier, VKEY, 4009);
 
         (bytes memory newStateEnc, IntermediateState[] memory intermediates, uint256 nextAuthId) =
             beefy.verify(previousState, proof);

@@ -53,9 +53,10 @@ contract DeployScript is BaseScript {
 
         // Deploy SP1 ZK consensus client
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
-        SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        uint256 hyperbridgeParaId = config.get("HYPERBRIDGE_PARA_ID").toUint256();
+        SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey, hyperbridgeParaId);
         // Deploy EcdsaBeefy naive consensus client
-        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
+        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}(hyperbridgeParaId);
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
             IConsensusV2(address(sp1Beefy)), IConsensusV2(address(ecdsaBeefy))

@@ -22,10 +22,12 @@ contract DeployScript is BaseScript {
     /// @notice Main deployment logic - called by BaseScript's run() functions
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
-        // Deploy consensus clients
-        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
+        // Deploy consensus clients. Hyperbridge's own para id is the one whose headers carry the
+        // bls commitment, which every client records whether or not it checks proofs with it.
+        uint256 hyperbridgeParaId = config.get("HYPERBRIDGE_PARA_ID").toUint256();
+        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}(hyperbridgeParaId);
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
-        SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey, hyperbridgeParaId);
         ConsensusRouter consensusClient = new ConsensusRouter{salt: salt}(
             IConsensusV2(sp1),
             IConsensusV2(ecdsaBeefy)

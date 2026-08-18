@@ -29,8 +29,8 @@ use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, pairing::Pairing};
 use ark_ff::{BigInteger, One, PrimeField, Zero};
 use ark_serialize::CanonicalDeserialize;
 use beefy_verifier_primitives::{
-	APK_BITLIST_WORDS, APK_G1_LEN, APK_G2_LEN, ApkAuthoritySet, ApkCommitmentDigest,
-	ApkConsensusMessage, ApkConsensusState, ApkMmrProof, ParachainHeader,
+	APK_BITLIST_WORDS, APK_G1_LEN, APK_G2_LEN, ApkCommitmentDigest, ApkConsensusMessage,
+	ApkMmrProof, ConsensusState, ParachainHeader,
 };
 use codec::{Decode, Encode};
 use polkadot_sdk::*;
@@ -68,18 +68,20 @@ const SEED: [u8; APK_G1_LEN] = hex_literal::hex!(
 /// is, and the headers only once the leaf is. Any commitment picked up from those headers is
 /// therefore learned from something already proven.
 pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
-	trusted_state: ApkConsensusState,
+	trusted_state: ConsensusState,
 	proof: ApkConsensusMessage,
 	verifying_key: &[u8],
 	digest_para_id: u32,
-) -> Result<(ApkConsensusState, Vec<ParachainHeader>), Error> {
+) -> Result<(ConsensusState, Vec<ParachainHeader>), Error> {
+	// The leaf names the incoming set's ecdsa root, which this client has no use for but records
+	// anyway so a state it advances stays usable by the per signer and sp1 clients.
+	let ecdsa_merkle_root = proof.mmr.latest_mmr_leaf.beefy_next_authority_set.keyset_commitment;
 	let (mut state, heads_root) =
 		verify_apk_mmr_update_proof::<H>(trusted_state, proof.mmr, verifying_key)?;
 	let headers = crate::verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 
-	// Forward chaining: everything this client believes about the incoming set comes from here,
-	// its id, its size and its commitment together. The mmr leaf names a next set too, but says
-	// nothing about Poseidon2, and taking the size from there and the commitment from here would
+	// Forward chaining: the set's id, its size and its commitment all come from here together,
+	// rather than taking the size from the mmr leaf and the commitment from a digest, which would
 	// leave the two free to describe different sets.
 	//
 	// Only `digest_para_id`'s headers are read. A proof carries whichever parachains the relay
@@ -91,7 +93,12 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 		.filter(|header| header.para_id == digest_para_id)
 		.find_map(|header| read_apk_digest(&header.header))
 		.and_then(|digest| {
-			state.with_authority_set(digest.set_id, digest.len, H256(digest.commitment))
+			state.with_bls_commitment(
+				digest.set_id,
+				digest.len,
+				H256(digest.commitment),
+				ecdsa_merkle_root,
+			)
 		}) {
 		state.current_authorities = current;
 		state.next_authorities = next;
@@ -102,10 +109,10 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 
 /// Verify the signed mmr root and roll the authority sets forward.
 pub fn verify_apk_mmr_update_proof<H: Keccak256 + Send + Sync>(
-	mut trusted_state: ApkConsensusState,
+	mut trusted_state: ConsensusState,
 	mmr: ApkMmrProof,
 	verifying_key: &[u8],
-) -> Result<(ApkConsensusState, H256), Error> {
+) -> Result<(ConsensusState, H256), Error> {
 	if trusted_state.latest_beefy_height >= mmr.commitment.block_number {
 		return Err(Error::StaleHeight {
 			trusted_height: trusted_state.latest_beefy_height,
@@ -125,10 +132,10 @@ pub fn verify_apk_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	// A set whose commitment has not been learned from a digest yet cannot be verified against.
 	// Refusing is deliberate: proceeding would check the proof against a zero commitment, which
 	// establishes nothing at all.
-	if authority_set.apk_commitment.is_zero() {
+	if authority_set.bls_poseidon_hash.is_zero() {
 		return Err(Error::ApkCommitmentMissing { id: set_id });
 	}
-	let apk_commitment = authority_set.apk_commitment;
+	let apk_commitment = authority_set.bls_poseidon_hash;
 	let authority_count = authority_set.len;
 
 	verify_signed_by_apk(

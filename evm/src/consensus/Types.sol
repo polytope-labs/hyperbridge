@@ -85,6 +85,10 @@ struct Commitment {
     uint64 validatorSetId;
 }
 
+/// A validator set as the relay chain describes it in an mmr leaf.
+///
+/// The field widths are part of how the leaf is hashed into the mmr, so they follow the relay
+/// rather than our own preference. [`AuthoritySet`] is the shape a client keeps in its state.
 struct AuthoritySetCommitment {
     /// Id of the set.
     uint64 id;
@@ -92,6 +96,23 @@ struct AuthoritySetCommitment {
     uint32 len;
     /// Merkle Root Hash built from BEEFY AuthorityIds.
     bytes32 root;
+}
+
+/// A validator set as a client keeps it, holding what every proof format needs to check a
+/// signature from that set.
+///
+/// One state serves all of them, so a client that advances the set fills in both roots rather than
+/// only the one it uses. Leaving the other empty would strand whichever client relies on it until
+/// something supplies it again.
+struct AuthoritySet {
+    /// Id of the set.
+    uint256 id;
+    /// Number of validators in the set, which the threshold is taken against.
+    uint256 len;
+    /// Poseidon2 over the set's G1 keys, which an aggregate proof is checked against.
+    uint256 blsPoseidonHash;
+    /// Merkle root over the set's ecdsa keys, which a per signer proof is checked against.
+    bytes32 ecdsaMerkleRoot;
 }
 
 struct BeefyMmrLeaf {
@@ -110,9 +131,9 @@ struct BeefyConsensusState {
     /// This should be the first block in the merkle-mountain-range tree.
     uint256 beefyActivationBlock;
     /// authorities for the current round
-    AuthoritySetCommitment currentAuthoritySet;
+    AuthoritySet currentAuthoritySet;
     /// authorities for the next round
-    AuthoritySetCommitment nextAuthoritySet;
+    AuthoritySet nextAuthoritySet;
 }
 
 struct PartialBeefyMmrLeaf {

@@ -31,12 +31,14 @@ contract DeployScript is BaseScript {
     function deploy() internal override {
         address ecdsaBeefy = config.get("ECDSA_BEEFY").toAddress();
         address sp1Verifier = config.get("SP1_VERIFIER").toAddress();
+        // Hyperbridge's own para id, whose headers carry the bls commitment every client records.
+        uint256 hyperbridgeParaId = config.get("HYPERBRIDGE_PARA_ID").toUint256();
 
         // Guard against wiring the router to an address that holds no code on this chain.
         require(ecdsaBeefy.code.length != 0, "ECDSA_BEEFY has no code on this chain");
         require(sp1Verifier.code.length != 0, "SP1_VERIFIER has no code on this chain");
 
-        SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(ISP1Verifier(sp1Verifier), sp1VerificationKey);
+        SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(ISP1Verifier(sp1Verifier), sp1VerificationKey, hyperbridgeParaId);
         ConsensusRouter consensusRouter =
             new ConsensusRouter{salt: salt}(IConsensusV2(address(sp1Beefy)), IConsensusV2(ecdsaBeefy));
 

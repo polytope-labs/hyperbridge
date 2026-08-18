@@ -101,8 +101,8 @@ mod tests {
 /// cannot accept the rotation until it knows the incoming set's keys.
 pub fn next_commitment_unknown(state: &[u8], proof_type: u8) -> bool {
 	proof_type == PROOF_TYPE_APK &&
-		beefy_verifier_primitives::ApkConsensusState::decode(&mut &state[..])
-			.map(|state| state.next_authorities.apk_commitment.is_zero())
+		beefy_verifier_primitives::ConsensusState::decode(&mut &state[..])
+			.map(|state| state.next_authorities.bls_poseidon_hash.is_zero())
 			.unwrap_or(false)
 }
 

@@ -24,7 +24,8 @@ contract BeefyConsensusClientTest is Test {
     EcdsaBeefy internal beefy;
 
     function setUp() public virtual {
-        beefy = new EcdsaBeefy();
+        // Hyperbridge is para 4009 on the chain these fixtures came from.
+        beefy = new EcdsaBeefy(4009);
     }
 
     function VerifyV2(bytes calldata trustedConsensusState, bytes calldata proof)

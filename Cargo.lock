@@ -8665,12 +8665,12 @@ dependencies = [
 [[package]]
 name = "gnark-apk-ffi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=1c15d06d8180906b16201c5206711808b80742ef#1c15d06d8180906b16201c5206711808b80742ef"
 
 [[package]]
 name = "gnark-apk-prover"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=1c15d06d8180906b16201c5206711808b80742ef#1c15d06d8180906b16201c5206711808b80742ef"
 dependencies = [
  "ark-bls12-381 0.5.0",
  "ark-ec 0.5.0",
@@ -8683,7 +8683,7 @@ dependencies = [
 [[package]]
 name = "gnark-plonk-verifier"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=96df97f5df2da2124be590b254d5049fe99c8908#96df97f5df2da2124be590b254d5049fe99c8908"
+source = "git+https://github.com/polytope-labs/gnark-apk-proofs?rev=1c15d06d8180906b16201c5206711808b80742ef#1c15d06d8180906b16201c5206711808b80742ef"
 dependencies = [
  "ark-bls12-381 0.5.0",
  "ark-ec 0.5.0",

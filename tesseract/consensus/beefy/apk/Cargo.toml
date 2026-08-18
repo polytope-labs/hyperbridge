@@ -26,11 +26,11 @@ json = { workspace = true, default-features = true }
 
 [dependencies.gnark-plonk-verifier]
 git = "https://github.com/polytope-labs/gnark-apk-proofs"
-rev = "96df97f5df2da2124be590b254d5049fe99c8908"
+rev = "1c15d06d8180906b16201c5206711808b80742ef"
 
 [dependencies.gnark-apk-prover]
 git = "https://github.com/polytope-labs/gnark-apk-proofs"
-rev = "96df97f5df2da2124be590b254d5049fe99c8908"
+rev = "1c15d06d8180906b16201c5206711808b80742ef"
 optional = true
 
 [dependencies.ark-serialize-05]

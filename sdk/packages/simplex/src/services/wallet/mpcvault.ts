@@ -11,7 +11,7 @@ import {
 	type ExecuteSigningRequestsResponse,
 	type SignatureContainer_ECDSASignature,
 } from "../../proto/mpcvault/platform/v1/api"
-import type { MpcVaultClientConfig, MpcVaultSignerConfig } from "./types"
+import type { MpcVaultClientConfig } from "./types"
 
 // ---------------------------------------------------------------------------
 // Helpers

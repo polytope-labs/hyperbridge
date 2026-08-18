@@ -86,12 +86,15 @@ pub fn verify_apk_consensus<H: Keccak256 + Send + Sync>(
 	// finalized, and every one of them is proven against the heads root, so a digest from another
 	// parachain is authentic yet says nothing about this relay's authorities. Left unfiltered any
 	// parachain could name the keys this client trusts next.
-	if let Some(digest) = headers
+	if let Some((current, next)) = headers
 		.iter()
 		.filter(|header| header.para_id == digest_para_id)
 		.find_map(|header| read_apk_digest(&header.header))
-	{
-		state.learn_authority_set(digest.set_id, digest.len, H256(digest.commitment));
+		.and_then(|digest| {
+			state.with_authority_set(digest.set_id, digest.len, H256(digest.commitment))
+		}) {
+		state.current_authorities = current;
+		state.next_authorities = next;
 	}
 
 	Ok((state, headers))

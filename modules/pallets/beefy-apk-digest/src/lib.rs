@@ -90,13 +90,13 @@ pub mod pallet {
 
 	/// The last commitment published to a header digest, and the set it describes.
 	#[pallet::storage]
-	pub type Published<T: Config> = StorageValue<_, (u64, u32, [u8; 32], [u8; 32]), OptionQuery>;
+	pub type Published<T: Config> = StorageValue<_, (u64, u32, [u8; 32]), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// Committed to a new authority set, and wrote the commitment to this block's header.
-		CommitmentPublished { set_id: u64, set_digest: [u8; 32], commitment: [u8; 32] },
+		CommitmentPublished { set_id: u64, len: u32, commitment: [u8; 32] },
 	}
 
 	#[pallet::hooks]
@@ -135,7 +135,7 @@ pub mod pallet {
 			let set_id = Self::relay_beefy_set_id()?;
 
 			// Nothing has moved, so the commitment already computed still describes this set.
-			if let Some((published, len, _, commitment)) = Published::<T>::get() {
+			if let Some((published, len, commitment)) = Published::<T>::get() {
 				if published == set_id {
 					Self::deposit_digest(set_id, len, commitment);
 					return Ok(false);
@@ -149,36 +149,19 @@ pub mod pallet {
 				// The old commitment is still the truth about the old set, and a client files
 				// commitments by set id, so republishing it under the id it was computed for
 				// keeps this block's header useful rather than empty.
-				if let Some((published, len, _, commitment)) = Published::<T>::get() {
+				if let Some((published, len, commitment)) = Published::<T>::get() {
 					Self::deposit_digest(published, len, commitment);
 				}
 				return Ok(false);
 			};
 			KeysWanted::<T>::kill();
 
-			let set_digest = sp_io::hashing::blake2_256(&keys.encode());
+			let commitment = commit(&keys).map_err(|_| Error::<T>::MalformedAuthorityKey)?;
 			let len = keys.len() as u32;
-			match next_step(Published::<T>::get().as_ref(), set_digest) {
-				// The membership has not changed, only the id, which is common. Rehashing would
-				// cost the better part of a second for a commitment already held.
-				Step::Republish(commitment) => {
-					Self::deposit_digest(set_id, len, commitment);
-					Published::<T>::put((set_id, len, set_digest, commitment));
-					Ok(false)
-				},
-				Step::Commit => {
-					let commitment =
-						commit(&keys).map_err(|_| Error::<T>::MalformedAuthorityKey)?;
-					Self::deposit_digest(set_id, len, commitment);
-					Published::<T>::put((set_id, len, set_digest, commitment));
-					Self::deposit_event(Event::CommitmentPublished {
-						set_id,
-						set_digest,
-						commitment,
-					});
-					Ok(true)
-				},
-			}
+			Self::deposit_digest(set_id, len, commitment);
+			Published::<T>::put((set_id, len, commitment));
+			Self::deposit_event(Event::CommitmentPublished { set_id, len, commitment });
+			Ok(true)
 		}
 
 		/// Put the commitment in this block's header.
@@ -275,11 +258,9 @@ pub fn wants_keys<T: Config>() -> bool {
 
 /// Throw away a commitment computed under an older scheme.
 ///
-/// A commitment is only recomputed when the membership changes, so a runtime upgrade that changes
-/// how keys are hashed would otherwise keep republishing the old value indefinitely, on any chain
-/// whose validators happen to stay the same. The stored digest cannot notice: it describes the
-/// keys, not the arithmetic applied to them. Clearing the record forces one recomputation and the
-/// pallet carries on from there.
+/// The stored record is republished unchanged until the relay's set id moves, so a runtime upgrade
+/// that changes how keys are hashed would otherwise keep publishing the old value for the rest of
+/// the session. Clearing it means the next block recomputes instead of waiting for the rotation.
 pub mod migration {
 	use super::*;
 	use frame_support::traits::{Get, GetStorageVersion, OnRuntimeUpgrade};
@@ -297,28 +278,6 @@ pub mod migration {
 			pallet::STORAGE_VERSION.put::<Pallet<T>>();
 			T::DbWeight::get().reads_writes(1, 2)
 		}
-	}
-}
-
-/// What to do with the commitment this block.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Step {
-	/// The keys are unchanged, so republish the commitment already computed for them.
-	Republish([u8; 32]),
-	/// Nothing published, or a different set of keys: hash them.
-	Commit,
-}
-
-/// Decide how to proceed, given what was published last.
-///
-/// Kept pure so it can be tested without a mock chain. The case worth being careful about is a
-/// session rotating without the membership changing, which is common: the commitment is the same,
-/// so rehashing it would spend the better part of a second for nothing, but it still has to be
-/// republished under the new set id or a client tracking commitments per set never learns it.
-pub fn next_step(published: Option<&(u64, u32, [u8; 32], [u8; 32])>, set_digest: [u8; 32]) -> Step {
-	match published {
-		Some((_, _, digest, commitment)) if *digest == set_digest => Step::Republish(*commitment),
-		_ => Step::Commit,
 	}
 }
 
@@ -424,38 +383,7 @@ mod tests {
 		assert!(commit(&[key]).is_ok());
 	}
 
-	const SET_A: [u8; 32] = [0xaa; 32];
-	const SET_B: [u8; 32] = [0xbb; 32];
-
-	#[test]
-	fn a_fresh_chain_commits() {
-		assert_eq!(next_step(None, SET_A), Step::Commit);
-	}
-
-	#[test]
-	fn keys_already_committed_to_are_republished_rather_than_rehashed() {
-		let published = (1u64, 2u32, SET_A, [7u8; 32]);
-		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
-	}
-
-	/// A session can rotate without the membership changing, which is common on small networks and
-	/// possible anywhere. Rehashing would cost the better part of a second for a commitment we
-	/// already hold, so the stored one is republished under the new set id instead.
-	#[test]
-	fn the_same_keys_under_a_new_set_id_are_not_rehashed() {
-		let published = (1u64, 2u32, SET_A, [7u8; 32]);
-		assert_eq!(next_step(Some(&published), SET_A), Step::Republish([7u8; 32]));
-	}
-
-	/// Different keys mean the stored commitment says nothing about them.
-	#[test]
-	fn a_new_set_is_committed_to_even_though_another_was_published() {
-		let published = (1u64, 2u32, SET_A, [7u8; 32]);
-		assert_eq!(next_step(Some(&published), SET_B), Step::Commit);
-	}
-
-	/// Two different sets must not reach the same commitment, which is the property the set digest
-	/// is standing in for when deciding whether to rehash.
+	/// Two different sets must not reach the same commitment.
 	#[test]
 	fn a_different_set_commits_differently() {
 		let first = relay_keys();

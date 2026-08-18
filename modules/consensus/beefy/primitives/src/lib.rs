@@ -255,25 +255,32 @@ pub struct ApkConsensusState {
 }
 
 impl ApkConsensusState {
-	/// Take in what a verified header says about an authority set.
+	/// What this state becomes once a verified header names an authority set, if anything.
 	///
-	/// A header naming the set after the one this client is waiting for rolls the sets forward:
-	/// the relay has moved on and the current set is now the one that was next. A header naming a
-	/// set already held is ignored, so the same digest arriving in several headers changes
-	/// nothing, and a set already carrying a commitment is never overwritten.
-	pub fn learn_authority_set(&mut self, set_id: u64, len: u32, commitment: H256) {
+	/// A header naming the set after the one being waited on rolls the sets forward: the relay has
+	/// moved on, so the current set is the one that was next. A header naming a set already held
+	/// fills in its commitment if it has none, which is what a client waiting on the next set is
+	/// looking for. Anything else, including a set already carrying a commitment, returns `None`,
+	/// so the same digest arriving in several headers changes nothing.
+	pub fn with_authority_set(
+		&self,
+		set_id: u64,
+		len: u32,
+		commitment: H256,
+	) -> Option<(ApkAuthoritySet, ApkAuthoritySet)> {
+		let incoming = ApkAuthoritySet { id: set_id, len, apk_commitment: commitment };
 		if set_id > self.next_authorities.id {
-			self.current_authorities = self.next_authorities.clone();
-			self.next_authorities = ApkAuthoritySet { id: set_id, len, apk_commitment: commitment };
-			return;
+			return Some((self.next_authorities.clone(), incoming));
 		}
-		for set in [&mut self.next_authorities, &mut self.current_authorities] {
-			if set.id == set_id && set.apk_commitment.is_zero() {
-				set.len = len;
-				set.apk_commitment = commitment;
-				return;
-			}
+		if set_id == self.next_authorities.id && self.next_authorities.apk_commitment.is_zero() {
+			return Some((self.current_authorities.clone(), incoming));
 		}
+		if set_id == self.current_authorities.id &&
+			self.current_authorities.apk_commitment.is_zero()
+		{
+			return Some((incoming, self.next_authorities.clone()));
+		}
+		None
 	}
 }
 

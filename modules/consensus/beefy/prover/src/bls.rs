@@ -144,16 +144,23 @@ pub async fn beefy_g1_authorities<T: Config>(
 pub fn aggregate_signatures(
 	signatures: &[[u8; BLS_G1_SIGNATURE_LEN]],
 ) -> Result<[u8; BLS_G1_SIGNATURE_LEN], anyhow::Error> {
+	use ark_ff::Zero;
 	use w3f_bls::{EngineBLS, SerializableToBytes, Signature, TinyBLS381};
 
-	let mut aggregate: Option<<TinyBLS381 as EngineBLS>::SignatureGroup> = None;
-	for signature in signatures {
-		let signature = Signature::<TinyBLS381>::from_bytes(signature)
-			.map_err(|_| anyhow!("Invalid G1 signature encoding"))?;
-		aggregate = Some(aggregate.map_or(signature.0, |sum| sum + signature.0));
+	// Aggregating nothing would give the identity, which is a well formed point and a meaningless
+	// signature, so an empty set is refused rather than summed.
+	if signatures.is_empty() {
+		Err(anyhow!("No signatures to aggregate"))?
 	}
 
-	let aggregate = aggregate.ok_or_else(|| anyhow!("No signatures to aggregate"))?;
+	let aggregate = signatures.iter().try_fold(
+		<TinyBLS381 as EngineBLS>::SignatureGroup::zero(),
+		|sum, signature| {
+			let signature = Signature::<TinyBLS381>::from_bytes(signature)
+				.map_err(|_| anyhow!("Invalid G1 signature encoding"))?;
+			Ok::<_, anyhow::Error>(sum + signature.0)
+		},
+	)?;
 	Signature::<TinyBLS381>(aggregate)
 		.to_bytes()
 		.try_into()

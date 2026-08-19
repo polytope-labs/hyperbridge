@@ -46,7 +46,7 @@ function hitCount(url: string): number {
 }
 
 /** Real HTTP server speaking just enough JSON-RPC for eth_blockNumber. */
-function rpcServer(host: string, mode: Mode): Promise<string> {
+function rpcServer(host: string, mode: Mode, opts: { retryAfter?: string | null } = {}): Promise<string> {
 	let url = ""
 	const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 		hits.set(url, (hits.get(url) ?? 0) + 1)
@@ -58,7 +58,11 @@ function rpcServer(host: string, mode: Mode): Promise<string> {
 			if (mode === "limited") {
 				// Retry-After: 0 keeps viem's internal retries instant, so the
 				// exhausted-retries 429 surfaces to our policy without slow backoff.
-				res.writeHead(429, { "Content-Type": "text/plain", "Retry-After": "0" })
+				// Suspension tests pass `retryAfter: null` to omit the header —
+				// the bench honours Retry-After, and a 0 would bench for only 1s.
+				const headers: Record<string, string> = { "Content-Type": "text/plain" }
+				if (opts.retryAfter !== null) headers["Retry-After"] = opts.retryAfter ?? "0"
+				res.writeHead(429, headers)
 				res.end("Too Many Requests")
 				return
 			}
@@ -109,6 +113,15 @@ function rpcServer(host: string, mode: Mode): Promise<string> {
 	})
 }
 
+/**
+ * A no-header 429 server: the bench takes the full suspension window (the bench
+ * honours Retry-After, and the default "0" would bench for only 1s), and viem's
+ * own retry ladder means the rejection lands within a few seconds.
+ */
+function limitedServer(host: string) {
+	return rpcServer(host, "limited", { retryAfter: null })
+}
+
 describe("isRateLimited against real HTTP responses (local server)", () => {
 	it("classifies viem's actual error for a genuine HTTP 429", async () => {
 		const url = await rpcServer(HOSTS[0], "limited")
@@ -146,7 +159,7 @@ describe("isRateLimited against real HTTP responses (local server)", () => {
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
 			rpcServer(HOSTS[2], "ok"),
-			rpcServer(HOSTS[3], "limited"),
+			limitedServer(HOSTS[3]),
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
@@ -163,13 +176,18 @@ describe("isRateLimited against real HTTP responses (local server)", () => {
 })
 
 describe("rate-limit suspension", () => {
+	beforeEach(() => {
+		// The bench is shared state keyed by URL (scanner and filler instances
+		// must see each other's benches); tests start from a clean slate.
+		QuorumPublicClient.clearAllSuspensions()
+	})
 	afterEach(() => {
 		vi.restoreAllMocks()
 	})
 
 	/** The 429 endpoint's rejection can settle after the call already decided; suspension lands then. */
 	async function waitSuspended(client: QuorumPublicClient, url: string) {
-		await vi.waitFor(() => expect(client.suspended()).toContain(url))
+		await vi.waitFor(() => expect(client.suspended()).toContain(url), { timeout: 20_000 })
 	}
 
 	it("suspends a genuinely 429ing endpoint and stops querying it while the quorum can spare it", async () => {
@@ -178,7 +196,7 @@ describe("rate-limit suspension", () => {
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
 			rpcServer(HOSTS[2], "ok"),
-			rpcServer(HOSTS[3], "limited"),
+			limitedServer(HOSTS[3]),
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
 
@@ -207,7 +225,7 @@ describe("rate-limit suspension", () => {
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
 			rpcServer(HOSTS[2], "ok"),
-			rpcServer(HOSTS[3], "limited"),
+			limitedServer(HOSTS[3]),
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, bad])
 		await expect(client.getBlockNumber()).resolves.toBe(100n)
@@ -231,7 +249,7 @@ describe("rate-limit suspension", () => {
 		// endpoint alone (threshold 1) carries reads for the suspension window.
 		// A throttled endpoint answers nothing either way; counting it would
 		// only make the solver miss events.
-		const [ok1, bad] = await Promise.all([rpcServer(HOSTS[0], "ok"), rpcServer(HOSTS[1], "limited")])
+		const [ok1, bad] = await Promise.all([rpcServer(HOSTS[0], "ok"), limitedServer(HOSTS[1])])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, bad])
 
 		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
@@ -253,7 +271,7 @@ describe("rate-limit suspension", () => {
 			rpcServer(HOSTS[1], "ok"),
 			rpcServer(HOSTS[2], "ok"),
 			rpcServer(HOSTS[3], "broken"),
-			rpcServer(HOSTS[4], "limited"),
+			limitedServer(HOSTS[4]),
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, flaky, bad])
 
@@ -298,14 +316,54 @@ describe("rate-limit suspension", () => {
 		expect(isSuspendableRateLimit(rpcError(-32097, "limit"))).toBe(true)
 		expect(isSuspendableRateLimit(Object.assign(new Error("x"), { status: 429 }))).toBe(true)
 
-		// A URL that happens to contain 429 must not bench an endpoint, even
-		// though the loose label matches it.
-		const urlish = Object.assign(new Error("HTTP request failed."), {
-			metaMessages: ["URL: https://rpc.example/key-429-abc"],
+		// viem folds metaMessages — the request URL included — into `message`,
+		// so the guard must skip `message` whenever metaMessages exist. Shape
+		// matches what viem actually builds (verified in the end-to-end test
+		// below with a real server; this pins the unit-level contract).
+		const urlish = Object.assign(new Error("HTTP request failed.\n\nURL: https://rpc.example/ratelimit-key\n"), {
+			metaMessages: ["URL: https://rpc.example/ratelimit-key"],
 		})
-		expect(isRateLimited(urlish)).toBe(true)
 		expect(isSuspendableRateLimit(urlish)).toBe(false)
 	})
+
+	it("does not bench an endpoint whose URL contains throttle words when it fails for other reasons", async () => {
+		// The review's probe, kept as a test: a plain HTTP 500 from an endpoint
+		// whose PATH contains "ratelimit". viem folds the URL into the error
+		// message, and the first cut of the guard read message — benching a
+		// healthy endpoint for five minutes on a non-throttle failure.
+		const [ok1, ok2, ok3, brokenBase] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "broken"),
+		])
+		const brokenWithScaryUrl = `${brokenBase}/team-ratelimit-key`
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, brokenWithScaryUrl])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		// Let the 500's retries settle so a late noteFailure cannot slip in
+		// after the assertion.
+		await vi.waitFor(() => expect(hitCount(brokenBase)).toBeGreaterThanOrEqual(4))
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
+
+	it("honours the provider's Retry-After for the bench duration", async () => {
+		const [ok1, ok2, ok3, briefly] = await Promise.all([
+			rpcServer(HOSTS[0], "ok"),
+			rpcServer(HOSTS[1], "ok"),
+			rpcServer(HOSTS[2], "ok"),
+			rpcServer(HOSTS[3], "limited", { retryAfter: "2" }),
+		])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, briefly])
+
+		await expect(client.getBlockNumber()).resolves.toBe(100n)
+		await waitSuspended(client, briefly)
+
+		// A 2-second limiter costs 2 seconds, not five minutes.
+		const realNow = Date.now()
+		vi.spyOn(Date, "now").mockReturnValue(realNow + 3_000)
+		expect(client.suspended()).toEqual([])
+	}, 30_000)
 
 	it("does not suspend an endpoint for non-rate-limit failures", async () => {
 		const [ok1, ok2, ok3, broken] = await Promise.all([

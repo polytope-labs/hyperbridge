@@ -160,16 +160,17 @@ export class ChainClientManager {
 	}
 
 	/**
-	 * Quorum client for consensus-critical reads (event scanning, cross-chain
-	 * confirmation counting). Built from the operator's configured endpoints and
-	 * cached per chain, so the event monitor and the confirmation waiter share
-	 * one provider set.
+	 * Quorum client for consensus-critical reads (cross-chain confirmation
+	 * counting; the scanner builds its own instance over its own chain list).
+	 * Built from the operator's configured endpoints and cached per chain. The
+	 * instances are separate but their rate-limit bench is shared state keyed by
+	 * endpoint URL, so a throttle either observes benches the endpoint for both.
 	 */
 	getQuorumClient(chain: string): QuorumPublicClient {
 		const config = this.configService.getChainConfig(chain)
 		let client = this.quorumClients.get(config.chainId)
 		if (!client) {
-			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain))
+			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain), this.loggers)
 			this.quorumClients.set(config.chainId, client)
 		}
 		return client

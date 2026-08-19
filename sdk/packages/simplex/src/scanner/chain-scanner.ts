@@ -73,11 +73,11 @@ export class ChainScanner {
 
 	constructor(
 		private readonly target: ScanTarget,
-		loggers: LoggerContext = defaultLoggerContext(),
+		private readonly loggers: LoggerContext = defaultLoggerContext(),
 		private readonly scanIntervalMs: number = DEFAULT_SCAN_INTERVAL_MS,
 	) {
 		this.logger = loggers.get("chain-scanner")
-		this.quorumClient = new QuorumPublicClient(target.chainId, target.rpcUrls)
+		this.quorumClient = new QuorumPublicClient(target.chainId, target.rpcUrls, loggers)
 		if (this.quorumClient.size > 1) {
 			this.logger.info(
 				{
@@ -159,7 +159,7 @@ export class ChainScanner {
 	async setRpcUrls(rpcUrls: string[]): Promise<void> {
 		await this.mutex.runExclusive(async () => {
 			this.target.rpcUrls = rpcUrls
-			this.quorumClient = new QuorumPublicClient(this.target.chainId, rpcUrls)
+			this.quorumClient = new QuorumPublicClient(this.target.chainId, rpcUrls, this.loggers)
 			this.logger.info(
 				{ chainId: this.target.chainId, providerCount: this.quorumClient.size, cursor: this.cursor },
 				"Swapped block scanner endpoints",

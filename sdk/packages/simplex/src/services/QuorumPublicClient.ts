@@ -12,6 +12,7 @@ import {
 } from "viem"
 import { getViemChain } from "@hyperbridge/sdk"
 import { validateRpcUrls } from "./FillerConfigService"
+import { moduleLogger, type Logger, type LoggerContext } from "./Logger"
 
 /**
  * Standard BFT threshold for a set of `n` equal peers: `floor(2n/3) + 1`, i.e.
@@ -75,9 +76,14 @@ const SUSPENDABLE_RPC_CODES = new Set([-32016, -32097, 429])
  *   Benching on it would suspend a healthy endpoint every time a catch-up scan
  *   crosses a busy range, and re-bench it on every retry. It still qualifies
  *   when its text says it is a throttle ("too many requests").
- * - The free-text match reads `message`/`details`/`shortMessage` only, not
- *   `metaMessages` (which embed the request URL), and drops the bare `429`
- *   pattern — a URL or key containing "429" must not bench an endpoint.
+ * - The free-text match must not read the request URL, or a key containing
+ *   "ratelimit" benches its endpoint on ANY failure. viem folds `metaMessages`
+ *   — which embed the URL — into `message` itself, so `message` is only
+ *   consulted when the error carries no `metaMessages` (plain and synthetic
+ *   errors); real viem errors put the provider's own words in `details` and
+ *   `shortMessage`, which are always read. The bare `429` pattern is dropped
+ *   for the same reason. (The first cut skipped `metaMessages` but still read
+ *   `message`, which contains them — caught in review, verified end-to-end.)
  *
  * Exported for tests.
  */
@@ -90,15 +96,38 @@ export function isSuspendableRateLimit(error: unknown): boolean {
 			message?: string
 			details?: string
 			shortMessage?: string
+			metaMessages?: unknown
 			cause?: unknown
 		}
 		if (e.status === 429) return true
 		if (typeof e.code === "number" && SUSPENDABLE_RPC_CODES.has(e.code)) return true
-		const text = [e.message, e.details, e.shortMessage].filter(Boolean).join(" ")
+		const text = [e.details, e.shortMessage, e.metaMessages ? undefined : e.message].filter(Boolean).join(" ")
 		if (/too many requests|rate.?limit/i.test(text)) return true
 		current = e.cause
 	}
 	return false
+}
+
+/**
+ * How long to bench, honouring the provider's own `Retry-After` when it sent
+ * one (clamped to [1s, {@link RATE_LIMIT_SUSPENSION_MS}]) — a per-second
+ * limiter answering `Retry-After: 1` should not cost five minutes of degraded
+ * quorum. Absent a header, the full window applies.
+ */
+function suspensionMsFor(error: unknown): number {
+	let current: unknown = error
+	for (let depth = 0; depth < 6 && current instanceof Error; depth++) {
+		const headers = (current as { headers?: { get?: (name: string) => string | null } }).headers
+		const raw = typeof headers?.get === "function" ? headers.get("retry-after") : undefined
+		if (raw) {
+			const seconds = Number(raw)
+			if (Number.isFinite(seconds)) {
+				return Math.min(Math.max(seconds * 1000, 1_000), RATE_LIMIT_SUSPENSION_MS)
+			}
+		}
+		current = (current as { cause?: unknown }).cause
+	}
+	return RATE_LIMIT_SUSPENSION_MS
 }
 
 /** Whether a getTransactionReceipt rejection means "no such receipt" (a valid answer, not a fault). */
@@ -143,13 +172,26 @@ export class QuorumPublicClient {
 	 * `quorumThreshold(queried)` — the bar always matches who was asked.
 	 */
 	public readonly threshold: number
-	/** Per-endpoint suspension deadline (epoch ms); 0 = not suspended. */
-	private readonly suspendedUntil: number[]
+	private readonly logger?: Logger
 
-	constructor(chainId: number, rpcUrls: string[]) {
+	/**
+	 * Rate-limit bench state, shared across every instance and keyed by endpoint
+	 * URL. The bench describes the ENDPOINT, not the wrapper: the scanner and the
+	 * confirmation poller construct separate clients over the same URLs, and a
+	 * throttle one of them observed is a throttle for both. Instance state would
+	 * halve the relief — and evaporate whenever `setRpcUrls` rebuilds a client.
+	 */
+	private static benchedUntil = new Map<string, number>()
+
+	/** Test hook: forgets every bench. Production never calls it. */
+	static clearAllSuspensions(): void {
+		QuorumPublicClient.benchedUntil.clear()
+	}
+
+	constructor(chainId: number, rpcUrls: string[], loggers?: LoggerContext) {
 		this.rpcUrls = validateRpcUrls(rpcUrls)
 		this.threshold = quorumThreshold(this.rpcUrls.length)
-		this.suspendedUntil = this.rpcUrls.map(() => 0)
+		this.logger = loggers ? moduleLogger(loggers, "quorum-client") : undefined
 		const chain = getViemChain(chainId) as Chain
 		this.clients = this.rpcUrls.map((url) =>
 			createPublicClient({
@@ -170,7 +212,7 @@ export class QuorumPublicClient {
 	/** Endpoints currently suspended for rate limiting, by URL. */
 	suspended(): string[] {
 		const now = Date.now()
-		return this.rpcUrls.filter((_, idx) => this.suspendedUntil[idx] > now)
+		return this.rpcUrls.filter((url) => (QuorumPublicClient.benchedUntil.get(url) ?? 0) > now)
 	}
 
 	/**
@@ -184,26 +226,44 @@ export class QuorumPublicClient {
 		queried: Array<{ idx: number; client: PublicClient }>
 		skipped: number
 		threshold: number
+		allBenched: boolean
 	} {
 		const now = Date.now()
 		const all = this.clients.map((client, idx) => ({ idx, client }))
-		const active = all.filter(({ idx }) => this.suspendedUntil[idx] <= now)
-		const queried = active.length > 0 ? active : all
+		const active = all.filter(({ idx }) => (QuorumPublicClient.benchedUntil.get(this.rpcUrls[idx]) ?? 0) <= now)
+		const allBenched = active.length === 0
+		const queried = allBenched ? all : active
 		return {
 			queried,
 			skipped: all.length - queried.length,
 			threshold: quorumThreshold(queried.length),
+			allBenched,
 		}
 	}
 
 	/**
 	 * Records a task failure against its endpoint. Only rate-limit failures
 	 * carry state: everything else stays per-call, as the class doc promises.
+	 * The bench is the one silent state transition this class has, so it warns —
+	 * an operator whose bar just dropped from 2-of-2 to 1-of-1 should not need a
+	 * QuorumError to find out.
 	 */
 	private noteFailure(idx: number, error: unknown): void {
-		if (isSuspendableRateLimit(error)) {
-			this.suspendedUntil[idx] = Date.now() + RATE_LIMIT_SUSPENSION_MS
-		}
+		if (!isSuspendableRateLimit(error)) return
+		const url = this.rpcUrls[idx]
+		const durationMs = suspensionMsFor(error)
+		QuorumPublicClient.benchedUntil.set(url, Date.now() + durationMs)
+		const remaining = this.size - this.suspended().length
+		this.logger?.warn(
+			{
+				url,
+				durationMs,
+				queriedAfter: remaining > 0 ? remaining : this.size,
+				quorumAfter: quorumThreshold(remaining > 0 ? remaining : this.size),
+				of: this.size,
+			},
+			"Endpoint rate-limited; suspending it and recomputing the quorum bar over the rest",
+		)
 	}
 
 	/**
@@ -290,19 +350,26 @@ export class QuorumPublicClient {
 	 * when fewer than `threshold` endpoints respond.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const { queried, skipped, threshold } = this.participants()
+		const { queried, skipped, threshold, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({ idx, task: client.getBlockNumber() })),
 			// Early exit as soon as a quorum is satisfiable. Late voters could
 			// only raise the reported head; the earlier (lower) head is
 			// conservative for every consumer (fewer confirmations counted,
 			// smaller scan windows).
-			(fulfilled) => this.quorumHead(fulfilled.map((f) => f.value), threshold) ?? undefined,
+			(fulfilled) =>
+				this.quorumHead(
+					fulfilled.map((f) => f.value),
+					threshold,
+				) ?? undefined,
 			(fulfilled, failures) => {
-				const head = this.quorumHead(fulfilled.map((f) => f.value), threshold)
+				const head = this.quorumHead(
+					fulfilled.map((f) => f.value),
+					threshold,
+				)
 				if (head === null) {
 					throw new QuorumError(
-						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.length, queried.length, skipped)}. ` +
+						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.length, queried.length, skipped, allBenched)}. ` +
 							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 					)
 				}
@@ -340,21 +407,21 @@ export class QuorumPublicClient {
 			return views
 		}
 
-		const { queried, skipped, threshold } = this.participants()
+		const { queried, skipped, threshold, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
 				task: (async (): Promise<ReceiptProbe> => {
-				// Head first: a failure here means the endpoint is unresponsive.
-				const head = await client.getBlockNumber()
-				let receipt: { blockHash: string; blockNumber: bigint } | null = null
-				try {
-					const r = await client.getTransactionReceipt({ hash })
-					receipt = { blockHash: r.blockHash, blockNumber: r.blockNumber }
-				} catch (error) {
-					if (!isReceiptNotFound(error)) throw error
-					// not-found: a valid "no" vote — keep the endpoint as responsive.
-				}
+					// Head first: a failure here means the endpoint is unresponsive.
+					const head = await client.getBlockNumber()
+					let receipt: { blockHash: string; blockNumber: bigint } | null = null
+					try {
+						const r = await client.getTransactionReceipt({ hash })
+						receipt = { blockHash: r.blockHash, blockNumber: r.blockNumber }
+					} catch (error) {
+						if (!isReceiptNotFound(error)) throw error
+						// not-found: a valid "no" vote — keep the endpoint as responsive.
+					}
 					return { head, receipt }
 				})(),
 			})),
@@ -367,7 +434,7 @@ export class QuorumPublicClient {
 				if (confirmations === null) {
 					throw new QuorumError(
 						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by a ` +
-							`quorum (${threshold}). ${this.describeResponders(fulfilled.length, queried.length, skipped)}. ` +
+							`quorum (${threshold}). ${this.describeResponders(fulfilled.length, queried.length, skipped, allBenched)}. ` +
 							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 					)
 				}
@@ -407,7 +474,7 @@ export class QuorumPublicClient {
 			return groups
 		}
 
-		const { queried, skipped, threshold } = this.participants()
+		const { queried, skipped, threshold, allBenched } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
@@ -433,7 +500,7 @@ export class QuorumPublicClient {
 				const responders = [...groups.values()].reduce((n, g) => n + g.providerIdxs.length, 0)
 				throw new QuorumError(
 					`Quorum not reached for getLogs(${describeLogsParams(params)}): no result agreed on by a ` +
-						`quorum (${threshold}). ${this.describeResponders(responders, queried.length, skipped)}. ` +
+						`quorum (${threshold}). ${this.describeResponders(responders, queried.length, skipped, allBenched)}. ` +
 						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 				)
 			},
@@ -446,8 +513,12 @@ export class QuorumPublicClient {
 	 * retry ladder) can outlive a suspension window, and the message must explain
 	 * who was excluded when the call started, not who would be excluded now.
 	 */
-	private describeResponders(count: number, queried: number, skipped: number): string {
-		const note = skipped > 0 ? ` (${skipped}/${this.size} suspended for rate limiting)` : ""
+	private describeResponders(count: number, queried: number, skipped: number, allBenched: boolean): string {
+		const note = allBenched
+			? ` (all ${this.size} endpoints rate-limit-suspended; queried anyway)`
+			: skipped > 0
+				? ` (${skipped}/${this.size} suspended for rate limiting)`
+				: ""
 		return `responders: ${count}/${queried} queried${note}`
 	}
 
@@ -483,12 +554,10 @@ function providerMessage(error: unknown): string {
 }
 
 /** The parts of a getLogs request an operator needs to see when one is rejected. */
-function describeLogsParams(params: {
-	address?: unknown
-	fromBlock?: unknown
-	toBlock?: unknown
-}): string {
-	const address = Array.isArray(params.address) ? `${params.address.length} addresses` : String(params.address ?? "any")
+function describeLogsParams(params: { address?: unknown; fromBlock?: unknown; toBlock?: unknown }): string {
+	const address = Array.isArray(params.address)
+		? `${params.address.length} addresses`
+		: String(params.address ?? "any")
 	const from = params.fromBlock
 	const to = params.toBlock
 	// The span is the usual culprit: public endpoints cap eth_getLogs ranges well

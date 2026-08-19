@@ -104,6 +104,29 @@ export function resolvePoolLeg(chain: string, leg: RegisteredLeg): ResolvedPoolL
 }
 
 /**
+ * A leg's quoted output, renormalized to the pool's rate convention: output units per ONE whole
+ * input token, as a `POOL_RATE_DECIMALS` fixed-point integer.
+ *
+ * The quote was given for `standardAmount` of the input token, whatever the pallet configured, so
+ * it is scaled back to one whole token. At the legacy probe of exactly one unit
+ * (`standardAmount === 10 ** inDecimals`) the two powers cancel and this is precisely the old
+ * `medianPrice * scale`, which is why raising the probe size cannot move a published rate.
+ *
+ * Every multiplication happens before the division, so only the final step truncates — by under
+ * one unit of 1e18, and downward, the same conservative direction the filler's own quote is
+ * floored in.
+ */
+export function poolRateFromQuote(
+	medianPrice: bigint,
+	resolved: Pick<ResolvedPoolLeg, "inDecimals" | "outDecimals">,
+	standardAmount: bigint,
+): bigint {
+	const scale = 10n ** BigInt(POOL_RATE_DECIMALS - resolved.outDecimals)
+	const inputUnit = 10n ** BigInt(resolved.inDecimals)
+	return (medianPrice * scale * inputUnit) / standardAmount
+}
+
+/**
  * A pool's rates oriented for `baseSymbol`: `direct` is quote units per 1 whole base (the
  * base -> quote legs), `inverse` is base units per 1 whole quote. Keeping the orientation rule
  * next to the direction writer above means SELL/BUY semantics have a single code home.
@@ -197,15 +220,10 @@ export async function updateLiquidityPools(params: {
 				outputToken: leg.tokenB,
 			})
 		}
-		// A pool rate is output units per ONE whole input token, but the leg was quoted against
-		// `standardAmount` of them, so renormalize: multiply by one whole input token and divide
-		// by whatever the probe size actually was. Holds for any standard amount the pallet
-		// picks, whole-token or not, and collapses to the old `medianPrice * scale` when the
-		// probe is exactly one unit. Every multiplication happens before the division, so only
-		// the final step truncates — by under one unit of 1e18, and downward, the same
-		// conservative direction the quote itself is floored in.
-		const inputUnit = 10n ** BigInt(resolved.inDecimals)
-		entry.samples.push({ rate: (quote.medianPrice * scale * inputUnit) / leg.standardAmount, depth })
+		entry.samples.push({
+			rate: poolRateFromQuote(quote.medianPrice, resolved, leg.standardAmount),
+			depth,
+		})
 		entry.bidCount += quote.bidCount
 		entry.quoted = true
 	}

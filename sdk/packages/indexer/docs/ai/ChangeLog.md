@@ -22,6 +22,8 @@ The exact-value check was the only tripwire for a registry/pallet decimals disag
 
 `ResolvedPoolLeg` gained `inDecimals` for the renormalization. The SDK's `PhantomSnapshotQuoter` needed no change — it already divides by `snapshot.standardAmount`.
 
+The renormalization is exported as `poolRateFromQuote(medianPrice, resolved, standardAmount)` rather than living inline in `updateLiquidityPools`, which needs SubQuery store mocks to exercise. It is the one piece of arithmetic a wrong probe size would silently corrupt, so it is now a pure function pinned directly by tests: the four live mainnet rates at the deployed 1-unit probe, the identical rates at a 1000-unit probe, the extra digits the bump buys, and a non-whole 1.5-token probe. The 1-unit cases matter most — they are the currently deployed configuration, and at exactly one whole unit the two powers in the formula cancel, so those tests are the proof that raising the probe size elsewhere cannot move a published rate.
+
 Files: `src/services/liquidityPool.service.ts`, `src/services/__tests__/liquidityPool.service.test.ts`.
 
 ## 2026-08-14 — Seed cumulative from daily rows; isolate seed failures (review fixes on #1085)

@@ -4,7 +4,7 @@
 
 ;(global as any).logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 
-import { resolvePoolLeg } from "@/services/liquidityPool.service"
+import { poolRateFromQuote, resolvePoolLeg } from "@/services/liquidityPool.service"
 
 const BSC = "EVM-56"
 const CNGN_BSC = "0xa8aea66b361a8d53e8865c62d142167af28af058"
@@ -79,5 +79,63 @@ describe("resolvePoolLeg on BNB Chain", () => {
 	// from the other side (18-decimal amount read against a 6-decimal registry entry).
 	it("refuses a standard amount far below one input token", () => {
 		expect(resolvePoolLeg(BSC, leg(USDT_BSC, CNGN_BSC, 10n ** 6n))).toBeNull()
+	})
+})
+
+// The rate a pool publishes is `output units per ONE whole input token`, but a leg is quoted
+// against whatever standard amount the pallet configured. These pin that renormalization against
+// values read off mainnet on 2026-08-19, so a probe-size change cannot move a published rate.
+describe("poolRateFromQuote", () => {
+	const cases = [
+		{ name: "Base cNGN(6) -> USDC(6)", medianPrice: 715n, inDecimals: 6, outDecimals: 6, expected: 715000000000000n },
+		{
+			name: "Base USDC(6) -> cNGN(6)",
+			medianPrice: 1393000000n,
+			inDecimals: 6,
+			outDecimals: 6,
+			expected: 1393000000000000000000n,
+		},
+		{
+			name: "BSC cNGN(6) -> USDT(18)",
+			medianPrice: 716845878136200n,
+			inDecimals: 6,
+			outDecimals: 18,
+			expected: 716845878136200n,
+		},
+		{
+			name: "BSC USDT(18) -> cNGN(6)",
+			medianPrice: 1393000000n,
+			inDecimals: 18,
+			outDecimals: 6,
+			expected: 1393000000000000000000n,
+		},
+	]
+
+	// The legacy probe, and the one still deployed. At exactly one whole unit the two powers in
+	// the renormalization cancel, so this must reproduce what the indexer published before the
+	// standard amount became a variable at all.
+	it.each(cases)("reproduces the live rate at a 1-unit probe: $name", ({ medianPrice, inDecimals, outDecimals, expected }) => {
+		const standardAmount = 10n ** BigInt(inDecimals)
+		expect(poolRateFromQuote(medianPrice, { inDecimals, outDecimals }, standardAmount)).toBe(expected)
+	})
+
+	// A bigger probe draws a proportionally bigger quote, so the rate must not move.
+	it.each(cases)("yields the identical rate at a 1000-unit probe: $name", ({ medianPrice, inDecimals, outDecimals, expected }) => {
+		const standardAmount = 1000n * 10n ** BigInt(inDecimals)
+		expect(poolRateFromQuote(medianPrice * 1000n, { inDecimals, outDecimals }, standardAmount)).toBe(expected)
+	})
+
+	// The precision the bump is for: a 6-decimal output only affords ~3 digits against one whole
+	// token, so the same curve resolves ~1000x finer at a 1000-token probe.
+	it("carries the extra digits a larger probe buys", () => {
+		const oneUnit = poolRateFromQuote(715n, { inDecimals: 6, outDecimals: 6 }, 10n ** 6n)
+		const thousand = poolRateFromQuote(715307n, { inDecimals: 6, outDecimals: 6 }, 1000n * 10n ** 6n)
+		expect(oneUnit).toBe(715000000000000n)
+		expect(thousand).toBe(715307000000000n)
+	})
+
+	it("handles a probe that is not a whole number of input tokens", () => {
+		// 1.5 whole tokens quoted at the same rate as the 1-unit Base case.
+		expect(poolRateFromQuote(1072n, { inDecimals: 6, outDecimals: 6 }, 1_500_000n)).toBe(714666666666666n)
 	})
 })

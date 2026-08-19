@@ -4,6 +4,16 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-19 — REVERSED: a benched endpoint is dropped from the bar, not just the traffic
+
+Chosen (maintainer decision, reversing the entry below): a rate-limited endpoint is excluded from the query set AND the quorum bar — each call's threshold is `quorumThreshold(endpoints actually queried)`. With every endpoint benched, all are queried again.
+
+What it replaces: the first design kept the threshold over the full set and queried benched endpoints whenever the quorum was impossible without them, preserving the trust model exactly at the cost of availability — at n ≤ 3 a sustained 429 meant every call failed for the whole window.
+
+Why the reversal is right: a throttled endpoint answers nothing either way, so keeping it in the denominator can only fail calls the remaining endpoints agree on — and a scanner that cannot form a quorum misses orders, which is a concrete revenue loss. The threat the fixed bar defended against (an attacker inducing 429s on public endpoints to lower the agreement bar) degrades 4-of-5 to 3-of-4 among endpoints the operator still chose — a marginal weakening against a speculative adversary, paid for with certain blindness under ordinary provider throttling. The voters are always exclusively the operator's own endpoints; the bar simply matches who was asked.
+
+`threshold` (the public field) still reports the full-set bar — the scanner logs it — and the per-call bar appears in every QuorumError message.
+
 ## 2026-08-19 — Suspension has its own classifier, stricter than the diagnostic label
 
 Chosen: `noteFailure` benches on `isSuspendableRateLimit` (HTTP 429, throttle-specific codes -32016/-32097, or throttle text in message/details/shortMessage), while the loose `isRateLimited` keeps labelling diagnostics. `-32005` alone never benches, and the suspension-path text match reads no metaMessages and has no bare-`429` pattern.
@@ -12,7 +22,7 @@ Alternative considered: one classifier for both, which is what the first cut shi
 
 Why: `isRateLimited`'s breadth was designed for a role where a false positive cost a misleading log tag — its own removed comment said it "does not change control flow". Promoting it unchanged into an availability gate weaponised that breadth: EIP-1474 defines `-32005` as generic "limit exceeded", Infura returns it for eth_getLogs queries over its 10k result cap — a deterministic property of the query — and the scanner's 1000-block catch-up ranges hit that cap on busy chains, so the first cut would have benched a healthy endpoint for 5 minutes and re-benched it on every retry, leaving a 4-endpoint quorum at zero fault tolerance for the duration. Same logic for the free-text breadth: metaMessages embed the request URL, and a key containing "429" must not bench an endpoint. The label stays loose because mislabelling costs nothing; the bench is strict because benching costs quorum slack.
 
-## 2026-08-19 — Rate-limit suspension never shrinks the quorum, and yields when the quorum needs the benched endpoint
+## 2026-08-19 — SUPERSEDED (see the reversal above): rate-limit suspension never shrinks the quorum, and yields when the quorum needs the benched endpoint
 
 Chosen: a rate-limited endpoint is suspended for 5 minutes, but (a) the threshold stays `quorumThreshold(full set)` — suspension changes who is asked, never what is required — and (b) when the unsuspended endpoints alone cannot reach that threshold, suspended endpoints are queried anyway.
 

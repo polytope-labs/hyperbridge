@@ -118,15 +118,18 @@ function isReceiptNotFound(error: unknown): boolean {
  *
  * The one piece of pausing state is rate limiting: an endpoint whose failure
  * is unambiguously a request-rate limit ({@link isSuspendableRateLimit} — HTTP
- * 429, a throttle-specific JSON-RPC code, or throttle text) is suspended
- * for {@link RATE_LIMIT_SUSPENSION_MS} — querying it again immediately only
- * deepens the throttle. Suspension changes who is *asked*, never what is
- * *required*: the threshold is always computed over the full endpoint set, and
- * when too few unsuspended endpoints remain to possibly reach it, suspended
- * endpoints are queried anyway — a rate limit may cost efficiency, but it must
- * never convert into a self-inflicted outage the provider did not impose.
- * Every other failure mode stays stateless: a chronically slow endpoint costs
- * one failed sub-request per call, never a shrunk quorum.
+ * 429, a throttle-specific JSON-RPC code, or throttle text) is DROPPED for
+ * {@link RATE_LIMIT_SUSPENSION_MS}: not queried (re-querying only deepens the
+ * throttle) and not counted — each call's quorum bar is computed over the
+ * endpoints actually asked. A throttled endpoint answers nothing either way;
+ * keeping it in the denominator would only turn the provider's throttle into
+ * the solver missing events, and a scanner that misses orders loses fills. The
+ * agreement bar therefore degrades while endpoints are benched — 4-of-5
+ * becomes 3-of-4 — which is the deliberate trade: the remaining voters are
+ * still exclusively the operator's own endpoints. When every endpoint is
+ * benched, all are queried again; there is nobody left to prefer. Every other
+ * failure mode stays stateless: a chronically slow endpoint costs one failed
+ * sub-request per call, never a shrunk quorum.
  *
  * The constructor validates that URLs resolve to distinct hostnames so a "quorum"
  * isn't secretly the same upstream in disguise.
@@ -135,8 +138,9 @@ export class QuorumPublicClient {
 	public readonly clients: PublicClient[]
 	public readonly rpcUrls: string[]
 	/**
-	 * Endpoints that must agree on any result: `quorumThreshold(n)` over the
-	 * FULL set — suspension never lowers the bar, only the traffic.
+	 * The quorum bar when every endpoint answers: `quorumThreshold(n)` over the
+	 * full set. Calls made while endpoints are rate-limit-benched use
+	 * `quorumThreshold(queried)` — the bar always matches who was asked.
 	 */
 	public readonly threshold: number
 	/** Per-endpoint suspension deadline (epoch ms); 0 = not suspended. */
@@ -170,19 +174,26 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * The endpoints this call will query: everyone not suspended — unless the
-	 * unsuspended set alone cannot reach the threshold, in which case everyone.
-	 * A quorum that is impossible without suspended endpoints must include them:
-	 * skipping them would trade a provider's throttle for a total outage.
+	 * The endpoints this call queries — everyone not benched — and the quorum
+	 * bar for exactly that set. A benched endpoint is dropped outright: it
+	 * answers nothing while throttled, so counting it could only fail calls the
+	 * remaining endpoints agree on. With every endpoint benched, everyone is
+	 * queried again; there is nobody left to prefer.
 	 */
-	private participants(): { queried: Array<{ idx: number; client: PublicClient }>; skipped: number } {
+	private participants(): {
+		queried: Array<{ idx: number; client: PublicClient }>
+		skipped: number
+		threshold: number
+	} {
 		const now = Date.now()
 		const all = this.clients.map((client, idx) => ({ idx, client }))
 		const active = all.filter(({ idx }) => this.suspendedUntil[idx] <= now)
-		if (active.length >= this.threshold) return { queried: active, skipped: all.length - active.length }
-		// Quorum impossible without the benched endpoints: query everyone, and
-		// report nothing as skipped — because nothing was.
-		return { queried: all, skipped: 0 }
+		const queried = active.length > 0 ? active : all
+		return {
+			queried,
+			skipped: all.length - queried.length,
+			threshold: quorumThreshold(queried.length),
+		}
 	}
 
 	/**
@@ -200,10 +211,10 @@ export class QuorumPublicClient {
 	 * that `threshold` endpoints report head ≥ B. Returns null when fewer than
 	 * `threshold` endpoints have responded.
 	 */
-	private quorumHead(heads: readonly bigint[]): bigint | null {
-		if (heads.length < this.threshold) return null
+	private quorumHead(heads: readonly bigint[], threshold: number): bigint | null {
+		if (heads.length < threshold) return null
 		const desc = (a: bigint, b: bigint) => (a > b ? -1 : a < b ? 1 : 0)
-		return [...heads].sort(desc)[this.threshold - 1]
+		return [...heads].sort(desc)[threshold - 1]
 	}
 
 	/**
@@ -279,16 +290,16 @@ export class QuorumPublicClient {
 	 * when fewer than `threshold` endpoints respond.
 	 */
 	async getBlockNumber(): Promise<bigint> {
-		const { queried, skipped } = this.participants()
+		const { queried, skipped, threshold } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({ idx, task: client.getBlockNumber() })),
 			// Early exit as soon as a quorum is satisfiable. Late voters could
 			// only raise the reported head; the earlier (lower) head is
 			// conservative for every consumer (fewer confirmations counted,
 			// smaller scan windows).
-			(fulfilled) => this.quorumHead(fulfilled.map((f) => f.value)) ?? undefined,
+			(fulfilled) => this.quorumHead(fulfilled.map((f) => f.value), threshold) ?? undefined,
 			(fulfilled, failures) => {
-				const head = this.quorumHead(fulfilled.map((f) => f.value))
+				const head = this.quorumHead(fulfilled.map((f) => f.value), threshold)
 				if (head === null) {
 					throw new QuorumError(
 						`Quorum not reached for getBlockNumber: ${this.describeResponders(fulfilled.length, queried.length, skipped)}. ` +
@@ -329,7 +340,7 @@ export class QuorumPublicClient {
 			return views
 		}
 
-		const { queried, skipped } = this.participants()
+		const { queried, skipped, threshold } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
@@ -350,13 +361,13 @@ export class QuorumPublicClient {
 			// Early exit only on a POSITIVE quorum: an agreeing inclusion group can
 			// only grow, so the first satisfiable quorum is final. Not-found votes
 			// never decide early — "not confirmed" needs the full response set.
-			(fulfilled) => aggregateConfirmations(toViews(fulfilled), this.threshold) ?? undefined,
+			(fulfilled) => aggregateConfirmations(toViews(fulfilled), threshold) ?? undefined,
 			(fulfilled, failures) => {
-				const confirmations = aggregateConfirmations(toViews(fulfilled), this.threshold)
+				const confirmations = aggregateConfirmations(toViews(fulfilled), threshold)
 				if (confirmations === null) {
 					throw new QuorumError(
 						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by a ` +
-							`quorum (${this.threshold}). ${this.describeResponders(fulfilled.length, queried.length, skipped)}. ` +
+							`quorum (${threshold}). ${this.describeResponders(fulfilled.length, queried.length, skipped)}. ` +
 							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 					)
 				}
@@ -396,7 +407,7 @@ export class QuorumPublicClient {
 			return groups
 		}
 
-		const { queried, skipped } = this.participants()
+		const { queried, skipped, threshold } = this.participants()
 		return this.settleUntilQuorum(
 			queried.map(({ idx, client }) => ({
 				idx,
@@ -410,19 +421,19 @@ export class QuorumPublicClient {
 			// only join or lose.
 			(fulfilled) => {
 				for (const group of groupOf(fulfilled).values()) {
-					if (group.providerIdxs.length >= this.threshold) return group.result
+					if (group.providerIdxs.length >= threshold) return group.result
 				}
 				return undefined
 			},
 			(fulfilled, failures) => {
 				const groups = groupOf(fulfilled)
 				for (const group of groups.values()) {
-					if (group.providerIdxs.length >= this.threshold) return group.result
+					if (group.providerIdxs.length >= threshold) return group.result
 				}
 				const responders = [...groups.values()].reduce((n, g) => n + g.providerIdxs.length, 0)
 				throw new QuorumError(
 					`Quorum not reached for getLogs(${describeLogsParams(params)}): no result agreed on by a ` +
-						`quorum (${this.threshold}). ${this.describeResponders(responders, queried.length, skipped)}. ` +
+						`quorum (${threshold}). ${this.describeResponders(responders, queried.length, skipped)}. ` +
 						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 				)
 			},

@@ -225,9 +225,12 @@ describe("rate-limit suspension", () => {
 		await waitSuspended(client, bad)
 	}, 30_000)
 
-	it("keeps querying a suspended endpoint when the quorum is impossible without it", async () => {
-		// 2 endpoints, threshold 2: skipping the limited one would turn the
-		// provider's throttle into a guaranteed 5-minute outage.
+	it("drops a suspended endpoint from the bar: the remaining endpoints keep serving reads", async () => {
+		// 2 endpoints. The first call needs both (threshold 2) and fails on the
+		// 429 — but instead of five minutes of guaranteed failures, the healthy
+		// endpoint alone (threshold 1) carries reads for the suspension window.
+		// A throttled endpoint answers nothing either way; counting it would
+		// only make the solver miss events.
 		const [ok1, bad] = await Promise.all([rpcServer(HOSTS[0], "ok"), rpcServer(HOSTS[1], "limited")])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, bad])
 
@@ -235,14 +238,16 @@ describe("rate-limit suspension", () => {
 		await waitSuspended(client, bad)
 
 		const hitsAfterFirst = hitCount(bad)
-		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
-		await vi.waitFor(() => expect(hitCount(bad)).toBeGreaterThan(hitsAfterFirst))
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		expect(hitCount(bad)).toBe(hitsAfterFirst)
 	}, 30_000)
 
-	it("never lowers the threshold: a suspended endpoint still counts toward the bar", async () => {
-		// 5 endpoints, threshold 4. One suspended leaves 4 queried — and when one
-		// of those breaks, 3 responders < 4 must fail. A threshold recomputed over
-		// the queried set (quorumThreshold(4) = 3) would wrongly succeed.
+	it("recomputes the bar over the endpoints actually queried", async () => {
+		// 5 endpoints, threshold 4. First call: 3 ok + 1 broken + 1 limited =
+		// 3 responders < 4, fails, and the limited endpoint is benched. Second
+		// call queries the 4 unsuspended with a bar of quorumThreshold(4) = 3 —
+		// the 3 healthy responders now suffice. The bar always matches who was
+		// asked, so a benched endpoint cannot fail calls the rest agree on.
 		const [ok1, ok2, ok3, flaky, bad] = await Promise.all([
 			rpcServer(HOSTS[0], "ok"),
 			rpcServer(HOSTS[1], "ok"),
@@ -252,15 +257,11 @@ describe("rate-limit suspension", () => {
 		])
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [ok1, ok2, ok3, flaky, bad])
 
-		// First call: 3 ok + 1 broken + 1 limited = 3 responders < 4. Fails, and
-		// the limited endpoint is now suspended.
 		await expect(client.getBlockNumber()).rejects.toThrow(/Quorum not reached/)
 		await waitSuspended(client, bad)
 
-		// Second call queries the 4 unsuspended: 3 responders < threshold 4 still.
-		const failure = await client.getBlockNumber().catch((e) => String(e))
-		expect(failure).toMatch(/Quorum not reached/)
-		expect(failure).toMatch(/suspended for rate limiting/)
+		await expect(client.getLogs({ fromBlock: 1n, toBlock: 1n })).resolves.toEqual([])
+		expect(client.suspended()).toEqual([bad])
 	}, 30_000)
 
 	it("does not suspend an endpoint for a -32005 getLogs result cap", async () => {

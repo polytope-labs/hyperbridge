@@ -42,9 +42,7 @@ function build(watchOnly: Record<number, boolean> = {}) {
 }
 
 async function detect(filler: IntentFiller, destination: string) {
-	// biome-ignore lint/suspicious/noExplicitAny: driving the private intake path
 	;(filler as any).handleNewOrder({ id: "0xorder", user: "0xUSER", source: "EVM-1", destination }, "0xtx")
-	// biome-ignore lint/suspicious/noExplicitAny: draining the intake queue
 	await (filler as any).globalQueue.onIdle()
 }
 

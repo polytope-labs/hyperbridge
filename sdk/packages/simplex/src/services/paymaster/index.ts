@@ -97,6 +97,55 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 	}
 }
 
+// ── Wallet reserve ───────────────────────────────────────────────────
+
+/**
+ * Whole tokens of a paymaster-eligible stablecoin a fill must leave in the
+ * wallet. The paymaster's pull is the EntryPoint's worst-case gas cost — cents
+ * on an L2, most of it refunded in postOp — so this is mostly headroom for gas
+ * spikes and for other UserOps in flight against the same balance.
+ */
+export const PAYMASTER_RESERVE_TOKENS = 2n
+
+/**
+ * Wallet balance of `tokenLower` that a fill on `chain` must not spend, because
+ * the paymaster charges gas in this token and pulls it from the same wallet
+ * during validatePaymasterUserOp — before the UserOp's callData runs. A fill
+ * sized to the whole balance is therefore always short by that pull.
+ *
+ * Every eligible token carries the reserve, not just the one that ends up
+ * charged: {@link buildPaymasterAndData} chooses between them at submit time
+ * from live balances, and the fill sizing that consults this is one of the
+ * inputs to that choice, so there is no winner to predict here.
+ *
+ * Returns 0 for a chain with no paymaster and for any token it cannot charge in.
+ */
+export function paymasterReserveForToken(
+	chain: string,
+	tokenLower: string,
+	configService: FillerConfigService,
+): bigint {
+	if (!hasPaymaster(chain, configService)) return 0n
+
+	const candidates: [HexString, () => number][] = [
+		[configService.getUsdcAsset(chain), () => configService.getUsdcDecimals(chain)],
+		[configService.getUsdtAsset(chain), () => configService.getUsdtDecimals(chain)],
+	]
+
+	for (const [address, decimals] of candidates) {
+		if (!isConfiguredAsset(address)) continue
+		if (address.toLowerCase() !== tokenLower) continue
+		return PAYMASTER_RESERVE_TOKENS * 10n ** BigInt(decimals())
+	}
+
+	return 0n
+}
+
+/** Unconfigured assets come back from the config service as "0x" or the zero address. */
+function isConfiguredAsset(address: HexString | undefined): address is HexString {
+	return !!address && address !== "0x" && address.toLowerCase() !== "0x0000000000000000000000000000000000000000"
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**

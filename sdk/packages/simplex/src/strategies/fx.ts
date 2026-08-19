@@ -21,6 +21,7 @@ import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { FundingVenue } from "@/funding/types"
 import type { Signer } from "@/services/wallet"
+import { paymasterReserveForToken } from "@/services/paymaster"
 
 /**
  * A trading pair the engine serves. `token0` and `token1` are registry symbols
@@ -685,14 +686,13 @@ export class FXFiller implements FillerStrategy {
 					)
 				}
 
-				// Spend the free wallet balance first, down to the configured minBalance
-				// reserve — kept liquid for the gas/paymaster pull during
-				// validatePaymasterUserOp — then source any remaining shortfall from the
-				// funding venues (the vault).
+				// Spend the free wallet balance first, down to the reserve — the paymaster's
+				// gas pull during validatePaymasterUserOp plus the vault's configured
+				// minBalance — then source any remaining shortfall from the funding venues.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-				let reserve = 0n
+				let reserve = paymasterReserveForToken(destChain, tokenAddress, this.configService)
 				for (const venue of this.fundingVenues) {
 					reserve += venue.walletReserveForToken(destChain, tokenAddress)
 				}
@@ -970,8 +970,39 @@ export class FXFiller implements FillerStrategy {
 			// left in place but dormant (always recorded as a clean, unclamped outcome).
 			this.recordOrderOutcome(false, order.id)
 
-			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken } =
+			const { totalCostInSourceFeeToken, relayerFeeInSourceFeeToken, dispatchFee } =
 				await this.contractService.estimateGasFillPost(order)
+
+			// `fillOrder` dispatches the escrow-release message back to the source
+			// chain, and HyperApp.dispatchWithFeeToken pulls `dispatchFee` from this
+			// same wallet in the destination host's fee token — which on most chains
+			// is the USDC the fill is already paying out. The leg loop above committed
+			// the balance to outputs without knowing this figure (it is only priced
+			// here, after the funding calls it depends on exist), so the affordability
+			// check has to happen now. A cross-chain order cannot be partially filled,
+			// so shrinking the fill is not on the table: either the residue covers the
+			// dispatch or the order is not ours to take.
+			if (sourceChain !== destChain && dispatchFee > 0n) {
+				const feeToken = await this.contractService.getFeeTokenWithDecimals(destChain)
+				const feeTokenLower = feeToken.address.toLowerCase()
+				// Post-loop, `balanceCache` holds each output token's balance net of
+				// what the fill draws from it; a fee token no leg paid out is read fresh.
+				const residual = await this.getAndCacheBalance(feeTokenLower, walletAddress, destClient, balanceCache)
+				const required = dispatchFee + paymasterReserveForToken(destChain, feeTokenLower, this.configService)
+				if (residual < required) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							feeToken: feeTokenLower,
+							residual: formatUnits(residual, feeToken.decimals),
+							dispatchFee: formatUnits(dispatchFee, feeToken.decimals),
+							required: formatUnits(required, feeToken.decimals),
+						},
+						"Skipping order: fill leaves too little of the fee token to dispatch the escrow release",
+					)
+					return 0
+				}
+			}
 
 			// GATE 1 — execution cost (independent). order.fees exist solely to pay
 			// for execution: the fill gas plus, for cross-chain orders, the relayer

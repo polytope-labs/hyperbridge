@@ -19,6 +19,17 @@ An operator running only Base saw `ERROR: [intent-filler]: Shared cache is not i
 `handleNewOrder` now checks the destination first: not a configured chain, or configured but watch-only → debug-level skip, cache untouched. The "Shared cache is not initialized" error survives for what it actually means now — a configured, filling destination with a genuinely absent entry, which is an initialization bug. Pinned by `order-destination.test.ts`: unconfigured / non-EVM / watch-only destinations never touch the cache, a filling destination proceeds to the allowlist, and the configured-but-uncached case still errors.
 
 Files: `src/core/filler.ts`, `src/tests/core/order-destination.test.ts` (new).
+## 2026-08-19 — The binary silences @polkadot/* startup noise; the library still never touches the console
+
+Every start of the bundled CLI printed a wall of `@polkadot/util has multiple versions` warnings, `REGISTRY: Unknown signed extensions` / `API/INIT: RPC methods not decorated` logger chatter, and Node's punycode deprecation. `src/bin/quiet.ts` — the entry's first import, since most of this fires during `@polkadot/*` module init — sets polkadot's official `POLKADOTJS_DISABLE_ESM_CJS_WARNING=1` (silencing the same-version dual-instantiation the single-file bundle necessarily produces), sets `process.noDeprecation`, and wraps `console.warn` with a narrow filter for the remaining known patterns. Only `console.warn` is touched (both noise sources write there); `console.error` is untouched, and real polkadot output — connection failures included — passes through, pinned by test.
+
+Strictly bin-scoped: `dist/index.js`/`dist/sqlite.js` contain none of it (verified by grep), because a library consumer seeing duplicate-package warnings has a real dedupe to do in their own tree.
+
+Two gotchas worth recording: `package.json`'s `"sideEffects": false` silently tree-shook the bare `import "./quiet"` out of the bundle — it is now an array listing `src/bin/quiet.ts` as the one side-effectful module — and vitest's own console interception makes the patched `console.warn` unobservable through stderr, which is why the test asserts through the exported `filteringWarn` factory instead.
+
+Not done here: the one genuine version skew (simplex pins `@polkadot/util ^13.5.6` while the sdk's `@polkadot/api: "latest"` brings 14.x) and the ineffective per-package `resolutions` fields pnpm warns about. Aligning those is a dependency change touching substrate signing paths — flagged as its own task.
+
+Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `src/tests/cli/quiet.test.ts` (new).
 
 ## 2026-08-18 — Signer return contracts spelled out
 

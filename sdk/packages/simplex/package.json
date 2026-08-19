@@ -168,7 +168,9 @@
 	"bugs": {
 		"url": "https://github.com/polytope-labs/hyperbridge/issues"
 	},
-	"sideEffects": false,
+	"sideEffects": [
+		"src/bin/quiet.ts"
+	],
 	"optionalDependencies": {
 		"better-sqlite3": "^13.0.3",
 		"@types/better-sqlite3": "^7.6.13"

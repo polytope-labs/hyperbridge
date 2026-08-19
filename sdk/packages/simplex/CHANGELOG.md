@@ -4,6 +4,7 @@
 
 ### Minor Changes
 
+- BREAKING (internal constant): `POST_OP_GAS_LIMIT` is replaced by `POST_OP_GAS_LIMIT_SIMPLEX` (40,000) and `POST_OP_GAS_LIMIT_CIRCLE` (100,000). The single shared constant was pinning the Simplex paymaster's postOp limit at 100,000 while its postOp needs roughly 8-12k; the EntryPoint penalises the unused remainder without billing the user for it, so the paymaster was absorbing that penalty on every sponsored operation. 40,000 is the largest value the EntryPoint leaves penalty-free regardless of postOp cost, and it matches the contract's new `MAX_POST_OP_GAS_LIMIT`. Measured on a mainnet fork, per-operation margin rises about 2.4×. Requires the redeployed paymaster: the previous deployments still enforce a 100,000 cap.
 - SimplexPaymaster PERMIT2 mode. On chains whose fee token has no EIP-2612 permit (BSC pegged USDC/USDT), Simplex no longer keeps a capped allowance to the paymaster that it tops up with native-funded approvals. The bootstrap is now a single funded `approve(Permit2, max)` per token; every operation after that carries a per-op, single-use, deadline-bounded Permit2 signature naming the paymaster as spender, so nothing is exposed to the paymaster at rest and native gas is never needed again. Existing solvers migrate on their own: their current paymaster allowance is used until it drains, then the Permit2 approval replaces the refill. Mode 2 is only used against paymaster deployments that support it; older deployments keep the previous behaviour.
 
 ## 0.9.2

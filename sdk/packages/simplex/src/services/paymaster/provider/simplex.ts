@@ -8,7 +8,7 @@ import {
 	VERIFICATION_GAS_LIMIT_APPROVE,
 	VERIFICATION_GAS_LIMIT_PERMIT2,
 	PERMIT2_DEADLINE_SECONDS,
-	POST_OP_GAS_LIMIT,
+	POST_OP_GAS_LIMIT_SIMPLEX,
 	type PaymasterResult,
 } from "../types"
 import { signEip2612Permit } from "../permit"
@@ -120,7 +120,7 @@ export async function buildSimplexPaymasterData(
 		paymaster: paymasterAddress,
 		paymasterData: encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString,
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 		token: tokenAddress,
 	})
 
@@ -192,7 +192,7 @@ async function buildPermitMode(
 			paymaster: paymasterAddress,
 			paymasterData,
 			paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_APPROVE,
-			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 		}
 	}
 
@@ -222,7 +222,7 @@ async function buildPermitMode(
 		paymaster: paymasterAddress,
 		paymasterData,
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 	}
 }
 
@@ -303,7 +303,7 @@ async function buildPermit2Mode(
 		paymaster: p.spender,
 		paymasterData,
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 	}
 }
 

@@ -113,7 +113,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         /// @dev Deactivates a token (stops new UserOps from using it).
         DeactivateToken,
         /// @dev Sweeps accumulated ERC-20 surplus or the EntryPoint deposit to the treasury.
-        WithdrawAssets
+        WithdrawAssets,
+        /// @dev Starts the EntryPoint unstake timer; `withdrawStake` becomes callable
+        ///      once `unstakeDelaySec` has elapsed.
+        UnlockStake,
+        /// @dev Sweeps the unlocked EntryPoint stake to the treasury.
+        WithdrawStake
     }
 
     struct Params {
@@ -147,11 +152,19 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev Hard cap on the governance-configurable swap slippage (10%).
     uint256 public constant MAX_SWAP_SLIPPAGE_BPS = 1_000;
 
-    /// @dev Caps the caller-supplied postOp gas limit. Unbounded, the EntryPoint's
-    ///      unused-gas penalty is drained from this contract's deposit to a
-    ///      caller-chosen beneficiary; the cap keeps that penalty under the
-    ///      `_postOpCost` cushion the user already pays.
-    uint256 public constant MAX_POST_OP_GAS_LIMIT = 100_000;
+    /// @dev Caps the caller-supplied postOp gas limit. The EntryPoint penalises the
+    ///      unused part of this limit *after* fixing the cost handed to postOp, so that
+    ///      penalty is never billed to the user and comes out of the `_postOpCost`
+    ///      cushion instead. The penalty is waived entirely while
+    ///      `limit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so any cap at or below
+    ///      40k is unconditionally penalty-free whatever postOp ends up costing.
+    uint256 public constant MAX_POST_OP_GAS_LIMIT = 40_000;
+
+    /// @dev Floors the caller-supplied postOp gas limit. `innerHandleOp` overhead that
+    ///      sits outside every gas limit (notably emitting a revert reason of up to
+    ///      2048 bytes) can otherwise push `actualGasCost` past the `maxCost` the
+    ///      prefund was sized against, underflowing the refund subtraction.
+    uint256 public constant MIN_POST_OP_GAS_LIMIT = 30_000;
 
     /// @notice Canonical Permit2 (same address on every supported chain).
     ISignatureTransfer public constant PERMIT2 = ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
@@ -195,7 +208,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error InvalidRouter(address router);
     error InvalidMode(uint8 mode);
     error InvalidPaymasterData(uint256 length);
-    error InvalidPostOpGasLimit(uint256 supplied, uint256 maximum);
+    error InvalidPostOpGasLimit(uint256 supplied, uint256 minimum, uint256 maximum);
     error PermitFailed(address token);
     error Permit2Failed(address token, bytes reason);
     error Permit2NotDeployed();
@@ -259,6 +272,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         } else if (kind == RequestKind.WithdrawAssets) {
             (address token, uint256 amount) = abi.decode(payload, (address, uint256));
             _withdrawAssets(token, amount);
+        } else if (kind == RequestKind.UnlockStake) {
+            entryPoint().unlockStake();
+        } else if (kind == RequestKind.WithdrawStake) {
+            entryPoint().withdrawStake(payable(treasury));
         }
     }
 
@@ -326,10 +343,21 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         }
     }
 
-    /// @dev Withdrawals only happen through governance (see {_withdrawAssets});
-    ///      the inherited public withdraw and stake entry points are disabled.
+    /// @dev Withdrawals only happen through governance (see {_withdrawAssets} and the
+    ///      UnlockStake/WithdrawStake request kinds); the inherited public withdraw and
+    ///      stake entry points stay disabled.
     function _authorizeWithdraw() internal pure override {
         revert UnauthorizedCall();
+    }
+
+    /// @notice Stakes native with the EntryPoint, which bundlers require before they will
+    ///         relay operations from this paymaster.
+    /// @dev Treasury-gated. The EntryPoint only ever lets `unstakeDelaySec` grow and resets
+    ///      any pending unlock, so leaving this open would let anyone stretch the delay far
+    ///      beyond the point where governance could recover the stake.
+    function addStake(uint32 unstakeDelaySec) public payable override {
+        if (msg.sender != treasury) revert UnauthorizedCall();
+        super.addStake(unstakeDelaySec);
     }
 
     // ── Fee recycling ────────────────────────────────────────────────
@@ -368,13 +396,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         path[1] = IUniswapV2Router02(router).WETH();
 
         IERC20(token).forceApprove(router, amountIn);
-        uint256[] memory amounts = IUniswapV2Router02(router).swapExactTokensForETH(
-            amountIn,
-            amountOutMin,
-            path,
-            address(this),
-            block.timestamp
-        );
+        uint256[] memory amounts = IUniswapV2Router02(router)
+            .swapExactTokensForETH(amountIn, amountOutMin, path, address(this), block.timestamp);
 
         uint256 deposited = address(this).balance;
         entryPoint().depositTo{value: deposited}(address(this));
@@ -391,14 +414,14 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      The token is validated as registered and active *before* the permit
     ///      runs, so the validation-phase external call only ever targets a
     ///      governance-approved token rather than an attacker-chosen address.
-    function _validatePaymasterUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 maxCost
-    ) internal override returns (bytes memory context, uint256 validationData) {
+    function _validatePaymasterUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 maxCost)
+        internal
+        override
+        returns (bytes memory context, uint256 validationData)
+    {
         uint256 postOpGasLimit = userOp.paymasterPostOpGasLimit();
-        if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT) {
-            revert InvalidPostOpGasLimit(postOpGasLimit, MAX_POST_OP_GAS_LIMIT);
+        if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT || postOpGasLimit < MIN_POST_OP_GAS_LIMIT) {
+            revert InvalidPostOpGasLimit(postOpGasLimit, MIN_POST_OP_GAS_LIMIT, MAX_POST_OP_GAS_LIMIT);
         }
 
         bytes calldata data = userOp.paymasterData();
@@ -426,7 +449,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     function _fetchDetails(
         PackedUserOperation calldata userOp,
         bytes32 /* userOpHash */
-    ) internal view override returns (uint256 validationData, IERC20 token, uint256 tokenPrice) {
+    )
+        internal
+        view
+        override
+        returns (uint256 validationData, IERC20 token, uint256 tokenPrice)
+    {
         bytes calldata data = userOp.paymasterData();
         if (data.length < 21) revert InvalidPaymasterData(data.length);
 
@@ -444,7 +472,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         validationData = 0; // no time-range restriction
 
         if (mode == 0x02) {
-            (, , , uint256 deadline, ) = _parsePermit2Data(data);
+            (,,, uint256 deadline,) = _parsePermit2Data(data);
             // Surfacing the permit deadline as validUntil lets bundlers drop
             // expiring ops instead of discovering it through a Permit2 revert.
             uint48 validUntil = deadline > type(uint48).max ? 0 : uint48(deadline);
@@ -464,32 +492,37 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         uint256 tokenPrice,
         address prefunder_,
         uint256 maxCost
-    ) internal override returns (bool prefunded, uint256 prefundAmount, address prefunder, bytes memory prefundContext) {
+    )
+        internal
+        override
+        returns (bool prefunded, uint256 prefundAmount, address prefunder, bytes memory prefundContext)
+    {
         bytes calldata data = userOp.paymasterData();
         if (uint8(data[0]) != 0x02) {
             return super._prefund(userOp, userOpHash, token, tokenPrice, prefunder_, maxCost);
         }
 
-        (address tokenAddr, uint256 permitAmount, uint256 nonce, uint256 deadline, bytes calldata signature) =
-            _parsePermit2Data(data);
+        (, uint256 permitAmount, uint256 nonce, uint256 deadline, bytes calldata signature) = _parsePermit2Data(data);
         prefundAmount = _erc20Cost(maxCost, userOp.maxFeePerGas(), tokenPrice);
         if (prefundAmount > permitAmount) revert InsufficientPermitAmount(permitAmount, prefundAmount);
         // Solidity's own extcodesize revert on a code-less target is not caught by try/catch.
         if (address(PERMIT2).code.length == 0) revert Permit2NotDeployed();
 
+        // Charge the token _fetchDetails already validated as registered and active, rather
+        // than re-trusting the mode byte's token field, so the external call never depends
+        // on the caller-ordering of the base contract.
+        address tokenAddr = address(token);
         address owner = userOp.sender;
-        try
-            PERMIT2.permitTransferFrom(
-                ISignatureTransfer.PermitTransferFrom({
-                    permitted: ISignatureTransfer.TokenPermissions({token: tokenAddr, amount: permitAmount}),
-                    nonce: nonce,
-                    deadline: deadline
-                }),
-                ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: prefundAmount}),
-                owner,
-                signature
-            )
-        {
+        try PERMIT2.permitTransferFrom(
+            ISignatureTransfer.PermitTransferFrom({
+                permitted: ISignatureTransfer.TokenPermissions({token: tokenAddr, amount: permitAmount}),
+                nonce: nonce,
+                deadline: deadline
+            }),
+            ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: prefundAmount}),
+            owner,
+            signature
+        ) {
             emit Permit2Executed(tokenAddr, owner, prefundAmount, nonce);
         } catch (bytes memory reason) {
             revert Permit2Failed(tokenAddr, reason);
@@ -500,9 +533,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev Parse mode 0x02 paymasterData.
     ///      Layout: mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65) = 182 bytes
-    function _parsePermit2Data(
-        bytes calldata data
-    )
+    function _parsePermit2Data(bytes calldata data)
         internal
         pure
         returns (address token, uint256 permitAmount, uint256 nonce, uint256 deadline, bytes calldata signature)
@@ -549,7 +580,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev Fetch a Chainlink price normalized to 8 decimals.
     ///      Reverts on stale or non-positive answers.
     function _getOraclePrice(AggregatorV3Interface oracle, uint8 oracleDecimals) internal view returns (uint256) {
-        (, int256 answer, , uint256 updatedAt, ) = oracle.latestRoundData();
+        (, int256 answer,, uint256 updatedAt,) = oracle.latestRoundData();
 
         if (answer <= 0) revert InvalidOraclePrice(address(oracle), answer);
         if (block.timestamp - updatedAt > maxOracleAge) {
@@ -577,11 +608,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @notice Estimate the token cost for a given gas amount and fee, mirroring
     ///         PaymasterERC20._erc20Cost (including its postOp gas cushion).
-    function estimateTokenCost(
-        address token,
-        uint256 gasAmount,
-        uint256 maxFeePerGas
-    ) external view returns (uint256) {
+    function estimateTokenCost(address token, uint256 gasAmount, uint256 maxFeePerGas) external view returns (uint256) {
         TokenConfig memory cfg = tokenConfigs[token];
         if (address(cfg.tokenOracle) == address(0)) revert TokenNotRegistered(token);
 

@@ -1,7 +1,13 @@
 import { encodePacked, erc20Abi, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { RECOMMENDED_AMOUNT_USD, THRESHOLD_USD, VERIFICATION_GAS_LIMIT_CIRCLE, POST_OP_GAS_LIMIT, type PaymasterResult } from "../types"
+import {
+	RECOMMENDED_AMOUNT_USD,
+	THRESHOLD_USD,
+	VERIFICATION_GAS_LIMIT_CIRCLE,
+	POST_OP_GAS_LIMIT_CIRCLE,
+	type PaymasterResult,
+} from "../types"
 import { signEip2612Permit } from "../permit"
 
 /**
@@ -61,7 +67,7 @@ export async function buildCirclePaymasterData(
 			paymaster: paymasterAddress,
 			paymasterData,
 			paymasterVerificationGasLimit,
-			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+			paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_CIRCLE,
 		}
 	}
 
@@ -87,6 +93,6 @@ export async function buildCirclePaymasterData(
 		// Executing the permit needs the full Circle default — a caller's tightened
 		// limit only applies to the cheap allowance-reuse branch above.
 		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_CIRCLE,
-		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_CIRCLE,
 	}
 }

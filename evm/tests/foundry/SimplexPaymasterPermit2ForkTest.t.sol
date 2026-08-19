@@ -184,7 +184,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         PackedUserOperation memory probe = _permit2Op(100 * stableUnit, 7, deadline, solverKey);
         uint256 maxCost = 1e14;
-        (, , uint256 tokenPrice) = paymaster.fetchDetails(probe);
+        (,, uint256 tokenPrice) = paymaster.fetchDetails(probe);
         uint256 required = ((maxCost + 30_000 * _maxFeePerGas(probe)) * tokenPrice) / 1e18;
 
         PackedUserOperation memory low = _permit2Op(required - 1, 7, deadline, solverKey);
@@ -197,6 +197,23 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         PackedUserOperation memory exact = _permit2Op(required, 7, deadline, solverKey);
         paymaster.validate(exact, maxCost);
         assertEq(IERC20(stable).balanceOf(address(paymaster)), required);
+    }
+
+    /// The charged token is the one _fetchDetails validated, so a permit signed over a
+    /// different token can never be pulled: Permit2 recovers a mismatched digest and reverts.
+    function testPermit2ModeChargesOnlyTheValidatedToken() public onFork {
+        uint256 deadline = block.timestamp + 1 hours;
+        // A permit the solver signed over some OTHER token, but submitted under the
+        // registered token's mode byte.
+        address otherToken = address(0xDEAD);
+        bytes memory sig = _signToken(solverKey, otherToken, address(paymaster), 100 * stableUnit, 11, deadline);
+        bytes memory data = abi.encodePacked(uint8(2), stable, uint256(100 * stableUnit), uint256(11), deadline, sig);
+        PackedUserOperation memory op = _opWithData(data);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(SimplexPaymaster.Permit2Failed.selector, stable, abi.encodePacked(INVALID_SIGNER))
+        );
+        paymaster.validate(op, 1e14);
     }
 
     // ── Delegated sender (Permit2 ERC-1271 path through SolverAccount) ──
@@ -247,7 +264,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         assertEq(IERC20(stable).balanceOf(address(paymaster)), charged);
         assertGt(nativeSpent, 0);
         // The refund happened: what stayed with the paymaster is less than the prefund it pulled.
-        (, , uint256 tokenPrice) = paymaster.fetchDetails(op);
+        (,, uint256 tokenPrice) = paymaster.fetchDetails(op);
         uint256 prefund = ((_maxCost(op) + 30_000 * _maxFeePerGas(op)) * tokenPrice) / 1e18;
         assertLt(charged, prefund);
         assertEq(IPermit2Test(address(PERMIT2)).nonceBitmap(solver, 0) & (1 << 10), 1 << 10);
@@ -258,48 +275,51 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     /// @dev Raw call: Tether's approve returns no bool.
     function _approvePermit2(uint256 amount) internal {
         vm.prank(solver);
-        (bool ok, ) = stable.call(abi.encodeWithSelector(IERC20.approve.selector, address(PERMIT2), amount));
+        (bool ok,) = stable.call(abi.encodeWithSelector(IERC20.approve.selector, address(PERMIT2), amount));
         require(ok, "approve failed");
     }
 
-    function _permit2Op(
-        uint256 permitAmount,
-        uint256 nonce,
-        uint256 deadline,
-        uint256 signerKey
-    ) internal view returns (PackedUserOperation memory) {
+    function _permit2Op(uint256 permitAmount, uint256 nonce, uint256 deadline, uint256 signerKey)
+        internal
+        view
+        returns (PackedUserOperation memory)
+    {
         bytes memory sig = _signPermit2(signerKey, address(paymaster), permitAmount, nonce, deadline);
         return _opWithData(_permit2Data(permitAmount, nonce, deadline, sig));
     }
 
-    function _permit2Data(
-        uint256 permitAmount,
-        uint256 nonce,
-        uint256 deadline,
-        bytes memory sig
-    ) internal view returns (bytes memory) {
+    function _permit2Data(uint256 permitAmount, uint256 nonce, uint256 deadline, bytes memory sig)
+        internal
+        view
+        returns (bytes memory)
+    {
         return abi.encodePacked(uint8(2), stable, permitAmount, nonce, deadline, sig);
     }
 
-    function _signPermit2(
-        uint256 key,
-        address spender,
-        uint256 amount,
-        uint256 nonce,
-        uint256 deadline
-    ) internal view returns (bytes memory) {
+    function _signPermit2(uint256 key, address spender, uint256 amount, uint256 nonce, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return _signToken(key, stable, spender, amount, nonce, deadline);
+    }
+
+    function _signToken(uint256 key, address token, address spender, uint256 amount, uint256 nonce, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 structHash = keccak256(
             abi.encode(
                 PERMIT_TRANSFER_FROM_TYPEHASH,
-                keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, stable, amount)),
+                keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, token, amount)),
                 spender,
                 nonce,
                 deadline
             )
         );
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", IPermit2Test(address(PERMIT2)).DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 digest =
+            keccak256(abi.encodePacked("\x19\x01", IPermit2Test(address(PERMIT2)).DOMAIN_SEPARATOR(), structHash));
         return _sign(key, digest);
     }
 
@@ -316,7 +336,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         op.accountGasLimits = bytes32((uint256(200_000) << 128) | uint256(50_000));
         op.preVerificationGas = 60_000;
         op.gasFees = bytes32((uint256(1 gwei) << 128) | maxFee);
-        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(300_000), uint128(100_000), data);
+        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(300_000), uint128(40_000), data);
     }
 
     function _maxFeePerGas(PackedUserOperation memory op) internal pure returns (uint256) {
@@ -331,7 +351,9 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
 
     function _slice(bytes memory data, uint256 start, uint256 end) internal pure returns (bytes memory out) {
         out = new bytes(end - start);
-        for (uint256 i = start; i < end; i++) out[i - start] = data[i];
+        for (uint256 i = start; i < end; i++) {
+            out[i - start] = data[i];
+        }
     }
 }
 

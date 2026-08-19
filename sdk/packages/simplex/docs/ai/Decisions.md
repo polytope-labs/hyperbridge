@@ -4,6 +4,25 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-19 — Suspension has its own classifier, stricter than the diagnostic label
+
+Chosen: `noteFailure` benches on `isSuspendableRateLimit` (HTTP 429, throttle-specific codes -32016/-32097, or throttle text in message/details/shortMessage), while the loose `isRateLimited` keeps labelling diagnostics. `-32005` alone never benches, and the suspension-path text match reads no metaMessages and has no bare-`429` pattern.
+
+Alternative considered: one classifier for both, which is what the first cut shipped.
+
+Why: `isRateLimited`'s breadth was designed for a role where a false positive cost a misleading log tag — its own removed comment said it "does not change control flow". Promoting it unchanged into an availability gate weaponised that breadth: EIP-1474 defines `-32005` as generic "limit exceeded", Infura returns it for eth_getLogs queries over its 10k result cap — a deterministic property of the query — and the scanner's 1000-block catch-up ranges hit that cap on busy chains, so the first cut would have benched a healthy endpoint for 5 minutes and re-benched it on every retry, leaving a 4-endpoint quorum at zero fault tolerance for the duration. Same logic for the free-text breadth: metaMessages embed the request URL, and a key containing "429" must not bench an endpoint. The label stays loose because mislabelling costs nothing; the bench is strict because benching costs quorum slack.
+
+## 2026-08-19 — Rate-limit suspension never shrinks the quorum, and yields when the quorum needs the benched endpoint
+
+Chosen: a rate-limited endpoint is suspended for 5 minutes, but (a) the threshold stays `quorumThreshold(full set)` — suspension changes who is asked, never what is required — and (b) when the unsuspended endpoints alone cannot reach that threshold, suspended endpoints are queried anyway.
+
+Alternatives considered: recomputing the threshold over the active set (a 5-endpoint operator would drop from 4-of-5 to 3-of-4 agreement — an attacker who can induce 429s on public endpoints, by hammering them independently, could lower the agreement bar without controlling any endpoint); hard suspension (honouring the bench even when it makes quorum impossible — for the common 2–3 endpoint sets, where the threshold is all of them, one 429 would turn into a guaranteed 5-minute total outage where today's behavior at least retries and fails per-call).
+
+Why this shape: the class's trust model is that the operator provisioned n-way BFT; no availability optimisation may weaken it. The two rules keep both properties exactly: agreement requirements identical to the pre-suspension client in every case, and traffic to a throttled provider reduced precisely when the quorum can afford it (n ≥ 4). The 5-minute window is a constant, not config — no operator knob until someone actually needs one.
+
+Also chosen: suspension is recorded in `settleUntilQuorum`'s rejection handler unconditionally, including stragglers settling after the call already decided early — a rate limit learned late still spares the endpoint on the next call.
+
+
 ## 2026-08-18 — The signer block lives on a separate `FillerConfigFile` type, not on `SimplexConfig`
 
 Chosen: `FillerTomlConfig` drops `simplex.signer`; a new `FillerConfigFile extends FillerTomlConfig` adds it back for the binary's file format. The CLI, setup API, TOML writer, wizard state and `UiServer`'s operator context are typed with the file shape; the library never is.

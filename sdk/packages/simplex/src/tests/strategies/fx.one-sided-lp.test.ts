@@ -77,7 +77,7 @@ function makeFiller(options: {
 }): FXFiller {
 	const { contractService: provided, bidPricePolicy, askPricePolicy, maxOrderSize, ...fillerOptions } = options
 	const contractService = provided ?? makeContractService()
-	const signer = { account: { address: SOLVER } } as any
+	const signer = { address: SOLVER } as any
 
 	const { pairs, registry } = exoticPairs(
 		configService,
@@ -177,7 +177,7 @@ describe("FXFiller one-sided LP", () => {
 			// bid-only: buys ZARP for USDC
 			{ token0: "USDC", token1: "ZARP", maxOrderSize: new Decimal(5000), bidPricePolicy: FLAT },
 		]
-		const signer = { account: { address: SOLVER } } as any
+		const signer = { address: SOLVER } as any
 		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
 
 		// USDC→CNGN2 allowed (ask side), CNGN2→USDC rejected.
@@ -245,7 +245,7 @@ describe("FXFiller one-sided LP", () => {
 				{ token0: "USDC", token1: "CNGN2", maxOrderSize: new Decimal(5000), askPricePolicy: FLAT },
 				{ token0: "USDC", token1: "ZARP", maxOrderSize: new Decimal(5000), bidPricePolicy: FLAT },
 			]
-			const signer = { account: { address: SOLVER } } as any
+			const signer = { address: SOLVER } as any
 			const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry)
 
 			// CNGN2 is ask-only: quotes USDC→CNGN2, declines the reverse.

@@ -117,7 +117,7 @@ export class BinanceRebalancer {
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account = this.chainClientManager.getSigner().account
+		this.account = this.chainClientManager.getAccount()
 		this.config = config
 		this.logger = moduleLogger(chainClientManager.loggers, "BinanceRebalancer")
 

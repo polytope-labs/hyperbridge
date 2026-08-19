@@ -10,13 +10,14 @@ import {
 } from "viem"
 import { generatePrivateKey } from "viem/accounts"
 import { type Order, type ChainConfig, getViemChain } from "@hyperbridge/sdk"
-import type { Account } from "viem/accounts"
+import type { Account, LocalAccount } from "viem/accounts"
 import type { FillerConfigService } from "./FillerConfigService"
 import { parseChainKey } from "@/config/interpolated-curve"
 import type { LoggerContext } from "./Logger"
 import { QuorumPublicClient } from "./QuorumPublicClient"
-import type { SigningAccount } from "./wallet"
-import { createPrivateKeySigningAccount } from "./wallet/accounts/privatekey"
+import type { Signer } from "./wallet"
+import { privateKeySigner } from "./wallet/accounts/privatekey"
+import { accountFor } from "./wallet/account"
 
 const HTTP_TRANSPORT_OPTS = {
 	timeout: 30_000, // 30 seconds
@@ -113,7 +114,12 @@ class ViemClientFactoryImpl {
  * Manages chain clients for different operations
  */
 export class ChainClientManager {
-	private signer: SigningAccount
+	private signer: Signer
+	/**
+	 * The viem account every wallet client is built on, derived from the signer
+	 * once. `Signer` is viem-free by design, so this is where the two meet.
+	 */
+	private account: LocalAccount
 	private configService: FillerConfigService
 	private clientFactory = new ViemClientFactoryImpl()
 	private quorumClients: Map<number, QuorumPublicClient> = new Map()
@@ -123,9 +129,10 @@ export class ChainClientManager {
 		return this.configService.loggers
 	}
 
-	constructor(configService: FillerConfigService, signer?: SigningAccount) {
+	constructor(configService: FillerConfigService, signer?: Signer) {
 		this.configService = configService
-		this.signer = signer ?? createPrivateKeySigningAccount(generatePrivateKey())
+		this.signer = signer ?? privateKeySigner(generatePrivateKey())
+		this.account = accountFor(this.signer)
 	}
 
 	/**
@@ -153,16 +160,17 @@ export class ChainClientManager {
 	}
 
 	/**
-	 * Quorum client for consensus-critical reads (event scanning, cross-chain
-	 * confirmation counting). Built from the operator's configured endpoints and
-	 * cached per chain, so the event monitor and the confirmation waiter share
-	 * one provider set.
+	 * Quorum client for consensus-critical reads (cross-chain confirmation
+	 * counting; the scanner builds its own instance over its own chain list).
+	 * Built from the operator's configured endpoints and cached per chain. The
+	 * instances are separate but their rate-limit bench is shared state keyed by
+	 * endpoint URL, so a throttle either observes benches the endpoint for both.
 	 */
 	getQuorumClient(chain: string): QuorumPublicClient {
 		const config = this.configService.getChainConfig(chain)
 		let client = this.quorumClients.get(config.chainId)
 		if (!client) {
-			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain))
+			client = new QuorumPublicClient(config.chainId, this.configService.getRpcUrls(chain), this.loggers)
 			this.quorumClients.set(config.chainId, client)
 		}
 		return client
@@ -171,14 +179,14 @@ export class ChainClientManager {
 	getWalletClient(chain: string): WalletClient<Transport, Chain, Account> {
 		const config = this.configService.getChainConfig(chain)
 		const rpcUrls = this.configService.getRpcUrls(chain)
-		return this.clientFactory.getWalletClient(config, this.signer.account, rpcUrls)
+		return this.clientFactory.getWalletClient(config, this.account, rpcUrls)
 	}
 
 	getAccount(): Account {
-		return this.signer.account
+		return this.account
 	}
 
-	getSigner(): SigningAccount {
+	getSigner(): Signer {
 		return this.signer
 	}
 

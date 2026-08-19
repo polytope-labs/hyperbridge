@@ -1309,15 +1309,17 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
-	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
-	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
-	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**
 	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 *
+	 * No chain id parameter: EIP-712 carries it in `domain.chainId`, which is what
+	 * the digest covers and what a backend scoping the request to a chain reads.
+	 *
+	 * Returns the 65-byte `r ‖ s ‖ v` signature as 0x-hex, `v` 27 or 28 — the
+	 * `eth_signTypedData_v4` form. Bid validation recovers against exactly this.
 	 */
-	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
+	signTypedData: (typedData: unknown) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {

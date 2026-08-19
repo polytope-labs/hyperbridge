@@ -14,6 +14,7 @@ import {
 	type TokenInfo,
 	type PhantomBid,
 } from "@hyperbridge/sdk"
+import { parseChainKey } from "@/config/interpolated-curve"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import type { Address } from "viem"
 import pQueue from "p-queue"
@@ -22,7 +23,7 @@ import type { BidStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner, Subscription } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
 
@@ -75,7 +76,7 @@ export class IntentFiller {
 	}
 	private config: FillerConfig
 	private configService: FillerConfigService
-	private signer: SigningAccount
+	private signer: Signer
 	private fillerAddress: HexString
 	private logger: Logger
 	private hyperbridgeScanner?: HyperbridgeScanner
@@ -88,7 +89,7 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		signer: SigningAccount,
+		signer: Signer,
 		scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner },
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStore,
@@ -96,7 +97,7 @@ export class IntentFiller {
 		this.logger = moduleLogger(configService.loggers, "intent-filler")
 		this.configService = configService
 		this.signer = signer
-		this.fillerAddress = this.signer.account.address
+		this.fillerAddress = this.signer.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
@@ -601,7 +602,33 @@ export class IntentFiller {
 		this.globalQueue.add(async () => {
 			this.logger.info({ orderId: order.id }, "New order detected")
 			try {
-				// Early check: if solver selection is active, ensure hyperbridge is configured
+				// Orders destined to chains this filler cannot fill on are expected
+				// mainnet traffic, not faults — other fillers cover other lanes. They
+				// used to fall through to the cache check below and be dropped with a
+				// misleading "Shared cache is not initialized" ERROR, since the cache
+				// is only ever populated for configured, non-watch-only chains.
+				const destinationChainId = parseChainKey(order.destination)
+				if (
+					destinationChainId === null ||
+					!this.configService.getConfiguredChainIds().includes(destinationChainId)
+				) {
+					this.logger.debug(
+						{ orderId: order.id, destination: order.destination },
+						"Order destination is not a configured chain, skipping",
+					)
+					return
+				}
+				if (this.isChainWatchOnly(destinationChainId)) {
+					this.logger.debug(
+						{ orderId: order.id, destination: order.destination },
+						"Order destination is watch-only, skipping",
+					)
+					return
+				}
+
+				// Early check: if solver selection is active, ensure hyperbridge is configured.
+				// With the destination confirmed configured and filling above, a missing
+				// entry now really is an initialization bug.
 				const solverSelectionActive = this.contractService.getCache().getSolverSelection(order.destination)
 				if (solverSelectionActive == null) {
 					this.logger.error({ orderId: order.id }, "Shared cache is not initialized")
@@ -1193,7 +1220,7 @@ export class IntentFiller {
 			return null
 		}
 
-		const solverAccountAddress = this.signer.account.address as HexString
+		const solverAccountAddress = this.signer.address as HexString
 
 		try {
 			const { userOp } = await this.contractService.preparePhantomBidUserOp(

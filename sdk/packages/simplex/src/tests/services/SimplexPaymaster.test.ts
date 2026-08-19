@@ -54,6 +54,7 @@ function mockWalletClient() {
 	const writeContract = vi.fn(async () => ("0x" + "ee".repeat(32)) as HexString)
 	const walletClient = {
 		chain: undefined,
+		// A viem WalletClient really does carry `account` — this is not a Signer stub.
 		account: { address: SOLVER },
 		writeContract,
 	} as unknown as WalletClient

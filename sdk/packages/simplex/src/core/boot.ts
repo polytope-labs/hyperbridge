@@ -25,14 +25,13 @@ import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, moduleLogger, type Logger, type LogLevel, type LoggerContext } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
-import { initializeSignerFromToml } from "@/services/wallet"
 import { BalanceProvider } from "@/services/BalanceProvider"
 import { ActivityRecorder } from "@/data/recorder"
 import type { SimplexDataStore } from "@/data/types"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
-import type { SigningAccount } from "@/services/wallet"
+import type { Signer } from "@/services/wallet"
 
 export interface BootOptions {
 	/** Where the config was loaded from, when it came from a file. Purely informational. */
@@ -57,6 +56,11 @@ export interface BootOptions {
 	scanners: { orders: OrderScanner; hyperbridge?: HyperbridgeScanner }
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
+	/**
+	 * How this solver signs. Required unless every chain is watch-only, where a
+	 * throwaway key stands in for an account that never signs anything.
+	 */
+	signer?: Signer
 }
 
 /** Everything a running filler exposes to the UI server and the CLI. */
@@ -83,6 +87,13 @@ export interface FillerRuntime {
 	 * what lets a chain added later inherit it instead of quietly filling.
 	 */
 	globalWatchOnly: boolean
+	/**
+	 * True when this filler was started without a signer — a watch-only observer
+	 * running on a throwaway key. The chain controller refuses to take a chain
+	 * out of watch-only while this is set: the generated key holds no funds and
+	 * dies with the process, so "filling" from it can only burn bids.
+	 */
+	signerless: boolean
 	/** The live confirmation policy the engine prices with; runtime chain adds install into it. */
 	confirmationPolicy?: ConfirmationPolicy
 	/** This filler's logging destination. */
@@ -113,6 +124,16 @@ export interface FillerRuntime {
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
+}
+
+/**
+ * True when every resolved chain is marked watch-only, so nothing ever needs
+ * signing. Exported for its tests: this is the exemption that admits a
+ * signerless boot, and a bug here puts a throwaway key to work filling.
+ */
+export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefined, chains: ResolvedChainConfig[]): boolean {
+	if (!watchOnly) return false
+	return chains.every((chain) => watchOnly[chain.chainId] === true)
 }
 
 /** One TOML pair to the engine's TradingPair shape (curves become live policies). */
@@ -308,9 +329,29 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	// Create shared services to avoid duplicate RPC calls and reuse connections
 	const sharedCacheService = new CacheService(options.loggers)
-	const configuredSigner = await initializeSignerFromToml(config.simplex.signer, options.loggers.get("signer"))
-	const chainClientManager = new ChainClientManager(configService, configuredSigner)
-	const runtimeSigner: SigningAccount = chainClientManager.getSigner()
+	// Watch-only chains sign nothing, so ChainClientManager stands a throwaway key
+	// in for the missing signer. Anywhere else, a missing signer means a solver
+	// that would bid with an address nobody funded — refuse to start instead.
+	if (!options.signer && !globalWatchOnly && !allChainsWatchOnly(watchOnlyConfig, resolvedChains)) {
+		throw new Error(
+			"A signer is required unless every chain is watch-only: pass `signer` to Simplex.start " +
+				"(privateKeySigner, turnkeySigner, mpcVaultSigner, viemSigner, or your own Signer implementation). " +
+				"Running the binary? Configure it under [simplex.signer].",
+		)
+	}
+	const chainClientManager = new ChainClientManager(configService, options.signer)
+	const runtimeSigner: Signer = chainClientManager.getSigner()
+	if (options.signer) {
+		const strategy = options.signer.mode ?? "custom"
+		options.loggers
+			.get("signer")
+			.info({ signingStrategy: strategy, address: runtimeSigner.address }, `EVM signing strategy: ${strategy}`)
+	} else {
+		// The throwaway key. Say so, so nobody funds the address in the logs.
+		options.loggers
+			.get("signer")
+			.info({ address: runtimeSigner.address }, "Watch-only: no signer, using a throwaway key")
+	}
 
 	const contractService = new ContractInteractionService(
 		chainClientManager,
@@ -450,7 +491,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// Ensure the shared vault venue is hydrated even if no strategy
 	// initialised it, so the sweep timer has live state. Idempotent.
 	if (vaultVenue) {
-		await vaultVenue.initialise(runtimeSigner.account.address as HexString)
+		await vaultVenue.initialise(runtimeSigner.address as HexString)
 	}
 
 	// Initialize rebalancing service only if fully configured
@@ -535,7 +576,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const balanceProvider = new BalanceProvider({
 		chainClientManager,
 		configService,
-		fillerAddress: runtimeSigner.account.address,
+		fillerAddress: runtimeSigner.address,
 		token1,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
@@ -613,6 +654,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		chainClientManager,
 		orderScanner: options.scanners.orders,
 		globalWatchOnly,
+		signerless: !options.signer,
 		confirmationPolicy,
 		loggers: options.loggers,
 		assetRegistry,
@@ -621,14 +663,14 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		balanceTokens: token1,
 		rebalancingService,
 		resolvedChains,
-		fillerAddress: runtimeSigner.account.address as HexString,
+		fillerAddress: runtimeSigner.address as HexString,
 		watchOnly: watchOnlyConfig,
 		config,
 		configPath: options.configPath,
 		startedAt: Date.now(),
 		tokenSender: new TokenSender(
 			chainClientManager,
-			runtimeSigner.account.address as HexString,
+			runtimeSigner.address as HexString,
 			() => config.vault?.vaults ?? [],
 			userOpSender,
 		),
@@ -647,7 +689,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				await new VaultLiquidityState(
 					chain,
 					chainVaults,
-					runtimeSigner.account.address as HexString,
+					runtimeSigner.address as HexString,
 					chainClientManager,
 				).hydrate()
 			}

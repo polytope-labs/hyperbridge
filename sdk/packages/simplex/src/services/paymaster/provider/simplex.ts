@@ -10,6 +10,7 @@ import {
 	type PaymasterResult,
 } from "../types"
 import { signEip2612Permit } from "../permit"
+import type { Signer } from "@/services/wallet/types"
 
 interface TokenOption {
 	address: HexString
@@ -34,7 +35,7 @@ const APPROVE_TX_GAS = 60_000n
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
 	walletClient: WalletClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	chain: string,
@@ -121,7 +122,7 @@ async function selectToken(
 
 async function buildPermitMode(
 	client: PublicClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	tokenAddress: HexString,

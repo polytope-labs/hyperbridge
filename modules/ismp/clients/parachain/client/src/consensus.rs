@@ -32,18 +32,18 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use pallet_ismp::{ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID};
-use primitive_types::H256;
 use sp_runtime::{
 	app_crypto::sp_core::storage::StorageKey,
 	generic::Header,
 	traits::{BlakeTwo256, Header as _},
-	DigestItem,
 };
 use sp_trie::StorageProof;
-use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
+use substrate_state_machine::{
+	fetch_overlay_root_and_timestamp, read_proof_check_for_parachain, DigestResult,
+	SubstrateStateMachine,
+};
 
-use crate::{Parachains, RelayChainOracle};
+use crate::{Parachains, RelayChainOracle, SlotDurations};
 
 /// PassetHub testnet EVM chain ID
 pub const PASSET_HUB_TESTNET_CHAIN_ID: u32 = 420420417;
@@ -148,40 +148,19 @@ where
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
-			let (mut timestamp, mut overlay_root, mut mmr_root) =
-				(0, H256::default(), H256::default());
-			for digest in header.digest().logs.iter() {
-				match digest {
-					DigestItem::Consensus(consensus_engine_id, value)
-						if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
-					{
-						let timestamp_digest =
-							TimestampDigest::decode(&mut &value[..]).map_err(|e| {
-								Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
-							})?;
-						timestamp = timestamp_digest.timestamp;
-					},
-					DigestItem::Consensus(consensus_engine_id, value)
-						if *consensus_engine_id == ISMP_ID =>
-					{
-						let log = ConsensusDigest::decode(&mut &value[..]);
-						if let Ok(log) = log {
-							overlay_root = log.child_trie_root;
-							mmr_root = log.mmr_root;
-						} else {
-							Err(Error::Custom(
-								"Header contains an invalid ismp consensus log".into(),
-							))?
-						}
-					},
-					// don't really care about the rest
-					_ => {},
-				};
-			}
+			// Asset Hub doesn't run pallet-ismp, so it never deposits the timestamp digest and its
+			// block time is derived from the aura slot instead. No other parachain is allowed
+			// that route, hence the slot duration is only ever read for Asset Hub.
+			let slot_duration = if id == ASSET_HUB_PARA_ID {
+				SlotDurations::<T>::get(id).ok_or_else(|| {
+					Error::Custom(format!("Slot duration not configured for parachain {id}"))
+				})?
+			} else {
+				0
+			};
 
-			if timestamp == 0 {
-				Err(Error::Custom("Timestamp not found".into()))?
-			}
+			let DigestResult { timestamp, ismp_digest } =
+				fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 			let height: u32 = (*header.number()).into();
 
@@ -196,15 +175,15 @@ where
 					// for the coprocessor, we only care about the child root & mmr root
 					commitment: StateCommitment {
 						timestamp,
-						overlay_root: Some(mmr_root),
-						state_root: overlay_root, // child root
+						overlay_root: Some(ismp_digest.mmr_root),
+						state_root: ismp_digest.child_trie_root,
 					},
 					height: height.into(),
 				},
 				_ => StateCommitmentHeight {
 					commitment: StateCommitment {
 						timestamp,
-						overlay_root: Some(overlay_root),
+						overlay_root: Some(ismp_digest.child_trie_root),
 						state_root: header.state_root,
 					},
 					height: height.into(),

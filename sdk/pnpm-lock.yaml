@@ -232,16 +232,16 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3
       '@polkadot/api':
-        specifier: latest
+        specifier: ^16.5.6
         version: 16.5.6(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       '@polkadot/types':
-        specifier: latest
+        specifier: ^16.5.6
         version: 16.5.6
       '@polkadot/util':
-        specifier: latest
+        specifier: ^14.0.3
         version: 14.0.3
       '@polkadot/util-crypto':
-        specifier: latest
+        specifier: ^14.0.3
         version: 14.0.3(@polkadot/util@14.0.3)
       '@types/lodash-es':
         specifier: ^4.17.12
@@ -299,7 +299,7 @@ importers:
         specifier: ^2.2.5
         version: 2.2.5
       '@polkadot/keyring':
-        specifier: latest
+        specifier: ^14.0.3
         version: 14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)
       '@polytope-labs/hyperclient':
         specifier: 1.2.0
@@ -353,14 +353,14 @@ importers:
         specifier: workspace:*
         version: link:../sdk
       '@polkadot/api':
-        specifier: ^16.4.6
+        specifier: ^16.5.6
         version: 16.5.6(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       '@polkadot/util':
-        specifier: ^13.5.6
-        version: 13.5.9
+        specifier: ^14.0.3
+        version: 14.0.3
       '@polkadot/util-crypto':
-        specifier: ^13.5.6
-        version: 13.5.9(@polkadot/util@13.5.9)
+        specifier: ^14.0.3
+        version: 14.0.3(@polkadot/util@14.0.3)
       '@safe-global/api-kit':
         specifier: ^3.0.1
         version: 3.0.2(bufferutil@4.1.0)(encoding@0.1.13)(typescript@5.7.3)(utf-8-validate@6.0.6)(zod@3.25.67)

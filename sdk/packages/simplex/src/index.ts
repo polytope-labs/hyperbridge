@@ -2,11 +2,12 @@
  * `@hyperbridge/simplex` — run a Hyperbridge intent filler inside your own process.
  *
  * ```ts
- * import { Simplex } from "@hyperbridge/simplex"
+ * import { Simplex, privateKeySigner } from "@hyperbridge/simplex"
  * import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
  *
  * const simplex = await Simplex.start({
  *   config,
+ *   signer: privateKeySigner(process.env.SOLVER_KEY as HexString),
  *   data: new SqliteDataStore("./simplex-data"),
  * })
  *
@@ -21,7 +22,9 @@
  * The `Simplex` instance is the whole API: it starts the filler, exposes every
  * runtime control as a namespaced controller, and emits typed events. Persistence
  * is pluggable through {@link SimplexDataStore} — the SQLite implementation is a
- * separate entry point so the default install pulls in no native modules.
+ * separate entry point so the default install pulls in no native modules. Signing
+ * is pluggable through {@link Signer}: the bundled backends implement it, and so
+ * can a custody service of your own.
  */
 
 // ─── Entry point ────────────────────────────────────────────────────────────
@@ -77,6 +80,9 @@ export type {
 export { validateConfig, assertConfirmationCoverage, validateVaultToml, validateUniswapV4Positions } from "@/config/filler-toml"
 export type {
 	FillerTomlConfig,
+	// The binary's on-disk shape: a config plus the `[simplex.signer]` block.
+	// Only needed if you load simplex TOML files yourself.
+	FillerConfigFile,
 	ChainConfirmationPolicy,
 	QueueConfig,
 	RebalancingConfig,
@@ -101,6 +107,34 @@ export type { AssetDefinition } from "@/config/asset-registry"
 export { bookCrossedAt, parseChainKey, formatChainKey } from "@/config/interpolated-curve"
 export type { PriceCurvePoint, PriceCurveConfig, CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
+// ─── Signing ────────────────────────────────────────────────────────────────
+// `Signer` is the contract: an identity and three operations, with no viem types
+// on it, so satisfying it never means matching this package's viem version. Each
+// operation names what is being authorised, so a custody policy engine can read
+// it. `viemSigner` adapts a viem account; `digestSigner` covers a backend that
+// only signs 32-byte hashes.
+
+export {
+	privateKeySigner,
+	turnkeySigner,
+	mpcVaultSigner,
+	viemSigner,
+	digestSigner,
+	createSigner,
+	validateSignerConfig,
+} from "@/services/wallet"
+export type {
+	Signer,
+	Signature,
+	TypedDataPayload,
+	AuthorizationRequest,
+	SignerTransaction,
+	Eip7702Authorization,
+} from "@/services/wallet/types"
+
+// The `[simplex.signer]` TOML block the binary reads. It is not part of
+// `SimplexConfig` — it lives on `FillerConfigFile`, and `createSigner` turns one
+// into a `Signer`. Only useful if you load simplex config files yourself.
 export { SignerType } from "@/services/wallet/types"
 export type {
 	SignerConfig,

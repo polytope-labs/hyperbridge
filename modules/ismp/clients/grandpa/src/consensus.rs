@@ -133,10 +133,6 @@ where
 						let digest_result =
 							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
-						if digest_result.timestamp == 0 {
-							Err(GrandpaError::MissingTimestampOrIsmpRoot)?
-						}
-
 						let height: u32 = (*header.number()).into();
 
 						let intermediate = match T::Coprocessor::get() {
@@ -180,10 +176,6 @@ where
 					.ok_or(GrandpaError::SlotDurationNotSet(consensus_state.state_machine))?;
 				let digest_result =
 					fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
-
-				if digest_result.timestamp == 0 {
-					Err(GrandpaError::MissingTimestampOrIsmpRoot)?
-				}
 
 				let height: u32 = (*header.number()).into();
 
@@ -241,10 +233,6 @@ where
 					for header in header_vec {
 						let digest_result =
 							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
-
-						if digest_result.timestamp == 0 {
-							Err(GrandpaError::MissingTimestampOrIsmpRoot)?
-						}
 
 						let height: u32 = (*header.number()).into();
 

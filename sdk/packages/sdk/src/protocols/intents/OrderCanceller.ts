@@ -49,12 +49,9 @@ export class OrderCanceller {
 	private static readonly DEFAULT_MAX_RECOVERY_RESTARTS = 1
 	private static readonly PROOF_FRESHNESS_MAX_RETRIES = 3
 	private static readonly PROOF_FRESHNESS_BACKOFF_MS = 500
-	/**
-	 * Gas budget used to size the relayer fee for a cross-chain cancellation
-	 * message (the GET response or RefundEscrow POST executed on the source
-	 * chain), priced at the source chain's gas price.
-	 */
-	private static readonly CANCEL_MESSAGE_GAS = 800_000n
+	/** Gas budgets used to price cancellation delivery on the source chain. */
+	private static readonly SOURCE_GET_RESPONSE_GAS = 1_000_000n
+	private static readonly REFUND_POST_GAS = 1_000_000n
 
 	private readonly logger = createConsola({
 		level: LogLevels.info,
@@ -103,9 +100,7 @@ export class OrderCanceller {
 
 		const height = order.deadline + 1n
 
-		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(
-			destStateMachine,
-		)
+		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachine)
 		const slotHash = await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
 			address: destIntentGateway,
@@ -129,7 +124,7 @@ export class OrderCanceller {
 
 		const feeInSourceFeeToken = await convertGasToFeeToken(
 			this.ctx,
-			OrderCanceller.CANCEL_MESSAGE_GAS,
+			OrderCanceller.SOURCE_GET_RESPONSE_GAS,
 			"source",
 			sourceStateMachine,
 		)
@@ -773,9 +768,7 @@ export class OrderCanceller {
 	}
 
 	private async removeRecoveryItems(...keys: string[]): Promise<void> {
-		await Promise.all(
-			[...new Set(keys)].map((key) => this.ctx.cancellationStorage.removeItem(key)),
-		)
+		await Promise.all([...new Set(keys)].map((key) => this.ctx.cancellationStorage.removeItem(key)))
 	}
 
 	/**
@@ -830,7 +823,7 @@ export class OrderCanceller {
 	private async estimateRelayerFee(sourceChainId: string, destChainId: string): Promise<bigint> {
 		const feeInSourceFeeToken = await convertGasToFeeToken(
 			this.ctx,
-			OrderCanceller.CANCEL_MESSAGE_GAS,
+			OrderCanceller.REFUND_POST_GAS,
 			"source",
 			sourceChainId,
 		)

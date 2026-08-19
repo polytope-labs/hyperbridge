@@ -118,8 +118,6 @@ export interface FillerTomlConfig {
 	 */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	simplex: {
-		// The signer is optional to keep the watch-only mode compatible
-		signer?: SignerConfig
 		/** Orders evaluated at once. Defaults to 5. */
 		maxConcurrentOrders?: number
 		/**
@@ -177,6 +175,23 @@ export interface FillerTomlConfig {
 	allowlist?: AllowlistConfig
 	/** SimplexPaymaster fee-recycling keeper (`paymaster-keeper` subcommand). */
 	keeper?: PaymasterKeeperConfig
+}
+
+/**
+ * The TOML file the binary reads: a {@link FillerTomlConfig} plus the
+ * `[simplex.signer]` block, which is the CLI's way of naming a signing backend.
+ *
+ * The block is not part of the library's config — `Simplex.start` takes a
+ * `Signer` instance — so it lives on this type and nowhere else. The binary
+ * resolves it with `signerFromToml` and passes the parsed file straight through;
+ * the extra key rides along untouched so the dashboard's config writer can put
+ * it back in the file it came from.
+ */
+export interface FillerConfigFile extends FillerTomlConfig {
+	simplex: FillerTomlConfig["simplex"] & {
+		/** Omitted by watch-only configs, which sign nothing. */
+		signer?: SignerConfig
+	}
 }
 
 /**
@@ -258,16 +273,9 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		)
 	}
 
-	// Private key is only required if not all chains are in watch-only mode.
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
-	// (otherwise the flag's own config would still trip the signer requirement).
+	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
-
-	const signer = config.simplex?.signer
-
-	if (!signer && !allChainsWatchOnly) {
-		throw new Error("Signer configuration is required via [simplex.signer]")
-	}
 
 	if (!config.simplex?.substratePrivateKey) {
 		throw new Error("simplex.substratePrivateKey is required")

@@ -6,7 +6,7 @@ import { DelegationService } from "@/services/DelegationService"
 import { UserOpSender } from "@/services/UserOpSender"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService, type ResolvedChainConfig } from "@/services/FillerConfigService"
-import { createPrivateKeySigningAccount } from "@/services/wallet/accounts/privatekey"
+import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
 
 /**
  * Live probe: does a real bundler accept SimplexPaymaster PERMIT2 mode?
@@ -60,7 +60,7 @@ function build() {
 		getSolverAccountContractAddress: () => SOLVER_ACCOUNT,
 	})
 
-	const signer = createPrivateKeySigningAccount(PRIVATE_KEY!)
+	const signer = privateKeySigner(PRIVATE_KEY!)
 	const clientManager = new ChainClientManager(configService, signer)
 	const delegation = new DelegationService(clientManager, configService, signer)
 	const userOpSender = new UserOpSender(clientManager, configService, signer)
@@ -104,7 +104,7 @@ describe.skipIf(skipSuite)("SimplexPaymaster PERMIT2 mode — live bundler probe
 		async () => {
 			const ctx = build()
 			const publicClient = ctx.clientManager.getPublicClient(CHAIN)
-			const address = ctx.signer.account.address
+			const address = ctx.signer.address
 			const balance = (await publicClient.readContract({
 				address: TOKEN!,
 				abi: erc20Abi,

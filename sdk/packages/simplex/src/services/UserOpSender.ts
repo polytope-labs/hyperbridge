@@ -4,7 +4,7 @@ import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger , moduleLogger} from "./Logger"
-import type { SigningAccount } from "./wallet"
+import type { Signer } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
 
@@ -94,7 +94,7 @@ export class UserOpSender {
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly configService: FillerConfigService,
-		private readonly signer: SigningAccount,
+		private readonly signer: Signer,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "userop-sender")
 	}
@@ -127,7 +127,7 @@ export class UserOpSender {
 
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const walletClient = this.clientManager.getWalletClient(chain)
-		const solverAccount = this.signer.account.address as HexString
+		const solverAccount = this.signer.address as HexString
 		const chainId = this.configService.getChainId(chain)
 
 		let pm: PaymasterDataResult
@@ -339,7 +339,6 @@ export class UserOpSender {
 		// backend (e.g. Turnkey's policy engine) instead of an opaque 32-byte digest.
 		userOp.signature = await this.signer.signTypedData(
 			CryptoUtils.packedUserOpTypedData(userOp, p.entryPoint, BigInt(p.chainId)),
-			p.chainId,
 		)
 		return userOp
 	}

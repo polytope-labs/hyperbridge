@@ -1,6 +1,7 @@
 import { encodePacked, type PublicClient, type WalletClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { Signer } from "@/services/wallet/types"
 
 // ── Shared paymaster result type ────────────────────────────────────
 
@@ -18,7 +19,7 @@ export interface PaymasterOptions {
 	solverAccount: HexString
 	publicClient: PublicClient
 	walletClient: WalletClient
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> }
+	signer: Pick<Signer, "signTypedData">
 	configService: FillerConfigService
 	/**
 	 * Override for the Circle paymaster verification gas limit (default 200k).

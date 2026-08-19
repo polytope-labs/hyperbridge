@@ -9,6 +9,7 @@ import {
 	type PaymasterResult,
 } from "../types"
 import { signEip2612Permit } from "../permit"
+import type { Signer } from "@/services/wallet/types"
 
 /**
  * Builds the paymaster fields for a PackedUserOperation using Circle Paymaster v0.8.
@@ -25,7 +26,7 @@ import { signEip2612Permit } from "../permit"
  */
 export async function buildCirclePaymasterData(
 	client: PublicClient,
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	chain: string,

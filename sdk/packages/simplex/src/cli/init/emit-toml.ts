@@ -2,7 +2,7 @@ import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/config/defaults"
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
-import type { FillerTomlConfig, ChainConfirmationPolicy } from "@/config/filler-toml"
+import type { FillerConfigFile, ChainConfirmationPolicy } from "@/config/filler-toml"
 import type { PairConfig } from "@/config/pairs"
 
 /**
@@ -30,11 +30,11 @@ export interface EmitOptions {
 }
 
 /**
- * Renders a FillerTomlConfig as a commented TOML document. A generic stringifier
+ * Renders a FillerConfigFile as a commented TOML document. A generic stringifier
  * can't produce comments or stable section ordering, so the document is emitted
  * section by section; `toml.parse(emitFillerToml(c))` must deep-equal `c`.
  */
-export function emitFillerToml(config: FillerTomlConfig, options: EmitOptions = {}): string {
+export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = {}): string {
 	const out: string[] = []
 	const push = (line = "") => out.push(line)
 

@@ -15,12 +15,28 @@ import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { HyperbridgeScanner, OrderScanner } from "@/scanner/types"
 import { HyperbridgeScanner as HyperbridgeScannerImpl } from "@/scanner/hyperbridge-scanner"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
+import type { Signer } from "@/services/wallet"
 
 /** Configuration for a filler. The same shape the TOML file parses into. */
 export type SimplexConfig = FillerTomlConfig
 
 export interface SimplexOptions {
 	config: SimplexConfig
+	/**
+	 * How this solver signs — bids, UserOperations, EIP-7702 delegation and every
+	 * transaction it sends. Required unless every chain is watch-only.
+	 *
+	 * {@link Signer} is an interface, not a menu: `privateKeySigner`,
+	 * `turnkeySigner` and `mpcVaultSigner` are the implementations that ship here,
+	 * `viemSigner` adapts any viem account (a `toAccount` wrapper around an HSM or
+	 * a remote signing service included), and anything else that satisfies the
+	 * interface works the same way.
+	 *
+	 * ```ts
+	 * const simplex = await Simplex.start({ config, signer: privateKeySigner(key) })
+	 * ```
+	 */
+	signer?: Signer
 	/**
 	 * Persistence backend. Defaults to an in-process store that is lost on exit —
 	 * fine for tests and watch-only observers, but a filler that submits bids
@@ -413,10 +429,20 @@ export class ChainController {
 				)
 			}
 
+			// A solver started without a signer holds only a throwaway key: it can
+			// observe a new chain, never fill on one.
+			if (this.runtime.signerless && chain.watchOnly === false) {
+				throw new Error(
+					`Chain ${chainId} cannot be added as filling: this solver was started without a signer. ` +
+						"Restart with `signer` to fill.",
+				)
+			}
+
 			configService.addChain(resolved)
 			// A filler the operator put in watch-only must not start filling on a chain
-			// added later. `chain.watchOnly` still wins when given explicitly.
-			const watchOnly = chain.watchOnly ?? this.runtime.globalWatchOnly
+			// added later, and a signerless observer never fills at all.
+			// `chain.watchOnly` still wins when given explicitly (checked above).
+			const watchOnly = chain.watchOnly ?? (this.runtime.signerless || this.runtime.globalWatchOnly)
 			if (watchOnly) intentFiller.setWatchOnly(chainId, true)
 
 			try {
@@ -552,6 +578,13 @@ export class ChainController {
 	/** Monitor without filling. Takes effect on the next order. */
 	async setWatchOnly(chainId: number, watchOnly: boolean): Promise<void> {
 		return this.serialise(async () => {
+			// Boot admits a signerless start only because every chain is watch-only;
+			// letting this call undo that would put a throwaway key to work filling.
+			if (!watchOnly && this.runtime.signerless) {
+				throw new Error(
+					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
+				)
+			}
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()
 			await this.persist()
@@ -767,6 +800,19 @@ export class Simplex extends EventEmitter {
 	 * never returned. On success the filler is already scanning.
 	 */
 	static async start(options: SimplexOptions): Promise<Simplex> {
+		// `SimplexConfig` has no signer field — a `[simplex.signer]` block only
+		// reaches here on an object parsed from the binary's TOML file, where it is
+		// the CLI's business. Resolving it would make the config a second, silent
+		// way to choose a key; ignoring it would start a solver on an address the
+		// caller did not expect. Say so instead.
+		const tomlSigner = (options.config.simplex as { signer?: unknown } | undefined)?.signer
+		if (tomlSigner && !options.signer) {
+			throw new Error(
+				"config.simplex.signer describes a signer but none was passed. Simplex.start takes a Signer " +
+					"instance: `signer: await createSigner(config.simplex.signer)`, or build one directly with " +
+					"privateKeySigner/turnkeySigner/mpcVaultSigner/viemSigner.",
+			)
+		}
 		// This filler's own logging destination — not a process-wide one, so two
 		// fillers in a process keep their records apart.
 		const loggers = new LoggerContext({
@@ -796,6 +842,7 @@ export class Simplex extends EventEmitter {
 
 			const runtime = await bootFiller(options.config, {
 				loggers,
+				signer: options.signer,
 				scanners: { orders: orderScanner, hyperbridge: hyperbridgeScanner },
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),

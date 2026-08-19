@@ -27,7 +27,7 @@ import { type Logger , moduleLogger} from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
-import type { SigningAccount } from "@/services/wallet"
+import { sdkSigningAccount, type Signer } from "@/services/wallet"
 import { buildPaymasterAndData } from "@/services/paymaster"
 
 // Configure for financial precision
@@ -41,19 +41,19 @@ export class ContractInteractionService {
 	private logger: Logger
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
-	private signer: SigningAccount
+	private signer: Signer
 
 	constructor(
 		private clientManager: ChainClientManager,
 		configService: FillerConfigService,
-		signer: SigningAccount,
+		signer: Signer,
 		sharedCacheService?: CacheService,
 	) {
 		this.logger = moduleLogger(configService.loggers, "contract-service")
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
 		this.signer = signer
-		this.solverAccountAddress = this.signer.account.address
+		this.solverAccountAddress = this.signer.address
 		this.initCache()
 	}
 
@@ -656,7 +656,7 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverSigner: this.signer,
+			solverSigner: sdkSigningAccount(this.signer),
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
@@ -728,7 +728,7 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverSigner: this.signer,
+			solverSigner: sdkSigningAccount(this.signer),
 			nonce,
 			entryPointAddress,
 			callGasLimit: 500_000n,

@@ -14,8 +14,7 @@ import {
 import { signEip2612Permit } from "../permit"
 import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
-
-type Signer = { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> }
+import type { Signer } from "@/services/wallet/types"
 
 export interface SimplexPaymasterOptions {
 	/** Skip EIP-2612 permit detection (PERMIT2 and APPROVE stay available). */
@@ -50,7 +49,7 @@ const APPROVE_TX_GAS = 60_000n
 export async function buildSimplexPaymasterData(
 	client: PublicClient,
 	walletClient: WalletClient,
-	signer: Signer,
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	chain: string,
@@ -171,7 +170,7 @@ async function selectToken(
 
 async function buildPermitMode(
 	client: PublicClient,
-	signer: Signer,
+	signer: Pick<Signer, "signTypedData">,
 	solverAccount: HexString,
 	paymasterAddress: HexString,
 	tokenAddress: HexString,
@@ -272,7 +271,7 @@ async function readAllowance(
  * signature(65) = 182 bytes, matching SimplexPaymaster._parsePermit2Data.
  */
 async function buildPermit2Mode(
-	signer: Signer,
+	signer: Pick<Signer, "signTypedData">,
 	p: {
 		permit2: HexString
 		chainId: number

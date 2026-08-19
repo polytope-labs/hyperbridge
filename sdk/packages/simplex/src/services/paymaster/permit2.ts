@@ -7,6 +7,7 @@ import {
 	type Hex,
 } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
+import type { Signer } from "@/services/wallet/types"
 
 export interface Permit2TransferParams {
 	permit2: HexString
@@ -70,10 +71,10 @@ export function randomPermit2Nonce(): bigint {
  * only shape the ERC-1271 path through the delegated SolverAccount accepts.
  */
 export async function signPermit2Transfer(
-	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	signer: Pick<Signer, "signTypedData">,
 	p: Permit2TransferParams,
 ): Promise<HexString> {
-	const signature = await signer.signTypedData(permit2TransferTypedData(p), p.chainId)
+	const signature = await signer.signTypedData(permit2TransferTypedData(p))
 	return normalizeSignature65(signature)
 }
 

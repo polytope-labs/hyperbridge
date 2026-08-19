@@ -105,6 +105,7 @@ function mockWalletClient() {
 	const writeContract = vi.fn(async () => ("0x" + "ee".repeat(32)) as HexString)
 	const walletClient = {
 		chain: undefined,
+		// A viem WalletClient really does carry `account` — this is not a Signer stub.
 		account: { address: SOLVER },
 		writeContract,
 	} as unknown as WalletClient
@@ -144,12 +145,9 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(deadline).toBeLessThanOrEqual(before + PERMIT2_DEADLINE_SECONDS + 5n)
 
 		// The signer saw a Permit2 PermitTransferFrom naming the paymaster as spender.
+		// The chain is carried by domain.chainId — signing backends read it from there.
 		expect(signTypedData).toHaveBeenCalledOnce()
-		const [typedData, chainId] = signTypedData.mock.calls[0] as unknown as [
-			ReturnType<typeof permit2TransferTypedData>,
-			number,
-		]
-		expect(chainId).toBe(56)
+		const [typedData] = signTypedData.mock.calls[0] as unknown as [ReturnType<typeof permit2TransferTypedData>]
 		expect(typedData.primaryType).toBe("PermitTransferFrom")
 		expect(typedData.domain).toEqual({ name: "Permit2", chainId: 56, verifyingContract: PERMIT2 })
 		expect(typedData.message).toEqual({

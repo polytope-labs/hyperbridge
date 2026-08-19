@@ -27,14 +27,14 @@ Node.js 22 or later. The package ships ESM and CJS builds with bundled types.
 EIP-7702 delegation in place where solver selection is active, scanners live.
 
 ```ts lineNumbers
-import { Simplex, SignerType, type SimplexConfig } from "@hyperbridge/simplex"
+import {
+    Simplex,
+    privateKeySigner,
+    type SimplexConfig,
+} from "@hyperbridge/simplex"
 
 const config: SimplexConfig = {
     simplex: {
-        signer: {
-            type: SignerType.PrivateKey,
-            key: process.env.SOLVER_KEY as `0x${string}`,
-        },
         maxConcurrentOrders: 5,
         // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
         blockScanIntervalSeconds: 3,
@@ -63,7 +63,10 @@ const config: SimplexConfig = {
     ],
 }
 
-const simplex = await Simplex.start({ config })
+const simplex = await Simplex.start({
+    config,
+    signer: privateKeySigner(process.env.SOLVER_KEY as `0x${string}`),
+})
 ```
 
 `start` rejects if the config is invalid, a chain's RPCs are unreachable, or delegation fails on
@@ -73,9 +76,171 @@ Stop it with `await simplex.stop()` — idempotent, drains in-flight fills, unwi
 marked `redeemOnShutdown`, and never calls `process.exit`.
 
 <Callout type="warn">
-    The config object is the same shape the binary's `filler-config.toml` parses into. The
-    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every field;
-    read the TOML tables there as object keys.
+    The config object is the shape the binary's `filler-config.toml` parses into, minus
+    `[simplex.signer]` — signing is an argument, not config. The
+    [configuration reference](/developers/evm/intent-gateway/simplex#configuration) documents every
+    other field; read the TOML tables there as object keys.
+</Callout>
+
+## Signing
+
+Signing is pluggable. `Signer` is the interface; `privateKeySigner`, `turnkeySigner` and
+`mpcVaultSigner` are implementations of it, and so is anything you write.
+
+```ts lineNumbers
+interface Signer {
+    /** The address every fill, bid and delegation is attributed to. */
+    address: HexString
+    /** Names the backend in logs. */
+    mode: string
+
+    /** EIP-712. Signs every bid UserOperation and every paymaster permit. */
+    signTypedData(typedData: TypedDataPayload): Promise<HexString>
+    /** The EIP-7702 delegation that makes this account a solver. */
+    signAuthorization(auth: AuthorizationRequest): Promise<Signature>
+    /** Returns the signed, RLP-encoded transaction, ready to broadcast. */
+    signTransaction(tx: SignerTransaction): Promise<HexString>
+}
+```
+
+Three operations and an identity. Each names *what* is being authorised — a typed-data payload, an
+EIP-7702 authorization, a transaction — rather than handing over a digest, so a custody provider's
+policy engine can read what it is about to sign. Nothing on the interface is a viem type, so
+satisfying it never means matching this package's viem version.
+
+There is no chain id parameter on `signTypedData`: EIP-712 carries it in `domain.chainId`, which is
+what the digest covers and what a backend that scopes a signing request to a chain reads.
+
+<Callout type="warn">
+    Any EIP-712 payload you build must list `EIP712Domain` in `types`. viem ignores it when hashing
+    locally, so a payload without it looks correct against a private key — but MPCVault and Turnkey
+    both hash from the JSON they are sent and derive the domain type from that entry. Without it
+    they sign a different digest than your verifier checks, and the failure is quiet: the signature
+    is well-formed and recovers to an address that is not yours.
+</Callout>
+
+A solver needs a signer unless every chain is watch-only, where it signs nothing and a throwaway key
+stands in.
+
+Each method returns something different, and the difference is the part that trips an implementation:
+
+| Method | Return exactly |
+|--------|----------------|
+| `signTypedData` | The 65-byte `r ‖ s ‖ v` signature as 0x-hex (132 characters), `v` **27 or 28** — what `eth_signTypedData_v4` and viem's `signTypedData` produce. On-chain validation recovers against this form |
+| `signAuthorization` | The **split** signature `{ r, s, yParity }`: `r`/`s` as 32-byte 0x-hex, `yParity` strictly **0 or 1** (subtract 27 from a legacy `v` — anything else is rejected, because EIP-7702 would otherwise skip the mis-encoded tuple silently). Split because the authorization is embedded field-by-field in the transaction |
+| `signTransaction` | The **whole signed transaction** — typed-envelope RLP as `eth_sendRawTransaction` takes it (`0x02…` for EIP-1559, `0x04…` for set-code), not a bare signature. From a signed digest, viem's `serializeTransaction(tx, signature)` produces it |
+
+
+### Out of the box
+
+```ts lineNumbers
+import {
+    privateKeySigner,
+    turnkeySigner,
+    mpcVaultSigner,
+} from "@hyperbridge/simplex"
+
+// A raw key in this process.
+const local = privateKeySigner(process.env.SOLVER_KEY as `0x${string}`)
+
+// Turnkey. Async — it fetches the account on creation.
+const turnkey = await turnkeySigner({
+    organizationId: process.env.TURNKEY_ORG_ID!,
+    apiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY!,
+    apiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY!,
+    // Any Ethereum address in your Turnkey wallet.
+    signWith: process.env.TURNKEY_SIGN_WITH!,
+})
+
+// MPCVault. Needs a running client-signer container.
+const mpc = mpcVaultSigner({
+    apiToken: process.env.MPCVAULT_API_TOKEN!,
+    vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
+    accountAddress: process.env.MPCVAULT_ADDRESS as `0x${string}`,
+    callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_KEY!,
+})
+```
+
+Turnkey signs transactions and EIP-7702 authorizations through its own structured encodings, so its
+policy engine sees both. MPCVault signs transactions through its vault API, and hashes the
+authorization tuple itself since it has no structured encoding for one. Neither has privileged
+access to the solver; a signer you write can do the same things.
+
+### Anything that speaks viem
+
+`viemSigner` adapts a viem local account, carrying each operation through to the account's own
+implementation:
+
+```ts lineNumbers
+import { viemSigner } from "@hyperbridge/simplex"
+
+const signer = viemSigner(await someProvider.getAccount())
+```
+
+viem makes `signAuthorization` optional on an account; the interface does not, so the adapter falls
+back to hashing the tuple and signing it with `sign`. An account with neither cannot delegate, and a
+solver that cannot delegate cannot bid, so that is rejected at construction rather than at the first
+fill.
+
+### A backend that only signs digests
+
+An HSM, a KMS or a remote signer that exposes nothing but `sign(hash)` does not implement the
+interface by hand — `digestSigner` does the hashing and the RLP for you:
+
+```ts lineNumbers
+import { digestSigner } from "@hyperbridge/simplex"
+
+const signer = digestSigner({
+    address: await hsm.address(),
+    mode: "hsm",
+    // Must resolve to { r, s, yParity } with yParity 0 or 1 — split a 65-byte
+    // hex signature with viem's parseSignature. A backend handing back the
+    // legacy v (27/28) is rejected rather than mis-encoded.
+    sign: async (hash) => parseSignature(await hsm.sign(hash)),
+})
+```
+
+That keeps transaction serialisation and EIP-7702 authorization hashing in one tested place instead
+of in every integration. The trade is visibility: your provider sees 32 bytes, not the transaction.
+If it can do better, implement `Signer` directly.
+
+### Writing one from scratch
+
+Implement `Signer` when your backend can see structure and you want it to. Each method owns its
+encoding: return a 65-byte signature for the typed data, split components for the authorization, and
+signed RLP bytes for the transaction.
+
+```ts lineNumbers
+const signer: Signer = {
+    address: await vault.address(),
+    mode: "vault",
+    signTypedData: (payload) => vault.signTypedData(payload),
+    signAuthorization: (auth) => vault.signDelegation(auth),
+    signTransaction: (tx) => vault.signTransaction(tx),
+}
+```
+
+A signer is also the natural place for the policy your provider cannot express: rate limits, a
+per-chain kill switch, an approval queue, an audit log of everything the solver ever asked to be
+signed.
+
+```ts lineNumbers
+const audited: Signer = {
+    ...base,
+    mode: "audited",
+    signTransaction: async (tx) => {
+        await audit.record({ chainId: tx.chainId, to: tx.to, value: tx.value })
+        return base.signTransaction(tx)
+    },
+}
+```
+
+<Callout type="info">
+    `SimplexConfig` has no signer field at all — the binary's `[simplex.signer]` block lives on
+    `FillerConfigFile`, the on-disk shape. Loading one of those files yourself?
+    `createSigner(config.simplex.signer)` builds the signer it describes. `Simplex.start` will not
+    read the block for you: passing a parsed file with no `signer` throws, rather than quietly
+    picking a key you did not pass.
 </Callout>
 
 ## Persistence

@@ -1,6 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { concatHex, keccak256, padHex, toHex } from "viem"
-import { toAccount, type Account } from "viem/accounts"
 import * as grpc from "@grpc/grpc-js"
 import {
 	PlatformAPIClient,
@@ -12,7 +11,7 @@ import {
 	type ExecuteSigningRequestsResponse,
 	type SignatureContainer_ECDSASignature,
 } from "../../proto/mpcvault/platform/v1/api"
-import type { MpcVaultClientConfig, MpcVaultSignerConfig } from "./types"
+import type { MpcVaultClientConfig } from "./types"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -268,68 +267,4 @@ export class MpcVaultService {
 		}
 		return this.normalizeHex(result.signedTransaction)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Account factory
-// ---------------------------------------------------------------------------
-
-function requireChainId(value: unknown, context: string): number {
-	if (typeof value === "number" && Number.isFinite(value)) return value
-	if (typeof value === "bigint") return Number(value)
-	throw new Error(`Missing chainId for MPCVault ${context}`)
-}
-
-export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: Account; service: MpcVaultService } {
-	const service = new MpcVaultService({
-		apiToken: config.apiToken,
-		vaultUuid: config.vaultUuid,
-		accountAddress: config.accountAddress,
-		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
-		grpcTarget: config.grpcTarget,
-	})
-
-	const account = toAccount({
-		address: config.accountAddress,
-		async signMessage({ message }): Promise<HexString> {
-			const raw = typeof message === "object" && "raw" in message ? (message.raw as HexString) : undefined
-			if (!raw) {
-				throw new Error("MPCVault signer requires message.raw for signMessage")
-			}
-			throw new Error(
-				"MPCVault does not support signMessage without chain context. Use the top-level signMessage(messageHash, chainId).",
-			)
-		},
-		async signTransaction(transaction): Promise<HexString> {
-			const params = transaction as {
-				chainId?: number | bigint
-				to?: HexString
-				value?: bigint
-				data?: HexString
-				nonce?: number
-				gas?: bigint
-				maxFeePerGas?: bigint
-				maxPriorityFeePerGas?: bigint
-			}
-			return service.signTransaction({
-				chainId: requireChainId(params.chainId, "transaction signing"),
-				to: params.to,
-				value: params.value,
-				data: params.data,
-				nonce: params.nonce,
-				gasLimit: params.gas,
-				maxFeePerGas: params.maxFeePerGas,
-				maxPriorityFeePerGas: params.maxPriorityFeePerGas,
-			})
-		},
-		async signTypedData(typedDataDefinition): Promise<HexString> {
-			const typedData = typedDataDefinition as {
-				domain?: { chainId?: number | bigint }
-			}
-			const chainId = requireChainId(typedData.domain?.chainId, "typed-data signing")
-			return service.signTypedData(JSON.stringify(typedDataDefinition), chainId)
-		},
-	})
-
-	return { account, service }
 }

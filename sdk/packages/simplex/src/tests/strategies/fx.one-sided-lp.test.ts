@@ -73,12 +73,19 @@ function makeFiller(options: {
 	fundingVenues?: any[]
 	side?: "bid" | "ask"
 	contractService?: any
+	maxOrderSize?: number
 }): FXFiller {
-	const { contractService: provided, bidPricePolicy, askPricePolicy, ...fillerOptions } = options
+	const { contractService: provided, bidPricePolicy, askPricePolicy, maxOrderSize, ...fillerOptions } = options
 	const contractService = provided ?? makeContractService()
 	const signer = { account: { address: SOLVER } } as any
 
-	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC }, 5000, bidPricePolicy, askPricePolicy)
+	const { pairs, registry } = exoticPairs(
+		configService,
+		{ [CHAIN]: EXOTIC },
+		maxOrderSize ?? 5000,
+		bidPricePolicy,
+		askPricePolicy,
+	)
 	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, fillerOptions)
 }
 
@@ -247,6 +254,26 @@ describe("FXFiller one-sided LP", () => {
 			// ZARP is bid-only: the opposite pattern, on the same engine.
 			expect(await filler.quotePhantomFill(makePhantomOrder("ph-i", OTHER, STABLE))).not.toBeNull()
 			expect(await filler.quotePhantomFill(makePhantomOrder("ph-j", STABLE, OTHER))).toBeNull()
+		})
+
+		// A probe is a price quote, not an allocation — it commits no capital, so the pair's
+		// per-order exposure cap must not ration its quantity. It used to: the quoted output was
+		// clamped to `maxOrderSize` while every consumer still divides by the FULL standard
+		// amount, so a pair capped below the probe published a proportionally worse price with
+		// nothing to signal it. At maxOrderSize 10 against a 100-token probe that is a rate 10x
+		// too low. The cap still governs real fills.
+		it("quotes the full probe even when the pair's maxOrderSize is far below it", async () => {
+			const uncapped = makeFiller({ askPricePolicy: FLAT, maxOrderSize: 5000 })
+			const capped = makeFiller({ askPricePolicy: FLAT, maxOrderSize: 10 })
+
+			const a = await uncapped.quotePhantomFill(makePhantomOrder("ph-cap-a", STABLE, EXOTIC))
+			const b = await capped.quotePhantomFill(makePhantomOrder("ph-cap-b", STABLE, EXOTIC))
+
+			expect(a).not.toBeNull()
+			expect(b).not.toBeNull()
+			// 100 token0 in at a flat 1500 -> 150_000 token1, regardless of the cap.
+			expect(a![0].amount).toBe(parseUnits("150000", 18))
+			expect(b![0].amount).toBe(a![0].amount)
 		})
 
 		it("declines every probe once halted", async () => {

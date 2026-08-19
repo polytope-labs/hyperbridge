@@ -4,6 +4,18 @@ AI-maintained record of non-obvious choices made in `sdk/packages/indexer`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-19 — The standard-amount check bounds plausibility instead of pinning one unit
+
+Chosen: `resolvePoolLeg` accepts any standard amount within a plausibility window around one whole input token, and `updateLiquidityPools` renormalizes the rate by the leg's own standard amount. The pallet is then free to raise the probe size to buy quote precision without the indexer rescaling every published rate by that factor.
+
+Alternative rejected — keep `standardAmount === 10 ** inputDecimals`. It made the rate math a single multiplication, but it is what blocked the precision fix: a leg's quoted output integer IS the price, and one whole token of a 6-decimal asset priced into another 6-decimal asset only affords ~3 significant digits.
+
+Alternative rejected — accept any whole multiple of one unit and carry the multiple as a divisor. Simpler arithmetic, but it silently waves through the exact bug the old check caught: an 18-decimal amount read against a 6-decimal registry entry is a clean multiple (1e12 of them), so it would have been read as a trillion-token probe and published a rate off by 1e12. It also needlessly forbids a non-whole probe, which the renormalization prices correctly.
+
+Alternative rejected — drop the check entirely. The standard amount is the denominator of every published rate and nothing else in the pipeline notices when it disagrees with the registry's decimals; the failure is silent and needs a human to spot feed drift. The window is deliberately wide enough that no plausible probe size trips it and narrow enough that every realistic decimals mismatch does.
+
+Not changed, deliberately: the filler floors its quoted output (`computeLegPolicyOutput` in simplex). That truncation looks like a 0.14% pricing error at a one-unit probe and is tempting to "fix" by rounding to nearest — but it is load-bearing. Flooring keeps the published rate at or below the filler's true curve rate, which is what makes a quote built from the snapshot honourable; the SDK quoter derives `amountOut` from `medianPrice / standardAmount`, and the gateway's fully-filled check has zero tolerance, so a published rate even one base unit above the curve turns every order into a partial fill. Precision belongs to the probe size, not the rounding mode.
+
 ## 2026-08-14 — Cumulative seed derives from daily rows, and a failed seed skips only the gateway update (#1085)
 
 Chosen: `seedAggregateVolume` scans only `DailyVolumeUSD` and derives the aggregate's cumulative record from the per-day sums (`lastUpdatedAt` from their max). The alternative — summing the component `CumulativeVolumeUSD` rows — was the original implementation and was dropped after review: `updateCumulativeVolume` skips same-timestamp updates per record, so a chain-wide aggregate's cumulative drops the second of any two same-block fills (even by different fillers), while per-filler cumulatives only collide within one filler. Seeding from summed filler cumulatives therefore bakes in the equality "FILLED cumulative equals the sum of FILLER cumulatives", which the guard breaks from the first multi-filler block onward. Daily rows have no such guard, count every fill, and are the series the aggregate is paired with. The forward divergence itself is accepted, not fixed — fixing it means removing the cumulative guard, which would change every existing volume series — and is pinned by a test.

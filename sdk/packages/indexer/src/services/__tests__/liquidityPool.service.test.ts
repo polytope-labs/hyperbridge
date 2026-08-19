@@ -28,6 +28,7 @@ describe("resolvePoolLeg on BNB Chain", () => {
 			token0Symbol: "cNGN",
 			token1Symbol: "USDT",
 			outDecimals: 18,
+			inDecimals: 6,
 		})
 	})
 
@@ -38,6 +39,7 @@ describe("resolvePoolLeg on BNB Chain", () => {
 			token0Symbol: "cNGN",
 			token1Symbol: "USDT",
 			outDecimals: 6,
+			inDecimals: 18,
 		})
 	})
 
@@ -46,5 +48,36 @@ describe("resolvePoolLeg on BNB Chain", () => {
 	// every cNGN price on BSC off by 1e12. Refusing attribution is the safe failure.
 	it("refuses a cNGN leg whose standard amount was copied from its 18-decimal neighbours", () => {
 		expect(resolvePoolLeg(BSC, leg(CNGN_BSC, USDT_BSC, 10n ** 18n))).toBeNull()
+	})
+
+	// Raising the probe size is how the pallet buys quote precision: one whole cNGN priced into
+	// 18-decimal USDT is fine, but into a 6-decimal stable it affords ~3 digits. Attribution is
+	// size-agnostic — the rate is renormalized from `inDecimals` and the leg's own standard
+	// amount — so a bigger probe resolves exactly like a one-unit one.
+	it("accepts a 1000-token probe", () => {
+		expect(resolvePoolLeg(BSC, leg(CNGN_BSC, USDT_BSC, 1000n * 10n ** 6n))).toEqual({
+			poolId: "cNGN-USDT",
+			direction: "SELL",
+			token0Symbol: "cNGN",
+			token1Symbol: "USDT",
+			outDecimals: 18,
+			inDecimals: 6,
+		})
+	})
+
+	// Nothing requires the probe to be a whole number of tokens; the renormalization is exact
+	// arithmetic on the raw value, so an odd size is priced correctly rather than refused.
+	it("accepts a standard amount that is not a whole number of input tokens", () => {
+		expect(resolvePoolLeg(BSC, leg(CNGN_BSC, USDT_BSC, 10n ** 6n + 1n))).not.toBeNull()
+	})
+
+	it("refuses a zero standard amount", () => {
+		expect(resolvePoolLeg(BSC, leg(CNGN_BSC, USDT_BSC, 0n))).toBeNull()
+	})
+
+	// The other half of the tripwire: a probe far BELOW one unit is the same decimals bug seen
+	// from the other side (18-decimal amount read against a 6-decimal registry entry).
+	it("refuses a standard amount far below one input token", () => {
+		expect(resolvePoolLeg(BSC, leg(USDT_BSC, CNGN_BSC, 10n ** 6n))).toBeNull()
 	})
 })

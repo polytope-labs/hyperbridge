@@ -1,5 +1,8 @@
 #!/usr/bin/env -S node --enable-source-maps
 
+// First import, deliberately: silences @polkadot/* init noise, which fires
+// while the imports below are still evaluating.
+import "./quiet"
 import { Command } from "commander"
 import { readFileSync } from "fs"
 import { resolve, dirname } from "path"

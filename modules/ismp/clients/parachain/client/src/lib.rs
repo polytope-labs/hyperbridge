@@ -119,6 +119,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
 
+	/// Aura slot duration in milliseconds, keyed by para id. Only set for parachains that don't
+	/// run pallet-ismp, since those never deposit the timestamp digest the consensus client
+	/// normally reads.
+	#[pallet::storage]
+	pub type SlotDurations<T: Config> = StorageMap<_, Identity, u32, u64>;
+
 	/// Events emitted by this pallet
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -133,6 +139,20 @@ pub mod pallet {
 			/// The parachains in question
 			para_ids: Vec<u32>,
 		},
+		/// The aura slot duration for a parachain was set
+		SlotDurationSet {
+			/// The parachain in question
+			para_id: u32,
+			/// The slot duration in milliseconds
+			slot_duration: u64,
+		},
+	}
+
+	/// Errors emitted by this pallet
+	#[pallet::error]
+	pub enum Error<T> {
+		/// The provided slot duration is zero
+		InvalidSlotDuration,
 	}
 
 	#[pallet::call]
@@ -171,9 +191,28 @@ pub mod pallet {
 			T::RootOrigin::ensure_origin(origin)?;
 			for id in &para_ids {
 				Parachains::<T>::remove(id);
+				SlotDurations::<T>::remove(id);
 			}
 
 			Self::deposit_event(Event::ParachainsRemoved { para_ids });
+
+			Ok(())
+		}
+
+		/// Sets the aura slot duration for a parachain that doesn't run pallet-ismp, so the
+		/// consensus client can fall back to reading its block time from the aura slot.
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_slot_duration())]
+		pub fn set_slot_duration(
+			origin: OriginFor<T>,
+			para_id: u32,
+			slot_duration: u64,
+		) -> DispatchResult {
+			T::RootOrigin::ensure_origin(origin)?;
+			ensure!(slot_duration > 0, Error::<T>::InvalidSlotDuration);
+			SlotDurations::<T>::insert(para_id, slot_duration);
+
+			Self::deposit_event(Event::SlotDurationSet { para_id, slot_duration });
 
 			Ok(())
 		}

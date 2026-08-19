@@ -27,9 +27,9 @@ Strictly bin-scoped: `dist/index.js`/`dist/sqlite.js` contain none of it (verifi
 
 Two gotchas worth recording: `package.json`'s `"sideEffects": false` silently tree-shook the bare `import "./quiet"` out of the bundle — it is now an array listing `src/bin/quiet.ts` as the one side-effectful module — and vitest's own console interception makes the patched `console.warn` unobservable through stderr, which is why the test asserts through the exported `filteringWarn` factory instead.
 
-Not done here: the one genuine version skew (simplex pins `@polkadot/util ^13.5.6` while the sdk's `@polkadot/api: "latest"` brings 14.x) and the ineffective per-package `resolutions` fields pnpm warns about. Aligning those is a dependency change touching substrate signing paths — flagged as its own task.
+The genuine version skew is fixed at the source in the same change, at the maintainer's call: the sdk's `@polkadot/api: "latest"` (and its `types`/`util`/`util-crypto`/`keyring` "latest" pins) became concrete `^16.5.6`/`^14.0.3` ranges, simplex's direct `@polkadot/util{,-crypto} ^13.5.6` moved to `^14.0.3` to match what api 16.x requires, and both packages' `resolutions` blocks — which pnpm warned were ineffective — are deleted rather than moved (they were doing nothing; nothing changed by removing them). Verified structurally, not just by silence: the rebuilt binary's bundle contains zero `13.5.9` occurrences where it previously carried both versions, `pnpm why @polkadot/util` resolves a single 14.0.3 in both package trees, and substrate key derivation (`balance-provider.test.ts`) passes on util-crypto 14.
 
-Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `src/tests/cli/quiet.test.ts` (new).
+Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `sdk/packages/sdk/package.json`, `src/tests/cli/quiet.test.ts` (new).
 
 ## 2026-08-18 — Signer return contracts spelled out
 

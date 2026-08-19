@@ -4,6 +4,41 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-19 — Review round: shared bench state, Retry-After, and a warn on bench
+
+Chosen, from PR review findings (Wizdave97): (a) bench state is a static map keyed by endpoint URL, not per-instance — the scanner and the confirmation poller construct separate QuorumPublicClients over the same URLs, so instance-local benches halved the relief and evaporated on `setRpcUrls` rebuilds; `clearAllSuspensions()` exists for tests. (b) The bench duration honours the provider's `Retry-After` (clamped to [1s, 5min]) — a per-second limiter should not cost five minutes of degraded quorum. (c) Benching warns through the caller's LoggerContext, naming the endpoint, the duration, and the new effective bar — the bar silently dropping from 2-of-2 to 1-of-1 was otherwise invisible unless a QuorumError happened to be thrown. (d) The all-benched fallback names itself in QuorumError messages instead of reporting `skipped: 0` as if nothing were wrong.
+
+Also corrected from the same review: the rationale for the drop-the-bar reversal understated the scanner's failure mode — on a getLogs quorum failure the cursor does NOT advance, so the pre-drop behavior was stall-then-catch-up (lost timeliness), while the degraded path can advance the cursor on a 1-of-1 answer whose gaps are then permanent for every consumer. The trade stands as the maintainer made it, restated as latency-versus-silent-gap rather than liveness-versus-nothing. The confirmation-gate half of that trade was put to the maintainer explicitly (options: floor-of-2 voters for confirmations; exempting the gate at the full bar; or uniform degradation) and decided: degradation applies everywhere, the fill gate included. Accepted consequence, recorded so nobody rediscovers it as a bug: at n=2 with one endpoint benched, a single endpoint's receipt can vouch inclusion depth for the suspension window — fill liveness under provider throttling was judged worth more than the marginal reorg/fabricated-receipt protection, and the voters are still exclusively the operator's own endpoints.
+
+## 2026-08-19 — REVERSED: a benched endpoint is dropped from the bar, not just the traffic
+
+Chosen (maintainer decision, reversing the entry below): a rate-limited endpoint is excluded from the query set AND the quorum bar — each call's threshold is `quorumThreshold(endpoints actually queried)`. With every endpoint benched, all are queried again.
+
+What it replaces: the first design kept the threshold over the full set and queried benched endpoints whenever the quorum was impossible without them, preserving the trust model exactly at the cost of availability — at n ≤ 3 a sustained 429 meant every call failed for the whole window.
+
+Why the reversal is right: a throttled endpoint answers nothing either way, so keeping it in the denominator can only fail calls the remaining endpoints agree on — and a scanner that cannot form a quorum misses orders, which is a concrete revenue loss. The threat the fixed bar defended against (an attacker inducing 429s on public endpoints to lower the agreement bar) degrades 4-of-5 to 3-of-4 among endpoints the operator still chose — a marginal weakening against a speculative adversary, paid for with certain blindness under ordinary provider throttling. The voters are always exclusively the operator's own endpoints; the bar simply matches who was asked.
+
+`threshold` (the public field) still reports the full-set bar — the scanner logs it — and the per-call bar appears in every QuorumError message.
+
+## 2026-08-19 — Suspension has its own classifier, stricter than the diagnostic label
+
+Chosen: `noteFailure` benches on `isSuspendableRateLimit` (HTTP 429, throttle-specific codes -32016/-32097, or throttle text in message/details/shortMessage), while the loose `isRateLimited` keeps labelling diagnostics. `-32005` alone never benches, and the suspension-path text match reads no metaMessages and has no bare-`429` pattern.
+
+Alternative considered: one classifier for both, which is what the first cut shipped.
+
+Why: `isRateLimited`'s breadth was designed for a role where a false positive cost a misleading log tag — its own removed comment said it "does not change control flow". Promoting it unchanged into an availability gate weaponised that breadth: EIP-1474 defines `-32005` as generic "limit exceeded", Infura returns it for eth_getLogs queries over its 10k result cap — a deterministic property of the query — and the scanner's 1000-block catch-up ranges hit that cap on busy chains, so the first cut would have benched a healthy endpoint for 5 minutes and re-benched it on every retry, leaving a 4-endpoint quorum at zero fault tolerance for the duration. Same logic for the free-text breadth: the request URL must not be read, or a key containing "ratelimit" benches its endpoint on any failure. Getting that right took two passes — the first skipped `metaMessages` but still read `message`, and viem FOLDS metaMessages (URL included) into `message`; caught in PR review with an end-to-end probe. `message` is now consulted only when the error carries no `metaMessages`; real viem errors put provider text in `details`/`shortMessage`, which are always read, and the probe is a permanent test. The label stays loose because mislabelling costs nothing; the bench is strict because benching costs quorum slack.
+
+## 2026-08-19 — SUPERSEDED (see the reversal above): rate-limit suspension never shrinks the quorum, and yields when the quorum needs the benched endpoint
+
+Chosen: a rate-limited endpoint is suspended for 5 minutes, but (a) the threshold stays `quorumThreshold(full set)` — suspension changes who is asked, never what is required — and (b) when the unsuspended endpoints alone cannot reach that threshold, suspended endpoints are queried anyway.
+
+Alternatives considered: recomputing the threshold over the active set (a 5-endpoint operator would drop from 4-of-5 to 3-of-4 agreement — an attacker who can induce 429s on public endpoints, by hammering them independently, could lower the agreement bar without controlling any endpoint); hard suspension (honouring the bench even when it makes quorum impossible — for the common 2–3 endpoint sets, where the threshold is all of them, one 429 would turn into a guaranteed 5-minute total outage where today's behavior at least retries and fails per-call).
+
+Why this shape: the class's trust model is that the operator provisioned n-way BFT; no availability optimisation may weaken it. The two rules keep both properties exactly: agreement requirements identical to the pre-suspension client in every case, and traffic to a throttled provider reduced precisely when the quorum can afford it (n ≥ 4). The 5-minute window is a constant, not config — no operator knob until someone actually needs one.
+
+Also chosen: suspension is recorded in `settleUntilQuorum`'s rejection handler unconditionally, including stragglers settling after the call already decided early — a rate limit learned late still spares the endpoint on the next call.
+
+
 ## 2026-08-18 — The signer block lives on a separate `FillerConfigFile` type, not on `SimplexConfig`
 
 Chosen: `FillerTomlConfig` drops `simplex.signer`; a new `FillerConfigFile extends FillerTomlConfig` adds it back for the binary's file format. The CLI, setup API, TOML writer, wizard state and `UiServer`'s operator context are typed with the file shape; the library never is.

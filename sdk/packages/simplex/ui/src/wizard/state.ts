@@ -260,7 +260,10 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		return {
 			token0: draft.token0,
 			token1: draft.token1,
-			maxOrderSize: draft.maxOrderSize.trim(),
+			// Omitted entirely when blank: the cap is optional, and an empty string
+			// would fail config validation as a malformed decimal rather than read
+			// as "no cap".
+			...(draft.maxOrderSize.trim() ? { maxOrderSize: draft.maxOrderSize.trim() } : {}),
 			...(withBid ? { bidPriceCurve: toPricePoints(draft.bid) } : {}),
 			...(withAsk ? { askPriceCurve: toPricePoints(draft.ask) } : {}),
 		}

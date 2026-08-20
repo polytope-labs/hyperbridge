@@ -365,10 +365,11 @@ export function StepStrategies({ state, setState, defaults }: StepProps) {
 						{pair.enabled && (
 							<div style={{ marginLeft: "1.4rem" }}>
 								<label className="field" style={{ maxWidth: "16rem" }}>
-									<span>Max {pair.token0} per order (larger orders partially fill)</span>
+									<span>Max {pair.token0} per order (blank = uncapped)</span>
 									<input
 										type="text"
 										value={pair.maxOrderSize}
+										placeholder="uncapped"
 										onChange={(e) => patchPair(index, { maxOrderSize: e.target.value })}
 									/>
 								</label>
@@ -542,8 +543,13 @@ function MarketRow(props: {
 					}}
 				/>
 				<label className="field" style={{ margin: 0, maxWidth: "12rem" }}>
-					<span>Max {pair.token0 || "token0"} per order</span>
-					<input type="text" value={pair.maxOrderSize} onChange={(e) => onPatch({ maxOrderSize: e.target.value })} />
+					<span>Max {pair.token0 || "token0"} per order (blank = uncapped)</span>
+					<input
+						type="text"
+						value={pair.maxOrderSize}
+						placeholder="uncapped"
+						onChange={(e) => onPatch({ maxOrderSize: e.target.value })}
+					/>
 				</label>
 				<button type="button" onClick={onRemove}>
 					✕

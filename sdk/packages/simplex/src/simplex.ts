@@ -328,6 +328,17 @@ export class PairController {
 		await this.persist()
 	}
 
+	/**
+	 * Removes the per-order cap, leaving the pair uncapped — it then fills every
+	 * order at its full notional. Binds on the next order.
+	 */
+	async clearMaxOrderSize(index: number): Promise<void> {
+		const pair = this.livePair(index)
+		pair.maxOrderSize = undefined
+		this.pairs[index].maxOrderSize = undefined
+		await this.persist()
+	}
+
 	private livePair(index: number) {
 		const pair = this.runtime.tradingPairs?.[index]
 		if (!pair) throw new Error(`Unknown pair ${index}`)

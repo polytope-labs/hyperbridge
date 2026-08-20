@@ -317,19 +317,31 @@ function StrategyCurves(props: {
 		}
 	}
 
+	// An empty field means "no cap": the market fills every order at its full
+	// notional. Clearing is its own endpoint rather than a PUT of "", so the
+	// server never has to guess whether a blank body meant remove or mistake.
+	const capValue = maxOrderSize.trim()
+	const capCleared = capValue === ""
+	const capChanged = capValue !== (strategy.maxOrderSize ?? "")
+
 	const applyMaxOrderSize = async () => {
 		setMessage(undefined)
 		setError(undefined)
 		try {
-			const res = await api.put<{ persisted: boolean; restartNeeded: boolean }>(`/api/strategies/${strategy.index}`, {
-				maxOrderSize: maxOrderSize.trim(),
-			})
+			const res = capCleared
+				? await api.del<{ persisted: boolean; restartNeeded: boolean }>(
+						`/api/strategies/${strategy.index}/max-order-size`,
+					)
+				: await api.put<{ persisted: boolean; restartNeeded: boolean }>(`/api/strategies/${strategy.index}`, {
+						maxOrderSize: capValue,
+					})
+			const what = capCleared ? "Cap removed — market is uncapped" : "Cap applied"
 			setMessage(
 				res.restartNeeded
-					? "Saved to config — restart the filler to apply the new cap"
+					? `Saved to config — restart the filler to apply${capCleared ? " the removal" : " the new cap"}`
 					: res.persisted
-						? "Cap applied & saved to config"
-						: "Cap applied in memory — config file could not be written",
+						? `${what} & saved to config`
+						: `${what} in memory — config file could not be written`,
 			)
 			onApplied()
 		} catch (err) {
@@ -391,18 +403,20 @@ function StrategyCurves(props: {
 				<div className="row" style={{ alignItems: "flex-end" }}>
 					<label className="field" style={{ maxWidth: "11rem", margin: 0 }}>
 						<span>Max order size ({token0})</span>
-						<input type="text" value={maxOrderSize} onChange={(e) => setMaxOrderSize(e.target.value)} />
+						<input
+							type="text"
+							value={maxOrderSize}
+							placeholder="uncapped"
+							onChange={(e) => setMaxOrderSize(e.target.value)}
+						/>
 					</label>
-					<button
-						type="button"
-						disabled={!maxOrderSize.trim() || maxOrderSize.trim() === strategy.maxOrderSize}
-						onClick={applyMaxOrderSize}
-					>
-						Save cap
+					<button type="button" disabled={!capChanged} onClick={applyMaxOrderSize}>
+						{capCleared ? "Remove cap" : "Save cap"}
 					</button>
 					<span className="hint">
-						Per-order cap on the {token0} notional — orders needing more than the cap allows are skipped. A
-						new cap binds from the next order.
+						Per-order cap on the {token0} notional — orders needing more than the cap allows are skipped.
+						Leave it empty to remove the cap and fill every order at its full notional. Either change binds
+						from the next order.
 					</span>
 				</div>
 			)}

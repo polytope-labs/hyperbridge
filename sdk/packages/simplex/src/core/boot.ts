@@ -141,8 +141,9 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 	return {
 		token0: pair.token0,
 		token1: pair.token1,
-		// Reference-only pairs never fill, so the cap is never consulted.
-		maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
+		// Optional: absent means uncapped. Reference-only pairs never fill, so the
+		// cap is never consulted for them either way.
+		maxOrderSize: pair.maxOrderSize === undefined ? undefined : new Decimal(pair.maxOrderSize),
 		referenceOnly: pair.referenceOnly === true,
 		bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
 		askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
@@ -176,11 +177,12 @@ export function adminStrategyFor(
 		referenceOnly: pair.referenceOnly === true,
 	}
 	// A reference pair's cap is never consulted (it never fills), so leave it
-	// absent rather than surfacing the placeholder "0" as editable.
+	// absent rather than surfacing an editable field that does nothing. An
+	// uncapped pair reports no current value but can still be given one.
 	if (pair.referenceOnly !== true) {
-		adminStrategy.maxOrderSize = pair.maxOrderSize.toString()
+		adminStrategy.maxOrderSize = pair.maxOrderSize?.toString()
 		adminStrategy.setMaxOrderSize = (value) => {
-			const previous = pair.maxOrderSize.toString()
+			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
 			pair.maxOrderSize = new Decimal(value)
 			adminStrategy.maxOrderSize = value
 			logger.warn(

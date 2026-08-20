@@ -208,7 +208,7 @@ export class PairController {
 				index,
 				token0: pair.token0,
 				token1: pair.token1,
-				maxOrderSize: pair.referenceOnly ? undefined : tradingPair?.maxOrderSize.toString(),
+				maxOrderSize: pair.referenceOnly ? undefined : tradingPair?.maxOrderSize?.toString(),
 				bid,
 				ask,
 				sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),

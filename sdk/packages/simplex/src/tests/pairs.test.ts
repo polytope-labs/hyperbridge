@@ -345,10 +345,11 @@ describe("validatePairConfigs", () => {
 		).toThrow(/must be positive/)
 	})
 
-	it("requires a positive maxOrderSize", () => {
-		expect(() => validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any])).toThrow(
-			/maxOrderSize' is required/,
-		)
+	it("accepts an omitted maxOrderSize, and rejects a malformed one", () => {
+		// Omitted means uncapped — the pair fills every order at its full notional.
+		expect(() =>
+			validatePairConfigs([{ token0: "USDC", token1: "CNGN", askPriceCurve: CURVE } as any]),
+		).not.toThrow()
 		expect(() =>
 			validatePairConfigs([{ token0: "USDC", token1: "CNGN", maxOrderSize: "0", askPriceCurve: CURVE }]),
 		).toThrow(/positive/)

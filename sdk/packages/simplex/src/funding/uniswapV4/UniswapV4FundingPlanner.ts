@@ -25,6 +25,46 @@ import { encodeFunctionData } from "viem"
 const DEFAULT_SLIPPAGE_BPS = 50
 
 /**
+ * Denominator of the liquidity percentage handed to `removeCallParameters`.
+ *
+ * The SDK re-derives the liquidity to decrease as
+ * `liquidityPercentage.multiply(position.liquidity).quotient`, which truncates.
+ * A coarse denominator therefore removes measurably less than asked for — at
+ * 1e6, taking a 0.0158% slice of a position loses up to 0.63% of it.
+ */
+const LIQUIDITY_PERCENT_PRECISION = 10n ** 18n
+
+/**
+ * Resolves a desired liquidity decrease into the percentage the SDK is given and
+ * the liquidity it will actually encode, applying the SDK's own truncation.
+ *
+ * Callers must credit the fill from the returned `liquidity`, never from what
+ * they asked for: the two differ, always downwards, and a credit computed from
+ * the larger figure overstates the tokens the pool will pay out — which reverts
+ * the fill that was sized against it.
+ */
+export function liquidityRemoval(
+	totalLiquidity: bigint,
+	desiredLiquidity: bigint,
+): { percentage: Percent; liquidity: bigint } | null {
+	if (totalLiquidity <= 0n || desiredLiquidity <= 0n) return null
+
+	const capped = desiredLiquidity > totalLiquidity ? totalLiquidity : desiredLiquidity
+	const pct = (capped * LIQUIDITY_PERCENT_PRECISION) / totalLiquidity
+	const liquidity = (pct * totalLiquidity) / LIQUIDITY_PERCENT_PRECISION
+	// Both floors can collapse to nothing independently, so the guard belongs on
+	// the product the SDK actually decreases — a non-zero percentage can still
+	// derive a zero decrease and trip its ZERO_LIQUIDITY invariant. There is no
+	// fill to plan from a slice that thin either way.
+	if (liquidity === 0n) return null
+
+	return {
+		percentage: new Percent(pct.toString(), LIQUIDITY_PERCENT_PRECISION.toString()),
+		liquidity,
+	}
+}
+
+/**
  * Funding venue that sources output tokens by removing liquidity from
  * Uniswap V4 concentrated-liquidity positions (ERC-721 NFTs).
  *
@@ -331,8 +371,15 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 				const cappedLiq = neededLiq > availLiq ? availLiq : neededLiq
 
+				// Resolve the percentage the calldata will carry *before* pricing the
+				// withdrawal, and price it from the liquidity that percentage actually
+				// decreases. Pricing `cappedLiq` instead over-credits by the SDK's
+				// truncation, and the fill sized against that credit reverts.
+				const removal = liquidityRemoval(pos.liquidity, cappedLiq)
+				if (!removal) continue
+
 				// Build SDK Position to compute expected amounts
-				const sdkPosition = state.buildSdkPosition(pos.tokenId, cappedLiq)
+				const sdkPosition = state.buildSdkPosition(pos.tokenId, removal.liquidity)
 				if (!sdkPosition) continue
 
 				// The SDK Position computes amounts for the given liquidity
@@ -348,6 +395,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 						neededLiq: neededLiq.toString(),
 						availLiq: availLiq.toString(),
 						cappedLiq: cappedLiq.toString(),
+						removedLiq: removal.liquidity.toString(),
 						amount0: amount0.toString(),
 						amount1: amount1.toString(),
 						credit: credit.toString(),
@@ -361,18 +409,18 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 				// Use V4PositionManager.removeCallParameters to generate the calldata
 				// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
-				const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq, deadlineTimestamp)
+				const call = this.buildRemoveLiquidityCall(state, pos, removal.percentage, deadlineTimestamp)
 				if (!call) continue
 
 				allCalls.push(call)
 				totalCredited += credit
 				remaining -= credit
-				state.consume(pos.tokenId, cappedLiq)
+				state.consume(pos.tokenId, removal.liquidity)
 
 				this.logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
-						liquidity: cappedLiq.toString(),
+						liquidity: removal.liquidity.toString(),
 						tokenOut: tokenNeed,
 						credited: credit.toString(),
 					},
@@ -461,33 +509,21 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * The SDK internally encodes:
 	 *   1. DECREASE_LIQUIDITY action (position tokenId, liquidity delta, min amounts)
 	 *   2. TAKE_PAIR action (currency0, currency1, recipient)
+	 *
+	 * The liquidity delta is absolute in the encoded calldata, so it is fixed at
+	 * plan time and does not drift with the position's on-chain liquidity.
 	 */
 	private buildRemoveLiquidityCall(
 		state: UniswapV4LiquidityState,
 		pos: HydratedV4Position,
-		liquidity: bigint,
+		liquidityPercentage: Percent,
 		deadlineTimestamp?: bigint,
 	): ERC7821Call | null {
-		// Build an SDK Position representing what we want to remove
-		const sdkPosition = state.buildSdkPosition(pos.tokenId, liquidity)
-		if (!sdkPosition) return null
-
-		// Compute the percentage of total position liquidity being removed
-		// The SDK expects a Percent representing what fraction of the position to exit
-		const totalLiq = pos.liquidity
-		if (totalLiq === 0n) return null
-
-		// Calculate percentage with high precision
-		// liquidityPercentage = liquidity / totalLiquidity
-		const pctNumerator = liquidity * 1_000_000n
-		const pctDenominator = totalLiq
-		const pctValue = pctNumerator / pctDenominator
-
-		const liquidityPercentage = new Percent(pctValue.toString(), "1000000")
-
-		// Build a full-liquidity Position for the SDK (it computes the removal
-		// proportionally based on liquidityPercentage)
-		const fullPosition = state.buildSdkPosition(pos.tokenId, totalLiq)
+		// The SDK takes the whole position plus the fraction to exit, and derives
+		// the liquidity to decrease itself. `liquidityPercentage` must be the one
+		// `liquidityRemoval` produced, so the encoded decrease matches the amounts
+		// the caller credited.
+		const fullPosition = state.buildSdkPosition(pos.tokenId, pos.liquidity)
 		if (!fullPosition) return null
 
 		const deadline = deadlineTimestamp ? Number(deadlineTimestamp) : Math.floor(Date.now() / 1000) + 30 * 60

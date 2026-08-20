@@ -4,6 +4,46 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-19 — The V4 planner credits the liquidity the calldata encodes, rather than rounding the percentage up
+
+Chosen: `liquidityRemoval(totalLiquidity, desiredLiquidity)` returns the `Percent` and the liquidity the SDK will derive from it, applying the SDK's own truncation, and the planner prices the withdrawal from that liquidity. The denominator went from 1e6 to 1e18 at the same time.
+
+Alternatives considered: (a) rounding the percentage up so the removal covers what was asked; (b) raising the denominator alone and leaving the credit computed from the requested liquidity.
+
+Why (a) loses: rounding up removes more liquidity than the planner reserved against `remainingLiquidity`, so concurrent plans over one position would over-commit it, and at 100% it cannot round up at all — the case that has to stay exact. Truncating and telling the truth about it is strictly safer than removing more than intended. (b) shrinks the error without removing it, and the error is unbounded in the wrong direction: the credit stays an estimate the chain is not obliged to honour, which is exactly what makes it revert. Fixing the arithmetic and fixing the honesty are separate; only the second one closes the failure mode.
+
+What this does NOT close: `credited` is still the amount the position yields at the *plan-time* `sqrtPriceX96`. Normally the planner's slippage buffer absorbs drift — it targets `remaining × (1 + slippageBps)` and `finalOutputAmount` is capped at `targetOutput`, so the overshoot stays in the wallet as headroom. A drained position (`cappedLiq === availLiq`) has no overshoot and therefore no headroom, which is the exact shape of the fill that failed. Anyone able to move the pool price between bid and execution, by less than the min-amounts tolerance so the withdrawal still succeeds, can make it yield less than was credited and revert the fill. It is griefing rather than theft — `amount0Min`/`amount1Min` prevent a genuinely bad payout, so the cost is a wasted revert that still bills the paymaster. The fix would be to credit `burnAmountsWithSlippage` (the minimum the calldata will accept) instead of the expected amounts, at the price of a systematic under-fill of one slippage tolerance on every drained withdrawal; that trade-off was left to the operator rather than taken here.
+
+The zero guard belongs on the product, not the percentage. Both floors collapse independently: for a 3,441,646,880,004-unit position a single unit of liquidity gives a percentage of 290,558/1e18, which is non-zero, and a decrease of zero — which is what the SDK's ZERO_LIQUIDITY invariant throws on. Guarding the percentage looks equivalent and is not.
+
+Both are applied because they solve different halves. The 1e18 denominator keeps the withdrawal from silently under-delivering against the target (the caller would otherwise plan a second position it did not need); the truthful credit keeps the fill from being sized against tokens the pool will not pay.
+
+## 2026-08-19 — The dispatch fee is a gate after the estimate, not a reserve in the leg loop
+
+Chosen: `evaluateOrder` checks the fee token's post-fill residue against `dispatchFee + paymasterReserve` immediately after `estimateGasFillPost`, and skips the order when it falls short.
+
+Alternatives considered: (a) reserving the dispatch fee in the leg loop alongside the paymaster reserve; (b) moving `estimateGasFillPost` above the leg loop so the figure is available there; (c) reserving a flat configured amount of the fee token.
+
+Why not (a): the figure does not exist yet. `estimateGasFillPost` bumps `callGasLimit` by the funding prepends the leg loop produces and caches the result, so it cannot be priced before the loop that depends on it. (b) is the same problem stated as an ordering change — calling it early caches an estimate with no funding gas bump, and the later call returns that wrong cached value. (c) guesses at a number the estimator already knows exactly.
+
+A gate rather than a resize because a cross-chain order cannot be partially filled (`partialEligibleCheap` requires `sourceChain === destChain`): the fill is all-or-nothing, so an unaffordable one is not ours to take. Same-chain orders dispatch nothing and are unaffected — `dispatchFee` is 0 and `buildApprovalAndFillCalldata` likewise only adds the fee token requirement when the chains differ.
+
+The residue is read through `getAndCacheBalance`, which post-loop returns each output token's balance net of what the fill draws from it, and reads fresh for a fee token no leg paid out. The paymaster reserve is added to the requirement so the dispatch cannot be paid out of the gas headroom.
+
+## 2026-08-19 — Both paymaster tokens carry the wallet reserve, rather than predicting which one is charged
+
+Chosen: `paymasterReserveForToken` (exported from `src/services/paymaster`, called by `FXFiller`'s leg loop) reserves on the leg's output token whenever it is the chain's USDC or USDT and a paymaster is configured — without working out which of the two this UserOp will actually be charged in.
+
+Alternatives considered: (a) replicating the selection ladder (Circle USDC, then Simplex USDC, then Simplex USDT, each gated on a >= 1 token balance) so only the winning token is reserved; (b) resolving the paymaster token once per order before the leg loop and threading it down; (c) returning a non-zero reserve from `UniswapV4FundingPlanner.walletReserveForToken`.
+
+Why (a) loses: it is circular. `buildPaymasterAndData` picks the token at submit time from live balances, and the sizing being computed here is one of the inputs to that pick — a fill that draws USDC under one token makes `selectToken` fall through to USDT, so the prediction invalidates itself. It also duplicates the ladder outside the paymaster module, where a third token would silently not be covered. (b) is sound and would avoid the double-reserve, but it buys little: most chains configure one stablecoin, so the over-reservation is usually nothing and at worst a few dollars of held-back float, against a failure mode that reverts a five-figure fill. (c) was the original instinct and is the wrong layer twice over — `walletReserveForToken` is called for every output token, including exotics the paymaster never charges in, and the venue cannot resolve decimals for a token outside its own pools. Decisively, the UniswapV4 venue is only constructed when `vault.uniswapV4.positions` is non-empty, and the reserve loop only iterates `fundingVenues`: a filler with neither a vault nor V4 positions never runs that loop at all and has the identical bug, so a fix living in the venue would cover some configurations and silently miss others.
+
+Where it lives is a separate question from where it is called. The call has to be unconditional in the leg loop, but the knowledge — which tokens are eligible, at what decimals — belongs beside `selectToken` in the paymaster module that already owns token selection. So `FXFiller` holds one call and no USDC/USDT/decimals detail, and adding a third paymaster token is a change in one file next to the selection ladder it has to stay consistent with.
+
+Sizing: `PAYMASTER_RESERVE_TOKENS = 2n`, scaled per token by `getUsdcDecimals` / `getUsdtDecimals`. The observed prefund was under three cents and most of it came back in postOp, so this is deliberately headroom — for gas spikes, and for other UserOps in flight against the same balance between evaluation and execution. Note the reserve is a no-op for any fill the wallet comfortably covers; it only binds when the fill is balance-limited, which is exactly the partial-fill case that broke.
+
+Not covered: `dispatchWithFeeToken` pulls `relayerFee` in the fee token from this same wallet. It was `0` on the order that failed (same-chain, no dispatch), but on a cross-chain fill it is dollars, not cents, and the reserve does not currently account for it.
+
 ## 2026-08-19 — Review round: shared bench state, Retry-After, and a warn on bench
 
 Chosen, from PR review findings (Wizdave97): (a) bench state is a static map keyed by endpoint URL, not per-instance — the scanner and the confirmation poller construct separate QuorumPublicClients over the same URLs, so instance-local benches halved the relief and evaporated on `setRpcUrls` rebuilds; `clearAllSuspensions()` exists for tests. (b) The bench duration honours the provider's `Retry-After` (clamped to [1s, 5min]) — a per-second limiter should not cost five minutes of degraded quorum. (c) Benching warns through the caller's LoggerContext, naming the endpoint, the duration, and the new effective bar — the bar silently dropping from 2-of-2 to 1-of-1 was otherwise invisible unless a QuorumError happened to be thrown. (d) The all-benched fallback names itself in QuorumError messages instead of reporting `skipped: 0` as if nothing were wrong.

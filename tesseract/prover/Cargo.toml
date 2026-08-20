@@ -19,8 +19,15 @@ rustls = { version = "0.23.23", features = ["ring"] }
 primitive-types = { workspace = true }
 subxt-utils = { workspace = true }
 
-tesseract-beefy = { workspace = true }
+tesseract-beefy = { workspace = true, default-features = false }
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
 
-zk-beefy = { path = "../consensus/beefy/zk" }
+zk-beefy = { path = "../consensus/beefy/zk", default-features = false }
+
+[features]
+default = ["sp1-local"]
+sp1-local = ["tesseract-beefy/sp1-local", "zk-beefy/local"]
+sp1-cluster = ["tesseract-beefy/sp1-cluster", "zk-beefy/cluster"]
+# Compile the apk circuit into this binary rather than talking to a prover process.
+local = ["tesseract-beefy/local"]

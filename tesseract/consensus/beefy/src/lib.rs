@@ -12,6 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Both in process provers carry a go runtime, sp1's through gnark's ffi and ours through the apk
+// circuit. Two of those in one process corrupt each other's allocator and the binary dies on the
+// first call into either, so the combination is refused here rather than at runtime. Prove sp1 on
+// a cluster to compile the apk circuit in, or leave the apk circuit in its own process.
+#[cfg(all(feature = "local", feature = "sp1-local"))]
+compile_error!(
+	"`local` compiles the apk circuit into this binary, which cannot be done alongside `sp1-local`. \
+	 Build with `--no-default-features --features sp1-cluster,local`, or drop `local` and let the \
+	 apk prover run as its own process."
+);
+
 /// Log/tracing target for this crate.
 pub const LOG_TARGET: &str = "consensus-beefy";
 
@@ -57,7 +68,7 @@ impl BeefyConfig {
 	/// [`BeefyProverConfig::backend`](prover::BeefyProverConfig::backend).
 	pub async fn into_client<R, P>(
 		self,
-	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>, anyhow::Error>
+	) -> Result<BeefyHost<R, P, zk_beefy::DefaultProver, dyn backend::ProofBackend>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config<ExtrinsicParams = SubstrateExtrinsicParams<P>> + Send + Sync + Clone,
@@ -74,7 +85,7 @@ impl BeefyConfig {
 			.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?
 			.into();
 		let prover =
-			Prover::<R, P, zk_beefy::LocalProver>::new(self.prover.clone(), account).await?;
+			Prover::<R, P, zk_beefy::DefaultProver>::new(self.prover.clone(), account).await?;
 
 		let backend: Arc<dyn backend::ProofBackend> = match self.prover_config.backend.clone() {
 			backend::ProofBackendConfig::Redis { config } => {
@@ -98,7 +109,7 @@ impl BeefyConfig {
 			},
 		};
 
-		BeefyHost::<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>::new(
+		BeefyHost::<R, P, zk_beefy::DefaultProver, dyn backend::ProofBackend>::new(
 			self.host, prover, client, backend,
 		)
 		.await

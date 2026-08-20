@@ -207,7 +207,7 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 	};
 	// ECDSA proof submitted to the EVM handler, which does not enforce the SP1 committed-
 	// nonce binding, so a zero account is fine here.
-	let prover: Prover<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver> =
+	let prover: Prover<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::DefaultProver> =
 		Prover::new(prover_config, Default::default()).await?;
 
 	let substrate = SubstrateClient::<KeccakSubstrateChain>::new(
@@ -241,7 +241,7 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 		backend: Default::default(),
 	};
 
-	let beefy = BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver, dyn ProofBackend>::new(
+	let beefy = BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::DefaultProver, dyn ProofBackend>::new(
 		beefy_config,
 		substrate,
 		prover,

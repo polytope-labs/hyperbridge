@@ -357,7 +357,7 @@ tesseract-config = { path = "tesseract/messaging/config" }
 arb-host = { path = "tesseract/consensus/arb-host" }
 op-host = { path = "tesseract/consensus/op-host" }
 evm-host = { path = "tesseract/consensus/evm-host" }
-tesseract-beefy = { path = "tesseract/consensus/beefy" }
+tesseract-beefy = { path = "tesseract/consensus/beefy", default-features = false }
 tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
@@ -367,7 +367,7 @@ tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
 tesseract-parachain = { path = "tesseract/consensus/parachain" }
-tesseract-consensus-config = { path = "tesseract/consensus/config" }
+tesseract-consensus-config = { path = "tesseract/consensus/config", default-features = false }
 tesseract = { path = "tesseract/relayer" }
 
 [workspace.dependencies.rs_merkle]

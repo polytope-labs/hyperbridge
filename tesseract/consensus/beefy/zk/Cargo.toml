@@ -6,6 +6,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 
 [dependencies]
+serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
 rs_merkle = { workspace = true, default-features = true }
@@ -27,6 +28,7 @@ hex-literal = "0.4.1"
 [dependencies.sp1-beefy]
 git = "https://github.com/polytope-labs/sp1-beefy"
 tag = "v1.1.0"
+default-features = false
 
 [dependencies.sp1-beefy-primitives]
 git = "https://github.com/polytope-labs/sp1-beefy"

@@ -200,12 +200,12 @@ async fn a_messaging_proof_is_accepted_as_new_work() -> Result<(), anyhow::Error
 		apk_prover_one_shot: false,
 		apk_srs_dir: None,
 	};
-	let prover: Prover<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver> =
+	let prover: Prover<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::DefaultProver> =
 		Prover::new(prover_config, Default::default()).await?;
 	let beefy = BeefyProver::<
 		Blake2SubstrateChain,
 		KeccakSubstrateChain,
-		zk_beefy::LocalProver,
+		zk_beefy::DefaultProver,
 		dyn ProofBackend,
 	>::new(
 		BeefyProverConfig {
@@ -244,8 +244,8 @@ async fn a_messaging_proof_is_accepted_as_new_work() -> Result<(), anyhow::Error
 		"the proof rotated the authority set, so it was not accepted for its messages",
 	);
 	assert_eq!(
-		after.inner.next_authorities.keyset_commitment,
-		before.inner.next_authorities.keyset_commitment,
+		after.inner.next_authorities.bls_poseidon_hash,
+		before.inner.next_authorities.bls_poseidon_hash,
 		"the proof taught a commitment, so that is what it could have been accepted for",
 	);
 	assert!(

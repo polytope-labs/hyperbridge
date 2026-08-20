@@ -99,7 +99,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		BeefyProver::<
 			Blake2SubstrateChain,
 			KeccakSubstrateChain,
-			zk_beefy::LocalProver,
+			zk_beefy::DefaultProver,
 			dyn tesseract_beefy::backend::ProofBackend,
 		>::new(beefy_config, substrate, prover, backend)
 		.await?

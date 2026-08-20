@@ -112,7 +112,7 @@ pub enum AnyConfig {
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
-	Beefy(BeefyHost<R, P, zk_beefy::LocalProver, tesseract_beefy::backend::RedisProofBackend>),
+	Beefy(BeefyHost<R, P, zk_beefy::DefaultProver, tesseract_beefy::backend::RedisProofBackend>),
 	Grandpa(GrandpaHost<R, P>),
 }
 
@@ -245,7 +245,7 @@ impl HyperbridgeHostConfig {
 					.map_err(|_| anyhow!("beefy submission signer account must be 32 bytes"))?
 					.into();
 				let prover_instance =
-					Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone(), account).await?;
+					Prover::<R, P, zk_beefy::DefaultProver>::new(prover.clone(), account).await?;
 
 				let backend =
 					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis).await?);

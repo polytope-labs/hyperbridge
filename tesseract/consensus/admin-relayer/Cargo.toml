@@ -39,7 +39,7 @@ ismp-abi = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true }
 
 # tesseract
-tesseract-beefy = { workspace = true }
+tesseract-beefy = { workspace = true, features = ["sp1-local"] }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
 

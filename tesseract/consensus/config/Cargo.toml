@@ -22,7 +22,7 @@ arb-host = { workspace = true }
 evm-host = { path = "../evm-host" }
 op-host = { workspace = true }
 pharos-primitives = { workspace = true, default-features = true }
-tesseract-beefy = { path = "../beefy" }
+tesseract-beefy = { path = "../beefy", default-features = false }
 tesseract-bsc = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-grandpa = { workspace = true }
@@ -34,8 +34,14 @@ tesseract-substrate = { workspace = true }
 tesseract-substrate-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-tendermint = { workspace = true }
-zk-beefy = { path = "../beefy/zk" }
+zk-beefy = { path = "../beefy/zk", default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime"]
+
+[features]
+default = ["sp1-local"]
+sp1-local = ["tesseract-beefy/sp1-local", "zk-beefy/local"]
+sp1-cluster = ["tesseract-beefy/sp1-cluster", "zk-beefy/cluster"]
+local = ["tesseract-beefy/local"]

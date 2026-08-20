@@ -112,7 +112,7 @@ where
 			current_set_id: state.current_authorities.id,
 			next_set_id: state.next_authorities.id,
 		};
-		let summarise_apk = |state: beefy_verifier_primitives::ApkConsensusState| StateSummary {
+		let summarise_apk = |state: beefy_verifier_primitives::ConsensusState| StateSummary {
 			latest_beefy_height: state.latest_beefy_height,
 			current_set_id: state.current_authorities.id,
 			next_set_id: state.next_authorities.id,
@@ -126,7 +126,7 @@ where
 						encoded,
 					)
 					.context("Could not abi-decode apk consensus state")?;
-				let state: beefy_verifier_primitives::ApkConsensusState =
+				let state: beefy_verifier_primitives::ConsensusState =
 					state.try_into().map_err(|e| anyhow!("{e}"))?;
 				Ok(summarise_apk(state))
 			},
@@ -136,7 +136,7 @@ where
 				Ok(summarise(state.into()))
 			},
 			(false, true) => {
-				let state = beefy_verifier_primitives::ApkConsensusState::decode(&mut &encoded[..])
+				let state = beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
 					.context("Could not decode apk consensus state")?;
 				Ok(summarise_apk(state))
 			},
@@ -434,15 +434,11 @@ where
 				let commitment = apk.current_apk_commitment(at).await?;
 
 				let inner = prover_state.inner.clone();
-				let authority_set = |set: sp_consensus_beefy::mmr::BeefyAuthoritySet<H256>,
-				                     apk_commitment: H256| {
-					beefy_verifier_primitives::ApkAuthoritySet {
-						id: set.id,
-						len: set.len,
-						apk_commitment,
-					}
+				let authority_set = |set: beefy_verifier_primitives::AuthoritySet,
+				                     bls_poseidon_hash: H256| {
+					beefy_verifier_primitives::AuthoritySet { bls_poseidon_hash, ..set }
 				};
-				let state = beefy_verifier_primitives::ApkConsensusState {
+				let state = beefy_verifier_primitives::ConsensusState {
 					latest_beefy_height: inner.latest_beefy_height,
 					beefy_activation_block: inner.beefy_activation_block,
 					mmr_root_hash: inner.mmr_root_hash,

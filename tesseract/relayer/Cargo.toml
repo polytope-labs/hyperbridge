@@ -50,3 +50,9 @@ features = ["sc-service"]
 [dev-dependencies]
 tesseract-primitives = { workspace = true, features = ["testing"] }
 tempfile = "3.10"
+
+[features]
+default = ["sp1-local"]
+sp1-local = ["tesseract-beefy/sp1-local", "tesseract-consensus-config/sp1-local"]
+sp1-cluster = ["tesseract-beefy/sp1-cluster", "tesseract-consensus-config/sp1-cluster"]
+local = ["tesseract-beefy/local", "tesseract-consensus-config/local"]

@@ -27,6 +27,45 @@ pub use sp1_beefy::local::LocalProver;
 #[cfg(test)]
 mod tests;
 
+/// Which sp1 backend this build proves with.
+///
+/// Proving locally links gnark's go runtime into the binary. A process can only hold one of
+/// those, and the apk circuit brings its own, so the two in process provers cannot be built
+/// together: see the guard in `tesseract-beefy`. Proving on a cluster leaves the go runtime out
+/// altogether, which is what makes room for the apk one.
+#[cfg(feature = "local")]
+pub type DefaultProver = LocalProver;
+
+/// See [`DefaultProver`].
+#[cfg(all(feature = "cluster", not(feature = "local")))]
+pub type DefaultProver = ClusterProver;
+
+/// Where a cluster build sends its proofs. Unused when proving locally.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ClusterConfig {
+	/// The cluster's grpc api service.
+	pub rpc: String,
+	/// Redis, which the cluster reads its artifacts from.
+	pub redis: String,
+}
+
+/// Builds whichever backend this build was compiled for.
+///
+/// Keeping the two constructors behind one call means the callers stay free of feature flags,
+/// since only the cluster backend needs to be told where to reach anything.
+#[cfg(feature = "local")]
+pub async fn default_prover(_cluster: Option<ClusterConfig>) -> Result<DefaultProver, anyhow::Error> {
+	LocalProver::new().await
+}
+
+/// See [`default_prover`].
+#[cfg(all(feature = "cluster", not(feature = "local")))]
+pub async fn default_prover(cluster: Option<ClusterConfig>) -> Result<DefaultProver, anyhow::Error> {
+	let cluster = cluster
+		.ok_or_else(|| anyhow!("`sp1_cluster` is required when sp1 proves on a cluster"))?;
+	ClusterProver::new(cluster.rpc, cluster.redis).await
+}
+
 /// Consensus prover for zk BEEFY.
 pub struct Prover<R: subxt::Config, P: subxt::Config, B: BeefyProver> {
 	pub inner: beefy_prover::Prover<R, P>,
@@ -108,18 +147,18 @@ where
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
 
 			// Sanity check: the merkle root of the actual on-chain authorities must equal the
-			// `keyset_commitment` of the set selected by the commitment's `validator_set_id`. The
-			// guest verifies authority membership against `authority.keyset_commitment`, so if this
+			// ecdsa merkle root of the set selected by the commitment's `validator_set_id`. The
+			// guest verifies authority membership against `authority.ecdsa_merkle_root`, so if this
 			// invariant is broken the proof would fail on-chain. A mismatch here means either the
 			// validator-set selection is wrong or `hash_authority_addresses` has diverged from
 			// `pallet-beefy-mmr`'s eth-address commitment (see `FAILED_BEEFY_TO_ETH_ADDRESS`).
 			let computed_root = tree.root().ok_or_else(|| anyhow!("empty authority set"))?;
-			if computed_root != authority.keyset_commitment.0 {
+			if computed_root != authority.ecdsa_merkle_root.0 {
 				Err(anyhow!(
-					"authority root mismatch for validator set {}: computed 0x{} != keyset_commitment 0x{}",
+					"authority root mismatch for validator set {}: computed 0x{} != ecdsa merkle root 0x{}",
 					authority.id,
 					hex::encode(computed_root),
-					hex::encode(authority.keyset_commitment.0),
+					hex::encode(authority.ecdsa_merkle_root.0),
 				))?
 			}
 
@@ -153,7 +192,7 @@ where
 			authorities: AuthoritiesProof {
 				len: authority.len,
 				proof: authorities_witness,
-				root: authority.keyset_commitment.0.into(),
+				root: authority.ecdsa_merkle_root.0.into(),
 				votes: message
 					.mmr
 					.signed_commitment

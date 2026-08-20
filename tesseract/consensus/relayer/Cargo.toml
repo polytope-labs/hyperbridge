@@ -33,9 +33,9 @@ subxt = { workspace = true, default-features = false }
 sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
-tesseract-beefy = { path = "../beefy"  }
+tesseract-beefy = { path = "../beefy", default-features = false }
 tesseract-consensus-config = { workspace = true }
-zk-beefy = { path = "../beefy/zk" }
+zk-beefy = { path = "../beefy/zk", default-features = false }
 tesseract-bsc = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
@@ -56,3 +56,9 @@ pharos-primitives = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime", "sc-service"]
+
+[features]
+default = ["sp1-local"]
+sp1-local = ["tesseract-beefy/sp1-local", "zk-beefy/local"]
+sp1-cluster = ["tesseract-beefy/sp1-cluster", "zk-beefy/cluster"]
+local = ["tesseract-beefy/local"]

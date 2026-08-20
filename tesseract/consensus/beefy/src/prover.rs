@@ -142,6 +142,10 @@ pub struct ProverConfig {
 	/// falls back to the prover's own default.
 	#[serde(default)]
 	pub apk_srs_dir: Option<std::path::PathBuf>,
+	/// Where sp1 proving happens when this build proves on a cluster. Ignored by a build that
+	/// proves sp1 locally, and required by one that does not.
+	#[serde(default)]
+	pub sp1_cluster: Option<zk_beefy::ClusterConfig>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
@@ -492,7 +496,7 @@ where
 						// of the session instead, which does name the incoming set, and the
 						// rotation goes through on the next tick.
 						if matches!(self.prover, Prover::Apk(_)) &&
-							consensus_state.inner.next_authorities.keyset_commitment.is_zero()
+							consensus_state.inner.next_authorities.bls_poseidon_hash.is_zero()
 						{
 							let epoch_change_number: u64 = epoch_change_header.number().into();
 							let from = u64::from(consensus_state.inner.latest_beefy_height) + 1;
@@ -587,12 +591,20 @@ where
 							commitment.commitment.block_number;
 						consensus_state.inner.current_authorities =
 							consensus_state.inner.next_authorities.clone();
+						let incoming = beefy_prover::relay::beefy_mmr_leaf_next_authorities(
+							&self.prover.inner().relay_rpc,
+							Some(epoch_change_block_hash),
+						)
+						.await?;
+						// The relay names the ecdsa root; the poseidon hash reaches a client
+						// through a header digest, so it starts empty here.
 						consensus_state.inner.next_authorities =
-							beefy_prover::relay::beefy_mmr_leaf_next_authorities(
-								&self.prover.inner().relay_rpc,
-								Some(epoch_change_block_hash),
-							)
-							.await?;
+							beefy_verifier_primitives::AuthoritySet {
+								id: incoming.id,
+								len: incoming.len,
+								bls_poseidon_hash: H256::zero(),
+								ecdsa_merkle_root: incoming.keyset_commitment,
+							};
 						tracing::info!(
 							target: crate::LOG_TARGET, "Rotated authority set. Current {}, Next: {}",
 							consensus_state.inner.current_authorities.id,
@@ -741,7 +753,7 @@ where
 }
 
 // Implementation for LocalProver
-impl<R, P> Prover<R, P, zk_beefy::LocalProver>
+impl<R, P> Prover<R, P, zk_beefy::DefaultProver>
 where
 	R: subxt::Config,
 	P: subxt::Config,
@@ -790,7 +802,7 @@ where
 
 		let prover = match config.proof_variant {
 			ProofVariant::Sp1 => {
-				let sp1_prover = zk_beefy::LocalProver::new().await?;
+				let sp1_prover = zk_beefy::default_prover(config.sp1_cluster.clone()).await?;
 				Prover::Sp1(zk_beefy::Prover::new(prover, sp1_prover, account))
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
@@ -799,6 +811,22 @@ where
 					.apk_prover_binary
 					.clone()
 					.ok_or_else(|| anyhow!("`apk_prover_binary` is required by the apk variant"))?;
+				#[cfg(feature = "local")]
+				let apk_prover: Arc<dyn apk_beefy::ApkProver> = {
+					let _ = &binary;
+					// The circuit is compiled into this process, so there is no binary to talk to
+					// and the setup happens here rather than in a child. Only a build that proves
+					// sp1 on a cluster gets this far, since the go runtime the circuit brings
+					// cannot share a process with the one sp1's gnark ffi links: see the guard in
+					// this crate's lib.rs. Setup takes a couple of minutes and saturates every
+					// core, so it stays off the runtime's workers.
+					let srs_dir = config.apk_srs_dir.clone();
+					let local = std::thread::spawn(move || apk_beefy::LocalProver::new(srs_dir))
+						.join()
+						.map_err(|_| anyhow!("apk circuit setup panicked"))??;
+					Arc::new(local)
+				};
+				#[cfg(not(feature = "local"))]
 				let apk_prover: Arc<dyn apk_beefy::ApkProver> = if config.apk_prover_one_shot {
 					let work_dir = config
 						.apk_prover_dir
@@ -872,8 +900,20 @@ where
 			mmr_root_hash,
 			beefy_activation_block: inner.beefy_activation_block,
 			latest_beefy_height: signed_commitment.commitment.block_number,
-			current_authorities: current_authority_set.clone(),
-			next_authorities: next_authority_set.clone(),
+			// The relay names only the ecdsa root. A client picks the poseidon hash up from a
+			// hyperbridge header digest, so it starts empty here.
+			current_authorities: beefy_verifier_primitives::AuthoritySet {
+				id: current_authority_set.id,
+				len: current_authority_set.len,
+				bls_poseidon_hash: H256::zero(),
+				ecdsa_merkle_root: current_authority_set.keyset_commitment,
+			},
+			next_authorities: beefy_verifier_primitives::AuthoritySet {
+				id: next_authority_set.id,
+				len: next_authority_set.len,
+				bls_poseidon_hash: H256::zero(),
+				ecdsa_merkle_root: next_authority_set.keyset_commitment,
+			},
 		};
 
 		Ok(ProverConsensusState {

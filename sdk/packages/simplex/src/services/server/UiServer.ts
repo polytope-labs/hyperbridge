@@ -57,7 +57,10 @@ export interface AdminStrategy {
 	token1: string
 	bid?: FillerPricePolicy
 	ask?: FillerPricePolicy
-	/** Per-order cap in token0 units, as configured. Kept in step with `setMaxOrderSize`. */
+	/**
+	 * Per-order cap in token0 units, as configured; absent when the market is
+	 * uncapped. Kept in step with `setMaxOrderSize` and `clearMaxOrderSize`.
+	 */
 	maxOrderSize?: string
 	/**
 	 * Applies a new per-order cap to the live TradingPair — the engine reads it
@@ -65,6 +68,12 @@ export interface AdminStrategy {
 	 * ran at boot (the edit is then persisted for the next start).
 	 */
 	setMaxOrderSize?: (value: string) => void
+	/**
+	 * Removes the per-order cap from the live TradingPair, leaving the market
+	 * uncapped — it then fills every order at its full notional. Same
+	 * availability as `setMaxOrderSize`.
+	 */
+	clearMaxOrderSize?: () => void
 	/** Same-asset cross-chain market: ask-only, prices strictly below par. */
 	sameToken?: boolean
 	/** Price feed only — the pair never fills; curves stay editable, sides are never opened. */
@@ -399,6 +408,13 @@ export class UiServer {
 			if (method === "DELETE") return this.handleMarketRemove(res, Number(strategyMatch[1]))
 			if (method === "PUT") return this.handleMarketUpdate(req, res, Number(strategyMatch[1]))
 			return sendJson(res, 405, { error: "Method not allowed" })
+		}
+
+		const capMatch = path.match(/^\/api\/strategies\/(\d+)\/max-order-size$/)
+		if (capMatch) {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleMaxOrderSizeClear(res, Number(capMatch[1]))
 		}
 
 		const curvesMatch = path.match(/^\/api\/strategies\/(\d+)\/curves$/)
@@ -912,6 +928,45 @@ export class UiServer {
 		this.logger.warn(
 			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, maxOrderSize: value, applied },
 			"Max order size updated by operator",
+		)
+		return sendJson(res, 200, {
+			...serializeStrategy(strategy),
+			applied,
+			restartNeeded: !applied,
+			persisted,
+		})
+	}
+
+	/**
+	 * DELETE /api/strategies/:index/max-order-size — removes a market's per-order
+	 * cap, leaving it uncapped. Its own route rather than a null on the PUT:
+	 * DELETE /api/strategies/:index already means "remove the market", and a cap
+	 * removal that a typo could turn into a market removal is not a trade worth
+	 * making for one fewer endpoint.
+	 *
+	 * Idempotent — clearing an already-uncapped market succeeds and reports the
+	 * same state, so the UI does not have to know which it is.
+	 */
+	private async handleMaxOrderSizeClear(res: ServerResponse, index: number): Promise<void> {
+		const op = this.operator!
+		const strategy = op.strategies.find((s) => s.index === index)
+		if (!strategy) return sendJson(res, 404, { error: `No strategy with index ${index}` })
+		if (strategy.referenceOnly) {
+			return sendJson(res, 409, {
+				error: "Reference-only markets never fill orders — their order cap is never consulted",
+			})
+		}
+
+		const previous = strategy.maxOrderSize
+		strategy.clearMaxOrderSize?.()
+		strategy.maxOrderSize = undefined
+		const pair = op.config.pairs?.[strategy.pairIndex]
+		if (pair) pair.maxOrderSize = undefined
+		const persisted = this.persistConfig()
+		const applied = Boolean(strategy.clearMaxOrderSize)
+		this.logger.warn(
+			{ strategy: index, pair: `${strategy.token0}/${strategy.token1}`, previous, applied },
+			"Max order size removed by operator — market is now uncapped",
 		)
 		return sendJson(res, 200, {
 			...serializeStrategy(strategy),

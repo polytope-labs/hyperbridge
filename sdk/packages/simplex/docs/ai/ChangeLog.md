@@ -12,6 +12,110 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-20 — Regression test: fills pay the curve amount
+
+The payout fix below restored `targetOutput = policyMaxOutput`, but nothing asserted the payout —
+the original regression landed silently precisely because no test pinned `calculateProfitability`'s
+cached outputs (the figure `prepareBidUserOp` signs into the bid) against the curve.
+`fx.curve-payout.test.ts` drives `calculateProfitability` with mocked chain access and pins the
+three sizing outcomes: an uncapped leg pays the curve amount, not the user's requested amount; a
+capped leg pays the capped slice's worth at the curve, not the user's pro-rata ask; and a
+balance-limited leg pays what the wallet covers — a full fill when that still clears the ask.
+Verified to fail on the pre-fix clamp: reintroducing `min(policyMaxOutput, desiredOutput)` fails
+all three cases with exactly the clamped amounts.
+
+The file is added to `test:filler`, the script CI actually runs — a payout test the CI never
+executes would repeat the original failure mode. (`pnpm test` runs the full suite, but CI does not;
+`pairs.test.ts`, which exercises the profit gates, is in no CI script at all and currently fails 12
+of its cases on main — 9 predating #1154 and 3 from #1154 unrationing phantom probes without
+updating the cap expectations. Repairing that suite and wiring it into CI is a separate task.)
+
+Files: src/tests/strategies/fx.curve-payout.test.ts (new), package.json, docs/ai/ChangeLog.md.
+
+## 2026-08-20 — A per-order cap can be removed, from the UI and over the API
+
+The previous entry made `maxOrderSize` optional in config but left it one-way at runtime: an
+operator could add a cap to an uncapped market, and could not take one off without editing the TOML
+by hand. Both halves of that are now closed.
+
+`AdminStrategy` gains `clearMaxOrderSize?: () => void` alongside `setMaxOrderSize`, implemented in
+`adminStrategyFor` by setting the live `TradingPair.maxOrderSize` to `undefined` — the engine reads
+the cap per order, so removal binds on the next evaluation exactly as a resize does.
+
+`DELETE /api/strategies/:index/max-order-size` exposes it, on its own route rather than as a null on
+the existing `PUT /api/strategies/:index`. `DELETE /api/strategies/:index` already means "remove the
+market"; a cap removal one typo away from a market removal is not worth one fewer endpoint. The
+handler is idempotent and refuses reference-only markets, matching the PUT.
+
+`Simplex.clearMaxOrderSize(index)` is the library equivalent, shaped after the existing
+`clearCurve`.
+
+In the operator dashboard, the cap field is now blankable: emptying it turns the button into
+"Remove cap" and issues the DELETE, while any other edit still PUTs. The button enables on any
+change from the persisted value, including set-to-blank, which the old `!maxOrderSize.trim()` guard
+disabled. The setup wizard's cap fields accept blank too and omit the key entirely rather than
+emitting `""`, which config validation would reject as a malformed decimal rather than read as "no
+cap".
+
+Files: src/core/boot.ts, src/services/server/UiServer.ts, src/simplex.ts,
+ui/src/operator/Operator.tsx, ui/src/wizard/state.ts, ui/src/wizard/steps/Strategies.tsx.
+
+## 2026-08-20 — Fills pay the curve amount again, not the user's requested amount
+
+`FXFiller` had stopped overfilling entirely: every fill paid out exactly
+`order.output.assets[i].amount`. `targetOutput` was `min(policyMaxOutput, desiredOutput)`, and
+`desiredOutput` is `output.amount` whenever the leg is not exposure-capped. Combined with the
+acceptance gate just below it (`if (policyMaxOutput < desiredOutput) return 0` — skip when the
+curve pays less than asked), the two form a pincer: any order that survives to a fill has
+`policyMaxOutput >= desiredOutput`, so `targetOutput` was always `desiredOutput`. Not an edge
+case — 100% of non-balance-limited fills paid the requested amount and nothing more, whatever the
+configured exchange rate said. Observed on Base fill `0x60b299e8...`: 25.469 ycNGN redeemed to
+1,380 cNGN and exactly 1,380 cNGN forwarded, no surplus transfer and no `DustCollected`.
+
+Introduced by #1123, which added `capFraction`/`desiredOutput` for the `maxOrderSize` exposure cap
+and then reused `desiredOutput` as the general fill target — conflating "the slice the cap allows"
+with "the amount to pay". Before #1123 the target was `policyMaxOutput` outright. No test asserts
+the payout against the curve, so it landed silently.
+
+`targetOutput` is now `policyMaxOutput` in every case — see the entry below, which took the cap
+branch back out after this landed.
+
+Files: src/strategies/fx.ts.
+
+## 2026-08-20 — The curve amount is the payout unconditionally, and `maxOrderSize` is optional
+
+Two changes to the same sizing decision.
+
+**`targetOutput = policyMaxOutput`, capped or not.** The fix above still let the exposure cap clamp
+the payout down to the user's pro-rata ask on a capped leg. It no longer does. `maxOrderSize` still
+binds where it always did — `computeLegPolicyOutput` rations `token0ForLeg` against the pair's
+remaining budget before the rate is applied, so a capped leg's curve amount is already the capped
+slice's worth. What changes is the escrow side: paying above the pro-rata ask draws down more input
+than the cap fraction nominally allots. That is more of the user's token for the same outlay, and
+the outlay itself is still capped.
+
+`capLimited` had to follow. It was `desiredOutput < output.amount` — true whenever a cap was active
+at all — and it forces the partial-fill eligibility gate. With the payout no longer clamped to
+`desiredOutput`, a curve running far enough above the order's rate can cover the whole ask out of a
+capped slice; that is a full fill and gating it as a partial would reject cross-chain and calldata
+orders the filler can actually serve. The condition is now `capFraction.lt(1) && policyMaxOutput <
+output.amount` — the cap is active *and* it actually shortens the fill.
+
+**`maxOrderSize` is now optional.** `TradingPair.maxOrderSize` is `Decimal | undefined`; absent
+means uncapped, and the pair fills every order at its full notional. `validatePairConfigs` no
+longer requires it (a malformed value is still rejected), `tradingPairFrom` maps an absent TOML
+value to `undefined` instead of the placeholder `new Decimal(0)`, and `sizeOrder` budgets an
+uncapped pair against the order's own total so the per-pair ration still stops sibling legs
+double-spending the same token0 without ever binding below the order. `FXFiller`'s constructor
+check accepts absence and keeps exempting reference-only pairs, which never fill and whose callers
+still pass a placeholder `0`.
+
+Test updated: `validatePairConfigs > requires a positive maxOrderSize` asserted the removed throw;
+it is now `accepts an omitted maxOrderSize, and rejects a malformed one`.
+
+Files: src/strategies/fx.ts, src/config/pairs.ts, src/core/boot.ts, src/simplex.ts,
+src/tests/pairs.test.ts.
+
 ## 2026-08-19 — A phantom probe is no longer rationed by the pair's exposure cap
 
 `quotePhantomFill` fed the pair's per-order exposure budget into `computeLegPolicyOutput`, which

@@ -4,6 +4,117 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-20 — Removing a cap is its own endpoint, not a null on the update
+
+Chosen: `DELETE /api/strategies/:index/max-order-size`, with `AdminStrategy.clearMaxOrderSize` and
+`Simplex.clearMaxOrderSize(index)` behind it. `PUT /api/strategies/:index` still requires a positive
+value.
+
+The obvious alternative — accept `maxOrderSize: null` (or `""`) on the PUT — is one fewer endpoint
+and was rejected on blast radius. `DELETE /api/strategies/:index` already removes the *market*. A
+scheme where a cap removal and a market removal differ by a path suffix is bad enough; one where a
+cap removal is a field value that a serialization bug, a form default, or a stray `undefined` can
+produce is worse, because the failure is silent and the fix is a re-add. An explicit verb on an
+explicit resource cannot be reached by accident.
+
+The handler is idempotent: clearing an already-uncapped market returns 200 with the same state
+rather than 404 or 409. The UI decides what to send from the field's contents alone and does not
+track which state the market is in, so a strict version would make the client carry knowledge it has
+no reason to have.
+
+Alternatives rejected:
+
+- *`PATCH` with `maxOrderSize: null`.* See above.
+- *A `capped: boolean` toggle beside the value.* Two controls for one setting, and it forces a
+  decision about what the value field holds while the toggle is off — remembered, cleared, or
+  ignored. A blank field is the same information with nothing to keep in sync.
+- *Reuse `PUT /api/strategies/:index` with an empty body.* Ambiguous with a no-op update, and the
+  handler already rejects unknown/absent fields to catch exactly that class of mistake.
+
+In the UI the field itself is the control: blank means uncapped, the button relabels to "Remove
+cap", and it enables on any divergence from the persisted value rather than on a non-empty value —
+the old guard made blanking unsubmittable, which is precisely the state that now needs submitting.
+
+## 2026-08-20 — `maxOrderSize` is optional
+
+Chosen: `TradingPair.maxOrderSize` is `Decimal | undefined`. Absent means uncapped.
+
+The cap was mandatory in `validatePairConfigs` but already optional in the TOML type, so
+`tradingPairFrom` bridged the gap with `new Decimal(pair.maxOrderSize ?? "0")` — a placeholder that
+only worked because reference-only pairs never reach the sizing path. A zero cap and no cap are
+opposites, and encoding "no cap" as the most restrictive possible value is the kind of thing that
+holds until someone routes a new pair type through the same code.
+
+`sizeOrder` is where absence is resolved: an uncapped pair sets `cappedByPair` to the order's own
+per-pair total and `capFraction` to 1. That keeps the per-pair ration in `computeLegPolicyOutput`
+doing its other job — stopping two legs of the same pair from spending the same token0 twice —
+without it ever binding below the order.
+
+Alternatives rejected:
+
+- *Keep it required and let operators write a very large number.* Works, but "uncapped" then has no
+  representation, only an approximation, and the log line reads as a cap that happens not to bind.
+- *Default an absent cap to `Infinity`.* Same behaviour, but `Decimal(Infinity)` propagates into
+  `capFraction` division and into every log that stringifies the cap. `undefined` makes each
+  consumer state what it does when there is no cap.
+
+Kept deliberately: `assertPairValid` still exempts reference-only pairs from the positive-value
+check. `FXFiller` takes `TradingPair[]` as a public constructor argument, and callers written
+against the old required field still pass `new Decimal(0)` there. A reference pair never fills, so
+its cap is never read either way — rejecting it would break those callers for nothing.
+
+Since resolved: removal is now reachable at runtime — see "Removing a cap is its own endpoint".
+
+## 2026-08-20 — The curve amount is the fill, and the exposure cap does not shorten it
+
+Chosen: `targetOutput = policyMaxOutput`, unconditionally.
+
+Overfilling is a feature of the protocol, not an accident the filler should suppress.
+`IntrinsicIntents.sol` has an explicit `solverAmount > totalRequired` branch that splits the excess
+between the beneficiary and the protocol (`surplusShareBps`); `quotePhantomFill` publishes
+`policyMaxOutput` as our quoted rate, so paying `output.amount` advertises a price we do not
+honour; and `calculateProfitability`'s own doc says we overfill "if the pair pricing makes that
+attractive. This is how we stay competitive."
+
+`desiredOutput` is redundant with the ration `computeLegPolicyOutput` already applies to
+`token0ForLeg`, and it is no longer a ceiling on payout at all — it survives only as the price
+gate's comparand and in the short-fill logs. `maxOrderSize` binds in the token0 dimension, before
+the rate is applied, which is where the exposure actually is: a capped leg never pays out more than
+the capped slice's worth at the curve.
+
+The trade-off, taken knowingly: escrow releases as `fillAmount / totalRequired`, so on a capped leg
+paying above the user's pro-rata ask draws down more input than the cap fraction nominally allots.
+That is more of the user's token for the same outlay — the cap bounds what the filler spends, not
+what it receives — and treating the receive side as the thing to ration was clamping the price the
+operator configured.
+
+`capLimited` had to follow, and is now `capFraction.lt(1) && policyMaxOutput < output.amount`
+rather than `desiredOutput < output.amount`. It gates partial-fill eligibility, and with the payout
+unclamped a curve far enough above the order's rate can cover the whole ask out of a capped slice.
+That is a full fill; gating it as a partial would reject cross-chain and calldata orders the filler
+can serve.
+
+Alternatives rejected:
+
+- *Clamp to `desiredOutput` on capped legs only.* What this replaced. It keeps the escrow draw
+  exactly proportional to the cap, but at the cost of quoting one price and filling another on
+  every capped order — the same defect as the unconditional clamp, just rarer and harder to see.
+- *Keep the clamp and stop publishing `policyMaxOutput` from `quotePhantomFill`.* Makes the quote
+  match the fill, but by degrading the quote to the order's own rate — which is the counterparty's
+  number, not ours. The price feed would stop carrying any information about the operator's curve.
+- *Re-enable `maxOverfillBps` as part of this change.* Deliberately left alone. The clamp at the
+  overfill-ceiling block is still a no-op assignment (`const policyMaxOutput = rawPolicyMaxOutput`)
+  and `recordOrderOutcome` is still always called with `false`, so `maxOverfillBps` and the halt
+  subsystem remain dormant config. Restoring the payout makes that ceiling meaningful again and it
+  should be either re-armed or deleted outright — a separate decision from fixing the payout, and
+  one that changes the filler's loss bound rather than its price.
+
+Left standing, and known stale: `curveSurplusUsd` (the P&L fallback for legs with no opposite
+curve) measures `policyMaxOutput - output.amount` and calls the difference "ours". With the surplus
+now paid out that term is structurally zero on uncapped legs. It is report-only telemetry — it
+never rejects an order or feeds the execute score — so it under-reports rather than mis-fills, and
+re-basing it on the opposite curve was left out of this change.
+
 ## 2026-08-19 — The exposure cap governs fills, never probes
 
 Chosen: `computeLegPolicyOutput` takes `remainingToken0: Decimal | null`, and `quotePhantomFill`

@@ -28,6 +28,16 @@ function configService(chainId = 1, rpcUrls = RPC_A) {
 	return new FillerConfigService([{ chainId, rpcUrls, bundlerUrl: "https://bundler.example" }])
 }
 
+/** An order with one input and one output leg — the only shape the monitor forwards. */
+function singleLegOrder(id: string, inputs = 1, outputs = 1) {
+	const asset = { token: "0xtoken", amount: 1n }
+	return {
+		id,
+		inputs: Array.from({ length: inputs }, () => asset),
+		output: { beneficiary: "0xbene", assets: Array.from({ length: outputs }, () => asset), call: "0x" },
+	}
+}
+
 describe("FillerConfigService chain set", () => {
 	it("derives the configured chain set from the registered chains", () => {
 		const service = configService()
@@ -179,8 +189,8 @@ describe("EventMonitor chain lifecycle", () => {
 		const seen: string[] = []
 		monitor.on("newOrder", ({ order }) => seen.push(order.id))
 
-		handlers()!.onOrder({ order: { id: "0xmine" }, transactionHash: "0x1", chainId: 1 } as never)
-		handlers()!.onOrder({ order: { id: "0xother" }, transactionHash: "0x2", chainId: 8453 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xmine"), transactionHash: "0x1", chainId: 1 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xother"), transactionHash: "0x2", chainId: 8453 } as never)
 
 		expect(seen).toEqual(["0xmine"])
 	})
@@ -194,11 +204,46 @@ describe("EventMonitor chain lifecycle", () => {
 
 		// At-least-once: a scanner resuming from a cursor re-delivers, and the fill
 		// path has no idempotency of its own.
-		const event = { order: { id: "0xorder" }, transactionHash: "0xtx", chainId: 1 }
+		const event = { order: singleLegOrder("0xorder"), transactionHash: "0xtx", chainId: 1 }
 		handlers()!.onOrder(event as never)
 		handlers()!.onOrder(event as never)
 
 		expect(seen).toEqual(["0xorder"])
+	})
+
+	it("forwards only single-leg orders", async () => {
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		const seen: string[] = []
+		const skipped: Array<{ orderId?: string; reason?: string }> = []
+		monitor.on("newOrder", ({ order }) => seen.push(order.id))
+		monitor.on("orderSkipped", (event) => skipped.push(event))
+
+		const deliver = (order: unknown) =>
+			handlers()!.onOrder({ order, transactionHash: "0xtx", chainId: 1 } as never)
+
+		deliver(singleLegOrder("0xsingle"))
+		deliver(singleLegOrder("0xtwo-in", 2, 1))
+		deliver(singleLegOrder("0xtwo-out", 1, 2))
+		deliver(singleLegOrder("0xno-legs", 0, 0))
+
+		expect(seen).toEqual(["0xsingle"])
+		expect(skipped.map((event) => event.orderId)).toEqual(["0xtwo-in", "0xtwo-out", "0xno-legs"])
+		expect(skipped.every((event) => event.reason === "Multi-leg order")).toBe(true)
+	})
+
+	it("does not let a rejected multi-leg order occupy the de-duplication set", async () => {
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		const seen: string[] = []
+		monitor.on("newOrder", ({ order }) => seen.push(order.id))
+
+		handlers()!.onOrder({ order: singleLegOrder("0xid", 2, 2), transactionHash: "0xtx", chainId: 1 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xid"), transactionHash: "0xtx", chainId: 1 } as never)
+
+		expect(seen).toEqual(["0xid"])
 	})
 
 	it("only re-emits fills credited to this filler", async () => {
@@ -223,7 +268,7 @@ describe("EventMonitor chain lifecycle", () => {
 
 		const seen: string[] = []
 		monitor.on("newOrder", ({ order }) => seen.push(order.id))
-		handlers()!.onOrder({ order: { id: "0xnew" }, transactionHash: "0x1", chainId: 8453 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xnew"), transactionHash: "0x1", chainId: 8453 } as never)
 
 		expect(seen).toEqual(["0xnew"])
 	})
@@ -246,7 +291,7 @@ describe("EventMonitor chain lifecycle", () => {
 
 		const seen: string[] = []
 		monitor.on("newOrder", ({ order }) => seen.push(order.id))
-		handlers()!.onOrder({ order: { id: "0xgone" }, transactionHash: "0x1", chainId: 8453 } as never)
+		handlers()!.onOrder({ order: singleLegOrder("0xgone"), transactionHash: "0x1", chainId: 8453 } as never)
 
 		expect(seen).toEqual([])
 	})

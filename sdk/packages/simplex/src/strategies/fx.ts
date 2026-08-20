@@ -1358,7 +1358,12 @@ export class FXFiller implements FillerStrategy {
 		inputIsToken0: boolean,
 		token0Decimals: number,
 		token1Decimals: number,
-		remainingToken0: Decimal,
+		/**
+		 * Token0 left in the pair's per-order exposure budget, or `null` to price the whole
+		 * input unbudgeted. Only a price probe passes `null`: it commits no capital, so there
+		 * is no exposure to ration, and a clamped quantity would silently misprice it.
+		 */
+		remainingToken0: Decimal | null,
 		rate: Decimal,
 	): { token0Used: Decimal; policyMaxOutput: bigint } | null {
 		let legMaxToken0: Decimal
@@ -1368,7 +1373,7 @@ export class FXFiller implements FillerStrategy {
 			legMaxToken0 = new Decimal(formatUnits(inputAmount, token1Decimals)).div(rate)
 		}
 
-		const token0ForLeg = Decimal.min(legMaxToken0, remainingToken0)
+		const token0ForLeg = remainingToken0 === null ? legMaxToken0 : Decimal.min(legMaxToken0, remainingToken0)
 		if (token0ForLeg.lte(0)) {
 			return null
 		}
@@ -1613,9 +1618,11 @@ export class FXFiller implements FillerStrategy {
 		const chain = order.source
 		const venueUsdPrice = this.venuePriceMemo()
 
+		// `sizeOrder` is used here only for its per-leg notionals — the rate sample points below.
+		// Its `cappedByPair` / `capFractionByPair` outputs are exposure controls for real fills
+		// and deliberately play no part in a probe.
 		const sized = await this.sizeOrder(order, legs, venueUsdPrice)
 		if (!sized) return null
-		const remainingByPair = new Map(sized.cappedByPair)
 
 		const outputs: TokenInfo[] = []
 
@@ -1638,23 +1645,45 @@ export class FXFiller implements FillerStrategy {
 			const token0Decimals = leg.inputIsToken0 ? inputDecimals : outputDecimals
 			const token1Decimals = leg.inputIsToken0 ? outputDecimals : inputDecimals
 
-			const cappedNotional = sized.cappedByPair.get(leg.pair) ?? leg.pair.maxOrderSize
-			const rates = await this.resolveLegRates(order.id, leg, cappedNotional, venueUsdPrice)
+			// Price this leg at ITS OWN notional, not the pair's exposure-capped budget. The leg
+			// is a quote for `input.amount`; sampling a sloped curve at a smaller notional would
+			// advertise a tighter rate than this filler would actually give at that size, and
+			// optimistic is the one direction a published rate must never be — a quote built
+			// from it has to stay fillable.
+			const legNotional = sized.legNotionals[i]
+			const rates = await this.resolveLegRates(order.id, leg, legNotional, venueUsdPrice)
 			if (!rates) return null
 
-			const remaining = remainingByPair.get(leg.pair) ?? new Decimal(0)
+			// A probe advertising more than the pair will actually fill is a config problem the
+			// operator has to see: the price is honest, but no order that size can clear it.
+			if (legNotional.gt(leg.pair.maxOrderSize)) {
+				this.logger.warn(
+					{
+						orderId: order.id,
+						pair: `${leg.pair.token0}/${leg.pair.token1}`,
+						legNotional: legNotional.toString(),
+						maxOrderSize: leg.pair.maxOrderSize.toString(),
+					},
+					"Phantom probe notional exceeds the pair's maxOrderSize — the published price quotes a size this pair will not fill",
+				)
+			}
+
+			// `null` budget: a phantom leg commits no capital, so the pair's per-order exposure
+			// cap must not ration it. Clamping the quantity here would leave the output covering
+			// less than the standard amount while every consumer still divides by the FULL
+			// standard amount — publishing a proportionally worse price with nothing to signal
+			// that it happened. The cap still governs real fills, which is where exposure is
+			// actually taken.
 			const legResult = this.computeLegPolicyOutput(
 				input.amount,
 				leg.inputIsToken0,
 				token0Decimals,
 				token1Decimals,
-				remaining,
+				null,
 				rates.rate,
 			)
 
 			if (!legResult) continue
-
-			remainingByPair.set(leg.pair, remaining.minus(legResult.token0Used))
 
 			// Phantom orders only probe price (they request a zero output), so there is no
 			// user-requested amount to cap against — quote the full policy output.

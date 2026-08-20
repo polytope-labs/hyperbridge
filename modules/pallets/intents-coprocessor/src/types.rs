@@ -187,30 +187,38 @@ pub struct PhantomTokenPair {
 	pub token_a: H160,
 	/// The output token (tokenB) the price is quoted in.
 	pub token_b: H160,
-	/// ┌─────────────────────────────────────────────────────────────────────────────────┐
-	/// │  ⚠  EXACTLY ONE (1) UNIT OF THE INPUT TOKEN. NO MORE. NO LESS. NON-NEGOTIABLE.  ⚠  │
-	/// └─────────────────────────────────────────────────────────────────────────────────┘
+	/// ┌──────────────────────────────────────────────────────────────────────────────────┐
+	/// │  ⚠  A WHOLE NUMBER OF UNITS OF THE INPUT TOKEN: `n * 10^decimals(token_a)`.  ⚠  │
+	/// └──────────────────────────────────────────────────────────────────────────────────┘
 	///
-	/// This MUST be **one whole unit of `token_a`, denominated in the token's smallest unit**
-	/// — that is, `10^decimals(token_a)`:
-	///   • 6-decimal USDC  →  `1_000_000`
-	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000`
+	/// This MUST be a whole multiple of one unit of `token_a`, denominated in the token's
+	/// smallest unit — that is, `n * 10^decimals(token_a)` for a whole `n`. With `n = 1000`:
+	///   • 6-decimal USDC  →  `1_000_000_000`
+	///   • 18-decimal DAI  →  `1_000_000_000_000_000_000_000`
 	///
-	/// WHY THERE IS ZERO WIGGLE ROOM:
+	/// WHY THE SHAPE MATTERS:
 	///   Every exchange rate the indexer publishes is `medianPrice / standard_amount`. This number
-	///   is the DENOMINATOR OF THE TRUTH. Put `2` units here and every downstream rate is silently
-	///   HALVED; put half a unit and every rate silently DOUBLES. It will not revert. It will not
-	///   warn. It will simply poison every price snapshot for this pair with an integer-factor
-	///   error until a human eventually notices the feed has drifted — and then has to backfill
-	/// it.
+	///   is the DENOMINATOR OF THE TRUTH. Set it to a value that is not a whole number of units
+	///   and every downstream rate is silently off by that factor. It will not revert. It will not
+	///   warn on chain. It will simply poison every price snapshot for this pair until a human
+	///   notices the feed has drifted — and then has to backfill it. The indexer refuses pool
+	///   attribution for a leg whose standard amount is not a whole number of units, or is
+	///   absurdly large, which is the only backstop; treat it as a tripwire, not a validator.
 	///
-	/// So set it to one unit. `10^decimals(token_a)`. Not a round dollar. Not a "nice" number.
-	/// Not two. Not a half. ONE. UNIT.
+	/// WHY `n` IS NOT ALWAYS 1:
+	///   A leg's quoted output integer IS the published price, to whatever precision the OUTPUT
+	///   token's decimals afford. One whole cNGN priced into 6-decimal USDC quotes ~715 base
+	///   units, so the price grid is `1/715` ≈ 0.14% coarse and a curve of 1398 cNGN/USDC cannot
+	///   be expressed more finely than 1398.6014. Raising `n` buys digits: at `n = 1000` the same
+	///   quote is ~715_307 and the grid is 0.00014%. Raise it only in step across the whole config
+	///   — a filler's per-pair size caps are consumed at the probe's notional, and a probe larger
+	///   than a pair's cap is quoted short and publishes a badly wrong price.
 	pub standard_amount: u128,
-	/// The same ONE-UNIT rule as [`standard_amount`](PhantomTokenPair::standard_amount), for the
-	/// REVERSE leg: exactly `10^decimals(token_b)`, the benchmark quantity when `token_b` is the
+	/// The same WHOLE-UNITS rule as [`standard_amount`](PhantomTokenPair::standard_amount), for
+	/// the REVERSE leg: `n * 10^decimals(token_b)`, the benchmark quantity when `token_b` is the
 	/// input. Everything written above applies verbatim — a wrong value silently poisons every
-	/// reverse-direction rate. Unused (but still required non-zero for uniformity) when
+	/// reverse-direction rate. Keep `n` the same as the forward leg's so both directions of a pair
+	/// are probed at a comparable size. Unused (but still required non-zero for uniformity) when
 	/// `token_a == token_b`, since a same-token pair has no distinct reverse.
 	pub standard_amount_b: u128,
 }

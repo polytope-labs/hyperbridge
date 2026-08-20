@@ -24,6 +24,13 @@ const MAX_SAMPLE_AGE_BLOCKS = 1800n
 // One row per (chain, direction) and the chain set is config-bounded, so a single page covers it.
 const CHAIN_ROWS_LIMIT = 100
 
+// Plausibility window for a phantom leg's probe size, expressed against one whole input token:
+// at most a million tokens, at least a thousandth of one. See resolvePoolLeg — this is the
+// decimals-mismatch tripwire, not a policy limit, so it is deliberately far outside any size the
+// pallet would actually configure and well inside the powers of ten a mismatch produces.
+const MAX_STANDARD_UNITS = 1_000_000n
+const MAX_STANDARD_SUBDIVISIONS = 1_000n
+
 /** One registered directed leg of the phantom order, with its tokens as 20-byte lowercase addresses. */
 export interface RegisteredLeg {
 	legIndex: number
@@ -40,6 +47,13 @@ export interface ResolvedPoolLeg {
 	token1Symbol: string
 	/** Registry decimals of the leg's output token on this chain, for 1e18 normalization. */
 	outDecimals: number
+	/**
+	 * Registry decimals of the leg's INPUT token on this chain. A pool rate is quoted per one
+	 * whole input token, but the leg was quoted against `standardAmount` of them, so this is
+	 * what lets the rate be renormalized back to one — for any probe size the pallet picks,
+	 * whole-token or not.
+	 */
+	inDecimals: number
 }
 
 /** A registered leg together with its pool attribution (null when not registry-tracked). */
@@ -58,10 +72,22 @@ export function resolvePoolLeg(chain: string, leg: RegisteredLeg): ResolvedPoolL
 	const outputToken = getPoolToken(chain, leg.tokenB)
 	if (!inputToken || !outputToken || outputToken.decimals > POOL_RATE_DECIMALS) return null
 
-	if (leg.standardAmount !== 10n ** BigInt(inputToken.decimals)) {
+	// Any probe size is priced correctly — the rate is renormalized by this exact value, so the
+	// pallet is free to raise it to buy quote precision (a leg's output integer IS the price, and
+	// one whole token of a 6-decimal asset only affords ~3 digits). What is checked is that the
+	// size is PLAUSIBLE, because a registry/pallet decimals disagreement shows up as exactly this
+	// field being off by a power of ten, and there is no other signal that it happened. Every
+	// realistic mismatch (6 vs 18, 6 vs 12, 8 vs 18) is a factor of 1e6 or more, so it falls
+	// outside the window while any size anyone would actually probe sits well inside it.
+	const inputUnit = 10n ** BigInt(inputToken.decimals)
+	const plausible =
+		leg.standardAmount > 0n &&
+		leg.standardAmount <= inputUnit * MAX_STANDARD_UNITS &&
+		leg.standardAmount * MAX_STANDARD_SUBDIVISIONS >= inputUnit
+	if (!plausible) {
 		logger.warn(
 			{ chain, tokenA: leg.tokenA, standardAmount: leg.standardAmount.toString(), decimals: inputToken.decimals },
-			"Phantom leg standard amount disagrees with the registry decimals, skipping pool attribution",
+			"Phantom leg standard amount is implausible for the registry decimals, skipping pool attribution",
 		)
 		return null
 	}
@@ -73,7 +99,31 @@ export function resolvePoolLeg(chain: string, leg: RegisteredLeg): ResolvedPoolL
 		token0Symbol,
 		token1Symbol,
 		outDecimals: outputToken.decimals,
+		inDecimals: inputToken.decimals,
 	}
+}
+
+/**
+ * A leg's quoted output, renormalized to the pool's rate convention: output units per ONE whole
+ * input token, as a `POOL_RATE_DECIMALS` fixed-point integer.
+ *
+ * The quote was given for `standardAmount` of the input token, whatever the pallet configured, so
+ * it is scaled back to one whole token. At the legacy probe of exactly one unit
+ * (`standardAmount === 10 ** inDecimals`) the two powers cancel and this is precisely the old
+ * `medianPrice * scale`, which is why raising the probe size cannot move a published rate.
+ *
+ * Every multiplication happens before the division, so only the final step truncates — by under
+ * one unit of 1e18, and downward, the same conservative direction the filler's own quote is
+ * floored in.
+ */
+export function poolRateFromQuote(
+	medianPrice: bigint,
+	resolved: Pick<ResolvedPoolLeg, "inDecimals" | "outDecimals">,
+	standardAmount: bigint,
+): bigint {
+	const scale = 10n ** BigInt(POOL_RATE_DECIMALS - resolved.outDecimals)
+	const inputUnit = 10n ** BigInt(resolved.inDecimals)
+	return (medianPrice * scale * inputUnit) / standardAmount
 }
 
 /**
@@ -170,7 +220,10 @@ export async function updateLiquidityPools(params: {
 				outputToken: leg.tokenB,
 			})
 		}
-		entry.samples.push({ rate: quote.medianPrice * scale, depth })
+		entry.samples.push({
+			rate: poolRateFromQuote(quote.medianPrice, resolved, leg.standardAmount),
+			depth,
+		})
 		entry.bidCount += quote.bidCount
 		entry.quoted = true
 	}

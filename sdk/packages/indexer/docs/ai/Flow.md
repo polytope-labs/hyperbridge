@@ -25,3 +25,25 @@ The indexer is a SubQuery project: per-network YAML files in `src/configs/` bind
    - USD amounts are stored as bigints scaled by 1e18 (`toScaledUsd`).
 
 Parallel paths that look similar but are not the same: `recordOrderVolume` (step 1) writes `IntentGatewayTokenVolume` and `CumulativeIntentGatewayVolumeUSD` (IDs keyed `chain-token-volumeType` / `chain-volumeType`). It does its own token pricing and skips tokens with no known price, while the `updateOrderStatus` path prices unknown tokens as zero through `getOutputValuesUSD`; their USD totals can therefore differ for the same fill. Do not expect `CumulativeIntentGatewayVolumeUSD` for FILLED to equal `CumulativeVolumeUSD` for `IntentGatewayV3.FILLED`: they also diverge on fill-before-place races (only `recordOrderVolume` runs) and same-block fills (only the `VolumeService` cumulative counter deduplicates).
+
+## Phantom price snapshot to pool rates (PhantomBidWindowExhausted)
+
+Verified 2026-08-19 against live mainnet data.
+
+1. `PhantomBidWindowExhausted` on Hyperbridge triggers `handlePhantomOrderPrices` (`src/handlers/events/substrateChains/handlePhantomOrderPrices.handler.ts`). It loads the `PhantomOrderV2` and its registered `PhantomOrderLeg` rows, then calls `aggregatePhantomBids` from the SDK, which fetches every bid for the commitment, verifies each one (solver signature over the userOp hash plus an EIP-7702 delegation check), and reduces them per leg.
+
+2. Per leg, a solver's quote is weighted by **its balance of that leg's OUTPUT token on the destination chain** — the inventory that actually backs the leg. Zero-weight quotes are dropped entirely, not down-weighted: they never reach the median, `bidCount`, or the bidder list. A leg where no bidder holds the output token is absent from the result, exactly as if nobody quoted it.
+
+3. The leg's price is `weightedMedian` of the backed quotes — a **selection**, not a blend. It returns one bidder's exact integer, so a solver holding over half the leg's weight sets the published price verbatim, and the result can never be a value nobody quoted. `lowestPrice` and `highestPrice` are deliberately overwritten with the median so consumers cannot read an outlier bid as a tradeable bound.
+
+4. `updateLiquidityPools` (`src/services/liquidityPool.service.ts`) turns those per-leg medians into pool rows. `resolvePoolLeg` maps a leg's tokens to a pool id and direction via the token registry, and the sample's rate is
+
+   ```
+   medianPrice * 10 ** (18 - outDecimals) * 10 ** inDecimals / standardAmount
+   ```
+
+   i.e. the quote renormalized from the probe size back to one whole input token. This holds for any standard amount the pallet configures; it collapses to `medianPrice * scale` when the probe is exactly one unit. Multiplications happen before the division, so only the last step truncates, by under one unit of 1e18 and downward.
+
+5. Chain rows (`PoolChainLiquidity`, one per pool/chain/direction) are merged into the pool's single `sellRate`/`buyRate` by `weightedRate` — a depth-weighted **mean**, which unlike the median in step 3 does produce values no filler quoted. Samples older than `MAX_SAMPLE_AGE_BLOCKS` are excluded unless every sample is stale.
+
+Precision note: a leg's quoted output integer *is* the price, to whatever resolution the output token's decimals allow. cNGN into 6-decimal USDC quotes ~715 base units, so the grid is 1/715 = 0.14% and the filler's floor rounding costs up to one full step. Chains whose output token has 18 decimals carry full precision on the same leg — which is why EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The fix is a larger `standardAmount`, which step 4 now supports; see Decisions.md for why the filler's flooring must stay.

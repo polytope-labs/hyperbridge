@@ -613,10 +613,11 @@ pub mod pallet {
 		/// Each configured pair is probed in BOTH directions — the generator expands it into a
 		/// forward and a reverse leg — so a pair is registered once, not once per direction.
 		///
-		/// ⚠ Before calling: each pair's `standard_amount` MUST be exactly one unit of its input
-		/// token (`10^decimals(token_a)`) and `standard_amount_b` one unit of `token_b` — no
-		/// more, no less. They are the denominators of every published rate and fail silently
-		/// if wrong.
+		/// ⚠ Before calling: each pair's `standard_amount` MUST be a whole number of units of its
+		/// input token (`n * 10^decimals(token_a)`) and `standard_amount_b` the same multiple of
+		/// `token_b`'s unit. They are the denominators of every published rate and fail silently
+		/// if wrong. Keep `n` consistent across the whole config — it is the probe size, and a
+		/// probe larger than a filler's per-pair cap is quoted short and publishes a wrong price.
 		/// See [`PhantomTokenPair::standard_amount`](crate::types::PhantomTokenPair::standard_amount).
 		#[pallet::call_index(8)]
 		#[pallet::weight(T::WeightInfo::set_phantom_order_config(config.chains.len() as u32))]

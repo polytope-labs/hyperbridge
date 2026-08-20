@@ -4,6 +4,24 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-20 — pairs.test.ts rides in test:filler, not a new unit-test script
+
+Chosen: append `src/tests/pairs.test.ts` to the existing `test:filler` script, which CI's "Run
+simplex test" step already executes on every simplex PR.
+
+Alternatives rejected:
+
+- *A dedicated `test:unit` script plus a new workflow step.* Cleaner taxonomy (the file is
+  pure-unit while its neighbours in `test:filler` need RPC secrets), but it adds a script and a CI
+  step to maintain for one ~3s file, and the oversized `--testTimeout` it inherits is harmless for
+  unit tests.
+- *Leave it unwired.* That is exactly how 12 stale failures sat on main unnoticed.
+
+Known gap, deliberately out of scope here: several other pure-unit files (`book-crossed`,
+`confirmation-policy`, `fx.one-sided-lp`, `fx.price-guard`, `paymaster-reserve`, …) still run in
+no CI script. If they are ever wired up, a `test:unit` aggregate becomes worth its keep — move
+`pairs.test.ts` into it then.
+
 ## 2026-08-19 — The exposure cap governs fills, never probes
 
 Chosen: `computeLegPolicyOutput` takes `remainingToken0: Decimal | null`, and `quotePhantomFill`

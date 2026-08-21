@@ -126,8 +126,8 @@ pub struct ProverConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
 	pub query_batch_size: Option<u32>,
-	/// The `gnark-apk-proofs` prover binary. Only read by the `Apk` variant, which cannot link the
-	/// prover directly, see `apk_beefy::command`.
+	/// The `gnark-apk-proofs` prover binary, for a build that has to shell out to it. Ignored by
+	/// one that compiles the circuit in and proves through it directly, see `apk_beefy::local`.
 	#[serde(default)]
 	pub apk_prover_binary: Option<std::path::PathBuf>,
 	/// Where a one shot prover exchanges its input and proof files. Ignored when the prover is
@@ -363,12 +363,16 @@ where
 	/// still name the set before. Taking the earliest one that does name it, rather than the last
 	/// block of the session, leaves the rest of the session provable, which is what a proof for
 	/// new messages needs.
+	///
+	/// `trusted` is the client's own state, and it bounds the walk: only the two sets it holds can
+	/// sign anything it will accept.
 	pub async fn teaching_justification(
 		&self,
 		from: u64,
 		until: u64,
 		set_id: u64,
 		para_id: u32,
+		trusted: &ConsensusState,
 	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
 		let mut cursor = from;
@@ -381,6 +385,15 @@ where
 				return Ok(None);
 			}
 			cursor = number + 1;
+
+			// Past the sets the client holds is past what it can verify, and every later
+			// justification is signed by a set further ahead still. Stopping here reports a client
+			// that has fallen behind its own window as such, rather than handing the proof builder
+			// a set it will refuse.
+			let signer = commitment.commitment.validator_set_id;
+			if signer != trusted.current_authorities.id && signer != trusted.next_authorities.id {
+				return Ok(None);
+			}
 
 			let Some(hash) = relay_rpc.chain_get_block_hash(Some(number.into())).await? else {
 				continue;
@@ -493,8 +506,8 @@ where
 						// digest in a parachain header, and the header this rotation carries sits
 						// on the session boundary, where the relay's next set is only just being
 						// queued. Proving finality one block earlier carries a header from the end
-						// of the session instead, which does name the incoming set, and the
-						// rotation goes through on the next tick.
+						// of the session instead, which does name the incoming set, so the client
+						// holds its commitment by the time the rotation below is proven.
 						if matches!(self.prover, Prover::Apk(_)) &&
 							consensus_state.inner.next_authorities.bls_poseidon_hash.is_zero()
 						{
@@ -506,6 +519,7 @@ where
 									epoch_change_number,
 									next_set_id,
 									para_id,
+									&consensus_state.inner,
 								)
 								.await?
 							else {
@@ -549,6 +563,116 @@ where
 
 							consensus_state.inner.latest_beefy_height =
 								commitment.commitment.block_number;
+							self.backend.save_state(&consensus_state).await?;
+							return Ok(());
+						}
+
+						// The rotation arrives through a digest too. A set is only entered when a
+						// header names the set after it, so the boundary justification cannot
+						// carry one: its header still names the set being entered, which the
+						// client already holds. The first justification inside the new session is
+						// the one that names the set after, and it is signed by the incoming set,
+						// whose commitment the client learned above. Proving that block rotates
+						// the client and teaches the following commitment at once, which is why
+						// steady state costs one proof a session rather than two.
+						if matches!(self.prover, Prover::Apk(_)) {
+							let from = u64::from(consensus_state.inner.latest_beefy_height) + 1;
+							let latest = u64::from(*latest_beefy_header.number());
+							let following = next_set_id.saturating_add(1);
+							let Some(commitment) = self
+								.teaching_justification(
+									from,
+									latest + 1,
+									following,
+									para_id,
+									&consensus_state.inner,
+								)
+								.await?
+							else {
+								// Either the parachain has not published the commitment yet, since
+								// it takes a block or two into the session that queues it, or the
+								// relay has left the only session this client could still verify,
+								// in which case it stays here until it is re-seeded.
+								tracing::info!(
+									target: crate::LOG_TARGET,
+									"No justification signed by {} or {} in {from}..{latest} names {following}",
+									consensus_state.inner.current_authorities.id,
+									next_set_id,
+								);
+								return Ok(());
+							};
+
+							let finalized_hash = relay_rpc
+								.chain_get_block_hash(Some(
+									commitment.commitment.block_number.into(),
+								))
+								.await?
+								.ok_or_else(|| {
+									anyhow!(
+										"no block at {} on the relay",
+										commitment.commitment.block_number
+									)
+								})?;
+							let para_header =
+								query_parachain_header(&relay_rpc, finalized_hash, para_id).await?;
+							let digest = ApkCommitmentDigest::find_in(&para_header.digest)
+								.ok_or_else(|| {
+									anyhow!(
+										"parachain header at {} lost its apk digest",
+										commitment.commitment.block_number
+									)
+								})?;
+
+							let consensus_proof = self
+								.consensus_proof(
+									commitment.clone(),
+									consensus_state.inner.clone(),
+								)
+								.await?;
+							let message = ConsensusProof {
+								finalized_height: commitment.commitment.block_number,
+								set_id: next_set_id,
+								message: ConsensusMessage {
+									consensus_proof,
+									consensus_state_id: self.config.consensus_state_id,
+									signer: H256::random().encode(),
+								},
+							};
+
+							tracing::info!(
+								target: crate::LOG_TARGET,
+								"Proving finality at {} to rotate into {next_set_id}",
+								commitment.commitment.block_number,
+							);
+							let destinations: Vec<StateMachine> =
+								self.config.state_machines.clone();
+							self.backend.send_mandatory_proof(&destinations, message).await?;
+
+							// Mirror what the digest does to the client: the set being entered
+							// becomes current, and the set the digest names becomes next, already
+							// carrying the commitment the same header supplied.
+							let incoming = beefy_prover::relay::beefy_mmr_leaf_next_authorities(
+								&self.prover.inner().relay_rpc,
+								Some(finalized_hash),
+							)
+							.await?;
+							consensus_state.finalized_parachain_height = para_header.number.into();
+							consensus_state.inner.latest_beefy_height =
+								commitment.commitment.block_number;
+							consensus_state.inner.current_authorities =
+								consensus_state.inner.next_authorities.clone();
+							consensus_state.inner.next_authorities =
+								beefy_verifier_primitives::AuthoritySet {
+									id: digest.set_id,
+									len: digest.len,
+									bls_poseidon_hash: H256(digest.commitment),
+									ecdsa_merkle_root: incoming.keyset_commitment,
+								};
+							tracing::info!(
+								target: crate::LOG_TARGET, "Rotated authority set. Current {}, Next: {}",
+								consensus_state.inner.current_authorities.id,
+								consensus_state.inner.next_authorities.id,
+							);
 							self.backend.save_state(&consensus_state).await?;
 							return Ok(());
 						}
@@ -807,19 +931,14 @@ where
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
 			ProofVariant::Apk => {
-				let binary = config
-					.apk_prover_binary
-					.clone()
-					.ok_or_else(|| anyhow!("`apk_prover_binary` is required by the apk variant"))?;
+				// The circuit is compiled into this process, so there is no binary to talk to and
+				// the setup happens here rather than in a child. Only a build that proves sp1 on
+				// a cluster gets this far, since the go runtime the circuit brings cannot share a
+				// process with the one sp1's gnark ffi links: see the guard in this crate's
+				// lib.rs. Setup takes a couple of minutes and saturates every core, so it stays
+				// off the runtime's workers.
 				#[cfg(feature = "local")]
 				let apk_prover: Arc<dyn apk_beefy::ApkProver> = {
-					let _ = &binary;
-					// The circuit is compiled into this process, so there is no binary to talk to
-					// and the setup happens here rather than in a child. Only a build that proves
-					// sp1 on a cluster gets this far, since the go runtime the circuit brings
-					// cannot share a process with the one sp1's gnark ffi links: see the guard in
-					// this crate's lib.rs. Setup takes a couple of minutes and saturates every
-					// core, so it stays off the runtime's workers.
 					let srs_dir = config.apk_srs_dir.clone();
 					let local = std::thread::spawn(move || apk_beefy::LocalProver::new(srs_dir))
 						.join()
@@ -827,18 +946,25 @@ where
 					Arc::new(local)
 				};
 				#[cfg(not(feature = "local"))]
-				let apk_prover: Arc<dyn apk_beefy::ApkProver> = if config.apk_prover_one_shot {
-					let work_dir = config
-						.apk_prover_dir
-						.clone()
-						.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
-					Arc::new(apk_beefy::CommandProver::new(binary, work_dir)?)
-				} else {
-					// Setup runs here, before any proving, so the first proof is not four minutes
-					// slower than the rest.
-					Arc::new(
-						apk_beefy::ServiceProver::new(binary, config.apk_srs_dir.clone()).await?,
-					)
+				let apk_prover: Arc<dyn apk_beefy::ApkProver> = {
+					let binary =
+						config.apk_prover_binary.clone().ok_or_else(|| {
+							anyhow!("`apk_prover_binary` is required by a build that proves sp1 locally")
+						})?;
+					if config.apk_prover_one_shot {
+						let work_dir = config
+							.apk_prover_dir
+							.clone()
+							.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
+						Arc::new(apk_beefy::CommandProver::new(binary, work_dir)?)
+					} else {
+						// Setup runs here, before any proving, so the first proof is not four
+						// minutes slower than the rest.
+						Arc::new(
+							apk_beefy::ServiceProver::new(binary, config.apk_srs_dir.clone())
+								.await?,
+						)
+					}
 				};
 				Prover::Apk(apk_beefy::Prover::new(prover, apk_prover))
 			},

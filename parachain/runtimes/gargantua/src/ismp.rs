@@ -187,6 +187,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Testnet>,
 		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
+		ismp_kaia::KaiaClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<

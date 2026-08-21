@@ -20,8 +20,8 @@
 //! SNARK that ties the aggregate to the authority set.
 //!
 //! Generating that SNARK needs a Go toolchain through cgo and a large structured reference string,
-//! so it sits behind [`ApkProver`] rather than being called directly. Only the binary that
-//! actually proves has to take those on.
+//! so it sits behind [`ApkProver`] and the `local` feature. A build without the feature assembles
+//! everything here except the SNARK, and has no way to produce one.
 
 use alloy_primitives::{Bytes, FixedBytes, U256};
 use anyhow::anyhow;
@@ -39,12 +39,6 @@ use beefy_prover::bls::{
 };
 use beefy_verifier_primitives::{ConsensusState, BLS_G1_SIGNATURE_LEN};
 use ismp_abi::bls_beefy::BlsBeefy;
-
-mod command;
-pub use command::CommandProver;
-
-mod service;
-pub use service::ServiceProver;
 
 #[cfg(feature = "local")]
 mod local;

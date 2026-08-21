@@ -19,26 +19,41 @@
 //! closes the other half, that what this crate assembles is something the verifier accepts, which
 //! is the path a relayer actually takes.
 //!
-//! Needs a relay whose BEEFY authorities hold paired `ecdsa_bls_crypto` keys, the parachain it
-//! finalizes, and the prover binary. Takes minutes, since it generates a real SNARK.
+//! Needs a relay whose BEEFY authorities hold paired `ecdsa_bls_crypto` keys and the parachain it
+//! finalizes. Takes minutes, since it compiles the circuit and generates a real SNARK.
 //!
 //!   RELAY_WS_URL=ws://127.0.0.1:9979 PARA_WS_URL=ws://127.0.0.1:9981 PARA_ID=4009 \
-//!     APK_PROVER_BINARY=~/Documents/polytope/gnark-apk-proofs/target/release/examples/
-//! prove_from_json \     cargo test -p apk-beefy --test live_prover -- --ignored --nocapture
+//!     cargo test -p apk-beefy --features local --test live_prover -- --ignored --nocapture
+
+// Both tests build a prover, and the only one there is compiles the circuit in.
+#![cfg(feature = "local")]
 
 use std::sync::Arc;
 
-use apk_beefy::{CommandProver, Prover};
+use apk_beefy::Prover;
 use beefy_prover::relay::fetch_latest_beefy_justification;
-use beefy_verifier_primitives::{ApkAuthoritySet, ApkConsensusMessage, ApkConsensusState};
+use beefy_verifier_primitives::{ApkConsensusMessage, AuthoritySet, ConsensusState};
 use polkadot_sdk::*;
 use primitive_types::H256;
-use subxt::{backend::legacy::LegacyRpcMethods, config::Header as _, PolkadotConfig};
+use subxt::{backend::legacy::LegacyRpcMethods, PolkadotConfig};
 
 const VERIFYING_KEY: &[u8] =
 	include_bytes!("../../../../../evm/tests/foundry/fixtures/apk-verifying-key.bin");
 
 struct TestHost;
+
+/// Seeding reads the chain and never proves, so the slot is filled rather than occupied.
+struct NoProver;
+
+#[async_trait::async_trait]
+impl apk_beefy::ApkProver for NoProver {
+	async fn prove(
+		&self,
+		_request: apk_beefy::ApkProofRequest,
+	) -> Result<apk_beefy::ApkProof, anyhow::Error> {
+		Err(anyhow::anyhow!("seeding does not prove"))
+	}
+}
 
 impl ismp::messaging::Keccak256 for TestHost {
 	fn keccak256(bytes: &[u8]) -> H256 {
@@ -56,8 +71,6 @@ async fn assembles_a_proof_the_verifier_accepts() {
 		.expect("PARA_ID must be set")
 		.parse()
 		.expect("para id is a number");
-	let prover_binary = std::env::var("APK_PROVER_BINARY").expect("APK_PROVER_BINARY must be set");
-
 	let (relay_client, relay_rpc_client) =
 		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, max_rpc_payload_size)
 			.await
@@ -81,11 +94,15 @@ async fn assembles_a_proof_the_verifier_accepts() {
 		query_batch_size: Some(100),
 	};
 
-	let work_dir = std::env::temp_dir().join("apk-live-prover");
-	let prover = Prover::new(
-		inner,
-		Arc::new(CommandProver::new(prover_binary.into(), work_dir).expect("prover")),
+	// Setup saturates every core for a couple of minutes, so it stays off the runtime.
+	let srs_dir = std::env::var("APK_SRS_DIR").ok().map(Into::into);
+	let apk: Arc<dyn apk_beefy::ApkProver> = Arc::new(
+		std::thread::spawn(move || apk_beefy::LocalProver::new(srs_dir))
+			.join()
+			.expect("apk circuit setup panicked")
+			.expect("apk circuit setup"),
 	);
+	let prover = Prover::new(inner, apk);
 
 	let latest: H256 = relay_rpc_client
 		.request("beefy_getFinalizedHead", subxt::ext::subxt_rpcs::rpc_params!())
@@ -135,11 +152,11 @@ async fn assembles_a_proof_the_verifier_accepts() {
 	// is refused rather than checked against zero, so it has to go on whichever set signed.
 	let commitment = H256(prover.current_apk_commitment(latest).await.unwrap());
 	let signing_set = signed_set_id;
-	let authority_set = |set: sp_consensus_beefy::mmr::BeefyAuthoritySet<H256>| {
-		let apk_commitment = if set.id == signing_set { commitment } else { H256::zero() };
-		ApkAuthoritySet { id: set.id, len: set.len, apk_commitment }
+	let authority_set = |set: AuthoritySet| AuthoritySet {
+		bls_poseidon_hash: if set.id == signing_set { commitment } else { H256::zero() },
+		..set
 	};
-	let state = ApkConsensusState {
+	let state = ConsensusState {
 		latest_beefy_height: trusted.latest_beefy_height,
 		beefy_activation_block: trusted.beefy_activation_block,
 		mmr_root_hash: trusted.mmr_root_hash,
@@ -147,8 +164,8 @@ async fn assembles_a_proof_the_verifier_accepts() {
 		next_authorities: authority_set(trusted.next_authorities),
 	};
 	assert!(
-		state.current_authorities.apk_commitment != H256::zero() ||
-			state.next_authorities.apk_commitment != H256::zero(),
+		state.current_authorities.bls_poseidon_hash != H256::zero() ||
+			state.next_authorities.bls_poseidon_hash != H256::zero(),
 		"neither trusted set is the one that signed, so the client would have no commitment",
 	);
 
@@ -157,6 +174,7 @@ async fn assembles_a_proof_the_verifier_accepts() {
 		state.clone(),
 		message,
 		VERIFYING_KEY,
+		para_id,
 	)
 	.expect("the verifier accepts what the prover built");
 
@@ -213,10 +231,7 @@ async fn writes_initial_state_for_bootstrapping() {
 		para_ids: vec![para_id],
 		query_batch_size: Some(100),
 	};
-	let prover = Prover::new(
-		inner,
-		Arc::new(CommandProver::new("/nonexistent".into(), std::env::temp_dir()).unwrap()),
-	);
+	let prover = Prover::new(inner, Arc::new(NoProver));
 
 	let latest: H256 = relay_rpc_client
 		.request("beefy_getFinalizedHead", subxt::ext::subxt_rpcs::rpc_params!())
@@ -234,19 +249,21 @@ async fn writes_initial_state_for_bootstrapping() {
 		Ok("0") => H256::zero(),
 		_ => H256(prover.next_apk_commitment(latest).await.unwrap()),
 	};
-	let state = ApkConsensusState {
+	let state = ConsensusState {
 		latest_beefy_height: trusted.latest_beefy_height,
 		beefy_activation_block: trusted.beefy_activation_block,
 		mmr_root_hash: trusted.mmr_root_hash,
-		current_authorities: ApkAuthoritySet {
+		current_authorities: AuthoritySet {
 			id: trusted.current_authorities.id,
 			len: trusted.current_authorities.len,
-			apk_commitment: current,
+			bls_poseidon_hash: current,
+			ecdsa_merkle_root: trusted.current_authorities.ecdsa_merkle_root,
 		},
-		next_authorities: ApkAuthoritySet {
+		next_authorities: AuthoritySet {
 			id: trusted.next_authorities.id,
 			len: trusted.next_authorities.len,
-			apk_commitment: next,
+			bls_poseidon_hash: next,
+			ecdsa_merkle_root: trusted.next_authorities.ecdsa_merkle_root,
 		},
 	};
 

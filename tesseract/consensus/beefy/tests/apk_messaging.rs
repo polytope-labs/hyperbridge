@@ -27,13 +27,13 @@
 //! was learned. If it was not, and the proof was accepted anyway, messages are the only thing left
 //! it can have been accepted for, which pins the branch without reaching inside the pallet.
 //!
-//! Needs the relay, its parachain, a warm prover binary, and ismp traffic on the parachain so
-//! there is something to prove. Takes minutes, since it generates a real SNARK.
+//! Needs the relay, its parachain, and ismp traffic on the parachain so there is something to
+//! prove. Takes minutes, since it compiles the circuit and generates a real SNARK.
 //!
 //!   RELAY_WS_URL=ws://127.0.0.1:9979 PARA_WS_URL=ws://127.0.0.1:9981 PARA_ID=4009 \
-//!     APK_PROVER_BINARY=~/gnark-apk-proofs/target/release/examples/prove_serve \
 //!     PARA_SIGNER=0xe5be9a50... \
-//!     cargo test -p tesseract-beefy --test apk_messaging -- --ignored --nocapture
+//!     cargo test -p tesseract-beefy --no-default-features --features sp1-cluster,local \
+//!       --test apk_messaging -- --ignored --nocapture
 
 use std::sync::Arc;
 
@@ -195,10 +195,8 @@ async fn a_messaging_proof_is_accepted_as_new_work() -> Result<(), anyhow::Error
 		proof_variant: ProofVariant::Apk,
 		max_rpc_payload_size: None,
 		query_batch_size: None,
-		apk_prover_binary: Some(env("APK_PROVER_BINARY").into()),
-		apk_prover_dir: None,
-		apk_prover_one_shot: false,
 		apk_srs_dir: None,
+		sp1_cluster: None,
 	};
 	let prover: Prover<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::DefaultProver> =
 		Prover::new(prover_config, Default::default()).await?;

@@ -126,20 +126,8 @@ pub struct ProverConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
 	pub query_batch_size: Option<u32>,
-	/// The `gnark-apk-proofs` prover binary, for a build that has to shell out to it. Ignored by
-	/// one that compiles the circuit in and proves through it directly, see `apk_beefy::local`.
-	#[serde(default)]
-	pub apk_prover_binary: Option<std::path::PathBuf>,
-	/// Where a one shot prover exchanges its input and proof files. Ignored when the prover is
-	/// kept alive, which is the default.
-	#[serde(default)]
-	pub apk_prover_dir: Option<std::path::PathBuf>,
-	/// Run the prover once per proof instead of keeping it alive. Costs the circuit setup, four
-	/// minutes, on every proof, so it is only worth it for a prover with no serve mode.
-	#[serde(default)]
-	pub apk_prover_one_shot: bool,
-	/// Where the circuit's structured reference string lives, passed to the prover. Left unset it
-	/// falls back to the prover's own default.
+	/// Where the circuit's structured reference string lives. Left unset it falls back to the
+	/// prover's own default.
 	#[serde(default)]
 	pub apk_srs_dir: Option<std::path::PathBuf>,
 	/// Where sp1 proving happens when this build proves on a cluster. Ignored by a build that
@@ -931,42 +919,26 @@ where
 			},
 			ProofVariant::Ecdsa => Prover::Ecdsa(prover, PhantomData),
 			ProofVariant::Apk => {
-				// The circuit is compiled into this process, so there is no binary to talk to and
-				// the setup happens here rather than in a child. Only a build that proves sp1 on
-				// a cluster gets this far, since the go runtime the circuit brings cannot share a
-				// process with the one sp1's gnark ffi links: see the guard in this crate's
-				// lib.rs. Setup takes a couple of minutes and saturates every core, so it stays
-				// off the runtime's workers.
+				// The circuit is only ever proven in process, and it brings a go runtime that
+				// cannot share one with the runtime sp1's gnark ffi links, so a build proving sp1
+				// locally has no way to produce an apk proof: see the guard in this crate's
+				// lib.rs.
+				#[cfg(not(feature = "local"))]
+				return Err(anyhow!(
+					"the apk variant proves through the circuit compiled into this binary, build \
+					 with `--no-default-features --features sp1-cluster,local`"
+				));
+
 				#[cfg(feature = "local")]
-				let apk_prover: Arc<dyn apk_beefy::ApkProver> = {
+				{
+					// Setup takes a couple of minutes and saturates every core, so it stays off
+					// the runtime's workers.
 					let srs_dir = config.apk_srs_dir.clone();
 					let local = std::thread::spawn(move || apk_beefy::LocalProver::new(srs_dir))
 						.join()
 						.map_err(|_| anyhow!("apk circuit setup panicked"))??;
-					Arc::new(local)
-				};
-				#[cfg(not(feature = "local"))]
-				let apk_prover: Arc<dyn apk_beefy::ApkProver> = {
-					let binary =
-						config.apk_prover_binary.clone().ok_or_else(|| {
-							anyhow!("`apk_prover_binary` is required by a build that proves sp1 locally")
-						})?;
-					if config.apk_prover_one_shot {
-						let work_dir = config
-							.apk_prover_dir
-							.clone()
-							.unwrap_or_else(|| binary.with_file_name("apk-prover-work"));
-						Arc::new(apk_beefy::CommandProver::new(binary, work_dir)?)
-					} else {
-						// Setup runs here, before any proving, so the first proof is not four
-						// minutes slower than the rest.
-						Arc::new(
-							apk_beefy::ServiceProver::new(binary, config.apk_srs_dir.clone())
-								.await?,
-						)
-					}
-				};
-				Prover::Apk(apk_beefy::Prover::new(prover, apk_prover))
+					Prover::Apk(apk_beefy::Prover::new(prover, Arc::new(local)))
+				}
 			},
 		};
 

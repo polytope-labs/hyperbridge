@@ -31,12 +31,16 @@ use alloy::{
 use alloy_sol_types::SolValue;
 use anyhow::{anyhow, Context};
 use beefy_prover::relay::fetch_latest_beefy_justification;
-use ismp_abi::{ecdsa_beefy::BeefyConsensusState, evm_host::EvmHost, handler::handler_v2::HandlerV2};
+use ismp_abi::{
+	ecdsa_beefy::BeefyConsensusState, evm_host::EvmHost, handler::handler_v2::HandlerV2,
+};
 use sp_consensus_beefy::{ecdsa_crypto::Signature, SignedCommitment};
 use subxt::{backend::legacy::LegacyRpcMethods, config::Header as _};
 use tesseract_beefy::{
 	backend::{InMemoryProofBackend, ProofBackend},
-	prover::{BeefyProver, BeefyProverConfig, Prover, ProverConfig, ProverConsensusState, ProofVariant},
+	prover::{
+		BeefyProver, BeefyProverConfig, ProofVariant, Prover, ProverConfig, ProverConsensusState,
+	},
 	ConsensusState,
 };
 use tesseract_substrate::{
@@ -91,10 +95,14 @@ async fn submit_via_sequencer(
 ) -> anyhow::Result<TransactionReceipt> {
 	// `DynProvider` erases the filler layer, so populate the tx fields explicitly against the
 	// read RPC, sign locally, and push the raw signed tx to the sequencer.
-	let calldata =
-		HandlerV2::new(HANDLER, read.clone()).handleConsensus(HOST, proof).calldata().clone();
-	let base =
-		TransactionRequest::default().with_from(from).with_to(HANDLER).with_input(calldata);
+	let calldata = HandlerV2::new(HANDLER, read.clone())
+		.handleConsensus(HOST, proof)
+		.calldata()
+		.clone();
+	let base = TransactionRequest::default()
+		.with_from(from)
+		.with_to(HANDLER)
+		.with_input(calldata);
 	let chain_id = read.get_chain_id().await.context("get_chain_id")?;
 	let nonce = read.get_transaction_count(from).await.context("get_transaction_count")?;
 	let gas = read.estimate_gas(base.clone()).await.context("estimate_gas")?;
@@ -140,7 +148,8 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 	let from = signer.address();
 	let wallet = EthereumWallet::from(signer);
 
-	let mut chains: Vec<(String, DynProvider, Option<DynProvider>)> = Vec::with_capacity(CHAINS.len());
+	let mut chains: Vec<(String, DynProvider, Option<DynProvider>)> =
+		Vec::with_capacity(CHAINS.len());
 	println!("EVM RPC endpoints:");
 	for (id, name, rpc_env, submit_url) in CHAINS {
 		let url = std::env::var(rpc_env)
@@ -181,7 +190,10 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 				"  {name}: height={} current_set={} next_set={}",
 				s.latest_beefy_height, s.current_authorities.id, s.next_authorities.id,
 			);
-			if best.as_ref().map_or(true, |(_, b)| s.latest_beefy_height < b.latest_beefy_height) {
+			if best
+				.as_ref()
+				.map_or(true, |(_, b)| s.latest_beefy_height < b.latest_beefy_height)
+			{
 				best = Some((name.clone(), s));
 			}
 		}
@@ -204,6 +216,8 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 		proof_variant: ProofVariant::Ecdsa,
 		max_rpc_payload_size: None,
 		query_batch_size: None,
+		apk_srs_dir: None,
+		sp1_cluster: None,
 	};
 	// ECDSA proof submitted to the EVM handler, which does not enforce the SP1 committed-
 	// nonce binding, so a zero account is fine here.
@@ -229,10 +243,11 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 	.await?;
 
 	// Seed the in-memory backend with the genesis state read from the chains.
-	let backend: Arc<dyn ProofBackend> = Arc::new(InMemoryProofBackend::new(ProverConsensusState {
-		inner: genesis.clone(),
-		finalized_parachain_height: 0,
-	}));
+	let backend: Arc<dyn ProofBackend> =
+		Arc::new(InMemoryProofBackend::new(ProverConsensusState {
+			inner: genesis.clone(),
+			finalized_parachain_height: 0,
+		}));
 
 	let beefy_config = BeefyProverConfig {
 		consensus_state_id: *b"DOT0",
@@ -241,12 +256,12 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 		backend: Default::default(),
 	};
 
-	let beefy = BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::DefaultProver, dyn ProofBackend>::new(
-		beefy_config,
-		substrate,
-		prover,
-		backend,
-	)
+	let beefy = BeefyProver::<
+		Blake2SubstrateChain,
+		KeccakSubstrateChain,
+		zk_beefy::DefaultProver,
+		dyn ProofBackend,
+	>::new(beefy_config, substrate, prover, backend)
 	.await?;
 
 	// A second relay connection for the auxiliary queries the helpers don't expose (resolving
@@ -305,15 +320,17 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 					.chain_get_header(Some(epoch_hash))
 					.await?
 					.ok_or_else(|| anyhow!("epoch-change header missing"))?;
-				beefy
-					.epoch_justification_for(epoch_header.number().into())
-					.await?
-					.ok_or_else(|| anyhow!("no BEEFY justification found for epoch {next_set_id}"))?
+				beefy.epoch_justification_for(epoch_header.number().into()).await?.ok_or_else(
+					|| anyhow!("no BEEFY justification found for epoch {next_set_id}"),
+				)?
 			},
 			None => {
 				// Sets are caught up. Do a final height advance to the live head, then stop.
 				if live_header.number <= anchor.latest_beefy_height {
-					println!("\nActive chains caught up at height {} set {}", anchor.latest_beefy_height, anchor.current_authorities.id);
+					println!(
+						"\nActive chains caught up at height {} set {}",
+						anchor.latest_beefy_height, anchor.current_authorities.id
+					);
 					break;
 				}
 				let head = live_header.hash();
@@ -344,11 +361,17 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 			// mark the chain skipped, and continue with the rest. Chains with a dedicated submit
 			// endpoint (Arbitrum sequencer) take the raw-tx path; the rest use a normal send.
 			let result: anyhow::Result<TransactionReceipt> = match submit {
-				Some(sequencer) => submit_via_sequencer(read, sequencer, &wallet, from, proof.clone()).await,
+				Some(sequencer) =>
+					submit_via_sequencer(read, sequencer, &wallet, from, proof.clone()).await,
 				None => {
 					let handler = HandlerV2::new(HANDLER, read.clone());
 					async {
-						Ok(handler.handleConsensus(HOST, proof.clone()).send().await?.get_receipt().await?)
+						Ok(handler
+							.handleConsensus(HOST, proof.clone())
+							.send()
+							.await?
+							.get_receipt()
+							.await?)
 					}
 					.await
 				},
@@ -367,7 +390,10 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 					advanced_any = true;
 				},
 				Ok(receipt) => {
-					println!("  ✗ {name}: reverted (tx {:?}) — skipping this chain.", receipt.transaction_hash);
+					println!(
+						"  ✗ {name}: reverted (tx {:?}) — skipping this chain.",
+						receipt.transaction_hash
+					);
 					failed.insert(name.clone());
 				},
 				Err(e) => {
@@ -388,8 +414,11 @@ async fn rotate_authorities_across_all_chains() -> anyhow::Result<()> {
 		}
 	}
 
-	let advanced: Vec<&str> =
-		chains.iter().map(|(n, _, _)| n.as_str()).filter(|n| !failed.contains(*n)).collect();
+	let advanced: Vec<&str> = chains
+		.iter()
+		.map(|(n, _, _)| n.as_str())
+		.filter(|n| !failed.contains(*n))
+		.collect();
 	println!("\nDone — {rotations} rotation(s).");
 	println!("  advanced: {advanced:?}");
 	if !failed.is_empty() {

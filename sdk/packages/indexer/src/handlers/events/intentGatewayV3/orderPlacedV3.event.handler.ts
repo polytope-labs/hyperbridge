@@ -10,6 +10,7 @@ import { Interface } from "@ethersproject/abi"
 import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "@/constants"
 import { bytes32ToBytes20, bytes20ToBytes32 } from "@/utils/transfer.helpers"
+import { getHostFeeToken } from "@/utils/host.helpers"
 
 const intentGatewayInterface = new Interface(IntentGatewayV3Abi)
 
@@ -109,9 +110,13 @@ export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Prom
 
 	logger.info(`[Intent Gateway V3] Order Commitment: ${commitment}`)
 
+	// Fees are paid in the host's fee token, which differs per chain.
+	const feeToken = await getHostFeeToken(chain)
+
 	await IntentGatewayV3Service.getOrCreateOrder(
 		{ ...order, user: bytes32ToBytes20(order.user) as Hex },
 		graffiti,
+		feeToken,
 		txMeta,
 	)
 

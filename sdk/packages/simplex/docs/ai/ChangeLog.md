@@ -10,6 +10,29 @@ What changed and why, in a few sentences.
 Files: list of files touched.
 ```
 
+## 2026-08-22 — Record the 1000-unit phantom probe now deployed on-chain
+
+Docs only; no code change. The pallet's phantom standard amount was raised to 1000 units for every
+token on-chain, which retires the one-token probe both `Flow.md` and `Decisions.md` described as
+the deployed configuration.
+
+The bump resolves a live discrepancy: the cNGN/USDC pool published ~1393 while its Uniswap V4 mid
+was ~1391. The filler was not misquoting — `resolveLegRates` returns the raw pool mid with no
+spread in either direction — but the cNGN -> USDC leg's quote was a floored 3-digit integer of
+6-decimal USDC (`1e6/1391 = 718.9 -> 718`), and `LiquidityEngine.getBuyAndSellRates` publishes that
+side as its reciprocal (`1e6/718 = 1392.76`). Flooring is conservative where it is measured and
+biased upward once inverted. At 1000 units the same leg quotes 718,907 and publishes 1391.0005.
+
+`Flow.md` also now records the two behaviours the bump changes: curve-priced pairs are sampled at
+1000 token0 units rather than at the curve origin, and `quotePhantomFill`'s `maxOrderSize` warning
+becomes reachable for pairs capped below 1000 token0 units.
+
+Unaffected by the bump, and still true of the published number: it is a pool mid with no fee tier
+and no impact term, and it is gross of the gateway protocol fee.
+
+Files: sdk/packages/simplex/docs/ai/Flow.md, sdk/packages/simplex/docs/ai/Decisions.md,
+sdk/packages/simplex/docs/ai/ChangeLog.md.
+
 Newest entries first.
 
 ## 2026-08-20 — The filler only takes single-leg orders

@@ -12,6 +12,21 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-22 — The 1000-unit probe the renormalization was built for is now deployed
+
+Comment only; no behaviour change. `poolRateFromQuote` and `resolvePoolLeg` were made probe-size
+agnostic on 2026-08-19 specifically to unblock this, and the pallet's standard amount is now 1000
+units for every token on-chain. Verified against the deployed registry decimals: the plausibility
+window accepts the new amount on every cNGN chain, including BSC's 18-decimal USDC leg at 1e21
+(`MAX_STANDARD_UNITS` allows 1e24 there), and the renormalization is exact at the new size.
+
+The test that pins the four live one-unit mainnet rates keeps its cases — they are now history
+rather than the deployed configuration, and they remain the proof that a probe-size change cannot
+move a published rate — but its comment no longer claims they are what production runs.
+
+Files: sdk/packages/indexer/src/services/__tests__/liquidityPool.service.test.ts,
+sdk/packages/indexer/docs/ai/ChangeLog.md.
+
 ## 2026-08-19 — Pool rates renormalize by the leg's own standard amount
 
 `resolvePoolLeg` used to require `standardAmount === 10 ** inputDecimals` exactly, and `updateLiquidityPools` derived a chain sample as `medianPrice * scale`, which silently assumes that same one-unit probe. Both now work for whatever standard amount the phantom order carries: the rate is `medianPrice * scale * 10 ** inDecimals / standardAmount`, exact for any probe size, whole-token or not, and it collapses to the old expression when the probe is one unit. Verified against production: the four live one-unit rates (Base cNGN/USDC both directions, BSC cNGN/USDT both directions) reproduce byte-for-byte, and a 1000x probe with a 1000x quote yields the identical rate.

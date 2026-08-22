@@ -161,11 +161,26 @@ verbatim, and inventory in the wrong token buys no influence on that leg.
 
 ### Precision budget
 
-The output integer *is* the price, to whatever resolution the output token's decimals allow. One
-whole cNGN priced into 6-decimal USDC quotes ~715 base units, so the grid is `1/715` = 0.14%.
-Chains whose output token has 18 decimals carry full precision on the same leg — which is why
-EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The lever is the pallet's
-standard amount, not the rounding mode; see Decisions.md.
+The output integer *is* the price, to whatever resolution the output token's decimals allow, and
+the probe size is what buys that resolution. At the original one-token probe, one whole cNGN
+priced into 6-decimal USDC quoted ~715 base units, so the grid was `1/715` = 0.14% — and because
+`LiquidityEngine.getBuyAndSellRates` reports the cNGN side as the *reciprocal* of that integer,
+the floor read high: a 1391 pool mid published as 1392.76. Chains whose output token has 18
+decimals never had the problem on that leg, which is why EVM-56 published `716845878136200` where
+Base published a bare `715`.
+
+**The pallet's standard amount is now 1000 units for every token (on-chain, 2026-08-22.)** The same
+leg now quotes ~718,907 base units and the grid is `1/718907` = 0.00014%; a 1391 mid publishes as
+1391.0005. The lever was the probe size, not the rounding mode — the floor stays, see Decisions.md.
+
+Two consequences of the bump, neither a regression:
+
+- A **curve-priced** pair is now sampled at 1000 token0 units instead of 1 (`resolveLegRates`
+  takes the leg's own notional), so any sloped curve publishes a different — correctly, worse —
+  rate than it did at the origin. Venue-priced pairs read a flat pool mid and do not move.
+- `quotePhantomFill` warns when a probe notional exceeds the pair's `maxOrderSize`, and 1000
+  token0 units clears caps that 1 unit never approached. The probe still publishes the full-size
+  price; the warning is the signal that the pair will not fill what it quotes.
 
 ## Venue pricing (Uniswap V4 funded pairs)
 

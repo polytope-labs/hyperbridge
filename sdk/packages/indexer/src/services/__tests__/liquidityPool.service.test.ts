@@ -111,9 +111,10 @@ describe("poolRateFromQuote", () => {
 		},
 	]
 
-	// The legacy probe, and the one still deployed. At exactly one whole unit the two powers in
-	// the renormalization cancel, so this must reproduce what the indexer published before the
-	// standard amount became a variable at all.
+	// The legacy probe, superseded on-chain by a 1000-unit one on 2026-08-22. At exactly one whole
+	// unit the two powers in the renormalization cancel, so this must reproduce what the indexer
+	// published before the standard amount became a variable at all — the history stays pinned so
+	// a future probe-size change can still be proved rate-neutral against it.
 	it.each(cases)("reproduces the live rate at a 1-unit probe: $name", ({ medianPrice, inDecimals, outDecimals, expected }) => {
 		const standardAmount = 10n ** BigInt(inDecimals)
 		expect(poolRateFromQuote(medianPrice, { inDecimals, outDecimals }, standardAmount)).toBe(expected)

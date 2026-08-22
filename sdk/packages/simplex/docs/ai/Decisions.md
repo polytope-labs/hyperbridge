@@ -181,6 +181,13 @@ Precision belongs to the probe size, not the rounding mode. Raising the pallet's
 1000 tokens shrinks the same conservative buffer ~1000x (worst error 0.140% -> 0.00014%) while
 keeping every quote fillable.
 
+**Update 2026-08-22: the standard amount was raised to 1000 units for every token on-chain**, so the
+buffer is now the 0.00014% figure above and the floor keeps doing its one job. The bias this
+removed was visible in production: a cNGN/USDC pool mid of ~1391 published as ~1393, because
+`LiquidityEngine.getBuyAndSellRates` reciprocates the cNGN -> USDC leg and inverting a floored
+3-digit integer biases *upward*. That direction of error is the one flooring cannot protect
+against, which is precisely why the probe size — not the rounding mode — had to be the lever.
+
 ## 2026-08-19 — Published phantom prices are gross of the gateway protocol fee
 
 Noted, not changed. `placeOrder` deducts `protocolFeeBps` from each input, mutates `order.inputs`

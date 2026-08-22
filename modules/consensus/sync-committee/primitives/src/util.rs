@@ -24,6 +24,13 @@ pub fn compute_epoch_at_slot<C: Config>(slot: u64) -> u64 {
 
 /// Return the fork version at the given ``epoch``.
 pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
+	// The verifier resolves the fork version for any slot it is handed, including post-Gloas ones,
+	// so this branch is always compiled. Pre-Gloas networks set `GLOAS_FORK_EPOCH` to the far
+	// future, which keeps this inert until the fork is actually scheduled.
+	if epoch >= C::GLOAS_FORK_EPOCH {
+		return C::GLOAS_FORK_VERSION;
+	}
+
 	if epoch >= C::FULU_FORK_EPOCH {
 		C::FULU_FORK_VERSION
 	} else if epoch >= C::ELECTRA_FORK_EPOCH {

@@ -109,21 +109,27 @@ pub fn next_commitment_unknown(state: &[u8], proof_type: u8) -> bool {
 #[cfg(test)]
 mod commitment_tests {
 	use super::*;
-	use beefy_verifier_primitives::{ApkAuthoritySet, ApkConsensusState};
+	use beefy_verifier_primitives::{AuthoritySet, ConsensusState};
 	use codec::Encode;
 	use primitive_types::H256;
 
 	fn state(next: H256) -> Vec<u8> {
-		ApkConsensusState {
+		ConsensusState {
 			latest_beefy_height: 100,
 			beefy_activation_block: 0,
 			mmr_root_hash: H256::zero(),
-			current_authorities: ApkAuthoritySet {
+			current_authorities: AuthoritySet {
 				id: 7,
 				len: 2,
-				apk_commitment: H256::repeat_byte(1),
+				bls_poseidon_hash: H256::repeat_byte(1),
+				ecdsa_merkle_root: H256::repeat_byte(2),
 			},
-			next_authorities: ApkAuthoritySet { id: 8, len: 2, apk_commitment: next },
+			next_authorities: AuthoritySet {
+				id: 8,
+				len: 2,
+				bls_poseidon_hash: next,
+				ecdsa_merkle_root: H256::repeat_byte(3),
+			},
 		}
 		.encode()
 	}

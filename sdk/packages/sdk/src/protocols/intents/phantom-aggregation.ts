@@ -372,6 +372,22 @@ export interface AggregationLogger {
 	warn: (payload: unknown, message: string) => void
 }
 
+/**
+ * Haircut applied to a quote that is priced off a Uniswap V4 pool, in basis points.
+ *
+ * A bid that declares V4 positions is quoting off those pools, and a pool price is what a trade
+ * gets BEFORE the pool takes its fee — so the amount such a bid names is more than the solver
+ * would actually be left holding once the swap that sources it clears. 30bps is the fee tier the
+ * pools these positions sit in charge, so netting it out here is what makes a pool-priced quote
+ * comparable to a wallet-funded one, whose inventory has already paid its cost of goods.
+ */
+export const UNISWAP_QUOTE_HAIRCUT_BPS = 30n
+
+/** Applies {@link UNISWAP_QUOTE_HAIRCUT_BPS} to a quoted output amount, rounding down. */
+export function applyUniswapQuoteHaircut(amount: bigint): bigint {
+	return (amount * (10_000n - UNISWAP_QUOTE_HAIRCUT_BPS)) / 10_000n
+}
+
 // Liquidity-weighted median of solver quotes. Each quote's influence is proportional to `weight` —
 // the solver's total balance for the output token across native + vault venues — so a solver that
 // can actually deliver size moves the price more than one quoting on thin liquidity. Returns the
@@ -1049,7 +1065,21 @@ async function runAggregation(
 			// A zero amount is how a solver declines a leg it does not price, so it is not a quote.
 			// Weights are fetched concurrently: the memo caches promises, so identical output tokens
 			// across legs still collapse to a single RPC round trip.
-			const quotedLegs = [...fillData.legs.entries()].filter(([, leg]) => leg.solverAmount !== 0n)
+			//
+			// A bid that names V4 positions is priced off those pools, so its quote is haircut by
+			// the pool fee before anything downstream reads it — the median, the bidder rows, and
+			// the zero-check right here, which then treats a quote the haircut rounds away exactly
+			// as it treats a declined one. The declaration drives this rather than the positions
+			// that survive the ownership check below, so the quote is haircut on the same basis
+			// the solver priced it on, whether or not this chain has V4 contracts configured.
+			const poolPriced = declaration.uniswapV4Positions.length > 0
+			const quotedLegs = [...fillData.legs.entries()]
+				.map(([legIndex, leg]): [number, FillLeg] =>
+					poolPriced
+						? [legIndex, { ...leg, solverAmount: applyUniswapQuoteHaircut(leg.solverAmount) }]
+						: [legIndex, leg],
+				)
+				.filter(([, leg]) => leg.solverAmount !== 0n)
 
 			// Liquidity a solver parked in a Uniswap V4 position is real capacity but holds no ERC-20
 			// balance, so without this it reads as zero and the leg is dropped. The bid only NAMES

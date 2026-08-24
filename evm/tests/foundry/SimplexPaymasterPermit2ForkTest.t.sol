@@ -320,9 +320,12 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         );
         bytes32 digest =
             keccak256(abi.encodePacked("\x19\x01", IPermit2Test(address(PERMIT2)).DOMAIN_SEPARATOR(), structHash));
-        return _sign(key, digest);
+        // mode 0x02 lays the signature out as v ‖ r ‖ s (mirroring the EIP-2612 mode 0x00 fields).
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+        return abi.encodePacked(v, r, s);
     }
 
+    /// Canonical r ‖ s ‖ v — the shape ECDSA.recover expects for the account signature.
     function _sign(uint256 key, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         return abi.encodePacked(r, s, v);

@@ -75,8 +75,8 @@ interface ISignatureTransfer {
 ///     abi.encodePacked(uint8(1), address(token))
 ///   Mode 0x02 (permit2):
 ///     abi.encodePacked(uint8(2), address(token), uint256(permitAmount),
-///                      uint256(nonce), uint256(deadline), bytes(signature))
-///     signature is 65 bytes (r, s, v); the signed spender is this paymaster.
+///                      uint256(nonce), uint256(deadline), uint8(v), bytes32(r), bytes32(s))
+///     the signed spender is this paymaster.
 ///
 /// Price conversion uses two Chainlink feeds: token/USD and nativeAsset/USD.
 /// The markup surplus accumulates in the contract and is withdrawable to the
@@ -472,7 +472,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         validationData = 0; // no time-range restriction
 
         if (mode == 0x02) {
-            (,,, uint256 deadline,) = _parsePermit2Data(data);
+            (,,, uint256 deadline,,,) = _parsePermit2Data(data);
             // Surfacing the permit deadline as validUntil lets bundlers drop
             // expiring ops instead of discovering it through a Permit2 revert.
             uint48 validUntil = deadline > type(uint48).max ? 0 : uint48(deadline);
@@ -502,7 +502,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
             return super._prefund(userOp, userOpHash, token, tokenPrice, prefunder_, maxCost);
         }
 
-        (, uint256 permitAmount, uint256 nonce, uint256 deadline, bytes calldata signature) = _parsePermit2Data(data);
+        (, uint256 permitAmount, uint256 nonce, uint256 deadline, uint8 v, bytes32 r, bytes32 s) =
+            _parsePermit2Data(data);
         prefundAmount = _erc20Cost(maxCost, userOp.maxFeePerGas(), tokenPrice);
         if (prefundAmount > permitAmount) revert InsufficientPermitAmount(permitAmount, prefundAmount);
         // Solidity's own extcodesize revert on a code-less target is not caught by try/catch.
@@ -521,7 +522,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
             }),
             ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: prefundAmount}),
             owner,
-            signature
+            abi.encodePacked(r, s, v)
         ) {
             emit Permit2Executed(tokenAddr, owner, prefundAmount, nonce);
         } catch (bytes memory reason) {
@@ -532,18 +533,20 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     }
 
     /// @dev Parse mode 0x02 paymasterData.
-    ///      Layout: mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65) = 182 bytes
+    ///      Layout: mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + v(1) + r(32) + s(32) = 182 bytes
     function _parsePermit2Data(bytes calldata data)
         internal
         pure
-        returns (address token, uint256 permitAmount, uint256 nonce, uint256 deadline, bytes calldata signature)
+        returns (address token, uint256 permitAmount, uint256 nonce, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
     {
         if (data.length != PERMIT2_DATA_LENGTH) revert InvalidPaymasterData(data.length);
         token = address(bytes20(data[1:21]));
         permitAmount = uint256(bytes32(data[21:53]));
         nonce = uint256(bytes32(data[53:85]));
         deadline = uint256(bytes32(data[85:117]));
-        signature = data[117:182];
+        v = uint8(data[117]);
+        r = bytes32(data[118:150]);
+        s = bytes32(data[150:182]);
     }
 
     /// @dev Parse and execute the EIP-2612 permit from paymasterData.

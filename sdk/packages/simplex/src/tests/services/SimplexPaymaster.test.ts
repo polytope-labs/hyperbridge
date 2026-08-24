@@ -14,7 +14,7 @@ import {
 } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 
-import { buildSimplexPaymasterData } from "@/services/paymaster/provider/simplex"
+import { buildSimplexPaymasterData, resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 import { permit2TransferTypedData, normalizeSignature65 } from "@/services/paymaster/permit2"
 import {
 	VERIFICATION_GAS_LIMIT_APPROVE,
@@ -140,7 +140,10 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(BigInt(slice(data, 21, 53))).toBe(RECOMMENDED)
 		const nonce = BigInt(slice(data, 53, 85))
 		const deadline = BigInt(slice(data, 85, 117))
-		expect(slice(data, 117, 182)).toBe(SIG)
+		// Signature laid out as v (1) ‖ r (32) ‖ s (32); SIG = r(0x11*32) ‖ s(0x11*32) ‖ v(0x1b).
+		expect(slice(data, 117, 118)).toBe("0x1b")
+		expect(slice(data, 118, 150)).toBe(`0x${"11".repeat(32)}`)
+		expect(slice(data, 150, 182)).toBe(`0x${"11".repeat(32)}`)
 		expect(deadline).toBeGreaterThanOrEqual(before + PERMIT2_DEADLINE_SECONDS)
 		expect(deadline).toBeLessThanOrEqual(before + PERMIT2_DEADLINE_SECONDS + 5n)
 
@@ -254,6 +257,64 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(writeContract).toHaveBeenCalledOnce()
 		expect(approveCall(writeContract).args).toEqual([PAYMASTER, RECOMMENDED])
 		expect(pm?.paymasterData).toBe(encodePacked(["uint8", "address"], [1, USDC]))
+	})
+})
+
+describe("resolvePendingPermit2Approval (native-delegation batching)", () => {
+	it("returns the fee token to approve when a no-permit token has no Permit2 allowance", async () => {
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ native: 0n }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toEqual({ token: USDC, spender: PERMIT2 })
+	})
+
+	it("returns null once the Permit2 allowance already covers the recommended amount", async () => {
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ permit2Allowance: RECOMMENDED }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toBeNull()
+	})
+
+	it("returns null for a permit-capable token (PERMIT mode handles it)", async () => {
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ permit: true }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toBeNull()
+	})
+
+	it("returns null on chains without Permit2 configured", async () => {
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ native: 0n }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			makeConfigService("0x"),
+		)
+		expect(pending).toBeNull()
+	})
+
+	it("returns null when the paymaster deployment predates PERMIT2 mode", async () => {
+		const legacyPaymaster = "0x2222222222222222222222222222222222222222" as HexString
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ native: 0n, permit2Capable: false }),
+			SOLVER,
+			legacyPaymaster,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toBeNull()
 	})
 })
 

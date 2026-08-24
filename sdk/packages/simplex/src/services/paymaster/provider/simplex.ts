@@ -140,6 +140,42 @@ export async function buildSimplexPaymasterData(
 	return approveMode()
 }
 
+/**
+ * The fee token a native EIP-7702 delegation can approve to Permit2 in the same transaction,
+ * so a no-permit chain's one-time bootstrap rides the delegation rather than costing a
+ * separate native tx. Returns null when no such approval is pending: a permit-capable token,
+ * an approval already in place, no Permit2 configured, a paymaster without PERMIT2 mode, or
+ * the solver holding no fee token yet (the approval then defers to the first sponsored op).
+ */
+export async function resolvePendingPermit2Approval(
+	client: PublicClient,
+	solverAccount: HexString,
+	paymasterAddress: HexString,
+	chain: string,
+	configService: FillerConfigService,
+): Promise<{ token: HexString; spender: HexString } | null> {
+	const permit2 = configService.getPermit2Address(chain)
+	if (!isConfigured(permit2)) return null
+	if (!(await paymasterSupportsPermit2(client, paymasterAddress))) return null
+
+	const tokens: TokenOption[] = []
+	const usdc = configService.getUsdcAsset(chain)
+	if (isConfigured(usdc)) tokens.push({ address: usdc, decimals: configService.getUsdcDecimals(chain) })
+	const usdt = configService.getUsdtAsset(chain)
+	if (isConfigured(usdt)) tokens.push({ address: usdt, decimals: configService.getUsdtDecimals(chain) })
+
+	const selected = await selectToken(client, solverAccount, tokens)
+	if (!selected) return null
+	// A permit-capable token uses PERMIT mode, never Permit2.
+	if (await tokenSupportsPermit(client, selected.address)) return null
+
+	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(selected.decimals)
+	const allowance = await readAllowance(client, selected.address, solverAccount, permit2)
+	if (allowance >= recommended) return null
+
+	return { token: selected.address, spender: permit2 }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Missing assets come back from the config service as the literal "0x". */
@@ -293,9 +329,14 @@ async function buildPermit2Mode(
 		deadline,
 	})
 
+	// Split into explicit v, r, s (mode 0x02 layout mirrors the EIP-2612 mode 0x00 fields).
+	const r = `0x${signature.slice(2, 66)}` as HexString
+	const s = `0x${signature.slice(66, 130)}` as HexString
+	const v = Number.parseInt(signature.slice(130, 132), 16)
+
 	const paymasterData = encodePacked(
-		["uint8", "address", "uint256", "uint256", "uint256", "bytes"],
-		[2, p.token, p.amount, nonce, deadline, signature],
+		["uint8", "address", "uint256", "uint256", "uint256", "uint8", "bytes32", "bytes32"],
+		[2, p.token, p.amount, nonce, deadline, v, r, s],
 	) as HexString
 
 	return {

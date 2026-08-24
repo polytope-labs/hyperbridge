@@ -4,6 +4,12 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-20 — Permit2 signature stored as v, r, s; delegation-batched approve is native-fallback only (#1071)
+
+Chosen (review request): mode 0x02 stores the signature as explicit `v, r, s` fields, matching the EIP-2612 mode 0x00 layout, rather than a `bytes` blob. The `bytes` form could in principle carry a non-65-byte ERC-1271 signature, but the fixed 182-byte `PERMIT2_DATA_LENGTH` already ruled that out, and SolverAccount verifies via plain ECDSA recovery, so nothing is lost and the two modes now read consistently. The test helper keeps two distinct packers: the account signature stays canonical `r ‖ s ‖ v` (what `ECDSA.recover` expects), while the paymasterData blob is `v ‖ r ‖ s` — conflating them silently breaks account validation with AA23.
+
+Chosen (review request): the `approve(Permit2, max)` bootstrap is folded into the native EIP-7702 delegation **only on the native-fallback path**, not made the default bootstrap strategy. The sponsored delegation stays primary; when it is unavailable and Simplex sends a native set-code tx anyway, the approve rides along. Scoped this way (over "always bootstrap with one native delegate+approve tx") because the native fallback is already the rare path, the change stays additive and guarded — a resolver failure or a chain that does not need it falls back to the plain self-call delegation — and it avoids reworking the delegation strategy or the which-token-to-preapprove question at startup (the resolver only acts when the solver already holds a fee token).
+
 ## 2026-08-19 — postOp gas limit is 40,000 exactly, and the constant is split per paymaster (#1071)
 
 Chosen: `MAX_POST_OP_GAS_LIMIT = 40_000`, `MIN_POST_OP_GAS_LIMIT = 30_000`, and an SDK constant per paymaster.

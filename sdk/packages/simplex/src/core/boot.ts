@@ -141,8 +141,9 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 	return {
 		token0: pair.token0,
 		token1: pair.token1,
-		// Reference-only pairs never fill, so the cap is never consulted.
-		maxOrderSize: new Decimal(pair.maxOrderSize ?? "0"),
+		// Optional: absent means uncapped. Reference-only pairs never fill, so the
+		// cap is never consulted for them either way.
+		maxOrderSize: pair.maxOrderSize === undefined ? undefined : new Decimal(pair.maxOrderSize),
 		referenceOnly: pair.referenceOnly === true,
 		bidPricePolicy: pair.bidPriceCurve?.length ? new FillerPricePolicy({ points: pair.bidPriceCurve }) : undefined,
 		askPricePolicy: pair.askPriceCurve?.length ? new FillerPricePolicy({ points: pair.askPriceCurve }) : undefined,
@@ -152,7 +153,8 @@ export function tradingPairFrom(pair: PairConfig): TradingPair {
 /**
  * Editable view of one trading pair for the UI server, or null for
  * venue-priced (curve-less) pairs — they have nothing to edit. The
- * enableSide/disableSide/setMaxOrderSize closures mutate the live TradingPair:
+ * enableSide/disableSide/setMaxOrderSize/clearMaxOrderSize closures mutate the
+ * live TradingPair:
  * the engine reads curve presence and the cap per order, so assignment opens or
  * closes a direction and resizes the market from the next evaluation.
  */
@@ -176,16 +178,26 @@ export function adminStrategyFor(
 		referenceOnly: pair.referenceOnly === true,
 	}
 	// A reference pair's cap is never consulted (it never fills), so leave it
-	// absent rather than surfacing the placeholder "0" as editable.
+	// absent rather than surfacing an editable field that does nothing. An
+	// uncapped pair reports no current value but can still be given one.
 	if (pair.referenceOnly !== true) {
-		adminStrategy.maxOrderSize = pair.maxOrderSize.toString()
+		adminStrategy.maxOrderSize = pair.maxOrderSize?.toString()
 		adminStrategy.setMaxOrderSize = (value) => {
-			const previous = pair.maxOrderSize.toString()
+			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
 			pair.maxOrderSize = new Decimal(value)
 			adminStrategy.maxOrderSize = value
 			logger.warn(
 				{ pair: `${pair.token0}/${pair.token1}`, previous, next: value },
 				"Per-order cap resized by operator",
+			)
+		}
+		adminStrategy.clearMaxOrderSize = () => {
+			const previous = pair.maxOrderSize?.toString() ?? "uncapped"
+			pair.maxOrderSize = undefined
+			adminStrategy.maxOrderSize = undefined
+			logger.warn(
+				{ pair: `${pair.token0}/${pair.token1}`, previous },
+				"Per-order cap removed by operator — market is now uncapped",
 			)
 		}
 	}

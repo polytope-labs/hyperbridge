@@ -55,7 +55,7 @@ describe("OrderCanceller recovery", () => {
 		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
 	})
 
-	it("keeps destination cancellation refund POSTs at an 800k gas budget", async () => {
+	it("keeps destination cancellation refund POSTs at a 1M gas budget", async () => {
 		vi.mocked(intentUtils.convertGasToFeeToken).mockResolvedValue(1_000n)
 		const ctx = {
 			source: {
@@ -75,7 +75,9 @@ describe("OrderCanceller recovery", () => {
 
 		await estimateRelayerFee("EVM-1", "EVM-42161")
 
-		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 800_000n, "source", "EVM-1")
+		// REFUND_POST_GAS moved 800k -> 1M alongside the GET repricing in #1144,
+		// which updated the constant but not this pin.
+		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
 	})
 
 	it("normalizes state-machine IDs in cancellation storage keys", () => {

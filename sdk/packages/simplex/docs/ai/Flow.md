@@ -18,6 +18,62 @@ Entry points: `UserOpSender.trySendSponsored` (delegation, vault sweeps/redeems,
 3. Back in `UserOpSender.trySendSponsored`, the EIP-7702 authorization thunk is resolved only after paymaster data is built, because the bootstrap approve is a tx from the same EOA and an authorization signed earlier would carry a stale nonce (bundler reject). Then bundler gas price, `EntryPoint.getNonce`, estimation (or the caller's fixed limits), signing of the packed userOp typed data, `eth_sendUserOperation`, and receipt polling.
 
 4. On chain (`evm/src/utils/SimplexPaymaster.sol`): `_fetchDetails` validates the mode byte and token registry and, for mode 2, returns the permit deadline as `validUntil`; `_prefund` pulls the prefund through `Permit2.permitTransferFrom` (owner = `userOp.sender`, to = paymaster, requestedAmount = oracle-derived prefund, capped by the signed amount) and postOp refunds the unused part to the sender.
+## Order intake: what reaches the filler at all
+
+`ChainScanner` polls `eth_getLogs`, rebuilds each `OrderPlaced` log into an `Order` via
+`reconstructOrdersFromLogs`, and hands it to every subscriber. `EventMonitor` is the per-filler
+subscriber and applies three filters in order (`src/core/event-monitor.ts`):
+
+1. **Chain.** A shared scanner may carry chains this filler is not configured for, so events are
+   matched on `chainId` against the monitor's own set.
+2. **Leg count.** The order must have exactly one entry in `inputs` and one in `output.assets`.
+   Anything else emits `orderSkipped` with reason `Multi-leg order` and stops here.
+3. **De-duplication.** The order id must not be in the seen set (last 5,000 ids). A scanner
+   resuming from a cursor re-delivers, and the fill path has no idempotency of its own.
+
+Only what survives all three is emitted as `newOrder`, which `IntentFiller` picks up in its
+constructor and passes to `handleNewOrder`. Fills take a separate path: `onFill` narrows on the
+filler address — `filler` is `indexed: false` in the ABI, so it can never be a topic filter — and
+emits `orderFilledOnChain`.
+
+Phantom orders do not come through here. They are polled from Hyperbridge inside `IntentFiller`,
+so the leg-count filter does not apply to them and `quotePhantomLeg` still splits a bundled
+phantom order into positional single-pair legs.
+
+## Filling: how a fill amount is sized, and who else spends the same balance
+
+Verified against the reverted Base fill `0x31de53fe...` (UserOp `0xe090acd1...`), traced end to end.
+
+### Sizing, per leg
+
+`FXFiller.evaluateOrder` walks `order.inputs` and sizes each leg independently (`src/strategies/fx.ts`):
+
+1. `targetOutput` = what the curve will pay (`policyMaxOutput`), in every case. This is the amount the leg intends to hand over, and it may exceed what the user asked for — `IntrinsicIntents.fillOrder` takes `solverAmount > totalRequired` and splits the excess between the beneficiary and the protocol (`surplusShareBps`), and it is the same figure `quotePhantomFill` publishes as the pair's quoted rate. A pair's `maxOrderSize` is optional and does not shorten this: it binds earlier and in the other unit, where `computeLegPolicyOutput` rations `token0ForLeg` against the pair's remaining budget before the rate is applied. `desiredOutput` — the user's ask scaled by the same cap — is no longer a ceiling on payout; it survives as the price gate's comparand and in the short-fill logs.
+2. `reserve` = the paymaster reserve for this token (`paymasterReserveForToken`, from `src/services/paymaster`) plus every funding venue's `walletReserveForToken`. Only the vault returns a non-zero venue reserve, its configured `minBalance`; `UniswapV4FundingPlanner` returns `0n`. The paymaster half is seeded outside the venue loop deliberately — the loop is empty when no vault and no V4 positions are configured, and that filler still sizes partial fills.
+3. `usableWallet` = balance − reserve. `walletContribution` = `min(targetOutput, usableWallet)`.
+4. Any shortfall is requested from each funding venue in turn via `planWithdrawalForToken`, which returns ERC-7821 calls and the amount it expects them to credit. The calls accumulate in `fundingCalls`. For V4 that credit is priced from `liquidityRemoval`, the liquidity the encoded DECREASE_LIQUIDITY actually carries — not the liquidity the planner asked for, which the SDK truncates.
+5. `finalOutputAmount` = `min(walletContribution + credited, targetOutput)`.
+
+After the loop, `estimateGasFillPost` prices the fill. A cross-chain order then has to clear one more affordability check: `fillOrder` dispatches the escrow-release message and `HyperApp.dispatchWithFeeToken` pulls `dispatchFee` from the same wallet in the destination host's fee token (USDC on Base — often the token just paid out). The fee is only known here, after the funding calls it depends on exist, and a cross-chain order cannot be partially filled, so the order is skipped when the residue will not cover the fee plus the paymaster reserve.
+
+A capped leg is separately gated as a partial fill when the cap actually shortens it — `capFraction.lt(1) && policyMaxOutput < output.amount`. Both halves matter: with the payout unclamped, a curve running far enough above the order's rate covers the whole ask out of a capped slice, which is a full fill.
+
+Whenever `finalOutputAmount < output.amount` the fill is an under-fill and has to clear `partialEligible()` — same chain, no output calldata, no prior partial — or the order is skipped.
+
+The outputs and the funding calls are cached against the order id (`setFillerOutputs`, `setFundingPrepends`). `ContractInteractionService.prepareBidUserOp` reads them back verbatim and signs them into the bid; nothing re-reads the balance between sizing and execution, and the bid is committed, so an amount that was affordable at evaluation must still be affordable when the UserOp lands.
+
+### The batch, in execution order
+
+`callData` is an ERC-7821 batch: the funding calls first (for V4, `PositionManager.multicall(modifyLiquidities)` encoding DECREASE_LIQUIDITY + TAKE_PAIR), then `approve` for the fill amount, then `IntentGateway.fillOrder`, which does the `transferFrom` that moves the output token to the user.
+
+What matters is what happens *before* any of that. The EntryPoint runs paymaster validation first, and `SimplexPaymaster` prefunds by pulling the EntryPoint's worst-case gas cost out of the solver's wallet with `transferFrom`, in whichever stablecoin `selectToken` picked — refunding the unused part in `_postOp`, long after the batch has already run or reverted. So the balance the batch sees is always lower than the balance the sizing saw, by the prefund.
+
+That is what `paymasterReserveForToken` exists to absorb. Without it, a balance-limited fill — `walletContribution == usableWallet == balance` — is sized to the last unit and reverts by exactly the prefund: 28,993 units of USDC against a 14,808,699,383 fill, where 14,377,624,370 (wallet) + 431,075,013 (V4 credit) reproduces the bid amount exactly.
+
+### Which token the paymaster charges
+
+Decided at submit time, not at sizing time, by `buildPaymasterAndData` (`src/services/paymaster/index.ts`): the Circle paymaster if configured and USDC balance >= 1 USDC, else the Simplex paymaster over the first of `[USDC, USDT]` with a balance >= 1 token (`selectToken`), else no paymaster. Because the sizing decision feeds the balances that decide this, the reserve covers both eligible tokens instead of predicting one.
+
 ## Signing: from construction to each signature
 
 ### Where the signer comes from
@@ -77,3 +133,75 @@ The direct path is uniform: `sendDelegationTransaction` calls `walletClient.send
 `signAuthorization` is the one that needs work, because viem makes it optional on an account and the interface does not: the adapter uses `account.signAuthorization` when present (private keys, Turnkey) and otherwise hashes the tuple and signs it with `account.sign`. An account with neither is rejected at construction — a solver that cannot delegate cannot bid, and finding that out at the first fill is worse.
 
 `privateKeySigner` is `viemSigner(privateKeyToAccount(key))`. `turnkeySigner` is `viemSigner(turnkeyAccount)` plus `mode: "turnkey"`. `mpcVaultSigner` uses no viem account: it implements the three operations against `MpcVaultService` directly.
+
+## Phantom probe: curve value -> published price
+
+Verified 2026-08-19 by reading the path end to end and reconciling against live mainnet bids and
+the nexus indexer.
+
+```
+FXFiller.quotePhantomFill(order)                      src/strategies/fx.ts
+  canFill(order)                                      bail if halted / unsupported / one-sided
+  resolveOrderLegs(order)                             order legs -> ResolvedLeg[]
+  sizeOrder(order, legs, venuePriceMemo())            per-leg notionals ONLY here
+  for each leg:
+    resolveLegRates(..., legNotionals[i], ...) -> rate    curve sampled at THIS leg's size
+    computeLegPolicyOutput(input.amount, ..., null, rate) <-- precision collapses HERE
+  returns TokenInfo[] (token, amount)
+```
+
+Two things to keep straight about this path:
+
+- **`sizeOrder`'s exposure outputs are unused here.** `cappedByPair` and `capFractionByPair` ration
+  real fills; a probe commits no capital, so it passes a `null` budget and prices the whole input.
+  Only `legNotionals` is consumed, as the rate sample point. See Decisions.md.
+- **`computeLegPolicyOutput` is where an arbitrary-precision `Decimal` becomes the integer that
+  leaves the process**, floored. Nothing downstream can recover the discarded fraction — the
+  filler's `Decimal` rate is never transmitted. The floor is deliberate and load-bearing.
+
+The integer then travels unchanged:
+
+```
+outputs[i].amount                   e.g. 715
+  -> fillOrder calldata outputs[i]  uint256, covered by userOpHash
+  -> bid submitted to the coprocessor
+  -> aggregatePhantomBids           quotes.push({ price, weight })
+  -> weightedMedian(backedQuotes)   SELECTION — returns an input element verbatim
+  -> PhantomOrderPriceSnapshotV2    medianPrice = lowestPrice = highestPrice
+  -> indexer updateLiquidityPools   renormalized by the leg's own standardAmount
+```
+
+A quote's weight in that median is the solver's balance of **that leg's output token on the
+destination chain** — so a solver holding over half the leg's weight sets the published price
+verbatim, and inventory in the wrong token buys no influence on that leg.
+
+### Precision budget
+
+The output integer *is* the price, to whatever resolution the output token's decimals allow. One
+whole cNGN priced into 6-decimal USDC quotes ~715 base units, so the grid is `1/715` = 0.14%.
+Chains whose output token has 18 decimals carry full precision on the same leg — which is why
+EVM-56 publishes `716845878136200` where Base publishes a bare `715`. The lever is the pallet's
+standard amount, not the rounding mode; see Decisions.md.
+
+## Venue pricing (Uniswap V4 funded pairs)
+
+Verified 2026-08-19.
+
+```
+resolveLegRates(...)
+  curveless pair && token0 is a USD stable
+    -> venuePriceMemo() -> getVenueUsdPrice(chain, token1)
+         -> UniswapV4FundingPlanner.getExoticTokenPrice
+              picks the position with the largest pool liquidity
+              -> computeDirectPoolPriceUsd -> sdkPool.token0Price / token1Price
+    -> checkPriceGuard(...)   reject if outside maxDeviationBps of the static reference
+    -> rate = 1 / venueUsd
+  otherwise -> the pair's ask/bid curve at the leg's notional
+```
+
+`computeDirectPoolPriceUsd` returns the **raw pool mid** derived from `sqrtPriceX96`. The pool's
+fee tier is read and stored on the hydrated position (`pos.fee`) but never applied to the price,
+and there is no size or impact term — `computeLegPolicyOutput` extends the mid linearly across the
+whole priced quantity. `checkPriceGuard` is the only defense on this path, and it checks deviation
+from a static reference, not execution cost. A venue-priced pair that has to swap through its own
+pool to source inventory pays a fee tier it never quoted against.

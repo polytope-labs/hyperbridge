@@ -208,7 +208,7 @@ export class PairController {
 				index,
 				token0: pair.token0,
 				token1: pair.token1,
-				maxOrderSize: pair.referenceOnly ? undefined : tradingPair?.maxOrderSize.toString(),
+				maxOrderSize: pair.referenceOnly ? undefined : tradingPair?.maxOrderSize?.toString(),
 				bid,
 				ask,
 				sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
@@ -325,6 +325,17 @@ export class PairController {
 		}
 		pair.maxOrderSize = parsed
 		this.pairs[index].maxOrderSize = value
+		await this.persist()
+	}
+
+	/**
+	 * Removes the per-order cap, leaving the pair uncapped — it then fills every
+	 * order at its full notional. Binds on the next order.
+	 */
+	async clearMaxOrderSize(index: number): Promise<void> {
+		const pair = this.livePair(index)
+		pair.maxOrderSize = undefined
+		this.pairs[index].maxOrderSize = undefined
 		await this.persist()
 	}
 

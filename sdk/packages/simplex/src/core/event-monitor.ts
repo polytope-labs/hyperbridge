@@ -27,10 +27,13 @@ const SEEN_LIMIT = 5_000
  * `rebalanceExecuted` on it, `ActivityRecorder` attaches to it, and `Simplex`
  * re-exposes it as the public event surface.
  *
- * Two things must stay on this side of the boundary:
+ * Three things must stay on this side of the boundary:
  *  - the `OrderFilled` filler-address filter. `filler` is `indexed: false` on
  *    both `OrderFilled` and `PartialFill`, so it can never be a topic filter;
  *    every consumer receives every fill and narrows it locally.
+ *  - the single-leg filter. Only orders with exactly one input and one output
+ *    asset reach the filler; a multi-leg order is skipped at the door rather
+ *    than split into legs downstream.
  *  - de-duplication. Exactly-once used to be emergent — a private monotonic
  *    cursor made a repeat impossible. A shared feed can replay from a cursor
  *    after a reconnect, so the seen-set below is what preserves the property
@@ -94,6 +97,15 @@ export class EventMonitor extends EventEmitter {
 	}
 
 	private handleOrder(order: Order, transactionHash: string): void {
+		if (order.inputs.length !== 1 || order.output.assets.length !== 1) {
+			this.logger.debug(
+				{ orderId: order.id, inputs: order.inputs.length, outputs: order.output.assets.length },
+				"Multi-leg order, ignoring",
+			)
+			this.emit("orderSkipped", { orderId: order.id, reason: "Multi-leg order" })
+			return
+		}
+
 		const id = order.id
 		if (id) {
 			// At-least-once delivery: a shared feed that resumes from a cursor can

@@ -12,3 +12,18 @@ AI-maintained map of how code paths in `sdk/packages/sdk` actually execute, so t
 4. The returned signature is prefixed with the order id (`concat([order.id, solverSignature])`) — that concatenation, not the bare signature, is what goes on the UserOperation.
 
 `signTypedData` is the interface's only member: `signMessage`, `signRawHash`, and `signTypedData`'s chain-id argument were all removed on 2026-08-18 as uncalled. `GasEstimator`'s `signMessage` call is viem's method on a locally derived account, unrelated to `SigningAccount`.
+
+## How the phantom order poll reads Hyperbridge
+
+`IntentsCoprocessor.pollPhantomOrders` (`src/chains/intentsCoprocessor.ts`) drives every read over the HTTP api from `http()`, never the websocket. `http()` derives the endpoint from the websocket provider's own endpoint (`deriveHttpUrl`) and builds an `ApiPromise` on an `HttpProvider` with its response cache disabled (capacity 0); the connect is `isReadyOrError` raced against `HTTP_CONNECT_TIMEOUT_MS`, and a failed connect is not cached.
+
+Each tick, skipped if the previous one is still running:
+
+1. `chain_getHeader()` for the head. No block hash, so polkadot-js never caches it — always a live request.
+2. On the first successful head read the cursor is set to `head - 1 - lookbackBlocks`; if `head <= cursor` the tick ends.
+3. For each block from `cursor + 1` to `min(head, cursor + maxBlocksPerPoll)`, `getPhantomOrdersInBlock` calls `chain_getBlockHash(n)`, then `api.at(hash)`, then `system.events` at that block. `api.at` resolves a registry through `getBlockRegistry`: reused by `lastBlockHash` or by runtime version where it can, otherwise `chain_getHeader(hash)` followed by `state_getRuntimeVersion(parentHash)` — which is why a failure there logs the parent's hash, not the scanned block's.
+4. The cursor advances per block, only once that block's events were read. A failure leaves it in place and fires `onError`; the next tick re-reads the same block with the same parameters.
+
+Step 4 is what made the provider cache dangerous: with caching on, re-reading a block whose `state_getRuntimeVersion` had rejected was answered by the cached rejection rather than a fresh request (fixed 2026-08-21). In `@hyperbridge/simplex` one `HyperbridgeScanner` owns this poll and fans `onError` out to every subscribing filler, so a single failed tick logs once from the scanner and once per filler.
+
+The cadence is `intervalMs` when given, otherwise `phantomPollIntervalMs()`: 6s on Gargantua, 15s elsewhere, decided by the runtime's `specName` read over the same HTTP api, falling back to 15s if that read fails.

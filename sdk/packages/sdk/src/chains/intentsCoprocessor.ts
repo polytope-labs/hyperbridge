@@ -343,7 +343,15 @@ export class IntentsCoprocessor {
 		if (!this.httpApi) {
 			const httpUrl = deriveHttpUrl(this.wsEndpoint())
 			const api = new ApiPromise({
-				provider: new HttpProvider(httpUrl),
+				// Response cache off (third argument, capacity 0). polkadot-js caches every request that
+				// names a block hash — `chain_getHeader(hash)`, `state_getRuntimeVersion(hash)`, storage
+				// reads at a hash — by storing the request promise itself, a rejected one included, for a
+				// 30s TTL that every hit refreshes. The phantom poll retries the block it failed on with
+				// identical parameters every tick, so one reset connection became the same rejection
+				// replayed from memory on every tick, faster than the TTL could lapse, and the node never
+				// saw a second request. The cache bought nothing here anyway: the poll reads each block
+				// once, and `api.at(hash)` reuses registries at the api layer regardless.
+				provider: new HttpProvider(httpUrl, {}, 0),
 				typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
 				// A second connection to the node the ws api already reported on; its init warnings
 				// would just be duplicates.

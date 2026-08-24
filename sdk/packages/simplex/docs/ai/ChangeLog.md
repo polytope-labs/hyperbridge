@@ -41,6 +41,200 @@ The Simplex paymaster client gained mode `0x02 PERMIT2`. On chains whose fee tok
 Live probe on Base Sepolia through Alchemy's bundler (deployment script `evm/script/SimplexPaymasterPermit2Probe.s.sol`, env-gated suite `src/tests/services/SimplexPaymasterPermit2.probe.test.ts`): a fresh EOA's sponsored EIP-7702 delegation and a follow-up no-op from the delegated account were both accepted in mode 2 (`Permit2Executed` on-chain), answering the ERC-7562 question for that bundler. The very first op right after the bootstrap approve was rejected `AA33` twice in a row until the approve was one more block old, so `sendFundedApprove` now waits for two confirmations.
 
 Files: `src/services/paymaster/permit2.ts` (new), `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/paymaster/index.ts`, `src/services/UserOpSender.ts`, `src/services/DelegationService.ts`, `src/config/abis/SimplexPaymaster.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `src/tests/services/UserOpSender.test.ts`, `src/tests/services/SimplexPaymasterPermit2.probe.test.ts` (new).
+## 2026-08-20 — The filler only takes single-leg orders
+
+`EventMonitor.handleOrder` now forwards an order only when it has exactly one input asset and one
+output asset. Anything else is dropped at the door with an `orderSkipped` event carrying the reason
+`Multi-leg order`, so the operator sees it in the activity feed rather than losing it silently.
+
+The check runs before the de-duplication set is touched: a rejected order id is never marked as
+seen, so a later single-leg order sharing that id is still delivered.
+
+Downstream multi-leg handling is untouched — `FXFiller`'s per-leg loops and the leg-splitting in
+`filler.ts` still run for phantom orders, which do not come through this path.
+
+Files: `src/core/event-monitor.ts`, `src/tests/core/chain-lifecycle.test.ts`, `package.json`.
+
+## 2026-08-20 — Regression test: fills pay the curve amount
+
+The payout fix below restored `targetOutput = policyMaxOutput`, but nothing asserted the payout —
+the original regression landed silently precisely because no test pinned `calculateProfitability`'s
+cached outputs (the figure `prepareBidUserOp` signs into the bid) against the curve.
+`fx.curve-payout.test.ts` drives `calculateProfitability` with mocked chain access and pins the
+three sizing outcomes: an uncapped leg pays the curve amount, not the user's requested amount; a
+capped leg pays the capped slice's worth at the curve, not the user's pro-rata ask; and a
+balance-limited leg pays what the wallet covers — a full fill when that still clears the ask.
+Verified to fail on the pre-fix clamp: reintroducing `min(policyMaxOutput, desiredOutput)` fails
+all three cases with exactly the clamped amounts.
+
+The file is added to `test:filler`, the script CI actually runs — a payout test the CI never
+executes would repeat the original failure mode. (`pnpm test` runs the full suite, but CI does not;
+`pairs.test.ts`, which exercises the profit gates, is in no CI script at all and currently fails 12
+of its cases on main — 9 predating #1154 and 3 from #1154 unrationing phantom probes without
+updating the cap expectations. Repairing that suite and wiring it into CI is a separate task.)
+
+Files: src/tests/strategies/fx.curve-payout.test.ts (new), package.json, docs/ai/ChangeLog.md.
+
+## 2026-08-20 — A per-order cap can be removed, from the UI and over the API
+
+The previous entry made `maxOrderSize` optional in config but left it one-way at runtime: an
+operator could add a cap to an uncapped market, and could not take one off without editing the TOML
+by hand. Both halves of that are now closed.
+
+`AdminStrategy` gains `clearMaxOrderSize?: () => void` alongside `setMaxOrderSize`, implemented in
+`adminStrategyFor` by setting the live `TradingPair.maxOrderSize` to `undefined` — the engine reads
+the cap per order, so removal binds on the next evaluation exactly as a resize does.
+
+`DELETE /api/strategies/:index/max-order-size` exposes it, on its own route rather than as a null on
+the existing `PUT /api/strategies/:index`. `DELETE /api/strategies/:index` already means "remove the
+market"; a cap removal one typo away from a market removal is not worth one fewer endpoint. The
+handler is idempotent and refuses reference-only markets, matching the PUT.
+
+`Simplex.clearMaxOrderSize(index)` is the library equivalent, shaped after the existing
+`clearCurve`.
+
+In the operator dashboard, the cap field is now blankable: emptying it turns the button into
+"Remove cap" and issues the DELETE, while any other edit still PUTs. The button enables on any
+change from the persisted value, including set-to-blank, which the old `!maxOrderSize.trim()` guard
+disabled. The setup wizard's cap fields accept blank too and omit the key entirely rather than
+emitting `""`, which config validation would reject as a malformed decimal rather than read as "no
+cap".
+
+Files: src/core/boot.ts, src/services/server/UiServer.ts, src/simplex.ts,
+ui/src/operator/Operator.tsx, ui/src/wizard/state.ts, ui/src/wizard/steps/Strategies.tsx.
+
+## 2026-08-20 — Fills pay the curve amount again, not the user's requested amount
+
+`FXFiller` had stopped overfilling entirely: every fill paid out exactly
+`order.output.assets[i].amount`. `targetOutput` was `min(policyMaxOutput, desiredOutput)`, and
+`desiredOutput` is `output.amount` whenever the leg is not exposure-capped. Combined with the
+acceptance gate just below it (`if (policyMaxOutput < desiredOutput) return 0` — skip when the
+curve pays less than asked), the two form a pincer: any order that survives to a fill has
+`policyMaxOutput >= desiredOutput`, so `targetOutput` was always `desiredOutput`. Not an edge
+case — 100% of non-balance-limited fills paid the requested amount and nothing more, whatever the
+configured exchange rate said. Observed on Base fill `0x60b299e8...`: 25.469 ycNGN redeemed to
+1,380 cNGN and exactly 1,380 cNGN forwarded, no surplus transfer and no `DustCollected`.
+
+Introduced by #1123, which added `capFraction`/`desiredOutput` for the `maxOrderSize` exposure cap
+and then reused `desiredOutput` as the general fill target — conflating "the slice the cap allows"
+with "the amount to pay". Before #1123 the target was `policyMaxOutput` outright. No test asserts
+the payout against the curve, so it landed silently.
+
+`targetOutput` is now `policyMaxOutput` in every case — see the entry below, which took the cap
+branch back out after this landed.
+
+Files: src/strategies/fx.ts.
+
+## 2026-08-20 — The curve amount is the payout unconditionally, and `maxOrderSize` is optional
+
+Two changes to the same sizing decision.
+
+**`targetOutput = policyMaxOutput`, capped or not.** The fix above still let the exposure cap clamp
+the payout down to the user's pro-rata ask on a capped leg. It no longer does. `maxOrderSize` still
+binds where it always did — `computeLegPolicyOutput` rations `token0ForLeg` against the pair's
+remaining budget before the rate is applied, so a capped leg's curve amount is already the capped
+slice's worth. What changes is the escrow side: paying above the pro-rata ask draws down more input
+than the cap fraction nominally allots. That is more of the user's token for the same outlay, and
+the outlay itself is still capped.
+
+`capLimited` had to follow. It was `desiredOutput < output.amount` — true whenever a cap was active
+at all — and it forces the partial-fill eligibility gate. With the payout no longer clamped to
+`desiredOutput`, a curve running far enough above the order's rate can cover the whole ask out of a
+capped slice; that is a full fill and gating it as a partial would reject cross-chain and calldata
+orders the filler can actually serve. The condition is now `capFraction.lt(1) && policyMaxOutput <
+output.amount` — the cap is active *and* it actually shortens the fill.
+
+**`maxOrderSize` is now optional.** `TradingPair.maxOrderSize` is `Decimal | undefined`; absent
+means uncapped, and the pair fills every order at its full notional. `validatePairConfigs` no
+longer requires it (a malformed value is still rejected), `tradingPairFrom` maps an absent TOML
+value to `undefined` instead of the placeholder `new Decimal(0)`, and `sizeOrder` budgets an
+uncapped pair against the order's own total so the per-pair ration still stops sibling legs
+double-spending the same token0 without ever binding below the order. `FXFiller`'s constructor
+check accepts absence and keeps exempting reference-only pairs, which never fill and whose callers
+still pass a placeholder `0`.
+
+Test updated: `validatePairConfigs > requires a positive maxOrderSize` asserted the removed throw;
+it is now `accepts an omitted maxOrderSize, and rejects a malformed one`.
+
+Files: src/strategies/fx.ts, src/config/pairs.ts, src/core/boot.ts, src/simplex.ts,
+src/tests/pairs.test.ts.
+
+## 2026-08-19 — A phantom probe is no longer rationed by the pair's exposure cap
+
+`quotePhantomFill` fed the pair's per-order exposure budget into `computeLegPolicyOutput`, which
+clamps the priced quantity to `min(legMaxToken0, remainingToken0)`. A probe is a price quote, not
+an allocation — it commits no capital — so the clamp had no exposure to protect, and when it bound
+it corrupted the published price: the output covered less than the standard amount while every
+consumer still divides by the FULL standard amount. A pair capped below the probe therefore
+published a proportionally worse rate with nothing to signal it. At `maxOrderSize` 10 against a
+100-token probe that is a rate 10x too low.
+
+`computeLegPolicyOutput`'s `remainingToken0` is now `Decimal | null`; `null` means "price the whole
+input, unbudgeted" and only `quotePhantomFill` passes it. `fill()` passes the real budget exactly
+as before, which is where exposure is actually taken.
+
+Two related changes in the same path:
+
+- The rate is now sampled at the leg's OWN notional (`sized.legNotionals[i]`) rather than the
+  pair's exposure-capped budget. On a sloped curve, sampling at a smaller notional advertises a
+  tighter rate than this filler would give at the probe's size, and optimistic is the one
+  direction a published rate must never be — a quote built from it has to stay fillable.
+- A probe whose notional exceeds the pair's `maxOrderSize` now logs a warning. The price is
+  honest, but no order that size can clear it, so the operator needs to see the config gap.
+
+This mattered because the coprocessor pallet's standard amount is moving from 1 to 1000 tokens to
+buy quote precision. At one token the clamp effectively never bound (a pair's whole budget is
+~2 tokens against a `maxOrderSize` of thousands); at 1000 it plausibly does.
+
+Files: `src/strategies/fx.ts`, `src/tests/strategies/fx.one-sided-lp.test.ts`.
+
+Not verified: `node_modules` was not installed in this worktree, so `tsc` and `vitest` were not
+run. Needs a normal CI run.
+
+## 2026-08-19 — Two more ways a fill could be sized past what the wallet can pay
+
+Both found while tracing the paymaster shortfall below, both with the same failure signature — a credit or a balance that the sizing believed in and the chain did not.
+
+**Uniswap V4 credited liquidity it was not going to remove.** `removeCallParameters` re-derives the decrease as `liquidityPercentage.multiply(position.liquidity).quotient`, which truncates, while the planner priced the fill from the untruncated liquidity it asked for. The gap is always in the reverting direction and scales with the withdrawal: at the old 1e6 denominator, a slice of ~0.0159% of a position shed 0.63% of it, roughly $93 of phantom credit on a $14.8k draw. A new `liquidityRemoval` helper resolves the percentage and the liquidity it actually encodes together, at a 1e18 denominator, and the planner now credits and consumes that figure and hands the same `Percent` to the SDK. It also returns null for a slice too thin to register rather than letting the SDK's ZERO_LIQUIDITY invariant throw.
+
+**The escrow-release dispatch fee was unaccounted for.** `HyperApp.dispatchWithFeeToken` pulls `dispatchFee` from the solver's wallet in the destination host's fee token — USDC on Base, the same token most fills pay out. `buildApprovalAndFillCalldata` already added it to the approval; nothing subtracted it from the balance. It is priced by `estimateGasFillPost`, which depends on the funding calls the leg loop produces and so cannot run before it, so `evaluateOrder` now checks affordability straight after the estimate: for a cross-chain order it requires the fee token's post-fill residue to cover the dispatch fee plus the paymaster reserve, and skips otherwise. Shrinking the fill is not an option — cross-chain orders cannot be partially filled.
+
+Files: `src/funding/uniswapV4/UniswapV4FundingPlanner.ts`, `src/strategies/fx.ts`, `src/tests/funding/uniswapV4Removal.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-08-19 — Fill sizing reserves the paymaster's gas pull
+
+A partial fill on Base reverted with `ERC20: transfer amount exceeds balance` after being short by 28,993 units — $0.029 on a $14,808.699383 fill. The fill was sized as wallet balance plus the Uniswap V4 credit and bid to the last unit, but the paymaster charges gas in the same USDC and pulls it via `transferFrom` during `validatePaymasterUserOp`, before the batch runs. The bid amount was bit-exact `balance + credited`, and the revert delta was bit-exact the prefund.
+
+The only reserve the sizing loop knew about came from `FundingVenue.walletReserveForToken`, which is the vault's `minBalance`. `UniswapV4FundingPlanner` returns `0n` there by design (LP positions have no wallet float), and a filler configured with no venue at all never enters that loop, so both setups sized fills with zero headroom. A new `paymasterReserveForToken` in the paymaster module now contributes a reserve for the chain's USDC and USDT whenever a paymaster is configured, scaled by each token's own decimals, and the leg loop seeds `reserve` with it.
+
+Files: `src/services/paymaster/index.ts`, `src/strategies/fx.ts`, `src/tests/services/paymaster-reserve.test.ts`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
+## 2026-08-19 — Cross-lane orders skip cleanly instead of erroring "Shared cache is not initialized"
+
+An operator running only Base saw `ERROR: [intent-filler]: Shared cache is not initialized` whenever an order destined to a chain their filler does not run scrolled past. The solver-selection cache is only ever populated for configured, non-watch-only chains (boot's `solverSelectionChains`), so any other destination fell through `handleNewOrder`'s cache check and was dropped with an error that reads like the filler is broken. The behavior (drop) was correct — there is no client, bundler or float for an unconfigured destination — the diagnosis was not, and it dates to #287.
+
+`handleNewOrder` now checks the destination first: not a configured chain, or configured but watch-only → debug-level skip, cache untouched. The "Shared cache is not initialized" error survives for what it actually means now — a configured, filling destination with a genuinely absent entry, which is an initialization bug. Pinned by `order-destination.test.ts`: unconfigured / non-EVM / watch-only destinations never touch the cache, a filling destination proceeds to the allowlist, and the configured-but-uncached case still errors.
+
+Files: `src/core/filler.ts`, `src/tests/core/order-destination.test.ts` (new).
+## 2026-08-19 — The binary silences @polkadot/* startup noise; the library still never touches the console
+
+Every start of the bundled CLI printed a wall of `@polkadot/util has multiple versions` warnings, `REGISTRY: Unknown signed extensions` / `API/INIT: RPC methods not decorated` logger chatter, and Node's punycode deprecation. `src/bin/quiet.ts` — the entry's first import, since most of this fires during `@polkadot/*` module init — sets polkadot's official `POLKADOTJS_DISABLE_ESM_CJS_WARNING=1` (silencing the same-version dual-instantiation the single-file bundle necessarily produces), sets `process.noDeprecation`, and wraps `console.warn` with a narrow filter for the remaining known patterns. Only `console.warn` is touched (both noise sources write there); `console.error` is untouched, and real polkadot output — connection failures included — passes through, pinned by test.
+
+Strictly bin-scoped: `dist/index.js`/`dist/sqlite.js` contain none of it (verified by grep), because a library consumer seeing duplicate-package warnings has a real dedupe to do in their own tree.
+
+Two gotchas worth recording: `package.json`'s `"sideEffects": false` silently tree-shook the bare `import "./quiet"` out of the bundle — it is now an array listing `src/bin/quiet.ts` as the one side-effectful module — and vitest's own console interception makes the patched `console.warn` unobservable through stderr, which is why the test asserts through the exported `filteringWarn` factory instead.
+
+The genuine version skew is fixed at the source in the same change, at the maintainer's call: the sdk's `@polkadot/api: "latest"` (and its `types`/`util`/`util-crypto`/`keyring` "latest" pins) became concrete `^16.5.6`/`^14.0.3` ranges, simplex's direct `@polkadot/util{,-crypto} ^13.5.6` moved to `^14.0.3` to match what api 16.x requires, and both packages' `resolutions` blocks — which pnpm warned were ineffective — are deleted rather than moved (they were doing nothing; nothing changed by removing them). Verified structurally, not just by silence: the rebuilt binary's bundle contains zero `13.5.9` occurrences where it previously carried both versions, `pnpm why @polkadot/util` resolves a single 14.0.3 in both package trees, and substrate key derivation (`balance-provider.test.ts`) passes on util-crypto 14.
+
+Files: `src/bin/quiet.ts` (new), `src/bin/simplex.ts`, `package.json`, `sdk/packages/sdk/package.json`, `src/tests/cli/quiet.test.ts` (new).
+## 2026-08-19 — Quorum client suspends rate-limited endpoints for 5 minutes
+
+`QuorumPublicClient` previously re-queried a 429ing endpoint on every call — `isRateLimited` existed but only labelled diagnostics — which both wastes the call and deepens the provider's throttle. An endpoint whose failure is unambiguously a request-rate limit (`isSuspendableRateLimit` — stricter than the diagnostic `isRateLimited` label: `-32005` alone never benches, since Infura returns it for deterministic getLogs result caps, and the free-text match excludes URL-bearing metaMessages) is now suspended for `RATE_LIMIT_SUSPENSION_MS` (5 minutes) and dropped by `participants()` — from the query set and from the quorum bar both: each call's threshold is `quorumThreshold(endpoints actually queried)`, so the remaining endpoints keep serving reads while a provider throttles (first shipped with a fixed full-set threshold; reversed by the maintainer — a throttled endpoint answers nothing either way, and counting it only makes the scanner miss orders). With every endpoint benched, all are queried again. Suspension is recorded even from stragglers that settle after a call already decided, `suspended()` exposes the benched URLs, and QuorumError messages carry `responders: N/M queried (K/S suspended for rate limiting)` — the skipped count snapshotted at endpoint selection, not re-sampled at throw time (a long call can outlive a suspension window). `settleUntilQuorum` now takes `{ idx, task }` pairs so failures map to real endpoint indices (`getTransactionConfirmations` previously reported `unknown` URLs in failure detail).
+
+Tested on the real-HTTP harness in `rate-limit-detection.test.ts` (genuine 429/500/-32005 responses through viem). The traffic-stops assertion runs through uncached `getLogs`, not `getBlockNumber` — viem caches eth_blockNumber for 4s, and an adversarial reviewer proved the naive version passed with suspension disabled entirely; the hardened suite fails 2 tests under that regression (verified by probe). Also covered: re-query after expiry via a `Date.now` spy, the small-set availability rule, threshold non-shrinkage at n=5, -32005 result caps not benching, and 500s staying stateless.
+
+Files: `src/services/QuorumPublicClient.ts`, `src/tests/rate-limit-detection.test.ts`.
+
 ## 2026-08-18 — Signer return contracts spelled out
 
 The docs showed `Promise<HexString>` twice and `Promise<Signature>` once without saying that the three mean different things: `signTypedData` returns a bare 65-byte `r ‖ s ‖ v` signature (`v` 27/28, the `eth_signTypedData_v4` form), `signAuthorization` returns split components with `yParity` strictly 0/1, and `signTransaction` returns the whole signed transaction as typed-envelope RLP — not a signature at all. An implementer had to reverse-engineer that from the adapters. The contracts now live in the `Signer` and `Signature` docblocks (what an IDE shows), a "Return exactly" table on both doc pages, and the sdk's `SigningAccount.signTypedData` docblock.

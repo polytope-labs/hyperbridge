@@ -207,10 +207,15 @@ jobs:
               with:
                   version: "latest"
 
+            # Straight from GitHub releases, not apt: the runners' default apt
+            # mirror (azure.archive.ubuntu.com) has repeatedly hung apt-get
+            # update mid-release, and the publish has no other use for apt.
             - name: Install protoc
               run: |
-                  sudo apt-get update
-                  sudo apt-get install -y protobuf-compiler
+                  curl -fsSL -o /tmp/protoc.zip \
+                    https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+                  sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+                  protoc --version
 
             - name: Install dependencies
               run: pnpm install

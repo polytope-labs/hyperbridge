@@ -37,6 +37,8 @@ export {
 	decodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	decodePhantomBidDeclaration,
+	applyUniswapQuoteHaircut,
+	UNISWAP_QUOTE_HAIRCUT_BPS,
 	type PhantomBidDeclaration,
 } from "./phantom-aggregation"
 export {

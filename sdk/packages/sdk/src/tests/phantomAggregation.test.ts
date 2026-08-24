@@ -10,6 +10,7 @@ import {
 	setAggregationFetch,
 	splitBidSignature,
 	weightedMedian,
+	applyUniswapQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
@@ -725,6 +726,49 @@ describe("aggregatePhantomBids bid verification", () => {
 			// Weighted purely by the position: the balance read returns zero for every token.
 			expect(result!.legs).toHaveLength(1)
 			expect(result!.legs[0].bidders[0].weight).toBeGreaterThan(0n)
+		})
+
+		// A pool price is what a trade gets before the pool takes its fee, so a bid quoting off one
+		// names more than it clears. The snapshot prices it net of that fee rather than letting a
+		// pool-priced quote outbid a wallet-funded one on 30bps it never had.
+		it("haircuts a pool-priced quote by 30bps before it reaches the median", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
+			})
+			setAggregationFetch(v4Rpc([userOp], solverAddress))
+
+			const result = await aggregateWithV4(solverAddress)
+
+			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_970n) / 10_000n)
+			expect(result!.legs[0].medianPrice).toBe(applyUniswapQuoteHaircut(SOLVER_AMOUNT))
+			// The haircut is on the price only: the position still backs the leg at full size.
+			expect(result!.legs[0].bidders[0].weight).toBe(
+				result!.lpBalances.find((lp) => lp.tokenAddress.toLowerCase() === USDT)!.balance,
+			)
+		})
+
+		// Only a pool-priced bid pays it — a solver quoting off wallet inventory has already paid
+		// its cost of goods, and a source-chain-only declaration says nothing about a pool.
+		it("leaves a bid that declares no position unhaircut", async () => {
+			const userOp = await signedBidUserOp({
+				signingKey: SOLVER_KEY,
+				paymasterAndData: encodeAcceptedSourceChains([CHAIN]),
+			})
+			setAggregationFetch(mockRpc([userOp], delegatedTo(SOLVER_ACCOUNT)))
+
+			const result = await aggregatePhantomBids({
+				nodeUrl: NODE_URL,
+				evmRpcUrls: { [CHAIN]: "http://base.test" },
+				chain: CHAIN,
+				gatewayAddress: GATEWAY,
+				commitment: COMMITMENT,
+				yieldVaults: { [CHAIN]: { [USDT]: [] } },
+				solverAccount: SOLVER_ACCOUNT,
+				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
+			})
+
+			expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
 		})
 
 		// The sweep is where a provider's inventory is reported, so a position missing from it makes

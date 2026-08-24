@@ -6,6 +6,7 @@ export { default as IntentGatewayV2 } from "@/abis/IntentGatewayV2"
 export { poolSlug, sortPoolSymbols } from "@/protocols/intents/liquidity-pool"
 export {
 	aggregatePhantomBids,
+	applyUniswapQuoteHaircut,
 	decodeAcceptedSourceChains,
 	decodePhantomBidDeclaration,
 	encodeAcceptedSourceChains,
@@ -20,6 +21,7 @@ export {
 	weightedMedian,
 	zipFillLegs,
 	ENTRY_POINT_V08_ADDRESS,
+	UNISWAP_QUOTE_HAIRCUT_BPS,
 	FILL_ORDER_ABI,
 	type AggregationLogger,
 	type BidNonceKeyFn,

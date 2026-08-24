@@ -27,3 +27,16 @@ Each tick, skipped if the previous one is still running:
 Step 4 is what made the provider cache dangerous: with caching on, re-reading a block whose `state_getRuntimeVersion` had rejected was answered by the cached rejection rather than a fresh request (fixed 2026-08-21). In `@hyperbridge/simplex` one `HyperbridgeScanner` owns this poll and fans `onError` out to every subscribing filler, so a single failed tick logs once from the scanner and once per filler.
 
 The cadence is `intervalMs` when given, otherwise `phantomPollIntervalMs()`: 6s on Gargantua, 15s elsewhere, decided by the runtime's `specName` read over the same HTTP api, falling back to 15s if that read fails.
+
+## How a phantom order's bids become one price per leg
+
+`aggregatePhantomBids` (`src/protocols/intents/phantom-aggregation.ts`) is the whole path, run by the indexer (`handlePhantomOrderPrices.handler.ts`) and by simplex's phantom E2E test against the same code.
+
+1. Resolve the destination chain's RPC, EVM chain id, and `SolverAccount`. Any of the three missing means no snapshot at all — an unverified quote must never reach the price — and `fetchBidsForOrder` then pulls the bid set from the Hyperbridge node.
+2. Per bid: SCALE-decode the UserOperation, pull the inner `fillOrder` out of its ERC-7821 batch (`extractFill`), and reject it unless the order in that calldata commits to the order being priced. The solver's signature is checked over the EntryPoint userOpHash (`isVerifiedSolverBid`), and a solver already counted for this order is skipped, so one bid copied under N fillers still counts once.
+3. Decode the paymasterAndData declaration — accepted source chains and declared V4 position tokenIds — which the userOpHash covers, so it is as authentic as the quote.
+4. **Price adjustment**: if the declaration names positions, every leg amount is multiplied by `(10_000 - UNISWAP_QUOTE_HAIRCUT_BPS) / 10_000`. This happens before the `solverAmount !== 0n` filter, so a quote the haircut rounds away is read as a declined leg.
+5. Weight each quoted leg by the solver's deliverable inventory in *that leg's* output token on the destination chain: ERC-20 balance + redeemable vault shares (`getBalance`) plus the withdrawable side of any declared position the solver actually owns on-chain (`readPosition`, filtered by owner). Then sweep the solver's whole inventory into `lpBalances` once per bid.
+6. Per leg: drop every zero-weight quote — from the median, from `bidCount`, and from `bidders` alike — and drop the leg entirely if none is left. Otherwise `weightedMedian` picks the price, and `lowestPrice`/`highestPrice` are set to that same median rather than the raw bid extremes.
+
+A malformed bid is skipped and the rest are priced; a `PhantomRpcError` aborts the whole run instead, because a partial bid set publishes a confident price built from whichever bids happened to be readable.

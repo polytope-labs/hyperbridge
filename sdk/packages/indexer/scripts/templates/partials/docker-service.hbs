@@ -13,7 +13,21 @@ subquery-{{chainName}}:
   command:
     {{> docker-command}}
   healthcheck:
-    test: ['CMD', 'curl', '-f', 'http://subquery-node-{{chainName}}:3000/ready']
-    interval: 3s
-    timeout: 5s
+    # /health reflects liveness after startup (unlike /ready, which latches true
+    # once ready) and stays green during initial sync / catch-up. It returns 500
+    # once the node stops advancing its target height (>60s) or stops processing
+    # blocks (>--timeout). The check runs inside the container, so target localhost.
+    test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+    interval: 30s
+    timeout: 10s
     retries: 10
+    start_period: 120s
+{{#unless unfinalizedBlocks}}
+  # Finalized-only chains resume cleanly from the persisted height on restart, so
+  # they may opt into autoheal (the host must run an autoheal watcher for the
+  # label to take effect). Chains with --unfinalized-blocks are intentionally
+  # excluded: restarting them drops the unfinalized cache and forces a multichain
+  # rewind while --disable-multichain-rewind-lock is set.
+  labels:
+    autoheal: "true"
+{{/unless}}

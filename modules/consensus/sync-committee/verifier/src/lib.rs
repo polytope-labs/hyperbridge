@@ -10,6 +10,7 @@ use crate::error::Error;
 use alloc::vec::Vec;
 use ark_ec::CurveGroup;
 use crypto::subtract_points_from_aggregate;
+use primitive_types::H256;
 use ssz_rs::{
 	calculate_multi_merkle_root, get_helper_indices, prelude::is_valid_merkle_branch,
 	GeneralizedIndex, Merkleized, Node,
@@ -18,7 +19,7 @@ use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
 	execution_header::{execution_block_hash, ExecutionHeader},
-	types::{ExecutionProof, VerifierState, VerifierStateUpdate},
+	types::{ExecutionProof, VerifiedExecutionPayload, VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
 		compute_sync_committee_period_at_slot, should_have_sync_committee_update,
@@ -26,10 +27,11 @@ use sync_committee_primitives::{
 };
 
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
+/// Returns the new verifier state alongside the execution fields the proof established.
 pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
-) -> Result<VerifierState, Error> {
+) -> Result<(VerifierState, VerifiedExecutionPayload), Error> {
 	// The finality branch is always required; validate it independently of the optional
 	// sync-committee update. The previous combined `&&` chain only triggered when ALL three
 	// subconditions held, so a malformed finality branch was accepted whenever the update
@@ -183,87 +185,94 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	// handles either side of the fork without a rebuild.
 	let execution_payload = &update.execution_payload;
 	let finalized_epoch = compute_epoch_at_slot::<C>(update.finalized_header.slot);
-	match (finalized_epoch >= C::GLOAS_FORK_EPOCH, &execution_payload.proof) {
-		// Pre-Gloas: the execution payload header lives in the beacon state, so its state_root,
-		// block_number and timestamp are proven directly by an ssz multi proof.
-		(false, ExecutionProof::Legacy { multi_proof }) => {
-			let execution_payload_indices = [
-				GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-				GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-				GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
-			];
-			// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
-			// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
-			// proofs whose helper-node count does not match what the algorithm requires so an
-			// attacker-controlled `multi_proof` cannot panic the runtime via the public unsigned
-			// consensus update path.
-			if multi_proof.len() != get_helper_indices(&execution_payload_indices).len() {
-				Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
-			}
-			let mut block_number = execution_payload.block_number;
-			let mut timestamp = execution_payload.timestamp;
-			let execution_payload_root = calculate_multi_merkle_root(
-				&[
-					Node::from_bytes(
-						execution_payload.state_root.as_ref().try_into().expect("Infallible"),
-					),
-					block_number.hash_tree_root().map_err(|_| {
-						Error::MerkleizationError("Failed to hash execution payload".into())
-					})?,
-					timestamp.hash_tree_root().map_err(|_| {
-						Error::MerkleizationError("Failed to hash timestamp".into())
-					})?,
-				],
-				multi_proof,
-				&execution_payload_indices,
-			);
+	let verified_execution_payload =
+		match (finalized_epoch >= C::GLOAS_FORK_EPOCH, &execution_payload.proof) {
+			// Pre-Gloas: the execution payload header lives in the beacon state, so its state_root,
+			// block_number and timestamp are proven directly by an ssz multi proof.
+			(
+				false,
+				ExecutionProof::Legacy { state_root, block_number, timestamp, multi_proof },
+			) => {
+				let execution_payload_indices = [
+					GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+					GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+					GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+				];
+				// `calculate_multi_merkle_root` panics on a short `multi_proof` because its final
+				// `objects.get(&GeneralizedIndex(1)).unwrap()` cannot reconstruct the root. Reject
+				// proofs whose helper-node count does not match what the algorithm requires so an
+				// attacker-controlled `multi_proof` cannot panic the runtime via the public
+				// unsigned consensus update path.
+				if multi_proof.len() != get_helper_indices(&execution_payload_indices).len() {
+					Err(Error::InvalidMerkleBranch("Execution payload multiproof length".into()))?;
+				}
+				let mut block_number_leaf = *block_number;
+				let mut timestamp_leaf = *timestamp;
+				let execution_payload_root = calculate_multi_merkle_root(
+					&[
+						Node::from_bytes(state_root.as_ref().try_into().expect("Infallible")),
+						block_number_leaf.hash_tree_root().map_err(|_| {
+							Error::MerkleizationError("Failed to hash execution payload".into())
+						})?,
+						timestamp_leaf.hash_tree_root().map_err(|_| {
+							Error::MerkleizationError("Failed to hash timestamp".into())
+						})?,
+					],
+					multi_proof,
+					&execution_payload_indices,
+				);
 
-			let is_merkle_branch_valid = is_valid_merkle_branch(
-				&execution_payload_root,
-				execution_payload.execution_payload_branch.iter(),
-				C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-				C::EXECUTION_PAYLOAD_INDEX as usize,
-				&update.finalized_header.state_root,
-			);
+				let is_merkle_branch_valid = is_valid_merkle_branch(
+					&execution_payload_root,
+					execution_payload.execution_payload_branch.iter(),
+					C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+					C::EXECUTION_PAYLOAD_INDEX as usize,
+					&update.finalized_header.state_root,
+				);
 
-			if !is_merkle_branch_valid {
-				Err(Error::InvalidMerkleBranch("Execution payload branch".into()))?;
-			}
-		},
-		// Gloas leaves only the execution block hash in the beacon state, so the state root is
-		// recovered from the block header instead of being proven directly. Keccak binds the
-		// header to the hash one for one, which makes the header's contents as trustworthy as the
-		// hash the sync committee signed over.
-		(true, ExecutionProof::Gloas { execution_header }) => {
-			let block_hash = execution_block_hash(execution_header);
+				if !is_merkle_branch_valid {
+					Err(Error::InvalidMerkleBranch("Execution payload branch".into()))?;
+				}
 
-			let is_merkle_branch_valid = is_valid_merkle_branch(
-				&Node::from_bytes(block_hash),
-				execution_payload.execution_payload_branch.iter(),
-				C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-				C::EXECUTION_PAYLOAD_INDEX as usize,
-				&update.finalized_header.state_root,
-			);
+				VerifiedExecutionPayload {
+					state_root: *state_root,
+					block_number: *block_number,
+					timestamp: *timestamp,
+				}
+			},
+			// Gloas leaves only the execution block hash in the beacon state, so the state root is
+			// recovered from the block header instead of being proven directly. Keccak binds the
+			// header to the hash one for one, which makes the header's contents as trustworthy as
+			// the hash the sync committee signed over.
+			(true, ExecutionProof::Gloas { execution_header }) => {
+				let block_hash = execution_block_hash(execution_header);
 
-			if !is_merkle_branch_valid {
-				Err(Error::InvalidMerkleBranch("Execution block hash branch".into()))?;
-			}
+				let is_merkle_branch_valid = is_valid_merkle_branch(
+					&Node::from_bytes(block_hash),
+					execution_payload.execution_payload_branch.iter(),
+					C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+					C::EXECUTION_PAYLOAD_INDEX as usize,
+					&update.finalized_header.state_root,
+				);
 
-			let header = ExecutionHeader::decode(execution_header)
-				.map_err(|_| Error::InvalidUpdate("Malformed execution header".into()))?;
+				if !is_merkle_branch_valid {
+					Err(Error::InvalidMerkleBranch("Execution block hash branch".into()))?;
+				}
 
-			if header.state_root.0 != execution_payload.state_root.0 ||
-				header.number != execution_payload.block_number ||
-				header.timestamp != execution_payload.timestamp
-			{
-				Err(Error::InvalidUpdate("Execution header does not match the update".into()))?;
-			}
-		},
-		// The proof variant does not match the fork the finalized header belongs to.
-		_ => Err(Error::InvalidUpdate(
-			"Execution proof variant does not match the fork at the finalized header".into(),
-		))?,
-	}
+				let header = ExecutionHeader::decode(execution_header)
+					.map_err(|_| Error::InvalidUpdate("Malformed execution header".into()))?;
+
+				VerifiedExecutionPayload {
+					state_root: H256::from(header.state_root.0),
+					block_number: header.number,
+					timestamp: header.timestamp,
+				}
+			},
+			// The proof variant does not match the fork the finalized header belongs to.
+			_ => Err(Error::InvalidUpdate(
+				"Execution proof variant does not match the fork at the finalized header".into(),
+			))?,
+		};
 
 	if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
 		let sync_root = sync_committee_update
@@ -305,7 +314,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		}
 	};
 
-	Ok(verifier_state)
+	Ok((verifier_state, verified_execution_payload))
 }
 
 #[cfg(test)]

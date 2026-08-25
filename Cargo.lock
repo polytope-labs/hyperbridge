@@ -27670,6 +27670,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "log",
+ "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
  "thiserror 2.0.18",

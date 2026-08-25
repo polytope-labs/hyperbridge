@@ -568,16 +568,18 @@ pub fn prove_execution_payload<
 	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
-		state_root: H256::from_slice(
-			beacon_state.latest_execution_payload_header.state_root.as_slice(),
-		),
-		block_number: beacon_state.latest_execution_payload_header.block_number,
-		timestamp: beacon_state.latest_execution_payload_header.timestamp,
 		execution_payload_branch: ssz_rs::generate_proof(
 			beacon_state,
 			&[C::EXECUTION_PAYLOAD_INDEX as usize],
 		)?,
-		proof: ExecutionProof::Legacy { multi_proof },
+		proof: ExecutionProof::Legacy {
+			state_root: H256::from_slice(
+				beacon_state.latest_execution_payload_header.state_root.as_slice(),
+			),
+			block_number: beacon_state.latest_execution_payload_header.block_number,
+			timestamp: beacon_state.latest_execution_payload_header.timestamp,
+			multi_proof,
+		},
 	})
 }
 
@@ -613,9 +615,6 @@ pub fn prove_execution_payload<
 	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
-		state_root: H256::from_slice(header.state_root.as_slice()),
-		block_number: header.number,
-		timestamp: header.timestamp,
 		execution_payload_branch: ssz_rs::generate_proof(
 			beacon_state,
 			&[C::EXECUTION_PAYLOAD_INDEX as usize],

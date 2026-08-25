@@ -43,7 +43,6 @@ std = [
     "alloy-primitives/serde",
     "alloy-rlp/std",
 ]
-nofulu = []
 # Gloas (EIP-7732) consensus types for the prover's `BeaconState`/`BeaconBlockBody` ssz layout.
 # The verifier no longer needs this: it dispatches the execution path at runtime on the enum in
 # `ExecutionPayloadProof`, so only the prover, whose ssz layout is fixed at compile time, still

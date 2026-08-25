@@ -120,15 +120,20 @@ async fn test_execution_payload_proof() {
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
 	// verify the associated execution header of the finalized beacon header.
-	let mut execution_payload = execution_payload_proof.clone();
-	let multi_proof_vec = execution_payload.multi_proof().expect("legacy proof").clone();
+	let execution_payload = execution_payload_proof.clone();
+	let ExecutionProof::Legacy { state_root, block_number, timestamp, multi_proof } =
+		execution_payload.proof.clone()
+	else {
+		panic!("expected a legacy execution proof")
+	};
+	let (mut block_number, mut timestamp) = (block_number, timestamp);
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
-			Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
-			execution_payload.block_number.hash_tree_root().unwrap(),
-			execution_payload.timestamp.hash_tree_root().unwrap(),
+			Node::from_bytes(state_root.as_ref().try_into().unwrap()),
+			block_number.hash_tree_root().unwrap(),
+			timestamp.hash_tree_root().unwrap(),
 		],
-		&multi_proof_vec,
+		&multi_proof,
 		&[
 			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 			GeneralizedIndex(KurtosisDevnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
@@ -269,7 +274,7 @@ async fn test_prover() {
 				let decoded = VerifierStateUpdate::decode(&mut &*encoded).unwrap();
 				assert_eq!(light_client_update, decoded);
 
-				client_state = verify_sync_committee_attestation::<KurtosisDevnet>(
+				(client_state, _) = verify_sync_committee_attestation::<KurtosisDevnet>(
 					client_state.clone(),
 					light_client_update,
 				)

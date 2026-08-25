@@ -61,7 +61,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 		GlamsterdamDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
 		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-	>(&mut finalized_state, header)
+	>(&mut finalized_state, header.clone())
 	.unwrap();
 
 	let execution_header = proof.execution_header().expect("gloas proof carries the rlp header");
@@ -80,9 +80,7 @@ async fn execution_header_recovers_the_execution_state_root() {
 
 	// so the fields the bridge consumes can be read straight off the header
 	let decoded = ExecutionHeader::decode(execution_header).unwrap();
-	assert_eq!(decoded.state_root.as_slice(), proof.state_root.as_bytes());
-	assert_eq!(decoded.number, proof.block_number);
-	assert_eq!(decoded.timestamp, proof.timestamp);
+	assert_eq!(decoded, header);
 }
 
 /// Bootstrap a trusted state from a finalized checkpoint a few epochs back and produce the real
@@ -139,17 +137,25 @@ async fn verifier_accepts_a_real_gloas_update() -> anyhow::Result<()> {
 	let prover = setup_prover();
 	let (trusted_state, update) = bootstrap_trusted_state_and_update(&prover).await?;
 
-	let new_state =
+	let (new_state, execution_payload) =
 		verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, update.clone())
 			.map_err(|e| anyhow::anyhow!("verifier rejected a valid gloas update: {e:?}"))?;
 
 	assert_eq!(new_state.finalized_header, update.finalized_header);
+
+	// the fields the caller gets back are the header's own
+	let header =
+		ExecutionHeader::decode(update.execution_payload.execution_header().expect("gloas proof"))?;
+	assert_eq!(execution_payload.state_root.as_bytes(), header.state_root.as_slice());
+	assert_eq!(execution_payload.block_number, header.number);
+	assert_eq!(execution_payload.timestamp, header.timestamp);
 	Ok(())
 }
 
-/// The security of the whole approach rests on two checks: keccak binds the execution header to the
-/// block hash the sync committee signed, and the header's fields must match what the update claims.
-/// This tampers with a real, otherwise valid update to make sure each check actually rejects.
+/// The security of the whole approach rests on keccak binding the execution header to the block
+/// hash the sync committee signed. This tampers with a real, otherwise valid update to make sure
+/// that binding rejects, both for a header that no longer decodes and for a well formed one that
+/// describes a different block.
 #[tokio::test]
 #[ignore]
 async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
@@ -171,16 +177,19 @@ async fn verifier_rejects_tampered_gloas_updates() -> anyhow::Result<()> {
 		"a header whose keccak does not match the block hash must be rejected",
 	);
 
-	// Leaving the header intact but lying about the state root passes the branch, then fails the
-	// header-matches-update cross check.
+	// Lying about the state root means re-encoding the header. The bytes still decode, but they
+	// hash to a different block, so the branch catches it.
 	let mut tampered_root = update.clone();
-	tampered_root.execution_payload.state_root = Default::default();
+	let header_bytes = tampered_root.execution_payload.execution_header_mut().expect("gloas proof");
+	let mut header = ExecutionHeader::decode(&header_bytes[..])?;
+	header.state_root = Default::default();
+	*header_bytes = header.encode();
 	assert!(
 		matches!(
 			verify_sync_committee_attestation::<GlamsterdamDevnet>(trusted_state, tampered_root),
-			Err(Error::InvalidUpdate(_))
+			Err(Error::InvalidMerkleBranch(_))
 		),
-		"a state root that disagrees with the header must be rejected",
+		"a state root that disagrees with the block hash must be rejected",
 	);
 
 	Ok(())

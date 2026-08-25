@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 sync-committee-primitives = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
+primitive-types = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
@@ -21,6 +22,7 @@ std = [
     "ssz-rs/std",
     "log/std",
     "sync-committee-primitives/std",
+    "primitive-types/std",
     "log/std",
     "anyhow/std",
     "thiserror/std",

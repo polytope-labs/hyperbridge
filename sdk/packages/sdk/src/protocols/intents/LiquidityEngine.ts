@@ -11,8 +11,6 @@ const SELL = "SELL"
 const BUY = "BUY"
 const USD_STABLE_SYMBOLS = new Set<ConfiguredAssetSymbol>(["USDC", "USDT"])
 
-type PoolDirection = typeof SELL | typeof BUY
-
 interface AvailableLiquidityResponse {
 	poolChainLiquidities: {
 		nodes: PoolChainLiquidityNode[]
@@ -37,16 +35,17 @@ interface PoolRouteNode {
 }
 
 interface BuyAndSellRatesResponse {
-	direct: RateConnection
-	reverse: RateConnection
+	liquidityPools: {
+		nodes: LiquidityPoolRateNode[]
+	}
 }
 
-interface RateConnection {
-	nodes: ChainRateNode[]
-}
-
-interface ChainRateNode {
-	rate: string
+interface LiquidityPoolRateNode {
+	id: string
+	token0Symbol: string
+	token1Symbol: string
+	sellRate: string | null
+	buyRate: string | null
 	lastUpdatedAt: string
 }
 
@@ -119,12 +118,12 @@ export class LiquidityEngine {
 	}
 
 	/**
-	 * Returns chain-specific buy and sell rates in less-valued quote-token units
-	 * per one base token.
+	 * Returns the indexed pool's aggregate buy and sell rates in less-valued
+	 * quote-token units per one base token.
 	 *
-	 * The requested direction is read on the destination chain; its reverse is
-	 * read on the source chain. This mirrors where each direction's output token
-	 * must be delivered for a cross-chain trade.
+	 * The indexer depth-weights fresh per-chain samples into the pool rates. The
+	 * source and destination chains remain part of the result because they define
+	 * the cross-chain route whose configured token symbols were resolved.
 	 */
 	async getBuyAndSellRates(params: {
 		sourceChain: Chains
@@ -133,22 +132,21 @@ export class LiquidityEngine {
 		tokenOutSymbol: ConfiguredAssetSymbol
 	}): Promise<BuyAndSellRates | undefined> {
 		const pool = resolveLiquidityPool(params.tokenInSymbol, params.tokenOutSymbol)
-		const directDirection: PoolDirection =
-			params.tokenInSymbol.toLowerCase() === pool.token0Symbol.toLowerCase() ? SELL : BUY
-		const reverseDirection: PoolDirection = directDirection === SELL ? BUY : SELL
 		const response = await this.queryClient.request<BuyAndSellRatesResponse>(BUY_AND_SELL_RATES, {
 			poolId: pool.poolId,
-			directChain: params.destinationChain,
-			directDirection,
-			reverseChain: params.sourceChain,
-			reverseDirection,
 		})
-		if (!response?.direct?.nodes || !response?.reverse?.nodes) {
-			throw new InvalidLiquidityIndexerResponseError("rate connections are missing")
+		if (!response?.liquidityPools?.nodes) {
+			throw new InvalidLiquidityIndexerResponseError("liquidity pool connection is missing")
 		}
+		const indexedPool = response.liquidityPools.nodes[0]
+		if (!indexedPool) return undefined
+		validateIndexedPool(indexedPool, pool)
 
-		const direct = readIndexedRate(response.direct.nodes[0], "direct rate")
-		const reverse = readIndexedRate(response.reverse.nodes[0], "reverse rate")
+		const sell = readIndexedRate(indexedPool.sellRate, indexedPool.lastUpdatedAt, "pool sell rate")
+		const buy = readIndexedRate(indexedPool.buyRate, indexedPool.lastUpdatedAt, "pool buy rate")
+		const inputIsToken0 = params.tokenInSymbol.toLowerCase() === pool.token0Symbol.toLowerCase()
+		const direct = inputIsToken0 ? sell : buy
+		const reverse = inputIsToken0 ? buy : sell
 		if (!direct && !reverse) return undefined
 
 		const quoteTokenSymbol = resolveQuoteTokenSymbol(
@@ -158,20 +156,20 @@ export class LiquidityEngine {
 			reverse?.scaledRate,
 		)
 		const quoteIsTokenOut = quoteTokenSymbol === params.tokenOutSymbol
-		const buy = quoteIsTokenOut ? direct : reverse
-		const sell = quoteIsTokenOut ? reverse : direct
+		const orientedBuy = quoteIsTokenOut ? direct : reverse
+		const orientedSell = quoteIsTokenOut ? reverse : direct
 
 		return {
 			baseTokenSymbol: quoteIsTokenOut ? params.tokenInSymbol : params.tokenOutSymbol,
 			quoteTokenSymbol,
 			sourceChain: params.sourceChain,
 			destinationChain: params.destinationChain,
-			buyRate: buy ? formatUnits(buy.scaledRate, INDEXER_FIXED_POINT_DECIMALS) : null,
-			sellRate: sell
-				? formatUnits(reciprocalRate(sell.scaledRate, "sell rate"), INDEXER_FIXED_POINT_DECIMALS)
+			buyRate: orientedBuy ? formatUnits(orientedBuy.scaledRate, INDEXER_FIXED_POINT_DECIMALS) : null,
+			sellRate: orientedSell
+				? formatUnits(reciprocalRate(orientedSell.scaledRate, "sell rate"), INDEXER_FIXED_POINT_DECIMALS)
 				: null,
-			buyRateUpdatedAt: buy?.updatedAt ?? null,
-			sellRateUpdatedAt: sell?.updatedAt ?? null,
+			buyRateUpdatedAt: orientedBuy?.updatedAt ?? null,
+			sellRateUpdatedAt: orientedSell?.updatedAt ?? null,
 		}
 	}
 }
@@ -220,18 +218,31 @@ function readIndexerDate(value: string, label: string): Date {
 	return date
 }
 
-function readIndexedRate(node: ChainRateNode | undefined, label: string): IndexedRate | undefined {
-	if (!node) return undefined
+function readIndexedRate(value: string | null, lastUpdatedAt: string, label: string): IndexedRate | undefined {
+	if (value === null) return undefined
 	try {
-		const scaledRate = BigInt(node.rate)
+		const scaledRate = BigInt(value)
 		if (scaledRate <= 0n) throw new Error()
 		return {
 			scaledRate,
-			updatedAt: readIndexerDate(node.lastUpdatedAt, `${label} lastUpdatedAt`),
+			updatedAt: readIndexerDate(lastUpdatedAt, `${label} lastUpdatedAt`),
 		}
 	} catch (error) {
 		if (error instanceof InvalidLiquidityIndexerResponseError) throw error
 		throw new InvalidLiquidityIndexerResponseError(`${label} is not a positive integer`)
+	}
+}
+
+function validateIndexedPool(
+	indexedPool: LiquidityPoolRateNode,
+	expected: { poolId: string; token0Symbol: string; token1Symbol: string },
+): void {
+	if (
+		indexedPool.id.toLowerCase() !== expected.poolId.toLowerCase() ||
+		indexedPool.token0Symbol.toLowerCase() !== expected.token0Symbol.toLowerCase() ||
+		indexedPool.token1Symbol.toLowerCase() !== expected.token1Symbol.toLowerCase()
+	) {
+		throw new InvalidLiquidityIndexerResponseError(`pool identity does not match ${expected.poolId}`)
 	}
 }
 
@@ -252,7 +263,11 @@ function resolveQuoteTokenSymbol(
 }
 
 function reciprocalRate(rate: bigint, label: string): bigint {
-	const reciprocal = (POOL_RATE_SCALE * POOL_RATE_SCALE) / rate
+	const numerator = POOL_RATE_SCALE * POOL_RATE_SCALE
+	// A sell rate is quote token required per base token. Round the reciprocal
+	// up so reverse quotes never promise more base token than the indexed
+	// base-per-quote direction can deliver.
+	const reciprocal = (numerator + rate - 1n) / rate
 	if (reciprocal <= 0n) throw new InvalidLiquidityIndexerResponseError(`${label} reciprocal underflowed`)
 	return reciprocal
 }

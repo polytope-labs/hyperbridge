@@ -1,7 +1,13 @@
 export { UniswapV4IntentQuoteStrategy } from "./uniswapV4"
 export { PhantomSnapshotIntentQuoteStrategy, PHANTOM_INTENT_QUOTE_CHAIN } from "./phantomSnapshot"
+export { IndexedRateIntentQuoteStrategy } from "./indexedRates"
 export {
+	InvalidIndexedRateError,
 	InvalidPhantomSnapshotError,
+	IndexedRateUnavailableError,
+	type IndexedRateIntentQuoteMetadata,
+	type IndexedRateQuoteIntentResult,
+	type IndexedRateSide,
 	PhantomSnapshotUnavailableError,
 	type IntentQuoteChainContext,
 	type IntentQuoteStrategy,

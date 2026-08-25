@@ -1177,9 +1177,9 @@ export interface AvailableLiquidity {
 }
 
 /**
- * Chain-specific buy and sell rates expressed as quote-token units per one
- * base token. The quote token is the less valuable currency when the indexed
- * rates establish an ordering (for example, cNGN in a USDC/cNGN pair).
+ * Aggregate indexed pool buy and sell rates expressed as quote-token units per
+ * one base token. The quote token is the less valuable currency when the rates
+ * establish an ordering (for example, cNGN in a USDC/cNGN pair).
  */
 export interface BuyAndSellRates {
 	baseTokenSymbol: ConfiguredAssetSymbol

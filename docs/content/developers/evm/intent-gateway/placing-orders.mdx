@@ -189,7 +189,7 @@ const walletClient = createWalletClient({ account, transport: http(SOURCE_RPC_UR
 
 ### Quote the swap and create the order
 
-`quoteIntent()` reads Phantom price snapshots through the indexer attached in setup. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver.
+`quoteIntent()` reads the latest aggregate pool buy or sell rate through the indexer attached in setup. For an exact-input order, `amountIn` is the amount you send and `amountOut` is the quoted output you require from the solver.
 
 ```typescript title="create-order.ts" lineNumbers
 import { type Order } from "@hyperbridge/sdk"

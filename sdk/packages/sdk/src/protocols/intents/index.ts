@@ -7,12 +7,17 @@ export {
 export { poolSlug, sortPoolSymbols } from "./liquidity-pool"
 export { OrderStatusChecker } from "./OrderStatusChecker"
 export {
+	InvalidIndexedRateError,
 	InvalidPhantomSnapshotError,
+	IndexedRateUnavailableError,
 	PhantomSnapshotUnavailableError,
 	UnsupportedIntentQuotePairError,
 	UnsupportedIntentQuoteStrategyError,
 } from "./quote"
 export type {
+	IndexedRateIntentQuoteMetadata,
+	IndexedRateQuoteIntentResult,
+	IndexedRateSide,
 	IntentQuoteStrategy,
 	IntentQuoteTradeType,
 	QuoteIntentParams,

@@ -477,7 +477,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
-		defaultRpcUrl: "https://binance.llamarpc.com",
+		defaultRpcUrl: "https://bsc-rpc.publicnode.com",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
 		erc4626Vaults: [

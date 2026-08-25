@@ -1,7 +1,7 @@
 import "log-timestamp"
 
 import { strict as assert } from "node:assert"
-import { decodeFunctionData, parseUnits, type PublicClient } from "viem"
+import { decodeFunctionData, formatUnits, parseUnits, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { AvailableLiquidity, BuyAndSellRates, HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
@@ -14,7 +14,7 @@ import {
 	grossUpForProtocolFee,
 	UNISWAP_INTENT_QUOTE_CHAIN,
 } from "@/protocols/intents/quote/uniswapV4"
-import { PhantomSnapshotIntentQuoteStrategy } from "@/protocols/intents/quote"
+import { divCeil } from "@/protocols/intents/quote/shared"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { bytes20ToBytes32 } from "@/utils"
 import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
@@ -188,55 +188,91 @@ describe("Intent quote helper", () => {
 		assert(rates.sellRateUpdatedAt && !Number.isNaN(rates.sellRateUpdatedAt.getTime()))
 	}, 120_000)
 
-	it("quotes USDT through the Base USDC Phantom snapshot", async () => {
+	it("quotes exact-input BSC USDC to Base cNGN from indexed rates", async () => {
 		const configService = new ChainConfigService()
-		console.log("USDT -> cNGN intent quote through Base USDC snapshot")
-
-		const baseChain = makeEvmChain(CHAINS.base, configService)
-		const cNgnAddress = configService.getCNgnAsset(BASE_CHAIN)
-		assert(cNgnAddress)
-		const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology/" })
-		const intentGateway = (await IntentGateway.create(baseChain, baseChain)).withQueryClient(queryClient)
+		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
+		const intentGateway = await createLiveIntentGateway(CHAINS.bsc, CHAINS.base, configService)
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
+		const amountIn = parseUnits("100", usdcDecimals)
 
 		const quote = await intentGateway.quoteIntent({
-			tokenIn: configService.getUsdtAsset(BASE_CHAIN),
+			tokenIn: configService.getUsdcAsset(CHAINS.bsc.id),
 			tokenOut: cNgnAddress,
-			amountIn: 1_000_000n,
+			amountIn,
 		})
 
-		console.log("amountIn:", quote.amountIn.toString())
-		console.log("amountOut:", quote.amountOut.toString())
-		console.log("protocolFeeBps:", quote.quoteMetadata.protocolFeeBps.toString())
-		assert.equal(quote.strategy, "phantom_snapshot")
-		if (quote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
-		console.log("snapshot commitment:", quote.quoteMetadata.commitment)
-		console.log("snapshot block:", quote.quoteMetadata.blockNumber.toString())
-
+		logIntentQuote("BSC USDC → Base cNGN exact input", quote)
+		assert.equal(quote.strategy, "indexed_rates")
+		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
+		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
+		const netAmountIn = deductProtocolFee(amountIn, quote.quoteMetadata.protocolFeeBps)
+		const expectedAmountOut =
+			(netAmountIn * scaledRate * 10n ** BigInt(cNgnDecimals)) /
+			(10n ** BigInt(usdcDecimals) * 10n ** 18n)
 		assert.equal(quote.tradeType, "EXACT_INPUT")
-		assert.equal(quote.amountIn, 1_000_000n)
-		assert(quote.amountOut > 0n)
-		assert.equal(quote.quoteMetadata.quoteChain, BASE_CHAIN)
-		assert(quote.quoteMetadata.medianPrice > 0n)
-		assert(quote.quoteMetadata.bidCount > 0)
+		assert.equal(quote.amountIn, amountIn)
+		assert.equal(quote.amountOut, expectedAmountOut)
+		assert(netAmountIn < amountIn, "Expected the on-chain protocol fee to reduce the priced input")
+		assert(quote.amountOut > parseUnits("100000", cNgnDecimals))
+		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.bsc.id)
+		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.base.id)
+		assert.equal(quote.quoteMetadata.rateSide, "buy")
+		assert(scaledRate > 1_000n * 10n ** 18n)
+		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
+		console.log("Fee-adjusted buy quote:", {
+			amountIn: `${formatUnits(quote.amountIn, usdcDecimals)} USDC`,
+			amountOut: `${formatUnits(quote.amountOut, cNgnDecimals)} cNGN`,
+		})
+	}, 120_000)
 
-		const bscUsdtQuote = await new PhantomSnapshotIntentQuoteStrategy(configService, () => queryClient).quote(
-			{
-				tokenIn: configService.getUsdtAsset(CHAINS.bsc.id),
-				tokenOut: cNgnAddress,
-				amountIn: 1_000_000n,
-			},
-			{
-				stateMachineId: CHAINS.bsc.id,
-				client: {
-					readContract: async () => [0n, 0n, 0n, 0n, 5n],
-				} as unknown as PublicClient,
-			},
-			{ stateMachineId: BASE_CHAIN, client: baseChain.client },
+	it("quotes exact-output Base cNGN to BSC USDC from indexed rates", async () => {
+		const configService = new ChainConfigService()
+		const cNgnAddress = configService.getCNgnAsset(CHAINS.base.id)
+		const cNgnDecimals = configService.getCNgnDecimals(CHAINS.base.id)
+		assert(cNgnAddress, "Expected cNGN to be configured on Base")
+		assert(cNgnDecimals !== undefined, "Expected cNGN decimals to be configured on Base")
+		const intentGateway = await createLiveIntentGateway(CHAINS.base, CHAINS.bsc, configService)
+		const usdcDecimals = configService.getUsdcDecimals(CHAINS.bsc.id)
+		const amountOut = parseUnits("100", usdcDecimals)
+
+		const quote = await intentGateway.quoteIntent({
+			tokenIn: cNgnAddress,
+			tokenOut: configService.getUsdcAsset(CHAINS.bsc.id),
+			amountOut,
+		})
+
+		logIntentQuote("Base cNGN → BSC USDC exact output", quote)
+		assert.equal(quote.strategy, "indexed_rates")
+		if (quote.strategy !== "indexed_rates") throw new Error("Expected indexed rate quote")
+		const scaledRate = parseUnits(quote.quoteMetadata.rate, 18)
+		const requiredNetAmountIn = divCeil(
+			amountOut * 10n ** BigInt(cNgnDecimals) * scaledRate,
+			10n ** BigInt(usdcDecimals) * 10n ** 18n,
 		)
-		assert.equal(bscUsdtQuote.strategy, "phantom_snapshot")
-		if (bscUsdtQuote.strategy !== "phantom_snapshot") throw new Error("Expected Phantom snapshot quote")
-		assert.equal(bscUsdtQuote.quoteMetadata.tokenA, configService.getUsdcAsset(BASE_CHAIN))
-		assert.equal(bscUsdtQuote.quoteMetadata.tokenB.toLowerCase(), cNgnAddress.toLowerCase())
+		const expectedAmountIn = grossUpForProtocolFee(
+			requiredNetAmountIn,
+			quote.quoteMetadata.protocolFeeBps,
+		)
+		assert.equal(quote.tradeType, "EXACT_OUTPUT")
+		assert.equal(quote.amountOut, amountOut)
+		assert.equal(quote.amountIn, expectedAmountIn)
+		assert(
+			deductProtocolFee(quote.amountIn, quote.quoteMetadata.protocolFeeBps) >= requiredNetAmountIn,
+			"Expected the gross input to cover the required net input after the on-chain protocol fee",
+		)
+		assert(quote.amountIn > parseUnits("100000", cNgnDecimals))
+		assert.equal(quote.quoteMetadata.sourceChain, CHAINS.base.id)
+		assert.equal(quote.quoteMetadata.destinationChain, CHAINS.bsc.id)
+		assert.equal(quote.quoteMetadata.rateSide, "sell")
+		assert(scaledRate > 1_000n * 10n ** 18n)
+		assert(!Number.isNaN(quote.quoteMetadata.rateUpdatedAt.getTime()))
+		console.log("Fee-adjusted sell quote:", {
+			amountIn: `${formatUnits(quote.amountIn, cNgnDecimals)} cNGN`,
+			amountOut: `${formatUnits(quote.amountOut, usdcDecimals)} USDC`,
+		})
 	}, 120_000)
 })
 
@@ -456,10 +492,35 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 }
 
 async function createLiveBaseIntentGateway(configService: ChainConfigService): Promise<IntentGateway> {
-	const baseChain = makeEvmChain(CHAINS.base, configService)
-	return (await IntentGateway.create(baseChain, baseChain)).withQueryClient(
-		createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }),
+	return createLiveIntentGateway(CHAINS.base, CHAINS.base, configService)
+}
+
+async function createLiveIntentGateway(
+	source: ChainDef,
+	destination: ChainDef,
+	configService: ChainConfigService,
+): Promise<IntentGateway> {
+	const gateway = await IntentGateway.create(
+		makeEvmChain(source, configService),
+		makeEvmChain(destination, configService),
 	)
+	return gateway.withQueryClient(createQueryClient({ url: "https://nexus.indexer.polytope.technology/" }))
+}
+
+function logIntentQuote(label: string, quote: Awaited<ReturnType<IntentGateway["quoteIntent"]>>): void {
+	console.log(`[quoteIntent] ${label}`)
+	console.log({
+		...quote,
+		amountIn: quote.amountIn.toString(),
+		amountOut: quote.amountOut.toString(),
+		quoteMetadata: {
+			...quote.quoteMetadata,
+			protocolFeeBps: quote.quoteMetadata.protocolFeeBps.toString(),
+			...(quote.strategy === "indexed_rates"
+				? { rateUpdatedAt: quote.quoteMetadata.rateUpdatedAt.toISOString() }
+				: {}),
+		},
+	})
 }
 
 function logLiquidity(label: string, liquidity: AvailableLiquidity | undefined): void {

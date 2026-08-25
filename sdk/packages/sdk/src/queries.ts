@@ -310,40 +310,17 @@ query AvailableLiquidity(
 }`
 
 export const BUY_AND_SELL_RATES = `
-query BuyAndSellRates(
-  $poolId: String!
-  $directChain: String!
-  $directDirection: String!
-  $reverseChain: String!
-  $reverseDirection: String!
-) {
-  direct: poolChainLiquidities(
-    filter: {
-      and: [
-        { poolId: { equalToInsensitive: $poolId } }
-        { chain: { equalTo: $directChain } }
-        { direction: { equalTo: $directDirection } }
-      ]
-    }
+query GetLiquidityPoolRate($poolId: String!) {
+  liquidityPools(
     first: 1
+    filter: { id: { equalToInsensitive: $poolId } }
   ) {
     nodes {
-      rate
-      lastUpdatedAt
-    }
-  }
-  reverse: poolChainLiquidities(
-    filter: {
-      and: [
-        { poolId: { equalToInsensitive: $poolId } }
-        { chain: { equalTo: $reverseChain } }
-        { direction: { equalTo: $reverseDirection } }
-      ]
-    }
-    first: 1
-  ) {
-    nodes {
-      rate
+      id
+      token0Symbol
+      token1Symbol
+      sellRate
+      buyRate
       lastUpdatedAt
     }
   }

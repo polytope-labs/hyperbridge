@@ -49,6 +49,7 @@ import {
 	type IntentQuoteStrategyHandler,
 	type QuoteIntentParams,
 	type QuoteIntentResult,
+	IndexedRateIntentQuoteStrategy,
 	PhantomSnapshotIntentQuoteStrategy,
 	UniswapV4IntentQuoteStrategy,
 	UnsupportedIntentQuotePairError,
@@ -71,8 +72,8 @@ const CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 10n
  *
  * `IntentGateway` orchestrates the complete lifecycle of an intent-based
  * cross-chain swap:
- * - **Quoting** — prices the order's input/output amounts via Phantom order
- *   snapshots by default, with Uniswap V4 available as an explicit strategy.
+ * - **Quoting** — prices the order's input/output amounts from aggregate
+ *   indexed pool rates by default, with legacy quote strategies available explicitly.
  * - **Order placement** — encodes and yields `placeOrder` calldata; caller
  *   signs and submits the transaction.
  * - **Order execution** — polls the Hyperbridge coprocessor for solver bids,
@@ -166,6 +167,10 @@ export class IntentGateway {
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
 		this.quoteStrategies = {
+			indexed_rates: new IndexedRateIntentQuoteStrategy(
+				dest.configService,
+				() => this.requireIndexer().queryClient,
+			),
 			phantom_snapshot: new PhantomSnapshotIntentQuoteStrategy(
 				dest.configService,
 				() => this.requireIndexer().queryClient,
@@ -228,26 +233,26 @@ export class IntentGateway {
 	/**
 	 * Quotes an intent between this gateway's source and destination chains.
 	 *
-	 * Uses the latest directional Phantom order price snapshot from the attached
-	 * indexer by default. Pass `strategy: "uniswap_v4"` only when explicitly
-	 * requesting a Uniswap quote. Provide exactly one of `amountIn` or `amountOut`.
+	 * Uses the indexer's latest aggregate directional pool rate by default. Pass
+	 * `strategy: "phantom_snapshot"` or `strategy: "uniswap_v4"` only when
+	 * explicitly requesting a legacy quote source. Provide exactly one of
+	 * `amountIn` or `amountOut`.
 	 *
-	 * Both built-in strategies resolve their canonical market on Base,
-	 * regardless of this gateway's destination chain. Returned
+	 * The gateway's source and destination chains resolve the configured order
+	 * tokens; the indexer supplies the depth-weighted pool rate. Returned
 	 * `amountIn`/`amountOut` already account for the gateway's protocol fee
-	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order
-	 * inputs; use the returned amounts directly when placing the order.
+	 * (`quoteMetadata.protocolFeeBps`), which the gateway deducts from order inputs.
 	 *
 	 * @param params - Token pair, amount, and optional strategy/pool overrides.
 	 * @returns The quoted amounts plus strategy-specific metadata.
 	 * @throws {UnsupportedIntentQuoteStrategyError} For unknown strategies.
 	 * @throws {UnsupportedIntentQuotePairError} When the selected strategy does not support the pair.
-	 * @throws {PhantomSnapshotUnavailableError} When an eligible cNGN pair has no snapshot.
+	 * @throws {IndexedRateUnavailableError} When the requested direction has no indexed rate.
 	 */
 	async quoteIntent(params: QuoteIntentParams): Promise<QuoteIntentResult> {
 		const source = { stateMachineId: this.source.config.stateMachineId, client: this.source.client }
 		const destination = { stateMachineId: this.dest.config.stateMachineId, client: this.dest.client }
-		const strategy = params.strategy ?? "phantom_snapshot"
+		const strategy = params.strategy ?? "indexed_rates"
 		const handler = this.quoteStrategies[strategy]
 		if (!handler) throw new UnsupportedIntentQuoteStrategyError(strategy)
 
@@ -293,9 +298,9 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Returns chain-specific buy and sell rates in less-valued quote-token units
-	 * without requiring token addresses. Symbols are matched case-insensitively;
-	 * chain IDs are numeric IDs for chains configured in the SDK.
+	 * Returns aggregate indexed pool buy and sell rates in less-valued quote-token
+	 * units without requiring token addresses. Symbols are matched
+	 * case-insensitively; chain IDs resolve configured token deployments.
 	 */
 	async queryBuyAndSellRates(params: QueryBuyAndSellRatesParams): Promise<BuyAndSellRates | undefined> {
 		const { queryClient } = this.requireIndexer()

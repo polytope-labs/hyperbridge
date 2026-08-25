@@ -1,5 +1,12 @@
 # @hyperbridge/sdk
 
+## 2.8.8
+
+### Patch Changes
+
+- `IntentGateway.quoteIntent()` now uses the indexer's depth-weighted aggregate pool buy and sell rates by default, including configured token decimals and the source gateway protocol fee. Reverse sell rates round conservatively so quotes do not overpromise output. Legacy Phantom snapshot and Uniswap V4 quotes remain available as explicit strategies.
+- Replaced the non-resolving default BSC RPC with the publicnode endpoint.
+
 ## 2.8.5
 
 ### Patch Changes

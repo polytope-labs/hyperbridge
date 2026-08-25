@@ -175,9 +175,9 @@ while (true) {
 
 ### quoteIntent(params)
 
-Quotes an intent from the latest directional Phantom order price snapshot by default. Pass token addresses directly—no token metadata is required. No `strategy` option is needed for Phantom quotes. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote, which prices against the configured Base (`EVM-8453`) pool rather than the gateway destination chain.
+Quotes an intent from the latest aggregate pool buy or sell rate published by the indexer. The pool rate is depth-weighted from fresh chain samples. Pass token addresses directly—the SDK resolves their configured symbols and decimals. No `strategy` option is needed for indexed-rate quotes.
 
-Phantom-backed quotes require an attached Hyperbridge indexer client. There is no automatic Uniswap fallback.
+Indexed-rate quotes require an attached Hyperbridge indexer client. There is no automatic fallback to another price source.
 
 Use `amountIn` and `amountOut` when constructing the `inputs` and `output.assets` for an IntentGateway V2 order.
 
@@ -195,12 +195,14 @@ const quote = await gateway.quoteIntent({
 });
 
 console.log(quote.amountIn, quote.amountOut);
-if (quote.strategy === "phantom_snapshot") {
-  console.log(quote.quoteMetadata.medianPrice);
+if (quote.strategy === "indexed_rates") {
+  console.log(quote.quoteMetadata.rateSide, quote.quoteMetadata.rate);
 }
 ```
 
-The Phantom feed currently supports USDC → cNGN, cNGN → USDC, USDT → cNGN, and cNGN → USDT. Regardless of the order's source or destination chain, snapshots exist only for the canonical Base USDC/cNGN market: the SDK resolves USDC and USDT to Base USDC, and cNGN to Base cNGN, before querying the exact direction.
+The order's source and destination chains select the configured token deployments. The SDK uses the pool's indexed buy rate when the order buys the quote token with the base token, and the indexed sell rate for the reverse direction. If that direction has no indexed rate, the quote fails clearly instead of using a different market.
+
+The previous Phantom snapshot source remains available with `strategy: "phantom_snapshot"`. Pass `strategy: "uniswap_v4"` only when explicitly requesting a Uniswap quote.
 
 For non-Phantom pairs whose pools are not configured by the SDK, pass an explicit Uniswap V4 PoolKey:
 
@@ -225,11 +227,11 @@ const quote = await gateway.quoteIntent({
 
 When passing an explicit PoolKey for cross-chain Uniswap quotes, also pass `currencyIn` inside the `poolKey` override — the Base-side address of the input currency. It defaults to `tokenIn`, which only works when that address is part of the Base pool, and must equal `currency0` or `currency1`.
 
-The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Phantom metadata contains the snapshot commitment, block number/time, directional token addresses, `standardAmount`, median/low/high prices, contributing bid count, and source-chain protocol fee. Uniswap metadata contains the V4 PoolKey, quoter, quote chain, and protocol fee.
+The result includes `amountIn`, `amountOut`, and strategy-specific quote metadata. Indexed-rate metadata contains the source and destination chains, base and quote symbols, the buy or sell rate used, its update time, and the source-chain protocol fee.
 
 `amountIn` and `amountOut` already account for the IntentGateway protocol fee that the gateway deducts from order inputs. Exact-input quotes price the swap against the post-fee input, so `amountOut` is the snapshot-priced output; exact-output quotes return the gross `amountIn` required to produce the requested `amountOut`. Use the returned amounts directly as the order's `inputs` and `output.assets`—no further fee or slippage adjustment is required.
 
-For an exact-input Phantom quote, the SDK deducts the gateway fee and computes `floor(netInput × medianPrice / standardAmount)`. For an exact-output quote, it computes `ceil(amountOut × standardAmount / medianPrice)` and grosses that input up for the gateway fee. A missing indexer, missing snapshot, or invalid snapshot throws an explicit error; the SDK does not silently switch price sources.
+For exact-input quotes, the SDK deducts the gateway fee before applying the directional rate. For exact-output quotes, it calculates the required net input from that rate and then grosses the input up for the gateway fee. Token decimals are read from SDK chain configuration. A missing indexer, missing directional rate, or invalid rate throws an explicit error.
 
 ### queryAvailableLiquidity(params)
 
@@ -278,9 +280,9 @@ method returns `undefined` only when the destination has no indexed pool sample.
 
 ### queryBuyAndSellRates(params)
 
-Returns chain-specific buy and sell rates for a token pair. Callers provide
-token symbols and numeric chain IDs; token addresses and canonical symbol casing
-are resolved internally from the SDK configuration.
+Returns the indexer's aggregate buy and sell rates for a token pool. Callers
+provide token symbols and numeric chain IDs; token addresses and canonical
+symbol casing are resolved internally from the SDK configuration.
 
 ```typescript lineNumbers
 const rates = await gateway.queryBuyAndSellRates({
@@ -298,10 +300,10 @@ if (rates) {
 ```
 
 Both rates use the less valuable token as the quote currency. For USDC/cNGN,
-both values are therefore cNGN per one USDC. The requested input-to-output rate
-is read on the destination chain and the reverse rate is read on the source
-chain; both are then oriented into the same units. Either rate and its matching
-timestamp can be `null` when that chain and direction have not been priced.
+both values are therefore cNGN per one USDC. Nexus depth-weights fresh per-chain
+samples into the pool's `buyRate` and `sellRate`; the SDK orients those fields
+into the same units. Either rate and its matching timestamp can be `null` when
+that pool direction has not been priced.
 
 Symbol matching is case-insensitive, so `"cNGN"`, `"cngn"`, and `"CNGN"` all
 resolve to the canonical `"cNGN"` pool symbol.

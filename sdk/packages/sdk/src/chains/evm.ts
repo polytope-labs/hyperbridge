@@ -61,6 +61,10 @@ import {
 	generateRootWithProof,
 } from "@/utils"
 
+// viem aborts the underlying HTTP request when this timeout expires. Intent
+// execution also has a guard at its call sites for custom/injected clients.
+const RPC_TIMEOUT_MS = 15_000
+
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
 
@@ -163,7 +167,7 @@ export class EvmChain implements IChain {
 		this.publicClient = createPublicClient({
 			// @ts-ignore
 			chain: chains[params.chainId],
-			transport: http(params.rpcUrl),
+			transport: http(params.rpcUrl, { timeout: RPC_TIMEOUT_MS, retryCount: 0 }),
 		})
 		this.chainConfigService = new ChainConfigService()
 	}
@@ -200,7 +204,7 @@ export class EvmChain implements IChain {
 	 */
 	static async create(rpcUrl: string, bundlerUrl?: string): Promise<EvmChain> {
 		// Use a chainless transport to fetch the chain ID before we know which chain we're on
-		const tempClient = createPublicClient({ transport: http(rpcUrl) })
+		const tempClient = createPublicClient({ transport: http(rpcUrl, { timeout: RPC_TIMEOUT_MS, retryCount: 0 }) })
 		const chainId = await tempClient.getChainId()
 
 		const host = chainConfigs[chainId]?.addresses?.Host

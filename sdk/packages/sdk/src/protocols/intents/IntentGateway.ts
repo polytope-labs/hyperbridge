@@ -64,6 +64,7 @@ import {
 	sleep,
 } from "@/utils"
 import { getFeeToken } from "./utils"
+import { SubmissionOutcomeUnknownError } from "./RpcError"
 
 const CROSS_CHAIN_ORDER_FEE_GAS_PRICE_BUMP_PERCENT = 10n
 
@@ -621,6 +622,12 @@ export class IntentGateway {
 		try {
 			return await this.selectAndExecuteBest(order, bids)
 		} catch (err) {
+			if (err instanceof SubmissionOutcomeUnknownError) {
+				console.warn(
+					`[IntentGateway] bundler submission timed out for ${err.userOpHash}; reconciling before selecting another bid`,
+				)
+				return err.pendingResult
+			}
 			console.warn(
 				`[IntentGateway] autoSelect: bid selection failed this round, continuing to poll: ${
 					err instanceof Error ? err.message : String(err)

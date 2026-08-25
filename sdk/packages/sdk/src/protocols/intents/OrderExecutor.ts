@@ -4,6 +4,7 @@ import { DEFAULT_POLL_INTERVAL, normalizeStateMachineId, sleep } from "@/utils"
 import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
+import { withRpcTimeout } from "./RpcError"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
 
@@ -26,6 +27,7 @@ const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${comm
  * `usedUserOpsStorage` so that the executor can resume safely after a crash.
  */
 export class OrderExecutor {
+	private readonly activeCommitments = new Set<string>()
 	constructor(
 		private readonly ctx: IntentGatewayContext,
 		private readonly bidManager: BidManager,
@@ -43,7 +45,14 @@ export class OrderExecutor {
 		const blockTimeMs = client.chain?.blockTime ?? 2_000
 
 		while (true) {
-			const currentBlock = await client.getBlockNumber()
+			let currentBlock: bigint
+			try {
+				currentBlock = await withRpcTimeout("Deadline block read", () => client.getBlockNumber())
+			} catch {
+				// A dead destination RPC must not make this monitoring loop disappear.
+				await sleep(Math.min(blockTimeMs, 5_000))
+				continue
+			}
 			if (currentBlock >= deadline) break
 
 			const blocksRemaining = Number(deadline - currentBlock)
@@ -116,7 +125,9 @@ export class OrderExecutor {
 			throw new Error("IntentsCoprocessor required for order execution")
 		}
 
-		const fetchedBids = await intentsCoprocessor.getBidsForOrder(commitment)
+		const fetchedBids = await withRpcTimeout("Coprocessor bid query", () =>
+			intentsCoprocessor.getBidsForOrder(commitment),
+		)
 
 		if (solver) {
 			const { address, timeoutMs } = solver
@@ -240,14 +251,22 @@ export class OrderExecutor {
 		const { order, sessionPrivateKey, auctionTimeMs, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
+		const executionKey = commitment.toLowerCase()
+		if (this.activeCommitments.has(executionKey)) {
+			yield { status: "FAILED", commitment, error: "Execution is already active for this order" }
+			return
+		}
+		this.activeCommitments.add(executionKey)
 
 		if (!this.ctx.intentsCoprocessor) {
 			yield { status: "FAILED", error: "IntentsCoprocessor required for order execution" }
+			this.activeCommitments.delete(executionKey)
 			return
 		}
 
 		if (!this.ctx.bundlerUrl) {
 			yield { status: "FAILED", error: "Bundler URL not configured" }
+			this.activeCommitments.delete(executionKey)
 			return
 		}
 
@@ -283,13 +302,14 @@ export class OrderExecutor {
 			// racing each step against the deadline. We cannot use a merge helper
 			// here because those do not forward values passed to `.next()`.
 			let input: SelectBidResult | undefined
+			let unresolvedSubmission = false
 			while (true) {
 				// When we are delivering a fed-back result (the consumer already
 				// executed a bid), process it without racing the deadline so an
 				// already-submitted UserOp is never dropped by a deadline that
 				// elapsed while the consumer was busy in `bid.execute()`. Only
 				// poll steps (no pending result) race against the deadline.
-				const winner =
+				let winner =
 					input !== undefined
 						? { from: "exec" as const, r: await executionStream.next(input) }
 						: await Promise.race([
@@ -297,6 +317,13 @@ export class OrderExecutor {
 								deadlinePromise.then((r) => ({ from: "deadline" as const, r })),
 							])
 				input = undefined
+
+				if (winner.from === "deadline" && unresolvedSubmission) {
+					// A send timeout means the bundler may hold a valid operation. The
+					// deadline may stop new work, but it cannot turn that uncertainty
+					// into permission to submit another bid or report a false expiry.
+					winner = { from: "exec" as const, r: await executionStream.next(undefined) }
+				}
 
 				if (winner.from === "deadline") {
 					if (!winner.r.done && winner.r.value) yield winner.r.value
@@ -307,6 +334,8 @@ export class OrderExecutor {
 				if (done) return
 
 				const fed = yield value
+				if (value.status === "CONFIRMING_FILL") unresolvedSubmission = true
+				if (value.status === "FILLED" || value.status === "PARTIAL_FILL") unresolvedSubmission = false
 				if (value.status === "BIDS_RECEIVED") input = fed
 				if (value.status === "EXPIRED" || value.status === "FILLED") return
 			}
@@ -316,6 +345,7 @@ export class OrderExecutor {
 			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
 			await executionStream.return(undefined as never)
 			await deadlineTimeout.return(undefined as never)
+			this.activeCommitments.delete(executionKey)
 		}
 	}
 
@@ -360,6 +390,7 @@ export class OrderExecutor {
 		const isFreshBid = (bid: FillerBid) => !usedUserOps.has(userOpHashKey(bid.userOp))
 
 		const solverLockStartTime = Date.now()
+		let transportAttempts = 0
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 		try {
@@ -377,8 +408,15 @@ export class OrderExecutor {
 						const [bid] = this.bidManager.buildBids(order, [fillerBid], sessionPrivateKey)
 						if (bid) yield { status: "NEW_BID", commitment, bid }
 					}
-				} catch {
-					// Ignore fetch errors during auction, will retry next interval
+				} catch (err) {
+					transportAttempts += 1
+					yield {
+						status: "TRANSPORT_RETRYING",
+						commitment,
+						operation: "Coprocessor bid query",
+						attempt: transportAttempts,
+						error: err instanceof Error ? err.message : String(err),
+					}
 				}
 				const remaining = auctionEnd - Date.now()
 				if (remaining > 0) {
@@ -391,7 +429,15 @@ export class OrderExecutor {
 				try {
 					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
 					freshBids = bids.filter(isFreshBid)
-				} catch {
+				} catch (err) {
+					transportAttempts += 1
+					yield {
+						status: "TRANSPORT_RETRYING",
+						commitment,
+						operation: "Coprocessor bid query",
+						attempt: transportAttempts,
+						error: err instanceof Error ? err.message : String(err),
+					}
 					await sleep(pollIntervalMs)
 					continue
 				}
@@ -428,8 +474,36 @@ export class OrderExecutor {
 					transactionHash: result.txnHash,
 				}
 
+				let resolvedResult = result
+				if (result.fillStatus === "pending") {
+					let attempt = 0
+					while (resolvedResult.fillStatus === "pending") {
+						attempt += 1
+						yield {
+							status: "CONFIRMING_FILL",
+							commitment,
+							userOpHash: result.userOpHash,
+							error: "Bundler submission timed out; reconciling its outcome",
+						}
+						try {
+							const reconciled = await this.bidManager.reconcilePendingSubmission(order, result)
+							if (reconciled) resolvedResult = reconciled
+							else throw new Error("UserOperation receipt is not available yet")
+						} catch (err) {
+							yield {
+								status: "TRANSPORT_RETRYING",
+								commitment,
+								operation: "UserOperation submission reconciliation",
+								attempt,
+								error: err instanceof Error ? err.message : String(err),
+							}
+							await sleep(pollIntervalMs)
+						}
+					}
+				}
+
 				const fill = this.processFillResult(
-					result,
+					resolvedResult,
 					commitment,
 					targetAssets,
 					totalFilledAssets,

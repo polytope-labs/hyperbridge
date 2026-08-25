@@ -18,6 +18,7 @@ import type { Hex } from "viem"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
+import { RpcTimeoutError, SubmissionOutcomeUnknownError, withRpcTimeout } from "./RpcError"
 
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
@@ -166,12 +167,14 @@ export class BidImpl implements Bid {
 		const batchedCalldata = this.crypto.encodeERC7821Execute(calls)
 
 		try {
-			await this.ctx.dest.client.call({
-				account: this.solverAddress,
-				to: this.solverAddress,
-				data: batchedCalldata,
-				value: simulationValue,
-			})
+			await withRpcTimeout("Destination bid simulation", () =>
+				this.ctx.dest.client.call({
+					account: this.solverAddress,
+					to: this.solverAddress,
+					data: batchedCalldata,
+					value: simulationValue,
+				}),
+			)
 		} catch (e: unknown) {
 			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)
 		}
@@ -207,10 +210,33 @@ export class BidImpl implements Bid {
 			normalizeStateMachineId(this.order.destination),
 		)
 
-		const userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-			CryptoUtils.prepareBundlerCall(signedUserOp),
-			entryPointAddress,
-		])
+		const expectedUserOpHash = CryptoUtils.computeUserOpHash(signedUserOp, entryPointAddress, this.chainId()) as HexString
+		let userOpHash: HexString
+		try {
+			userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
+				CryptoUtils.prepareBundlerCall(signedUserOp),
+				entryPointAddress,
+			])
+		} catch (err) {
+			// A timeout is fundamentally different from a bundler rejection: the
+			// request may have been accepted after the client disconnected. Preserve
+			// the deterministic hash and make the executor reconcile it before it
+			// ever considers another bid.
+			// Only a JSON-RPC error is a proven pre-submission rejection. Network,
+			// HTTP, parsing, and timeout failures can all happen after the bundler
+			// accepted the bytes, so their outcome must be reconciled.
+			const definitelyRejected = err instanceof Error && err.message.startsWith("Bundler error:")
+			if (err instanceof RpcTimeoutError || !definitelyRejected) {
+				throw new SubmissionOutcomeUnknownError(expectedUserOpHash, err, {
+					userOp: signedUserOp,
+					userOpHash: expectedUserOpHash,
+					solverAddress: this.solverAddress,
+					commitment,
+					fillStatus: "pending",
+				})
+			}
+			throw err
+		}
 
 		let txnHash: HexString | undefined
 		let fillStatus: "full" | "partial" | undefined
@@ -231,10 +257,12 @@ export class BidImpl implements Bid {
 			txnHash = receipt.receipt.transactionHash
 
 			try {
-				const chainReceipt = await this.ctx.dest.client.waitForTransactionReceipt({
-					hash: txnHash,
-					confirmations: 1,
-				})
+				const chainReceipt = await withRpcTimeout("Destination transaction confirmation", () =>
+					this.ctx.dest.client.waitForTransactionReceipt({
+						hash: txnHash!,
+						confirmations: 1,
+					}),
+				)
 				const events = parseEventLogs({
 					abi: IntentGatewayV2ABI,
 					logs: chainReceipt.logs,

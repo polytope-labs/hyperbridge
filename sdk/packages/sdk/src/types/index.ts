@@ -1555,6 +1555,8 @@ export const IntentOrderStatus = Object.freeze({
 	NEW_BID: "NEW_BID",
 	BIDS_RECEIVED: "BIDS_RECEIVED",
 	BID_SELECTED: "BID_SELECTED",
+	TRANSPORT_RETRYING: "TRANSPORT_RETRYING",
+	CONFIRMING_FILL: "CONFIRMING_FILL",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
 	EXPIRED: "EXPIRED",
@@ -1593,6 +1595,14 @@ export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "NEW_BID"; commitment: HexString; bid: Bid }
 	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: Bid[] }
+	| {
+			status: "TRANSPORT_RETRYING"
+			commitment: HexString
+			operation: string
+			attempt: number
+			error: string
+	  }
+	| { status: "CONFIRMING_FILL"; commitment: HexString; userOpHash: HexString; error?: string }
 	| {
 			status: "BID_SELECTED"
 			commitment: HexString
@@ -1642,7 +1652,7 @@ export interface SelectBidResult {
 	solverAddress: HexString
 	commitment: HexString
 	txnHash?: HexString
-	fillStatus?: "full" | "partial"
+	fillStatus?: "full" | "partial" | "pending"
 	/** Assets filled in this user operation (best-effort, based on on-chain PartialFill logs) */
 	filledAssets?: TokenInfo[]
 }

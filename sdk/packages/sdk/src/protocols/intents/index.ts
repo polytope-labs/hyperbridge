@@ -37,6 +37,7 @@ export {
 	orderCommitment,
 } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
+export { RpcTimeoutError, SubmissionOutcomeUnknownError, DEFAULT_INTENT_RPC_TIMEOUT_MS } from "./RpcError"
 export {
 	encodeAcceptedSourceChains,
 	decodeAcceptedSourceChains,

@@ -18,6 +18,7 @@ import ERC7821ABI from "@/abis/erc7281"
 import type { IntentGatewayContext } from "./types"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
+import { DEFAULT_INTENT_RPC_TIMEOUT_MS, withRpcTimeout } from "./RpcError"
 
 /**
  * EIP-712 type hash for the `SelectSolver` struct.
@@ -381,19 +382,26 @@ export class CryptoUtils {
 			throw new Error("Bundler URL not configured")
 		}
 
-		const response = await fetch(this.ctx.bundlerUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-		})
-
-		const result = await response.json()
+		const result = await withRpcTimeout(
+			`Bundler ${method}`,
+			async (signal) => {
+				const response = await fetch(this.ctx.bundlerUrl!, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+					signal,
+				})
+				if (!response.ok) throw new Error(`Bundler HTTP ${response.status}`)
+				return response.json() as Promise<{ result?: T; error?: { message?: string } }>
+			},
+			DEFAULT_INTENT_RPC_TIMEOUT_MS,
+		)
 
 		if (result.error) {
 			throw new Error(`Bundler error: ${result.error.message || JSON.stringify(result.error)}`)
 		}
 
-		return result.result
+		return result.result as T
 	}
 
 	/**
@@ -416,13 +424,20 @@ export class CryptoUtils {
 			params: r.params,
 		}))
 
-		const response = await fetch(this.ctx.bundlerUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-		})
-
-		const results = (await response.json()) as { id: number; result?: unknown; error?: { message?: string } }[]
+		const results = await withRpcTimeout(
+			"Bundler batch",
+			async (signal) => {
+				const response = await fetch(this.ctx.bundlerUrl!, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(body),
+					signal,
+				})
+				if (!response.ok) throw new Error(`Bundler HTTP ${response.status}`)
+				return response.json() as Promise<{ id: number; result?: unknown; error?: { message?: string } }[]>
+			},
+			DEFAULT_INTENT_RPC_TIMEOUT_MS,
+		)
 		results.sort((a, b) => a.id - b.id)
 
 		return results.map((r) => {

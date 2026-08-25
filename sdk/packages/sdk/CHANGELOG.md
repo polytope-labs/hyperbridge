@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 2.8.9
+
+### Patch Changes
+
+- Intent execution now bounds coprocessor, bundler, simulation, receipt, and deadline RPC calls. Recoverable transport failures emit retry status updates; uncertain UserOperation sends are reconciled before another bid can be submitted.
+
 ## 2.8.8
 
 ### Patch Changes

@@ -1,4 +1,4 @@
-import { decodeFunctionData, concat } from "viem"
+import { decodeFunctionData, concat, parseEventLogs } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
 import type {
@@ -16,6 +16,8 @@ import type { IntentGatewayContext } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
 import { BidImpl } from "./Bid"
 import Decimal from "decimal.js"
+import { SubmissionOutcomeUnknownError, withRpcTimeout } from "./RpcError"
+import { BundlerMethod } from "./types"
 
 /**
  * Manages the solver bid lifecycle for IntentGatewayV2 orders.
@@ -220,6 +222,10 @@ export class BidManager {
 			try {
 				return await bid.execute()
 			} catch (err) {
+				// A transport failure after send is not evidence that the bundler
+				// rejected this bid. Propagate it to the executor, which reconciles
+				// the known UserOperation hash before another bid can be submitted.
+				if (err instanceof SubmissionOutcomeUnknownError) throw err
 				executionFailures += 1
 				console.warn(
 					`[BidManager] Bid ${idx + 1} from solver=${bid.solverAddress}: execution FAILED: ` +
@@ -233,6 +239,46 @@ export class BidManager {
 				`${simulationFailures} simulation failure(s), ${executionFailures} execution failure(s)`,
 		)
 		throw new Error("No bids passed simulation and execution")
+	}
+
+	/**
+	 * Reconciles a UserOperation whose send request timed out. This intentionally
+	 * returns `undefined` for an absent receipt instead of treating it as a
+	 * rejection: until a previously submitted operation is disproved, submitting
+	 * a second solver bid could double-fill the order.
+	 */
+	async reconcilePendingSubmission(order: Order, result: SelectBidResult): Promise<SelectBidResult | undefined> {
+		const receipt = await this.crypto.sendBundler<{
+			receipt?: { transactionHash?: HexString }
+		} | null>(BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT, [result.userOpHash])
+		const transactionHash = receipt?.receipt?.transactionHash
+		if (!transactionHash) return undefined
+
+		const chainReceipt = await withRpcTimeout("Destination transaction confirmation", () =>
+			this.ctx.dest.client.waitForTransactionReceipt({ hash: transactionHash, confirmations: 1 }),
+		)
+		const events = parseEventLogs({
+			abi: IntentGatewayV2ABI,
+			logs: chainReceipt.logs,
+			eventName: ["OrderFilled", "PartialFill"],
+		})
+		const matched = events.find((event) =>
+			event.args.commitment.toLowerCase() === (order.id as HexString).toLowerCase(),
+		)
+		if (matched?.eventName === "OrderFilled") return { ...result, txnHash: transactionHash, fillStatus: "full" }
+		if (matched?.eventName === "PartialFill") {
+			return {
+				...result,
+				txnHash: transactionHash,
+				fillStatus: "partial",
+				filledAssets: (matched.args.outputs ?? []) as TokenInfo[],
+			}
+		}
+
+		// The transaction may have been replaced/reverted or the receipt may not
+		// expose logs on this provider. Keep reconciling against the chain rather
+		// than declaring the submission absent.
+		return undefined
 	}
 
 	/**

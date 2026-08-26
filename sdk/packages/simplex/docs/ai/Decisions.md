@@ -4,6 +4,32 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-26 — The asset registry is a fallback for `decimals()`, not the source of truth
+
+Chosen: `getTokenDecimals` still reads `decimals()` on-chain first and only consults
+`FillerConfigService.getAssetDecimalsByAddress` when that read throws. The registry value is
+**not** written into `CacheService`.
+
+The on-chain value is the real one — the registry is curated data that can drift from a
+redeployed or migrated token. Keeping the read authoritative means the registry only ever covers a
+transient RPC failure. Not caching the fallback is the load-bearing half: `CacheService.tokenDecimals`
+has no TTL, so caching a registry value during an outage would pin it for the lifetime of the
+process and silently outlive the failure that justified it. Leaving the cache empty means the next
+call retries the read and caches the real answer.
+
+Alternatives rejected:
+
+- *Registry first, on-chain only for unregistered tokens.* Fewer RPC calls, and it would make the
+  bad path unreachable rather than merely survivable. Rejected because it inverts which value is
+  authoritative: a stale registry entry would then silently override the live token on every fill,
+  and the registry is edited by hand.
+- *Throw instead of returning 18 when the registry has no entry either.* This is the strictly
+  correct behaviour — a token whose decimals cannot be established must not be filled — but
+  `getTokenDecimals` has never thrown, and several callers sit in the filler's hot path with no
+  try/catch. Changing that contract is a separate change with its own blast radius. The residual
+  risk is small in practice: `matchLeg` only matches registry-resolved addresses, so a fillable
+  token is a registry token. The `error`-level log marks the remaining gap.
+
 ## 2026-08-20 — Multi-leg orders are rejected at the monitor, not deeper in the fill path
 
 Chosen: `EventMonitor` filters on leg count, so an order with more than one input or output asset

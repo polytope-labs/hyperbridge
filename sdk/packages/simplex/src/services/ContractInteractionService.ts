@@ -165,7 +165,29 @@ export class ContractInteractionService {
 			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
 			return decimals
 		} catch (error) {
-			this.logger.warn({ err: error }, "Error getting token decimals, defaulting to 18")
+			// The on-chain read is authoritative, but when it fails the SDK's per-chain asset
+			// table already carries the curated value for every supported token — so fall back
+			// to that rather than guessing. Guessing is what makes this dangerous: `decimals`
+			// scales `policyMaxOutput` by `10 ** decimals`, so assuming 18 for a 6-decimal token
+			// inflates the computed payout by 10^12, and the payout is no longer clamped to the
+			// user's requested output.
+			//
+			// Deliberately not cached: the registry is a safety net, not the source of truth, so
+			// a transient RPC failure must not pin this value for the lifetime of the process.
+			// The next call retries the read and caches the real value.
+			const configured = this.configService.getAssetDecimalsByAddress(chain, bytes20Address as HexString)
+			if (configured !== undefined) {
+				this.logger.warn(
+					{ err: error, chain, token: bytes20Address, decimals: configured },
+					"Error getting token decimals; using configured decimals from the asset registry",
+				)
+				return configured
+			}
+
+			this.logger.error(
+				{ err: error, chain, token: bytes20Address },
+				"Error getting token decimals and token is absent from the asset registry, defaulting to 18",
+			)
 			return 18 // Default to 18 if we can't determine
 		}
 	}

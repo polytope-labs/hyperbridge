@@ -349,6 +349,19 @@ export class FillerConfigService {
 		return this.chainConfigService.getUsdtDecimals(chain)
 	}
 
+	/**
+	 * Curated decimals for a token, looked up by address in the SDK's per-chain
+	 * asset table. Returns `undefined` for any token not in that table.
+	 *
+	 * This is the safety net for `ContractInteractionService.getTokenDecimals`
+	 * when the on-chain `decimals()` read fails: the registry already carries the
+	 * correct value for every supported asset (verified on-chain at curation
+	 * time), so a failed read has no business guessing.
+	 */
+	getAssetDecimalsByAddress(chain: string, address: HexString): number | undefined {
+		return this.chainConfigService.getAssetMetadataByAddress(chain, address)?.decimals
+	}
+
 	getChainId(chain: string): number {
 		return this.chainConfigService.getChainId(chain)
 	}

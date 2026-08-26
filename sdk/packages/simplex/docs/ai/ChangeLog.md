@@ -12,6 +12,22 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-24 — PR #1147 review fixes (#1071)
+
+Ten inline findings from Seun's review, all addressed.
+
+- **F1 postOp rollout** — reverted `MAX_POST_OP_GAS_LIMIT` to 100k (kept `MIN`=30k); only the SDK value stays at 40k. An in-place upgrade of a live proxy (needed for stake recovery) no longer rejects clients still sending 100k. Contract + Solidity tests + CHANGELOG/Decisions updated.
+- **F2 delegation fail-open** — the native-fallback batched delegate+approve now retries as a plain self-call on any revert (`trySendDelegation`), so a token that rejects the approve can't block delegation forever.
+- **F3 zero-first approve** — `sendFundedApprove` resets a stale non-zero allowance to zero before approving max (Ethereum USDT rule).
+- **F4 narrowed probe catch** — `paymasterSupportsPermit2` only caches a real contract revert as "unsupported"; a transport error propagates instead of silently reverting to a native paymaster allowance.
+- **F5 chain-keyed probe cache** — keyed by `${chainId}:${address}` so a shared CREATE2 address can't leak support across chains.
+- **F8 dropped `permit2DeadlineSeconds`** — unreachable config removed; fixed 1h deadline documented.
+- **F6/F7 test rigor** — added assertions to the gas-band token test and named the exact reverts (`InvalidPostOpGasLimit`, `InvalidSigner`/`InvalidAmount`/`InvalidNonce`/`AllowanceExpired`) in the gas-grief and compromise fork tests.
+- **F9 doc fix** — `sendFundedApprove` docstring and `Flow.md` now say two confirmations.
+- **F10** — mode-0x02 `_prefund` uses the base's `prefunder_` instead of re-reading `userOp.sender`.
+
+Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterGasGriefTest,Permit2CompromiseForkTest,SimplexPaymasterPermit2ForkTest}.t.sol`, `src/services/paymaster/{provider/simplex.ts,types.ts,index.ts}`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`.
+
 ## 2026-08-20 — PR #1147 review: v,r,s signature layout + batched delegation approve (#1071)
 
 Two changes from Seun's review of the PERMIT2 PR.

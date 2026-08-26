@@ -543,10 +543,10 @@ contract SimplexPaymasterTest is Test {
 
     function testPostOpGasLimitAboveCapReverts() public {
         PackedUserOperation memory op =
-            _userOpWithPaymasterData(abi.encodePacked(uint8(1), address(usdc6)), uint128(40_001));
+            _userOpWithPaymasterData(abi.encodePacked(uint8(1), address(usdc6)), uint128(100_001));
         vm.expectRevert(
             abi.encodeWithSelector(
-                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(40_001), uint256(30_000), uint256(40_000)
+                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(100_001), uint256(30_000), uint256(100_000)
             )
         );
         paymaster.validate(op, 1e15);
@@ -559,13 +559,22 @@ contract SimplexPaymasterTest is Test {
             _userOpWithPaymasterData(abi.encodePacked(uint8(1), address(usdc6)), uint128(29_999));
         vm.expectRevert(
             abi.encodeWithSelector(
-                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(29_999), uint256(30_000), uint256(40_000)
+                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(29_999), uint256(30_000), uint256(100_000)
             )
         );
         paymaster.validate(op, 1e15);
     }
 
     function testPostOpGasLimitAtCapAccepted() public {
+        _fundAndApprove(1_000e6);
+        PackedUserOperation memory op =
+            _userOpWithPaymasterData(abi.encodePacked(uint8(1), address(usdc6)), uint128(100_000));
+        (, uint256 validationData) = paymaster.validate(op, 1e15);
+        assertEq(validationData, 0);
+    }
+
+    /// The SDK's penalty-free 40k value sits inside the accepted band.
+    function testPostOpGasLimitAtSdkValueAccepted() public {
         _fundAndApprove(1_000e6);
         PackedUserOperation memory op =
             _userOpWithPaymasterData(abi.encodePacked(uint8(1), address(usdc6)), uint128(40_000));

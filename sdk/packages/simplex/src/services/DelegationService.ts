@@ -326,36 +326,53 @@ export class DelegationService {
 			return false
 		}
 
+		this.logger.info(
+			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
+			"Setting up EIP-7702 delegation via direct tx",
+		)
+
+		// Fold the one-time Permit2 approval into this native tx when the chain needs it, so
+		// a no-permit fee token costs one native tx (delegate + approve) rather than two.
+		// The approve is the tx payload, so a token that rejects it (USDT's non-zero→non-zero
+		// rule, a blacklist, insufficient batched gas) would revert the delegation with it —
+		// and the resolver would recompute the same approval forever. So the batched attempt
+		// is best-effort: on any failure the delegation retries as a plain self-call, and the
+		// approval defers to the first sponsored op's own funded approve.
+		const pendingApproval = await this.resolvePendingPermit2Approval(chain)
+		if (pendingApproval && (await this.trySendDelegation(chain, solverAccountContract, pendingApproval))) {
+			return true
+		}
+		if (pendingApproval) {
+			this.logger.warn({ chain }, "Batched delegate+approve failed; retrying delegation without the approve")
+		}
+		return this.trySendDelegation(chain, solverAccountContract, undefined)
+	}
+
+	/**
+	 * Sends one native EIP-7702 delegation tx (optionally batching a Permit2 approve) and
+	 * waits for its receipt. Never throws: a revert or send error is logged and returns
+	 * false, so the caller can fall back. Rebuilds the authorization each call, so a fresh
+	 * nonce is used after a prior attempt consumed one.
+	 */
+	private async trySendDelegation(
+		chain: string,
+		solverAccountContract: HexString,
+		approval: { token: HexString; spender: HexString } | undefined,
+	): Promise<boolean> {
 		try {
-			this.logger.info(
-				{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
-				"Setting up EIP-7702 delegation via direct tx",
-			)
-
-			// Fold the one-time Permit2 approval into this native tx when the chain needs it,
-			// so a no-permit fee token costs a single native tx (delegate + approve) rather
-			// than two. Best-effort: any failure falls back to a plain delegation.
-			const pendingApproval = await this.resolvePendingPermit2Approval(chain)
-
 			const authorization = await this.buildAuthorization(chain, solverAccountContract)
-			const hash = await this.sendDelegationTransaction(chain, authorization, pendingApproval)
+			const hash = await this.sendDelegationTransaction(chain, authorization, approval)
+			this.logger.info({ chain, txHash: hash, batchedApproval: approval?.token }, "Delegation transaction sent")
 
-			this.logger.info(
-				{ chain, txHash: hash, batchedApproval: pendingApproval?.token },
-				"Delegation transaction sent",
-			)
-
-			const receipt = await publicClient.waitForTransactionReceipt({ hash })
-
+			const receipt = await this.clientManager.getPublicClient(chain).waitForTransactionReceipt({ hash })
 			if (receipt.status === "success") {
 				this.logger.info({ chain, txHash: hash, blockNumber: receipt.blockNumber }, "Delegation successful")
 				return true
 			}
-
-			this.logger.error({ chain, txHash: hash, status: receipt.status }, "Delegation transaction failed")
+			this.logger.error({ chain, txHash: hash, status: receipt.status }, "Delegation transaction reverted")
 			return false
 		} catch (error) {
-			this.logger.error({ chain, error }, "Failed to setup delegation")
+			this.logger.error({ chain, error, batchedApproval: approval?.token }, "Failed to send delegation tx")
 			return false
 		}
 	}

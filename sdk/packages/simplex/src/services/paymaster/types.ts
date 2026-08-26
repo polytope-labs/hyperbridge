@@ -36,8 +36,6 @@ export interface PaymasterOptions {
 	 * verification gas and would invalidate them.
 	 */
 	skipPermit?: boolean
-	/** Lifetime of a Permit2 signature; defaults to {@link PERMIT2_DEADLINE_SECONDS}. */
-	permit2DeadlineSeconds?: bigint
 }
 
 export interface PaymasterDataResult {

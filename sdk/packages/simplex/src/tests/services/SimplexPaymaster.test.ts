@@ -9,6 +9,8 @@ import {
 	size,
 	slice,
 	toHex,
+	BaseError,
+	ContractFunctionExecutionError,
 	type PublicClient,
 	type WalletClient,
 } from "viem"
@@ -70,12 +72,23 @@ function mockClient(opts: {
 	permit?: boolean
 	/** Whether the paymaster deployment exposes PERMIT2() (defaults to true). */
 	permit2Capable?: boolean
+	/** Set false to make PERMIT2() throw a transport (non-contract) error. */
+	permit2Transport?: boolean
 }): PublicClient {
 	return {
 		readContract: async ({ functionName, args }: { functionName: string; args?: unknown[] }) => {
 			switch (functionName) {
 				case "PERMIT2":
-					if (opts.permit2Capable === false) throw new Error("execution reverted")
+					// A transport error (timeout/429) must propagate, not be cached as unsupported.
+					if (opts.permit2Transport === false) throw new Error("HTTP request failed: 429")
+					// An old deployment reverts PERMIT2(); the client only treats a genuine
+					// contract revert (not a transport error) as "unsupported".
+					if (opts.permit2Capable === false) {
+						throw new ContractFunctionExecutionError(new BaseError("execution reverted"), {
+							abi: [],
+							functionName: "PERMIT2",
+						} as never)
+					}
 					return PERMIT2
 				case "balanceOf":
 					return 5n * 10n ** BigInt(DECIMALS)
@@ -238,6 +251,50 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 		expect(writeContract).toHaveBeenCalledOnce()
 		expect(approveCall(writeContract).args).toEqual([legacyPaymaster, RECOMMENDED])
 		expect(pm?.paymasterData).toBe(encodePacked(["uint8", "address"], [1, USDC]))
+	})
+
+	it("zeroes a stale Permit2 allowance before approving max (Ethereum USDT rule)", async () => {
+		const { walletClient, writeContract } = mockWalletClient()
+		const stalePaymaster = "0x3333333333333333333333333333333333333333" as HexString
+
+		const pm = await buildSimplexPaymasterData(
+			// A leftover sub-$5 Permit2 allowance from another integration.
+			mockClient({ permit2Allowance: 1n, native: 10n ** 18n }),
+			walletClient,
+			mockSigner().signer,
+			SOLVER,
+			stalePaymaster,
+			CHAIN,
+			configService,
+			{ skipPermit: true },
+		)
+
+		// approve(Permit2, 0) then approve(Permit2, max) — never a non-zero → non-zero change.
+		expect(writeContract).toHaveBeenCalledTimes(2)
+		const calls = writeContract.mock.calls as unknown as [{ args: unknown[] }][]
+		expect(calls[0][0].args).toEqual([PERMIT2, 0n])
+		expect(calls[1][0].args).toEqual([PERMIT2, maxUint256])
+		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
+	})
+
+	it("propagates a transport error rather than caching the paymaster as non-PERMIT2", async () => {
+		const { walletClient } = mockWalletClient()
+		const flakyPaymaster = "0x4444444444444444444444444444444444444444" as HexString
+
+		// A 429/timeout on PERMIT2() must not silently drop the solver to a native approve;
+		// it must surface so the caller retries, leaving the negative uncached.
+		await expect(
+			buildSimplexPaymasterData(
+				mockClient({ permit2Transport: false, native: 10n ** 18n }),
+				walletClient,
+				mockSigner().signer,
+				SOLVER,
+				flakyPaymaster,
+				CHAIN,
+				configService,
+				{ skipPermit: true },
+			),
+		).rejects.toThrow(/HTTP request failed/)
 	})
 
 	it("falls back to the capped approve(paymaster) bootstrap on chains without Permit2", async () => {

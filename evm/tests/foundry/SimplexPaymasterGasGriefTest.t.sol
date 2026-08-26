@@ -112,13 +112,13 @@ contract SimplexPaymasterGasGriefTest is Test {
         assertGe(weiCharged, nativeSpent, "paymaster subsidised an inflated-gas op");
     }
 
-    /// EntryPoint v0.8 penalises the unused part of `paymasterPostOpGasLimit` AFTER the
-    /// value handed to postOp is fixed, so that penalty is never billed to the user — the
-    /// paymaster eats it out of the `_postOpCost()` cushion. The penalty is waived while
-    /// `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so MAX_POST_OP_GAS_LIMIT is set
-    /// to exactly 40k: the largest value that is penalty-free whatever postOp costs.
-    /// At the cap the margin must equal the margin at the floor — a flat, penalty-free band.
-    function testEnforcedPostOpBandIsPenaltyFree() public onFork {
+    /// EntryPoint v0.8 penalises the unused part of `paymasterPostOpGasLimit` AFTER the value
+    /// handed to postOp is fixed, so that penalty is never billed to the user — the paymaster
+    /// eats it out of the `_postOpCost()` cushion. The penalty is waived while
+    /// `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so the SDK sends 40k: the largest
+    /// penalty-free value. The margin at 40k must equal the margin at the 30k floor — flat and
+    /// penalty-free — even though the contract ceiling stays at 100k for backward compatibility.
+    function testSdkPostOpValueIsPenaltyFree() public onFork {
         // Discarded: the first sponsored op pays the cold-storage cost of the paymaster's
         // and sender's token balance slots, which would otherwise read as a penalty.
         _run(60_000, 40_000);
@@ -137,19 +137,33 @@ contract SimplexPaymasterGasGriefTest is Test {
     }
 
     /// The band the contract enforces is exactly [MIN, MAX]; outside it validation refuses.
+    /// The contract band is [MIN, MAX] = [30k, 100k]. Above/below it, validation refuses with
+    /// the exact InvalidPostOpGasLimit(supplied, min, max) — a bare expectRevert would also pass
+    /// on an unrelated AA revert and prove nothing.
     function testPostOpLimitsOutsideTheBandAreRefused() public onFork {
-        PackedUserOperation[] memory tooHigh = _ops(60_000, 100_000);
-        vm.expectRevert();
-        ENTRY_POINT.handleOps(tooHigh, payable(beneficiary));
+        // Build the op before expectRevert — _buildOp itself makes an external call (getUserOpHash).
+        PackedUserOperation memory tooHigh = _buildOp(USDT, 60_000, 100_001);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(100_001), uint256(30_000), uint256(100_000)
+            )
+        );
+        paymaster.validate(tooHigh, 1e14);
 
-        PackedUserOperation[] memory tooLow = _ops(60_000, 20_000);
-        vm.expectRevert();
-        ENTRY_POINT.handleOps(tooLow, payable(beneficiary));
+        PackedUserOperation memory tooLow = _buildOp(USDT, 60_000, 20_000);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SimplexPaymaster.InvalidPostOpGasLimit.selector, uint256(20_000), uint256(30_000), uint256(100_000)
+            )
+        );
+        paymaster.validate(tooLow, 1e14);
     }
 
     /// Probe the minimum viable postOp gas limit per token: postOp must still fit, and the
     /// EntryPoint penalty must be waived (limit <= gasUsed + 40k).
-    function testPostOpFitsWithinFiftyThousandForBothTokens() public onFork {
+    /// Across the SDK's band [30k, 40k], both fee tokens stay profitable for the paymaster
+    /// (it charges the user at least what the EntryPoint debits it).
+    function testPostOpProfitableForBothTokensAcrossTheBand() public onFork {
         uint128[2] memory limits = [uint128(40_000), 30_000];
         address[2] memory toks = [USDT, USDC];
         string[2] memory names = ["USDT", "USDC"];
@@ -159,6 +173,7 @@ contract SimplexPaymasterGasGriefTest is Test {
                 emit log_named_string("token", names[t]);
                 emit log_named_uint("  postOpGasLimit", limits[i]);
                 emit log_named_uint("  margin (wei)", charged - spent);
+                assertGe(charged, spent, "paymaster subsidised an op inside the band");
             }
         }
     }
@@ -174,15 +189,6 @@ contract SimplexPaymasterGasGriefTest is Test {
         returns (uint256 weiCharged, uint256 nativeSpent)
     {
         return _runToken(USDT, callGasLimit, postOpGasLimit);
-    }
-
-    function _ops(uint128 callGasLimit, uint128 postOpGasLimit)
-        internal
-        view
-        returns (PackedUserOperation[] memory ops)
-    {
-        ops = new PackedUserOperation[](1);
-        ops[0] = _buildOp(USDT, callGasLimit, postOpGasLimit);
     }
 
     function _runToken(address token, uint128 callGasLimit, uint128 postOpGasLimit)

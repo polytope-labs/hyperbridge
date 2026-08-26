@@ -31,6 +31,12 @@ contract Permit2CompromiseForkTest is Test {
     ISignatureTransfer constant PERMIT2 = ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
     address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
+    // Permit2 error selectors, so each expectRevert names the specific failure it proves.
+    bytes4 constant INVALID_SIGNER = 0x815e1d64; // InvalidSigner()
+    bytes4 constant INVALID_NONCE = 0x756688fe; // InvalidNonce()
+    bytes4 constant INVALID_AMOUNT = 0x3728b83d; // InvalidAmount(uint256 maxAmount)
+    bytes4 constant ALLOWANCE_EXPIRED = 0xd81b2f2e; // AllowanceExpired(uint256 deadline)
+
     address filler;
     uint256 fillerKey;
     address attacker = makeAddr("attacker");
@@ -63,12 +69,13 @@ contract Permit2CompromiseForkTest is Test {
         assertEq(amount, 0, "paymaster has no AllowanceTransfer allowance");
 
         // The attacker/paymaster tries the signature-less transferFrom for the whole balance.
+        // With no AllowanceTransfer allowance set, Permit2 reverts AllowanceExpired(0).
         vm.prank(paymaster);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(ALLOWANCE_EXPIRED, uint256(0)));
         IAllowanceTransfer(address(PERMIT2)).transferFrom(filler, attacker, 1_000_000e6, USDT);
 
         vm.prank(attacker);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(ALLOWANCE_EXPIRED, uint256(0)));
         IAllowanceTransfer(address(PERMIT2)).transferFrom(filler, attacker, 1_000_000e6, USDT);
 
         assertEq(IERC20(USDT).balanceOf(filler), 1_000_000e6, "nothing moved");
@@ -82,7 +89,7 @@ contract Permit2CompromiseForkTest is Test {
         bytes memory forged = _sign(attackerKey, paymaster, USDT, 1_000_000e6, 1, deadline);
 
         vm.prank(paymaster);
-        vm.expectRevert(); // InvalidSigner: recovered signer is not `filler`
+        vm.expectRevert(abi.encodePacked(INVALID_SIGNER)); // recovered signer is not `filler`
         PERMIT2.permitTransferFrom(
             ISignatureTransfer.PermitTransferFrom({
                 permitted: ISignatureTransfer.TokenPermissions({token: USDT, amount: 1_000_000e6}),
@@ -107,7 +114,7 @@ contract Permit2CompromiseForkTest is Test {
 
         // The compromised paymaster redirects it to the attacker and tries to inflate the amount.
         vm.prank(paymaster);
-        vm.expectRevert(); // InvalidAmount: requestedAmount > permitted.amount
+        vm.expectRevert(abi.encodeWithSelector(INVALID_AMOUNT, signed)); // requestedAmount > permitted.amount
         PERMIT2.permitTransferFrom(
             ISignatureTransfer.PermitTransferFrom({
                 permitted: ISignatureTransfer.TokenPermissions({token: USDT, amount: signed}),
@@ -135,7 +142,7 @@ contract Permit2CompromiseForkTest is Test {
 
         // The nonce is now spent: the same signature cannot be replayed.
         vm.prank(paymaster);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodePacked(INVALID_NONCE));
         PERMIT2.permitTransferFrom(
             ISignatureTransfer.PermitTransferFrom({
                 permitted: ISignatureTransfer.TokenPermissions({token: USDT, amount: signed}),

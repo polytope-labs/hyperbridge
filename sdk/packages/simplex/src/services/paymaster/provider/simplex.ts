@@ -1,4 +1,13 @@
-import { encodePacked, formatEther, maxUint256, erc20Abi, type PublicClient, type WalletClient } from "viem"
+import {
+	encodePacked,
+	formatEther,
+	maxUint256,
+	erc20Abi,
+	ContractFunctionExecutionError,
+	ContractFunctionRevertedError,
+	type PublicClient,
+	type WalletClient,
+} from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import {
@@ -19,7 +28,6 @@ import type { Signer } from "@/services/wallet/types"
 export interface SimplexPaymasterOptions {
 	/** Skip EIP-2612 permit detection (PERMIT2 and APPROVE stay available). */
 	skipPermit?: boolean
-	permit2DeadlineSeconds?: bigint
 }
 
 interface TokenOption {
@@ -95,7 +103,7 @@ export async function buildSimplexPaymasterData(
 
 	const permit2Address = configService.getPermit2Address(chain)
 	const permit2 =
-		isConfigured(permit2Address) && (await paymasterSupportsPermit2(client, paymasterAddress))
+		isConfigured(permit2Address) && (await paymasterSupportsPermit2(client, chainId, paymasterAddress))
 			? permit2Address
 			: undefined
 
@@ -111,7 +119,7 @@ export async function buildSimplexPaymasterData(
 			token: tokenAddress,
 			amount: recommended,
 			spender: paymasterAddress,
-			deadlineSeconds: options.permit2DeadlineSeconds ?? PERMIT2_DEADLINE_SECONDS,
+			deadlineSeconds: PERMIT2_DEADLINE_SECONDS,
 		})),
 		token: tokenAddress,
 	})
@@ -156,7 +164,7 @@ export async function resolvePendingPermit2Approval(
 ): Promise<{ token: HexString; spender: HexString } | null> {
 	const permit2 = configService.getPermit2Address(chain)
 	if (!isConfigured(permit2)) return null
-	if (!(await paymasterSupportsPermit2(client, paymasterAddress))) return null
+	if (!(await paymasterSupportsPermit2(client, configService.getChainId(chain), paymasterAddress))) return null
 
 	const tokens: TokenOption[] = []
 	const usdc = configService.getUsdcAsset(chain)
@@ -270,21 +278,33 @@ const permit2Support = new Map<string, { supported: boolean; checkedAt: number }
  * redeploy lands chain by chain. Positive results are cached for the process
  * lifetime, negative ones briefly so an upgrade is picked up without a restart.
  */
-async function paymasterSupportsPermit2(client: PublicClient, paymasterAddress: HexString): Promise<boolean> {
-	const key = paymasterAddress.toLowerCase()
+async function paymasterSupportsPermit2(
+	client: PublicClient,
+	chainId: number,
+	paymasterAddress: HexString,
+): Promise<boolean> {
+	// Keyed by chain as well as address: one process serves every chain, and a CREATE2
+	// redeploy can share an address across them, so an address-only key would let the
+	// first chain upgraded mark that address supported everywhere.
+	const key = `${chainId}:${paymasterAddress.toLowerCase()}`
 	const cached = permit2Support.get(key)
 	if (cached && (cached.supported || Date.now() - cached.checkedAt < PERMIT2_SUPPORT_NEGATIVE_TTL_MS)) {
 		return cached.supported
 	}
-	let supported = false
 	try {
 		await client.readContract({ address: paymasterAddress, abi: SIMPLEX_PAYMASTER_ABI, functionName: "PERMIT2" })
-		supported = true
-	} catch {
-		supported = false
+		permit2Support.set(key, { supported: true, checkedAt: Date.now() })
+		return true
+	} catch (error) {
+		// Only a real contract revert (an old implementation without PERMIT2()) is evidence
+		// of no support. A transport error (timeout, 429) must not be cached as "unsupported"
+		// — that would silently drop a migrated solver back to a native-funded APPROVE.
+		if (error instanceof ContractFunctionExecutionError || error instanceof ContractFunctionRevertedError) {
+			permit2Support.set(key, { supported: false, checkedAt: Date.now() })
+			return false
+		}
+		throw error
 	}
-	permit2Support.set(key, { supported, checkedAt: Date.now() })
-	return supported
 }
 
 async function readAllowance(
@@ -348,7 +368,7 @@ async function buildPermit2Mode(
 }
 
 /**
- * Sends `approve(spender, amount)` from the solver EOA and waits for one
+ * Sends `approve(spender, amount)` from the solver EOA and waits for two
  * confirmation. This is a plain EOA tx paid in native — the very thing the
  * paymaster exists to avoid needing — so the balance is pre-checked to fail an
  * unfunded solver with one actionable line instead of viem's estimateGas chain.
@@ -373,6 +393,23 @@ async function sendFundedApprove(
 		)
 	}
 
+	// Some tokens (Ethereum USDT) reject a non-zero → non-zero allowance change, so reset
+	// to zero first when a stale allowance exists (e.g. a leftover Permit2 approval from
+	// another integration). Costs a second native tx only in that rare case.
+	const current = await readAllowance(client, tokenAddress, solverAccount, spender)
+	if (current !== 0n && amount !== 0n) {
+		await sendApproveTx(client, walletClient, tokenAddress, spender, 0n)
+	}
+	await sendApproveTx(client, walletClient, tokenAddress, spender, amount)
+}
+
+async function sendApproveTx(
+	client: PublicClient,
+	walletClient: WalletClient,
+	tokenAddress: HexString,
+	spender: HexString,
+	amount: bigint,
+): Promise<void> {
 	const hash = await walletClient.writeContract({
 		address: tokenAddress,
 		abi: erc20Abi,

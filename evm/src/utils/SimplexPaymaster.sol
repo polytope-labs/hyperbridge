@@ -154,11 +154,13 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev Caps the caller-supplied postOp gas limit. The EntryPoint penalises the
     ///      unused part of this limit *after* fixing the cost handed to postOp, so that
-    ///      penalty is never billed to the user and comes out of the `_postOpCost`
-    ///      cushion instead. The penalty is waived entirely while
-    ///      `limit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so any cap at or below
-    ///      40k is unconditionally penalty-free whatever postOp ends up costing.
-    uint256 public constant MAX_POST_OP_GAS_LIMIT = 40_000;
+    ///      penalty comes out of the `_postOpCost` cushion rather than the user. The
+    ///      penalty is waived while `limit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so
+    ///      the SDK sends 40k to stay penalty-free. The ceiling stays at 100k so an
+    ///      in-place upgrade of a live proxy never rejects clients still sending the
+    ///      previous 100k limit; a griefer inflating postOp to 100k only forfeits the
+    ///      small penalty out of the cushion the op already pays.
+    uint256 public constant MAX_POST_OP_GAS_LIMIT = 100_000;
 
     /// @dev Floors the caller-supplied postOp gas limit. `innerHandleOp` overhead that
     ///      sits outside every gas limit (notably emitting a revert reason of up to
@@ -513,7 +515,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         // than re-trusting the mode byte's token field, so the external call never depends
         // on the caller-ordering of the base contract.
         address tokenAddr = address(token);
-        address owner = userOp.sender;
+        // `prefunder_` is who the base says funds the op (userOp.sender today); use it so this
+        // branch stays aligned with the mode-0/1 branch that forwards it to super._prefund.
+        address owner = prefunder_;
         try PERMIT2.permitTransferFrom(
             ISignatureTransfer.PermitTransferFrom({
                 permitted: ISignatureTransfer.TokenPermissions({token: tokenAddr, amount: permitAmount}),

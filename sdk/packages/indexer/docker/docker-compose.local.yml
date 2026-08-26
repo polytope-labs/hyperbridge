@@ -1,6 +1,6 @@
 services:
     subquery-node-hyperbridge-gargantua-local:
-        image: subquerynetwork/subql-node-substrate:v5.9.1
+        image: polytopelabs/subql-node-substrate:v6.4.7-0
         restart: always
         network_mode: host
         environment:
@@ -37,7 +37,7 @@ services:
             retries: 30
 
     # subquery-node-cere-local:
-    #     image: subquerynetwork/subql-node-substrate:v5.9.1
+    #     image: polytopelabs/subql-node-substrate:v6.4.7-0
     #     restart: always
     #     network_mode: host
     #     environment:

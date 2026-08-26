@@ -342,32 +342,35 @@ pub mod devnet {
 	impl Config for GlamsterdamDevnet {
 		const SLOTS_PER_EPOCH: Slot = 32;
 		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-			hex_literal::hex!("c82d7799f23f55e75388234baf4611f9d38346ff5bfb1bfd1391e80ff9b0c708");
-		const GENESIS_FORK_VERSION: Version = hex!("10435048");
-		const ALTAIR_FORK_VERSION: Version = hex!("20435048");
-		const BELLATRIX_FORK_VERSION: Version = hex!("30435048");
-		const CAPELLA_FORK_VERSION: Version = hex!("40435048");
-		const DENEB_FORK_VERSION: Version = hex!("50435048");
-		const ELECTRA_FORK_VERSION: Version = hex!("60435048");
-		const FULU_FORK_VERSION: Version = hex!("70435048");
-		const GLOAS_FORK_VERSION: Version = hex!("80435048");
+			hex_literal::hex!("bb4a1a9e3f7f4e10edcd734e4acc3b5ffd4f830efe0af2748fa458cfee5d2658");
+		const GENESIS_FORK_VERSION: Version = hex!("10733183");
+		const ALTAIR_FORK_VERSION: Version = hex!("20733183");
+		const BELLATRIX_FORK_VERSION: Version = hex!("30733183");
+		const CAPELLA_FORK_VERSION: Version = hex!("40733183");
+		const DENEB_FORK_VERSION: Version = hex!("50733183");
+		const ELECTRA_FORK_VERSION: Version = hex!("60733183");
+		const FULU_FORK_VERSION: Version = hex!("70733183");
+		const GLOAS_FORK_VERSION: Version = hex!("80733183");
 		const ALTAIR_FORK_EPOCH: Epoch = 0;
 		const BELLATRIX_FORK_EPOCH: Epoch = 0;
 		const CAPELLA_FORK_EPOCH: Epoch = 0;
 		const DENEB_FORK_EPOCH: Epoch = 0;
 		const ELECTRA_FORK_EPOCH: Epoch = 0;
 		const FULU_FORK_EPOCH: Epoch = 0;
-		const GLOAS_FORK_EPOCH: Epoch = 30;
+		const GLOAS_FORK_EPOCH: Epoch = 1536;
 		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
-		const EXECUTION_PAYLOAD_INDEX: u64 = 88;
-		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
-		const FINALIZED_ROOT_INDEX: u64 = 84;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
+		// The state is a progressive container from Gloas, so a field sits at the index its
+		// position on the spine gives it rather than at `64 + position` in a padded tree, and the
+		// branches are no longer all the same length.
+		const EXECUTION_PAYLOAD_INDEX: u64 = 2947;
+		const NEXT_SYNC_COMMITTEE_INDEX: u64 = 2946;
+		const FINALIZED_ROOT_INDEX: u64 = 367;
+		const FINALIZED_ROOT_INDEX_LOG2: u64 = 8;
+		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 11;
+		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 11;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

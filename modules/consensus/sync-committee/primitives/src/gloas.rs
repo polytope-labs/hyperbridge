@@ -14,7 +14,7 @@ use crate::{
 	deneb::KzgCommitment,
 };
 use alloc::{vec, vec::Vec};
-use ssz_rs::{prelude::*, Deserialize};
+use ssz_rs::{prelude::*, Deserialize, ProgressiveList};
 
 /// Index into the builder registry.
 pub type BuilderIndex = u64;
@@ -68,6 +68,7 @@ pub struct BuilderPendingPayment {
 /// itself, and with it the execution state root, is revealed later and out of band.
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[ssz(progressive_container)]
 pub struct ExecutionPayloadBid<const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize> {
 	pub parent_block_hash: Hash32,
 	pub parent_block_root: Root,
@@ -84,7 +85,7 @@ pub struct ExecutionPayloadBid<const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize> {
 	pub value: Gwei,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub execution_payment: Gwei,
-	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	pub blob_kzg_commitments: ProgressiveList<KzgCommitment>,
 	pub execution_requests_root: Root,
 }
 

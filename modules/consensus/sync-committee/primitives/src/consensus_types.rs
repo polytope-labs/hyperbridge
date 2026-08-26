@@ -10,7 +10,19 @@ use crate::{
 	ssz::{ByteList, ByteVector},
 };
 use alloc::{vec, vec::Vec};
+#[cfg(feature = "glamsterdam")]
+use ssz_rs::ProgressiveList;
 use ssz_rs::{prelude::*, Deserialize, List, Vector};
+
+/// The state lists EIP-7688 made progressive at Gloas.
+///
+/// Before Gloas these are ordinary bounded lists, merkleized into a tree padded out to the bound.
+/// From Gloas they grow with the data instead, so the bound goes away and only the element type
+/// carries over. The alias keeps both shapes on one field declaration.
+#[cfg(not(feature = "glamsterdam"))]
+pub type StateList<T, const N: usize> = List<T, N>;
+#[cfg(feature = "glamsterdam")]
+pub type StateList<T, const N: usize> = ProgressiveList<T>;
 
 #[cfg(feature = "glamsterdam")]
 use crate::{
@@ -414,6 +426,9 @@ pub struct HistoricalSummary {
 
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+// [Modified in Gloas:EIP7688] the state hashes as a progressive container, which is what keeps a
+// field's generalized index from moving when a later fork adds or drops one.
+#[cfg_attr(feature = "glamsterdam", ssz(progressive_container))]
 pub struct BeaconState<
 	const SLOTS_PER_HISTORICAL_ROOT: usize,
 	const HISTORICAL_ROOTS_LIMIT: usize,
@@ -443,22 +458,22 @@ pub struct BeaconState<
 	pub eth1_data_votes: List<Eth1Data, ETH1_DATA_VOTES_BOUND>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub eth1_deposit_index: u64,
-	pub validators: List<Validator, VALIDATOR_REGISTRY_LIMIT>,
+	pub validators: StateList<Validator, VALIDATOR_REGISTRY_LIMIT>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-	pub balances: List<Gwei, VALIDATOR_REGISTRY_LIMIT>,
+	pub balances: StateList<Gwei, VALIDATOR_REGISTRY_LIMIT>,
 	pub randao_mixes: Vector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	pub slashings: Vector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
-	pub previous_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
+	pub previous_epoch_participation: StateList<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
-	pub current_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
+	pub current_epoch_participation: StateList<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
 	pub justification_bits: Bitvector<JUSTIFICATION_BITS_LENGTH>,
 	pub previous_justified_checkpoint: Checkpoint,
 	pub current_justified_checkpoint: Checkpoint,
 	pub finalized_checkpoint: Checkpoint,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-	pub inactivity_scores: List<u64, VALIDATOR_REGISTRY_LIMIT>,
+	pub inactivity_scores: StateList<u64, VALIDATOR_REGISTRY_LIMIT>,
 	pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	#[cfg(not(feature = "glamsterdam"))]
@@ -485,9 +500,10 @@ pub struct BeaconState<
 	pub consolidation_balance_to_consume: Gwei,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub earliest_consolidation_epoch: Epoch,
-	pending_deposits: List<PendingDeposit, PENDING_DEPOSITS_LIMIT>,
-	pending_partial_withdrawals: List<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
-	pending_consolidations: List<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
+	pending_deposits: StateList<PendingDeposit, PENDING_DEPOSITS_LIMIT>,
+	pending_partial_withdrawals:
+		StateList<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
+	pending_consolidations: StateList<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
 	//  [New in Fulu:EIP7917]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>,
@@ -495,7 +511,7 @@ pub struct BeaconState<
 	// here is proven, but the fields are part of the container, so they have to be present for
 	// the state to hash to the root the sync committee signed over.
 	#[cfg(feature = "glamsterdam")]
-	builders: List<Builder, BUILDER_REGISTRY_LIMIT>,
+	builders: ProgressiveList<Builder>,
 	#[cfg(feature = "glamsterdam")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	next_withdrawal_builder_index: BuilderIndex,
@@ -504,11 +520,11 @@ pub struct BeaconState<
 	#[cfg(feature = "glamsterdam")]
 	builder_pending_payments: Vector<BuilderPendingPayment, BUILDER_PENDING_PAYMENTS_LIMIT>,
 	#[cfg(feature = "glamsterdam")]
-	builder_pending_withdrawals: List<BuilderPendingWithdrawal, BUILDER_PENDING_WITHDRAWALS_LIMIT>,
+	builder_pending_withdrawals: ProgressiveList<BuilderPendingWithdrawal>,
 	#[cfg(feature = "glamsterdam")]
 	latest_execution_payload_bid: ExecutionPayloadBid<MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 	#[cfg(feature = "glamsterdam")]
-	payload_expected_withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
+	payload_expected_withdrawals: ProgressiveList<Withdrawal>,
 	#[cfg(feature = "glamsterdam")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_seq_of_str"))]
 	ptc_window: Vector<Vector<ValidatorIndex, PTC_SIZE>, PTC_WINDOW_LIMIT>,

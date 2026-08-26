@@ -4109,7 +4109,7 @@ dependencies = [
 [[package]]
 name = "cometbft"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=ceef96e8b1a8b6955e583e0810353d396d0f2e53#ceef96e8b1a8b6955e583e0810353d396d0f2e53"
 dependencies = [
  "blst",
  "bytes",
@@ -4139,7 +4139,7 @@ dependencies = [
 [[package]]
 name = "cometbft-config"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=ceef96e8b1a8b6955e583e0810353d396d0f2e53#ceef96e8b1a8b6955e583e0810353d396d0f2e53"
 dependencies = [
  "cometbft",
  "flex-error",
@@ -4152,7 +4152,7 @@ dependencies = [
 [[package]]
 name = "cometbft-light-client-verifier"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=ceef96e8b1a8b6955e583e0810353d396d0f2e53#ceef96e8b1a8b6955e583e0810353d396d0f2e53"
 dependencies = [
  "base64 0.22.1",
  "blst",
@@ -4169,7 +4169,7 @@ dependencies = [
 [[package]]
 name = "cometbft-proto"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=ceef96e8b1a8b6955e583e0810353d396d0f2e53#ceef96e8b1a8b6955e583e0810353d396d0f2e53"
 dependencies = [
  "bytes",
  "flex-error",
@@ -4183,7 +4183,7 @@ dependencies = [
 [[package]]
 name = "cometbft-rpc"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=ceef96e8b1a8b6955e583e0810353d396d0f2e53#ceef96e8b1a8b6955e583e0810353d396d0f2e53"
 dependencies = [
  "async-trait",
  "bytes",

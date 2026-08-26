@@ -293,6 +293,22 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	/// Storage: `IntentsCoprocessor::Paymasters` (r:1 w:0)
+	/// Storage: `IntentsCoprocessor::Nonce` (r:1 w:1)
+	fn unlock_paymaster_stake() -> Weight {
+		Weight::from_parts(56_437_000, 0)
+			.saturating_add(Weight::from_parts(0, 4070))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+	/// Storage: `IntentsCoprocessor::Paymasters` (r:1 w:0)
+	/// Storage: `IntentsCoprocessor::Nonce` (r:1 w:1)
+	fn withdraw_paymaster_stake() -> Weight {
+		Weight::from_parts(56_437_000, 0)
+			.saturating_add(Weight::from_parts(0, 4070))
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
 	/// Storage: `IntentsCoprocessor::Gateways` (r:1 w:0)
 	/// Proof: `IntentsCoprocessor::Gateways` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `ParachainInfo::ParachainId` (r:1 w:0)

@@ -293,21 +293,27 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
-	/// Storage: `IntentsCoprocessor::Paymasters` (r:1 w:0)
-	/// Storage: `IntentsCoprocessor::Nonce` (r:1 w:1)
+	/// Same shape as `withdraw_paymaster_assets`: read the paymaster then dispatch an ISMP
+	/// governance message. Estimated from that sibling pending a dedicated benchmark.
 	fn unlock_paymaster_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `605`
+		//  Estimated: `4070`
+		// Minimum execution time: 54_263_000 picoseconds.
 		Weight::from_parts(56_437_000, 0)
 			.saturating_add(Weight::from_parts(0, 4070))
-			.saturating_add(T::DbWeight::get().reads(2))
-			.saturating_add(T::DbWeight::get().writes(1))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
 	}
-	/// Storage: `IntentsCoprocessor::Paymasters` (r:1 w:0)
-	/// Storage: `IntentsCoprocessor::Nonce` (r:1 w:1)
 	fn withdraw_paymaster_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `605`
+		//  Estimated: `4070`
+		// Minimum execution time: 54_263_000 picoseconds.
 		Weight::from_parts(56_437_000, 0)
 			.saturating_add(Weight::from_parts(0, 4070))
-			.saturating_add(T::DbWeight::get().reads(2))
-			.saturating_add(T::DbWeight::get().writes(1))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
 	}
 	/// Storage: `IntentsCoprocessor::Gateways` (r:1 w:0)
 	/// Proof: `IntentsCoprocessor::Gateways` (`max_values`: None, `max_size`: None, mode: `Measured`)

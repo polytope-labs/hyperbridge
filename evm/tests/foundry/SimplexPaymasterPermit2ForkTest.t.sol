@@ -348,7 +348,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
 
     /// @dev Mirrors EntryPoint's requiredPrefund for the limits used in _opWithData.
     function _maxCost(PackedUserOperation memory op) internal pure returns (uint256) {
-        uint256 gas = 200_000 + 50_000 + 60_000 + 300_000 + 100_000;
+        uint256 gas = 200_000 + 50_000 + 60_000 + 300_000 + 40_000;
         return gas * _maxFeePerGas(op);
     }
 

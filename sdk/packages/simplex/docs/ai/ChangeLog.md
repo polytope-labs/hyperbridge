@@ -12,6 +12,18 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
+
+Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.
+
+- **Probe classification actually works now.** viem 2.47.6's `readContract` wraps *every* failure — HTTP 429/timeout included — in `ContractFunctionExecutionError` (verified empirically against the installed package), so the 08-24 `instanceof` check still cached transport errors as "unsupported". `paymasterSupportsPermit2` now classifies by the cause chain: `error.walk(e => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)` marks a genuine revert; everything else propagates uncached. Both unit-test mocks were reshaped to throw what viem actually throws (the old transport mock threw a bare `Error`, which real viem never does — the test was validating a fantasy), and the transport test now also proves the negative was not cached by probing again with a healthy client.
+- **Zero-only batching.** `resolvePendingPermit2Approval` returns null for any non-zero allowance, not just one at the recommendation: the batched delegation tx approves max directly and skips simulation (explicit gas), so a stale partial allowance on a USDT-rule token was a deterministic on-chain revert. Stale-allowance cases defer to `sendFundedApprove`'s zero-first path.
+- **Delegation retry checks `isDelegated` first.** EIP-7702 applies authorization tuples before execution and keeps them applied when execution reverts, so a batched tx that reverted on the approve usually still delegated — the retry now costs one `eth_getCode` instead of a full second tx.
+- **Pre-check budgets the whole sequence.** `sendFundedApprove` reads the allowance up front and requires native for two txs when a zero-first reset is needed; previously dust for exactly one tx passed the check, landed the reset, and died mid-sequence with the allowance stuck at zero.
+- **The 100k ceiling is now tested for profitability.** The gas-grief loop covers {100k, 40k, 30k}; 100k is where the EntryPoint penalty actually applies and is the case the restored ceiling's safety argument rests on. Stale "cap 40k" comments/labels in the same file and the `POST_OP_GAS_LIMIT_SIMPLEX` comment ("matching its on-chain MAX") corrected; the Permit2 fork test's `_maxCost` now sums the 40k postOp limit `_opWithData` actually packs (was 100k, overstating requiredPrefund).
+
+Files: `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/types.ts`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `evm/tests/foundry/{SimplexPaymasterGasGriefTest,SimplexPaymasterPermit2ForkTest}.t.sol`, `docs/ai/{ChangeLog,Decisions,Flow}.md`.
+
 ## 2026-08-24 — PR #1147 review fixes (#1071)
 
 Ten inline findings from Seun's review, all addressed.
@@ -26,7 +38,7 @@ Ten inline findings from Seun's review, all addressed.
 - **F9 doc fix** — `sendFundedApprove` docstring and `Flow.md` now say two confirmations.
 - **F10** — mode-0x02 `_prefund` uses the base's `prefunder_` instead of re-reading `userOp.sender`.
 
-Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterGasGriefTest,Permit2CompromiseForkTest,SimplexPaymasterPermit2ForkTest}.t.sol`, `src/services/paymaster/{provider/simplex.ts,types.ts,index.ts}`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`.
+Files: `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterGasGriefTest,Permit2CompromiseForkTest}.t.sol`, `src/services/paymaster/{provider/simplex.ts,types.ts,index.ts}`, `src/services/DelegationService.ts`, `src/tests/services/SimplexPaymaster.test.ts`, `modules/pallets/intents-coprocessor/src/{benchmarking,tests}.rs`, `parachain/runtimes/{gargantua,nexus}/src/weights/pallet_intents_coprocessor.rs`.
 
 ## 2026-08-20 — PR #1147 review: v,r,s signature layout + batched delegation approve (#1071)
 

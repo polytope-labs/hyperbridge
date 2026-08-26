@@ -80,11 +80,13 @@ export const PERMIT2_DEADLINE_SECONDS = 3600n
 /** Post-operation gas limit for the Circle Paymaster (its own contract, its own postOp). */
 export const POST_OP_GAS_LIMIT_CIRCLE = 100_000n
 /**
- * Post-operation gas limit for the Simplex paymaster, matching its on-chain
- * MAX_POST_OP_GAS_LIMIT. The EntryPoint penalises the unused part of this limit without
- * billing the user for it, and waives the penalty entirely while the limit stays within
- * 40k of actual usage — so 40k is the largest penalty-free value, whatever postOp costs.
- * Measured refunds are ~8-12k gas, and both USDC and USDT execute postOp at 30k.
+ * Post-operation gas limit for the Simplex paymaster. The contract accepts the band
+ * [MIN_POST_OP_GAS_LIMIT 30k, MAX_POST_OP_GAS_LIMIT 100k] — the ceiling stays at 100k so
+ * an in-place proxy upgrade never rejects clients still sending the old limit. The
+ * EntryPoint penalises the unused part of this limit without billing the user for it, and
+ * waives the penalty entirely while the limit stays within 40k of actual usage — so 40k is
+ * the largest penalty-free value, whatever postOp costs. Measured refunds are ~8-12k gas,
+ * and both USDC and USDT execute postOp at 30k.
  */
 export const POST_OP_GAS_LIMIT_SIMPLEX = 40_000n
 

@@ -3,8 +3,9 @@ import {
 	formatEther,
 	maxUint256,
 	erc20Abi,
-	ContractFunctionExecutionError,
+	BaseError,
 	ContractFunctionRevertedError,
+	ContractFunctionZeroDataError,
 	type PublicClient,
 	type WalletClient,
 } from "viem"
@@ -151,9 +152,11 @@ export async function buildSimplexPaymasterData(
 /**
  * The fee token a native EIP-7702 delegation can approve to Permit2 in the same transaction,
  * so a no-permit chain's one-time bootstrap rides the delegation rather than costing a
- * separate native tx. Returns null when no such approval is pending: a permit-capable token,
- * an approval already in place, no Permit2 configured, a paymaster without PERMIT2 mode, or
- * the solver holding no fee token yet (the approval then defers to the first sponsored op).
+ * separate native tx. Returns null when nothing batchable is pending: a permit-capable token,
+ * any existing non-zero allowance (at the recommendation PERMIT2 mode already works; below it
+ * the USDT rule needs a zero-first reset the batched tx cannot carry), no Permit2 configured,
+ * a paymaster without PERMIT2 mode, or the solver holding no fee token yet. Deferred cases
+ * are handled by the first sponsored op's own funded approve.
  */
 export async function resolvePendingPermit2Approval(
 	client: PublicClient,
@@ -177,9 +180,12 @@ export async function resolvePendingPermit2Approval(
 	// A permit-capable token uses PERMIT mode, never Permit2.
 	if (await tokenSupportsPermit(client, selected.address)) return null
 
-	const recommended = RECOMMENDED_AMOUNT_USD * 10n ** BigInt(selected.decimals)
+	// Only a clean zero allowance is batchable. At or above the recommendation PERMIT2
+	// mode already works; a stale non-zero allowance below it cannot ride the delegation
+	// either — the batched tx approves max directly, and tokens with the USDT rule revert
+	// a non-zero → non-zero change (deterministically: the delegation tx skips simulation).
 	const allowance = await readAllowance(client, selected.address, solverAccount, permit2)
-	if (allowance >= recommended) return null
+	if (allowance !== 0n) return null
 
 	return { token: selected.address, spender: permit2 }
 }
@@ -297,9 +303,15 @@ async function paymasterSupportsPermit2(
 		return true
 	} catch (error) {
 		// Only a real contract revert (an old implementation without PERMIT2()) is evidence
-		// of no support. A transport error (timeout, 429) must not be cached as "unsupported"
-		// — that would silently drop a migrated solver back to a native-funded APPROVE.
-		if (error instanceof ContractFunctionExecutionError || error instanceof ContractFunctionRevertedError) {
+		// of no support. viem wraps EVERY readContract failure — a 429 or timeout included —
+		// in ContractFunctionExecutionError, so the thrown type cannot separate a revert from
+		// a transport error; only the cause chain can (ContractFunctionRevertedError for a
+		// revert, HttpRequestError for transport). A transport error must propagate uncached
+		// — caching it would silently drop a migrated solver back to a native-funded APPROVE.
+		const isRevert =
+			error instanceof BaseError &&
+			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
+		if (isRevert) {
 			permit2Support.set(key, { supported: false, checkedAt: Date.now() })
 			return false
 		}
@@ -368,10 +380,13 @@ async function buildPermit2Mode(
 }
 
 /**
- * Sends `approve(spender, amount)` from the solver EOA and waits for two
- * confirmation. This is a plain EOA tx paid in native — the very thing the
- * paymaster exists to avoid needing — so the balance is pre-checked to fail an
- * unfunded solver with one actionable line instead of viem's estimateGas chain.
+ * Approves `spender` from the solver EOA — plain native-funded txs, the very thing the
+ * paymaster exists to avoid needing. A stale non-zero allowance (e.g. a leftover Permit2
+ * approval from another integration) is reset to zero first, because tokens like Ethereum
+ * USDT reject a non-zero → non-zero change — so the sequence is up to two txs, each
+ * waiting two confirmations. The native balance is pre-checked against the whole sequence,
+ * failing an unfunded solver with one actionable line instead of viem's estimateGas chain
+ * — or worse, with the reset landed and the re-approve dead, the allowance stuck at zero.
  */
 async function sendFundedApprove(
 	client: PublicClient,
@@ -381,11 +396,13 @@ async function sendFundedApprove(
 	spender: HexString,
 	amount: bigint,
 ): Promise<void> {
-	const [nativeBalance, gasPrice] = await Promise.all([
+	const [nativeBalance, gasPrice, current] = await Promise.all([
 		client.getBalance({ address: solverAccount }),
 		client.getGasPrice(),
+		readAllowance(client, tokenAddress, solverAccount, spender),
 	])
-	const requiredNative = APPROVE_TX_GAS * gasPrice
+	const needsReset = current !== 0n && amount !== 0n
+	const requiredNative = APPROVE_TX_GAS * gasPrice * (needsReset ? 2n : 1n)
 	if (nativeBalance < requiredNative) {
 		throw new Error(
 			`SimplexPaymaster needs a one-time funded approval on this chain — the fee token has no permit; ` +
@@ -393,11 +410,7 @@ async function sendFundedApprove(
 		)
 	}
 
-	// Some tokens (Ethereum USDT) reject a non-zero → non-zero allowance change, so reset
-	// to zero first when a stale allowance exists (e.g. a leftover Permit2 approval from
-	// another integration). Costs a second native tx only in that rare case.
-	const current = await readAllowance(client, tokenAddress, solverAccount, spender)
-	if (current !== 0n && amount !== 0n) {
+	if (needsReset) {
 		await sendApproveTx(client, walletClient, tokenAddress, spender, 0n)
 	}
 	await sendApproveTx(client, walletClient, tokenAddress, spender, amount)

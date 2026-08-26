@@ -333,16 +333,24 @@ export class DelegationService {
 
 		// Fold the one-time Permit2 approval into this native tx when the chain needs it, so
 		// a no-permit fee token costs one native tx (delegate + approve) rather than two.
-		// The approve is the tx payload, so a token that rejects it (USDT's non-zero→non-zero
-		// rule, a blacklist, insufficient batched gas) would revert the delegation with it —
-		// and the resolver would recompute the same approval forever. So the batched attempt
-		// is best-effort: on any failure the delegation retries as a plain self-call, and the
-		// approval defers to the first sponsored op's own funded approve.
+		// The approve is the tx payload, so a token that rejects it (a blacklist, insufficient
+		// batched gas) reverts the whole tx with it. The batched attempt is best-effort: a
+		// reverted tx usually still delegated (EIP-7702 applies authorization tuples before
+		// execution and keeps them applied when execution reverts), and only a genuinely
+		// undelegated account retries as a plain self-call; the approval then defers to the
+		// first sponsored op's own funded approve.
 		const pendingApproval = await this.resolvePendingPermit2Approval(chain)
-		if (pendingApproval && (await this.trySendDelegation(chain, solverAccountContract, pendingApproval))) {
-			return true
-		}
 		if (pendingApproval) {
+			if (await this.trySendDelegation(chain, solverAccountContract, pendingApproval)) {
+				return true
+			}
+			if (await this.isDelegated(chain)) {
+				this.logger.info(
+					{ chain },
+					"Batched approve reverted but the delegation landed; approval deferred to the first sponsored op",
+				)
+				return true
+			}
 			this.logger.warn({ chain }, "Batched delegate+approve failed; retrying delegation without the approve")
 		}
 		return this.trySendDelegation(chain, solverAccountContract, undefined)

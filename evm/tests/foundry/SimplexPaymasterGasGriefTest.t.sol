@@ -123,17 +123,17 @@ contract SimplexPaymasterGasGriefTest is Test {
         // and sender's token balance slots, which would otherwise read as a penalty.
         _run(60_000, 40_000);
 
-        (uint256 chargedCap, uint256 spentCap) = _run(60_000, 40_000);
-        uint256 marginAtCap = chargedCap - spentCap;
+        (uint256 chargedSdk, uint256 spentSdk) = _run(60_000, 40_000);
+        uint256 marginAtSdk = chargedSdk - spentSdk;
 
         (uint256 chargedFloor, uint256 spentFloor) = _run(60_000, 30_000);
         uint256 marginAtFloor = chargedFloor - spentFloor;
 
-        emit log_named_uint("margin @ cap   40k (wei)", marginAtCap);
+        emit log_named_uint("margin @ sdk   40k (wei)", marginAtSdk);
         emit log_named_uint("margin @ floor 30k (wei)", marginAtFloor);
-        // Identical across the whole accepted band: the EntryPoint waives the penalty
-        // while gasLimit <= gasUsed + 40k, so the cap is penalty-free whatever postOp costs.
-        assertEq(marginAtCap, marginAtFloor, "penalty charged inside the allowed band");
+        // Identical across the SDK's [30k, 40k] range: the EntryPoint waives the penalty
+        // while gasLimit <= gasUsed + 40k, so 40k is penalty-free whatever postOp costs.
+        assertEq(marginAtSdk, marginAtFloor, "penalty charged inside the SDK band");
     }
 
     /// The band the contract enforces is exactly [MIN, MAX]; outside it validation refuses.
@@ -159,12 +159,13 @@ contract SimplexPaymasterGasGriefTest is Test {
         paymaster.validate(tooLow, 1e14);
     }
 
-    /// Probe the minimum viable postOp gas limit per token: postOp must still fit, and the
-    /// EntryPoint penalty must be waived (limit <= gasUsed + 40k).
-    /// Across the SDK's band [30k, 40k], both fee tokens stay profitable for the paymaster
-    /// (it charges the user at least what the EntryPoint debits it).
+    /// Across the contract's whole accepted band — the SDK's penalty-free [30k, 40k] and
+    /// the 100k ceiling kept for older clients, where the EntryPoint's unused-gas penalty
+    /// DOES apply — both fee tokens stay profitable for the paymaster: the penalty at 100k
+    /// must fit inside the _postOpCost cushion the user already pays. This is the case the
+    /// restored ceiling's safety argument rests on.
     function testPostOpProfitableForBothTokensAcrossTheBand() public onFork {
-        uint128[2] memory limits = [uint128(40_000), 30_000];
+        uint128[3] memory limits = [uint128(100_000), 40_000, 30_000];
         address[2] memory toks = [USDT, USDC];
         string[2] memory names = ["USDT", "USDC"];
         for (uint256 t = 0; t < toks.length; t++) {

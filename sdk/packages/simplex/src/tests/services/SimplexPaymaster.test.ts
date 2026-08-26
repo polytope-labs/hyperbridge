@@ -9,8 +9,9 @@ import {
 	size,
 	slice,
 	toHex,
-	BaseError,
 	ContractFunctionExecutionError,
+	ContractFunctionRevertedError,
+	HttpRequestError,
 	type PublicClient,
 	type WalletClient,
 } from "viem"
@@ -79,15 +80,34 @@ function mockClient(opts: {
 		readContract: async ({ functionName, args }: { functionName: string; args?: unknown[] }) => {
 			switch (functionName) {
 				case "PERMIT2":
-					// A transport error (timeout/429) must propagate, not be cached as unsupported.
-					if (opts.permit2Transport === false) throw new Error("HTTP request failed: 429")
+					// Both failure shapes follow viem's readContract wrapping: every failure —
+					// transport included — arrives as ContractFunctionExecutionError, and only
+					// the cause chain separates a 429 from a genuine revert. (Real viem nests
+					// the HttpRequestError one level deeper, behind a CallExecutionError; the
+					// classifier walks the chain, so depth is irrelevant.) A bare Error here
+					// would dodge the classifier and test nothing.
+					if (opts.permit2Transport === false) {
+						throw new ContractFunctionExecutionError(
+							new HttpRequestError({
+								url: "https://rpc.example",
+								status: 429,
+								details: "Too Many Requests",
+							}),
+							{ abi: [], functionName: "PERMIT2" } as never,
+						)
+					}
 					// An old deployment reverts PERMIT2(); the client only treats a genuine
-					// contract revert (not a transport error) as "unsupported".
+					// contract revert (ContractFunctionRevertedError in the cause chain) as
+					// "unsupported".
 					if (opts.permit2Capable === false) {
-						throw new ContractFunctionExecutionError(new BaseError("execution reverted"), {
-							abi: [],
-							functionName: "PERMIT2",
-						} as never)
+						throw new ContractFunctionExecutionError(
+							new ContractFunctionRevertedError({
+								abi: [],
+								functionName: "PERMIT2",
+								message: "execution reverted",
+							}),
+							{ abi: [], functionName: "PERMIT2" } as never,
+						)
 					}
 					return PERMIT2
 				case "balanceOf":
@@ -295,6 +315,22 @@ describe("buildSimplexPaymasterData mode selection (no-permit token)", () => {
 				{ skipPermit: true },
 			),
 		).rejects.toThrow(/HTTP request failed/)
+
+		// And nothing was cached: the very next attempt with a healthy RPC probes again
+		// and lands in PERMIT2 mode instead of being pinned to "unsupported" for the TTL.
+		const { walletClient: retryWallet, writeContract: retryWrite } = mockWalletClient()
+		const pm = await buildSimplexPaymasterData(
+			mockClient({ permit2Allowance: maxUint256, native: 0n }),
+			retryWallet,
+			mockSigner().signer,
+			SOLVER,
+			flakyPaymaster,
+			CHAIN,
+			configService,
+			{ skipPermit: true },
+		)
+		expect(retryWrite).not.toHaveBeenCalled()
+		expect(slice(pm!.paymasterData, 0, 1)).toBe("0x02")
 	})
 
 	it("falls back to the capped approve(paymaster) bootstrap on chains without Permit2", async () => {
@@ -329,7 +365,20 @@ describe("resolvePendingPermit2Approval (native-delegation batching)", () => {
 		expect(pending).toEqual({ token: USDC, spender: PERMIT2 })
 	})
 
-	it("returns null once the Permit2 allowance already covers the recommended amount", async () => {
+	it("returns null for a stale non-zero allowance — the batched tx cannot zero-first", async () => {
+		// USDT's non-zero → non-zero rule would revert the batched approve(max), and the
+		// delegation tx skips simulation, so this must defer to sendFundedApprove instead.
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ permit2Allowance: 1n }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+		)
+		expect(pending).toBeNull()
+	})
+
+	it("returns null at the recommended allowance — PERMIT2 mode already works, nothing to batch", async () => {
 		const pending = await resolvePendingPermit2Approval(
 			mockClient({ permit2Allowance: RECOMMENDED }),
 			SOLVER,

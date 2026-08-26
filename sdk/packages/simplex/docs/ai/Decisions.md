@@ -4,6 +4,12 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
+
+Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.
+
+Chosen: `resolvePendingPermit2Approval` batches only from a clean zero allowance. The batched delegation tx approves max in one shot and is sent with explicit gas (no simulation), so a stale non-zero allowance on a USDT-rule token made it a *deterministic* on-chain revert — knowable in advance from the allowance the resolver had already read. Alternative — teach the batched path a zero-first reset — rejected: a type-0x04 tx has one payload, so the reset would need a second tx anyway, which is exactly `sendFundedApprove`'s job. The retry after a failed batched tx now checks `isDelegated` first, because EIP-7702 keeps authorization tuples applied even when execution reverts — the delegation usually landed and only the approve died.
+
 ## 2026-08-24 — Review fixes: robust bootstrap, chain-keyed probe, no dead config (#1147 review)
 
 Seun's high-effort review surfaced several correctness gaps, resolved here:

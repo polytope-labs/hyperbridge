@@ -15,7 +15,7 @@ const NATIVE = "0x0000000000000000000000000000000000000000"
  * Builds a service whose on-chain `decimals()` either resolves or always throws,
  * with a registry that knows about USDC only.
  */
-function makeService(opts: { onChain?: number; registry?: number }) {
+function makeService(opts: { onChain?: number; registry?: number; chainIds?: number[] }) {
 	const readContract = opts.onChain === undefined
 		? vi.fn().mockRejectedValue(new Error("RPC returned undecodable data"))
 		: vi.fn().mockResolvedValue(opts.onChain)
@@ -29,7 +29,10 @@ function makeService(opts: { onChain?: number; registry?: number }) {
 	const configService = {
 		getAssetDecimalsByAddress,
 		// The constructor kicks off initCache() without awaiting it.
-		getConfiguredChainIds: vi.fn().mockReturnValue([]),
+		getConfiguredChainIds: vi.fn().mockReturnValue(opts.chainIds ?? []),
+		getUsdcAsset: vi.fn().mockReturnValue(USDC),
+		getUsdtAsset: vi.fn().mockReturnValue(UNKNOWN),
+		getHostAddress: vi.fn().mockReturnValue("0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"),
 	} as unknown as FillerConfigService
 
 	const setTokenDecimals = vi.fn()
@@ -76,12 +79,25 @@ describe("ContractInteractionService.getTokenDecimals", () => {
 		expect(setTokenDecimals).not.toHaveBeenCalled()
 	})
 
-	it("still defaults to 18 when the read fails and the token is not in the registry", async () => {
+	it("throws when the read fails and the token is not in the registry", async () => {
 		const { service, getAssetDecimalsByAddress } = makeService({})
 
-		await expect(service.getTokenDecimals(UNKNOWN, CHAIN)).resolves.toBe(18)
+		// Never guess: decimals scales policyMaxOutput by 10 ** decimals, so a wrong
+		// value changes the fill size by orders of magnitude rather than degrading it.
+		// Callers on the fill path treat a throw as "skip this order".
+		await expect(service.getTokenDecimals(UNKNOWN, CHAIN)).rejects.toThrow(/Unable to determine decimals/)
 
 		expect(getAssetDecimalsByAddress).toHaveBeenCalledWith(CHAIN, UNKNOWN)
+	})
+
+	it("prewarming never rejects, so an unawaited initCache cannot kill the process", async () => {
+		// A configured chain whose every read fails and whose USDT entry is absent from
+		// the registry — i.e. the prewarm hits the throwing branch on both tokens.
+		const { service } = makeService({ chainIds: [137] })
+
+		// initCache() runs unawaited from the constructor; a rejection there would be an
+		// unhandled rejection rather than a skipped order.
+		await expect(service.initCache()).resolves.toBeUndefined()
 	})
 
 	it("short-circuits the native token without reading or consulting the registry", async () => {

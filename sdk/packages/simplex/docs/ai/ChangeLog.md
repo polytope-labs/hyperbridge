@@ -25,8 +25,11 @@ The correct values were already in the tree: `chain.ts` carries a per-chain `tok
 and `ChainConfigService.getAssetMetadataByAddress` resolves it by address. Nothing in simplex
 consulted it — `CacheService.tokenDecimals` starts empty and its only writer is the success path
 of the very read that just failed. The catch branch now consults the registry through a new
-`FillerConfigService.getAssetDecimalsByAddress` delegator before falling back to 18, and logs at
-`error` rather than `warn` when even the registry has no entry.
+`FillerConfigService.getAssetDecimalsByAddress` delegator, and raises a hard error when neither
+the RPC nor the registry can supply a value — there is no safe guess, so the order is skipped
+instead. Every caller was audited to confirm a throw skips one order rather than escaping:
+`initCache` runs unawaited from the constructor and now swallows its own failures, so a boot-time
+RPC hiccup cannot become an unhandled rejection.
 
 Found by the scheduled IntentGateway/Simplex security audit.
 

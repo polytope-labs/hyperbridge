@@ -54,7 +54,9 @@ export class ContractInteractionService {
 		this.cacheService = sharedCacheService || new CacheService()
 		this.signer = signer
 		this.solverAccountAddress = this.signer.address
-		this.initCache()
+		// `initCache` swallows its own failures; the guard is belt-and-braces so a future
+		// change there can never become an unhandled rejection from an unawaited call.
+		void this.initCache().catch((err) => this.logger.warn({ err }, "Token cache prewarm failed"))
 	}
 
 	/**
@@ -111,18 +113,39 @@ export class ContractInteractionService {
 		return helper
 	}
 
+	/**
+	 * Best-effort cache warm-up. Deliberately never rejects: this runs unawaited from the
+	 * constructor, so a rejection would surface as an unhandled rejection and take the
+	 * process down. A failed prewarm only means the value is fetched on first use, where
+	 * `getTokenDecimals` is strict — which is the right place for strictness, because
+	 * there it can skip a single order instead of killing the filler at boot.
+	 */
 	async initCache(): Promise<void> {
-		const chainIds = this.configService.getConfiguredChainIds()
-		const chainNames = chainIds.map((id) => `EVM-${id}`)
-		for (const chainName of chainNames) {
-			await this.getFeeTokenWithDecimals(chainName)
-		}
+		try {
+			const chainIds = this.configService.getConfiguredChainIds()
+			const chainNames = chainIds.map((id) => `EVM-${id}`)
+			for (const chainName of chainNames) {
+				try {
+					await this.getFeeTokenWithDecimals(chainName)
+				} catch (err) {
+					this.logger.warn({ err, chain: chainName }, "Could not prewarm fee token decimals")
+				}
+			}
 
-		for (const destChain of chainNames) {
-			const usdc = this.configService.getUsdcAsset(destChain)
-			const usdt = this.configService.getUsdtAsset(destChain)
-			await this.getTokenDecimals(usdc, destChain)
-			await this.getTokenDecimals(usdt, destChain)
+			for (const destChain of chainNames) {
+				for (const token of [
+					this.configService.getUsdcAsset(destChain),
+					this.configService.getUsdtAsset(destChain),
+				]) {
+					try {
+						await this.getTokenDecimals(token, destChain)
+					} catch (err) {
+						this.logger.warn({ err, chain: destChain, token }, "Could not prewarm token decimals")
+					}
+				}
+			}
+		} catch (err) {
+			this.logger.warn({ err }, "Token cache prewarm failed")
 		}
 	}
 
@@ -184,11 +207,20 @@ export class ContractInteractionService {
 				return configured
 			}
 
+			// Hard error rather than a guess. `decimals` scales `policyMaxOutput` by
+			// `10 ** decimals`, so a wrong value does not degrade the fill — it changes
+			// its size by orders of magnitude. Every caller on the fill path treats a
+			// throw as "skip this order" (`IntentFiller.evaluateOrder` is wrapped in a
+			// try/catch, as are the phantom-quote and USD-sizing paths), which is the
+			// outcome we want when the value is unknowable.
 			this.logger.error(
 				{ err: error, chain, token: bytes20Address },
-				"Error getting token decimals and token is absent from the asset registry, defaulting to 18",
+				"Could not determine token decimals from RPC or configuration",
 			)
-			return 18 // Default to 18 if we can't determine
+			throw new Error(
+				`Unable to determine decimals for token ${bytes20Address} on ${chain}: ` +
+					`the on-chain decimals() read failed and the token is not in the asset registry`,
+			)
 		}
 	}
 

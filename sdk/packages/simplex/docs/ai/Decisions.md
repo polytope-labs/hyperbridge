@@ -4,6 +4,42 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-26 — The asset registry is a fallback for `decimals()`, not the source of truth
+
+Chosen: `getTokenDecimals` reads `decimals()` on-chain first, falls back to
+`FillerConfigService.getAssetDecimalsByAddress` when that read throws, and **throws** if neither
+source can supply a value. The registry value is **not** written into `CacheService`.
+
+The on-chain value is the real one — the registry is curated data that can drift from a
+redeployed or migrated token. Keeping the read authoritative means the registry only ever covers a
+transient RPC failure. Not caching the fallback is the load-bearing half: `CacheService.tokenDecimals`
+has no TTL, so caching a registry value during an outage would pin it for the lifetime of the
+process and silently outlive the failure that justified it. Leaving the cache empty means the next
+call retries the read and caches the real answer.
+
+Alternatives rejected:
+
+- *Registry first, on-chain only for unregistered tokens.* Fewer RPC calls, and it would make the
+  bad path unreachable rather than merely survivable. Rejected because it inverts which value is
+  authoritative: a stale registry entry would then silently override the live token on every fill,
+  and the registry is edited by hand.
+- *Return 18 when the registry has no entry either.* What this replaced. `decimals` scales
+  `policyMaxOutput` by `10 ** decimals`, so a wrong value does not degrade a fill — it changes its
+  size by orders of magnitude. There is no safe guess, so the function now throws and the order is
+  skipped.
+
+Making it throw required auditing every caller, since `getTokenDecimals` had never thrown:
+
+- `calculateProfitability` and `sizeOrder` reach `IntentFiller.evaluateOrder`, inside the
+  `try/catch` opened at `core/filler.ts:604` — the order is logged and skipped.
+- `quotePhantomFill` is wrapped at `core/filler.ts:1134` — the leg goes unquoted.
+- `getOrderUsdValue` is wrapped at `core/filler.ts:688` — sizing falls back to `baseInputUsd`.
+- `initCache` was the one real hazard: it runs **unawaited** from the constructor, so a rejection
+  would have been an unhandled rejection and killed the process rather than skipping an order. It
+  now swallows its own failures (and the call site adds a `.catch`), so strictness applies where a
+  single order can be dropped, not at boot. Note this hazard pre-existed via
+  `getFeeTokenWithDecimals`, which could already throw there.
+
 ## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
 
 Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.

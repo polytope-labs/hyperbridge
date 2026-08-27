@@ -166,7 +166,7 @@ export interface FillerTomlConfig {
 		 */
 		acceptedSourceChains?: string[]
 		/**
-		 * How long a signed bid stays executable, in seconds. Defaults to 1800 (30 minutes).
+		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *
 		 * Written into `FillOptions.validUntil` and enforced by `fillOrder`, which reverts
 		 * `FillExpired` past it. This is how long the quoted price stands as a firm commitment:

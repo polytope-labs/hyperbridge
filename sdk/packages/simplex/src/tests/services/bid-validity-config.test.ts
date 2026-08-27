@@ -15,16 +15,16 @@ function service(fillerConfig?: Record<string, unknown>) {
 }
 
 describe("bidValiditySeconds", () => {
-	it("defaults to 30 minutes when the operator does not set it", () => {
-		expect(service().getBidValiditySeconds()).toBe(1800)
+	it("defaults to 5 minutes when the operator does not set it", () => {
+		expect(service().getBidValiditySeconds()).toBe(300)
 	})
 
 	it("takes the configured value when set", () => {
-		expect(service({ bidValiditySeconds: 300 }).getBidValiditySeconds()).toBe(300)
+		expect(service({ bidValiditySeconds: 900 }).getBidValiditySeconds()).toBe(900)
 	})
 
 	it("is honoured at zero rather than falling back to the default", () => {
-		// `?? 1800` and `|| 1800` differ here, and only the first is right: 0 is a deliberate
+		// `?? 300` and `|| 300` differ here, and only the first is right: 0 is a deliberate
 		// "no bound", not an absent value.
 		expect(service({ bidValiditySeconds: 0 }).getBidValiditySeconds()).toBe(0)
 	})

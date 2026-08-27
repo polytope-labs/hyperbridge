@@ -15,7 +15,7 @@ Newest entries first.
 ## 2026-08-27 — Bids carry an on-chain expiry (`bidValiditySeconds`)
 
 Every bid this filler signs now sets `FillOptions.validUntil`, so `fillOrder` reverts `FillExpired` once the quote
-has gone stale. Configured as `simplex.bidValiditySeconds`, default 1800 (30 minutes).
+has gone stale. Configured as `simplex.bidValiditySeconds`, default 300 (5 minutes).
 
 A bid is a firm price the order placer takes up whenever they choose, and nothing bounded that window:
 `order.deadline` is placer-chosen with no ceiling, and `enqueueRetraction` only clears the bid on Hyperbridge, which

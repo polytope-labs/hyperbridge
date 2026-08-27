@@ -43,7 +43,7 @@ substratePrivateKey = ""
 hyperbridgeWsUrl = ""
 
 # Bid validity (optional)
-# How long a signed bid stays executable, in seconds. Default: 1800 (30 minutes).
+# How long a signed bid stays executable, in seconds. Default: 300 (5 minutes).
 #
 # Written into `FillOptions.validUntil` and enforced on-chain by `fillOrder`, which reverts
 # `FillExpired` past it. This is how long your quoted price stands as a firm commitment that
@@ -52,11 +52,16 @@ hyperbridgeWsUrl = ""
 # destination chain. Without this, a signed bid stays executable indefinitely and is taken up
 # only once the rate has moved against you.
 #
-# Set in seconds; converted to a block height per destination chain. Lower it on volatile
-# pairs — 30 minutes of a fixed price on a fast-moving pair is real optionality given away.
+# Set in seconds; converted to a block height per destination chain.
+#
+# The default is deliberately tight. Raise it if you see bids lapsing before the placer selects
+# a solver — a bid waits in the coprocessor until then, so an expiry shorter than the selection
+# window costs you fills. Lower it further on volatile pairs, where a fixed price held open is
+# real optionality given away.
+#
 # Ignored on gateways deployed before `FillOptions.validUntil` existed (the filler warns once
 # per chain when that is the case).
-# bidValiditySeconds = 1800
+# bidValiditySeconds = 300
 
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission

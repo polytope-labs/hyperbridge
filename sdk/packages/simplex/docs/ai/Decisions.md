@@ -6,25 +6,29 @@ Entry format: heading with the decision, then alternatives considered and the re
 
 ## 2026-08-27 — Bid tenor is configured in seconds and written in blocks
 
-Chosen: `bidValiditySeconds` (default 1800) is converted to a block height per destination chain in
+Chosen: `bidValiditySeconds` (default 300) is converted to a block height per destination chain in
 `ContractInteractionService.bidValidUntilBlock()`.
 
 The on-chain field has to be blocks: `fillOrder` compares it against `_blockNumber()`, the same clock as
 `order.deadline`, and having the two disagree about what "expired" means would be a trap. But blocks are the wrong
-unit for an operator — 30 minutes is 150 blocks on Ethereum and 900 on Base, so a single configured block count would
+unit for an operator — 5 minutes is 25 blocks on Ethereum and 150 on Base, so a single configured block count would
 mean something different on every chain, and price risk is denominated in time, not blocks. Converting at the edge
 keeps both sides in their natural unit. Rounding is deliberately up: erring long costs a slightly stale quote, erring
 short silently drops bids we would have won.
 
-1800 seconds is set by the selection window, not the quote's shelf life. A bid is not consumed when signed — it sits
-in the coprocessor until the placer selects a solver, and a bid that lapses before selection is lost revenue.
-`BID_TTL_MS` (the 1-hour retraction sweep) is the closest thing to a stated expectation for how long that takes, so
-the expiry has to be a decent fraction of an hour or the filler bids into the void. 30 minutes sits inside that
-window while still bounding the exposure.
+300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly
+180s on the deepest default policies, so 5 minutes clears the mechanical part of the round trip while keeping the
+window over which the quoted price is a firm commitment short. On a volatile pair that is the number that matters —
+optionality handed to the placer scales with time, and USDC/CNGN reprices in steps rather than drifting.
 
-The trade-off is worth stating plainly: 30 minutes of free optionality on a volatile pair is not nothing. What the
-fix delivers is that the option is now *bounded and priced by us* rather than unbounded and timed by the placer —
-1800 is a default, not a ceiling, and USDC/CNGN is exactly the pair to turn it down on.
+The cost is on the other side and worth watching. A bid is not consumed when signed: it waits in the coprocessor
+until the placer selects a solver, so an expiry shorter than the selection window is lost revenue rather than lost
+money. `BID_TTL_MS` (the 1-hour retraction sweep) is the only stated expectation in the tree for how long selection
+takes, and 5 minutes sits well inside it — if bids are observed lapsing unselected, this is the knob, and raising it
+is a pricing decision rather than a correctness one.
+
+It is deliberately not tied to `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
+short an option, and the two should not be assumed to move together.
 
 Alternatives rejected:
 

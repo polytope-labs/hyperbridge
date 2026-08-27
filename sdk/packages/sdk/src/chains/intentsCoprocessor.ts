@@ -3,7 +3,7 @@ import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { RuntimeVersion } from "@polkadot/types/interfaces"
 import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
-import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
+import { decodeAddress, keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
 import PQueue from "p-queue"
@@ -12,6 +12,17 @@ import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { TokenBucket } from "@/utils/rateLimiter"
 import { BatchingHttpProvider } from "@/utils/batchingHttpProvider"
+
+/**
+ * The key `frame_system` writes its events under: `twox_128("System") ++ twox_128("Events")`.
+ *
+ * Computed rather than taken from the decorated api, mirroring `system_events_storage_key` in
+ * `parachain/simtests`. A plain entry's key is a pure function of its pallet and item names, so
+ * there is nothing to look up and nothing to get wrong — where asking polkadot-js for it meant
+ * choosing correctly between three near-identical accessors that fail in different silent ways.
+ * See {@link IntentsCoprocessor.getPhantomOrdersInRange}.
+ */
+const SYSTEM_EVENTS_KEY = u8aToHex(u8aConcat(xxhashAsU8a("System", 128), xxhashAsU8a("Events", 128)))
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
@@ -1262,16 +1273,25 @@ export class IntentsCoprocessor {
 	 */
 	async getPhantomOrdersInRange(fromBlockHash: HexString, toBlockHash: HexString): Promise<PhantomOrderEvent[][]> {
 		const api = await this.http()
-		// The storage *entry*, not `entry.key()`. polkadot-js decodes each returned value from the
-		// metadata hanging off the key it was asked for: `StorageKey` takes its `meta` from a
-		// function input and has none for a hex string, and without `meta` the value's type falls
-		// back to `Raw` — the events come back as undecoded bytes rather than `Vec<EventRecord>`.
-		const changeSets = await api.rpc.state.queryStorage([api.query.system.events], fromBlockHash, toBlockHash)
-		// polkadot-js decodes a `Vec<StorageChangeSet>` reply into `[blockHash, valuesPerKey]` pairs,
-		// each value already typed from the storage key's own metadata — one key here, so index 0.
-		return (changeSets as unknown as Array<[unknown, unknown[]]>).map(([, values]) =>
-			phantomOrdersFrom(values[0]),
-		)
+		// `.raw` returns the reply as the node sent it, and the key and type are named outright.
+		// The formatted call instead builds a `StorageKey` from whatever it is handed and decodes
+		// each value from that key's metadata, which is three ways to be silently wrong:
+		// `entry.key()` is a hex string carrying no metadata, so values arrive as undecoded `Raw`;
+		// the decorated `entry` carries metadata but `StorageKey` derives its bytes by *calling* it,
+		// and calling a decorated entry runs the query, so the key becomes `[object Promise]`,
+		// matches no change set, and the value falls back to the entry's empty default; only
+		// `entry.creator` is right. None of them fail loudly. Naming both leaves nothing to pick.
+		const changeSets = (await api.rpc.state.queryStorage.raw(
+			[SYSTEM_EVENTS_KEY],
+			fromBlockHash,
+			toBlockHash,
+		)) as unknown as Array<{ changes: Array<[string, string | null]> }>
+		return changeSets.map((changeSet) => {
+			const value = changeSet?.changes?.find(([key]) => key === SYSTEM_EVENTS_KEY)?.[1]
+			// A change set carrying nothing for this key: no events, so no orders.
+			if (!value) return []
+			return phantomOrdersFrom(api.registry.createType("Vec<EventRecord>", value))
+		})
 	}
 
 	/**

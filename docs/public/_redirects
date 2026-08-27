@@ -5,3 +5,6 @@
 # Redirect old configurations URLs to new contract-addresses URLs
 /docs/developers/configurations/* /docs/developers/evm/contract-addresses/:splat 301!
 /docs/developers/configurations /docs/developers/evm/contract-addresses/ 301!
+
+# /protocol/ismp is a directory with no index page
+/protocol/ismp /protocol/ismp/introduction/ 301!

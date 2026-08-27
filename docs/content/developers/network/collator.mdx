@@ -3,6 +3,13 @@ title: Collators (Block Producer)
 description: This guide outlines the complete process of leveraging your work as a Relayer or Prover to become a Collator on the Hyperbridge network.
 ---
 
+import assetAccountBalance from "./images/asset_account_balance.png";
+import sampleSubscanGenerated from "./images/sample_subscan_generated.png";
+import rotateKeys from "./images/rotate_keys.png";
+import setCollatorKeys from "./images/set_collator_keys.png";
+import registerController from "./images/register_controller.png";
+import registerAsCandidateWithStash from "./images/register_as_candidate_with_stash.png";
+
 # Becoming a Collator
 
 This guide outlines the complete process of becoming a Collator on the Hyperbridge network.
@@ -85,7 +92,7 @@ This is the foundation of the entire system. The primary goal is to be an active
 **Outcome**: For every `$BRIDGE` reward your Controller account receives, the corresponding pallet (`pallet-messaging-incentives`, `pallet-consensus-incentives`, or `pallet-beefy-consensus-proofs`) automatically mints an equivalent amount of Reputation Asset to that same Controller account. You can check your Reputation Asset balance in the Polkadot-JS UI by going to `Developer > Chain State > Assets > Account`.
 
 <figure>
-  <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />
+  <img src={assetAccountBalance.src} alt="Reputation Asset Account Balance   " />
   <figcaption style={{ textAlign: "center" }}>How to check Reputation Asset Account Balance</figcaption>
 </figure>
 
@@ -116,7 +123,7 @@ subkey generate --scheme sr25519
 ```
 
 <figure>
-  <img src="/sample_subscan_generated.png" alt="Sample Key Generation with subscan  " />
+  <img src={sampleSubscanGenerated.src} alt="Sample Key Generation with subscan  " />
   <figcaption style={{ textAlign: "center" }}>How to generate controller account key</figcaption>
 </figure>
 
@@ -222,7 +229,7 @@ curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method":
 ```
 
 <figure>
-  <img src="/rotate_keys.png" alt="Author rotate keys" />
+  <img src={rotateKeys.src} alt="Author rotate keys" />
   <figcaption style={{ textAlign: "center" }}>Result showing when you rotate keys</figcaption>
 </figure>
 
@@ -334,7 +341,7 @@ After you have successfully registered as a candidate, you should restart your n
 brings the fisherman task online so the node is contributing to L2 fraud detection from the moment it joins the set.
 
 <figure>
-  <img src="/set_collator_keys.png" alt="Setting session keys" />
+  <img src={setCollatorKeys.src} alt="Setting session keys" />
   <figcaption style={{ textAlign: "center" }}>How to set Session Keys</figcaption>
 </figure>
 
@@ -368,7 +375,7 @@ This records a single-use, on-chain consent saying: "I am the Controller and I a
 - Sign and submit. The transaction will consume the matching approval from Step 3a and fail with `ControllerApprovalMissing` if no approval is on record for this `(stash, controller)` pair.
 
 <figure>
-  <img src="/register_controller.png" alt="Registering Your Controller" />
+  <img src={registerController.src} alt="Registering Your Controller" />
   <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
 </figure>
 
@@ -391,7 +398,7 @@ Now that the node is ready, your keys are linked, and your controller is registe
 - Sign and submit the transaction.
 
 <figure>
-  <img src="/register_as_candidate_with_stash.png" alt="Registering as candidate using Stash Account" />
+  <img src={registerAsCandidateWithStash.src} alt="Registering as candidate using Stash Account" />
   <figcaption style={{ textAlign: "center" }}>How to register as candidate using your Stash Account</figcaption>
 </figure>
 

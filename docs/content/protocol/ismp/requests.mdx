@@ -3,18 +3,20 @@ title: Requests
 description: The ISMP Request specification
 ---
 
+import requestCommitment from "./images/request.commitment.svg";
+import incomingRequest from "./images/incoming.request.svg";
 
 # Requests
 
 ISMP is a request-response protocol, modeled after HTTP. A _module_ on one state machine initiates a request which is to be executed by a counterpart _module_ on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
 
 <figure>
-  <img src="/request.commitment.svg" alt="The flow of an outgoing request" />
+  <img src={requestCommitment.src} alt="The flow of an outgoing request" />
   <figcaption>The flow of an outgoing request</figcaption>
 </figure>
 <br />
 <figure>
-  <img src="/incoming.request.svg" alt="The flow of an incoming request" />
+  <img src={incomingRequest.src} alt="The flow of an incoming request" />
   <figcaption>The flow of an incoming request</figcaption>
 </figure>
 <br />

@@ -3,6 +3,9 @@ title: Solochains (GRANDPA)
 description: For solochains that want to integrate with hyperbridge, a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
 ---
 
+import addStateMachine from "./images/add_state_machine.png";
+import grnpInit from "./images/grnp_init.png";
+
 # Solochain Integration
 
 For solochains that want to integrate with hyperbridge, a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
@@ -48,7 +51,7 @@ construct_runtime! {
 
 The `ismp-grandpa` pallet requires state machines to be whitelisted before any consensus proofs can be accepted, Hyperbridge included. This ensures that solochains are not spammed with consensus proofs of unwanted chains.
 
-<img src="/add_state_machine.png" />
+<img src={addStateMachine.src} />
 
 ## Calls
 
@@ -157,7 +160,7 @@ log-consensus-state KUSAMA-4009
 
 This should print out a potentially long hex string. Next you'll use this hex string to initialize the Hyperbridge consensus state on your solochain through an extrinsic as shown below.
 
-<img src="/grnp_init.png" />
+<img src={grnpInit.src} />
 
 - **`consensusState`**: This is the initial, trusted consensus state for the Hyperbridge consensus on your solochain. It contains the current and next validator set keys, as well as the latest finalized block. It is the value printed by the `log-consensus-state` subcommand on the tesseract consensus relayer.
 

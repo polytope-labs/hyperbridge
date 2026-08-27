@@ -3,6 +3,10 @@ title: Verkle Tries
 description: Merkle trees with a vector commitment scheme.
 ---
 
+import merklePatriciaTree from "./images/IMG_0041.jpg";
+import treeGrowth from "./images/ezgif.com-gif-maker.gif";
+import verkleTree from "./images/IMG_0033.jpg";
+
 # Verkle Tries
 
 
@@ -17,7 +21,7 @@ Merkle Patricia trees are an improvement over Merkle trees that enable the verif
 For some context, in the Merkle Patricia Tree below, the proof for **Leaf 3** would contain **hash4**, **hash5**, **hash1**, and **hash2**. This is because they are sibling nodes along the path to the root hash.
 
 <figure>
-  <img src="/verkle/IMG_0041.jpg" alt="A Merkle Patricia Tree, empty nodes are shaded grey." />
+  <img src={merklePatriciaTree.src} alt="A Merkle Patricia Tree, empty nodes are shaded grey." />
   <figcaption style={{ textAlign: "center" }}>A Merkle Patricia Tree, empty nodes are shaded grey.</figcaption>
 </figure>
 
@@ -88,7 +92,7 @@ Leaf D: The first byte is 0xF0, so we remove the leaf stored at this index in th
 Leaf E: This key shares its first and second byte with Leaf D. Therefore, we remove Leaf D from index `0xAF` of Node B and insert a child node labeled Node C. We then insert Leaf D and Leaf E at indices `0x65` and `0x9E` of Node C.
 
 <figure>
-  <img src="/verkle/ezgif.com-gif-maker.gif" alt="A Gif showing how the tree grows as leaves are inserted" />
+  <img src={treeGrowth.src} alt="A Gif showing how the tree grows as leaves are inserted" />
   <figcaption style={{ textAlign: "center" }}>A Gif showing how the tree grows as leaves are inserted</figcaption>
 </figure>
 
@@ -105,7 +109,7 @@ Next, we interpolate over the points $[(m_0, h_0), ...,(m_{k-1}, h_{k-1})]$ to f
 Ideally this process would be implemented with some caching so we are only recomputing commitments for nodes that were affected by a change(insertion or deletion) in the tree.
 
 <figure>
-  <img src="/verkle/IMG_0033.jpg" alt="A simple verkle tree with k-arity of 256." />
+  <img src={verkleTree.src} alt="A simple verkle tree with k-arity of 256." />
   <figcaption style={{ textAlign: "center" }}>A simple verkle tree with k-arity of 256.</figcaption>
 </figure>
 

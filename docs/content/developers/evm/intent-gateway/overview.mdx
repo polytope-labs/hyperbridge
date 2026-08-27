@@ -9,7 +9,7 @@ The IntentGateway protocol enables intent-based token swaps across EVM chains co
 
 Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOperation`s which are gas-abstracted meta-transactions and posting them to the Hyperbridge blockchain. The user reviews all bids and selects the `UserOperation` that gives them the most assets, then executes it on-chain.
 
-![Order Auction Flow](/intent-gateway-auction.svg)
+![Order Auction Flow](./images/intent-gateway-auction.svg)
 
 ### Actors
 
@@ -26,7 +26,7 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 
 Intent Gateway supports same-chain swaps where source and destination are the same chain. Settlement is atomic — no cross-chain messaging required. Supports **partial fills** where multiple solvers can each fill a portion of an order, with escrow released proportionally. Cancellation is immediate and any remaining escrowed assets are returned to the user.
 
-![Same-Chain Swap](/intent-gateway-same-chain.svg)
+![Same-Chain Swap](./images/intent-gateway-same-chain.svg)
 
 ### Partial Fills
 
@@ -36,7 +36,7 @@ For same-chain orders, solvers can fill any portion of the output. The proportio
 
 Source and destination are different chains. Settlement requires cross-chain messaging through Hyperbridge. Fills are all-or-nothing — partial fills are not supported for cross-chain orders.
 
-![Cross-Chain Swap](/intent-gateway-cross-chain.svg)
+![Cross-Chain Swap](./images/intent-gateway-cross-chain.svg)
 
 ### Fill Flow
 
@@ -62,11 +62,11 @@ There are two modes for cross-chain cancellation:
 
 **Cancel from source chain**: The user calls `cancelOrder()` on the source chain, which dispatches a `DispatchGet` storage read request to query the destination chain's fill status. The `CancelOptions.height` must be greater than `order.deadline` — this ensures the proof is taken from a block after the order has expired. A relayer processes this request on Hyperbridge by providing storage proofs from the destination chain. If the storage slot for `_filled[commitment]` is empty (order unfilled), Hyperbridge dispatches a response back to the source chain. The `onGetResponse` handler verifies the empty proof and calls `withdraw()` to refund the escrowed tokens to the user. If the order was filled, the response contains a non-empty value and the handler reverts with `Filled()`.
 
-![Cancel from Source Chain](/intent-gateway-cancel-source.svg)
+![Cancel from Source Chain](./images/intent-gateway-cancel-source.svg)
 
 **Cancel from destination chain**: Before the deadline, only the order owner can call `cancelOrder()` on the destination chain. After the deadline, anyone can cancel. The function marks the order as cancelled locally (`_filled[commitment] = user`) to prevent future fills, then dispatches a cross-chain `RefundEscrow` message back to the source chain. When the source chain receives this message via `onAccept()`, it calls `withdraw()` to refund the escrowed tokens to the user and emits `EscrowRefunded(commitment)`.
 
-![Cancel from Destination Chain](/intent-gateway-cancel-dest.svg)
+![Cancel from Destination Chain](./images/intent-gateway-cancel-dest.svg)
 
 ### Fees
 

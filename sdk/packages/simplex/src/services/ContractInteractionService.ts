@@ -38,14 +38,17 @@ Decimal.config({ precision: 28, rounding: 4 })
  * Handles contract interactions for tokens and other contracts
  */
 /**
- * Slack added to every bid's `validUntil`, in blocks.
+ * Allowance added to every bid's validity window, in seconds, for bid discovery.
  *
  * The head is read before the bid is built, signed, submitted to Hyperbridge and finally
- * selected, so it is already behind by the time the fill lands — and `Chain.blockTime` is a
- * nominal figure, not a guarantee. The asymmetry decides the direction: overshooting costs a
- * marginally staler quote, undershooting silently throws away bids that were about to be won.
+ * discovered and selected — all wall-clock time that has passed by the time a fill lands.
+ * It is denominated in seconds precisely because that lag does not scale with block time: a
+ * flat block count would be worth 60s on Ethereum and 1.25s on Arbitrum for the same delay.
+ *
+ * The asymmetry decides the direction: overshooting costs a marginally staler quote,
+ * undershooting silently throws away bids that were about to be won.
  */
-const BID_VALIDITY_PAD_BLOCKS = 5n
+const BID_DISCOVERY_PAD_SECONDS = 30
 
 export class ContractInteractionService {
 	private configService: FillerConfigService
@@ -778,8 +781,9 @@ export class ContractInteractionService {
 		// Arbitrum 250), hence the conversion; the fallback is already in seconds.
 		const blockTimeMs = client.chain?.blockTime
 		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
-		const blocks = BigInt(Math.ceil(this.configService.getBidValiditySeconds() / blockTimeSec))
-		return currentBlock + blocks + BID_VALIDITY_PAD_BLOCKS
+		// Converted once, so the rounding happens in one place rather than twice.
+		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
+		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
 	}
 
 	/**

@@ -30,9 +30,13 @@ is a pricing decision rather than a correctness one.
 It is deliberately not tied to `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
 short an option, and the two should not be assumed to move together.
 
-The computed height carries a flat 5-block pad on top of the rounding-up. The head is read before the bid is built,
-signed, submitted to Hyperbridge and finally selected, so it is already behind by the time a fill lands, and
-`Chain.blockTime` is a nominal figure rather than a guarantee — Base does not produce a block every 2000ms exactly.
+The window carries a 30-second discovery allowance on top of the configured validity, added before the conversion so
+the rounding happens once. The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+discovered and selected, so it is already behind by the time a fill lands, and `Chain.blockTime` is nominal rather
+than exact.
+
+It is denominated in seconds rather than blocks because that lag is wall-clock and does not scale with block time —
+a flat block count would be worth 60s on Ethereum and 1.25s on Arbitrum for the same real delay, which is backwards.
 The asymmetry decides the direction: overshooting costs a marginally staler quote, undershooting silently throws
 away bids that were about to be won.
 

@@ -25,7 +25,9 @@ if the rate moved against us — a written option on this filler's inventory, at
 
 Operators configure seconds because that is the unit the risk is in; the contract compares block numbers, so the
 value is converted per destination chain from the chain's nominal block time (`Chain.blockTime`, milliseconds in
-viem), rounded up and padded by 5 blocks to absorb the lag between reading the head and the fill landing.
+viem), with a 30-second discovery allowance added before the conversion and the result rounded up — seconds rather
+than a block count, because the lag between reading the head and the fill landing is wall-clock and does not scale
+with block time.
 
 `buildApprovalAndFillCalldata` encodes through the SDK's version-aware codec, since gateways predating the field take
 a differently-selectored `fillOrder`. On such a chain the bound is dropped — there is nowhere to put it — and the

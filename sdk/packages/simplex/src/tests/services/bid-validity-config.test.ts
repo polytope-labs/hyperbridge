@@ -37,6 +37,8 @@ describe("bidValidUntilBlock", () => {
 	/**
 	 * `blockTime` is milliseconds in viem (Ethereum 12000, Base 2000, Arbitrum 250), so the
 	 * helper divides by 1000. Passing `undefined` exercises the seconds-denominated fallback.
+	 *
+	 * The window is the configured validity plus a 30s discovery allowance, converted once.
 	 */
 	function service(blockTimeMs: number | undefined, bidValiditySeconds?: number) {
 		const clientManager = {
@@ -59,27 +61,35 @@ describe("bidValidUntilBlock", () => {
 		return (svc as any).bidValidUntilBlock("EVM-8453") as Promise<bigint>
 	}
 
-	it("converts seconds to blocks at the chain's block time, plus the pad", async () => {
-		// Base: 2000ms blocks => 300s is 150 blocks, +5 pad.
-		await expect(service(2000)).resolves.toBe(HEAD + 150n + 5n)
+	it("converts the validity window plus the discovery pad at the chain's block time", async () => {
+		// Base: 2000ms blocks => (300 + 30)s is 165 blocks.
+		await expect(service(2000)).resolves.toBe(HEAD + 165n)
 	})
 
 	it("scales with a slower chain", async () => {
-		// Ethereum: 12000ms blocks => 300s is 25 blocks, +5 pad.
-		await expect(service(12000)).resolves.toBe(HEAD + 25n + 5n)
+		// Ethereum: 12000ms blocks => 330s is 27.5 blocks, rounded up to 28.
+		await expect(service(12000)).resolves.toBe(HEAD + 28n)
 	})
 
 	it("scales with a sub-second chain", async () => {
-		// Arbitrum: 250ms blocks => 300s is 1200 blocks, +5 pad.
-		await expect(service(250)).resolves.toBe(HEAD + 1200n + 5n)
+		// Arbitrum: 250ms blocks => 330s is 1320 blocks.
+		await expect(service(250)).resolves.toBe(HEAD + 1320n)
+	})
+
+	it("gives the discovery pad the same wall-clock weight on every chain", async () => {
+		// The point of denominating it in seconds: 30s is 15 blocks on Base and 120 on
+		// Arbitrum, not one flat count worth wildly different amounts of time.
+		const [base, arbitrum] = await Promise.all([service(2000, 0), service(250, 0)])
+		expect(base - HEAD).toBe(15n)
+		expect(arbitrum - HEAD).toBe(120n)
 	})
 
 	it("rounds the block count up rather than down", async () => {
-		// 750ms blocks => 100s is 133.33 blocks; short would drop winnable bids.
-		await expect(service(750, 100)).resolves.toBe(HEAD + 134n + 5n)
+		// 750ms blocks => (100 + 30)s is 173.33 blocks; short would drop winnable bids.
+		await expect(service(750, 100)).resolves.toBe(HEAD + 174n)
 	})
 
 	it("falls back to a 2-second block time when the chain does not declare one", async () => {
-		await expect(service(undefined)).resolves.toBe(HEAD + 150n + 5n)
+		await expect(service(undefined)).resolves.toBe(HEAD + 165n)
 	})
 })

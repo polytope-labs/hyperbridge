@@ -10,7 +10,7 @@ publish = false
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-ismp-abi = { workspace = true }
+ismp-abi = { workspace = true, features = ["substrate"] }
 
 # crates.io
 codec = { workspace = true }

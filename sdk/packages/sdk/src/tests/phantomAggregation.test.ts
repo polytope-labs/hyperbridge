@@ -11,6 +11,7 @@ import {
 	splitBidSignature,
 	weightedMedian,
 	applyUniswapQuoteHaircut,
+	applyPhantomQuoteHaircut,
 	encodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,
 	AGGREGATION_ATTEMPTS,
@@ -400,7 +401,7 @@ describe("aggregatePhantomBids bid verification", () => {
 		expect(result!.legs).toHaveLength(1)
 		expect(result!.legs[0].legIndex).toBe(0)
 		expect(result!.legs[0].bidCount).toBe(1)
-		expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
+		expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
 	})
 
 	it("drops a bid whose sender is a plain EOA with no delegation", async () => {
@@ -786,8 +787,8 @@ describe("aggregatePhantomBids bid verification", () => {
 
 		// A pool price is what a trade gets before the pool takes its fee, so a bid quoting off one
 		// names more than it clears. The snapshot prices it net of that fee rather than letting a
-		// pool-priced quote outbid a wallet-funded one on 30bps it never had.
-		it("haircuts a pool-priced quote by 30bps before it reaches the median", async () => {
+		// pool-priced quote outbid a wallet-funded one on 10bps it never had.
+		it("haircuts a pool-priced quote by 10bps before it reaches the median", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodePhantomBidDeclaration({ uniswapV4Positions: [TOKEN_ID] }),
@@ -796,7 +797,7 @@ describe("aggregatePhantomBids bid verification", () => {
 
 			const result = await aggregateWithV4(solverAddress)
 
-			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_970n) / 10_000n)
+			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_990n) / 10_000n)
 			expect(result!.legs[0].medianPrice).toBe(applyUniswapQuoteHaircut(SOLVER_AMOUNT))
 			// The haircut is on the price only: the position still backs the leg at full size.
 			expect(result!.legs[0].bidders[0].weight).toBe(
@@ -804,9 +805,10 @@ describe("aggregatePhantomBids bid verification", () => {
 			)
 		})
 
-		// Only a pool-priced bid pays it — a solver quoting off wallet inventory has already paid
-		// its cost of goods, and a source-chain-only declaration says nothing about a pool.
-		it("leaves a bid that declares no position unhaircut", async () => {
+		// Only a pool-priced bid pays the pool-fee haircut — a solver quoting off wallet inventory
+		// has already paid its cost of goods, and a source-chain-only declaration says nothing
+		// about a pool. Such a bid pays the smaller base haircut instead, never both.
+		it("charges a bid that declares no position the base haircut, not the pool one", async () => {
 			const userOp = await signedBidUserOp({
 				signingKey: SOLVER_KEY,
 				paymasterAndData: encodeAcceptedSourceChains([CHAIN]),
@@ -824,7 +826,8 @@ describe("aggregatePhantomBids bid verification", () => {
 				uniswapV4: { [CHAIN]: { positionManager: POSITION_MANAGER, stateView: STATE_VIEW } },
 			})
 
-			expect(result!.legs[0].medianPrice).toBe(SOLVER_AMOUNT)
+			expect(result!.legs[0].medianPrice).toBe((SOLVER_AMOUNT * 9_995n) / 10_000n)
+			expect(result!.legs[0].medianPrice).toBe(applyPhantomQuoteHaircut(SOLVER_AMOUNT))
 		})
 
 		// The sweep is where a provider's inventory is reported, so a position missing from it makes

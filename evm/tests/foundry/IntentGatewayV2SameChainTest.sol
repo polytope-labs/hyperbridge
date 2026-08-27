@@ -514,6 +514,13 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.startPrank(user);
         CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
+        // `OrderCancelled` announces the cancel, `EscrowRefunded` closes it — in that order,
+        // so a consumer applying statuses in log order settles on the refund.
+        vm.expectEmit(true, false, false, true, address(intentGateway));
+        emit IntentsBase.OrderCancelled(keccak256(abi.encode(order)), user);
+        vm.expectEmit(true, false, false, false, address(intentGateway));
+        emit IntentsBase.EscrowRefunded(keccak256(abi.encode(order)), inputs);
+
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 

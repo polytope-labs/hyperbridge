@@ -181,6 +181,9 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * The GET response is handled by `onGetResponse`, which refunds the escrow if
      * the slot is indeed empty.
      *
+     * `cancelOrder` has already emitted `OrderCancelled`; the matching `EscrowRefunded` follows
+     * on this chain once the GET response returns through Hyperbridge.
+     *
      * @param order The order to cancel.
      * @param options Cancel options including the proof height and relayer fee.
      * @param commitment The keccak256 hash of the ABI-encoded order.
@@ -232,6 +235,11 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
      * Marks the order as filled (to prevent future fill attempts) and dispatches a
      * RefundEscrow message via Hyperbridge to the source chain to release the escrowed
      * tokens back to the original user.
+     *
+     * `cancelOrder` has already emitted `OrderCancelled` on this chain — the only trace of the
+     * cancellation a solver watching this chain gets, since the host's `PostRequestEvent` carries
+     * no reference to the order. The matching `EscrowRefunded` follows on the source chain once
+     * Hyperbridge delivers the refund message.
      *
      * @param order The order to cancel.
      * @param options Cancel options including the relayer fee.

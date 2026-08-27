@@ -150,6 +150,18 @@ struct FillOptions {
     uint256 relayerFee;
     /// @dev The fee paid in native tokens for cross-chain dispatch.
     uint256 nativeDispatchFee;
+    /// @dev Last block number at which this fill may be executed. Zero means no bound.
+    ///
+    /// @dev A solver bidding through the coprocessor signs this calldata and then has no
+    /// further say in when it is used: the order's `deadline` is chosen by the placer with
+    /// no upper limit, and retracting the bid on Hyperbridge does not reach this chain. The
+    /// placer holds the session key, so without a bound here they may sit on a signed bid
+    /// and execute it whenever the price has moved in their favour. Setting this caps how
+    /// long the quoted price stands.
+    ///
+    /// @dev Denominated in blocks, matching `order.deadline`, so both are read against the
+    /// same clock (`_blockNumber()`, which is the L2 block number where that differs).
+    uint256 validUntil;
     /// @dev The output tokens with amounts the solver is willing to give
     /// @dev Must be strictly >= the amounts requested in order.output.assets
     TokenInfo[] outputs;
@@ -208,6 +220,11 @@ interface IIntentGatewayV2 {
 
     /// @notice Thrown when an action is attempted on an expired order.
     error Expired();
+
+    /// @notice The fill's own validity window has passed (`options.validUntil`).
+    /// @dev Distinct from {Expired}, which is the order's deadline. This one means the
+    ///      solver's quote has gone stale, not that the order has.
+    error FillExpired();
 
     /// @notice Thrown when there are insufficient native tokens to complete an action.
     error InsufficientNativeToken();
@@ -386,6 +403,15 @@ interface IIntentGatewayV2 {
      * @param options The options to be used when filling the order
      */
     function fillOrder(Order calldata order, FillOptions calldata options) external payable;
+
+    /// @notice Version of the {FillOptions} struct this deployment accepts.
+    /// @dev Adding a field to a struct changes the enclosing function's selector, so a
+    ///      caller built against a newer {FillOptions} cannot reach `fillOrder` on an older
+    ///      deployment at all. Clients probe this to pick the shape to encode; deployments
+    ///      predating `validUntil` do not implement it and the call reverts, which is the
+    ///      "version 1" answer.
+    /// @return The FillOptions version. 2 since `validUntil` was added.
+    function fillOptionsVersion() external pure returns (uint256);
 
     /**
      * @notice Cancels an order after it has expired.

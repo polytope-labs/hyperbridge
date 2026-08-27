@@ -144,6 +144,11 @@ export interface FillerConfig {
 	 */
 	targetGasUnits?: number
 	/**
+	 * Seconds a signed bid stays executable. Defaults to 1800 (30 minutes).
+	 * See `bidValiditySeconds` in filler-toml for why this bound matters.
+	 */
+	bidValiditySeconds?: number
+	/**
 	 * Overfill protection knobs. If omitted, defaults are used
 	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
 	 */
@@ -591,6 +596,17 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/**
+	 * How long a signed bid remains executable, in seconds. Defaults to 1800 (30 minutes).
+	 *
+	 * A bid is a firm price the placer may take up at a moment of their choosing; this is the
+	 * only thing bounding that window, since the order deadline is placer-controlled and
+	 * Hyperbridge-side retraction does not reach the destination chain.
+	 */
+	getBidValiditySeconds(): number {
+		return this.fillerConfig?.bidValiditySeconds ?? 1800
 	}
 
 	/** Ceiling bps above user-requested output. Default 500 (5%). */

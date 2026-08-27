@@ -4,6 +4,40 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — Bid tenor is configured in seconds and written in blocks
+
+Chosen: `bidValiditySeconds` (default 1800) is converted to a block height per destination chain in
+`ContractInteractionService.bidValidUntilBlock()`.
+
+The on-chain field has to be blocks: `fillOrder` compares it against `_blockNumber()`, the same clock as
+`order.deadline`, and having the two disagree about what "expired" means would be a trap. But blocks are the wrong
+unit for an operator — 30 minutes is 150 blocks on Ethereum and 900 on Base, so a single configured block count would
+mean something different on every chain, and price risk is denominated in time, not blocks. Converting at the edge
+keeps both sides in their natural unit. Rounding is deliberately up: erring long costs a slightly stale quote, erring
+short silently drops bids we would have won.
+
+1800 seconds is set by the selection window, not the quote's shelf life. A bid is not consumed when signed — it sits
+in the coprocessor until the placer selects a solver, and a bid that lapses before selection is lost revenue.
+`BID_TTL_MS` (the 1-hour retraction sweep) is the closest thing to a stated expectation for how long that takes, so
+the expiry has to be a decent fraction of an hour or the filler bids into the void. 30 minutes sits inside that
+window while still bounding the exposure.
+
+The trade-off is worth stating plainly: 30 minutes of free optionality on a volatile pair is not nothing. What the
+fix delivers is that the option is now *bounded and priced by us* rather than unbounded and timed by the placer —
+1800 is a default, not a ceiling, and USDC/CNGN is exactly the pair to turn it down on.
+
+Alternatives rejected:
+
+- *Derive it from the order's own deadline.* Placer-controlled with no ceiling — the input being defended against.
+- *Reuse the 1-hour bid TTL.* Conflates deposit housekeeping with price risk; an hour of free optionality on a naira
+  pair is worth real money.
+- *Per-pair tenors.* Right in the long run — a stablecoin pair could safely carry a longer expiry — but one
+  conservative global default fixes the exposure now without adding a config surface to get wrong.
+
+On a gateway predating the field the bound is dropped rather than the fill refused. Refusing would take the filler
+off any chain not yet upgraded, which trades a bounded risk for a certain outage; the one-per-chain warning is there
+so the gap is visible rather than assumed away.
+
 ## 2026-08-26 — The asset registry is a fallback for `decimals()`, not the source of truth
 
 Chosen: `getTokenDecimals` reads `decimals()` on-chain first, falls back to

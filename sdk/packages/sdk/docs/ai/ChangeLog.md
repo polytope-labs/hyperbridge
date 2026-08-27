@@ -12,6 +12,34 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — `FillOptions` carries a `validUntil`, and `fillOrder` has two shapes
+
+`FillOptions` gained `validUntil` (a block number; `0n` means unbounded), enforced by `fillOrder`, which now reverts
+`FillExpired` past it. Adding a field changes the enclosing function's selector, so `fillOrder` exists in two
+incompatible shapes — `0x5cfb1ea5` (v1) and `0xa5470064` (v2) — and gateways upgrade per chain, so both are on the
+wire at once.
+
+New `protocols/intents/fillOrderCodec.ts` owns that: `getFillOptionsVersion` probes the gateway's
+`fillOptionsVersion()` (memoised per deployment), `encodeFillOrder` emits the matching shape, and `decodeFillOrder`
+reads either. `GasEstimator` encodes through it so estimates do not revert on a missing function; `BidManager` and
+`phantom-aggregation.extractFillData` decode through it so bids built against an older gateway are still priced in
+rather than dropped.
+
+Why the field exists: a solver bidding through the coprocessor signs this calldata and then has no further say in
+when it is used. The order's `deadline` is placer-chosen with no ceiling, retracting the bid on Hyperbridge does not
+reach the destination chain, and the placer holds the session key — so a signed bid stayed executable indefinitely
+and was taken up only once the rate had moved against the solver. `validUntil` rides in the calldata, which
+`userOpHash` already covers, so it is tamper-proof without touching the signature format.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/protocols/intents/fillOrderCodec.ts` (new), `src/protocols/intents/GasEstimator.ts`,
+`src/protocols/intents/BidManager.ts`, `src/protocols/intents/phantom-aggregation.ts`,
+`src/protocols/intents/index.ts`, `src/abis/IntentGatewayV2.ts`, `src/types/index.ts`,
+`src/tests/fillOrderCodec.test.ts` (new), `src/tests/phantomAggregation.test.ts`, plus
+`evm/src/apps/IntentGatewayV2.sol`, `evm/src/apps/intentsv2/IntentsBase.sol` and
+`sdk/packages/core/contracts/apps/IntentGatewayV2.sol`.
+
 ## 2026-08-25 — Intent quotes use aggregate indexed pool rates by default
 
 `IntentGateway.quoteIntent` now prices orders from the pair-centric indexer's depth-weighted aggregate `LiquidityPool.buyRate` and `sellRate`. Source and destination chains resolve the configured token deployments, while the quote converts the pool's whole-token rate into raw amounts with configured decimals, applies the source gateway protocol fee, and exposes the selected rate and timestamp in metadata. Reverse sell-rate reciprocals round up so quotes do not overpromise output. Phantom snapshot and Uniswap V4 pricing remain explicit compatibility strategies. Live sequential tests cover exact-input USDC to cNGN and exact-output cNGN to USDC across BSC and Base, including their different token decimal scales. The dead `binance.llamarpc.com` BSC default was replaced with `bsc-rpc.publicnode.com` after it blocked those live checks.

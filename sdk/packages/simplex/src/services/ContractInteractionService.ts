@@ -17,6 +17,8 @@ import {
 	type ERC7821Call,
 	transformOrderForContract,
 	type TokenInfo,
+	encodeFillOrder,
+	getFillOptionsVersion,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -39,6 +41,9 @@ export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger: Logger
+
+	/** Chains already warned about a gateway with no validUntil support. */
+	private readonly warnedNoValidUntil = new Set<string>()
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private signer: Signer
@@ -678,6 +683,9 @@ export class ContractInteractionService {
 			// billed the paymaster (estimation overrides the balance, so it
 			// could never catch it).
 			nativeDispatchFee: 0n,
+			// Caps how long this quote stands. Without it the placer holds a free option:
+			// they choose the moment of execution and we are committed to the old price.
+			validUntil: await this.bidValidUntilBlock(order.destination),
 			outputs: cachedFillerOutputs,
 		}
 
@@ -739,6 +747,30 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Last block on the destination chain at which a bid signed now may still execute.
+	 *
+	 * A bid is a firm quote the order placer takes up whenever they like, and nothing else
+	 * bounds that window — `order.deadline` is placer-chosen with no ceiling, and retracting
+	 * on Hyperbridge leaves the destination-chain calldata untouched. An unbounded bid is a
+	 * free option on this filler's inventory, exercised only once the rate has moved against
+	 * us. This caps its tenor.
+	 *
+	 * Operators configure seconds because that is the unit the risk is actually in, but the
+	 * contract compares against block numbers so `order.deadline` and this read the same
+	 * clock. The conversion uses the chain's nominal block time; it is deliberately rounded
+	 * up, since erring long costs a slightly stale quote while erring short silently drops
+	 * winnable bids.
+	 */
+	private async bidValidUntilBlock(chain: string): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+		const currentBlock = await client.getBlockNumber()
+		const blockTimeMs = client.chain?.blockTime
+		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+		const blocks = BigInt(Math.ceil(this.configService.getBidValiditySeconds() / blockTimeSec))
+		return currentBlock + blocks
+	}
+
+	/**
 	 * Builds a PackedUserOperation for a phantom (expired same-chain) order bid.
 	 * Uses zero relayer fees and default gas values — no estimation needed since
 	 * the order will never execute; the indexer only reads the proposed fill amounts.
@@ -759,7 +791,14 @@ export class ContractInteractionService {
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 		const client = this.clientManager.getPublicClient(order.destination)
 
-		const fillOptions: FillOptions = { relayerFee: 0n, nativeDispatchFee: 0n, outputs: fillerOutputs }
+		// A phantom order is already expired, so this bid can never execute regardless — the
+		// bound is set anyway so every signed artefact carries one.
+		const fillOptions: FillOptions = {
+			relayerFee: 0n,
+			nativeDispatchFee: 0n,
+			validUntil: await this.bidValidUntilBlock(order.destination),
+			outputs: fillerOutputs,
+		}
 		const callData = await this.buildApprovalAndFillCalldata(order, fillerOutputs, fillOptions, 0n)
 
 		const commitment = orderCommitment(order)
@@ -872,14 +911,22 @@ export class ContractInteractionService {
 			.filter((asset) => bytes32ToBytes20(asset.token) === ADDRESS_ZERO)
 			.reduce((sum, asset) => sum + asset.amount, 0n)
 
+		// Gateways predating `FillOptions.validUntil` take a differently-shaped (and
+		// differently-selectored) fillOrder, so the encoding has to match the deployment.
+		const fillOptionsVersion = await getFillOptionsVersion(destClient as any, intentGatewayV2Address)
+		if (fillOptionsVersion === 1 && fillOptions.validUntil !== 0n && !this.warnedNoValidUntil.has(chain)) {
+			this.warnedNoValidUntil.add(chain)
+			this.logger.warn(
+				{ chain, gateway: intentGatewayV2Address },
+				"IntentGateway predates FillOptions.validUntil — bids on this chain carry no expiry and stay " +
+					"executable until the order's own deadline. Upgrade the gateway to bound them.",
+			)
+		}
+
 		calls.push({
 			target: intentGatewayV2Address,
 			value: nativeOutputValue,
-			data: encodeFunctionData({
-				abi: INTENT_GATEWAY_V2_ABI,
-				functionName: "fillOrder",
-				args: [transformOrderForContract(order) as any, fillOptions as any],
-			}) as HexString,
+			data: encodeFillOrder(transformOrderForContract(order) as any, fillOptions, fillOptionsVersion),
 		})
 
 		return encodeERC7821ExecuteBatch(calls)

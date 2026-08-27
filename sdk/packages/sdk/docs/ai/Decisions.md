@@ -4,6 +4,59 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — The bid expiry rides in `FillOptions`, not in the bid signature
+
+Chosen: `validUntil` is a field on `FillOptions`, checked by `fillOrder` at execution.
+
+The alternative was to put the expiry in the ERC-4337 signature blob and return it from
+`SolverAccount.validateUserOp` as a `validUntil` validation range — the mechanism 4337 provides for exactly this.
+That was built first and then abandoned, for reasons worth recording:
+
+- **It needs a new signed field.** `userOpHash` does not cover `op.signature`, so an expiry carried there is
+  rewritable by whoever replays the bid. Making it tamper-proof meant changing what the solver signs (an EIP-712
+  `BidValidity` digest) and widening the selection signature 162 → 168 bytes.
+- **That is a `SolverAccount` redeploy.** The account is reached by EIP-7702 delegation, so a new version means a new
+  address and every solver re-delegating — and, since the old account keeps accepting the old format forever, it
+  retires nothing already signed.
+- **`FillOptions` needs none of that.** The options are part of `callData`, which `userOpHash` *does* cover. The
+  expiry is authenticated for free, with no signature format change, no account redeploy, and no migration.
+- **It covers more.** The signature-side check only bounds solver-selection bids. A check in `fillOrder` bounds every
+  path into it.
+
+The cost is that this fires at execution rather than validation: an expired bid is included, the nonce is consumed
+and the account pays that op's gas, where a validation-time range would have had the bundler drop it for free. That
+is a bounded, one-off cost per bid — and consuming the nonce permanently retires the bid, which the validation-time
+version does not do. Fund loss, the thing that matters, is prevented either way.
+
+Denominated in blocks rather than a timestamp so it reads against the same clock as `order.deadline` (`_blockNumber()`,
+the L2 block number where those differ), and so the two cannot disagree about what "expired" means.
+
+`0` means unbounded. That is the right default for a solver filling directly — it is only exposed to its own
+staleness — and it keeps every existing caller working. The protection is opt-in by the party that needs it.
+
+## 2026-08-27 — A capability probe, not a version flag on the client
+
+Chosen: clients call `fillOptionsVersion()` on the gateway and cache the answer per deployment.
+
+Adding a struct field changes the function selector, so a v2 payload sent to a v1 gateway finds no matching function
+and reverts — the safe failure, but it means the caller has to know before encoding. Gateways are upgraded per chain,
+so this cannot be a build-time constant.
+
+Alternatives rejected:
+
+- *Configure the version per chain.* One more thing to get wrong at exactly the moment a chain is upgraded, and wrong
+  in the direction of every fill on that chain reverting.
+- *Try v2 and fall back on revert.* Costs a failed simulation per fill, and conflates "old gateway" with the many
+  other reasons a fill reverts.
+- *Read the implementation's bytecode for the selector.* Works, but the gateway is behind an ERC-1967 proxy, so it
+  means an extra storage read plus a code fetch to reach the implementation — more moving parts than asking it.
+
+The probe follows the lesson already recorded for `paymasterSupportsPermit2`: viem wraps *every* `readContract`
+failure in `ContractFunctionExecutionError`, so a genuine "no such function" is told from a transport blip by walking
+the cause chain, not by the thrown type. Only a contract answer is cached. Caching a transport error would silently
+strip `validUntil` from every later fill on that chain for the life of the process — the exact protection being added
+here, undone by one flaky RPC call.
+
 ## 2026-08-25 — Intent quotes default to directional indexed rates without fallback
 
 Chosen: `quoteIntent` defaults to an `indexed_rates` strategy that selects the depth-weighted aggregate `LiquidityPool.buyRate` for base-to-quote orders and `sellRate` for quote-to-base orders. Source and destination chains resolve the configured token deployments; raw amounts are calculated from the indexer's 18-decimal whole-token pool rate and both tokens' configured decimals. A missing directional rate is an error.

@@ -291,7 +291,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             predispatch: DispatchInfo({assets: predispatchAssets, call: abi.encode(calls)}),
             inputs: inputs,
             output: PaymentInfo({
-                beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: abi.encode(outputCalls)
+                beneficiary: bytes32(uint256(uint160(user))),
+                assets: outputAssets,
+                call: abi.encode(outputCalls)
             })
         });
 
@@ -348,16 +350,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 ethAmount = 1 ether;
 
         // Get quote for expected output and calculate minimum with slippage
-        uint256 minUsdcAmount =
-            (IQuoter(UNISWAP_V3_QUOTER)
-                        .quoteExactInputSingle(
-                            WETH,
-                            address(usdc),
-                            3000, // 0.3% fee tier
-                            ethAmount,
-                            0
-                        )
-                    * 95) / 100; // 5% slippage tolerance
+        uint256 minUsdcAmount = (
+            IQuoter(UNISWAP_V3_QUOTER).quoteExactInputSingle(
+                WETH,
+                address(usdc),
+                3000, // 0.3% fee tier
+                ethAmount,
+                0
+            ) * 95
+        ) / 100; // 5% slippage tolerance
 
         // Prepare predispatch call to swap ETH -> USDC via UniswapV3
         bytes memory swapCalldata = abi.encodeWithSelector(
@@ -378,7 +379,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Call[] memory calls = new Call[](3);
         calls[0] = Call({to: WETH, value: ethAmount, data: abi.encodeWithSignature("deposit()")});
         calls[1] = Call({
-            to: WETH, value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
+            to: WETH,
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
         });
         calls[2] = Call({to: UNISWAP_V3_ROUTER, value: 0, data: swapCalldata});
 
@@ -501,7 +504,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount + dust});
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs});
+        FillOptions memory fillOptions =
+            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs});
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -593,7 +597,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(0), amount: outputAmount + dust});
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs});
+        FillOptions memory fillOptions =
+            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs});
         intentGateway.fillOrder{value: outputAmount + dust}(order, fillOptions);
 
         vm.stopPrank();
@@ -688,7 +693,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs});
+        FillOptions memory fillOptions =
+            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs});
         zeroFeeGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -966,7 +972,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userDaiBalanceBefore = dai.balanceOf(user);
 
         vm.recordLogs();
-        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        customGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+        );
         vm.stopPrank();
 
         // Verify beneficiary received 2050 DAI (2000 + 50% of 100 surplus)
@@ -1043,7 +1051,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256 userDaiBalanceBefore = dai.balanceOf(user);
 
-        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        customGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+        );
         vm.stopPrank();
 
         // Verify beneficiary received requested amount + all surplus (2000 + 100 = 2100 DAI)
@@ -1107,7 +1117,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userDaiBalanceBefore = dai.balanceOf(user);
 
         vm.recordLogs();
-        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        customGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+        );
         vm.stopPrank();
 
         // Verify beneficiary received only requested amount (2000 DAI, no surplus)
@@ -1197,7 +1209,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.recordLogs();
         vm.prank(filler);
-        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        customGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: outputs})
+        );
 
         // Verify beneficiary got ONLY requested amount (2000 DAI, no surplus)
         assertEq(
@@ -1297,7 +1311,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs});
+        FillOptions memory fillOptions =
+            FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs});
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -1355,7 +1370,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Call 3: Transfer DAI to user
         postdispatchCalls[2] = Call({
-            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
+            to: address(dai),
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
         });
 
         // Setup order output - beneficiary is dispatcher, it will receive USDC from solver
@@ -1404,7 +1421,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: solverUsdcAmount});
 
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
 
         vm.stopPrank();
 
@@ -1567,7 +1586,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         gatewayWithSelection.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1644,7 +1663,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         gatewayWithSelection.fillOrder(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1694,7 +1713,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         vm.expectRevert(IntentsBase.Expired.selector);
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
     }
 
@@ -1738,9 +1759,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // while block.number (~L1 height on Arbitrum) remains far below it.
         vm.chainId(42161);
         vm.etch(address(100), hex"fe"); // Arbitrum precompiles expose 0xfe as their code
-        vm.mockCall(
-            address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(l2Deadline + 1)
-        );
+        vm.mockCall(address(100), abi.encodeWithSignature("arbBlockNumber()"), abi.encode(l2Deadline + 1));
         assertLt(block.number, l2Deadline);
 
         vm.startPrank(filler);
@@ -1750,7 +1769,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         vm.expectRevert(IntentsBase.Expired.selector);
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
     }
 
@@ -1800,7 +1821,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
 
         assertEq(intentGateway._filled(keccak256(abi.encode(order))), filler);
@@ -1844,11 +1867,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         // Fill once
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
 
         // Try to fill again - should revert
         vm.expectRevert(IntentsBase.Filled.selector);
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
     }
 
@@ -1890,7 +1917,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         vm.expectRevert(IntentsBase.WrongChain.selector);
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
     }
 
@@ -1935,7 +1964,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: partialAmount});
 
-        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
 
         // User receives partial output
@@ -1986,7 +2017,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
         intentGateway.fillOrder{value: 0.5 ether}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -2226,7 +2257,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
                 WithdrawalRequest({
-                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(filler)))
+                    commitment: commitment,
+                    tokens: inputs,
+                    beneficiary: bytes32(uint256(uint160(filler)))
                 })
             )
         );
@@ -2285,9 +2318,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
-                WithdrawalRequest({
-                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
-                })
+                WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
             )
         );
 
@@ -2419,7 +2450,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Now solver tries to fill the order
-        FillOptions memory fillOptions = FillOptions({outputs: outputAssets, relayerFee: 0, nativeDispatchFee: 0});
+        FillOptions memory fillOptions =
+            FillOptions({outputs: outputAssets, relayerFee: 0, nativeDispatchFee: 0, validUntil: 0});
 
         vm.startPrank(filler);
         dai.approve(address(intentGateway), 1000 * 1e18);
@@ -2499,9 +2531,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentsBase.RequestKind.RefundEscrow)),
             abi.encode(
-                WithdrawalRequest({
-                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
-                })
+                WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
             )
         );
 
@@ -3241,7 +3271,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
                 WithdrawalRequest({
-                    commitment: expectedCommitment, tokens: redeemInputs, beneficiary: bytes32(uint256(uint160(filler)))
+                    commitment: expectedCommitment,
+                    tokens: redeemInputs,
+                    beneficiary: bytes32(uint256(uint160(filler)))
                 })
             )
         );
@@ -3651,7 +3683,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Approve fee token for cross-chain dispatch
         dai.approve(address(intentGateway), type(uint256).max);
         intentGateway.fillOrder{value: outputAmount + overpayment}(
-            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
 
@@ -3832,7 +3864,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
         vm.startPrank(filler);
         dai.approve(address(intentGateway), outputAmount);
-        intentGateway.fillOrder(orderA, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        intentGateway.fillOrder(
+            orderA, FillOptions({relayerFee: 0, nativeDispatchFee: 0, validUntil: 0, outputs: solverOutputs})
+        );
         vm.stopPrank();
 
         // Order B: place only -> _orders[commitment][usdc] = inputAmount.
@@ -3872,7 +3906,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 nonceBefore = intentGateway._nonce();
         assertEq(nonceBefore, 2, "precondition: two orders placed");
         assertEq(intentGateway._filled(filledCommitment), filler, "precondition: order A filled");
-        assertEq(intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed");
+        assertEq(
+            intentGateway._orders(escrowedCommitment, inputToken), escrowedAmount, "precondition: order B escrowed"
+        );
 
         IntentGatewayV2Upgraded newImpl = new IntentGatewayV2Upgraded(address(this));
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), address(newImpl), "");
@@ -3882,9 +3918,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // The proxy now points at the new implementation and its new logic is reachable.
         assertEq(_implementationOf(address(intentGateway)), address(newImpl), "implementation slot updated");
-        assertEq(
-            IntentGatewayV2Upgraded(payable(address(intentGateway))).upgradedMarker(), 42, "new logic is active"
-        );
+        assertEq(IntentGatewayV2Upgraded(payable(address(intentGateway))).upgradedMarker(), 42, "new logic is active");
 
         // All escrow-critical state survives the implementation swap.
         assertEq(intentGateway._nonce(), nonceBefore, "_nonce preserved");

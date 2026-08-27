@@ -1,6 +1,7 @@
 import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { encodeFillOrder, getFillOptionsVersion } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
@@ -189,6 +190,10 @@ export class GasEstimator {
 			relayerFee: crossChainFees.postRequestFee,
 			// Always dispatch with the fee token (see the method docs).
 			nativeDispatchFee: 0n,
+			// Unbounded for estimation: this call is simulated, never submitted, and a real
+			// bound here would only risk the estimate reverting on a slow bundler round trip.
+			// The caller sets the real one on the options it actually signs.
+			validUntil: 0n,
 			outputs: order.output.assets.map((asset) => ({
 				...asset,
 				token: normalizeAddressForEvmBytes32(asset.token),
@@ -205,11 +210,14 @@ export class GasEstimator {
 		const orderForEstimation = { ...order, session: solverAccountAddress }
 		const commitment = orderCommitment(orderForEstimation)
 
-		const fillOrderCalldata = encodeFunctionData({
-			abi: IntentGatewayV2ABI,
-			functionName: "fillOrder",
-			args: [transformOrderForContract(orderForEstimation), fillOptions],
-		}) as HexString
+		// The gateway may predate `FillOptions.validUntil`; the two shapes have different
+		// selectors, so encoding the wrong one makes the estimate revert on a missing function.
+		const fillOptionsVersion = await getFillOptionsVersion(this.ctx.dest.client as any, intentGatewayV2Address)
+		const fillOrderCalldata = encodeFillOrder(
+			transformOrderForContract(orderForEstimation) as any,
+			fillOptions,
+			fillOptionsVersion,
+		)
 
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n

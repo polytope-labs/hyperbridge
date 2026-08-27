@@ -104,10 +104,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     function initialize(Params memory p, bytes[] memory peerChains) public initializer {
         uint256 peersLength = peerChains.length;
         for (uint256 i = 0; i < peersLength; i++) {
-            Deployment memory deployment = Deployment({
-                chain: peerChains[i],
-                gateway: address(this)
-            });
+            Deployment memory deployment = Deployment({chain: peerChains[i], gateway: address(this)});
             _addDeployment(deployment);
         }
         _validateParams(p);
@@ -120,6 +117,21 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      */
     function params() external view returns (Params memory) {
         return _params;
+    }
+
+    /**
+     * @dev Version of the {FillOptions} struct this deployment accepts.
+     *
+     * Adding a field to a struct changes the enclosing function's selector, so a caller
+     * built against a newer {FillOptions} cannot reach `fillOrder` here at all — the call
+     * finds no matching function rather than mis-decoding. Clients probe this to pick the
+     * shape to encode. Deployments predating `validUntil` do not implement it, and that
+     * failed call is the "version 1" answer.
+     *
+     * @return The FillOptions version. 2 since `validUntil` was added.
+     */
+    function fillOptionsVersion() external pure returns (uint256) {
+        return 2;
     }
 
     /**
@@ -162,7 +174,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
     function placeOrder(Order memory order, bytes32 graffiti) public payable nonReentrant {
         if (order.inputs.length == 0) revert InvalidInput();
 
-        // Reject duplicate output tokens 
+        // Reject duplicate output tokens
         uint256 outputsLen_ = order.output.assets.length;
         for (uint256 i; i < outputsLen_;) {
             bytes32 token = order.output.assets[i].token;
@@ -414,7 +426,13 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      * @param options Fill options including output token amounts and fee parameters.
      */
     function fillOrder(Order calldata order, FillOptions calldata options) public payable nonReentrant {
-        if (order.deadline < _blockNumber()) revert Expired();
+        uint256 blockNumber = _blockNumber();
+        if (order.deadline < blockNumber) revert Expired();
+        // The solver's own bound on how long its quoted price stands. Zero means unbounded,
+        // which is the right default for a solver filling directly — it is only at risk from
+        // its own staleness. It matters for a bid signed through the coprocessor, where the
+        // order placer chooses the moment of execution and nothing else caps the wait.
+        if (options.validUntil != 0 && blockNumber > options.validUntil) revert FillExpired();
         bytes32 commitment = keccak256(abi.encode(order));
 
         address hostAddr = host();
@@ -449,8 +467,9 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
         }
 
         if (_params.priceOracle != address(0)) {
-            IIntentPriceOracle(_params.priceOracle)
-                .recordSpread(commitment, order.source, order.inputs, options.outputs);
+            IIntentPriceOracle(_params.priceOracle).recordSpread(
+                commitment, order.source, order.inputs, options.outputs
+            );
         }
     }
 

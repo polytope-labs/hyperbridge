@@ -369,6 +369,19 @@ export const ABI = [
 	},
 	{
 		type: "function",
+		name: "fillOptionsVersion",
+		inputs: [],
+		outputs: [
+			{
+				name: "",
+				type: "uint256",
+				internalType: "uint256",
+			},
+		],
+		stateMutability: "pure",
+	},
+	{
+		type: "function",
 		name: "fillOrder",
 		inputs: [
 			{
@@ -505,6 +518,11 @@ export const ABI = [
 					},
 					{
 						name: "nativeDispatchFee",
+						type: "uint256",
+						internalType: "uint256",
+					},
+					{
+						name: "validUntil",
 						type: "uint256",
 						internalType: "uint256",
 					},

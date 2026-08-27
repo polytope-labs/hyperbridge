@@ -38,6 +38,13 @@ export {
 } from "./utils"
 export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
+	encodeFillOrder,
+	decodeFillOrder,
+	getFillOptionsVersion,
+	resetFillOptionsVersionCache,
+} from "./fillOrderCodec"
+export type { FillOptionsVersion } from "./fillOrderCodec"
+export {
 	encodeAcceptedSourceChains,
 	decodeAcceptedSourceChains,
 	encodePhantomBidDeclaration,

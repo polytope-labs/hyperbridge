@@ -176,6 +176,13 @@ abstract contract IntentsBase is EIP712 {
     error Expired();
 
     /**
+     * @notice The fill's own validity window has passed (`options.validUntil`)
+     * @dev Distinct from {Expired}: that one means the order is dead, this one means the
+     *      solver's quote is stale.
+     */
+    error FillExpired();
+
+    /**
      * @dev Thrown when insufficient native token (ETH) is provided or a transfer fails.
      */
     error InsufficientNativeToken();

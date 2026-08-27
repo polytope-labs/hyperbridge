@@ -4873,7 +4873,7 @@ dependencies = [
 
 [[package]]
 name = "crypto-utils"
-version = "0.3.0"
+version = "2606.0.0"
 dependencies = [
  "anyhow",
  "parity-scale-codec",
@@ -15452,7 +15452,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2606.0.0"
+version = "2606.1.0"
 dependencies = [
  "anyhow",
  "crypto-utils",

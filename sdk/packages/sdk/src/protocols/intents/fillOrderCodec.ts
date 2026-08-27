@@ -1,10 +1,4 @@
-import {
-	encodeFunctionData,
-	decodeFunctionData,
-	ContractFunctionRevertedError,
-	ContractFunctionZeroDataError,
-	type PublicClient,
-} from "viem"
+import { encodeFunctionData, decodeFunctionData, toFunctionSelector, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { FillOptions, HexString, Order } from "@/types"
 
@@ -20,6 +14,11 @@ import type { FillOptions, HexString, Order } from "@/types"
  * safe failure, but it does mean callers have to know which shape a gateway speaks.
  */
 export type FillOptionsVersion = 1 | 2
+
+/** Derived from the ABIs rather than written down, so a struct edit cannot leave them stale. */
+const FILL_ORDER_V2_SELECTOR = toFunctionSelector(
+	IntentGatewayV2ABI.find((e: any) => e.type === "function" && e.name === "fillOrder") as any,
+)
 
 /** The v1 `fillOrder`, kept only so we can still talk to deployments that predate `validUntil`. */
 const FILL_ORDER_V1_ABI = [
@@ -52,64 +51,74 @@ const FILL_ORDER_V1_ABI = [
 	},
 ] as const
 
-const FILL_OPTIONS_VERSION_ABI = [
-	{
-		type: "function",
-		name: "fillOptionsVersion",
-		inputs: [],
-		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
-		stateMutability: "pure",
-	},
-] as const
+const FILL_ORDER_V1_SELECTOR = toFunctionSelector(FILL_ORDER_V1_ABI[0] as any)
 
-/** Keyed by `chainId:gateway`. A deployment's shape only changes on upgrade, so this is safe to hold. */
-const versionCache = new Map<string, FillOptionsVersion>()
+/**
+ * ERC-1967 implementation slot: `keccak256("eip1967.proxy.implementation") - 1`.
+ * The gateway is deployed behind this proxy, so `eth_getCode` on the gateway returns the
+ * proxy stub — the implementation's code, where the selectors actually live, is one hop away.
+ */
+const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as HexString
 
-function cacheKey(chainId: number | undefined, gateway: HexString): string {
-	return `${chainId ?? "unknown"}:${gateway.toLowerCase()}`
+/**
+ * Memoised per *implementation* address, not per gateway.
+ *
+ * That is the load-bearing detail: the proxy address never changes, so keying on it would
+ * pin the first answer for the life of the process and keep encoding the old shape after an
+ * upgrade. The implementation address is exactly what an upgrade changes, so a cache keyed
+ * on it invalidates itself.
+ */
+const versionByImplementation = new Map<string, FillOptionsVersion>()
+
+/** Test seam: drop memoised detection results. */
+export function resetFillOptionsVersionCache(): void {
+	versionByImplementation.clear()
 }
 
-/** Test seam: drop memoised probe results. */
-export function resetFillOptionsVersionCache(): void {
-	versionCache.clear()
+/** The address the ERC-1967 proxy delegates to, or the gateway itself if it is not a proxy. */
+async function resolveImplementation(client: PublicClient, gateway: HexString): Promise<HexString> {
+	const slot = await client.getStorageAt({ address: gateway, slot: ERC1967_IMPLEMENTATION_SLOT })
+	if (!slot || slot.length < 66) return gateway
+	const addr = `0x${slot.slice(-40)}` as HexString
+	return /^0x0{40}$/.test(addr) ? gateway : addr
 }
 
 /**
- * Probes which `FillOptions` shape a gateway accepts, memoised per deployment.
+ * Works out which `FillOptions` shape a gateway accepts by looking at its deployed code.
  *
- * Deployments predating `validUntil` do not implement `fillOptionsVersion`, so the call
- * either reverts or returns no data — both are a definitive "v1" from the contract itself.
- * A transport failure is *not*: it is rethrown uncached, because caching it would silently
- * downgrade every later fill on that chain to unbounded validity for the lifetime of the
- * process. viem wraps every `readContract` failure in `ContractFunctionExecutionError`
- * regardless of cause, so the two are told apart by walking the cause chain rather than by
- * the thrown type.
+ * There is deliberately no version getter on the contract to ask. A hand-maintained version
+ * constant is a second source of truth that has to be remembered on every upgrade, and it
+ * answers the wrong question — what the deployment *says* it is, rather than what it can
+ * actually decode. The selector is the capability: Solidity emits it into the dispatcher, so
+ * its presence in the implementation's runtime code is the ground truth, and it updates
+ * itself whenever the proxy is repointed.
+ *
+ * Finding neither selector is an error rather than a guess. Both shapes cannot be decoded by
+ * the other — a v1 payload sent to a v2 gateway is as dead as the reverse — so silently
+ * assuming one would break every fill on that chain with a confusing revert instead of a
+ * clear message here.
  */
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
-	const key = cacheKey(client.chain?.id, gateway)
-	const cached = versionCache.get(key)
+	const implementation = await resolveImplementation(client, gateway)
+	const key = implementation.toLowerCase()
+	const cached = versionByImplementation.get(key)
 	if (cached !== undefined) return cached
 
-	try {
-		const version = (await client.readContract({
-			address: gateway,
-			abi: FILL_OPTIONS_VERSION_ABI,
-			functionName: "fillOptionsVersion",
-		})) as bigint
-		const resolved: FillOptionsVersion = version >= 2n ? 2 : 1
-		versionCache.set(key, resolved)
-		return resolved
-	} catch (error: any) {
-		const isContractAnswer =
-			typeof error?.walk === "function" &&
-			!!error.walk(
-				(e: unknown) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError,
-			)
-		if (!isContractAnswer) throw error
+	const code = (await client.getCode({ address: implementation }))?.toLowerCase() ?? "0x"
+	const hasV2 = code.includes(FILL_ORDER_V2_SELECTOR.slice(2))
+	const hasV1 = code.includes(FILL_ORDER_V1_SELECTOR.slice(2))
 
-		versionCache.set(key, 1)
-		return 1
+	if (!hasV2 && !hasV1) {
+		throw new Error(
+			`No fillOrder selector found in the IntentGateway implementation at ${implementation} ` +
+				`(proxy ${gateway}). Neither ${FILL_ORDER_V2_SELECTOR} nor ${FILL_ORDER_V1_SELECTOR} is present, ` +
+				`so the FillOptions shape cannot be determined.`,
+		)
 	}
+
+	const resolved: FillOptionsVersion = hasV2 ? 2 : 1
+	versionByImplementation.set(key, resolved)
+	return resolved
 }
 
 /**

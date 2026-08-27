@@ -33,7 +33,8 @@ filler warns once per chain rather than silently believing itself protected.
 Found by the scheduled IntentGateway/Simplex security audit.
 
 Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigService.ts`,
-`src/config/filler-toml.ts`, `src/config/abis/IntentGatewayV2.ts`, `src/core/boot.ts`.
+`src/config/filler-toml.ts`, `src/config/abis/IntentGatewayV2.ts`, `src/core/boot.ts`,
+`filler-config-example.toml`, `src/tests/services/bid-validity-config.test.ts`.
 
 ## 2026-08-26 — `decimals()` read failures fall back to the asset registry instead of guessing 18
 

@@ -369,19 +369,6 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
-		name: "fillOptionsVersion",
-		inputs: [],
-		outputs: [
-			{
-				name: "",
-				type: "uint256",
-				internalType: "uint256",
-			},
-		],
-		stateMutability: "pure",
-	},
-	{
-		type: "function",
 		name: "fillOrder",
 		inputs: [
 			{

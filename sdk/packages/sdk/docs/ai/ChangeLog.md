@@ -19,9 +19,10 @@ Newest entries first.
 incompatible shapes — `0x5cfb1ea5` (v1) and `0xa5470064` (v2) — and gateways upgrade per chain, so both are on the
 wire at once.
 
-New `protocols/intents/fillOrderCodec.ts` owns that: `getFillOptionsVersion` probes the gateway's
-`fillOptionsVersion()` (memoised per deployment), `encodeFillOrder` emits the matching shape, and `decodeFillOrder`
-reads either. `GasEstimator` encodes through it so estimates do not revert on a missing function; `BidManager` and
+New `protocols/intents/fillOrderCodec.ts` owns that: `getFillOptionsVersion` resolves the gateway's ERC-1967
+implementation and looks for the v2 selector in its runtime code (memoised per implementation, so an upgrade is
+picked up rather than pinned), `encodeFillOrder` emits the matching shape, and `decodeFillOrder` reads either.
+There is no version getter on the contract — the selector the compiler emits is the capability. `GasEstimator` encodes through it so estimates do not revert on a missing function; `BidManager` and
 `phantom-aggregation.extractFillData` decode through it so bids built against an older gateway are still priced in
 rather than dropped.
 
@@ -30,6 +31,11 @@ when it is used. The order's `deadline` is placer-chosen with no ceiling, retrac
 reach the destination chain, and the placer holds the session key — so a signed bid stayed executable indefinitely
 and was taken up only once the rate had moved against the solver. `validUntil` rides in the calldata, which
 `userOpHash` already covers, so it is tamper-proof without touching the signature format.
+
+`fillOrder` also no longer calls `IIntentPriceOracle.recordSpread`. It passed `order.inputs` and `options.outputs`
+to a stateful oracle verbatim, and neither is validated against anything that costs the caller money — the escrow
+lives on the source chain and is never consulted on the destination side. `Params.priceOracle` is left in place
+because removing a field from a storage struct behind an upgradeable proxy shifts the layout.
 
 Found by the scheduled IntentGateway/Simplex security audit.
 

@@ -34,28 +34,39 @@ the L2 block number where those differ), and so the two cannot disagree about wh
 `0` means unbounded. That is the right default for a solver filling directly — it is only exposed to its own
 staleness — and it keeps every existing caller working. The protection is opt-in by the party that needs it.
 
-## 2026-08-27 — A capability probe, not a version flag on the client
+## 2026-08-27 — The deployed bytecode is the capability signal, not a version getter
 
-Chosen: clients call `fillOptionsVersion()` on the gateway and cache the answer per deployment.
+Chosen: `getFillOptionsVersion` reads the ERC-1967 implementation slot, fetches that
+implementation's runtime code, and looks for the v2 `fillOrder` selector. No version function on
+the contract.
 
-Adding a struct field changes the function selector, so a v2 payload sent to a v1 gateway finds no matching function
-and reverts — the safe failure, but it means the caller has to know before encoding. Gateways are upgraded per chain,
-so this cannot be a build-time constant.
+The first cut added `fillOptionsVersion() pure returns (uint256)` and probed it. That is a second
+source of truth: a hand-maintained integer someone has to remember to bump on the right upgrade,
+which answers what the deployment *claims* rather than what it can actually decode. The selector is
+the capability — Solidity emits it into the dispatcher — so its presence in the implementation's
+code is ground truth, verified empirically to survive `via-ir` and the optimizer.
+
+Caching on the implementation address rather than the gateway is the load-bearing half, and it
+fixes a real bug in the version-getter version: the proxy address never changes, so a cache keyed
+on it pins the first answer for the life of the process and keeps encoding the old shape after an
+upgrade. The implementation address is exactly what an upgrade changes.
 
 Alternatives rejected:
 
-- *Configure the version per chain.* One more thing to get wrong at exactly the moment a chain is upgraded, and wrong
-  in the direction of every fill on that chain reverting.
-- *Try v2 and fall back on revert.* Costs a failed simulation per fill, and conflates "old gateway" with the many
-  other reasons a fill reverts.
-- *Read the implementation's bytecode for the selector.* Works, but the gateway is behind an ERC-1967 proxy, so it
-  means an extra storage read plus a code fetch to reach the implementation — more moving parts than asking it.
+- *Use the proxy's own version.* ERC-1967 tracks an implementation **address**, not a version
+  number — `upgradeToAndCall` emits `Upgraded(address)` and stores an address. OZ `Initializable`
+  does hold a `uint64`, but only `reinitializer(N)` moves it and this contract uses plain
+  `initializer`, so it sits at 1 forever. Exposing it would mean adding a public wrapper *and*
+  remembering `reinitializer` on every future upgrade — and it would still be a contract version
+  standing in for a capability, so an unrelated upgrade would move it.
+- *Configure the version per chain.* One more thing to get wrong at exactly the moment a chain is
+  upgraded, and wrong in the direction of every fill on that chain reverting.
+- *Try v2 and fall back on revert.* `fillOrder` is payable and state-changing, so "trying" it means
+  simulating a real fill, which fails for many reasons unrelated to the shape.
 
-The probe follows the lesson already recorded for `paymasterSupportsPermit2`: viem wraps *every* `readContract`
-failure in `ContractFunctionExecutionError`, so a genuine "no such function" is told from a transport blip by walking
-the cause chain, not by the thrown type. Only a contract answer is cached. Caching a transport error would silently
-strip `validUntil` from every later fill on that chain for the life of the process — the exact protection being added
-here, undone by one flaky RPC call.
+Finding neither selector throws rather than defaulting. The shapes cannot decode each other in
+either direction, so a wrong guess breaks every fill on the chain with a confusing revert; failing
+here says why.
 
 ## 2026-08-25 — Intent quotes default to directional indexed rates without fallback
 

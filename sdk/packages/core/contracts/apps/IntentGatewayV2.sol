@@ -404,15 +404,6 @@ interface IIntentGatewayV2 {
      */
     function fillOrder(Order calldata order, FillOptions calldata options) external payable;
 
-    /// @notice Version of the {FillOptions} struct this deployment accepts.
-    /// @dev Adding a field to a struct changes the enclosing function's selector, so a
-    ///      caller built against a newer {FillOptions} cannot reach `fillOrder` on an older
-    ///      deployment at all. Clients probe this to pick the shape to encode; deployments
-    ///      predating `validUntil` do not implement it and the call reverts, which is the
-    ///      "version 1" answer.
-    /// @return The FillOptions version. 2 since `validUntil` was added.
-    function fillOptionsVersion() external pure returns (uint256);
-
     /**
      * @notice Cancels an order after it has expired.
      * @param order The order to be cancelled

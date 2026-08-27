@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { slice, ContractFunctionRevertedError, ContractFunctionZeroDataError } from "viem"
+import { slice } from "viem"
 import {
 	encodeFillOrder,
 	decodeFillOrder,
@@ -21,6 +21,7 @@ const TOKEN = "0x000000000000000000000000000000000000000000000000000000000000000
 // changes the ABI shows up here rather than as a reverting fill.
 const V1_SELECTOR = "0x5cfb1ea5"
 const V2_SELECTOR = "0xa5470064"
+const ERC1967_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 
 function order(): Order {
 	return {
@@ -43,20 +44,6 @@ function options(validUntil: bigint): FillOptions {
 
 function client(readContract: any, chainId = 8453) {
 	return { chain: { id: chainId }, readContract } as any
-}
-
-/**
- * A stand-in for what viem throws. The probe classifies by `instanceof` on the cause, so the
- * cause has to be a genuine instance of viem's class — constructing via `Object.create`
- * avoids the constructors' required ABI arguments while keeping `instanceof` honest.
- */
-function contractError(kind: "revert" | "zero-data") {
-	const cause = Object.create(
-		(kind === "revert" ? ContractFunctionRevertedError : ContractFunctionZeroDataError).prototype,
-	)
-	const err: any = new Error(kind === "revert" ? "execution reverted" : "returned no data")
-	err.walk = (fn: (e: unknown) => boolean) => (fn(cause) ? cause : undefined)
-	return err
 }
 
 describe("encodeFillOrder", () => {
@@ -98,43 +85,63 @@ describe("decodeFillOrder", () => {
 describe("getFillOptionsVersion", () => {
 	beforeEach(() => resetFillOptionsVersionCache())
 
-	it("reports v2 when the gateway implements fillOptionsVersion", async () => {
-		const readContract = vi.fn().mockResolvedValue(2n)
+	const IMPL = "0x2222222222222222222222222222222222222222" as HexString
+	const IMPL_SLOT_VALUE = `0x000000000000000000000000${IMPL.slice(2)}` as HexString
 
-		await expect(getFillOptionsVersion(client(readContract), GATEWAY)).resolves.toBe(2)
+	/** A client whose proxy points at IMPL, and whose IMPL carries the given selectors. */
+	function client(selectors: string[], opts: { slot?: HexString | undefined } = {}) {
+		const code = `0x6080${selectors.map((s) => s.slice(2)).join("dead")}` as HexString
+		return {
+			chain: { id: 8453 },
+			getStorageAt: vi.fn().mockResolvedValue("slot" in opts ? opts.slot : IMPL_SLOT_VALUE),
+			getCode: vi.fn().mockResolvedValue(code),
+		} as any
+	}
+
+	it("reports v2 when the implementation carries the v2 fillOrder selector", async () => {
+		await expect(getFillOptionsVersion(client([V2_SELECTOR]), GATEWAY)).resolves.toBe(2)
 	})
 
-	it("treats a revert as v1 — the gateway predates the function", async () => {
-		const readContract = vi.fn().mockRejectedValue(contractError("revert"))
-
-		await expect(getFillOptionsVersion(client(readContract), GATEWAY)).resolves.toBe(1)
+	it("reports v1 when only the older selector is present", async () => {
+		await expect(getFillOptionsVersion(client([V1_SELECTOR]), GATEWAY)).resolves.toBe(1)
 	})
 
-	it("treats an empty return as v1", async () => {
-		const readContract = vi.fn().mockRejectedValue(contractError("zero-data"))
+	it("looks past the proxy at the implementation's code", async () => {
+		// getCode on the gateway returns the proxy stub, which carries neither selector.
+		const c = client([V2_SELECTOR])
 
-		await expect(getFillOptionsVersion(client(readContract), GATEWAY)).resolves.toBe(1)
+		await getFillOptionsVersion(c, GATEWAY)
+
+		expect(c.getStorageAt).toHaveBeenCalledWith({ address: GATEWAY, slot: ERC1967_SLOT })
+		expect(c.getCode).toHaveBeenCalledWith({ address: IMPL })
 	})
 
-	it("rethrows a transport error instead of caching a downgrade", async () => {
-		// Caching v1 here would silently strip validUntil from every later fill on this chain
-		// for the life of the process, on nothing more than one flaky RPC call.
-		const transport: any = new Error("HTTP 429")
-		transport.walk = () => undefined
-		const readContract = vi.fn().mockRejectedValue(transport)
+	it("falls back to the gateway itself when it is not a proxy", async () => {
+		const c = client([V2_SELECTOR], { slot: undefined })
 
-		await expect(getFillOptionsVersion(client(readContract), GATEWAY)).rejects.toThrow("HTTP 429")
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
+		expect(c.getCode).toHaveBeenCalledWith({ address: GATEWAY })
 	})
 
-	it("memoises per deployment, and does not confuse two chains", async () => {
-		const readContract = vi.fn().mockResolvedValue(2n)
-		const c1 = client(readContract, 8453)
+	it("throws rather than guessing when neither selector is present", async () => {
+		// Guessing would break every fill on the chain with a confusing revert instead of
+		// a clear message here — the two shapes cannot decode each other.
+		await expect(getFillOptionsVersion(client(["0xdeadbe01"]), GATEWAY)).rejects.toThrow(
+			/No fillOrder selector found/,
+		)
+	})
 
-		await getFillOptionsVersion(c1, GATEWAY)
-		await getFillOptionsVersion(c1, GATEWAY)
-		expect(readContract).toHaveBeenCalledTimes(1)
+	it("caches per implementation, so an upgrade is picked up rather than pinned", async () => {
+		const c = client([V1_SELECTOR])
+		await getFillOptionsVersion(c, GATEWAY)
+		await getFillOptionsVersion(c, GATEWAY)
+		expect(c.getCode).toHaveBeenCalledTimes(1)
 
-		await getFillOptionsVersion(client(readContract, 1), GATEWAY)
-		expect(readContract).toHaveBeenCalledTimes(2)
+		// Same proxy, new implementation behind it: the answer must move with it.
+		const upgraded = "0x3333333333333333333333333333333333333333" as HexString
+		c.getStorageAt.mockResolvedValue(`0x000000000000000000000000${upgraded.slice(2)}`)
+		c.getCode.mockResolvedValue(`0x6080${V2_SELECTOR.slice(2)}`)
+
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
 	})
 })

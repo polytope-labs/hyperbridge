@@ -42,6 +42,22 @@ substratePrivateKey = ""
 # Hyperbridge WebSocket URL
 hyperbridgeWsUrl = ""
 
+# Bid validity (optional)
+# How long a signed bid stays executable, in seconds. Default: 1800 (30 minutes).
+#
+# Written into `FillOptions.validUntil` and enforced on-chain by `fillOrder`, which reverts
+# `FillExpired` past it. This is how long your quoted price stands as a firm commitment that
+# the order placer may take up at a moment of their choosing: the order's own deadline is set
+# by the placer with no upper bound, and retracting a bid on Hyperbridge does not reach the
+# destination chain. Without this, a signed bid stays executable indefinitely and is taken up
+# only once the rate has moved against you.
+#
+# Set in seconds; converted to a block height per destination chain. Lower it on volatile
+# pairs — 30 minutes of a fixed price on a fast-moving pair is real optionality given away.
+# Ignored on gateways deployed before `FillOptions.validUntil` existed (the filler warns once
+# per chain when that is the case).
+# bidValiditySeconds = 1800
+
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission
 # Both are percentages added ON TOP of the base gasPrice

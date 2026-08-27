@@ -20,7 +20,6 @@ import {ExtrinsicIntents} from "./intentsv2/ExtrinsicIntents.sol";
 
 import {ICallDispatcher, Call} from "@hyperbridge/core/interfaces/ICallDispatcher.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -117,21 +116,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      */
     function params() external view returns (Params memory) {
         return _params;
-    }
-
-    /**
-     * @dev Version of the {FillOptions} struct this deployment accepts.
-     *
-     * Adding a field to a struct changes the enclosing function's selector, so a caller
-     * built against a newer {FillOptions} cannot reach `fillOrder` here at all — the call
-     * finds no matching function rather than mis-decoding. Clients probe this to pick the
-     * shape to encode. Deployments predating `validUntil` do not implement it, and that
-     * failed call is the "version 1" answer.
-     *
-     * @return The FillOptions version. 2 since `validUntil` was added.
-     */
-    function fillOptionsVersion() external pure returns (uint256) {
-        return 2;
     }
 
     /**
@@ -420,8 +404,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
      *    solver stored in transient storage (set by a prior `select` call).
      * 4. Validates input/output array length consistency.
      *
-     * After fill completion, records the price spread with the oracle if configured.
-     *
      * @param order The order to fill. Must match the exact order that was placed.
      * @param options Fill options including output token amounts and fee parameters.
      */
@@ -464,12 +446,6 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents, ReentrancyGuardT
             _fillSameChain(order, options, commitment);
         } else {
             _fillCrossChain(order, options, commitment);
-        }
-
-        if (_params.priceOracle != address(0)) {
-            IIntentPriceOracle(_params.priceOracle).recordSpread(
-                commitment, order.source, order.inputs, options.outputs
-            );
         }
     }
 

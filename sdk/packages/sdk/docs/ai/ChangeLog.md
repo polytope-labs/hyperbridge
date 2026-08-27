@@ -12,6 +12,14 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — Pool-priced phantom bids are haircut 10bps, every other bid 5bps
+
+The pool haircut added on 2026-08-24 drops from 30bps to 10bps, and bids that declare no Uniswap V4 positions — previously untouched — now pay a 5bps haircut of their own. `aggregatePhantomBids` picks one of the two per bid from the same signed declaration it already read: `applyUniswapQuoteHaircut` when positions are named, `applyPhantomQuoteHaircut` otherwise. They never stack. Both still land on the individual quote before the zero-check, the weighted median, and the bidder rows, so the declined-leg path still catches a leg amount a haircut rounds to zero.
+
+`PHANTOM_QUOTE_HAIRCUT_BPS` and `applyPhantomQuoteHaircut` are exported alongside the Uniswap pair from `@/protocols/intents` and the `intents-helpers` sub-path, so the indexer and simplex keep reading both numbers from one place.
+
+Files: `src/protocols/intents/phantom-aggregation.ts`, `src/protocols/intents/index.ts`, `src/intents-helpers.ts`, `src/tests/phantomAggregation.test.ts`.
+
 ## 2026-08-25 — Intent quotes use aggregate indexed pool rates by default
 
 `IntentGateway.quoteIntent` now prices orders from the pair-centric indexer's depth-weighted aggregate `LiquidityPool.buyRate` and `sellRate`. Source and destination chains resolve the configured token deployments, while the quote converts the pool's whole-token rate into raw amounts with configured decimals, applies the source gateway protocol fee, and exposes the selected rate and timestamp in metadata. Reverse sell-rate reciprocals round up so quotes do not overpromise output. Phantom snapshot and Uniswap V4 pricing remain explicit compatibility strategies. Live sequential tests cover exact-input USDC to cNGN and exact-output cNGN to USDC across BSC and Base, including their different token decimal scales. The dead `binance.llamarpc.com` BSC default was replaced with `bsc-rpc.publicnode.com` after it blocked those live checks.

@@ -12,6 +12,28 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — Solver bids carry a signed expiry
+
+`prepareSubmitBid` now requires a `validUntil` and signs an EIP-712 `BidValidity(bytes32 userOpHash,uint48 validUntil)`
+digest instead of the bare `userOpHash`. The selection signature grew from 97 to 103 bytes
+(`commitment ‖ validUntil ‖ solverSig`), so the completed form `SolverAccount` validates is 168 rather than 162 bytes;
+the 65-byte session signature is still appended by whoever selects the solver, so `Bid.execute` is unchanged.
+
+Previously a signed bid was valid forever. `SolverAccount.validateUserOp` returned `SIG_VALIDATION_SUCCESS`, which
+packs `validUntil = 0`, and `ERC4337Utils.parseValidationData` expands 0 to `BLOCK_RANGE_MASK`. Nothing else bounded
+it: `order.deadline` is chosen by the order placer with no contract-side ceiling, and `retract_bid` on Hyperbridge
+does not touch the destination chain. The placer holds the session key, so they alone chose when to exercise — a free
+option on solver inventory, taken up only once the rate had moved against the solver.
+
+The expiry has to live inside the signed digest because the EntryPoint's `userOpHash` does not cover `op.signature`;
+an expiry carried alongside the signature could simply be rewritten by whoever replays the bid.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/protocols/intents/BidManager.ts`, `src/protocols/intents/CryptoUtils.ts`, `src/types/index.ts`,
+`src/tests/packedUserOpTypedData.test.ts`, plus `evm/src/apps/intentsv2/SolverAccount.sol` and
+`evm/tests/foundry/account/SolverAccountTest.sol`.
+
 ## 2026-08-25 — Intent quotes use aggregate indexed pool rates by default
 
 `IntentGateway.quoteIntent` now prices orders from the pair-centric indexer's depth-weighted aggregate `LiquidityPool.buyRate` and `sellRate`. Source and destination chains resolve the configured token deployments, while the quote converts the pool's whole-token rate into raw amounts with configured decimals, applies the source gateway protocol fee, and exposes the selected rate and timestamp in metadata. Reverse sell-rate reciprocals round up so quotes do not overpromise output. Phantom snapshot and Uniswap V4 pricing remain explicit compatibility strategies. Live sequential tests cover exact-input USDC to cNGN and exact-output cNGN to USDC across BSC and Base, including their different token decimal scales. The dead `binance.llamarpc.com` BSC default was replaced with `bsc-rpc.publicnode.com` after it blocked those live checks.

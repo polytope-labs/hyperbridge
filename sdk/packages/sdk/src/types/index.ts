@@ -1348,6 +1348,18 @@ export interface SubmitBidOptions {
 	 * Defaults to "0x" (EntryPoint deposit pays gas).
 	 */
 	paymasterAndData?: HexString
+	/**
+	 * Unix timestamp (seconds) after which this bid may no longer be executed.
+	 *
+	 * Returned to the EntryPoint by `SolverAccount` as a validity range, so the bid
+	 * stops being executable once it lapses. This is the only thing bounding how long
+	 * the signature lives: the order's `deadline` is chosen by the placer with no upper
+	 * bound, and retracting the bid on Hyperbridge does not invalidate it on the
+	 * destination chain. Keep it short — it is the window over which the quoted price
+	 * is a firm commitment. Must be non-zero; `SolverAccount` rejects 0 because the
+	 * EntryPoint reads a zero `validUntil` as "never expires".
+	 */
+	validUntil: bigint
 }
 
 export interface EstimateFillOrderParams {

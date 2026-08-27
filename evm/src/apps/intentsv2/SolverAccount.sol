@@ -40,9 +40,35 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
 
     /**
      * @notice Expected signature length for intent solver selection
-     * @dev abi.encodePacked(commitment, solverSignature, sessionSignature) = 32 + 65 + 65 = 162 bytes
+     * @dev abi.encodePacked(commitment, validUntil, solverSignature, sessionSignature)
+     *      = 32 + 6 + 65 + 65 = 168 bytes
      */
-    uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 162;
+    uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 168;
+
+    /**
+     * @notice EIP-712 type hash for the expiry the solver signs alongside the operation
+     * @dev The bid's `validUntil` cannot live in an unsigned part of the operation: the
+     *      EntryPoint's `userOpHash` does not cover `op.signature`, so an expiry carried
+     *      there and nowhere else could simply be rewritten by whoever replays the bid.
+     *      Binding it into the digest the solver signs is what makes it tamper-evident.
+     */
+    bytes32 private constant BID_VALIDITY_TYPEHASH = keccak256("BidValidity(bytes32 userOpHash,uint48 validUntil)");
+
+    /**
+     * @notice EIP-712 domain type hash
+     */
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
+    /**
+     * @notice Hashed EIP-712 domain name for the bid-validity digest
+     */
+    bytes32 private constant BID_DOMAIN_NAME = keccak256("SolverAccount");
+
+    /**
+     * @notice Hashed EIP-712 domain version for the bid-validity digest
+     */
+    bytes32 private constant BID_DOMAIN_VERSION = keccak256("1");
 
     /**
      * @notice Cached select function selector
@@ -86,12 +112,20 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      *    signature from a bid and submit the op on this path. Without a select()
      *    staged during validation the fill reverts, but the bid's nonce would be
      *    consumed and the solver griefed of the gas fees.
-     * 2. Intent solver selection (162 bytes): abi.encodePacked(commitment,
-     *    solverSignature, sessionSignature). The solver signs the plain userOpHash,
-     *    and the userOp's nonce key must equal the lower 192 bits of
+     * 2. Intent solver selection (168 bytes): abi.encodePacked(commitment, validUntil,
+     *    solverSignature, sessionSignature). The solver signs an EIP-712 BidValidity
+     *    digest over (userOpHash, validUntil) rather than the plain userOpHash, and the
+     *    userOp's nonce key must equal the lower 192 bits of
      *    keccak256(abi.encodePacked(commitment, sessionKey)) — binding the operation
      *    to the order and the session key it was bid against, so neither can be
      *    swapped after signing.
+     *
+     *    `validUntil` is returned to the EntryPoint as a validity range, so a bid stops
+     *    being executable once it lapses. Without it a signed bid was valid forever: the
+     *    order's `deadline` is chosen by the placer with no upper bound, and neither
+     *    retracting the bid on Hyperbridge nor letting it go unselected invalidates
+     *    anything on this chain — leaving the placer holding a free, unexpiring option
+     *    to make the solver fill at a stale price.
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -111,13 +145,20 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
             return super.validateUserOp(op, userOpHash, missingAccountFunds);
         }
 
-        // Expected format: abi.encodePacked(commitment, solverSignature, sessionSignature)
-        // commitment: 32 bytes, solverSignature: 65 bytes, sessionSignature: 65 bytes
-        if (op.signature.length < INTENT_SELECT_SIGNATURE_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        // Expected format: abi.encodePacked(commitment, validUntil, solverSignature, sessionSignature)
+        // commitment: 32 bytes, validUntil: 6 bytes, solverSignature: 65 bytes, sessionSignature: 65 bytes.
+        // Exact-length (not >=): the layout is fixed, so trailing bytes can only be malleability.
+        if (op.signature.length != INTENT_SELECT_SIGNATURE_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         bytes32 commitment = bytes32(op.signature[0:32]);
-        bytes calldata solverSignature = op.signature[32:97];
-        bytes calldata sessionSignature = op.signature[97:162];
+        uint48 validUntil = uint48(bytes6(op.signature[32:38]));
+        bytes calldata solverSignature = op.signature[38:103];
+        bytes calldata sessionSignature = op.signature[103:168];
+
+        // A zero validUntil is not "no opinion", it is unbounded: ERC4337Utils.parseValidationData
+        // expands 0 to BLOCK_RANGE_MASK. Refusing it here is what stops the old never-expiring
+        // behaviour from being reachable simply by signing an empty expiry.
+        if (validUntil == 0) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Call IntentGatewayV2.select to recover the sessionKey. This also stages the
         // transient-storage selection that fillOrder enforces at execution.
@@ -131,12 +172,39 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         address sessionKey = abi.decode(returnData, (address));
         uint192 userOpNonce = uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKey))));
         if (uint192(op.nonce >> 64) != userOpNonce) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        if (!_rawSignatureValidation(userOpHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (!_rawSignatureValidation(_bidValidityDigest(userOpHash, validUntil), solverSignature)) {
+            return ERC4337Utils.SIG_VALIDATION_FAILED;
+        }
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);
 
-        return ERC4337Utils.SIG_VALIDATION_SUCCESS;
+        // validAfter = 0 keeps the BLOCK_RANGE_FLAG clear, so this packs as a TIMESTAMP range —
+        // the only range the canonical EntryPoint interprets.
+        return ERC4337Utils.packValidationData(address(0), 0, validUntil);
+    }
+
+    /**
+     * @notice EIP-712 digest binding an operation hash to the expiry the solver agreed to
+     * @dev The domain's `verifyingContract` is `address(this)`, which under EIP-7702 is the
+     *      solver's own EOA — so a bid signed for one solver account cannot be replayed against
+     *      another. The digest is recomputed here rather than trusting a value passed in calldata
+     *      because only the solver's signature over it makes the expiry unforgeable.
+     *
+     *      Note there is deliberately no upper bound on `validUntil` in this contract: ERC-7562
+     *      forbids the TIMESTAMP opcode during validation, so the account cannot compare the
+     *      expiry against the current time. Capping the tenor is the signer's job — see
+     *      `maxBidTenorSec` on the filler side.
+     * @param userOpHash The EntryPoint-supplied hash of the operation
+     * @param validUntil Unix timestamp after which the bid is no longer valid
+     * @return The EIP-712 digest the solver is expected to have signed
+     */
+    function _bidValidityDigest(bytes32 userOpHash, uint48 validUntil) internal view returns (bytes32) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(EIP712_DOMAIN_TYPEHASH, BID_DOMAIN_NAME, BID_DOMAIN_VERSION, block.chainid, address(this))
+        );
+        bytes32 structHash = keccak256(abi.encode(BID_VALIDITY_TYPEHASH, userOpHash, validUntil));
+        return keccak256(abi.encodePacked(hex"1901", domainSeparator, structHash));
     }
 
     /**

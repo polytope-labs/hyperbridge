@@ -165,6 +165,17 @@ export interface FillerTomlConfig {
 		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.
 		 */
 		acceptedSourceChains?: string[]
+		/**
+		 * How long a signed bid stays executable, in seconds. Defaults to 300.
+		 *
+		 * This is how long the quoted price is a firm commitment the placer can take up.
+		 * Nothing else bounds it: the order's `deadline` is chosen by the placer with no
+		 * upper limit, and retracting the bid on Hyperbridge has no effect on the
+		 * destination chain — so before this existed, every bid was executable forever and
+		 * the placer could sit on it until the rate moved in their favour. Set it to the
+		 * longest stale quote you are willing to honour; volatile pairs want less.
+		 */
+		bidValiditySeconds?: number
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig

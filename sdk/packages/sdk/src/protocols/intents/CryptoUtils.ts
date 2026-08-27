@@ -223,6 +223,64 @@ export class CryptoUtils {
 	}
 
 	/**
+	 * Builds the EIP-712 payload a solver signs when bidding: the operation hash
+	 * bound to the expiry the bid is valid until.
+	 *
+	 * `SolverAccount` recomputes this digest in `validateUserOp` and returns
+	 * `validUntil` to the EntryPoint as a validity range. The expiry has to be inside
+	 * the signed digest rather than carried alongside it, because the EntryPoint's
+	 * `userOpHash` does not cover `op.signature` — an expiry living only in the
+	 * signature blob could be rewritten by anyone replaying the bid.
+	 *
+	 * The domain's `verifyingContract` is the solver account itself (under EIP-7702,
+	 * the solver's own EOA), so a bid signed for one account cannot be replayed
+	 * against another.
+	 *
+	 * Signing infrastructure sees a named `validUntil` field, which lets an MPC/TEE
+	 * policy engine refuse to sign a bid whose tenor is longer than the operator
+	 * intends — a check that is impossible against an opaque digest, and impossible
+	 * on-chain because ERC-7562 forbids reading the clock during validation.
+	 *
+	 * @param userOpHash - EntryPoint v0.8 `userOpHash` of the operation being bid.
+	 * @param validUntil - Unix timestamp (seconds) after which the bid is dead.
+	 * @param solverAccount - The solver account the bid executes against.
+	 * @param chainId - Chain ID of the destination network.
+	 * @returns A viem `TypedDataDefinition` for the bid's validity.
+	 */
+	static bidValidityTypedData(userOpHash: HexString, validUntil: bigint, solverAccount: Hex, chainId: bigint) {
+		return {
+			domain: {
+				name: "SolverAccount",
+				version: "1",
+				// See packedUserOpTypedData: runtime number so server-side JSON hashers
+				// emit a canonical v4 numeric chainId.
+				chainId: Number(chainId) as unknown as bigint,
+				verifyingContract: solverAccount,
+			},
+			types: {
+				EIP712Domain: [
+					{ name: "name", type: "string" },
+					{ name: "version", type: "string" },
+					{ name: "chainId", type: "uint256" },
+					{ name: "verifyingContract", type: "address" },
+				],
+				BidValidity: [
+					{ name: "userOpHash", type: "bytes32" },
+					{ name: "validUntil", type: "uint48" },
+				],
+			} as const,
+			primaryType: "BidValidity" as const,
+			message: {
+				userOpHash,
+				// viem types uint48 as a JS number. uint48 maxes out at ~2.8e14, comfortably
+				// inside Number.MAX_SAFE_INTEGER, so the narrowing is exact — and the digest is
+				// identical either way, since viem encodes the value, not its JS type.
+				validUntil: Number(validUntil),
+			},
+		}
+	}
+
+	/**
 	 * Computes the EIP-712 struct hash of a `PackedUserOperation`.
 	 *
 	 * Hashes dynamic fields (`initCode`, `callData`, `paymasterAndData`) before

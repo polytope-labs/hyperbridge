@@ -4,6 +4,33 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — Bid tenor is capped in the filler, because the account cannot cap it
+
+Chosen: `bidValiditySeconds` (default 300) is applied here, in `ContractInteractionService.bidValidUntil()`, and
+stamped into every bid. `SolverAccount` enforces that the expiry is *signed*, never that it is *sensible*.
+
+The split is forced, not stylistic. ERC-7562 bans the `TIMESTAMP` opcode during validation, so the account cannot
+compare `validUntil` against now; all it can do is bind the value to the signature and hand it to the EntryPoint.
+Whether 5 minutes or 30 days is appropriate is a pricing question anyway, and pricing lives here.
+
+300 seconds is chosen to comfortably cover the existing quote-to-fill path — cross-chain confirmation waits run to
+roughly 180s on the deepest default policies — while staying far below the window over which a quote on a volatile
+pair stops being one. It is deliberately not tied to `BID_TTL_MS` (the 1-hour Hyperbridge retraction sweep): that TTL
+governs reclaiming a deposit, this governs how long we are short an option, and an hour is far too long for the latter.
+
+Alternatives rejected:
+
+- *Derive it from the order's own deadline.* The deadline is placer-controlled with no ceiling — the very input this
+  is defending against.
+- *Reuse the 1-hour bid TTL.* Conflates deposit housekeeping with price risk, and 1h of free optionality on a naira
+  pair is worth real money.
+- *Per-pair tenors.* Correct in the long run — a stablecoin pair could safely carry a longer expiry than USDC/CNGN —
+  but a single conservative global default fixes the exposure now without adding a config surface to get wrong.
+
+The phantom-quote path gets the same stamp. Phantom bids are quotes rather than executable fills, so the expiry is
+mostly belt-and-braces there — but they are signed with the same key and the same nonce key, so there is no reason to
+leave one signed artefact unbounded.
+
 ## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
 
 Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.

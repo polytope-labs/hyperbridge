@@ -12,6 +12,26 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — Bids are stamped with an expiry (`bidValiditySeconds`)
+
+Every bid this filler signs now carries a `validUntil`, defaulting to 300 seconds and configurable as
+`simplex.bidValiditySeconds`. Both bid paths set it — the real one in `prepareBidUserOp` and the phantom quote in
+`preparePhantomBidUserOp` — through a single `bidValidUntil()` helper.
+
+A bid is a firm price the order placer can take up whenever they choose. Nothing bounded that window: `order.deadline`
+is placer-chosen with no ceiling, and `enqueueRetraction` only clears the bid on Hyperbridge, which has no effect on
+the destination chain. So a bid signed at one rate stayed executable indefinitely and was exercised only if the rate
+moved against us — a written option on this filler's inventory, at no premium. Volatile pairs (USDC/CNGN) are the
+worst case, since the naira reprices in steps rather than drifting.
+
+This is the half of the fix that has to live off-chain: `SolverAccount` binds the expiry into the signature but
+cannot judge it, because ERC-7562 forbids reading the clock during ERC-4337 validation.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/services/ContractInteractionService.ts`, `src/services/FillerConfigService.ts`, `src/config/filler-toml.ts`,
+`src/core/boot.ts`.
+
 ## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
 
 Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.

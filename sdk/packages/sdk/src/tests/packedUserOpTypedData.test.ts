@@ -51,3 +51,43 @@ describe("packedUserOpTypedData", () => {
 		)
 	})
 })
+
+describe("bidValidityTypedData", () => {
+	const SOLVER = "0x5fbdb2315678afecb367f032d93f642f64180aa3" as HexString
+	const USER_OP_HASH = "0x1122334455667788112233445566778811223344556677881122334455667788" as HexString
+	const VALID_UNTIL = 1893456000n
+
+	// Pinned against the same vector asserted in SolverAccountTest.sol. If this drifts,
+	// every bid this SDK signs is rejected on-chain — the account recomputes this digest
+	// itself and compares the recovered signer, so a one-byte disagreement in the type
+	// string or field order silently invalidates the whole bid path.
+	it("digest matches the SolverAccount._bidValidityDigest vector", () => {
+		const typed = CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL, SOLVER, 8453n)
+		expect(hashTypedData(typed)).toBe("0x9e02de364fe8fc317a79ca6770e4fb15fe92546ade132c86ddef6315ff12c314")
+	})
+
+	it("binds the expiry: a different validUntil is a different digest", () => {
+		const a = hashTypedData(CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL, SOLVER, 8453n))
+		const b = hashTypedData(CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL + 1n, SOLVER, 8453n))
+		expect(a).not.toBe(b)
+	})
+
+	it("binds the account: the same bid cannot be replayed against another solver", () => {
+		const a = hashTypedData(CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL, SOLVER, 8453n))
+		const b = hashTypedData(
+			CryptoUtils.bidValidityTypedData(
+				USER_OP_HASH,
+				VALID_UNTIL,
+				"0x000000000000000000000000000000000000beef" as HexString,
+				8453n,
+			),
+		)
+		expect(a).not.toBe(b)
+	})
+
+	it("binds the chain", () => {
+		const a = hashTypedData(CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL, SOLVER, 8453n))
+		const b = hashTypedData(CryptoUtils.bidValidityTypedData(USER_OP_HASH, VALID_UNTIL, SOLVER, 1n))
+		expect(a).not.toBe(b)
+	})
+})

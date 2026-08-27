@@ -666,6 +666,7 @@ export class ContractInteractionService {
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 			callData,
 			paymasterAndData,
+			validUntil: this.bidValidUntil(),
 		})
 
 		// Encode the UserOp as bytes for submission to Hyperbridge
@@ -682,6 +683,23 @@ export class ContractInteractionService {
 		)
 
 		return { commitment, userOp: encodedUserOp }
+	}
+
+	/**
+	 * Expiry stamped into every bid this filler signs.
+	 *
+	 * A bid is a firm quote the placer can take up whenever they like, and nothing
+	 * else bounds that window — `order.deadline` is placer-chosen with no ceiling, and
+	 * retracting on Hyperbridge leaves the destination-chain signature untouched. An
+	 * unexpiring bid is therefore a free option on this filler's inventory, exercised
+	 * only when the rate has moved against us. This is the cap on that option's tenor.
+	 *
+	 * It has to be enforced here rather than in `SolverAccount`: ERC-7562 forbids the
+	 * TIMESTAMP opcode during validation, so the account can bind the expiry to the
+	 * signature but cannot judge whether it is a sane one.
+	 */
+	private bidValidUntil(): bigint {
+		return BigInt(Math.floor(Date.now() / 1000) + this.configService.getBidValiditySeconds())
 	}
 
 	/**
@@ -744,6 +762,7 @@ export class ContractInteractionService {
 							uniswapV4Positions: uniswapV4PositionIds?.map((id) => BigInt(id)),
 						})
 					: ("0x" as HexString),
+			validUntil: this.bidValidUntil(),
 		})
 
 		return { commitment, userOp: encodeUserOpScale(userOp) }

@@ -1,4 +1,4 @@
-import { decodeFunctionData, concat } from "viem"
+import { decodeFunctionData, concat, hashTypedData, numberToHex } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20 } from "@/utils"
 import type {
@@ -73,7 +73,17 @@ export class BidManager {
 			maxPriorityFeePerGas,
 			callData,
 			paymasterAndData = "0x" as HexString,
+			validUntil,
 		} = options
+
+		// SolverAccount rejects a zero validUntil, but failing here gives the caller a
+		// usable error instead of an opaque AA24 from the bundler.
+		if (validUntil <= 0n) {
+			throw new Error(`[BidManager] validUntil must be a positive unix timestamp, got ${validUntil}`)
+		}
+		if (validUntil >= 1n << 48n) {
+			throw new Error(`[BidManager] validUntil must fit in uint48, got ${validUntil}`)
+		}
 
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
@@ -103,11 +113,20 @@ export class BidManager {
 				`[BidManager] bid nonce key does not bind the order commitment and session key; on-chain validation will fail (order=${order.id})`,
 			)
 		}
+		// The solver signs (userOpHash, validUntil), not the bare userOpHash: the expiry
+		// has to be covered by this signature or a replayer could extend it at will.
+		const userOpHash = hashTypedData(CryptoUtils.packedUserOpTypedData(userOp, entryPointAddress, chainId))
 		const solverSignature = await solverSigner.signTypedData(
-			CryptoUtils.packedUserOpTypedData(userOp, entryPointAddress, chainId),
+			CryptoUtils.bidValidityTypedData(userOpHash, validUntil, solverAccount, chainId),
 		)
 
-		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString
+		// SolverAccount expects abi.encodePacked(commitment, validUntil, solverSig, sessionSig).
+		// The 65-byte session signature is appended by whoever selects this solver.
+		const signature = concat([
+			order.id as HexString,
+			numberToHex(validUntil, { size: 6 }),
+			solverSignature as HexString,
+		]) as HexString
 
 		return { ...userOp, signature }
 	}

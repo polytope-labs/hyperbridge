@@ -4,6 +4,41 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — The bid expiry is a signed EIP-712 field, not a validation-time check
+
+Chosen: the solver signs `BidValidity(bytes32 userOpHash,uint48 validUntil)` and `SolverAccount` returns `validUntil`
+to the EntryPoint as a validity range. The account itself never judges whether the expiry is reasonable.
+
+It cannot. ERC-7562 forbids the `TIMESTAMP` opcode during validation, so the account has no way to compare `validUntil`
+against the current time — capping the tenor is necessarily the signer's job (`bidValiditySeconds` on the filler).
+The account's role is narrower but load-bearing: make the expiry unforgeable, and hand it to the one component that
+*is* allowed to enforce it.
+
+Alternatives rejected:
+
+- *Carry `validUntil` in an unsigned part of the operation.* Cheapest, and wrong: `userOpHash` does not cover
+  `op.signature`, so a replayer would just rewrite the expiry and revive a dead bid. Everything about this fix depends
+  on the expiry being inside the digest.
+- *`keccak256(userOpHash ‖ validUntil)` instead of EIP-712.* Fewer bytes and no domain separator. Rejected because it
+  hands the signer an opaque 32-byte digest. The existing `packedUserOpTypedData` exists specifically so signing
+  infrastructure can see what it is signing, and here that property is worth more than usual: a named `validUntil`
+  field is what lets an MPC/TEE policy engine refuse to sign a bid whose tenor is too long. Since the account cannot
+  check the tenor on-chain, the signer is the only place that check can live — so the payload has to be legible there.
+- *Re-hash the whole `PackedUserOperation` with `validUntil` appended.* Keeps full-operation visibility, but duplicates
+  the EntryPoint's own hashing inside `validateUserOp` — more gas in the validation phase and a second copy of a
+  consensus-critical encoding to keep in sync. Binding to `userOpHash` gets the same coverage transitively.
+- *An on-chain ceiling like `validUntil <= block.timestamp + 1 days`.* Would have made the contract a backstop against
+  a buggy SDK. Not expressible: same ERC-7562 restriction.
+
+The domain's `verifyingContract` is `address(this)` — under EIP-7702 the solver's own EOA — so a bid cannot be
+replayed against a different solver account. Rejecting `validUntil == 0` is part of the fix rather than a nicety:
+zero is how the old unbounded behaviour is spelled, so accepting it would leave the hole open.
+
+Rollout: `SolverAccount` is reached by EIP-7702 delegation, so a new deployment lives at a new address and solvers
+migrate by re-delegating. Old and new can coexist per solver, which is why the contract refuses the 162-byte format
+outright rather than accepting both — a compatibility window would keep the unexpiring path alive for exactly as long
+as it existed.
+
 ## 2026-08-25 — Intent quotes default to directional indexed rates without fallback
 
 Chosen: `quoteIntent` defaults to an `indexed_rates` strategy that selects the depth-weighted aggregate `LiquidityPool.buyRate` for base-to-quote orders and `sellRate` for quote-to-base orders. Source and destination chains resolve the configured token deployments; raw amounts are calculated from the indexer's 18-decimal whole-token pool rate and both tokens' configured decimals. A missing directional rate is an error.

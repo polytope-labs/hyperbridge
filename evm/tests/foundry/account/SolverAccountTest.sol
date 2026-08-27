@@ -25,6 +25,9 @@ contract SolverAccountTest is Test {
     SolverAccount public solverAccount;
     IntentGatewayV2 public intentGateway;
 
+    /// @dev 2030-01-01; far enough out that no test trips over it.
+    uint48 internal constant VALID_UNTIL = 1893456000;
+
     address public entryPoint = address(ERC4337Utils.ENTRYPOINT_V08); // ERC-4337 v0.8 EntryPoint
     address public solver;
     uint256 public solverPrivateKey;
@@ -117,7 +120,7 @@ contract SolverAccountTest is Test {
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
         // With EIP-7702 simulation, the signature should be valid
-        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(result, _expectedValid(VALID_UNTIL));
     }
 
     function test_ValidateUserOp_StandardECDSA_InvalidSigner_Fails() public {
@@ -192,7 +195,7 @@ contract SolverAccountTest is Test {
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
-        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(result, _expectedValid(VALID_UNTIL));
     }
 
     /// @dev The fillOrder selector on a target other than the IntentGateway is harmless.
@@ -211,7 +214,7 @@ contract SolverAccountTest is Test {
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
-        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(result, _expectedValid(VALID_UNTIL));
     }
 
     // ============================================
@@ -228,7 +231,7 @@ contract SolverAccountTest is Test {
         // by the nonce key.
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -250,7 +253,7 @@ contract SolverAccountTest is Test {
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
-        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(result, _expectedValid(VALID_UNTIL));
     }
 
     /// @dev fillOrder calldata is the normal payload for a selected bid — it must only
@@ -260,7 +263,7 @@ contract SolverAccountTest is Test {
 
         bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
         bytes memory solverSignature = _signUserOpHash(userOpHash);
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         Execution[] memory calls = new Execution[](1);
         calls[0] = Execution({
@@ -289,7 +292,7 @@ contract SolverAccountTest is Test {
         vm.prank(entryPoint);
         uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
 
-        assertEq(result, ERC4337Utils.SIG_VALIDATION_SUCCESS);
+        assertEq(result, _expectedValid(VALID_UNTIL));
     }
 
     function test_ValidateUserOp_IntentSelection_PlainUserOpHash_WrongNonceKey_Fails() public {
@@ -300,7 +303,7 @@ contract SolverAccountTest is Test {
         // Valid solver signature over the plain userOpHash...
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         // ...but the userOp's nonce key is not keccak256(commitment ‖ sessionKey):
         // the signed userOp is not bound to the order/session being selected, so
@@ -341,7 +344,7 @@ contract SolverAccountTest is Test {
         bytes memory solverSignature = _createSolverSignature(userOpHash, testCommitment, sessionKey);
 
         // Create combined signature: commitment + solverSignature + sessionSignature
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -371,8 +374,8 @@ contract SolverAccountTest is Test {
     function test_ValidateUserOp_IntentSelection_WrongSignatureLength_TooShort() public {
         bytes32 userOpHash = keccak256("test_userop");
 
-        // Create signature that's too short (less than 162 bytes)
-        bytes memory signature = new bytes(161);
+        // Create signature that's too short (less than 168 bytes)
+        bytes memory signature = new bytes(167);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -407,7 +410,7 @@ contract SolverAccountTest is Test {
         bytes memory solverSignature = _createSolverSignature(userOpHash, testCommitment, sessionKey);
 
         // Create combined signature
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, invalidSessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, invalidSessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -423,7 +426,9 @@ contract SolverAccountTest is Test {
 
         // Mock IntentGateway.select to fail (return empty or revert)
         SelectOptions memory expectedOptions = SelectOptions({
-            commitment: testCommitment, solver: address(solverAccount), signature: invalidSessionSignature
+            commitment: testCommitment,
+            solver: address(solverAccount),
+            signature: invalidSessionSignature
         });
         bytes memory selectCalldata = abi.encodeWithSelector(intentGateway.select.selector, expectedOptions);
 
@@ -447,7 +452,7 @@ contract SolverAccountTest is Test {
         bytes memory invalidSolverSignature = abi.encodePacked(r, s, v);
 
         // Create combined signature
-        bytes memory signature = abi.encodePacked(testCommitment, invalidSolverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, invalidSolverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -486,7 +491,7 @@ contract SolverAccountTest is Test {
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
         // But include WRONG commitment in the signature bytes
-        bytes memory signature = abi.encodePacked(wrongCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(wrongCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -522,7 +527,7 @@ contract SolverAccountTest is Test {
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
         // Create combined signature
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -559,7 +564,7 @@ contract SolverAccountTest is Test {
         // First operation with commitment1
         bytes memory sessionSignature1 = _createSessionKeySignature(commitment1, address(solverAccount));
         bytes memory solverSignature1 = _signUserOpHash(userOpHash1);
-        bytes memory signature1 = abi.encodePacked(commitment1, solverSignature1, sessionSignature1);
+        bytes memory signature1 = _bidSig(commitment1, VALID_UNTIL, solverSignature1, sessionSignature1);
 
         PackedUserOperation memory op1 = PackedUserOperation({
             sender: address(solverAccount),
@@ -585,7 +590,7 @@ contract SolverAccountTest is Test {
         // Second operation with commitment2
         bytes memory sessionSignature2 = _createSessionKeySignature(commitment2, address(solverAccount));
         bytes memory solverSignature2 = _signUserOpHash(userOpHash2);
-        bytes memory signature2 = abi.encodePacked(commitment2, solverSignature2, sessionSignature2);
+        bytes memory signature2 = _bidSig(commitment2, VALID_UNTIL, solverSignature2, sessionSignature2);
 
         PackedUserOperation memory op2 = PackedUserOperation({
             sender: address(solverAccount),
@@ -630,7 +635,7 @@ contract SolverAccountTest is Test {
         bytes memory solverSignature = _signUserOpHash(userOpHash);
 
         // Create combined signature
-        bytes memory signature = abi.encodePacked(testCommitment, solverSignature, sessionSignature);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature);
 
         PackedUserOperation memory op = PackedUserOperation({
             sender: address(solverAccount),
@@ -655,6 +660,118 @@ contract SolverAccountTest is Test {
 
         // Should fail because solver signature was for sessionKey but IntentGateway returned sessionKey2
         assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev A zero expiry is not "no opinion" — ERC4337Utils.parseValidationData expands
+    ///      0 to BLOCK_RANGE_MASK, i.e. valid forever. That is exactly the never-expiring
+    ///      bid this format exists to prevent, so it must be refused outright.
+    function test_ValidateUserOp_IntentSelection_ZeroValidUntil_Reverts() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signBidValidity(userOpHash, 0);
+        bytes memory signature = _bidSig(testCommitment, 0, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = _standardOp("", signature);
+        op.nonce = _bidNonce(testCommitment, sessionKey);
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev The whole point of putting validUntil inside the signed digest: op.signature is
+    ///      not covered by userOpHash, so anyone replaying a bid could otherwise rewrite the
+    ///      expiry in the blob and revive a dead bid. Signing for one expiry and presenting
+    ///      another must fail.
+    function test_ValidateUserOp_IntentSelection_TamperedValidUntil_Reverts() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        // Signed for VALID_UNTIL, presented with a far later expiry.
+        bytes memory solverSignature = _signBidValidity(userOpHash, VALID_UNTIL);
+        bytes memory signature = _bidSig(testCommitment, VALID_UNTIL + 86400, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = _standardOp("", signature);
+        op.nonce = _bidNonce(testCommitment, sessionKey);
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev The returned validation data must actually carry the expiry, otherwise the
+    ///      EntryPoint has nothing to enforce and the bid is executable forever.
+    function test_ValidateUserOp_IntentSelection_ReturnsExpiry() public {
+        bytes32 userOpHash = keccak256("test_userop");
+        uint48 expiry = uint48(block.timestamp + 300);
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signBidValidity(userOpHash, expiry);
+        bytes memory signature = _bidSig(testCommitment, expiry, solverSignature, sessionSignature);
+
+        PackedUserOperation memory op = _standardOp("", signature);
+        op.nonce = _bidNonce(testCommitment, sessionKey);
+
+        SelectOptions memory expectedOptions =
+            SelectOptions({commitment: testCommitment, solver: address(solverAccount), signature: sessionSignature});
+        vm.mockCall(
+            address(intentGateway),
+            abi.encodeWithSelector(intentGateway.select.selector, expectedOptions),
+            abi.encode(sessionKey)
+        );
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        (, uint48 validAfter, uint48 validUntil,) = ERC4337Utils.parseValidationData(result);
+        assertEq(validUntil, expiry);
+        assertEq(validAfter, 0);
+    }
+
+    /// @dev A signature longer than the fixed layout is refused rather than truncated.
+    function test_ValidateUserOp_IntentSelection_OverlongSignature_Reverts() public {
+        bytes32 userOpHash = keccak256("test_userop");
+
+        bytes memory sessionSignature = _createSessionKeySignature(testCommitment, address(solverAccount));
+        bytes memory solverSignature = _signUserOpHash(userOpHash);
+        bytes memory signature =
+            abi.encodePacked(_bidSig(testCommitment, VALID_UNTIL, solverSignature, sessionSignature), bytes1(0x00));
+
+        PackedUserOperation memory op = _standardOp("", signature);
+        op.nonce = _bidNonce(testCommitment, sessionKey);
+
+        vm.prank(entryPoint);
+        uint256 result = solverAccount.validateUserOp(op, userOpHash, 0);
+
+        assertEq(result, ERC4337Utils.SIG_VALIDATION_FAILED);
+    }
+
+    /// @dev Pinned against the same vector asserted in the SDK's
+    ///      packedUserOpTypedData.test.ts — guards TS/Solidity drift in the BidValidity
+    ///      digest. If these disagree, every bid the SDK signs is rejected on-chain.
+    function test_BidValidityDigest_MatchesSdkVector() public {
+        // The SDK vector fixes the account address and chain, so mirror them here.
+        vm.chainId(8453);
+        bytes32 userOpHash = 0x1122334455667788112233445566778811223344556677881122334455667788;
+
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("SolverAccount"),
+                keccak256("1"),
+                block.chainid,
+                address(0x5FbDB2315678afecb367f032d93F642f64180aa3)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(keccak256("BidValidity(bytes32 userOpHash,uint48 validUntil)"), userOpHash, uint48(1893456000))
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        assertEq(digest, 0x9e02de364fe8fc317a79ca6770e4fb15fe92546ade132c86ddef6315ff12c314);
     }
 
     /// @dev Pinned against the same vector asserted in the SDK's
@@ -741,11 +858,49 @@ contract SolverAccountTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    /// @notice Solver signature over the plain v0.8 userOpHash (the EIP-712 digest of
-    ///         the PackedUserOperation).
-    function _signUserOpHash(bytes32 userOpHash) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, userOpHash);
+    /// @notice The EIP-712 BidValidity digest the solver signs. Mirrors
+    ///         SolverAccount._bidValidityDigest; if the two ever disagree every bid is
+    ///         rejected on-chain, so this is deliberately spelled out rather than reused.
+    function _bidDigest(bytes32 userOpHash, uint48 validUntil) internal view returns (bytes32) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("SolverAccount"),
+                keccak256("1"),
+                block.chainid,
+                address(solverAccount)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(keccak256("BidValidity(bytes32 userOpHash,uint48 validUntil)"), userOpHash, validUntil)
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+    }
+
+    /// @notice Solver signature over the BidValidity digest, which binds the operation
+    ///         to the expiry the bid is good for.
+    function _signBidValidity(bytes32 userOpHash, uint48 validUntil) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, _bidDigest(userOpHash, validUntil));
         return abi.encodePacked(r, s, v);
+    }
+
+    /// @notice Solver signature over the BidValidity digest at the default expiry.
+    function _signUserOpHash(bytes32 userOpHash) internal view returns (bytes memory) {
+        return _signBidValidity(userOpHash, VALID_UNTIL);
+    }
+
+    /// @notice Packs the 168-byte selection signature the account expects.
+    function _bidSig(bytes32 commitment, uint48 validUntil, bytes memory solverSig, bytes memory sessionSig)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(commitment, bytes6(validUntil), solverSig, sessionSig);
+    }
+
+    /// @notice Validation data a well-formed bid must return: success, expiring at validUntil.
+    function _expectedValid(uint48 validUntil) internal pure returns (uint256) {
+        return ERC4337Utils.packValidationData(address(0), 0, validUntil);
     }
 
     /// @notice The 4337 nonce binding a bid to its order and session key:

@@ -2947,7 +2947,7 @@ dependencies = [
 
 [[package]]
 name = "beefy-verifier-primitives"
-version = "0.1.1"
+version = "2606.0.0"
 dependencies = [
  "derive_more 1.0.0",
  "parity-scale-codec",
@@ -10495,7 +10495,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "ismp"
-version = "2606.0.0"
+version = "2606.1.0"
 dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
@@ -10515,7 +10515,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-abi"
-version = "0.1.1"
+version = "2606.0.0"
 dependencies = [
  "alloy-contract",
  "alloy-network",

@@ -4,6 +4,37 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — Request pacing lives at the provider, keyed by endpoint
+
+Chosen: an `HttpProvider` subclass whose `send` waits on a shared `TokenBucket`, with one bucket per endpoint origin in a module-level map.
+
+Alternatives considered:
+
+- **Pacing inside `pollPhantomOrders`** — a sleep between blocks, or a queue around the scan. Rejected: the poll is not the only caller. Balance polling, the offchain fan-out in simplex's `handlePhantomOrders`, and the HTTP submission fallback all hit the same endpoint, and the limit counts them together. Pacing the loudest caller leaves the sum unpaced, and it is the sum the node sees.
+- **A bucket per `IntentsCoprocessor`.** Rejected: several fillers in one process each hold their own coprocessor, so N instances would each pace to the full budget and collectively exceed it by N. The limit is a property of the endpoint, so the bucket is too.
+- **`p-queue` with `intervalCap`,** which the package already depends on. Rejected: its interval is a fixed window that refills all at once, so a burst arriving just after a boundary is passed straight through, which is the exact shape being defended against. A token bucket refills continuously.
+- **Reacting to 429s only** (backoff, no pacing). Kept as well, but not instead: a 429 is already a request spent, and a limiter that is shedding load may be counting rejections too. Backoff recovers from a breach; the bucket is what stops causing them.
+
+Two consequences worth knowing. The bucket makes a large scan a *queue*, so anything sharing the endpoint waits behind it — which is why `maxBlocksPerPoll` dropped to 20 in the same change; at 500 a catch-up would have queued ~1000 requests, over two minutes of them, ahead of a bid submission that is worth nothing after five blocks. And the bucket is FIFO on purpose: without it, a caller arriving on an idle bucket takes the token a queued one was waiting for, and a steady arrival stream starves the queue.
+
+Why not simply raise the limit with the provider: the endpoint is derived from the websocket's, not configured (phantom orders live in that node's offchain storage), so operators do not necessarily control it. `HYPERBRIDGE_RPC_MAX_RPS` exists for those who do.
+
+## 2026-08-27 — The block scan names a runtime version, and drops it the moment it might be wrong
+
+Chosen: `getPhantomOrdersInBlock` takes an optional `knownVersion` for `api.at`; the poll establishes one per tick by reading `state_getRuntimeVersion` after the head read, and uses it only when it matches the previous reading.
+
+Why it matters: with nothing to go on, `api.at(hash)` resolves a registry through `_getBlockRegistryViaHash` — `chain_getHeader(hash)` plus `state_getRuntimeVersion(parentHash)` — on every block, because its cheap paths are a registry pinned to that exact hash (only ever the previous block's) or one matching a version the caller names. That is two of the four RPCs a block cost, and they are pure overhead for a scan walking consecutive blocks under one runtime.
+
+Alternatives considered:
+
+- **Pass `api.runtimeVersion` unconditionally.** Rejected: an HTTP `ApiPromise` has no `subscribeRuntimeVersion`, so that field is frozen at connect. After an upgrade it names a version whose registry is still in `#registries`, so `_getBlockRegistryViaVersion` matches it and decodes new blocks against old metadata — and the failure is silent. The events come back in a shape the scan does not recognise, the block reads as carrying no phantom orders, and the cursor advances past it. That is precisely the silent miss the block cursor exists to rule out.
+- **Read the version once and refresh on a slow timer** (every few minutes). Rejected for the same reason at a smaller scale: it buys a cheaper check by accepting a window in which orders are silently dropped. One read per tick costs ~0.07 req/s.
+- **Skip `api.at` entirely** — `rpc.state.getStorage.raw(eventsKey, hash)` decoded against `api.registry`. That is two RPCs per block with no per-tick read at all, but it decodes against the connect-time registry with no way to notice an upgrade, and it hand-rolls event decoding. Worse on the axis that matters to be cheaper on the one that does not.
+
+Why comparing two readings is sound: `specVersion` only increases, and the version is read *after* the head, so two equal readings mean no upgrade landed between them and therefore none in the range about to be scanned. A reading that differs means one did, and that tick falls back to per-block resolution, which is exact. The gap left is a backlog reaching back past an upgrade — recovering from an outage that long means those bid windows closed many upgrades ago.
+
+The per-tick read is skipped when there is nothing to scan, so a quiet tick still costs exactly one request.
+
 ## 2026-08-25 — Intent quotes default to directional indexed rates without fallback
 
 Chosen: `quoteIntent` defaults to an `indexed_rates` strategy that selects the depth-weighted aggregate `LiquidityPool.buyRate` for base-to-quote orders and `sellRate` for quote-to-base orders. Source and destination chains resolve the configured token deployments; raw amounts are calculated from the indexer's 18-decimal whole-token pool rate and both tokens' configured decimals. A missing directional rate is an error.

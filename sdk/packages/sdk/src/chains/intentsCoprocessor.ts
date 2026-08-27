@@ -1,6 +1,7 @@
 import { ApiPromise, HttpProvider, Keyring, WsProvider } from "@polkadot/api"
 import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
+import type { RuntimeVersion } from "@polkadot/types/interfaces"
 import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt, decodeAbiParameters, hexToBytes } from "viem"
@@ -9,6 +10,7 @@ import PQueue from "p-queue"
 import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, Order } from "@/types"
 import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
+import { TokenBucket } from "@/utils/rateLimiter"
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
@@ -43,6 +45,98 @@ const PHANTOM_POLL_INTERVAL_MS = 15_000
 
 /** Gargantua keeps the original one-block cadence. */
 const GARGANTUA_PHANTOM_POLL_INTERVAL_MS = 6_000
+
+/**
+ * Sustained request rate allowed against a Hyperbridge HTTP endpoint, in requests per second.
+ *
+ * Public endpoints police the instantaneous rate — the observed limit is 10/s — and every read here
+ * arrives in bursts: a poll tick fires its whole block range back-to-back, and a phantom order
+ * interval fans out one offchain read per configured chain at once. Sitting under the limit rather
+ * than at it leaves room for the traffic this process does not pace: the websocket, and any other
+ * instance sharing the address.
+ *
+ * `HYPERBRIDGE_RPC_MAX_RPS` overrides it for a private endpoint with a different budget.
+ */
+const DEFAULT_RPC_MAX_RPS = 8
+
+/**
+ * How far behind the head a single poll tick will catch up.
+ *
+ * A bid window is a handful of blocks, so blocks much further back than that carry orders that can
+ * no longer be bid on — scanning them faster than the chain produces them is all recovery needs to
+ * do, and this cap leaves 20 blocks per tick against 1-2 produced. The old 500 turned any outage
+ * into a two-thousand-request burst, which the rate limiter would now serialise ahead of every
+ * balance read and HTTP-fallback submission queued behind it.
+ */
+const DEFAULT_MAX_BLOCKS_PER_POLL = 20
+
+/** Ticks to sit out after a 429, doubling per consecutive rejection. */
+const MAX_RATE_LIMIT_BACKOFF_TICKS = 8
+
+/** Buckets are per endpoint, not per instance: the limit being respected is the server's, per address. */
+const rpcLimiters = new Map<string, TokenBucket>()
+
+/**
+ * The bucket pacing every request to `httpUrl`, shared by every coprocessor in this process that
+ * talks to it. Several fillers in one process would otherwise each pace to the full budget and
+ * collectively exceed it by their instance count.
+ */
+function limiterFor(httpUrl: string): TokenBucket {
+	const key = new URL(httpUrl).origin
+	let limiter = rpcLimiters.get(key)
+	if (!limiter) {
+		limiter = new TokenBucket(configuredRpcMaxRps())
+		rpcLimiters.set(key, limiter)
+	}
+	return limiter
+}
+
+function configuredRpcMaxRps(): number {
+	const raw = typeof process !== "undefined" ? process.env?.HYPERBRIDGE_RPC_MAX_RPS : undefined
+	const parsed = raw === undefined ? Number.NaN : Number(raw)
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_RPC_MAX_RPS
+}
+
+/**
+ * An `HttpProvider` that paces its sends through a token bucket.
+ *
+ * The pacing sits at the provider rather than at each call site because the budget is a property of
+ * the endpoint, not of any one caller. Block scanning, offchain order reads, balance polling and
+ * the HTTP submission fallback all converge here, and only here is their combined rate visible.
+ */
+class RateLimitedHttpProvider extends HttpProvider {
+	constructor(
+		private readonly endpointUrl: string,
+		private readonly endpointHeaders: Record<string, string>,
+		cacheCapacity: number,
+		private readonly limiter: TokenBucket,
+	) {
+		super(endpointUrl, endpointHeaders, cacheCapacity)
+	}
+
+	override async send<T>(method: string, params: unknown[], isCacheable?: boolean): Promise<T> {
+		await this.limiter.acquire()
+		return super.send<T>(method, params, isCacheable)
+	}
+
+	// The base clone returns a plain HttpProvider, which would be a second unpaced route to the same
+	// endpoint. Nothing here clones today; this is so nothing has to remember that it must not.
+	override clone(): RateLimitedHttpProvider {
+		return new RateLimitedHttpProvider(this.endpointUrl, this.endpointHeaders, 0, this.limiter)
+	}
+}
+
+/**
+ * Whether a failure is the endpoint refusing traffic for being too fast, as opposed to being down.
+ *
+ * polkadot-js surfaces the status in the message it throws (`[429]: Too Many Requests`), which is
+ * all there is to match on — the provider does not carry the response through. Matched bracketed
+ * rather than as a bare `429`, which appears in block numbers and hashes that other failures quote.
+ */
+function isRateLimited(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err)
+	return message.includes("[429]") || /too many requests/i.test(message)
+}
 
 /** Rejects after `ms`, without holding a node process open on its own. */
 function rejectAfter(ms: number, message: string): Promise<never> {
@@ -213,7 +307,8 @@ export interface PollPhantomOrdersOptions {
 	intervalMs?: number
 	/**
 	 * Most blocks scanned in a single poll, so a long outage catches up over several ticks instead of
-	 * one unbounded scan. Defaults to 500.
+	 * one burst. Defaults to 20 — several times the rate the chain produces blocks, so recovery is
+	 * still quick, but small enough that the requests it queues cannot crowd out a bid submission.
 	 */
 	maxBlocksPerPoll?: number
 	/**
@@ -238,6 +333,9 @@ export class IntentsCoprocessor {
 
 	/** The HTTP-backed api, connected on first use. Cleared after a failed attempt so it retries. */
 	private httpApi: Promise<ApiPromise> | null = null
+
+	/** Last runtime version read from the node, for {@link confirmedRuntimeVersion} to compare against. */
+	private lastRuntimeVersion: RuntimeVersion | undefined
 
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
 	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
@@ -351,7 +449,10 @@ export class IntentsCoprocessor {
 				// replayed from memory on every tick, faster than the TTL could lapse, and the node never
 				// saw a second request. The cache bought nothing here anyway: the poll reads each block
 				// once, and `api.at(hash)` reuses registries at the api layer regardless.
-				provider: new HttpProvider(httpUrl, {}, 0),
+				// Every request to this endpoint is paced by a bucket shared with any other
+				// coprocessor in this process pointed at the same host — the limit is the server's,
+				// and it counts requests per address rather than per connection.
+				provider: new RateLimitedHttpProvider(httpUrl, {}, 0, limiterFor(httpUrl)),
 				typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
 				// A second connection to the node the ws api already reported on; its init warnings
 				// would just be duplicates.
@@ -1059,11 +1160,24 @@ export class IntentsCoprocessor {
 
 	/**
 	 * Reads the PhantomOrderRegistered events emitted in a single block.
+	 *
+	 * Costs two RPCs per block when `knownVersion` is supplied and four without it, which is why the
+	 * poll goes to the trouble of establishing one. `api.at(hash)` has to work out which metadata to
+	 * decode the block against, and with nothing to go on it fetches the header and then the runtime
+	 * version at its parent — every block, forever. Its cheaper paths are a registry already pinned
+	 * to this exact hash (only ever the previous block's) or one matching a version the caller
+	 * names, so naming the version is the only way out. See `getBlockRegistry` in
+	 * `@polkadot/api/base/Init`; the `getUpgradeVersion` shortcut that would otherwise skip the
+	 * lookup only covers chains hardcoded in `@polkadot/types-known`, which Hyperbridge is not.
+	 *
+	 * @param knownVersion - the runtime version this block is known to run, if the caller has
+	 *   established one. Passing a version the block does not actually run decodes it against the
+	 *   wrong metadata, so this is for callers that have checked, not a place to pass a guess.
 	 */
-	async getPhantomOrdersInBlock(blockNumber: number): Promise<PhantomOrderEvent[]> {
+	async getPhantomOrdersInBlock(blockNumber: number, knownVersion?: RuntimeVersion): Promise<PhantomOrderEvent[]> {
 		const api = await this.http()
 		const blockHash = await api.rpc.chain.getBlockHash(blockNumber)
-		const apiAt = await api.at(blockHash)
+		const apiAt = await api.at(blockHash, knownVersion)
 		const records = await apiAt.query.system.events()
 
 		const orders: PhantomOrderEvent[] = []
@@ -1112,22 +1226,45 @@ export class IntentsCoprocessor {
 	 * socket that looks alive while delivering nothing. It also means a websocket outage does not
 	 * pause phantom bidding at all — the two transports fail independently.
 	 *
+	 * What the cadence does *not* describe is the request rate, which is what rate limiters police.
+	 * A tick costs one request for the head plus two per block in its range, all of them fired
+	 * back-to-back, so an interval well under any per-second limit still arrives as a burst over it.
+	 * Two things keep that in bounds: the endpoint's token bucket paces the requests themselves
+	 * (see `http`), and `maxBlocksPerPoll` bounds how many a single tick can queue. A 429 that gets
+	 * through anyway backs the poll off for a doubling number of ticks, so a limiter that is already
+	 * shedding load is not handed the next window's budget in rejections too.
+	 *
 	 * Returns a function that stops polling.
 	 */
 	pollPhantomOrders(
 		callback: (events: PhantomOrderEvent[]) => void,
 		options: PollPhantomOrdersOptions = {},
 	): () => void {
-		const { intervalMs, maxBlocksPerPoll = 500, lookbackBlocks = 0, onError } = options
+		const {
+			intervalMs,
+			maxBlocksPerPoll = DEFAULT_MAX_BLOCKS_PER_POLL,
+			lookbackBlocks = 0,
+			onError,
+		} = options
 
 		// Last block whose events have been delivered. Null until the first successful head read.
 		let cursor: number | null = null
 		let inFlight = false
 		let stopped = false
+		// Ticks still to sit out after a 429. Retrying an endpoint that is shedding load at the same
+		// cadence that provoked it just spends the next window's budget on rejections.
+		let backoffTicks = 0
+		// The magnitude the countdown was last set from, kept so consecutive rejections double
+		// rather than each starting over at one.
+		let backoffLength = 0
 
 		const tick = async (): Promise<void> => {
 			// A scan slower than the interval must not stack up behind itself.
 			if (inFlight || stopped) return
+			if (backoffTicks > 0) {
+				backoffTicks -= 1
+				return
+			}
 			inFlight = true
 			try {
 				const head = (await (await this.http()).rpc.chain.getHeader()).number.toNumber()
@@ -1138,16 +1275,25 @@ export class IntentsCoprocessor {
 				}
 				if (head <= cursor) return
 
+				// Established after the head read and only when there is something to scan, so a
+				// quiet tick still costs exactly one request.
+				const knownVersion = await this.confirmedRuntimeVersion()
+
 				const to = Math.min(head, cursor + maxBlocksPerPoll)
 				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) {
 					if (stopped) return
-					const orders = await this.getPhantomOrdersInBlock(blockNumber)
+					const orders = await this.getPhantomOrdersInBlock(blockNumber, knownVersion)
 					if (orders.length > 0) callback(orders)
 					// Advance per block, not per range: a failure partway through re-scans only the
 					// blocks that were never read, and never re-delivers ones that were.
 					cursor = blockNumber
 				}
+				backoffLength = 0
 			} catch (err) {
+				if (isRateLimited(err)) {
+					backoffLength = Math.min(backoffLength === 0 ? 1 : backoffLength * 2, MAX_RATE_LIMIT_BACKOFF_TICKS)
+					backoffTicks = backoffLength
+				}
 				onError?.(err)
 			} finally {
 				inFlight = false
@@ -1170,6 +1316,50 @@ export class IntentsCoprocessor {
 			stopped = true
 			if (timer) clearInterval(timer)
 		}
+	}
+
+	/**
+	 * The runtime version this tick's blocks may be decoded against, or `undefined` when that cannot
+	 * be established and each block must resolve its own.
+	 *
+	 * Naming a version to `api.at` is what removes two of the four RPCs a block scan costs, and it
+	 * is only sound while the version is actually the block's. Getting that wrong is not a loud
+	 * failure: events decoded against the wrong metadata come back as a shape the scan does not
+	 * recognise, so the block reads as carrying no phantom orders and the cursor advances past it —
+	 * exactly the silent miss the block cursor exists to rule out.
+	 *
+	 * So the version is read fresh each tick and only used when it matches the previous reading.
+	 * `specVersion` only ever increases, and this read happens *after* the head read, so two equal
+	 * readings mean no upgrade landed anywhere in between — and therefore none in the range about to
+	 * be scanned. A reading that differs means an upgrade landed inside the range: that tick falls
+	 * back to per-block resolution, which is exact, and the version is used from the next tick on
+	 * once it has been seen twice.
+	 *
+	 * The gap this leaves is a backlog reaching back past an upgrade, whose oldest blocks predate
+	 * even the previous reading. Recovering from an outage that long means those bid windows closed
+	 * many upgrades ago, so nothing is lost that was still winnable.
+	 *
+	 * A version that cannot be read at all yields `undefined` rather than an error: the scan is
+	 * about to make the same request against the same endpoint and is the better place to report it.
+	 */
+	private async confirmedRuntimeVersion(): Promise<RuntimeVersion | undefined> {
+		let api: ApiPromise
+		let current: RuntimeVersion
+		try {
+			api = await this.http()
+			current = await api.rpc.state.getRuntimeVersion()
+		} catch {
+			return undefined
+		}
+
+		// The api's own version was read at connect, which is a reading like any other — it lets the
+		// first tick pin without spending a tick establishing what is almost always unchanged.
+		const previous = this.lastRuntimeVersion ?? api.runtimeVersion
+		this.lastRuntimeVersion = current
+		if (!previous?.specVersion || !previous?.specName) return undefined
+		return current.specVersion.eq(previous.specVersion) && current.specName.eq(previous.specName)
+			? current
+			: undefined
 	}
 
 	/**

@@ -15,18 +15,29 @@ AI-maintained map of how code paths in `sdk/packages/sdk` actually execute, so t
 
 ## How the phantom order poll reads Hyperbridge
 
-`IntentsCoprocessor.pollPhantomOrders` (`src/chains/intentsCoprocessor.ts`) drives every read over the HTTP api from `http()`, never the websocket. `http()` derives the endpoint from the websocket provider's own endpoint (`deriveHttpUrl`) and builds an `ApiPromise` on an `HttpProvider` with its response cache disabled (capacity 0); the connect is `isReadyOrError` raced against `HTTP_CONNECT_TIMEOUT_MS`, and a failed connect is not cached.
+`IntentsCoprocessor.pollPhantomOrders` (`src/chains/intentsCoprocessor.ts`) drives every read over the HTTP api from `http()`, never the websocket. `http()` derives the endpoint from the websocket provider's own endpoint (`deriveHttpUrl`) and builds an `ApiPromise` on a `RateLimitedHttpProvider` — an `HttpProvider` with its response cache disabled (capacity 0) whose `send` first waits on the endpoint's `TokenBucket`. The connect is `isReadyOrError` raced against `HTTP_CONNECT_TIMEOUT_MS`, and a failed connect is not cached.
 
-Each tick, skipped if the previous one is still running:
+Each tick, skipped if the previous one is still running or if a 429 backoff is still counting down:
 
 1. `chain_getHeader()` for the head. No block hash, so polkadot-js never caches it — always a live request.
-2. On the first successful head read the cursor is set to `head - 1 - lookbackBlocks`; if `head <= cursor` the tick ends.
-3. For each block from `cursor + 1` to `min(head, cursor + maxBlocksPerPoll)`, `getPhantomOrdersInBlock` calls `chain_getBlockHash(n)`, then `api.at(hash)`, then `system.events` at that block. `api.at` resolves a registry through `getBlockRegistry`: reused by `lastBlockHash` or by runtime version where it can, otherwise `chain_getHeader(hash)` followed by `state_getRuntimeVersion(parentHash)` — which is why a failure there logs the parent's hash, not the scanned block's.
-4. The cursor advances per block, only once that block's events were read. A failure leaves it in place and fires `onError`; the next tick re-reads the same block with the same parameters.
+2. On the first successful head read the cursor is set to `head - 1 - lookbackBlocks`; if `head <= cursor` the tick ends — before step 3, so a quiet tick costs exactly one request.
+3. `confirmedRuntimeVersion()` reads `state_getRuntimeVersion()` and returns it only if it matches the previous tick's reading (or, on the first tick, `api.runtimeVersion` from connect). A mismatch means an upgrade landed inside this tick's range and yields `undefined`.
+4. For each block from `cursor + 1` to `min(head, cursor + maxBlocksPerPoll)` (default 20), `getPhantomOrdersInBlock` calls `chain_getBlockHash(n)`, then `api.at(hash, knownVersion)`, then `system.events` at that block. `api.at` resolves a registry through `getBlockRegistry`: reused by `lastBlockHash`, or by the version the caller named, or — with no version, which is what step 3 returning `undefined` produces — `chain_getHeader(hash)` followed by `state_getRuntimeVersion(parentHash)`, which is why a failure on that path logs the parent's hash, not the scanned block's.
+5. The cursor advances per block, only once that block's events were read. A failure leaves it in place and fires `onError`; the next tick re-reads the same block with the same parameters. A 429 additionally sets a backoff of 1, 2, 4… ticks (capped at 8), cleared by the next tick that completes.
 
-Step 4 is what made the provider cache dangerous: with caching on, re-reading a block whose `state_getRuntimeVersion` had rejected was answered by the cached rejection rather than a fresh request (fixed 2026-08-21). In `@hyperbridge/simplex` one `HyperbridgeScanner` owns this poll and fans `onError` out to every subscribing filler, so a single failed tick logs once from the scanner and once per filler.
+So a tick costs `1 + 1 + 2n` requests for n blocks, against `1 + 4n` before 2026-08-27. All of them go out back-to-back, which is why the bucket rather than the interval is what keeps the endpoint's per-second limit: at 15s and one block a tick, the average is 0.4 req/s and the instantaneous rate is ~33.
+
+Step 5 is what made the provider cache dangerous: with caching on, re-reading a block whose `state_getRuntimeVersion` had rejected was answered by the cached rejection rather than a fresh request (fixed 2026-08-21). In `@hyperbridge/simplex` one `HyperbridgeScanner` owns this poll and fans `onError` out to every subscribing filler, so a single failed tick logs once from the scanner and once per filler.
 
 The cadence is `intervalMs` when given, otherwise `phantomPollIntervalMs()`: 6s on Gargantua, 15s elsewhere, decided by the runtime's `specName` read over the same HTTP api, falling back to 15s if that read fails.
+
+## How requests to a Hyperbridge node are paced
+
+`http()` calls `limiterFor(httpUrl)`, which returns the `TokenBucket` (`src/utils/rateLimiter.ts`) for that URL's origin from a module-level map, creating it at `HYPERBRIDGE_RPC_MAX_RPS` or 8 req/s. Every coprocessor in the process pointed at the same node therefore shares one bucket, because the limit being respected counts requests per address, not per connection.
+
+`RateLimitedHttpProvider.send` awaits `bucket.acquire()` before delegating to `HttpProvider.send`. The bucket refills continuously and holds at most one second's worth, so a burst up to that size goes straight out and the rest are granted at the configured rate. Waiters are strictly FIFO: a caller arriving on an idle bucket queues behind anyone already waiting rather than taking their token.
+
+Everything reaching the node over HTTP passes through it — the poll's block scan, `fetchPhantomOrder` (fanned out one per configured chain by simplex's `handlePhantomOrders`), `queryApi()` consumers such as simplex's `BalanceProvider`, and `sendViaHttp` when the websocket is down at signing time. That is the point: the limit applies to their sum, and this is the only place their sum exists. It also means a long queue delays them all, which is why `maxBlocksPerPoll` is small.
 
 ## How a phantom order's bids become one price per leg
 

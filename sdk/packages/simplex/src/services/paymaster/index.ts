@@ -33,7 +33,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 		signer,
 		configService,
 		paymasterVerificationGasLimit,
-		forceApproveMode,
+		skipPermit,
 	} = options
 
 	const circleAddr = configService.getCirclePaymasterAddress(chain)
@@ -78,7 +78,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			simplexAddr,
 			chain,
 			configService,
-			forceApproveMode,
+			{ skipPermit },
 		)
 		if (pm) {
 			return {

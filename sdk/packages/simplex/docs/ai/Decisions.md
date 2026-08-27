@@ -40,6 +40,77 @@ Making it throw required auditing every caller, since `getTokenDecimals` had nev
   single order can be dropped, not at boot. Note this hazard pre-existed via
   `getFeeTokenWithDecimals`, which could already throw there.
 
+## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
+
+Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.
+
+Chosen: `resolvePendingPermit2Approval` batches only from a clean zero allowance. The batched delegation tx approves max in one shot and is sent with explicit gas (no simulation), so a stale non-zero allowance on a USDT-rule token made it a *deterministic* on-chain revert — knowable in advance from the allowance the resolver had already read. Alternative — teach the batched path a zero-first reset — rejected: a type-0x04 tx has one payload, so the reset would need a second tx anyway, which is exactly `sendFundedApprove`'s job. The retry after a failed batched tx now checks `isDelegated` first, because EIP-7702 keeps authorization tuples applied even when execution reverts — the delegation usually landed and only the approve died.
+
+## 2026-08-24 — Review fixes: robust bootstrap, chain-keyed probe, no dead config (#1147 review)
+
+Seun's high-effort review surfaced several correctness gaps, resolved here:
+
+- **Batched delegation fails open, not closed.** Folding `approve(Permit2, max)` into the native delegation coupled the delegation's success to the approve's. Now the batched tx is attempted, and on any revert the delegation retries as a plain self-call (approval defers to the first sponsored op). Otherwise a token that rejects the approve — USDT's non-zero→non-zero rule, a blacklist, insufficient batched gas — would have blocked delegation permanently, since the resolver recomputes the same approval each attempt.
+- **Zero-first approve.** `sendFundedApprove` now resets a stale non-zero allowance to zero before approving max, so Ethereum USDT (which rejects a non-zero→non-zero change) can be bootstrapped even when a leftover Permit2 allowance from another integration exists.
+- **PERMIT2() probe: narrowed catch + chain-keyed cache.** Only a genuine contract revert marks a deployment as lacking PERMIT2 mode; a transport error (429/timeout) now propagates rather than being cached as "unsupported" (which would have dropped a migrated solver back to a native-funded standing paymaster allowance). The support cache is keyed by `${chainId}:${address}` so a CREATE2 redeploy sharing an address across chains can't have the first-upgraded chain mark it supported everywhere.
+- **Dropped `permit2DeadlineSeconds`.** It was threaded through the builder but no production caller could set it, and the "overridable per call" doc claim had no runtime path. Removed the field; the fixed 1-hour deadline applies everywhere.
+- **`_prefund` uses `prefunder_`.** The mode-0x02 branch now reads the base's `prefunder_` parameter instead of re-reading `userOp.sender`, keeping it aligned with the mode-0/1 branch that forwards it to `super._prefund`.
+
+## 2026-08-20 — Permit2 signature stored as v, r, s; delegation-batched approve is native-fallback only (#1071)
+
+Chosen (review request): mode 0x02 stores the signature as explicit `v, r, s` fields, matching the EIP-2612 mode 0x00 layout, rather than a `bytes` blob. The `bytes` form could in principle carry a non-65-byte ERC-1271 signature, but the fixed 182-byte `PERMIT2_DATA_LENGTH` already ruled that out, and SolverAccount verifies via plain ECDSA recovery, so nothing is lost and the two modes now read consistently. The test helper keeps two distinct packers: the account signature stays canonical `r ‖ s ‖ v` (what `ECDSA.recover` expects), while the paymasterData blob is `v ‖ r ‖ s` — conflating them silently breaks account validation with AA23.
+
+Chosen (review request): the `approve(Permit2, max)` bootstrap is folded into the native EIP-7702 delegation **only on the native-fallback path**, not made the default bootstrap strategy. The sponsored delegation stays primary; when it is unavailable and Simplex sends a native set-code tx anyway, the approve rides along. Scoped this way (over "always bootstrap with one native delegate+approve tx") because the native fallback is already the rare path, the change stays additive and guarded — a resolver failure or a chain that does not need it falls back to the plain self-call delegation — and it avoids reworking the delegation strategy or the which-token-to-preapprove question at startup (the resolver only acts when the solver already holds a fee token).
+
+## 2026-08-19 — postOp gas: SDK sends 40,000, contract ceiling stays 100,000 (#1071)
+
+Chosen: the SDK sends `POST_OP_GAS_LIMIT_SIMPLEX = 40_000` (a per-paymaster constant), while the contract keeps `MAX_POST_OP_GAS_LIMIT = 100_000` and adds `MIN_POST_OP_GAS_LIMIT = 30_000`.
+
+**Why the contract ceiling stays 100k (review, F1):** the margin win comes entirely from the *client* sending 40k — the contract only needs to *accept* it. Lowering the contract ceiling to 40k would break backward compatibility: recovering the stake stuck on the live proxies needs an in-place `UpgradeContract`, and a 40k ceiling on an existing proxy would reject every client still sending the old 100k limit (`InvalidPostOpGasLimit` → AA33 → the filler silently drops to native gas). Keeping the ceiling at 100k makes in-place upgrades safe and still realises the full margin. The only thing given up is a marginal anti-grief tightening — a griefer inflating postOp to 100k forfeits ~8.85k gas of penalty out of the cushion the op already pays — which can be revisited once every integrator is on a 40k client. The `MIN_POST_OP_GAS_LIMIT = 30_000` floor (closing the refund-underflow window) is safe on an in-place upgrade because every existing client sends 100k ≥ 30k.
+
+40,000 is not a tuned figure. The EntryPoint waives its unused-gas penalty while `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD`, and that threshold is 40,000 — so any cap at or below 40,000 is penalty-free for *any* postOp cost, with no assumption about the token. A measured per-token value (postOp is ~8-12k for USDC and USDT) would be tighter but would silently start leaking margin the day a more expensive token is registered. The floor of 30,000 is the lowest value both tokens were observed to execute at, and it exists because `innerHandleOp` overhead outside every gas limit can otherwise push `actualGasCost` past the `maxCost` the prefund was sized against, underflowing the refund subtraction.
+
+The SDK constant was shared with the Circle paymaster. Lowering it in place would have applied a bound derived from *this* contract's postOp to a different contract whose postOp was never measured, so it split into `POST_OP_GAS_LIMIT_SIMPLEX` and `POST_OP_GAS_LIMIT_CIRCLE`.
+
+Lowering the on-chain cap (not just the client constant) is safe despite older solvers pinning 100k, because new proxy addresses ship in the same `chain.ts` release as the new SDK: an old solver keeps using the old deployment and never meets the new bound.
+
+## 2026-08-19 — Stake gets a governance recovery path, and `addStake` is treasury-only (#1071)
+
+Chosen: two new empty-payload request kinds (`UnlockStake` = 5, `WithdrawStake` = 6, always paying out to the treasury) and an `addStake` override gated to the treasury.
+
+The alternative — leave stake unrecoverable and simply never stake — is not available: bundlers require a staked paymaster for the storage access this contract performs, so staking is effectively mandatory and was already done on three chains. Two kinds rather than one because the EntryPoint requires `unlockStake()` and then a wait of `unstakeDelaySec` before `withdrawStake()` will succeed; a single request could not span that delay.
+
+Gating `addStake` is the half that cannot be deferred. The EntryPoint only ever lets `unstakeDelaySec` grow and resets any pending unlock on every `addStake`, so while the function is open an unprivileged caller can push the delay to 136 years and cancel unlocks indefinitely — which would defeat the recovery path being added here.
+
+## 2026-08-19 — Not adopted: soft-failing the prefund, and oracle-derived validity bounds (#1071)
+
+Rejected: returning `prefunded = false` instead of reverting in the mode-2 `_prefund`. Upstream advises it to protect bundler reputation, but reading EntryPoint v0.8 shows both outcomes are `revert FailedOp` — AA33 for a paymaster revert, AA34 for a sig-failure — so both revert `handleOps` identically. The change would trade the `Permit2Failed(token, reason)` diagnostic, which carries Permit2's own revert data, for no bundle-level benefit.
+
+Also deferred at the maintainer's direction: bounding `validationData`'s `validUntil` by oracle freshness so bundlers drop soon-to-be-stale ops instead of building bundles that revert. Sound in principle and would have made stale-oracle failures expire cleanly, but it touches every pricing path and was out of scope for this pass.
+
+## 2026-08-18 — Permit2 before a legacy paymaster allowance, bootstrap approves Permit2 (#1071)
+
+Chosen: once a token is approved to Permit2, PERMIT2 mode wins over an existing allowance to the paymaster, and a solver with neither bootstraps by approving Permit2 (`maxUint256`), never the paymaster. APPROVE mode is only used while a legacy paymaster allowance is still at or above the $2 threshold, so existing BSC solvers migrate on their own: they keep APPROVE until it drains, pay the one funded approve they would have paid anyway, and never need native again. Alternative: keep approving the paymaster and only add PERMIT2 as an opt-in — rejected because it keeps native gas a recurring dependency on the one chain the paymaster was meant to free. The `max` approval goes to Permit2 itself (immutable, canonical, already used by the swap path) and is only exercisable with a solver signature; nothing is exposed to the paymaster at rest and no residual allowance is left after an op, unlike PERMIT mode.
+
+## 2026-08-18 — Random Permit2 nonces, bounded deadline (#1071)
+
+Chosen: a random 256-bit nonce per op (`crypto.getRandomValues`) and `deadline = now + PERMIT2_DEADLINE_SECONDS` (a fixed 1 hour). Alternatives: lowest unused bit read from `nonceBitmap` — mimics EIP-2612's self-invalidation but makes concurrent bids on one chain collide (bids use distinct account nonce keys precisely to run concurrently); `maxUint256` deadline as PERMIT mode uses — wrong here because unordered Permit2 nonces never self-invalidate, so every losing bid would leave a live $5 permit forever. One hour comfortably exceeds bid-to-execution latency (order deadlines are ~10 to 40 minutes of blocks) and clock skew; a random nonce usually touches a fresh bitmap word (about 17k extra gas), negligible in stablecoin terms. The EIP-2612 path's `maxUint256` deadline is correct for USDC, whose v2.2 permit short-circuits `deadline == max` before reading the timestamp.
+
+## 2026-08-18 — Mode 2 gated on a `PERMIT2()` probe of the paymaster (#1071)
+
+Chosen: `paymasterSupportsPermit2` reads the `PERMIT2()` constant that only the Permit2-capable implementation exposes; positive results are cached for the process lifetime, negative ones for five minutes. Alternative: rely on release ordering (client after all five redeploys) — fragile, since redeploys land chain by chain and a governance upgrade keeps the address, and a mode-2 op against an old deployment fails validation with `InvalidMode`, which for a bid means a lost fill.
+
+## 2026-08-18 — `forceApproveMode` renamed to `skipPermit` (#1071)
+
+Chosen: the delegation flow's flag now only skips EIP-2612 permit detection; PERMIT2 and APPROVE stay available. The flag exists because delegation ops pass fixed, measured account-side gas limits; the Simplex builder sets its own paymaster verification limit per mode (`VERIFICATION_GAS_LIMIT_PERMIT2` = 200k, measured at ~135k on Ethereum and BSC forks), so PERMIT2 does not disturb them. Keeping the old name would have forced BSC delegations to keep a paymaster allowance, i.e. two funded approvals per token instead of one.
+
+## 2026-08-18 — Known: PERMIT2 mode is not ERC-7562-clean (#1071)
+
+Permit2's `nonceBitmap[owner][word]` and the token's `allowance[owner][Permit2]` are not sender-associated storage under ERC-7562, so a spec-enforcing bundler could reject mode 2 during validation. Accepted because the paymaster already reads `block.timestamp` (also banned) in every mode and is live through the bundlers in use, and because PERMIT/APPROVE remain as fallbacks. Verified empirically on Base Sepolia: Alchemy's bundler accepts mode 2 for both a fresh EOA (Permit2 ecrecover path) and a delegated account (ERC-1271 path). Pimlico was not probed (no key). If a bundler rejects mode 2, the fallback design is to keep APPROVE and refill the allowance inside sponsored ops (ERC-7821 batch) rather than with native txs.
+
+## 2026-08-18 — Bootstrap approve waits for two confirmations (#1071)
+
+Chosen: `sendFundedApprove` waits for `confirmations: 2`. On Base Sepolia the first sponsored op right after a one-confirmation approve was rejected `AA33` (Permit2 `TRANSFER_FROM_FAILED`: the bundler's simulation node had not seen the approve yet) twice in a row, and the identical op seconds later was accepted; with two confirmations a fresh EOA went through first try. Alternative: retry the op on `AA33` — more code for a once-per-token-lifetime event that costs one extra block.
 ## 2026-08-20 — Multi-leg orders are rejected at the monitor, not deeper in the fill path
 
 Chosen: `EventMonitor` filters on leg count, so an order with more than one input or output asset

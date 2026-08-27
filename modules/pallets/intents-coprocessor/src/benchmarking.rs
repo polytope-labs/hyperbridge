@@ -271,6 +271,26 @@ mod benchmarks {
 	}
 
 	#[benchmark]
+	fn unlock_paymaster_stake() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine);
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn withdraw_paymaster_stake() -> Result<(), BenchmarkError> {
+		let (origin, state_machine) = registered_paymaster::<T>()?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, state_machine);
+
+		Ok(())
+	}
+
+	#[benchmark]
 	fn update_token_decimals() -> Result<(), BenchmarkError> {
 		let origin =
 			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;

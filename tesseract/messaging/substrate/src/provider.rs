@@ -1064,9 +1064,8 @@ mod tests {
 	use crate::{system_events_key, SubstrateClient, SubstrateConfig};
 
 	const GARGANTUA_WS: &str = "wss://gargantua.rpc.polytope.technology";
-	const GARGANTUA_HTTP: &str = "https://gargantua.rpc.polytope.technology";
 
-	fn gargantua_config(rpc_ws: &str, rpc_http: Option<&str>) -> SubstrateConfig {
+	fn gargantua_config(rpc_ws: &str) -> SubstrateConfig {
 		SubstrateConfig {
 			state_machine: Some(StateMachine::Kusama(4009)),
 			hashing: None,
@@ -1074,7 +1073,6 @@ mod tests {
 			// what `SubstrateConfig::resolve` would have derived for a Kusama parachain.
 			consensus_state_id: Some("PAS0".to_string()),
 			rpc_ws: rpc_ws.to_string(),
-			rpc_http: rpc_http.map(ToString::to_string),
 			max_rpc_payload_size: None,
 			// Dummy seed — the test never signs or submits anything.
 			signer: Some(
@@ -1102,7 +1100,7 @@ mod tests {
 		const EXPECTED_HEIGHT: u64 = 8753260;
 		const EXPECTED_SET_ID: u64 = 19044;
 
-		let config = gargantua_config("ws://localhost:9944", None);
+		let config = gargantua_config("ws://localhost:9944");
 
 		let client =
 			SubstrateClient::<Hyperbridge>::new(config).await.expect("connect to gargantua");
@@ -1145,22 +1143,19 @@ mod tests {
 		(p.height, p.new_set_id)
 	}
 
-	/// Drives a client configured with both urls against live Gargantua and touches every
-	/// shape of traffic the relayer relies on: the metadata download and header read that
-	/// `SubstrateClient::new` performs, a raw custom rpc, a storage read through the online
-	/// client, and a finalized head subscription.
+	/// Drives a client against live Gargantua and touches every shape of traffic the relayer
+	/// relies on: the metadata download and header read that `SubstrateClient::new` performs,
+	/// a raw custom rpc, a storage read through the online client, all of which travel over
+	/// the derived http endpoint, and a finalized head subscription over the websocket.
 	///
 	/// Hits a remote RPC — gated with `#[ignore]` so CI skips it. Run with
 	/// `cargo test -p tesseract-substrate -- --ignored http_transport`.
 	#[tokio::test]
 	#[ignore]
 	async fn http_transport_serves_queries_and_subscriptions() {
-		let client = SubstrateClient::<Hyperbridge>::new(gargantua_config(
-			GARGANTUA_WS,
-			Some(GARGANTUA_HTTP),
-		))
-		.await
-		.expect("connect to gargantua");
+		let client = SubstrateClient::<Hyperbridge>::new(gargantua_config(GARGANTUA_WS))
+			.await
+			.expect("connect to gargantua");
 
 		let header = client
 			.rpc
@@ -1201,27 +1196,5 @@ mod tests {
 			.await
 			.expect("a finalized head within the block time")
 			.expect("a well formed header");
-	}
-
-	/// Proves the routing is real rather than incidental. The websocket url is a healthy
-	/// node, so the only way `SubstrateClient::new` can fail here is if its metadata request
-	/// was genuinely sent to the dead http url instead.
-	///
-	/// Hits a remote RPC — gated with `#[ignore]` so CI skips it. Run with
-	/// `cargo test -p tesseract-substrate -- --ignored requests_are_routed`.
-	#[tokio::test]
-	#[ignore]
-	async fn requests_are_routed_to_the_http_url() {
-		SubstrateClient::<Hyperbridge>::new(gargantua_config(
-			GARGANTUA_WS,
-			Some("http://127.0.0.1:1"),
-		))
-		.await
-		.err()
-		.expect("requests should have gone to the dead http url");
-
-		SubstrateClient::<Hyperbridge>::new(gargantua_config(GARGANTUA_WS, None))
-			.await
-			.expect("the same websocket alone is healthy");
 	}
 }

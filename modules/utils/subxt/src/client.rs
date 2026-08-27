@@ -10,25 +10,16 @@ use subxt::{
 	OnlineClient,
 };
 
-/// Builds a subxt client that runs both requests and subscriptions over `rpc_ws`.
+/// Builds a subxt client for a substrate chain. Plain rpc requests go to the http endpoint that
+/// `rpc_ws` implies, leaving the websocket carrying subscriptions alone, which is all that
+/// extrinsic submission and the block streams actually need. A dropped socket then costs us
+/// pending subscriptions instead of every query in flight.
 pub async fn ws_client<T: subxt::Config>(
 	rpc_ws: &str,
 	max_rpc_payload_size: u32,
 ) -> Result<(OnlineClient<T>, RpcClient), anyhow::Error> {
-	connect(rpc_ws, None, max_rpc_payload_size).await
-}
-
-/// Builds a subxt client for a substrate chain. Given an `rpc_http` url, plain rpc requests are
-/// sent over http and the websocket is left carrying subscriptions alone, which is all that
-/// extrinsic submission and the block streams actually need. A dropped socket then costs us
-/// pending subscriptions instead of every query in flight.
-pub async fn connect<T: subxt::Config>(
-	rpc_ws: &str,
-	rpc_http: Option<&str>,
-	max_rpc_payload_size: u32,
-) -> Result<(OnlineClient<T>, RpcClient), anyhow::Error> {
 	let ws = ws_rpc_client(rpc_ws, max_rpc_payload_size).await?;
-	let rpc_client = route_requests_over_http(ws, rpc_http, max_rpc_payload_size)?;
+	let rpc_client = route_requests_over_http(ws, rpc_ws, max_rpc_payload_size)?;
 	let client = OnlineClient::<T>::from_rpc_client(rpc_client.clone())
 		.await
 		.context(format!("Failed to query from substrate rpc: {rpc_ws}"))?;
@@ -59,18 +50,29 @@ async fn ws_rpc_client(
 		.context(format!("Failed to connect to substrate rpc {rpc_ws}"))
 }
 
+/// The http endpoint a websocket url implies. Substrate nodes serve both schemes on the same host
+/// and port, which is the assumption the sdk already makes in `replaceWebsocketWithHttp`. An
+/// unrecognised scheme keeps everything on the websocket.
+#[cfg(feature = "std")]
+fn http_url(rpc_ws: &str) -> Option<String> {
+	rpc_ws
+		.strip_prefix("ws://")
+		.map(|rest| format!("http://{rest}"))
+		.or_else(|| rpc_ws.strip_prefix("wss://").map(|rest| format!("https://{rest}")))
+}
+
 #[cfg(feature = "std")]
 fn route_requests_over_http(
 	ws: ReconnectingRpcClient,
-	rpc_http: Option<&str>,
+	rpc_ws: &str,
 	max_rpc_payload_size: u32,
 ) -> Result<RpcClient, anyhow::Error> {
-	let Some(url) = rpc_http else { return Ok(RpcClient::new(ws)) };
+	let Some(url) = http_url(rpc_ws) else { return Ok(RpcClient::new(ws)) };
 
 	let http = jsonrpsee::http_client::HttpClientBuilder::default()
 		.max_request_size(max_rpc_payload_size)
 		.max_response_size(max_rpc_payload_size)
-		.build(url)
+		.build(&url)
 		.context(format!("Failed to connect to substrate rpc {url}"))?;
 
 	Ok(RpcClient::new(split::Transport { http, ws }))
@@ -80,7 +82,7 @@ fn route_requests_over_http(
 #[cfg(feature = "wasm")]
 fn route_requests_over_http(
 	ws: ReconnectingRpcClient,
-	_rpc_http: Option<&str>,
+	_rpc_ws: &str,
 	_max_rpc_payload_size: u32,
 ) -> Result<RpcClient, anyhow::Error> {
 	Ok(RpcClient::new(ws))
@@ -130,5 +132,29 @@ mod split {
 		fn to_rpc_params(self) -> Result<Option<Box<RawValue>>, json::Error> {
 			Ok(self.0)
 		}
+	}
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+	use super::http_url;
+
+	#[test]
+	fn derives_the_http_endpoint_from_the_websocket_url() {
+		assert_eq!(http_url("ws://127.0.0.1:9944").as_deref(), Some("http://127.0.0.1:9944"));
+		assert_eq!(
+			http_url("wss://gargantua.rpc.polytope.technology").as_deref(),
+			Some("https://gargantua.rpc.polytope.technology"),
+		);
+		assert_eq!(
+			http_url("wss://hyperbridge.example.com:443/rpc").as_deref(),
+			Some("https://hyperbridge.example.com:443/rpc"),
+		);
+	}
+
+	#[test]
+	fn leaves_an_unrecognised_scheme_on_the_websocket() {
+		assert_eq!(http_url("http://127.0.0.1:9944"), None);
+		assert_eq!(http_url("127.0.0.1:9944"), None);
 	}
 }

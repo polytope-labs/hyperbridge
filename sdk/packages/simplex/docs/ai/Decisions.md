@@ -30,6 +30,12 @@ is a pricing decision rather than a correctness one.
 It is deliberately not tied to `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
 short an option, and the two should not be assumed to move together.
 
+The computed height carries a flat 5-block pad on top of the rounding-up. The head is read before the bid is built,
+signed, submitted to Hyperbridge and finally selected, so it is already behind by the time a fill lands, and
+`Chain.blockTime` is a nominal figure rather than a guarantee — Base does not produce a block every 2000ms exactly.
+The asymmetry decides the direction: overshooting costs a marginally staler quote, undershooting silently throws
+away bids that were about to be won.
+
 Alternatives rejected:
 
 - *Derive it from the order's own deadline.* Placer-controlled with no ceiling — the input being defended against.

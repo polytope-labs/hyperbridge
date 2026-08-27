@@ -37,6 +37,16 @@ Decimal.config({ precision: 28, rounding: 4 })
 /**
  * Handles contract interactions for tokens and other contracts
  */
+/**
+ * Slack added to every bid's `validUntil`, in blocks.
+ *
+ * The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+ * selected, so it is already behind by the time the fill lands — and `Chain.blockTime` is a
+ * nominal figure, not a guarantee. The asymmetry decides the direction: overshooting costs a
+ * marginally staler quote, undershooting silently throws away bids that were about to be won.
+ */
+const BID_VALIDITY_PAD_BLOCKS = 5n
+
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
@@ -764,10 +774,12 @@ export class ContractInteractionService {
 	private async bidValidUntilBlock(chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
 		const currentBlock = await client.getBlockNumber()
+		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000,
+		// Arbitrum 250), hence the conversion; the fallback is already in seconds.
 		const blockTimeMs = client.chain?.blockTime
 		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
 		const blocks = BigInt(Math.ceil(this.configService.getBidValiditySeconds() / blockTimeSec))
-		return currentBlock + blocks
+		return currentBlock + blocks + BID_VALIDITY_PAD_BLOCKS
 	}
 
 	/**

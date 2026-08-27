@@ -61,7 +61,12 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: stable
+                  # Pinned rather than "stable". v1.8.0 (2026-08-27) probes fork endpoints with
+                  # anvil_nodeInfo to detect the network family; Alchemy answers HTTP 400
+                  # "Unsupported method" and the toolchain treats that as fatal, so every
+                  # vm.createFork against MAINNET_FORK_URL fails at setUp. v1.7.1 is the release
+                  # "stable" resolved to before that. Revisit once the probe tolerates a 400.
+                  version: v1.7.1
 
             - name: Run Forge build
               run: |
@@ -103,7 +108,12 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: stable
+                  # Pinned rather than "stable". v1.8.0 (2026-08-27) probes fork endpoints with
+                  # anvil_nodeInfo to detect the network family; Alchemy answers HTTP 400
+                  # "Unsupported method" and the toolchain treats that as fatal, so every
+                  # vm.createFork against MAINNET_FORK_URL fails at setUp. v1.7.1 is the release
+                  # "stable" resolved to before that. Revisit once the probe tolerates a 400.
+                  version: v1.7.1
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable

@@ -39,7 +39,10 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  # Pinned for the same reason as evm.yml: this job runs `forge test` against
+                  # MAINNET_FORK_URL, and Foundry from v1.8.0 onwards fails vm.createFork when
+                  # the provider rejects its anvil_nodeInfo probe (Alchemy returns HTTP 400).
+                  version: v1.7.1
 
             - name: Setup Node.js
               uses: actions/setup-node@v3

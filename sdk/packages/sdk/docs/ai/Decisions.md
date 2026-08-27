@@ -49,10 +49,17 @@ The list is of **legacy** implementations, not current ones, so the default is v
 is the whole point: a newly shipped implementation needs no edit here, and once every deployment
 is upgraded the set is vestigial and still correct.
 
-A single entry covers every chain. The protocol contracts are CREATE2-deployed, so
-`0x976B268b06f545c4A2BF44866Aa2465bd8B3C67d` is the pre-`validUntil` implementation everywhere —
-confirmed with the maintainers rather than inferred, since the CREATE2 claim in the tree is about
-the proxies and does not by itself say anything about implementations. Listing known-good implementations instead
+A single entry covers every chain that runs it. The protocol contracts are CREATE2-deployed, so
+`0x976B268b06f545c4A2BF44866Aa2465bd8B3C67d` is the pre-`validUntil` implementation on those
+chains — confirmed with the maintainers rather than inferred, since the CREATE2 claim in the tree
+is about the proxies and does not by itself say anything about implementations.
+
+`CHAINS_WITHOUT_VALID_UNTIL` covers the rest. The testnets have not been redeployed and their
+implementation addresses are not tracked here, so the address check alone would read them as
+current and every fill would revert on a selector that does not exist. It is checked before the
+slot read, both because the address is uninformative there and because it saves a round trip.
+Delete a chain from that set as its gateway is redeployed; once it is empty the address check
+covers everything on its own. Listing known-good implementations instead
 would be the version constant this replaced wearing a different hat — a value someone must
 remember to update on every upgrade, where forgetting breaks every fill on that chain.
 

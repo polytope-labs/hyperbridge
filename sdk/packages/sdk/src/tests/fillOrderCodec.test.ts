@@ -99,6 +99,16 @@ describe("getFillOptionsVersion", () => {
 		} as any
 	}
 
+	it("reports v1 on a chain that has not been redeployed, without reading the slot", async () => {
+		// Base Sepolia runs a pre-validUntil gateway whose implementation address is not
+		// tracked, so the address check would wrongly read it as current.
+		const c = client(NEW_IMPL)
+		c.chain = { id: 84532 }
+
+		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(1)
+		expect(c.getStorageAt).not.toHaveBeenCalled()
+	})
+
 	it("reports v1 for the known pre-validUntil implementation", async () => {
 		await expect(getFillOptionsVersion(client(LEGACY_IMPL), GATEWAY)).resolves.toBe(1)
 	})

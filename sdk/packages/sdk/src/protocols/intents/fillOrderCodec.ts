@@ -72,6 +72,29 @@ export const LEGACY_FILL_OPTIONS_IMPLEMENTATIONS = new Set<string>([
 ])
 
 /**
+ * Chains whose IntentGateway has not been redeployed with `FillOptions.validUntil` yet.
+ *
+ * A blunter instrument than {@link LEGACY_FILL_OPTIONS_IMPLEMENTATIONS} and used for the same
+ * reason: those chains run a pre-`validUntil` implementation whose address is not tracked here,
+ * so the address check would wrongly read them as current and every fill would revert on a
+ * selector that does not exist.
+ *
+ * Delete a chain from this set when its gateway is redeployed. Once the set is empty the
+ * implementation-address check covers everything on its own.
+ */
+export const CHAINS_WITHOUT_VALID_UNTIL = new Set<number>([
+	97, // BNB testnet
+	10200, // Gnosis Chiado
+	80002, // Polygon Amoy
+	84532, // Base Sepolia
+	421614, // Arbitrum Sepolia
+	688689, // Pharos testnet
+	11155111, // Sepolia
+	11155420, // Optimism Sepolia
+	420420417, // Polkadot Hub Paseo
+])
+
+/**
  * Gateways already resolved to v2, keyed by proxy address.
  *
  * Only v2 answers are cached, and that asymmetry is deliberate. A deployment can move from
@@ -104,6 +127,11 @@ async function resolveImplementation(client: PublicClient, gateway: HexString): 
  * is the value the proxy already updates, so it is what identifies the deployed code.
  */
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
+	// Checked before the slot read: on a chain that has not been redeployed the implementation
+	// address tells us nothing useful, and skipping the read saves a round trip.
+	const chainId = client.chain?.id
+	if (chainId !== undefined && CHAINS_WITHOUT_VALID_UNTIL.has(chainId)) return 1
+
 	const key = gateway.toLowerCase()
 	if (knownV2Gateways.has(key)) return 2
 

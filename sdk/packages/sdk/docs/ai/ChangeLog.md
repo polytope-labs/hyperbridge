@@ -12,6 +12,16 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — Fix: the ranged block scan asked for a bare storage key and got raw bytes back
+
+The `state_queryStorage` change in the entry below broke the phantom-filler E2E: zero bids on every chain, because the poll delivered no orders at all. It asked for `api.query.system.events.key()` — a hex string. polkadot-js takes a `StorageKey`'s `meta` from a *function* input and has none for a string (`getMeta`/`getType` in `primitive/StorageKey.js`), so the value's type fell back to `Raw` and every block's events came back as undecoded bytes. Iterating those yields numbers, `phantomOrdersFrom` destructured `event` off one, and the tick threw — every tick, forever. Nothing failed at the RPC layer, so it read as a poll that simply never found an order. Fixed by passing the storage entry itself, which is what carries the metadata.
+
+Two changes so this class of fault cannot be silent or fatal again. `phantomOrdersFrom` now rejects anything that is not a vector of event records instead of quietly finding nothing in it — a block reading as empty is the silent miss the block cursor exists to rule out. And `scanRangeAtOnce` treats that rejection like a refused method: the ranged path is abandoned for the life of the process, the error is reported once through `onError` so the degradation is visible, and the per-block path — which decodes through `api.at` rather than from a passed key — carries the poll from there. Losing the fast path costs requests; losing every bid is what it cost before.
+
+The unit tests missed it because the harness handed back pre-decoded records whatever it was asked for. It now decodes only when the key it received carries `meta`, and returns bytes otherwise, which reproduces the original failure — six tests fail on the old call, including the "no orders delivered" symptom CI saw.
+
+Files: `src/chains/intentsCoprocessor.ts`, `src/tests/pollPhantomOrders.test.ts`, `docs/ai/ChangeLog.md`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
 ## 2026-08-27 — A block scan is one `state_queryStorage` call, and the poll caps at 10 blocks
 
 The previous entry left the scan at one request per block for events. `state_queryStorage(keys, from, to)` reads a key across a whole block range in one call, so the scan's request cost no longer depends on how many blocks it covers: a tick is now four requests flat — head, runtime version, the range's two bounding block hashes as one batched request, and the ranged read. `maxBlocksPerPoll` drops from 20 to 10 at the same time, because the cost moved rather than vanished (`sc-rpc` warns the method is `O(|keys| * dist(from, to))` in time and memory) and because it still bounds the per-block fallback.

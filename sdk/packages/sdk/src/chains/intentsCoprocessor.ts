@@ -124,12 +124,37 @@ function isMethodUnavailable(err: unknown): boolean {
 	return code === -32601 || /method not found|unsafe to be called externally/i.test(message)
 }
 
-/** Pulls the phantom order registrations out of one block's decoded `system.events`. */
+/**
+ * Thrown when a value read as `system.events` is not a decoded event vector — which in practice
+ * means polkadot-js could not resolve the storage entry's type and handed back raw bytes.
+ */
+class EventDecodeError extends Error {}
+
+/**
+ * Pulls the phantom order registrations out of one block's decoded `system.events`.
+ *
+ * Throws rather than returning nothing when handed something that is not a decoded event vector.
+ * Every value here arrives through polkadot-js's storage decoding, which falls back to raw bytes
+ * when it cannot resolve the entry's type instead of failing — iterating that yields numbers, and
+ * the loop below would quietly find no phantom orders in a block that had them. A block reading as
+ * empty is exactly the silent miss the block cursor exists to rule out, so a shape this does not
+ * recognise has to be loud.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function phantomOrdersFrom(records: any): PhantomOrderEvent[] {
+	if (records == null || typeof records[Symbol.iterator] !== "function") {
+		throw new EventDecodeError(`Expected a decoded event vector, got ${typeof records}`)
+	}
 	const orders: PhantomOrderEvent[] = []
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	for (const { event } of records as unknown as Array<{ event: any }>) {
+	for (const record of records as unknown as Array<{ event: any }>) {
+		if (typeof record !== "object" || record === null || !("event" in record)) {
+			throw new EventDecodeError(
+				"system.events did not decode to event records — the storage entry's metadata was " +
+					"probably not carried through, leaving the value as raw bytes",
+			)
+		}
+		const { event } = record
 		if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
 		const [commitment, chain, createdAt, legs] = event.data
 		orders.push({
@@ -1237,8 +1262,11 @@ export class IntentsCoprocessor {
 	 */
 	async getPhantomOrdersInRange(fromBlockHash: HexString, toBlockHash: HexString): Promise<PhantomOrderEvent[][]> {
 		const api = await this.http()
-		const eventsKey = api.query.system.events.key()
-		const changeSets = await api.rpc.state.queryStorage([eventsKey], fromBlockHash, toBlockHash)
+		// The storage *entry*, not `entry.key()`. polkadot-js decodes each returned value from the
+		// metadata hanging off the key it was asked for: `StorageKey` takes its `meta` from a
+		// function input and has none for a hex string, and without `meta` the value's type falls
+		// back to `Raw` — the events come back as undecoded bytes rather than `Vec<EventRecord>`.
+		const changeSets = await api.rpc.state.queryStorage([api.query.system.events], fromBlockHash, toBlockHash)
 		// polkadot-js decodes a `Vec<StorageChangeSet>` reply into `[blockHash, valuesPerKey]` pairs,
 		// each value already typed from the storage key's own metadata — one key here, so index 0.
 		return (changeSets as unknown as Array<[unknown, unknown[]]>).map(([, values]) =>
@@ -1334,7 +1362,7 @@ export class IntentsCoprocessor {
 				const to = Math.min(head, cursor + maxBlocksPerPoll)
 
 				// The whole range in one call, when the node will serve it.
-				const ranged = await this.scanRangeAtOnce(api, cursor + 1, to, knownVersion)
+				const ranged = await this.scanRangeAtOnce(api, cursor + 1, to, knownVersion, onError)
 				if (ranged) {
 					for (const orders of ranged) {
 						if (stopped) return
@@ -1420,6 +1448,7 @@ export class IntentsCoprocessor {
 		from: number,
 		to: number,
 		knownVersion: RuntimeVersion | undefined,
+		onError?: (err: unknown) => void,
 	): Promise<PhantomOrderEvent[][] | null> {
 		if (this.rangeQueryUnavailable || !knownVersion) return null
 		const registryVersion = api.runtimeVersion?.specVersion
@@ -1434,11 +1463,23 @@ export class IntentsCoprocessor {
 		try {
 			return await this.getPhantomOrdersInRange(fromHash.toHex() as HexString, toHash.toHex() as HexString)
 		} catch (err) {
-			// A node that will not serve the method will not start doing so; anything else is this
-			// tick's failure to report, not a reason to abandon the cheap path.
-			if (!isMethodUnavailable(err)) throw err
-			this.rangeQueryUnavailable = true
-			return null
+			// A node that will not serve the method will not start doing so.
+			if (isMethodUnavailable(err)) {
+				this.rangeQueryUnavailable = true
+				return null
+			}
+			// Neither will a reply this cannot decode start decoding. Giving up on the cheap path
+			// costs requests; letting it fail every tick costs every bid, which is what happened
+			// when the range read asked for a bare key and got raw bytes back. Reported once so the
+			// degradation is visible, then the per-block path — which decodes differently — takes
+			// over and the poll keeps working.
+			if (err instanceof EventDecodeError) {
+				this.rangeQueryUnavailable = true
+				onError?.(err)
+				return null
+			}
+			// Anything else is this tick's failure to report, not a reason to abandon the fast path.
+			throw err
 		}
 	}
 

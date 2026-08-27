@@ -63,6 +63,10 @@ interface Harness {
 	issued: string[]
 	/** The `[from, to]` block numbers of each `state_queryStorage` call. */
 	rangeCalls: Array<[number, number]>
+	/** The raw arguments each `state_queryStorage` call was made with. */
+	queryStorageArgs: unknown[][]
+	/** Makes the ranged reply come back undecoded, as it does when the key carries no metadata. */
+	breakRangeDecoding: () => void
 	/**
 	 * Marks a block as encoding its events byte-for-byte like its predecessor's, which is what makes
 	 * `state_queryStorage` omit it from the reply.
@@ -83,8 +87,15 @@ interface Harness {
 	touchedWebsocket: () => boolean
 }
 
-/** The storage key the poll queries; only its identity matters here. */
-const EVENTS_KEY = "0xevents"
+/**
+ * The decorated `system.events` storage entry: callable, returning its key, with the `meta` that
+ * polkadot-js needs to decode values read under it. Passing anything without `meta` is the bug this
+ * shape exists to catch.
+ */
+const eventsEntry = Object.assign(() => "0xevents", {
+	key: () => "0xevents",
+	meta: { type: { isPlain: true } },
+})
 
 const blockOf = (hash: string) => Number(hash.replace("0xblock", ""))
 
@@ -103,7 +114,9 @@ function harness(
 	const pinnedVersions: Array<FakeRuntimeVersion | undefined> = []
 	const issued: string[] = []
 	const rangeCalls: Array<[number, number]> = []
+	const queryStorageArgs: unknown[][] = []
 	const repeats = new Set<number>()
+	let rangeDecodes = true
 
 	const getHeader = vi.fn(async () => {
 		if (rateLimitedHeads > 0) {
@@ -133,7 +146,13 @@ function harness(
 	 * `Method not found`, and a node that serves it answers with change sets — one per block whose
 	 * value differs from the block before it, which is why `repeats` produces holes.
 	 */
-	const queryStorage = vi.fn(async (_keys: string[], fromHash: string, toHash: string) => {
+	const queryStorage = vi.fn(async (keys: unknown[], fromHash: string, toHash: string) => {
+		// polkadot-js decodes each returned value from the metadata on the key it was asked for.
+		// A key with no `meta` — a bare `entry.key()` hex string, say — leaves the value typed as
+		// `Raw`, so the caller gets undecoded bytes. Reproduced here, because the difference is
+		// invisible in a fake that always hands back decoded records.
+		queryStorageArgs.push([keys, fromHash, toHash])
+		const decodes = rangeDecodes && typeof (keys[0] as { meta?: unknown })?.meta === "object"
 		if (!rangeQueries) {
 			const error = new Error("Method not found: state_queryStorage") as Error & { code?: number }
 			error.code = -32601
@@ -148,7 +167,11 @@ function harness(
 			issued.push(`range:${blockNumber}`)
 			scanned.push(blockNumber)
 			const commitments = ordersByBlock.get(blockNumber) ?? []
-			sets.push([`0xblock${blockNumber}`, [[unrelatedEvent, ...commitments.map(registeredEvent)]]])
+			const records = decodes
+				? [unrelatedEvent, ...commitments.map(registeredEvent)]
+				: // `Raw` — iterating it yields bytes, not records.
+					new Uint8Array([1, 2, 3])
+			sets.push([`0xblock${blockNumber}`, [records]])
 		}
 		return sets
 	})
@@ -181,7 +204,7 @@ function harness(
 		// Pre-resolved so nothing tries to open a real connection.
 		httpApi: Promise.resolve({
 			rpc: { chain: { getHeader, getBlockHash }, state: { getRuntimeVersion, queryStorage } },
-			query: { system: { events: { key: () => EVENTS_KEY } } },
+			query: { system: { events: eventsEntry } },
 			at,
 			runtimeVersion: runtimeVersion(specName, specVersion),
 		}),
@@ -193,6 +216,10 @@ function harness(
 		pinnedVersions,
 		issued,
 		rangeCalls,
+		queryStorageArgs,
+		breakRangeDecoding: () => {
+			rangeDecodes = false
+		},
 		repeatEventsAt: (blockNumber) => repeats.add(blockNumber),
 		setHead: (n) => {
 			head = n
@@ -518,6 +545,48 @@ describe("pollPhantomOrders", () => {
 	// on how many blocks it covers. Two things about the RPC shape these have to pin: it answers with
 	// diffs rather than one entry per block, and a node running `--rpc-methods=safe` refuses it.
 	describe("ranged scan", () => {
+		// The bug this file exists to prevent a repeat of: the range read was asking for
+		// `system.events.key()`, a bare hex string. polkadot-js takes a `StorageKey`'s `meta` from a
+		// function input and has none for a string, so the value's type fell back to `Raw` and the
+		// events came back as undecoded bytes. Nothing threw at the RPC layer — the poll simply
+		// found no phantom orders in any block, and no filler ever bid.
+		it("asks for the storage entry, so the reply is decoded from its metadata", async () => {
+			const h = harness(100)
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
+
+			await tick(0)
+			stop()
+
+			const [keys] = h.queryStorageArgs[0] as [Array<{ meta?: unknown }>]
+			expect(keys[0]?.meta).toBeTypeOf("object")
+		})
+
+		// Losing the fast path costs requests. Losing every bid, which is what a reply the poll
+		// cannot decode did before this, costs the thing the poll exists for.
+		it("drops to per-block reads, loudly, when the ranged reply will not decode", async () => {
+			const h = harness(100)
+			h.breakRangeDecoding()
+			h.putOrder(101, COMMITMENT_A)
+			const seen: PhantomOrderEvent[] = []
+			const onError = vi.fn()
+
+			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
+				intervalMs: 1000,
+				onError,
+			})
+			await tick(0)
+			h.setHead(101)
+			await tick(1000)
+			stop()
+
+			// Reported rather than swallowed, but the poll kept working and the order arrived.
+			expect(onError).toHaveBeenCalledTimes(1)
+			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+			// One ranged attempt, then never again.
+			expect(h.rangeCalls).toHaveLength(1)
+			expect(h.issued.filter((entry) => entry.startsWith("events:"))).toEqual(["events:100", "events:101"])
+		})
+
 		it("reads a whole range in a single call", async () => {
 			const h = harness(100)
 			h.putOrder(102, COMMITMENT_A)

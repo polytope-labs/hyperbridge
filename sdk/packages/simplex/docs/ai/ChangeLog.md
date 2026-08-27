@@ -12,6 +12,28 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — Phantom orders are checked to be expired before they are quoted
+
+`IntentFiller.preparePhantomBid` now reads the destination chain's head and refuses any phantom
+order whose `deadline` has not already passed, before quoting a single leg. Failing to read the
+head is also a refusal — without a height there is no way to tell an expired order from a live one.
+
+Being expired is the entire reason a phantom order is safe to quote. The pallet builds one with the
+chain's latest *confirmed* height as its deadline so it "can never be executed for real"
+(`intents-coprocessor/src/lib.rs`), and `fillOrder` reverts `Expired()` once
+`deadline < block.number`. That invariant is what lets `quotePhantomFill` skip every ceiling a real
+bid gets — no budget, no wallet-balance read, neither profit gate.
+
+Nothing upstream established the invariant. The order body is read from a single Hyperbridge node's
+offchain storage, and `fetchPhantomOrder` assigns `id` from the event rather than re-deriving the
+commitment from the bytes, so the body is unauthenticated. A body with a live deadline would have
+turned an unbounded quote into a signed, executable authorization to fill an order of someone
+else's choosing — paying out to a beneficiary named in that same body.
+
+Found by the scheduled IntentGateway/Simplex security audit.
+
+Files: `src/core/filler.ts`, `src/tests/core/phantom-order-expiry.test.ts`.
+
 ## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
 
 Second review round on the 08-24 fixes; the transport-error fix (F4) did not survive contact with viem, and the new batching/zero-first code had gaps.

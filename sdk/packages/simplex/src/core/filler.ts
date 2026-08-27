@@ -1203,6 +1203,45 @@ export class IntentFiller {
 			return null
 		}
 
+		// A phantom order must already be expired. The pallet builds it with the chain's latest
+		// *confirmed* height as the deadline precisely so it "can never be executed for real"
+		// (intents-coprocessor/src/lib.rs), and `fillOrder` reverts `Expired()` once
+		// `deadline < block.number`. That invariant is the only thing making it safe to quote a
+		// phantom order without any of the ceilings a real bid gets: `quotePhantomFill` runs with
+		// no budget, no wallet-balance read and neither profit gate, so the amounts we sign are
+		// bounded only by the order body.
+		//
+		// Nothing upstream proves that body is the pallet's. It arrives from a single Hyperbridge
+		// node's offchain storage, and `fetchPhantomOrder` assigns the commitment from the event
+		// rather than re-deriving it from the bytes — so an order body with a live deadline would
+		// be a signed, unbounded authorization to fill an order of someone else's choosing.
+		// Re-checking expiry here costs one `eth_blockNumber` and makes the bid unexecutable on
+		// chain no matter what the body says.
+		let currentBlock: bigint
+		try {
+			currentBlock = await this.chainClientManager.getPublicClient(event.chain).getBlockNumber()
+		} catch (err) {
+			this.logger.error(
+				{ err, commitment: event.commitment, chain: event.chain },
+				"Could not read the current block to verify the phantom order is expired, skipping",
+			)
+			return null
+		}
+		if (phantomOrder.deadline >= currentBlock) {
+			this.logger.error(
+				{
+					commitment: event.commitment,
+					chain: event.chain,
+					deadline: phantomOrder.deadline.toString(),
+					currentBlock: currentBlock.toString(),
+				},
+				"Phantom order is still fillable — refusing to quote. A genuine phantom order carries a " +
+					"past confirmed height as its deadline; a live one means the order body did not come " +
+					"from the pallet.",
+			)
+			return null
+		}
+
 		// Every leg of every configured pair rides in this one order, so quote leg by leg —
 		// concurrently, because legs are independent and the bid has to land inside the on-chain
 		// bid window (as few as 5 blocks), which a sequential walk over a large order would miss.

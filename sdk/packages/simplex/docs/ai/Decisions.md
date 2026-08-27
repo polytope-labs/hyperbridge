@@ -4,6 +4,40 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — Phantom orders are gated on expiry, not on a re-derived commitment
+
+Chosen: `preparePhantomBid` asserts `deadline < head` on the destination chain and quotes nothing
+otherwise.
+
+The obvious alternative is to re-derive the commitment from the fetched bytes and compare it to the
+event's. That was rejected as the *primary* gate for two reasons. It does not actually help against
+the threat it appears to address — a node that serves a forged order body also serves the
+`PhantomOrderRegistered` event, so it can simply publish a matching commitment. And `filler.ts`
+already documents why the commitment is taken from the event: re-deriving it risks parity
+divergence if the encode round-trip does not reproduce the pallet's bytes exactly, which would
+break every honest bid to defend against a dishonest node that the check does not stop anyway.
+
+The expiry check has neither problem. It is a single comparison against chain state the attacker
+does not control, and it targets the property that actually bounds the damage: `fillOrder` reverts
+`Expired()` for a past deadline, so a bid signed over an expired order is unexecutable no matter
+what the rest of the body says. The unbounded quote stays unbounded and stays harmless.
+
+Alternatives also considered:
+
+- *Assert the full set of pallet invariants* (`session == 0`, all output amounts zero,
+  `source == destination == event.chain`, zero beneficiary). All are guaranteed by
+  `phantom_order_commitment` and all are cheap. Worth adding, and each one independently breaks the
+  exploit — `session == 0` alone does, since `ECDSA.recover` cannot return the zero address, so
+  `_select` can never stage a selection for a genuine phantom order. They are deliberately left for
+  a follow-up so this change stays one reviewable idea; expiry is the one that holds even if the
+  pallet's order shape changes.
+- *Apply the real bid's ceilings to phantom quotes.* Wrong layer: the quote is supposed to be
+  unbounded, because it is a price advertisement rather than a fill. Constraining it would distort
+  what the filler publishes to fix a problem that is really about trusting the order body.
+
+Failing closed on an RPC error is deliberate. The alternative — quote when the height is unknown —
+reopens the hole exactly when the endpoint is misbehaving, which is the case worth worrying about.
+
 ## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
 
 Chosen: `paymasterSupportsPermit2` decides "unsupported" by walking the error's cause chain for `ContractFunctionRevertedError`/`ContractFunctionZeroDataError`, not by the thrown type. The 08-24 attempt checked `instanceof ContractFunctionExecutionError`, but viem wraps every `readContract` failure — transport errors included — in exactly that type (verified by constructing both failure shapes against the installed viem 2.47.6: a 429 arrives as `ContractFunctionExecutionError(cause: HttpRequestError)`, a revert as `ContractFunctionExecutionError(cause: ContractFunctionRevertedError)`). The thrown type therefore carries zero signal; the cause chain carries all of it. `ContractFunctionZeroDataError` counts as "unsupported" too: it means the address returned no data (no code), which is a deterministic contract-state answer, not a transport blip. Alternative — catching everything but only caching on a message-string match — rejected as brittle across RPC providers.

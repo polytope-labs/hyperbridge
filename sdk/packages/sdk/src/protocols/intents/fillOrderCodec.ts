@@ -65,7 +65,9 @@ const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076c
  * where forgetting breaks every fill on the chain.
  */
 export const LEGACY_FILL_OPTIONS_IMPLEMENTATIONS = new Set<string>([
-	// Pre-validUntil IntentGatewayV2 implementation.
+	// The pre-validUntil IntentGatewayV2 implementation. One entry covers every chain: the
+	// protocol contracts are CREATE2-deployed, so this is the implementation address on all
+	// of them (confirmed with the maintainers).
 	"0x976b268b06f545c4a2bf44866aa2465bd8b3c67d",
 ])
 

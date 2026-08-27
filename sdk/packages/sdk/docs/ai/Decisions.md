@@ -47,7 +47,12 @@ the proxy actually updates on upgrade, so it is what identifies the deployed cod
 
 The list is of **legacy** implementations, not current ones, so the default is v2. That direction
 is the whole point: a newly shipped implementation needs no edit here, and once every deployment
-is upgraded the set is vestigial and still correct. Listing known-good implementations instead
+is upgraded the set is vestigial and still correct.
+
+A single entry covers every chain. The protocol contracts are CREATE2-deployed, so
+`0x976B268b06f545c4A2BF44866Aa2465bd8B3C67d` is the pre-`validUntil` implementation everywhere —
+confirmed with the maintainers rather than inferred, since the CREATE2 claim in the tree is about
+the proxies and does not by itself say anything about implementations. Listing known-good implementations instead
 would be the version constant this replaced wearing a different hat — a value someone must
 remember to update on every upgrade, where forgetting breaks every fill on that chain.
 

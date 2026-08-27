@@ -220,6 +220,12 @@ type   = "substrate"
 rpc_ws = "wss://your-substrate-chain.example.com"
 signer = ""
 
+# Optional http rpc endpoint for the same chain, exposing the same methods as
+# the websocket. When set, state queries go over http and the websocket is left
+# to carry subscriptions, which is all that extrinsic submission needs. Also
+# accepted under [hyperbridge].
+# rpc_http = "https://your-substrate-chain.example.com"
+
 # Required for standalone substrate chains, optional for parachains
 # (parachains inherit a sane default from their relay's
 # consensus_state_id). DOT0 for parachains on Polkadot mainnet, PAS0

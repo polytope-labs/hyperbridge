@@ -62,6 +62,10 @@ pub struct SubstrateConfig {
 	pub consensus_state_id: Option<String>,
 	/// Websocket RPC url for the chain
 	pub rpc_ws: String,
+	/// Http RPC url for the chain. When set, state queries are sent over http and the
+	/// websocket only carries subscriptions, which is all extrinsic submission needs.
+	#[serde(default)]
+	pub rpc_http: Option<String>,
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed. When omitted, the chain runs in inbound-only
@@ -161,8 +165,12 @@ where
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
-		let (client, rpc_client) =
-			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
+		let (client, rpc_client) = subxt_utils::client::connect::<C>(
+			&config.rpc_ws,
+			config.rpc_http.as_deref(),
+			max_rpc_payload_size,
+		)
+		.await?;
 		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height

@@ -1289,6 +1289,18 @@ export interface CancelOrderOptions {
 export interface FillOptions {
 	relayerFee: bigint
 	nativeDispatchFee: bigint
+	/**
+	 * Last block number at which this fill may execute. `0n` means no bound.
+	 *
+	 * A solver bidding through the coprocessor signs this calldata and then has no further
+	 * say in when it is used: the order's `deadline` is placer-chosen with no ceiling, and
+	 * retracting the bid on Hyperbridge does not reach the destination chain. Without a bound
+	 * the placer can sit on a signed bid and execute it once the price has moved their way.
+	 *
+	 * In blocks, matching `order.deadline`, so both read against the same clock. Dropped when
+	 * encoding against a gateway whose implementation predates the field.
+	 */
+	validUntil: bigint
 	outputs: TokenInfo[]
 }
 

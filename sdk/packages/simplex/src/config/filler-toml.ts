@@ -165,6 +165,19 @@ export interface FillerTomlConfig {
 		 * CCTP/USDT0-covered chains"); an empty array declares no accepted sources.
 		 */
 		acceptedSourceChains?: string[]
+		/**
+		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
+		 *
+		 * Written into `FillOptions.validUntil` and enforced by `fillOrder`, which reverts
+		 * `FillExpired` past it. This is how long the quoted price stands as a firm commitment:
+		 * the order's `deadline` is chosen by the placer with no ceiling, and retracting the bid
+		 * on Hyperbridge does not reach the destination chain, so without it a signed bid stays
+		 * executable indefinitely and is taken up only once the rate has moved against us.
+		 *
+		 * Configured in seconds but written on-chain in blocks, converted per destination chain.
+		 * Ignored on gateways predating `FillOptions.validUntil` — there is nowhere to put it.
+		 */
+		bidValiditySeconds?: number
 	}
 	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig

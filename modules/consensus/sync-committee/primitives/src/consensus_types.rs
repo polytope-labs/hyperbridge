@@ -26,13 +26,12 @@ pub type StateList<T, const N: usize> = ProgressiveList<T>;
 
 #[cfg(feature = "glamsterdam")]
 use crate::{
-	constants::{BUILDER_PENDING_PAYMENTS_LIMIT, MAX_WITHDRAWALS_PER_PAYLOAD, PTC_WINDOW_LIMIT},
+	constants::{BUILDER_PENDING_PAYMENTS_LIMIT, PTC_WINDOW_LIMIT},
 	deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
 	gloas::{
 		Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal,
 		ExecutionPayloadBid, PayloadAttestation, SignedExecutionPayloadBid,
-		BUILDER_PENDING_WITHDRAWALS_LIMIT, BUILDER_REGISTRY_LIMIT, MAX_PAYLOAD_ATTESTATIONS,
-		PTC_SIZE,
+		MAX_PAYLOAD_ATTESTATIONS, PTC_SIZE,
 	},
 };
 

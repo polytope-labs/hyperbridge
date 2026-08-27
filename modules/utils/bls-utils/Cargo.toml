@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 codec = { workspace = true }
 serde = { workspace = true, optional = true }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "b1ed9f44d68a70e16793d99a75ee47f83b1aab95", default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
 bls = { workspace = true, default-features = false }
 

@@ -22,20 +22,33 @@ alloy-provider = { workspace = true, optional = true }
 alloy-network = { workspace = true, optional = true }
 alloy-transport = { workspace = true, optional = true }
 
-beefy-verifier-primitives = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false, optional = true }
 
 # SCALE codec for the host-params SCALE representation that lives alongside the
 # ABI types so the cross-language conversion impls have a single home.
-codec = { workspace = true }
-scale-info = { workspace = true }
+codec = { workspace = true, optional = true }
+scale-info = { workspace = true, optional = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = false
+optional = true
 features = ["sp-consensus-beefy", "sp-mmr-primitives", "frame-support", "sp-runtime"]
 
 [features]
-default = ["std"]
+default = ["std", "substrate"]
+# The polkadot-sdk-typed surface: the SCALE `HostParam` mirrors in `host_params`
+# and the BEEFY conversions in `conversions`. Everything else — the generated
+# `sol!` bindings and `ToU256` — is plain alloy and needs none of it. Kept off by
+# `ismp`, which only uses the generated types, so the protocol crate does not
+# carry the polkadot-sdk umbrella (and its exact version pin) into the dependency
+# tree of every crate that depends on it.
+substrate = [
+    "dep:polkadot-sdk",
+    "dep:beefy-verifier-primitives",
+    "dep:codec",
+    "dep:scale-info",
+]
 std = [
     "dep:alloy-contract",
     "dep:alloy-provider",
@@ -45,10 +58,10 @@ std = [
     "primitive-types/std",
     "alloy-sol-types/std",
     "alloy-primitives/std",
-    "beefy-verifier-primitives/std",
-    "polkadot-sdk/std",
-    "codec/std",
-    "scale-info/std",
+    "beefy-verifier-primitives?/std",
+    "polkadot-sdk?/std",
+    "codec?/std",
+    "scale-info?/std",
 ]
 # Generated bindings for Solidity test-only helper contracts (e.g. BeefyConsensusClientTest).
 # Off by default so production builds don't pull in test-harness ABIs.

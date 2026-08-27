@@ -42,6 +42,7 @@ export {
 	decodeFillOrder,
 	getFillOptionsVersion,
 	resetFillOptionsVersionCache,
+	LEGACY_FILL_OPTIONS_IMPLEMENTATIONS,
 } from "./fillOrderCodec"
 export type { FillOptionsVersion } from "./fillOrderCodec"
 export {

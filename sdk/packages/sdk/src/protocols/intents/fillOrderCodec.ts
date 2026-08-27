@@ -1,4 +1,4 @@
-import { encodeFunctionData, decodeFunctionData, toFunctionSelector, type PublicClient } from "viem"
+import { encodeFunctionData, decodeFunctionData, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import type { FillOptions, HexString, Order } from "@/types"
 
@@ -14,11 +14,6 @@ import type { FillOptions, HexString, Order } from "@/types"
  * safe failure, but it does mean callers have to know which shape a gateway speaks.
  */
 export type FillOptionsVersion = 1 | 2
-
-/** Derived from the ABIs rather than written down, so a struct edit cannot leave them stale. */
-const FILL_ORDER_V2_SELECTOR = toFunctionSelector(
-	IntentGatewayV2ABI.find((e: any) => e.type === "function" && e.name === "fillOrder") as any,
-)
 
 /** The v1 `fillOrder`, kept only so we can still talk to deployments that predate `validUntil`. */
 const FILL_ORDER_V1_ABI = [
@@ -51,8 +46,6 @@ const FILL_ORDER_V1_ABI = [
 	},
 ] as const
 
-const FILL_ORDER_V1_SELECTOR = toFunctionSelector(FILL_ORDER_V1_ABI[0] as any)
-
 /**
  * ERC-1967 implementation slot: `keccak256("eip1967.proxy.implementation") - 1`.
  * The gateway is deployed behind this proxy, so `eth_getCode` on the gateway returns the
@@ -61,18 +54,35 @@ const FILL_ORDER_V1_SELECTOR = toFunctionSelector(FILL_ORDER_V1_ABI[0] as any)
 const ERC1967_IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as HexString
 
 /**
- * Memoised per *implementation* address, not per gateway.
+ * IntentGateway implementations deployed before `FillOptions.validUntil` existed.
  *
- * That is the load-bearing detail: the proxy address never changes, so keying on it would
- * pin the first answer for the life of the process and keep encoding the old shape after an
- * upgrade. The implementation address is exactly what an upgrade changes, so a cache keyed
- * on it invalidates itself.
+ * The list is of *legacy* implementations rather than current ones, so the default is v2 and
+ * nothing has to be added here when a new implementation ships — only when an old one is
+ * discovered. Once every deployment is upgraded this set is vestigial and still correct.
+ *
+ * The alternative, listing known-good implementations, would be the version constant this
+ * replaced wearing a different hat: a value someone must remember to update on every upgrade,
+ * where forgetting breaks every fill on the chain.
  */
-const versionByImplementation = new Map<string, FillOptionsVersion>()
+export const LEGACY_FILL_OPTIONS_IMPLEMENTATIONS = new Set<string>([
+	// Pre-validUntil IntentGatewayV2 implementation.
+	"0x976b268b06f545c4a2bf44866aa2465bd8b3c67d",
+])
+
+/**
+ * Gateways already resolved to v2, keyed by proxy address.
+ *
+ * Only v2 answers are cached, and that asymmetry is deliberate. A deployment can move from
+ * legacy to current but never back, so a v2 result is true forever, while caching a v1 result
+ * would pin the old encoding across the very upgrade that changes it — the proxy address does
+ * not move, so nothing would ever invalidate it. A still-legacy gateway therefore costs one
+ * storage read per fill, and an upgraded one costs none.
+ */
+const knownV2Gateways = new Set<string>()
 
 /** Test seam: drop memoised detection results. */
 export function resetFillOptionsVersionCache(): void {
-	versionByImplementation.clear()
+	knownV2Gateways.clear()
 }
 
 /** The address the ERC-1967 proxy delegates to, or the gateway itself if it is not a proxy. */
@@ -84,41 +94,22 @@ async function resolveImplementation(client: PublicClient, gateway: HexString): 
 }
 
 /**
- * Works out which `FillOptions` shape a gateway accepts by looking at its deployed code.
+ * Works out which `FillOptions` shape a gateway accepts from the implementation it delegates to.
  *
- * There is deliberately no version getter on the contract to ask. A hand-maintained version
- * constant is a second source of truth that has to be remembered on every upgrade, and it
- * answers the wrong question — what the deployment *says* it is, rather than what it can
- * actually decode. The selector is the capability: Solidity emits it into the dispatcher, so
- * its presence in the implementation's runtime code is the ground truth, and it updates
- * itself whenever the proxy is repointed.
- *
- * Finding neither selector is an error rather than a guess. Both shapes cannot be decoded by
- * the other — a v1 payload sent to a v2 gateway is as dead as the reverse — so silently
- * assuming one would break every fill on that chain with a confusing revert instead of a
- * clear message here.
+ * EIP-1967 standardises three slots, all holding addresses — there is no version field to read,
+ * and the contract deliberately does not carry one either: a hand-maintained version constant is
+ * a second source of truth that has to be bumped on the right upgrade. The implementation address
+ * is the value the proxy already updates, so it is what identifies the deployed code.
  */
 export async function getFillOptionsVersion(client: PublicClient, gateway: HexString): Promise<FillOptionsVersion> {
+	const key = gateway.toLowerCase()
+	if (knownV2Gateways.has(key)) return 2
+
 	const implementation = await resolveImplementation(client, gateway)
-	const key = implementation.toLowerCase()
-	const cached = versionByImplementation.get(key)
-	if (cached !== undefined) return cached
+	if (LEGACY_FILL_OPTIONS_IMPLEMENTATIONS.has(implementation.toLowerCase())) return 1
 
-	const code = (await client.getCode({ address: implementation }))?.toLowerCase() ?? "0x"
-	const hasV2 = code.includes(FILL_ORDER_V2_SELECTOR.slice(2))
-	const hasV1 = code.includes(FILL_ORDER_V1_SELECTOR.slice(2))
-
-	if (!hasV2 && !hasV1) {
-		throw new Error(
-			`No fillOrder selector found in the IntentGateway implementation at ${implementation} ` +
-				`(proxy ${gateway}). Neither ${FILL_ORDER_V2_SELECTOR} nor ${FILL_ORDER_V1_SELECTOR} is present, ` +
-				`so the FillOptions shape cannot be determined.`,
-		)
-	}
-
-	const resolved: FillOptionsVersion = hasV2 ? 2 : 1
-	versionByImplementation.set(key, resolved)
-	return resolved
+	knownV2Gateways.add(key)
+	return 2
 }
 
 /**

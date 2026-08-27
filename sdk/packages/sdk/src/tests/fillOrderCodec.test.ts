@@ -85,63 +85,65 @@ describe("decodeFillOrder", () => {
 describe("getFillOptionsVersion", () => {
 	beforeEach(() => resetFillOptionsVersionCache())
 
-	const IMPL = "0x2222222222222222222222222222222222222222" as HexString
-	const IMPL_SLOT_VALUE = `0x000000000000000000000000${IMPL.slice(2)}` as HexString
+	const LEGACY_IMPL = "0x976B268b06f545c4A2BF44866Aa2465bd8B3C67d" as HexString
+	const NEW_IMPL = "0x2222222222222222222222222222222222222222" as HexString
 
-	/** A client whose proxy points at IMPL, and whose IMPL carries the given selectors. */
-	function client(selectors: string[], opts: { slot?: HexString | undefined } = {}) {
-		const code = `0x6080${selectors.map((s) => s.slice(2)).join("dead")}` as HexString
+	function slotFor(impl: HexString) {
+		return `0x000000000000000000000000${impl.slice(2)}` as HexString
+	}
+
+	function client(impl: HexString | undefined) {
 		return {
 			chain: { id: 8453 },
-			getStorageAt: vi.fn().mockResolvedValue("slot" in opts ? opts.slot : IMPL_SLOT_VALUE),
-			getCode: vi.fn().mockResolvedValue(code),
+			getStorageAt: vi.fn().mockResolvedValue(impl === undefined ? undefined : slotFor(impl)),
 		} as any
 	}
 
-	it("reports v2 when the implementation carries the v2 fillOrder selector", async () => {
-		await expect(getFillOptionsVersion(client([V2_SELECTOR]), GATEWAY)).resolves.toBe(2)
+	it("reports v1 for the known pre-validUntil implementation", async () => {
+		await expect(getFillOptionsVersion(client(LEGACY_IMPL), GATEWAY)).resolves.toBe(1)
 	})
 
-	it("reports v1 when only the older selector is present", async () => {
-		await expect(getFillOptionsVersion(client([V1_SELECTOR]), GATEWAY)).resolves.toBe(1)
+	it("matches the legacy implementation regardless of address casing", async () => {
+		// The slot yields lowercase; the list is written checksummed in the source it came from.
+		const lower = LEGACY_IMPL.toLowerCase() as HexString
+		await expect(getFillOptionsVersion(client(lower), GATEWAY)).resolves.toBe(1)
 	})
 
-	it("looks past the proxy at the implementation's code", async () => {
-		// getCode on the gateway returns the proxy stub, which carries neither selector.
-		const c = client([V2_SELECTOR])
+	it("defaults to v2 for any implementation not on the legacy list", async () => {
+		// Listing legacy rather than current is what makes this the safe default: a newly
+		// shipped implementation needs no edit here.
+		await expect(getFillOptionsVersion(client(NEW_IMPL), GATEWAY)).resolves.toBe(2)
+	})
+
+	it("reads the implementation through the ERC-1967 slot", async () => {
+		const c = client(NEW_IMPL)
 
 		await getFillOptionsVersion(c, GATEWAY)
 
 		expect(c.getStorageAt).toHaveBeenCalledWith({ address: GATEWAY, slot: ERC1967_SLOT })
-		expect(c.getCode).toHaveBeenCalledWith({ address: IMPL })
 	})
 
-	it("falls back to the gateway itself when it is not a proxy", async () => {
-		const c = client([V2_SELECTOR], { slot: undefined })
+	it("treats a gateway that is not a proxy as its own implementation", async () => {
+		const c = client(undefined)
 
 		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
-		expect(c.getCode).toHaveBeenCalledWith({ address: GATEWAY })
 	})
 
-	it("throws rather than guessing when neither selector is present", async () => {
-		// Guessing would break every fill on the chain with a confusing revert instead of
-		// a clear message here — the two shapes cannot decode each other.
-		await expect(getFillOptionsVersion(client(["0xdeadbe01"]), GATEWAY)).rejects.toThrow(
-			/No fillOrder selector found/,
-		)
+	it("does not cache a v1 answer, so the upgrade that fixes it is picked up", async () => {
+		const c = client(LEGACY_IMPL)
+		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(1)
+
+		// Same proxy, upgraded behind it.
+		c.getStorageAt.mockResolvedValue(slotFor(NEW_IMPL))
+		expect(await getFillOptionsVersion(c, GATEWAY)).toBe(2)
 	})
 
-	it("caches per implementation, so an upgrade is picked up rather than pinned", async () => {
-		const c = client([V1_SELECTOR])
+	it("caches a v2 answer, which can never regress", async () => {
+		const c = client(NEW_IMPL)
+
 		await getFillOptionsVersion(c, GATEWAY)
 		await getFillOptionsVersion(c, GATEWAY)
-		expect(c.getCode).toHaveBeenCalledTimes(1)
 
-		// Same proxy, new implementation behind it: the answer must move with it.
-		const upgraded = "0x3333333333333333333333333333333333333333" as HexString
-		c.getStorageAt.mockResolvedValue(`0x000000000000000000000000${upgraded.slice(2)}`)
-		c.getCode.mockResolvedValue(`0x6080${V2_SELECTOR.slice(2)}`)
-
-		await expect(getFillOptionsVersion(c, GATEWAY)).resolves.toBe(2)
+		expect(c.getStorageAt).toHaveBeenCalledTimes(1)
 	})
 })

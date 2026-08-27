@@ -34,39 +34,38 @@ the L2 block number where those differ), and so the two cannot disagree about wh
 `0` means unbounded. That is the right default for a solver filling directly — it is only exposed to its own
 staleness — and it keeps every existing caller working. The protection is opt-in by the party that needs it.
 
-## 2026-08-27 — The deployed bytecode is the capability signal, not a version getter
+## 2026-08-27 — The implementation address identifies the FillOptions shape
 
-Chosen: `getFillOptionsVersion` reads the ERC-1967 implementation slot, fetches that
-implementation's runtime code, and looks for the v2 `fillOrder` selector. No version function on
-the contract.
+Chosen: `getFillOptionsVersion` reads the ERC-1967 implementation slot and checks the address
+against `LEGACY_FILL_OPTIONS_IMPLEMENTATIONS`, a set of implementations deployed before
+`validUntil` existed. Anything else is v2.
 
-The first cut added `fillOptionsVersion() pure returns (uint256)` and probed it. That is a second
-source of truth: a hand-maintained integer someone has to remember to bump on the right upgrade,
-which answers what the deployment *claims* rather than what it can actually decode. The selector is
-the capability — Solidity emits it into the dispatcher — so its presence in the implementation's
-code is ground truth, verified empirically to survive `via-ir` and the optimizer.
+EIP-1967 standardises three slots — implementation, admin, beacon — all holding addresses. There
+is no version field in the spec to read, and OZ `Initializable`'s `uint64` only moves under
+`reinitializer(N)`, which this contract does not use. The implementation address is the only value
+the proxy actually updates on upgrade, so it is what identifies the deployed code.
 
-Caching on the implementation address rather than the gateway is the load-bearing half, and it
-fixes a real bug in the version-getter version: the proxy address never changes, so a cache keyed
-on it pins the first answer for the life of the process and keeps encoding the old shape after an
-upgrade. The implementation address is exactly what an upgrade changes.
+The list is of **legacy** implementations, not current ones, so the default is v2. That direction
+is the whole point: a newly shipped implementation needs no edit here, and once every deployment
+is upgraded the set is vestigial and still correct. Listing known-good implementations instead
+would be the version constant this replaced wearing a different hat — a value someone must
+remember to update on every upgrade, where forgetting breaks every fill on that chain.
 
-Alternatives rejected:
+Only v2 answers are cached, keyed by proxy address. A deployment can move from legacy to current
+but never back, so a v2 result is true forever; caching a v1 result would pin the old encoding
+across the very upgrade that changes it, since the proxy address does not move and nothing would
+invalidate it. A still-legacy gateway therefore costs one storage read per fill, an upgraded one
+costs none.
 
-- *Use the proxy's own version.* ERC-1967 tracks an implementation **address**, not a version
-  number — `upgradeToAndCall` emits `Upgraded(address)` and stores an address. OZ `Initializable`
-  does hold a `uint64`, but only `reinitializer(N)` moves it and this contract uses plain
-  `initializer`, so it sits at 1 forever. Exposing it would mean adding a public wrapper *and*
-  remembering `reinitializer` on every future upgrade — and it would still be a contract version
-  standing in for a capability, so an unrelated upgrade would move it.
-- *Configure the version per chain.* One more thing to get wrong at exactly the moment a chain is
-  upgraded, and wrong in the direction of every fill on that chain reverting.
-- *Try v2 and fall back on revert.* `fillOrder` is payable and state-changing, so "trying" it means
-  simulating a real fill, which fails for many reasons unrelated to the shape.
+Also considered and dropped: scanning the implementation's runtime code for the v2 `fillOrder`
+selector. It needs no address list and self-updates, and the selector does survive `via-ir` and
+the optimizer — but it is a heuristic (a 4-byte sequence can appear in non-dispatcher data), and
+both failure directions break every fill on the chain, since the two shapes cannot decode each
+other. An address match is exact.
 
-Finding neither selector throws rather than defaulting. The shapes cannot decode each other in
-either direction, so a wrong guess breaks every fill on the chain with a confusing revert; failing
-here says why.
+Earlier still, and rejected: a `fillOptionsVersion()` getter on the contract. A hand-maintained
+integer is a second source of truth that answers what a deployment claims rather than what it can
+decode.
 
 ## 2026-08-25 — Intent quotes default to directional indexed rates without fallback
 

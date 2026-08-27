@@ -19,10 +19,11 @@ Newest entries first.
 incompatible shapes — `0x5cfb1ea5` (v1) and `0xa5470064` (v2) — and gateways upgrade per chain, so both are on the
 wire at once.
 
-New `protocols/intents/fillOrderCodec.ts` owns that: `getFillOptionsVersion` resolves the gateway's ERC-1967
-implementation and looks for the v2 selector in its runtime code (memoised per implementation, so an upgrade is
-picked up rather than pinned), `encodeFillOrder` emits the matching shape, and `decodeFillOrder` reads either.
-There is no version getter on the contract — the selector the compiler emits is the capability. `GasEstimator` encodes through it so estimates do not revert on a missing function; `BidManager` and
+New `protocols/intents/fillOrderCodec.ts` owns that: `getFillOptionsVersion` reads the gateway's ERC-1967
+implementation slot and matches the address against a set of known pre-`validUntil` implementations, defaulting to
+v2; `encodeFillOrder` emits the matching shape and `decodeFillOrder` reads either. There is no version getter on
+the contract — EIP-1967 has no version field either, and the implementation address is the value the proxy already
+updates on upgrade. `GasEstimator` encodes through it so estimates do not revert on a missing function; `BidManager` and
 `phantom-aggregation.extractFillData` decode through it so bids built against an older gateway are still priced in
 rather than dropped.
 

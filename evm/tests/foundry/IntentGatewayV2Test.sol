@@ -68,8 +68,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         super.setUp();
 
         // Setup test accounts
-        user = makeAddr("user");
-        filler = makeAddr("filler");
+        user = makeCleanAddr("user");
+        filler = makeCleanAddr("filler");
 
         // Deploy IntentGatewayV2
         intentGateway = _deployGatewayProxy();
@@ -3946,7 +3946,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpgradeContractRejectsNoCodeImpl() public {
         address implBefore = _implementationOf(address(intentGateway));
-        address noCode = makeAddr("noCodeImpl"); // EOA, no contract code.
+        address noCode = makeCleanAddr("noCodeImpl"); // EOA, no contract code.
 
         PostRequest memory request = _upgradeRequest(host.hyperbridge(), noCode, "");
 

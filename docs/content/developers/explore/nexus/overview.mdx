@@ -3,6 +3,8 @@ title: Overview
 description: Hyperbridge is at its fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
 ---
 
+import cores from "./images/cores.webp";
+
 # Hyperbridge Nexus
 
 The Hyperbridge blockchain is designed to be the Nexus of secure cross-chain interoperability. Hence the name. Hyperbridge is at its fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
@@ -28,7 +30,7 @@ The Nexus blockchain is secured by the Polkadot relay chain. This economic secur
 Polkadot provides a sharded design that allows for the execution of multiple parachains in parallel. This means that the Nexus blockchain can take advantage of multiple parachain cores (née parachain slots) to shard the work of validating cross-chain messages in parallel, providing a high throughput for cross-chain communication. This is a critical feature for the Nexus blockchain to be able to scale to meet the demands of the multi-chain ecosystem.
 
 <figure>
-  <img src="/cores.webp" alt="Hyperbridge Sharding" />
+  <img src={cores.src} alt="Hyperbridge Sharding" />
   <figcaption style={{ textAlign: "center" }}>Hyperbridge Sharding</figcaption>
 </figure>
 

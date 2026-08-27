@@ -9387,7 +9387,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.9.3"
+version = "1.9.4"
 dependencies = [
  "clap",
  "futures",
@@ -28974,6 +28974,7 @@ dependencies = [
  "evm-state-machine",
  "futures",
  "ismp",
+ "ismp-parachain",
  "log",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -28982,6 +28983,7 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-crypto-hashing",
+ "substrate-state-machine",
  "subxt 0.42.1",
  "subxt-utils",
  "tesseract-evm",

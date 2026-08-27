@@ -1,10 +1,11 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { formatEther, zeroAddress } from "viem"
+import { encodeFunctionData, erc20Abi, formatEther, maxUint256, zeroAddress } from "viem"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
-import { type Logger , moduleLogger} from "./Logger"
+import { type Logger, moduleLogger } from "./Logger"
 import type { Signer } from "./wallet"
 import { hasPaymaster } from "./paymaster"
+import { resolvePendingPermit2Approval } from "./paymaster/provider/simplex"
 import { UserOpSender } from "./UserOpSender"
 
 /** EIP-7702 delegation indicator prefix */
@@ -14,6 +15,9 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
  * Fixed gas limit for set-code (0x04) txs.
  */
 const DELEGATION_TX_GAS_FLOOR = 650_000n
+
+/** Extra gas for an ERC-20 approve folded into the delegation tx. */
+const BATCHED_APPROVE_GAS = 60_000n
 
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
@@ -99,6 +103,7 @@ export class DelegationService {
 			s: HexString
 			yParity: number
 		},
+		approval?: { token: HexString; spender: HexString } | null,
 	): Promise<HexString> {
 		const walletClient = this.clientManager.getWalletClient(chain)
 
@@ -106,6 +111,26 @@ export class DelegationService {
 		// signer signs it. A backend whose transaction API cannot express an
 		// authorization list handles that in its own `signTransaction` — see
 		// `mpcVaultSigner` — not here.
+		//
+		// When an approval is folded in, the tx calls `token.approve(spender, max)` while
+		// carrying the authorization: the delegation still lands (the authorization list is
+		// processed independently of `to`), and the approve executes with the EOA as sender.
+		// Otherwise it is a no-op self-call whose only payload is the authorization.
+		if (approval) {
+			return (await walletClient.sendTransaction({
+				to: approval.token,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: erc20Abi,
+					functionName: "approve",
+					args: [approval.spender, maxUint256],
+				}),
+				authorizationList: [authorization],
+				chain: walletClient.chain,
+				gas: DELEGATION_TX_GAS_FLOOR + BATCHED_APPROVE_GAS,
+			})) as HexString
+		}
+
 		return (await walletClient.sendTransaction({
 			to: this.signer.address,
 			value: 0n,
@@ -113,6 +138,30 @@ export class DelegationService {
 			chain: walletClient.chain,
 			gas: DELEGATION_TX_GAS_FLOOR,
 		})) as HexString
+	}
+
+	/**
+	 * Best-effort resolution of a Permit2 approval to fold into a native delegation. Never
+	 * throws: a resolution failure (RPC error, misconfig) yields null and the delegation
+	 * proceeds as a plain self-call.
+	 */
+	private async resolvePendingPermit2Approval(
+		chain: string,
+	): Promise<{ token: HexString; spender: HexString } | null> {
+		try {
+			const paymaster = this.configService.getSimplexPaymasterAddress(chain)
+			if (!paymaster) return null
+			return await resolvePendingPermit2Approval(
+				this.clientManager.getPublicClient(chain),
+				this.signer.address as HexString,
+				paymaster,
+				chain,
+				this.configService,
+			)
+		} catch (error) {
+			this.logger.warn({ chain, error }, "Could not resolve a Permit2 approval to batch into delegation")
+			return null
+		}
 	}
 
 	/**
@@ -194,8 +243,8 @@ export class DelegationService {
 			// The EIP-7702 authorization rides inside the UserOp so a not-yet-delegated
 			// EOA is delegated in the op (bundler submits the tx, so it uses the current
 			// nonce). Passed as a factory: the sender signs it only after paymaster data
-			// is built, because approve-mode chains send an approve tx from this same EOA
-			// at that step, which would invalidate an authorization signed beforehand.
+			// is built, because a first-time approval (to Permit2 or the paymaster) sends
+			// a tx from this same EOA at that step, invalidating an earlier authorization.
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData: "0x" as HexString,
@@ -204,7 +253,7 @@ export class DelegationService {
 					? { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 					: { verificationGasLimit: 80_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n },
 				paymasterVerificationGasLimit: isFreshEoa ? undefined : 110_000n,
-				forceApproveMode: true,
+				skipPermit: true,
 			})
 
 			if (result) {
@@ -277,28 +326,61 @@ export class DelegationService {
 			return false
 		}
 
+		this.logger.info(
+			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
+			"Setting up EIP-7702 delegation via direct tx",
+		)
+
+		// Fold the one-time Permit2 approval into this native tx when the chain needs it, so
+		// a no-permit fee token costs one native tx (delegate + approve) rather than two.
+		// The approve is the tx payload, so a token that rejects it (a blacklist, insufficient
+		// batched gas) reverts the whole tx with it. The batched attempt is best-effort: a
+		// reverted tx usually still delegated (EIP-7702 applies authorization tuples before
+		// execution and keeps them applied when execution reverts), and only a genuinely
+		// undelegated account retries as a plain self-call; the approval then defers to the
+		// first sponsored op's own funded approve.
+		const pendingApproval = await this.resolvePendingPermit2Approval(chain)
+		if (pendingApproval) {
+			if (await this.trySendDelegation(chain, solverAccountContract, pendingApproval)) {
+				return true
+			}
+			if (await this.isDelegated(chain)) {
+				this.logger.info(
+					{ chain },
+					"Batched approve reverted but the delegation landed; approval deferred to the first sponsored op",
+				)
+				return true
+			}
+			this.logger.warn({ chain }, "Batched delegate+approve failed; retrying delegation without the approve")
+		}
+		return this.trySendDelegation(chain, solverAccountContract, undefined)
+	}
+
+	/**
+	 * Sends one native EIP-7702 delegation tx (optionally batching a Permit2 approve) and
+	 * waits for its receipt. Never throws: a revert or send error is logged and returns
+	 * false, so the caller can fall back. Rebuilds the authorization each call, so a fresh
+	 * nonce is used after a prior attempt consumed one.
+	 */
+	private async trySendDelegation(
+		chain: string,
+		solverAccountContract: HexString,
+		approval: { token: HexString; spender: HexString } | undefined,
+	): Promise<boolean> {
 		try {
-			this.logger.info(
-				{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
-				"Setting up EIP-7702 delegation via direct tx",
-			)
-
 			const authorization = await this.buildAuthorization(chain, solverAccountContract)
-			const hash = await this.sendDelegationTransaction(chain, authorization)
+			const hash = await this.sendDelegationTransaction(chain, authorization, approval)
+			this.logger.info({ chain, txHash: hash, batchedApproval: approval?.token }, "Delegation transaction sent")
 
-			this.logger.info({ chain, txHash: hash }, "Delegation transaction sent")
-
-			const receipt = await publicClient.waitForTransactionReceipt({ hash })
-
+			const receipt = await this.clientManager.getPublicClient(chain).waitForTransactionReceipt({ hash })
 			if (receipt.status === "success") {
 				this.logger.info({ chain, txHash: hash, blockNumber: receipt.blockNumber }, "Delegation successful")
 				return true
 			}
-
-			this.logger.error({ chain, txHash: hash, status: receipt.status }, "Delegation transaction failed")
+			this.logger.error({ chain, txHash: hash, status: receipt.status }, "Delegation transaction reverted")
 			return false
 		} catch (error) {
-			this.logger.error({ chain, error }, "Failed to setup delegation")
+			this.logger.error({ chain, error, batchedApproval: approval?.token }, "Failed to send delegation tx")
 			return false
 		}
 	}

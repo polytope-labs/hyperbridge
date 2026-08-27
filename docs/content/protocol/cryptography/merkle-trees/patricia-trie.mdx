@@ -2,6 +2,9 @@
 title: Merkle Patricia Trie
 description: A PATRICIA Trie<sup>[2]</sup>, also known as a radix trie, is a kind of $k$-ary search tree which is used for efficiently looking up items in a database.
 ---
+
+import binaryPatriciaTrie from "./images/Screenshot_2023-02-26_at_9.16.56_AM.png";
+
 # Merkle Patricia Trie
 
 ### Patricia Trie
@@ -9,7 +12,7 @@ description: A PATRICIA Trie<sup>[2]</sup>, also known as a radix trie, is a kin
 A PATRICIA Trie<sup>[1]</sup>, also known as a radix trie, is a kind of $k$-ary search tree which is used for efficiently looking up items in a database. It achieves an $O(log_kn)$ search complexity by encoding the keys in the trie nodes along the path to the data. Unlike conventional tries, a Patricia trie only creates a node for each unique prefix of its keys. This reduces the amount of memory required to store the trie and allows for faster lookups.
 
 <figure>
-  <img src="/patricia/Screenshot_2023-02-26_at_9.16.56_AM.png" alt="An example of a binary PATRICIA trie" />
+  <img src={binaryPatriciaTrie.src} alt="An example of a binary PATRICIA trie" />
   <figcaption style={{ textAlign: "center" }}>An example of a binary PATRICIA trie.</figcaption>
 </figure>
 
@@ -20,31 +23,31 @@ Patricia tries were first described by Donald R. Morrison in 1968 and have since
 
 The Merkle-Patricia trie was invented by Dr. Gavin Wood, co-founder of Ethereum. It was first described in the Ethereum yellow paper<sup>[2]</sup>. This data structure combines the PATRICIA and Merkle trees into a single tree, which has the ability to store key-value items while still allowing for $O(klog_kn)$ merkle proofs. Where, $k$ represents the arity of each node and $n$ represents the number of leaves in the tree. The yellow paper prescribes an arity of 16, but using other arities is also possible.
 
-![trie world.png](/patricia/trie_world.png)
+![trie world.png](./images/trie_world.png)
 
 The yellow paper describes 3 kinds of Merkle-Patricia nodes:
 
 **Leaf Nodes**
 
-![Untitled Diagram (2).svg](/patricia/Untitled_Diagram_(2).svg)
+![Untitled Diagram (2).svg](./images/Untitled_Diagram_(2).svg)
 
 A leaf node can be thought of a 2-item tuple, whose first item corresponds to the bytes in the key not already accounted for by the accumulation of keys in the branch & extension nodes traversed from the root. The second item corresponds to the actual value held at the leaf node. The hash of a leaf node is gotten by concatenating it’s partial key with the hash of it’s value and taking the hash of this concatenation.
 
 **Extension Nodes**
 
-![extension.svg](/patricia/extension.svg)
+![extension.svg](./images/extension.svg)
 
 An extension node serves as a key accumulation node for keys that would’ve otherwise been encoded into deeply nested branch nodes. Much like the leaf node it is a 2-item tuple, it’s first item hold the key bytes shared by its child node, but its second item points to another (usually a branch) node in the trie. The hash of an extension node is gotten by concatenating it’s partial key with the hash of it’s child node and taking the hash of this concatenation.
 
 **Branch Nodes**
 
-![branch.svg](/patricia/branch.svg)
+![branch.svg](./images/branch.svg)
 
 A branch node on the other hand is a 17-item tuple, where the first 16 items in the tuple correspond to all the possible nibble ($2^4$ or half a byte) values which hold the hash of a node at those positions, while the 17th item holds a possible value. The hash of a branch node is gotten by concatenating of the hash of all its children nodes and taking the hash of this concatenation. This is also the reason why the merkle-patricia trie has $O(klog_kn)$ merkle proofs, as you’d need to include the hash of all sibling nodes in all the branch nodes along the path to the leaf node.
 
 **Compact Merkle Patricia Proofs**
 
-![NibbledBranch.svg](/patricia/NibbledBranch.svg)
+![NibbledBranch.svg](./images/NibbledBranch.svg)
 
 The merkle-patricia trie was further modified for substrate and polkadot, resulting in more compact state proofs by eliminating extension nodes<sup>[3]</sup>. Instead, partial keys were introduced to branch nodes. This means that branch nodes can hold accumulated partial keys, which eliminates the need for a dedicated extension node. With this modification state proofs are effectively compacted and less nodes are required in state proofs.
 

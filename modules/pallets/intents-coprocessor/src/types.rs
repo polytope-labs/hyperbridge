@@ -377,6 +377,11 @@ pub enum RequestKind {
 		/// The amount to withdraw
 		amount: U256,
 	},
+	/// Start the EntryPoint unstake timer for the paymaster. `PaymasterWithdrawStake`
+	/// becomes effective once the configured `unstakeDelaySec` has elapsed.
+	PaymasterUnlockStake,
+	/// Sweep the paymaster's unlocked EntryPoint stake to its treasury
+	PaymasterWithdrawStake,
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -608,6 +613,8 @@ enum SimplexPaymasterRequestKind {
 	RegisterToken = 2,
 	DeactivateToken = 3,
 	WithdrawAssets = 4,
+	UnlockStake = 5,
+	WithdrawStake = 6,
 }
 
 impl RequestKind {
@@ -721,6 +728,13 @@ impl RequestKind {
 				let mut body = vec![SimplexPaymasterRequestKind::WithdrawAssets as u8];
 				body.extend_from_slice(&payload.abi_encode_params());
 				body
+			},
+			// Both take no arguments: the destination is always the paymaster's treasury.
+			RequestKind::PaymasterUnlockStake => {
+				vec![SimplexPaymasterRequestKind::UnlockStake as u8]
+			},
+			RequestKind::PaymasterWithdrawStake => {
+				vec![SimplexPaymasterRequestKind::WithdrawStake as u8]
 			},
 		}
 	}
@@ -847,5 +861,20 @@ mod request_kind_tests {
 			<(Address, AlloyU256)>::abi_decode_params(&body[1..]).expect("(address, uint256)");
 		assert_eq!(dt.as_slice(), &token.0);
 		assert_eq!(da, AlloyU256::from(1_000_000u64));
+	}
+
+	/// Both stake requests carry no payload: `onAccept` reads only the kind byte and sends
+	/// the stake to the paymaster's own treasury.
+	#[test]
+	fn paymaster_stake_requests_are_bare_kind_bytes() {
+		let unlock = RequestKind::PaymasterUnlockStake.encode_body();
+		assert_eq!(unlock, vec![5], "SimplexPaymaster.RequestKind.UnlockStake == 5, empty payload");
+
+		let withdraw = RequestKind::PaymasterWithdrawStake.encode_body();
+		assert_eq!(
+			withdraw,
+			vec![6],
+			"SimplexPaymaster.RequestKind.WithdrawStake == 6, empty payload"
+		);
 	}
 }

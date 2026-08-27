@@ -293,6 +293,28 @@ impl<T: frame_system::Config> pallet_intents_coprocessor::WeightInfo for WeightI
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	/// Same shape as `withdraw_paymaster_assets`: read the paymaster then dispatch an ISMP
+	/// governance message. Estimated from that sibling pending a dedicated benchmark.
+	fn unlock_paymaster_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `738`
+		//  Estimated: `4203`
+		// Minimum execution time: 55_936_000 picoseconds.
+		Weight::from_parts(58_280_000, 0)
+			.saturating_add(Weight::from_parts(0, 4203))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
+	fn withdraw_paymaster_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `738`
+		//  Estimated: `4203`
+		// Minimum execution time: 55_936_000 picoseconds.
+		Weight::from_parts(58_280_000, 0)
+			.saturating_add(Weight::from_parts(0, 4203))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
 	/// Storage: `IntentsCoprocessor::Gateways` (r:1 w:0)
 	/// Proof: `IntentsCoprocessor::Gateways` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `ParachainInfo::ParachainId` (r:1 w:0)

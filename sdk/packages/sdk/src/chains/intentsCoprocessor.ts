@@ -1,4 +1,4 @@
-import { ApiPromise, HttpProvider, Keyring, WsProvider } from "@polkadot/api"
+import { ApiPromise, Keyring, WsProvider } from "@polkadot/api"
 import type { ApiOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { RuntimeVersion } from "@polkadot/types/interfaces"
@@ -11,6 +11,7 @@ import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEnt
 import type { SubstrateChain } from "./substrate"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import { TokenBucket } from "@/utils/rateLimiter"
+import { BatchingHttpProvider } from "@/utils/batchingHttpProvider"
 
 /** Offchain storage key prefix for bids */
 const OFFCHAIN_BID_PREFIX = new TextEncoder().encode("intents::bid::")
@@ -64,11 +65,14 @@ const DEFAULT_RPC_MAX_RPS = 8
  *
  * A bid window is a handful of blocks, so blocks much further back than that carry orders that can
  * no longer be bid on — scanning them faster than the chain produces them is all recovery needs to
- * do, and this cap leaves 20 blocks per tick against 1-2 produced. The old 500 turned any outage
- * into a two-thousand-request burst, which the rate limiter would now serialise ahead of every
- * balance read and HTTP-fallback submission queued behind it.
+ * do, and ten blocks a tick against the one or two produced clears a backlog quickly enough.
+ *
+ * Kept small even though `state_queryStorage` reads the whole range in one call, because the cost
+ * moved rather than vanished: `sc-rpc` warns that its complexity is `O(|keys| * dist(from, to))` in
+ * both time and memory, so a wide range is one request the node spends a long time on. It also
+ * bounds the fallback, which is still one request per block.
  */
-const DEFAULT_MAX_BLOCKS_PER_POLL = 20
+const DEFAULT_MAX_BLOCKS_PER_POLL = 10
 
 /** Ticks to sit out after a 429, doubling per consecutive rejection. */
 const MAX_RATE_LIMIT_BACKOFF_TICKS = 8
@@ -98,35 +102,6 @@ function configuredRpcMaxRps(): number {
 }
 
 /**
- * An `HttpProvider` that paces its sends through a token bucket.
- *
- * The pacing sits at the provider rather than at each call site because the budget is a property of
- * the endpoint, not of any one caller. Block scanning, offchain order reads, balance polling and
- * the HTTP submission fallback all converge here, and only here is their combined rate visible.
- */
-class RateLimitedHttpProvider extends HttpProvider {
-	constructor(
-		private readonly endpointUrl: string,
-		private readonly endpointHeaders: Record<string, string>,
-		cacheCapacity: number,
-		private readonly limiter: TokenBucket,
-	) {
-		super(endpointUrl, endpointHeaders, cacheCapacity)
-	}
-
-	override async send<T>(method: string, params: unknown[], isCacheable?: boolean): Promise<T> {
-		await this.limiter.acquire()
-		return super.send<T>(method, params, isCacheable)
-	}
-
-	// The base clone returns a plain HttpProvider, which would be a second unpaced route to the same
-	// endpoint. Nothing here clones today; this is so nothing has to remember that it must not.
-	override clone(): RateLimitedHttpProvider {
-		return new RateLimitedHttpProvider(this.endpointUrl, this.endpointHeaders, 0, this.limiter)
-	}
-}
-
-/**
  * Whether a failure is the endpoint refusing traffic for being too fast, as opposed to being down.
  *
  * polkadot-js surfaces the status in the message it throws (`[429]: Too Many Requests`), which is
@@ -136,6 +111,40 @@ class RateLimitedHttpProvider extends HttpProvider {
 function isRateLimited(err: unknown): boolean {
 	const message = err instanceof Error ? err.message : String(err)
 	return message.includes("[429]") || /too many requests/i.test(message)
+}
+
+/**
+ * Whether a failure means the node will not serve this method at all — either it does not exist, or
+ * `--rpc-methods=safe` is refusing it. `sc-rpc` answers a denied unsafe call with `MethodNotFound`
+ * and the message below, so the two cases are one check and one response: stop asking.
+ */
+function isMethodUnavailable(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err)
+	const code = (err as { code?: number })?.code
+	return code === -32601 || /method not found|unsafe to be called externally/i.test(message)
+}
+
+/** Pulls the phantom order registrations out of one block's decoded `system.events`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function phantomOrdersFrom(records: any): PhantomOrderEvent[] {
+	const orders: PhantomOrderEvent[] = []
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	for (const { event } of records as unknown as Array<{ event: any }>) {
+		if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
+		const [commitment, chain, createdAt, legs] = event.data
+		orders.push({
+			commitment: commitment.toHex() as HexString,
+			chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
+			createdAt: createdAt.toNumber(),
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			legs: (legs as any[]).map((leg: any) => ({
+				tokenA: leg.tokenA.toHex() as HexString,
+				tokenB: leg.tokenB.toHex() as HexString,
+				standardAmount: BigInt(leg.standardAmount.toString()),
+			})),
+		})
+	}
+	return orders
 }
 
 /** Rejects after `ms`, without holding a node process open on its own. */
@@ -307,8 +316,9 @@ export interface PollPhantomOrdersOptions {
 	intervalMs?: number
 	/**
 	 * Most blocks scanned in a single poll, so a long outage catches up over several ticks instead of
-	 * one burst. Defaults to 20 — several times the rate the chain produces blocks, so recovery is
-	 * still quick, but small enough that the requests it queues cannot crowd out a bid submission.
+	 * one burst. Defaults to 10 — several times the rate the chain produces blocks, so recovery is
+	 * still quick, but small enough to bound both the work one `state_queryStorage` call asks of the
+	 * node and the requests the per-block fallback queues ahead of a bid submission.
 	 */
 	maxBlocksPerPoll?: number
 	/**
@@ -336,6 +346,9 @@ export class IntentsCoprocessor {
 
 	/** Last runtime version read from the node, for {@link confirmedRuntimeVersion} to compare against. */
 	private lastRuntimeVersion: RuntimeVersion | undefined
+
+	/** Set once the node refuses `state_queryStorage`, so the poll stops asking for it. */
+	private rangeQueryUnavailable = false
 
 	// Serialises every extrinsic submission on this instance's substrate account. All submit/retract
 	// methods funnel through signAndSendExtrinsic, each using the API's auto-nonce; fired in parallel
@@ -449,10 +462,11 @@ export class IntentsCoprocessor {
 				// replayed from memory on every tick, faster than the TTL could lapse, and the node never
 				// saw a second request. The cache bought nothing here anyway: the poll reads each block
 				// once, and `api.at(hash)` reuses registries at the api layer regardless.
-				// Every request to this endpoint is paced by a bucket shared with any other
-				// coprocessor in this process pointed at the same host — the limit is the server's,
-				// and it counts requests per address rather than per connection.
-				provider: new RateLimitedHttpProvider(httpUrl, {}, 0, limiterFor(httpUrl)),
+				// Concurrent calls are coalesced into one JSON-RPC batch request, and every request
+				// to this endpoint is paced by a bucket shared with any other coprocessor in this
+				// process pointed at the same host — the limit is the server's, and it counts
+				// requests per address rather than per connection.
+				provider: new BatchingHttpProvider(httpUrl, {}, limiterFor(httpUrl)),
 				typesBundle: HYPERBRIDGE_TYPES_BUNDLE,
 				// A second connection to the node the ws api already reported on; its init warnings
 				// would just be duplicates.
@@ -1177,27 +1191,59 @@ export class IntentsCoprocessor {
 	async getPhantomOrdersInBlock(blockNumber: number, knownVersion?: RuntimeVersion): Promise<PhantomOrderEvent[]> {
 		const api = await this.http()
 		const blockHash = await api.rpc.chain.getBlockHash(blockNumber)
-		const apiAt = await api.at(blockHash, knownVersion)
-		const records = await apiAt.query.system.events()
+		return await this.getPhantomOrdersAtHash(blockHash.toHex() as HexString, knownVersion)
+	}
 
-		const orders: PhantomOrderEvent[] = []
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		for (const { event } of records as unknown as Array<{ event: any }>) {
-			if (event.section !== "intentsCoprocessor" || event.method !== "PhantomOrderRegistered") continue
-			const [commitment, chain, createdAt, legs] = event.data
-			orders.push({
-				commitment: commitment.toHex() as HexString,
-				chain: new TextDecoder().decode(hexToU8a(chain.toHex())),
-				createdAt: createdAt.toNumber(),
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				legs: (legs as any[]).map((leg: any) => ({
-					tokenA: leg.tokenA.toHex() as HexString,
-					tokenB: leg.tokenB.toHex() as HexString,
-					standardAmount: BigInt(leg.standardAmount.toString()),
-				})),
-			})
-		}
-		return orders
+	/**
+	 * The same read, for a caller that already holds the block's hash.
+	 *
+	 * Split out so the poll can fetch a whole range's hashes in one concurrent wave — which the
+	 * provider coalesces into a single batched request — and then read each block's events knowing
+	 * its hash. `chain_getBlockHash` is the half of the pair that parallelises safely: it takes no
+	 * historic block hash, so it never triggers polkadot-js's per-hash registry resolution, and
+	 * concurrent calls cannot race each other's registry state.
+	 */
+	async getPhantomOrdersAtHash(blockHash: HexString, knownVersion?: RuntimeVersion): Promise<PhantomOrderEvent[]> {
+		const api = await this.http()
+		const apiAt = await api.at(blockHash, knownVersion)
+		return phantomOrdersFrom(await apiAt.query.system.events())
+	}
+
+	/**
+	 * Every block's phantom orders across a whole range, in one `state_queryStorage` call.
+	 *
+	 * This is the cheap path: the request cost of a scan stops depending on how many blocks it
+	 * covers. The events key is the only key queried, and both bounds are block hashes the caller
+	 * already holds.
+	 *
+	 * Two properties of the RPC shape the result.
+	 *
+	 * It returns *diffs*: `query_storage_unfiltered` in `sc-rpc` pushes a change set for a block only
+	 * when the value differs from the previous block in the range (`has_changed`, and the set is
+	 * dropped when empty), so a block whose events encode byte-for-byte identically to its
+	 * predecessor's is simply absent. That happens on a quiet chain, where consecutive blocks carry
+	 * nothing but the timestamp inherent's `ExtrinsicSuccess`. It is safe here because an absent
+	 * block provably carries no phantom orders: a `PhantomOrderRegistered` commitment is derived from
+	 * the block number (`phantom_order_commitment`), so a block that registered orders can never
+	 * encode identically to any other block. Absent therefore means "same as the previous block",
+	 * and the previous block having orders would contradict that.
+	 *
+	 * And it is gated by `--rpc-methods` (`check_if_safe` in `sc-rpc`), which answers a denied call
+	 * with `Method not found`. The node this reads from must already run unsafe RPC to serve
+	 * `offchain_localStorageGet` for the orders themselves, so this is normally available; the poll
+	 * falls back to reading block by block when it is not.
+	 *
+	 * @returns one entry per block the node reported a change for, in ascending block order.
+	 */
+	async getPhantomOrdersInRange(fromBlockHash: HexString, toBlockHash: HexString): Promise<PhantomOrderEvent[][]> {
+		const api = await this.http()
+		const eventsKey = api.query.system.events.key()
+		const changeSets = await api.rpc.state.queryStorage([eventsKey], fromBlockHash, toBlockHash)
+		// polkadot-js decodes a `Vec<StorageChangeSet>` reply into `[blockHash, valuesPerKey]` pairs,
+		// each value already typed from the storage key's own metadata — one key here, so index 0.
+		return (changeSets as unknown as Array<[unknown, unknown[]]>).map(([, values]) =>
+			phantomOrdersFrom(values[0]),
+		)
 	}
 
 	/**
@@ -1227,12 +1273,17 @@ export class IntentsCoprocessor {
 	 * pause phantom bidding at all — the two transports fail independently.
 	 *
 	 * What the cadence does *not* describe is the request rate, which is what rate limiters police.
-	 * A tick costs one request for the head plus two per block in its range, all of them fired
-	 * back-to-back, so an interval well under any per-second limit still arrives as a burst over it.
-	 * Two things keep that in bounds: the endpoint's token bucket paces the requests themselves
-	 * (see `http`), and `maxBlocksPerPoll` bounds how many a single tick can queue. A 429 that gets
-	 * through anyway backs the poll off for a doubling number of ticks, so a limiter that is already
-	 * shedding load is not handed the next window's budget in rejections too.
+	 * A tick costs four requests whatever the range covers — the head, the runtime version, the two
+	 * bounding block hashes as one batched request, and one `state_queryStorage` for every block's
+	 * events — and they go out back-to-back, so an interval well under any per-second limit could
+	 * still arrive as a burst over it. Three things keep that in bounds: the provider coalesces
+	 * concurrent calls into one request and paces requests through the endpoint's token bucket (see
+	 * `http`), and `maxBlocksPerPoll` bounds the range. A 429 that gets through anyway backs the
+	 * poll off for a doubling number of ticks, so a limiter that is already shedding load is not
+	 * handed the next window's budget in rejections too.
+	 *
+	 * Where the node will not serve `state_queryStorage` the poll reads block by block instead, at
+	 * three requests plus one per block; see {@link scanRangeAtOnce}.
 	 *
 	 * Returns a function that stops polling.
 	 */
@@ -1267,7 +1318,8 @@ export class IntentsCoprocessor {
 			}
 			inFlight = true
 			try {
-				const head = (await (await this.http()).rpc.chain.getHeader()).number.toNumber()
+				const api = await this.http()
+				const head = (await api.rpc.chain.getHeader()).number.toNumber()
 
 				if (cursor === null) {
 					// Start just below the head so the head itself is scanned, less any lookback.
@@ -1280,13 +1332,41 @@ export class IntentsCoprocessor {
 				const knownVersion = await this.confirmedRuntimeVersion()
 
 				const to = Math.min(head, cursor + maxBlocksPerPoll)
-				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) {
+
+				// The whole range in one call, when the node will serve it.
+				const ranged = await this.scanRangeAtOnce(api, cursor + 1, to, knownVersion)
+				if (ranged) {
+					for (const orders of ranged) {
+						if (stopped) return
+						if (orders.length > 0) callback(orders)
+					}
+					// One call answered for the range or threw, so there is no partial progress to
+					// preserve — the cursor moves the whole way or not at all.
+					cursor = to
+					backoffLength = 0
+					return
+				}
+
+				const numbers: number[] = []
+				for (let blockNumber = cursor + 1; blockNumber <= to; blockNumber++) numbers.push(blockNumber)
+
+				// One concurrent wave, which the provider sends as a single batched request. Only
+				// the leading run of hashes that came back is used: the events reads below advance
+				// the cursor block by block, so a hash the batch could not answer simply ends this
+				// tick's range and is re-read on the next, exactly as a failed events read is.
+				const hashes = await Promise.allSettled(
+					numbers.map((blockNumber) => api.rpc.chain.getBlockHash(blockNumber)),
+				)
+
+				for (let index = 0; index < numbers.length; index++) {
 					if (stopped) return
-					const orders = await this.getPhantomOrdersInBlock(blockNumber, knownVersion)
+					const hash = hashes[index]
+					if (hash.status === "rejected") throw hash.reason
+					const orders = await this.getPhantomOrdersAtHash(hash.value.toHex() as HexString, knownVersion)
 					if (orders.length > 0) callback(orders)
 					// Advance per block, not per range: a failure partway through re-scans only the
 					// blocks that were never read, and never re-delivers ones that were.
-					cursor = blockNumber
+					cursor = numbers[index]
 				}
 				backoffLength = 0
 			} catch (err) {
@@ -1315,6 +1395,50 @@ export class IntentsCoprocessor {
 		return () => {
 			stopped = true
 			if (timer) clearInterval(timer)
+		}
+	}
+
+	/**
+	 * A whole range of blocks in one `state_queryStorage` call, or `null` when that is not available
+	 * and the caller should read block by block.
+	 *
+	 * Two conditions have to hold, and both are about decoding rather than the range itself.
+	 *
+	 * The version must be confirmed for this tick — an upgrade inside the range means blocks decode
+	 * against different metadata, and one call cannot do that.
+	 *
+	 * And that confirmed version must still be the one the api's own registry was built for.
+	 * `state_queryStorage` declares no historic block hash, so rpc-core skips its registry swap and
+	 * decodes the reply against the default registry — fixed at connect, with no
+	 * `subscribeRuntimeVersion` on an HTTP api to refresh it. After an upgrade the two diverge, and
+	 * the per-block path takes over for good: `api.at(hash, version)` resolves, and builds, the right
+	 * registry. That costs a restart to get the cheap path back, which is the correct direction to
+	 * fail in.
+	 */
+	private async scanRangeAtOnce(
+		api: ApiPromise,
+		from: number,
+		to: number,
+		knownVersion: RuntimeVersion | undefined,
+	): Promise<PhantomOrderEvent[][] | null> {
+		if (this.rangeQueryUnavailable || !knownVersion) return null
+		const registryVersion = api.runtimeVersion?.specVersion
+		if (!registryVersion || !knownVersion.specVersion.eq(registryVersion)) return null
+
+		// Two calls at most, and the provider sends them as one request.
+		const [fromHash, toHash] =
+			from === to
+				? await Promise.all([api.rpc.chain.getBlockHash(from)]).then(([only]) => [only, only])
+				: await Promise.all([api.rpc.chain.getBlockHash(from), api.rpc.chain.getBlockHash(to)])
+
+		try {
+			return await this.getPhantomOrdersInRange(fromHash.toHex() as HexString, toHash.toHex() as HexString)
+		} catch (err) {
+			// A node that will not serve the method will not start doing so; anything else is this
+			// tick's failure to report, not a reason to abandon the cheap path.
+			if (!isMethodUnavailable(err)) throw err
+			this.rangeQueryUnavailable = true
+			return null
 		}
 	}
 

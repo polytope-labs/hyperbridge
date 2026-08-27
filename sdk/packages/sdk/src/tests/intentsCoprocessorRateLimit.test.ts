@@ -11,6 +11,11 @@ import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
  * measured in seconds says nothing about either. The pacing therefore lives at the provider, where
  * the endpoint's whole traffic is visible, rather than at any one caller — which is also what lets
  * several fillers in one process stay collectively within one budget instead of each pacing to it.
+ *
+ * These use sequential calls throughout. Concurrent ones would be coalesced into a single batched
+ * request by the provider and cost a single token, which is the subject of
+ * `batchingHttpProvider.test.ts`; what is being pinned here is that separate *requests* are paced,
+ * and that the budget doing the pacing is shared per endpoint.
  */
 
 const REQUESTS_PER_SECOND = 10
@@ -93,12 +98,12 @@ describe("coprocessor HTTP request pacing", () => {
 		const send = await provider(coprocessorFor(port))
 
 		const started = Date.now()
-		await Promise.all(
-			Array.from({ length: REQUESTS_PER_SECOND * 2 }, () => send.send("state_getStorage", ["0x00"])),
-		)
+		for (let i = 0; i < REQUESTS_PER_SECOND * 2; i++) {
+			await send.send("state_getStorage", ["0x00"])
+		}
 
 		expect(node.arrivals).toHaveLength(REQUESTS_PER_SECOND * 2)
-		// Unpaced, twenty requests against a local node land in a handful of milliseconds.
+		// Unpaced, twenty round trips against a local node land in a handful of milliseconds.
 		expect(Date.now() - started).toBeGreaterThanOrEqual(900)
 
 		// Spans rather than absolute times, so a loaded machine slows both sides alike: the first
@@ -117,10 +122,11 @@ describe("coprocessor HTTP request pacing", () => {
 		])
 
 		const started = Date.now()
-		await Promise.all([
-			...Array.from({ length: REQUESTS_PER_SECOND }, () => first.send("state_getStorage", ["0x00"])),
-			...Array.from({ length: REQUESTS_PER_SECOND }, () => second.send("state_getStorage", ["0x00"])),
-		])
+		// Interleaved and sequential, so each call is its own request against a shared budget.
+		for (let i = 0; i < REQUESTS_PER_SECOND; i++) {
+			await first.send("state_getStorage", ["0x00"])
+			await second.send("state_getStorage", ["0x00"])
+		}
 
 		// Twenty requests through one bucket takes a second. Through two it would take none.
 		expect(node.arrivals).toHaveLength(REQUESTS_PER_SECOND * 2)

@@ -59,6 +59,15 @@ interface Harness {
 	scanned: number[]
 	/** The runtime version `api.at` was called with for each scanned block, positionally. */
 	pinnedVersions: Array<FakeRuntimeVersion | undefined>
+	/** Every hash and events read in the order it was issued, as `hash:<n>` / `events:<n>`. */
+	issued: string[]
+	/** The `[from, to]` block numbers of each `state_queryStorage` call. */
+	rangeCalls: Array<[number, number]>
+	/**
+	 * Marks a block as encoding its events byte-for-byte like its predecessor's, which is what makes
+	 * `state_queryStorage` omit it from the reply.
+	 */
+	repeatEventsAt: (blockNumber: number) => void
 	setHead: (n: number) => void
 	/** Registers an order in a block; a block can carry several, as the pallet writes them. */
 	putOrder: (blockNumber: number, commitment: string) => void
@@ -74,7 +83,15 @@ interface Harness {
 	touchedWebsocket: () => boolean
 }
 
-function harness(initialHead: number, specName = "nexus"): Harness {
+/** The storage key the poll queries; only its identity matters here. */
+const EVENTS_KEY = "0xevents"
+
+const blockOf = (hash: string) => Number(hash.replace("0xblock", ""))
+
+function harness(
+	initialHead: number,
+	{ specName = "nexus", rangeQueries = true }: { specName?: string; rangeQueries?: boolean } = {},
+): Harness {
 	let head = initialHead
 	let headFailures = 0
 	let rateLimitedHeads = 0
@@ -84,6 +101,9 @@ function harness(initialHead: number, specName = "nexus"): Harness {
 	const ordersByBlock = new Map<number, string[]>()
 	const scanned: number[] = []
 	const pinnedVersions: Array<FakeRuntimeVersion | undefined> = []
+	const issued: string[] = []
+	const rangeCalls: Array<[number, number]> = []
+	const repeats = new Set<number>()
 
 	const getHeader = vi.fn(async () => {
 		if (rateLimitedHeads > 0) {
@@ -97,15 +117,45 @@ function harness(initialHead: number, specName = "nexus"): Harness {
 		return { number: { toNumber: () => head } }
 	})
 
-	const getBlockHash = vi.fn(async (n: number) => `0xblock${n}`)
+	// polkadot-js returns a codec, and the poll reads `.toHex()` off it.
+	const getBlockHash = vi.fn(async (n: number) => {
+		issued.push(`hash:${n}`)
+		return { toHex: () => `0xblock${n}` }
+	})
 
 	const getRuntimeVersion = vi.fn(async () => {
 		versionReads += 1
 		return runtimeVersion(specName, specVersion)
 	})
 
+	/**
+	 * Stands in for `state_queryStorage`. A node with `--rpc-methods=safe` refuses it as
+	 * `Method not found`, and a node that serves it answers with change sets — one per block whose
+	 * value differs from the block before it, which is why `repeats` produces holes.
+	 */
+	const queryStorage = vi.fn(async (_keys: string[], fromHash: string, toHash: string) => {
+		if (!rangeQueries) {
+			const error = new Error("Method not found: state_queryStorage") as Error & { code?: number }
+			error.code = -32601
+			throw error
+		}
+		const from = blockOf(fromHash)
+		const to = blockOf(toHash)
+		rangeCalls.push([from, to])
+		const sets: Array<[string, unknown[]]> = []
+		for (let blockNumber = from; blockNumber <= to; blockNumber++) {
+			if (repeats.has(blockNumber)) continue
+			issued.push(`range:${blockNumber}`)
+			scanned.push(blockNumber)
+			const commitments = ordersByBlock.get(blockNumber) ?? []
+			sets.push([`0xblock${blockNumber}`, [[unrelatedEvent, ...commitments.map(registeredEvent)]]])
+		}
+		return sets
+	})
+
 	const at = vi.fn(async (blockHash: string, knownVersion?: FakeRuntimeVersion) => {
 		const blockNumber = Number(blockHash.replace("0xblock", ""))
+		issued.push(`events:${blockNumber}`)
 		scanned.push(blockNumber)
 		pinnedVersions.push(knownVersion)
 		const commitments = ordersByBlock.get(blockNumber) ?? []
@@ -130,7 +180,8 @@ function harness(initialHead: number, specName = "nexus"): Harness {
 		api: websocket,
 		// Pre-resolved so nothing tries to open a real connection.
 		httpApi: Promise.resolve({
-			rpc: { chain: { getHeader, getBlockHash }, state: { getRuntimeVersion } },
+			rpc: { chain: { getHeader, getBlockHash }, state: { getRuntimeVersion, queryStorage } },
+			query: { system: { events: { key: () => EVENTS_KEY } } },
 			at,
 			runtimeVersion: runtimeVersion(specName, specVersion),
 		}),
@@ -140,6 +191,9 @@ function harness(initialHead: number, specName = "nexus"): Harness {
 		coprocessor,
 		scanned,
 		pinnedVersions,
+		issued,
+		rangeCalls,
+		repeatEventsAt: (blockNumber) => repeats.add(blockNumber),
 		setHead: (n) => {
 			head = n
 		},
@@ -321,7 +375,7 @@ describe("pollPhantomOrders", () => {
 	})
 
 	it("polls every block on gargantua when no interval is given", async () => {
-		const h = harness(100, "gargantua")
+		const h = harness(100, { specName: "gargantua" })
 		const stop = h.coprocessor.pollPhantomOrders(() => {})
 
 		await tick(0)
@@ -347,15 +401,16 @@ describe("pollPhantomOrders", () => {
 		expect(h.scanned).toEqual([100, 101])
 	})
 
-	// The cadence is not the request rate. `api.at(hash)` with nothing to go on fetches the header
-	// and the runtime version at its parent before it can decode a block, so a scan that looks like
-	// one request per block is four — enough to clear a per-second limit from a tick that averages
-	// well under it. Naming the version removes both. These pin that the version is established,
-	// that it is established once per tick rather than per block, and that it is dropped rather than
-	// trusted the moment it might not be the block's.
-	describe("request cost", () => {
+	// What a tick costs when the node will not serve `state_queryStorage` and the poll reads block by
+	// block. `api.at(hash)` with nothing to go on fetches the header and the runtime version at its
+	// parent before it can decode a block, so a scan that looks like one request per block is four —
+	// enough to clear a per-second limit from a tick that averages well under it. Naming the version
+	// removes both. These pin that the version is established, that it is established once per tick
+	// rather than per block, and that it is dropped rather than trusted the moment it might not be
+	// the block's.
+	describe("per-block fallback", () => {
 		it("decodes blocks against a runtime version it has confirmed", async () => {
-			const h = harness(100)
+			const h = harness(100, { rangeQueries: false })
 			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 			await tick(0)
@@ -368,7 +423,7 @@ describe("pollPhantomOrders", () => {
 		})
 
 		it("reads the runtime version once per tick, not once per block", async () => {
-			const h = harness(100)
+			const h = harness(100, { rangeQueries: false })
 			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 			await tick(0)
@@ -381,7 +436,7 @@ describe("pollPhantomOrders", () => {
 		})
 
 		it("does not read the runtime version on a tick with nothing to scan", async () => {
-			const h = harness(100)
+			const h = harness(100, { rangeQueries: false })
 			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 			await tick(0)
@@ -398,7 +453,7 @@ describe("pollPhantomOrders", () => {
 		// old metadata, and that failure is silent: the events come back in a shape the scan does
 		// not recognise, so the block reads as empty and the cursor advances past the orders in it.
 		it("resolves each block itself for the tick an upgrade landed in, and pins again after", async () => {
-			const h = harness(100)
+			const h = harness(100, { rangeQueries: false })
 			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 			await tick(0)
@@ -418,16 +473,156 @@ describe("pollPhantomOrders", () => {
 			expect(h.pinnedVersions.map((v) => v?.specVersion.toNumber())).toEqual([1, undefined, 2])
 		})
 
-		it("caps a catch-up at 20 blocks by default", async () => {
+		// `chain_getBlockHash` takes no historic block hash, so concurrent calls cannot race each
+		// other's registry state the way concurrent `api.at` calls would — which makes it the half
+		// of the pair that parallelises safely, and therefore the half the provider can batch.
+		it("fetches a range's block hashes in one wave, before reading any events", async () => {
+			const h = harness(100, { rangeQueries: false })
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
+
+			await tick(0)
+			h.issued.length = 0
+			h.setHead(103)
+			await tick(1000)
+			stop()
+
+			expect(h.issued).toEqual([
+				"hash:101",
+				"hash:102",
+				"hash:103",
+				"events:101",
+				"events:102",
+				"events:103",
+			])
+		})
+
+	})
+
+	it("caps a catch-up at 10 blocks by default", async () => {
+		const h = harness(100)
+		const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
+
+		await tick(0)
+		h.setHead(200)
+		await tick(1000)
+		stop()
+
+		expect(h.scanned).toEqual([100, ...Array.from({ length: 10 }, (_, i) => 101 + i)])
+		expect(h.rangeCalls).toEqual([
+			[100, 100],
+			[101, 110],
+		])
+	})
+
+	// `state_queryStorage` reads a whole range in one call, so a scan's request cost stops depending
+	// on how many blocks it covers. Two things about the RPC shape these have to pin: it answers with
+	// diffs rather than one entry per block, and a node running `--rpc-methods=safe` refuses it.
+	describe("ranged scan", () => {
+		it("reads a whole range in a single call", async () => {
+			const h = harness(100)
+			h.putOrder(102, COMMITMENT_A)
+			const seen: PhantomOrderEvent[] = []
+
+			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
+			await tick(0)
+			h.setHead(104)
+			await tick(1000)
+			stop()
+
+			expect(h.rangeCalls).toEqual([
+				[100, 100],
+				[101, 104],
+			])
+			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+		})
+
+		it("reads no block's events on its own, and asks only for the range's two bounds", async () => {
 			const h = harness(100)
 			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
 
 			await tick(0)
-			h.setHead(200)
+			h.issued.length = 0
+			h.setHead(105)
 			await tick(1000)
 			stop()
 
-			expect(h.scanned).toEqual([100, ...Array.from({ length: 20 }, (_, i) => 101 + i)])
+			// Six blocks covered by one ranged read, and two hashes rather than six.
+			expect(h.issued).toEqual(["hash:101", "hash:105", ...[101, 102, 103, 104, 105].map((n) => `range:${n}`)])
+			// `api.at` is never reached, so no per-block registry resolution happens at all.
+			expect(h.pinnedVersions).toEqual([])
+		})
+
+		// `query_storage_unfiltered` emits a change set only where the value differs from the block
+		// before, so a block encoding identically to its predecessor is simply absent. Safe here
+		// because a phantom commitment is derived from the block number, so a block that registered
+		// orders can never encode like another one — absent provably means no orders.
+		it("passes over a block the node omitted as unchanged", async () => {
+			const h = harness(100)
+			h.putOrder(101, COMMITMENT_A)
+			h.repeatEventsAt(102)
+			const seen: PhantomOrderEvent[] = []
+
+			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), { intervalMs: 1000 })
+			await tick(0)
+			h.setHead(103)
+			await tick(1000)
+
+			expect(h.scanned).toEqual([100, 101, 103])
+			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+
+			// The cursor still moved past the omitted block: nothing is re-read.
+			h.setHead(104)
+			await tick(1000)
+			stop()
+
+			expect(h.rangeCalls.at(-1)).toEqual([104, 104])
+		})
+
+		// `--rpc-methods=safe`. The poll must keep working, and must stop asking.
+		it("switches to per-block reads for good when the node refuses the method", async () => {
+			const h = harness(100, { rangeQueries: false })
+			h.putOrder(101, COMMITMENT_A)
+			const seen: PhantomOrderEvent[] = []
+			const onError = vi.fn()
+
+			const stop = h.coprocessor.pollPhantomOrders((orders) => seen.push(...orders), {
+				intervalMs: 1000,
+				onError,
+			})
+			await tick(0)
+			h.setHead(102)
+			await tick(1000)
+			stop()
+
+			// The refusal is handled, not reported.
+			expect(onError).not.toHaveBeenCalled()
+			expect(seen.map((e) => e.commitment)).toEqual([COMMITMENT_A])
+			expect(h.scanned).toEqual([100, 101, 102])
+			// Asked once, on the first tick, and never again.
+			expect(h.rangeCalls).toEqual([])
+			expect(h.issued.filter((entry) => entry.startsWith("range:"))).toEqual([])
+		})
+
+		// The reply is decoded against the api's connect-time registry, so the confirmed version has
+		// to still be that one. An upgrade tick has no confirmed version at all, and every tick after
+		// it has one the registry no longer matches.
+		it("stays on the per-block path once the runtime has moved past the api's registry", async () => {
+			const h = harness(100)
+			const stop = h.coprocessor.pollPhantomOrders(() => {}, { intervalMs: 1000 })
+
+			await tick(0)
+			expect(h.rangeCalls).toEqual([[100, 100]])
+
+			h.setSpecVersion(2)
+			h.setHead(102)
+			await tick(1000)
+			h.setHead(103)
+			await tick(1000)
+			stop()
+
+			// Nothing ranged after the upgrade; the blocks still all got scanned.
+			expect(h.rangeCalls).toEqual([[100, 100]])
+			expect(h.scanned).toEqual([100, 101, 102, 103])
 		})
 	})
 

@@ -12,6 +12,30 @@ Files: list of files touched.
 
 Newest entries first.
 
+## 2026-08-27 — A block scan is one `state_queryStorage` call, and the poll caps at 10 blocks
+
+The previous entry left the scan at one request per block for events. `state_queryStorage(keys, from, to)` reads a key across a whole block range in one call, so the scan's request cost no longer depends on how many blocks it covers: a tick is now four requests flat — head, runtime version, the range's two bounding block hashes as one batched request, and the ranged read. `maxBlocksPerPoll` drops from 20 to 10 at the same time, because the cost moved rather than vanished (`sc-rpc` warns the method is `O(|keys| * dist(from, to))` in time and memory) and because it still bounds the per-block fallback.
+
+`getPhantomOrdersInRange` is the new read; the event decoding it shares with `getPhantomOrdersAtHash` moved into a `phantomOrdersFrom` helper. polkadot-js formats a `Vec<StorageChangeSet>` reply into `[blockHash, valuesPerKey]` pairs with each value already typed from the storage key's metadata, so nothing is decoded by hand.
+
+Two properties of the RPC drive the rest of the change. It answers with **diffs** — `query_storage_unfiltered` drops a block's change set when the value matches the previous block's — so a quiet chain's consecutive blocks come back as one entry. That is safe because a `PhantomOrderRegistered` commitment is derived from the block number, so a block that registered orders can never encode identically to another; absent provably means no orders. And it is **gated by `--rpc-methods`**, answered as `Method not found` when denied. The node here already runs unsafe RPC to serve `offchain_localStorageGet`, so it is normally available; a refusal switches the poll to the per-block path permanently and is handled rather than reported.
+
+`scanRangeAtOnce` also declines the ranged read when the tick has no confirmed runtime version, or when that version is no longer the one the api's registry was built for — `state_queryStorage` declares no historic block hash, so rpc-core decodes its reply against the connect-time registry, which an upgrade leaves stale. After an upgrade the poll stays on the per-block path, which resolves the right registry, until the process restarts.
+
+Files: `src/chains/intentsCoprocessor.ts`, `src/tests/pollPhantomOrders.test.ts`, `docs/ai/ChangeLog.md`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
+## 2026-08-27 — Concurrent Hyperbridge calls travel as one JSON-RPC batch request
+
+Follow-up to the pacing change below. The endpoint's limit is counted in HTTP requests, and the reads here arrive as bursts of concurrent calls, so JSON-RPC 2.0 batching turns a burst into one request. Substrate supports it: `sc-rpc-server` sets `batch_request_config` on jsonrpsee, and `sc-cli` resolves `BatchRequestConfig::Unlimited` unless the operator passes `--rpc-disable-batch-requests` or `--rpc-max-batch-request-len`. polkadot-js does not — `HttpProvider.send` encodes exactly one call per POST and the package exports no batch API — so `http()` now builds a `BatchingHttpProvider` (`src/utils/batchingHttpProvider.ts`) instead of the `RateLimitedHttpProvider` it replaces.
+
+Calls queued within one macrotask go out together, capped at 32 per request. The token bucket is charged once per HTTP request rather than once per call, which is the whole point. A lone call is sent as a plain request object, not a one-element array, so the common case is byte-for-byte what the base provider sent and needs no batch support at all. Flushes are serialised — one request in flight at a time — because overlapping flushes interleave against a `maxBatchSize` a refusal can shrink underneath them, which fragmented a burst into more requests than it needed. Both refusals are handled without losing a call: `-32005` disables batching for the provider's life and retries the calls singly, `-32010` halves the batch size and retries.
+
+Batching only helps callers that have more than one call in flight, so the block scan now fetches a range's block hashes as one concurrent wave before reading events. `chain_getBlockHash` is the half of the pair that parallelises safely — it takes no historic block hash, so concurrent calls never trigger polkadot-js's per-hash registry resolution and cannot race each other's registry state. The events reads stay sequential for exactly that reason; see Decisions for why. `getPhantomOrdersAtHash` was split out of `getPhantomOrdersInBlock` to make that possible.
+
+A tick now costs `3 + n` HTTP requests for n blocks rather than `2 + 2n`: a 20-block catch-up is 23 requests where the previous entry left it at 42 and it began at 81. A single-block tick is unchanged at 4 — the hashes there are one call, batched or not. The fan-out on a phantom order interval is where it bites hardest: up to 16 concurrent `offchain_localStorageGet` reads become one request.
+
+Files: `src/chains/intentsCoprocessor.ts`, `src/utils/batchingHttpProvider.ts`, `src/tests/batchingHttpProvider.test.ts`, `src/tests/intentsCoprocessorRateLimit.test.ts`, `src/tests/pollPhantomOrders.test.ts`, `docs/ai/ChangeLog.md`, `docs/ai/Decisions.md`, `docs/ai/Flow.md`.
+
 ## 2026-08-27 — Hyperbridge HTTP reads are paced, and a block scan costs half the requests
 
 Fillers were logging `[429]: Too Many Requests` from the Hyperbridge HTTP endpoint against a 10 req/s limit, on a poll whose interval is 15s. The interval was never the request rate. A tick costs one head read plus the cost of every block in its range, and `getPhantomOrdersInBlock` was costing four RPCs per block, not one: `api.at(hash)` with no version to go on resolves a registry by fetching `chain_getHeader(hash)` and then `state_getRuntimeVersion(parentHash)` — every block, because the `getUpgradeVersion` shortcut that would skip it only covers chains hardcoded in `@polkadot/types-known`. All of them go out back-to-back, so a tick averaging 0.4 req/s arrives as ~33 req/s. On a phantom order interval the fan-out in simplex's `handlePhantomOrders` adds one concurrent `offchain_localStorageGet` per configured chain (up to 16) on top.

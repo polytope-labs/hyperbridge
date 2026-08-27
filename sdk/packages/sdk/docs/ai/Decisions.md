@@ -4,6 +4,41 @@ AI-maintained record of non-obvious choices made in `sdk/packages/sdk`: what was
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
+## 2026-08-27 — The scan reads a range with `state_queryStorage`, and declines it rather than risk a stale registry
+
+Chosen: read every block's events in one `state_queryStorage(keys, from, to)` call, falling back to per-block reads under three conditions.
+
+This supersedes the "deferred" bullet in the entry below, which contemplated `state_getStorage.raw` per block with a hand-rolled decode. `state_queryStorage` is better on both counts it was deferred for: it is one call for the range rather than one per block, and polkadot-js decodes a `Vec<StorageChangeSet>` reply itself — `_formatOutput` types each value from the storage key's own metadata — so there is no hand-rolled decoding to get wrong.
+
+Alternatives considered:
+
+- **`state_getStorage` per block, batched.** Rejected once the ranged call was available: same request count only if the batch holds the whole range, and it asks the node for n storage reads instead of one range walk.
+- **Trusting the ranged reply unconditionally.** Rejected. rpc-core decodes it against the *default* registry, because `state_queryStorage` declares no `isHistoric` parameter and so gets no registry swap. That registry is fixed at connect and an HTTP api has no `subscribeRuntimeVersion` to refresh it, so after a runtime upgrade the decode is silently wrong in exactly the way a stale registry always is — events read as a shape the scan does not recognise, and the block passes as carrying nothing. `scanRangeAtOnce` therefore requires the tick's confirmed version to equal `api.runtimeVersion`, and hands off to the per-block path otherwise. The cost is that an upgrade costs a process restart to get the cheap path back; the direction of failure is right.
+- **Treating a refusal as an error.** Rejected: `--rpc-methods=safe` makes the method permanently unavailable, not intermittently. It is detected once (`Method not found`, which is also how `check_if_safe` denies) and the poll switches paths for good without reporting anything.
+
+What had to be reasoned about rather than assumed: `query_storage_unfiltered` in `sc-rpc` pushes a change set only when a key's value differs from the previous block in the range, and drops the set entirely when empty. So blocks are *missing* from the reply, not merely empty — on a quiet chain, consecutive blocks whose events are just the timestamp inherent's `ExtrinsicSuccess` encode identically and collapse to one entry. This is only safe because `phantom_order_commitment` derives the commitment from the block number: a block that registered orders cannot encode like any other block, so "absent" implies "no orders". A change to how commitments are built would break that, which is why it is written down here.
+
+Because one call covers the range, the cursor advances the whole way or not at all — there is no partial progress to preserve, unlike the per-block path.
+
+Why `maxBlocksPerPoll` went to 10 rather than up: the ranged read is one request but not free work. `sc-rpc` documents it as `O(|keys| * dist(from, to))` in time *and* memory, so a wide range is one request the node spends a long time on — and the same number still bounds the fallback, which is one request per block.
+
+## 2026-08-27 — Batching is transparent at the provider, and only the block-hash half of the scan was made concurrent
+
+Chosen: coalesce concurrent calls into a JSON-RPC batch inside the provider, and make the poll fetch a range's block hashes concurrently while leaving the events reads sequential.
+
+Why not batch at the call sites: the callers that burst are spread out — the offchain fan-out in simplex's `handlePhantomOrders`, the scan, balance reads — and an explicit batch API would have to be threaded through each. The provider is where a burst is already visible as concurrency, and coalescing there needs no call site to know it is happening.
+
+Why the events reads are still sequential, which is the non-obvious half. Making them concurrent looks like the bigger win — it would take a scan of n blocks to two requests instead of n+1 — but it silently undoes the `knownVersion` work. `api.at(hash, version)` resolves its registry through `_getBlockRegistryViaVersion`, which sets `lastBlockHash` on the shared registry; the subsequent `system.events` read goes through rpc-core's own registry swap, which calls `getBlockRegistry(hash)` *without* a version and finds it only by that `lastBlockHash`. Sequentially that always hits. Concurrently, n interleaved `at` calls each overwrite it, so all but one miss and fall through to `_getBlockRegistryViaHash` — the two RPCs per block that naming a version exists to avoid. Batching would hide that from the request counter while doubling the node's work, which is the opposite of the intent.
+
+Alternatives considered for the events half:
+
+- **Accept the registry re-resolution**, since the extra calls batch anyway. Rejected: it trades node-side work for a lower request count, and the limit exists to bound work.
+- **`state_getStorage.raw(key, hash)` with one registry for the range.** `.raw` skips the swap (`isScale && blockHash && …` in rpc-core's `_createMethodSend`), so this really is two RPCs per block and one request for the range. Deferred, not rejected: it means decoding events by hand through `registry.createLookupType(meta.type.asPlain)` rather than `apiAt.query.system.events()`, and a wrong type there decodes to a shape the scan reads as "no orders" — a silent miss. Verifying it needs a running node, which the unit tests do not have. Worth doing behind the simnode test.
+
+Why one request in flight at a time: overlapping flushes interleave against a `maxBatchSize` that a `-32010` refusal shrinks underneath them, so the same burst fragmented into a different number of requests run to run. Serialising also makes each request as full as it can be. The cost is that a submission can wait a round trip behind a scan flush, which at the paced rate is smaller than the wait the bucket already imposes.
+
+Why a macrotask window rather than a microtask: `Promise.all` starts its calls in one synchronous run, but each then advances through several microtask turns before reaching the provider. A microtask flush fires between those turns and splits one burst across several requests.
+
 ## 2026-08-27 — Request pacing lives at the provider, keyed by endpoint
 
 Chosen: an `HttpProvider` subclass whose `send` waits on a shared `TokenBucket`, with one bucket per endpoint origin in a module-level map.

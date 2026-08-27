@@ -12,27 +12,30 @@ Files: list of files touched.
 
 Newest entries first.
 
-## 2026-08-27 — Phantom orders are checked to be expired before they are quoted
+## 2026-08-27 — Phantom orders are validated against the pallet's shape before they are quoted
 
-`IntentFiller.preparePhantomBid` now reads the destination chain's head and refuses any phantom
-order whose `deadline` has not already passed, before quoting a single leg. Failing to read the
-head is also a refusal — without a height there is no way to tell an expired order from a live one.
+`IntentFiller.preparePhantomBid` now refuses any phantom order that does not look like one
+`phantom_order_commitment` built: a non-zero `session`, a non-zero output amount, or a
+`source`/`destination` that is not the announced chain. Those checks are pure field comparisons —
+no RPC. On top of them, the destination head is read and an order that is still fillable is
+refused; that read is best-effort, and a failure warns and continues rather than stopping the
+filler bidding.
 
-Being expired is the entire reason a phantom order is safe to quote. The pallet builds one with the
-chain's latest *confirmed* height as its deadline so it "can never be executed for real"
-(`intents-coprocessor/src/lib.rs`), and `fillOrder` reverts `Expired()` once
-`deadline < block.number`. That invariant is what lets `quotePhantomFill` skip every ceiling a real
-bid gets — no budget, no wallet-balance read, neither profit gate.
+The reason any of it is needed: `quotePhantomFill` deliberately runs with no budget, no
+wallet-balance read and neither profit gate, so the amounts signed are bounded only by the order
+body. The body is read from a single Hyperbridge node's offchain storage, and `fetchPhantomOrder`
+assigns `id` from the event rather than re-deriving the commitment from the bytes — so it is
+unauthenticated. A forged body would have turned that unbounded quote into a signed, executable
+authorization to fill an order of someone else's choosing, paying out to a beneficiary named in
+the same body.
 
-Nothing upstream established the invariant. The order body is read from a single Hyperbridge node's
-offchain storage, and `fetchPhantomOrder` assigns `id` from the event rather than re-deriving the
-commitment from the bytes, so the body is unauthenticated. A body with a live deadline would have
-turned an unbounded quote into a signed, executable authorization to fill an order of someone
-else's choosing — paying out to a beneficiary named in that same body.
+Each invariant independently breaks that. `session` is the direct one: `_select` recovers a key
+with `ECDSA.recover`, which can never return the zero address, so a genuine phantom order can
+never have a solver selected at all.
 
 Found by the scheduled IntentGateway/Simplex security audit.
 
-Files: `src/core/filler.ts`, `src/tests/core/phantom-order-expiry.test.ts`.
+Files: `src/core/filler.ts`, `src/tests/core/phantom-order-validation.test.ts`.
 
 ## 2026-08-26 — Final-review fixes: cause-chain probe classification, batching guards (#1071)
 

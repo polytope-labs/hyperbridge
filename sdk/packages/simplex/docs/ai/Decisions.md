@@ -4,39 +4,40 @@ AI-maintained record of non-obvious choices made in `sdk/packages/simplex`: what
 
 Entry format: heading with the decision, then alternatives considered and the reasoning. Newest first.
 
-## 2026-08-27 — Phantom orders are gated on expiry, not on a re-derived commitment
+## 2026-08-27 — Phantom orders are gated on the pallet's structural invariants, not on a re-derived commitment
 
-Chosen: `preparePhantomBid` asserts `deadline < head` on the destination chain and quotes nothing
-otherwise.
+Chosen: `preparePhantomBid` checks `session == 0`, all output amounts zero, and
+`source == destination == event.chain` — all RPC-free — and then cross-checks the deadline against
+the destination head as defence in depth.
 
 The obvious alternative is to re-derive the commitment from the fetched bytes and compare it to the
-event's. That was rejected as the *primary* gate for two reasons. It does not actually help against
-the threat it appears to address — a node that serves a forged order body also serves the
-`PhantomOrderRegistered` event, so it can simply publish a matching commitment. And `filler.ts`
-already documents why the commitment is taken from the event: re-deriving it risks parity
-divergence if the encode round-trip does not reproduce the pallet's bytes exactly, which would
-break every honest bid to defend against a dishonest node that the check does not stop anyway.
+event's. Rejected as the gate: a node that serves a forged body also serves the
+`PhantomOrderRegistered` event, so it can publish a matching commitment. And `filler.ts` already
+documents why the commitment comes from the event — re-deriving risks parity divergence if the
+encode round-trip does not reproduce the pallet's bytes exactly, which would break every honest bid
+to defend against a dishonest node the check does not stop.
 
-The expiry check has neither problem. It is a single comparison against chain state the attacker
-does not control, and it targets the property that actually bounds the damage: `fillOrder` reverts
-`Expired()` for a past deadline, so a bid signed over an expired order is unexecutable no matter
-what the rest of the body says. The unbounded quote stays unbounded and stays harmless.
+The structural checks have neither problem. They are comparisons against constants the pallet fixes
+at construction, and each independently makes a forged bid unexecutable — `session == 0` most
+directly, since `ECDSA.recover` can never return the zero address, so `_select` can never stage a
+selection.
 
-Alternatives also considered:
+**Why the deadline check is not the primary gate.** It was, initially. Two things argued against
+leaning on it alone. It needs a live `eth_blockNumber`, and this code runs inside the on-chain bid
+window (as few as 5 blocks), so it is the wrong place to add a mandatory round trip. And it
+compares a Hyperbridge-confirmed height against a destination-chain head — two clocks whose
+relationship holds in production but is an environment property, not an invariant, which makes a
+hard failure on it brittle in exactly the environments (dev, simnode, forks) where the heights are
+seeded by hand. Keeping it as a cross-check preserves the signal without either cost.
 
-- *Assert the full set of pallet invariants* (`session == 0`, all output amounts zero,
-  `source == destination == event.chain`, zero beneficiary). All are guaranteed by
-  `phantom_order_commitment` and all are cheap. Worth adding, and each one independently breaks the
-  exploit — `session == 0` alone does, since `ECDSA.recover` cannot return the zero address, so
-  `_select` can never stage a selection for a genuine phantom order. They are deliberately left for
-  a follow-up so this change stays one reviewable idea; expiry is the one that holds even if the
-  pallet's order shape changes.
-- *Apply the real bid's ceilings to phantom quotes.* Wrong layer: the quote is supposed to be
-  unbounded, because it is a price advertisement rather than a fill. Constraining it would distort
-  what the filler publishes to fix a problem that is really about trusting the order body.
+**Why its RPC failure is non-fatal.** Failing closed reopens nothing, because the structural checks
+do not depend on the EVM RPC — and the threat here is a dishonest Hyperbridge node, not a dishonest
+EVM endpoint. Hard-failing would let one flaky endpoint stop this filler bidding altogether, which
+trades a risk that is already covered for a certain outage.
 
-Failing closed on an RPC error is deliberate. The alternative — quote when the height is unknown —
-reopens the hole exactly when the endpoint is misbehaving, which is the case worth worrying about.
+Not adopted: applying the real bid's ceilings to phantom quotes. Wrong layer — the quote is meant to
+be unbounded, because it is a price advertisement rather than a fill. Constraining it would distort
+what the filler publishes to fix a problem that is really about trusting the order body.
 
 ## 2026-08-26 — Probe failures classified by cause chain; only zero allowances batch (#1147 review 2)
 

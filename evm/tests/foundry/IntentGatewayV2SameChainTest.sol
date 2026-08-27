@@ -186,6 +186,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.roll(validUntil);
 
         vm.startPrank(solver);
+        uint256 solverUsdcBefore = usdc.balanceOf(solver);
         dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
@@ -195,7 +196,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
         vm.stopPrank();
 
-        assertEq(usdc.balanceOf(solver), inputAmount, "Solver should receive escrowed USDC");
+        // The solver is pre-funded in setUp, so assert the delta rather than the balance.
+        assertEq(usdc.balanceOf(solver), solverUsdcBefore + inputAmount, "Solver should receive escrowed USDC");
     }
 
     /// @dev Zero means unbounded, which is the right default for a solver filling directly:
@@ -208,6 +210,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.roll(block.number + 500);
 
         vm.startPrank(solver);
+        uint256 solverUsdcBefore = usdc.balanceOf(solver);
         dai.approve(address(intentGateway), outputAmount);
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
@@ -217,7 +220,8 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
         vm.stopPrank();
 
-        assertEq(usdc.balanceOf(solver), inputAmount, "Solver should receive escrowed USDC");
+        // The solver is pre-funded in setUp, so assert the delta rather than the balance.
+        assertEq(usdc.balanceOf(solver), solverUsdcBefore + inputAmount, "Solver should receive escrowed USDC");
     }
 
     /// @dev The order's own deadline still takes precedence, and reports the right error.

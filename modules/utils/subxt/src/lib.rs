@@ -337,6 +337,17 @@ pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u
 		.concat()
 }
 
+/// Storage key for `pallet_ismp_parachain::SlotDurations` at `para_id` — the aura slot duration
+/// (in milliseconds) hyperbridge uses to derive block timestamps for parachains that don't run
+/// `pallet-ismp` and so never deposit the ISMP timestamp digest. The map hashes with `Identity`,
+/// which leaves the encoded key untouched.
+pub fn parachain_slot_duration_storage_key(para_id: u32) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"IsmpParachain").to_vec();
+	let storage_prefix = twox_128(b"SlotDurations").to_vec();
+
+	[pallet_prefix, storage_prefix, para_id.encode()].concat()
+}
+
 pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"HostExecutive").to_vec();
 

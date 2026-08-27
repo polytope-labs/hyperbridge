@@ -25,6 +25,8 @@ tesseract-primitives = { workspace = true, default-features = true }
 tesseract-evm = { workspace = true, default-features = true }
 tesseract-substrate = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive", "alloc"] }
 subxt-utils = { workspace = true }
